@@ -1,0 +1,17 @@
+[package]
+name = "amaru-common"
+description = "Amaru crate providing common functionality for various bounded contexts."
+version = "0.0.1"
+edition = "2021"
+repository = "https://github.com/pragma-org/amaru"
+homepage = "https://github.com/pragma-org/amaru"
+license = "Apache-2.0"
+readme = "README.md"
+authors = [
+    "Andrew Westberg <andrewwestberg@gmail.com>",
+]
+
+[dependencies]
+pallas-crypto = "0.30.1"
+pallas-traverse = "0.30.1"
+thiserror = "1"

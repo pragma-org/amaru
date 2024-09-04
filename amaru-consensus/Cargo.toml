@@ -1,0 +1,19 @@
+[package]
+name = "amaru-consensus"
+description = "Amaru crate providing Cardano consensus logic."
+version = "0.0.1"
+edition = "2021"
+repository = "https://github.com/pragma-org/amaru"
+homepage = "https://github.com/pragma-org/amaru"
+license = "Apache-2.0"
+readme = "README.md"
+authors = [
+    "Andrew Westberg <andrewwestberg@gmail.com>",
+]
+
+[dependencies]
+amaru-common = { path = "../amaru-common" }
+pallas-codec = "0.30.1"
+pallas-primitives = "0.30.1"
+pallas-traverse = "0.30.1"
+log = "0.4.22"
