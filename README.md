@@ -14,6 +14,7 @@ At present, most of the work around Amaru is spread across different repositorie
 | [uplc](https://github.com/aiken-lang/aiken/tree/main/crates/uplc)                             | An Untyped Plutus Core (UPLC) parser and CEK machine for evaluating Plutus V2 and Plutus V3 on-chain scripts.                                                                  |
 | [mithril](https://github.com/input-output-hk/mithril)                                         | A stake-based threshold multi-signatures protocol.                                                                                                                             |
 | [cardano-multiplatform-library](https://github.com/dcSpark/cardano-multiplatform-lib)         | A Rust implementation of various Cardano data and crypto primitives.                                                                                                          |
+| [cncli](https://github.com/cardano-community/cncli)                                           | A Rust implementation of Cardano CLI tools including VRF functionality, and some consensus tooling like leaderlogs.                                                             |
 <hr/>
 
 <p align="center">
