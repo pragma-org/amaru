@@ -28,7 +28,8 @@ async fn main() {
         tracing_subscriber::FmtSubscriber::builder()
             .with_max_level(tracing_filter)
             .finish(),
-    ).unwrap();
+    )
+    .unwrap();
 
     info!("Hello, amaru-node!");
 }

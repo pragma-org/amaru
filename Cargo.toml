@@ -3,6 +3,5 @@ resolver = "2"
 members = [
     "amaru-common",
     "amaru-consensus",
-    "amaru-crypto",
     "amaru-node",
 ]
