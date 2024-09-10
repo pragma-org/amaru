@@ -3,6 +3,11 @@ use tracing::info;
 
 #[tokio::main]
 async fn main() {
+    init_logging();
+    info!("Hello, amaru-node!");
+}
+
+fn init_logging() {
     match var("RUST_LOG") {
         Ok(_) => {}
         Err(_) => {
@@ -10,7 +15,6 @@ async fn main() {
             set_var("RUST_LOG", "info");
         }
     }
-    pretty_env_logger::init_timed();
 
     let tracing_filter = match var("RUST_LOG") {
         Ok(level) => match level.to_lowercase().as_str() {
@@ -28,7 +32,6 @@ async fn main() {
         tracing_subscriber::FmtSubscriber::builder()
             .with_max_level(tracing_filter)
             .finish(),
-    ).unwrap();
-
-    info!("Hello, amaru-node!");
+    )
+    .unwrap();
 }

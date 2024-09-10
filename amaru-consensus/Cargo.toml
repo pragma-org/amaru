@@ -13,7 +13,27 @@ authors = [
 
 [dependencies]
 amaru-common = { path = "../amaru-common" }
-pallas-codec = "0.30.1"
-pallas-primitives = "0.30.1"
-pallas-traverse = "0.30.1"
-log = "0.4.22"
+ctor = "0.2"
+hex = "0.4"
+malachite = "0.4"
+malachite-base = "0.4"
+mockall = "0.13"
+#FIXME: remove pointing to pallas forks before release
+pallas-codec = { git = "https://github.com/txpipe/pallas", rev = "615e2d4c29f9e18388caef927665bc215134cddd" }
+pallas-crypto = { git = "https://github.com/txpipe/pallas", rev = "615e2d4c29f9e18388caef927665bc215134cddd" }
+pallas-math = { git = "https://github.com/txpipe/pallas", rev = "615e2d4c29f9e18388caef927665bc215134cddd" }
+pallas-primitives = { git = "https://github.com/txpipe/pallas", rev = "615e2d4c29f9e18388caef927665bc215134cddd" }
+pallas-traverse = { git = "https://github.com/txpipe/pallas", rev = "615e2d4c29f9e18388caef927665bc215134cddd" }
+#pallas-codec = "0.30.2"
+#pallas-crypto = "0.30.2"
+#pallas-math = "0.30.2"
+#pallas-primitives = "0.30.2"
+#pallas-traverse = "0.30.2"
+
+# logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+#gmp has problems with thread safety and cannot easily implement Send + Sync without changes to the library
+#[target.'cfg(not(target_os = "windows"))'.dependencies]
+#pallas-math = { git = "https://github.com/txpipe/pallas", rev = "4281b281c72b9215acced43bbe4056a218bd3418", features = ["gmp"] }
