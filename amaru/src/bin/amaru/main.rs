@@ -1,5 +1,6 @@
 use clap::{Parser, Subcommand};
 
+mod common;
 mod daemon;
 
 #[derive(Debug, Subcommand)]
@@ -9,7 +10,7 @@ enum Command {
 }
 
 pub struct Config {
-    upstream_peer: String,
+    sync: amaru::sync::Config,
 }
 
 #[derive(Debug, Parser)]
@@ -21,15 +22,24 @@ struct Cli {
     command: Command,
 }
 
-fn main() -> miette::Result<()> {
+#[tokio::main]
+async fn main() -> miette::Result<()> {
     let args = Cli::parse();
 
     // TODO: once we agree on a config file format and structure, load it instead of using this hardcoded value
     let config = Config {
-        upstream_peer: "preview-node.world.dev.cardano.org:30002".into(),
+        sync: amaru::sync::Config {
+            upstream_peer: "preview-node.world.dev.cardano.org:30002".into(),
+            network_magic: 2,
+            intersection: vec![pallas_network::miniprotocols::Point::Specific(
+                61841373,
+                hex::decode("fddcbaddb5fce04f01d26a39d5bab6b59ed2387412e9cf7431f00f25f9ce557d")
+                    .unwrap(),
+            )],
+        },
     };
 
     match args.command {
-        Command::Daemon(args) => daemon::run(config, args),
+        Command::Daemon(args) => daemon::run(config, args).await,
     }
 }
