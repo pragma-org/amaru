@@ -1,0 +1,13 @@
+[package]
+name = "amaru"
+version = "0.1.0"
+edition = "2021"
+description = "A Cardano blockchain node implementation"
+license = "Apache-2.0"
+authors = ["Amaru Maintainers <amaru@pragma.builders>"]
+repository = "https://github.com/pragma-org/amaru"
+homepage = "https://github.com/pragma-org/amaru"
+documentation = "https://docs.rs/amaru"
+readme = "README.md"
+
+[dependencies]
