@@ -11,3 +11,5 @@ documentation = "https://docs.rs/amaru"
 readme = "README.md"
 
 [dependencies]
+clap = { version = "4.5.20", features = ["derive"] }
+miette = "7.2.0"
