@@ -5,7 +5,7 @@ use super::Config;
 #[derive(Debug, Parser)]
 pub struct Args {}
 
-pub async fn run(config: Config, args: Args) -> miette::Result<()> {
+pub async fn run(config: Config, _args: Args) -> miette::Result<()> {
     crate::common::setup_tracing()?;
 
     let sync = amaru::sync::bootstrap(config.sync)?;

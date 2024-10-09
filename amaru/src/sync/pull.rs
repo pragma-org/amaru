@@ -1,11 +1,9 @@
 use gasket::framework::*;
 use miette::miette;
 use pallas_network::facades::PeerClient;
-use pallas_network::miniprotocols::chainsync::{
-    HeaderContent, NextResponse, RollbackBuffer, RollbackEffect, Tip,
-};
+use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
 use pallas_network::miniprotocols::Point;
-use pallas_traverse::{MultiEraBlock, MultiEraHeader};
+use pallas_traverse::MultiEraHeader;
 use tracing::{debug, info};
 
 use super::PullEvent;

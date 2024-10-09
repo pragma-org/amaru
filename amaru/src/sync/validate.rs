@@ -1,14 +1,7 @@
 use gasket::framework::*;
-use miette::miette;
-use pallas_network::facades::PeerClient;
-use pallas_network::miniprotocols::chainsync::{
-    HeaderContent, NextResponse, RollbackBuffer, RollbackEffect, Tip,
-};
-use pallas_network::miniprotocols::Point;
-use pallas_traverse::{MultiEraBlock, MultiEraHeader};
-use tracing::{debug, info};
+use tracing::info;
 
-use super::{BlockCbor, PullEvent};
+use super::PullEvent;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 
@@ -36,7 +29,7 @@ pub struct Worker {
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
-    async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
+    async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
         // TODO: put here any initialization logic you need
         let worker = Self {};
 
@@ -52,7 +45,7 @@ impl gasket::framework::Worker<Stage> for Worker {
         Ok(WorkSchedule::Unit(unit.payload))
     }
 
-    async fn execute(&mut self, unit: &PullEvent, stage: &mut Stage) -> Result<(), WorkerError> {
+    async fn execute(&mut self, unit: &PullEvent, _stage: &mut Stage) -> Result<(), WorkerError> {
         // TODO: do the actual validation
 
         match unit {
