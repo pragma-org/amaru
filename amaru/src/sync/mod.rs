@@ -1,16 +1,16 @@
+use crate::ledger;
 use gasket::runtime::Tether;
 
 mod pull;
-mod validate;
 
 pub type Slot = u64;
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
-pub type BlockCbor = Vec<u8>;
+pub type RawBlock = Vec<u8>;
 pub type Point = pallas_network::miniprotocols::Point;
 
 #[derive(Clone)]
 pub enum PullEvent {
-    RollForward(Point, BlockCbor),
+    RollForward(Point, RawBlock),
     Rollback(Point),
 }
 
@@ -45,16 +45,16 @@ pub fn bootstrap(config: Config) -> miette::Result<Vec<Tether>> {
         config.intersection.clone(),
     );
 
-    let mut validate = validate::Stage::new();
+    let mut ledger = ledger::worker::Stage::new();
 
-    let (to_validate, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
-    pull.downstream.connect(to_validate);
-    validate.upstream.connect(from_pull);
+    let (to_ledger, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
+    pull.downstream.connect(to_ledger);
+    ledger.upstream.connect(from_pull);
 
     let policy = define_gasket_policy();
 
     let pull = gasket::runtime::spawn_stage(pull, policy.clone());
-    let validate = gasket::runtime::spawn_stage(validate, policy.clone());
+    let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
 
-    Ok(vec![pull, validate])
+    Ok(vec![pull, ledger])
 }

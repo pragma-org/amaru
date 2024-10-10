@@ -1,8 +1,12 @@
 use gasket::framework::*;
 use miette::miette;
-use pallas_network::facades::PeerClient;
-use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
-use pallas_network::miniprotocols::Point;
+use pallas_network::{
+    facades::PeerClient,
+    miniprotocols::{
+        chainsync::{HeaderContent, NextResponse, Tip},
+        Point,
+    },
+};
 use pallas_traverse::MultiEraHeader;
 use tracing::{debug, info};
 
@@ -34,9 +38,6 @@ pub struct Stage {
     pub downstream: DownstreamPort,
 
     #[metric]
-    block_count: gasket::metrics::Counter,
-
-    #[metric]
     chain_tip: gasket::metrics::Gauge,
 }
 
@@ -47,7 +48,6 @@ impl Stage {
             network_magic,
             intersection,
             downstream: Default::default(),
-            block_count: Default::default(),
             chain_tip: Default::default(),
         }
     }
