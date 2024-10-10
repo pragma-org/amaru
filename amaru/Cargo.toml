@@ -11,5 +11,19 @@ documentation = "https://docs.rs/amaru"
 readme = "README.md"
 
 [dependencies]
+async-trait = "0.1.83"
 clap = { version = "4.5.20", features = ["derive"] }
+gasket = { version = "0.8.0", features = ["derive"] }
+hex = "0.4.3"
 miette = "7.2.0"
+pallas-codec = "0.30.2"
+pallas-crypto = "0.30.2"
+pallas-primitives = "0.30.2"
+pallas-network = "0.30.2"
+pallas-traverse = "0.30.2"
+thiserror = "1.0.64"
+tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
+tokio-util = "0.7.12"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }
+uplc = "1.1.4"

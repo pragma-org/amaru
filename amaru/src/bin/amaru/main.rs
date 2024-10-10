@@ -1,15 +1,14 @@
 use clap::{Parser, Subcommand};
+use tracing_subscriber::prelude::*;
 
-mod daemon;
+mod cmd;
+mod config;
+mod exit;
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Run the node in all its glory
-    Daemon(daemon::Args),
-}
-
-pub struct Config {
-    upstream_peer: String,
+    /// Run the node in all its glory.
+    Daemon(cmd::daemon::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -21,15 +20,22 @@ struct Cli {
     command: Command,
 }
 
-fn main() -> miette::Result<()> {
+#[tokio::main]
+async fn main() -> miette::Result<()> {
+    setup_tracing();
+
     let args = Cli::parse();
 
-    // TODO: once we agree on a config file format and structure, load it instead of using this hardcoded value
-    let config = Config {
-        upstream_peer: "preview-node.world.dev.cardano.org:30002".into(),
-    };
-
     match args.command {
-        Command::Daemon(args) => daemon::run(config, args),
+        Command::Daemon(args) => cmd::daemon::run(args).await,
     }
+}
+
+pub fn setup_tracing() {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_filter(tracing_subscriber::EnvFilter::from_default_env()),
+        )
+        .init();
 }
