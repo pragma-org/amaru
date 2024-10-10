@@ -19,6 +19,7 @@ miette = "7.2.0"
 pallas-crypto = "0.30.2"
 pallas-network = "0.30.2"
 pallas-traverse = "0.30.2"
+thiserror = "1.0.64"
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util = "0.7.12"
 tracing = "0.1.40"

@@ -29,6 +29,7 @@ dependencies = [
  "pallas-crypto",
  "pallas-network",
  "pallas-traverse",
+ "thiserror",
  "tokio",
  "tokio-util",
  "tracing",
