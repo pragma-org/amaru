@@ -22,7 +22,7 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
-    setup_tracing()?;
+    setup_tracing();
 
     let args = Cli::parse();
 
@@ -31,10 +31,11 @@ async fn main() -> miette::Result<()> {
     }
 }
 
-pub fn setup_tracing() -> miette::Result<()> {
+pub fn setup_tracing() {
     tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_filter(tracing_subscriber::EnvFilter::from_default_env()),
+        )
         .init();
-
-    Ok(())
 }
