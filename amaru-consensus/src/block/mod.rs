@@ -10,18 +10,7 @@ use pallas_crypto::vrf::{
 };
 use pallas_math::math::{ExpOrdering, FixedDecimal, FixedPrecision};
 use pallas_traverse::MultiEraHeader;
-use std::ops::Deref;
-use std::sync::LazyLock;
 use tracing::{error, span, trace, warn};
-
-// The certified natural max value represents 2^256 in babbage and beyond
-static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
-    FixedDecimal::from_str(
-        "1157920892373161954235709850086879078532699846656405640394575840079131296399360000000000000000000000000000000000",
-        34,
-    )
-        .expect("Infallible")
-});
 
 struct BlockValidator<'b> {
     multi_era_header: &'b MultiEraHeader<'b>,

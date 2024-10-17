@@ -4,7 +4,7 @@ use tracing::info;
 #[tokio::main]
 async fn main() {
     init_logging();
-    info!("Hello, amaru-node!");
+    info!("Hello, amaru!");
 }
 
 fn init_logging() {
