@@ -8,9 +8,12 @@ use pallas_network::{
     },
 };
 use pallas_traverse::MultiEraHeader;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use tokio::time::timeout;
 use tracing::{debug, info};
 
-use super::PullEvent;
+use super::{PullEvent, RawHeader};
 
 fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {
@@ -31,8 +34,7 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
-    peer_address: String,
-    network_magic: u32,
+    peer_session: Arc<Mutex<PeerClient>>,
     intersection: Vec<Point>,
 
     pub downstream: DownstreamPort,
@@ -42,10 +44,9 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub fn new(peer_address: String, network_magic: u32, intersection: Vec<Point>) -> Self {
+    pub fn new(peer_session: Arc<Mutex<PeerClient>>, intersection: Vec<Point>) -> Self {
         Self {
-            peer_address,
-            network_magic,
+            peer_session,
             intersection,
             downstream: Default::default(),
             chain_tip: Default::default(),
@@ -57,29 +58,17 @@ impl Stage {
     }
 }
 
-pub struct Worker {
-    peer_session: PeerClient,
-}
+pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        debug!("connecting to peer");
-
-        let mut peer_session = PeerClient::connect(&stage.peer_address, stage.network_magic as u64)
-            .await
-            .or_retry()?;
-
-        info!(
-            address = stage.peer_address,
-            magic = stage.network_magic,
-            "connected to peer"
-        );
+        let mut peer_session = stage.peer_session.lock().unwrap();
+        let client = (*peer_session).chainsync();
 
         debug!("finding intersect");
 
-        let (point, _) = peer_session
-            .chainsync()
+        let (point, _) = client
             .find_intersect(stage.intersection.clone())
             .await
             .or_restart()?;
@@ -88,16 +77,14 @@ impl gasket::framework::Worker<Stage> for Worker {
 
         info!(?intersection, "found intersection");
 
-        let worker = Self { peer_session };
+        let worker = Self {};
 
         Ok(worker)
     }
 
-    async fn schedule(
-        &mut self,
-        _stage: &mut Stage,
-    ) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        let client = self.peer_session.chainsync();
+    async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
+        let mut peer_session = stage.peer_session.lock().unwrap();
+        let client = (*peer_session).chainsync();
 
         if client.has_agency() {
             // should request next block
@@ -109,22 +96,26 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
-        let client = self.peer_session.chainsync();
+        let next = {
+            let mut peer_session = stage.peer_session.lock().unwrap();
+            let client = (*peer_session).chainsync();
 
-        let next = match unit {
-            WorkUnit::Pull => {
-                info!("pulling block batch from upstream peer");
+            match unit {
+                WorkUnit::Pull => {
+                    info!("pulling block batch from upstream peer");
 
-                client.request_next().await.or_restart()?
-            }
-            WorkUnit::Await => {
-                info!("awaiting for new block");
-
-                self.peer_session
-                    .chainsync()
-                    .recv_while_must_reply()
-                    .await
-                    .or_restart()?
+                    client.request_next().await.or_restart()?
+                }
+                WorkUnit::Await => {
+                    info!("awaiting for new block");
+                    //FIXME: This isn't ideal to use a timeout because we won't see the block the second
+                    // it arrives. Ideally, we could just recv_while_must_reply().await forever, but that
+                    // causes worker starvation downstream because they cannot lock() the peer_session.
+                    match timeout(Duration::from_secs(1), client.recv_while_must_reply()).await {
+                        Ok(result) => result.or_restart()?,
+                        Err(_) => Err(WorkerError::Retry)?,
+                    }
+                }
             }
         };
 
@@ -135,18 +126,15 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 info!(?point, "new block received from upstream peer");
 
-                let block = self
-                    .peer_session
-                    .blockfetch()
-                    .fetch_single(point.clone())
-                    .await
-                    .or_restart()?;
+                let raw_header: RawHeader = header.cbor().to_vec();
 
                 stage
                     .downstream
-                    .send(PullEvent::RollForward(point, block).into())
+                    .send(PullEvent::RollForward(point, raw_header).into())
                     .await
                     .or_panic()?;
+
+                info!("block sent downstream");
 
                 stage.track_tip(&tip);
             }
@@ -158,6 +146,8 @@ impl gasket::framework::Worker<Stage> for Worker {
                     .send(PullEvent::Rollback(point).into())
                     .await
                     .or_panic()?;
+
+                info!("rollback sent downstream");
 
                 stage.track_tip(&tip);
             }
