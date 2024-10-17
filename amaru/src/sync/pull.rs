@@ -1,3 +1,4 @@
+use std::sync::{Arc, Mutex};
 use gasket::framework::*;
 use miette::miette;
 use pallas_network::{
@@ -10,7 +11,7 @@ use pallas_network::{
 use pallas_traverse::MultiEraHeader;
 use tracing::{debug, info};
 
-use super::PullEvent;
+use super::{PullEvent, RawHeader};
 
 fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {
@@ -31,8 +32,7 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
-    peer_address: String,
-    network_magic: u32,
+    peer_session: Arc<Mutex<PeerClient>>,
     intersection: Vec<Point>,
 
     pub downstream: DownstreamPort,
@@ -42,10 +42,9 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub fn new(peer_address: String, network_magic: u32, intersection: Vec<Point>) -> Self {
+    pub fn new(peer_session: Arc<Mutex<PeerClient>>, intersection: Vec<Point>) -> Self {
         Self {
-            peer_address,
-            network_magic,
+            peer_session,
             intersection,
             downstream: Default::default(),
             chain_tip: Default::default(),
@@ -58,28 +57,17 @@ impl Stage {
 }
 
 pub struct Worker {
-    peer_session: PeerClient,
 }
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        debug!("connecting to peer");
-
-        let mut peer_session = PeerClient::connect(&stage.peer_address, stage.network_magic as u64)
-            .await
-            .or_retry()?;
-
-        info!(
-            address = stage.peer_address,
-            magic = stage.network_magic,
-            "connected to peer"
-        );
+        let mut peer_session = stage.peer_session.lock().unwrap();
+        let client = (*peer_session).chainsync();
 
         debug!("finding intersect");
 
-        let (point, _) = peer_session
-            .chainsync()
+        let (point, _) = client
             .find_intersect(stage.intersection.clone())
             .await
             .or_restart()?;
@@ -88,16 +76,17 @@ impl gasket::framework::Worker<Stage> for Worker {
 
         info!(?intersection, "found intersection");
 
-        let worker = Self { peer_session };
+        let worker = Self {  };
 
         Ok(worker)
     }
 
     async fn schedule(
         &mut self,
-        _stage: &mut Stage,
+        stage: &mut Stage,
     ) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        let client = self.peer_session.chainsync();
+        let mut peer_session = stage.peer_session.lock().unwrap();
+        let client = (*peer_session).chainsync();
 
         if client.has_agency() {
             // should request next block
@@ -109,7 +98,8 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
-        let client = self.peer_session.chainsync();
+        let mut peer_session = stage.peer_session.lock().unwrap();
+        let client = (*peer_session).chainsync();
 
         let next = match unit {
             WorkUnit::Pull => {
@@ -120,8 +110,7 @@ impl gasket::framework::Worker<Stage> for Worker {
             WorkUnit::Await => {
                 info!("awaiting for new block");
 
-                self.peer_session
-                    .chainsync()
+                client
                     .recv_while_must_reply()
                     .await
                     .or_restart()?
@@ -135,16 +124,11 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 info!(?point, "new block received from upstream peer");
 
-                let block = self
-                    .peer_session
-                    .blockfetch()
-                    .fetch_single(point.clone())
-                    .await
-                    .or_restart()?;
+                let raw_header: RawHeader = header.cbor().to_vec();
 
                 stage
                     .downstream
-                    .send(PullEvent::RollForward(point, block).into())
+                    .send(PullEvent::RollForward(point, raw_header).into())
                     .await
                     .or_panic()?;
 
