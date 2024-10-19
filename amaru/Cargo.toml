@@ -24,14 +24,9 @@ pallas-primitives = { git = "https://github.com/txpipe/pallas", rev = "4871342a8
 pallas-math = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
 pallas-network = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
 pallas-traverse = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
-#pallas-codec = "0.30.2"
-#pallas-crypto = "0.30.2"
-#pallas-primitives = "0.30.2"
-#pallas-network = "0.30.2"
-#pallas-traverse = "0.30.2"
+uplc = { git = "https://github.com/aiken-lang/aiken", branch = "amaru-demo" }
 thiserror = "1.0.64"
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util = "0.7.12"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }
-uplc = "1.1.4"

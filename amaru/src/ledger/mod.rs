@@ -2,8 +2,8 @@ use pallas_codec::utils::Nullable;
 use pallas_crypto::hash::{Hash, Hasher};
 use pallas_primitives::conway::{MintedBlock, MintedTx, TransactionInput, TransactionOutput};
 use std::collections::{BTreeSet, HashMap};
-use tracing::debug;
-// use uplc::tx::{eval_phase_two, script_context::ResolvedInput, SlotConfig};
+use tracing::{debug, info, warn};
+use uplc::tx::{eval_phase_two, script_context::ResolvedInput, SlotConfig};
 
 pub type Point = pallas_network::miniprotocols::Point;
 
@@ -134,8 +134,7 @@ impl LedgerState {
                     auxiliary_data: Nullable::Null,
                 };
 
-                // FIXME: Disabling phase-2 validation for now.
-                // self.eval_phase_two(&transaction_id, &minted_tx)?;
+                self.eval_phase_two(&transaction_id, &minted_tx)?;
 
                 // NOTE: 'unwrap' is a misnommer from pallas here, and does nothing unsafe.
                 let transaction_body = minted_tx.transaction_body.unwrap();
@@ -152,47 +151,44 @@ impl LedgerState {
         Ok(())
     }
 
-    // FIXME: Disabling phase-2 validation for now until we can point to an upstream uplc version
-    // that uses the latest version of pallas that we need for consensus.
-    //
-    // fn eval_phase_two(
-    //     &self,
-    //     transaction_id: &Hash<32>,
-    //     transaction: &MintedTx<'_>,
-    // ) -> Result<(), ForwardErr> {
-    //     let mut resolved_inputs = Vec::new();
-    //
-    //     for input in transaction.transaction_body.inputs.iter() {
-    //         if let Some(output) = self.utxo_set.get(input) {
-    //             resolved_inputs.push(ResolvedInput {
-    //                 input: input.clone(),
-    //                 output: output.clone(),
-    //             })
-    //         } else {
-    //             warn!("[context: {transaction_id:?}] unknown input in transaction, skipping phase-2 validations");
-    //             return Ok(());
-    //         }
-    //     }
-    //
-    //     let redeemers = eval_phase_two(
-    //         transaction,
-    //         &resolved_inputs[..],
-    //         None,
-    //         None,
-    //         &SlotConfig::default(),
-    //         false,
-    //         |_| (),
-    //     )
-    //     .map_err(ForwardErr::PhaseTwoValidations)?;
-    //
-    //     if !redeemers.is_empty() {
-    //         info!("[context: {transaction_id:?}] phase-2 evaluation results: {redeemers:?}");
-    //     } else {
-    //         info!("[context: {transaction_id:?}] no Plutus scripts found in transaction, skipping phase-2 validations");
-    //     }
-    //
-    //     Ok(())
-    // }
+    fn eval_phase_two(
+        &self,
+        transaction_id: &Hash<32>,
+        transaction: &MintedTx<'_>,
+    ) -> Result<(), ForwardErr> {
+        let mut resolved_inputs = Vec::new();
+
+        for input in transaction.transaction_body.inputs.iter() {
+            if let Some(output) = self.utxo_set.get(input) {
+                resolved_inputs.push(ResolvedInput {
+                    input: input.clone(),
+                    output: output.clone(),
+                })
+            } else {
+                warn!("[context: {transaction_id:?}] unknown input in transaction, skipping phase-2 validations");
+                return Ok(());
+            }
+        }
+
+        let redeemers = eval_phase_two(
+            transaction,
+            &resolved_inputs[..],
+            None,
+            None,
+            &SlotConfig::default(),
+            false,
+            |_| (),
+        )
+        .map_err(ForwardErr::PhaseTwoValidations)?;
+
+        if !redeemers.is_empty() {
+            info!("[context: {transaction_id:?}] phase-2 evaluation results: {redeemers:?}");
+        } else {
+            info!("[context: {transaction_id:?}] no Plutus scripts found in transaction, skipping phase-2 validations");
+        }
+
+        Ok(())
+    }
 
     fn apply_transaction(
         &mut self,
