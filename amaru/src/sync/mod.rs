@@ -1,4 +1,4 @@
-use crate::{consensus::validate, ledger};
+use crate::{consensus, ledger};
 use gasket::runtime::Tether;
 use pallas_network::facades::PeerClient;
 use std::sync::{Arc, Mutex};
@@ -43,23 +43,22 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 
 pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
     let mut pull = pull::Stage::new(client.clone(), config.intersection.clone());
-
-    let mut validate = validate::Stage::new(client.clone());
-
+    let mut header_validation = consensus::header_validation::Stage::new(client.clone());
     let mut ledger = ledger::worker::Stage::new();
 
-    let (to_validate, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_ledger, from_validate) = gasket::messaging::tokio::mpsc_channel(50);
-    pull.downstream.connect(to_validate);
-    validate.upstream.connect(from_pull);
-    validate.downstream.connect(to_ledger);
-    ledger.upstream.connect(from_validate);
+    let (to_header_validation, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
+
+    pull.downstream.connect(to_header_validation);
+    header_validation.upstream.connect(from_pull);
+    header_validation.downstream.connect(to_ledger);
+    ledger.upstream.connect(from_header_validation);
 
     let policy = define_gasket_policy();
 
     let pull = gasket::runtime::spawn_stage(pull, policy.clone());
-    let validate = gasket::runtime::spawn_stage(validate, policy.clone());
+    let header_validation = gasket::runtime::spawn_stage(header_validation, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
 
-    Ok(vec![pull, validate, ledger])
+    Ok(vec![pull, header_validation, ledger])
 }
