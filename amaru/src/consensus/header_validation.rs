@@ -1,16 +1,23 @@
-use crate::consensus::{Point, ValidateHeaderEvent};
-use crate::sync::PullEvent;
+use crate::{
+    consensus::{nonce, Point, ValidateHeaderEvent},
+    sync::PullEvent,
+};
 use gasket::framework::*;
 use miette::miette;
-use ouroboros::ledger::{issuer_vkey_to_pool_id, MockLedgerState, PoolSigma};
-use ouroboros::validator::Validator;
+use ouroboros::{
+    ledger::{issuer_vkey_to_pool_id, MockLedgerState, PoolSigma},
+    validator::Validator,
+};
 use ouroboros_praos::consensus::BlockValidator;
 use pallas_crypto::hash::{Hash, Hasher};
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_network::facades::PeerClient;
+use pallas_primitives::conway::Epoch;
 use pallas_traverse::MultiEraHeader;
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+};
 use tracing::{info, trace};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
@@ -106,7 +113,7 @@ impl Stage {
 
 pub struct Worker {
     pool_id_to_sigma: HashMap<Hash<28>, PoolSigma>,
-    epoch_to_nonce: HashMap<u64, Hash<32>>,
+    epoch_to_nonce: HashMap<Epoch, Hash<32>>,
 }
 
 #[async_trait::async_trait(?Send)]
@@ -129,26 +136,7 @@ impl gasket::framework::Worker<Stage> for Worker {
             );
         }
 
-        // #!/bin/bash
-        //
-        // rm -f preprod_nonce.csv
-        // touch preprod_nonce.csv
-        //
-        // # loop from 4 to 174 inclusive
-        // for i in {4..174}
-        // do
-        //     nonce=$(curl -X GET "https://preprod.koios.rest/api/v1/epoch_params?_epoch_no=$i" -H "accept: application/json" 2>/dev/null | jq -r '.[0].nonce')
-        //     echo "$i,$nonce" >> preprod_nonce.csv
-        //     echo "Epoch $i nonce: $nonce"
-        // done
-        let epoch_nonce_csv = include_str!("../../preprod_nonce.csv");
-        let mut epoch_to_nonce = HashMap::new();
-        for line in epoch_nonce_csv.lines() {
-            let mut parts = line.split(',');
-            let epoch: u64 = parts.next().unwrap().parse().unwrap();
-            let nonce: Hash<32> = parts.next().unwrap().parse().unwrap();
-            epoch_to_nonce.insert(epoch, nonce);
-        }
+        let epoch_to_nonce = nonce::from_csv(&include_str!("../../data/preprod/nonces.csv"));
 
         let worker = Self {
             pool_id_to_sigma,
