@@ -217,7 +217,7 @@ impl LedgerState {
             };
 
             self.recently_created.push((point.clone(), input.clone()));
-            self.utxo_set.insert(input, TransactionOutput::from(output));
+            self.utxo_set.insert(input, output);
         }
 
         Ok(())
