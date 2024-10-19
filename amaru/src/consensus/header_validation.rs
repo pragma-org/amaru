@@ -71,7 +71,7 @@ fn epoch_for_preprod_slot(slot: u64) -> u64 {
 }
 
 #[derive(Stage)]
-#[stage(name = "validate", unit = "PullEvent", worker = "Worker")]
+#[stage(name = "header_validation", unit = "PullEvent", worker = "Worker")]
 pub struct Stage {
     peer_session: Arc<Mutex<PeerClient>>,
     pub upstream: UpstreamPort,
