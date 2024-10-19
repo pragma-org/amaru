@@ -1,9 +1,14 @@
 use crate::config::NetworkName;
-use amaru::sync::{Config, Point};
+use amaru::{
+    consensus::nonce,
+    ledger::{stake_distribution, stake_pools},
+    sync::{Config, Point},
+};
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::{Diagnostic, IntoDiagnostic};
 use pallas_network::facades::PeerClient;
 use std::{
+    path::Path,
     sync::{Arc, Mutex},
     time::Duration,
 };
@@ -30,6 +35,11 @@ pub struct Args {
             .map(|s| s.parse::<NetworkName>().unwrap()),
     )]
     network: NetworkName,
+
+    /// Path to the directory containing blockchain data such as epoch nonces and stake
+    /// distribution.
+    #[arg(long, default_value = "./data")]
+    data_dir: String,
 }
 
 pub async fn run(args: Args) -> miette::Result<()> {
@@ -80,10 +90,56 @@ enum Error<'a> {
 fn parse_args(args: Args) -> miette::Result<Config> {
     let point = parse_point(&args.from)?;
 
+    let root = Path::new(&args.data_dir);
+
+    let epoch = match args.network {
+        NetworkName::Mainnet => unimplemented!("attempting to run Amaru on mainnet?"),
+        NetworkName::Preprod => 4 + (point.slot_or_default() - 86400) / 432000,
+        NetworkName::Preview => point.slot_or_default() / 432000,
+    };
+
+    let stake_pools = stake_pools::from_csv(
+        std::str::from_utf8(
+            std::fs::read(
+                root.join(args.network.to_string())
+                    .join("stake_pools")
+                    .join(format!("{epoch}.csv")),
+            )
+            .into_diagnostic()?
+            .as_slice(),
+        )
+        .into_diagnostic()?,
+    );
+
+    let stake_distribution = stake_distribution::from_csv(
+        std::str::from_utf8(
+            std::fs::read(
+                root.join(args.network.to_string())
+                    .join("stake_distribution")
+                    .join(format!("{epoch}.csv")),
+            )
+            .into_diagnostic()?
+            .as_slice(),
+        )
+        .into_diagnostic()?,
+    );
+
+    let nonces = nonce::from_csv(
+        std::str::from_utf8(
+            std::fs::read(root.join(args.network.to_string()).join("nonces.csv"))
+                .into_diagnostic()?
+                .as_slice(),
+        )
+        .into_diagnostic()?,
+    );
+
     Ok(Config {
         upstream_peer: args.peer_address,
         network_magic: args.network.to_network_magic(),
         intersection: vec![point],
+        stake_pools,
+        stake_distribution,
+        nonces,
     })
 }
 

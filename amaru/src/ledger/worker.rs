@@ -1,5 +1,4 @@
-use crate::consensus::ValidateHeaderEvent;
-use crate::ledger::LedgerState;
+use crate::{consensus::ValidateHeaderEvent, ledger::LedgerState};
 use gasket::framework::*;
 use pallas_codec::minicbor as cbor;
 use pallas_crypto::hash::{Hash, Hasher};

@@ -1,15 +1,12 @@
 use crate::{
-    consensus::{nonce, Point, ValidateHeaderEvent},
+    consensus::{Point, ValidateHeaderEvent},
     sync::PullEvent,
 };
 use gasket::framework::*;
 use miette::miette;
-use ouroboros::{
-    ledger::{issuer_vkey_to_pool_id, MockLedgerState, PoolSigma},
-    validator::Validator,
-};
+use ouroboros::{ledger::LedgerState, validator::Validator};
 use ouroboros_praos::consensus::BlockValidator;
-use pallas_crypto::hash::{Hash, Hasher};
+use pallas_crypto::hash::Hash;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
@@ -22,46 +19,6 @@ use tracing::{info, trace};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
-
-/// Notes:
-/// We're currently testing block validation in epoch 172 on preprod. This is a happy path test.
-/// Get the stake snapshot from cncli. I took this example during 173 so I used the go snapshot.
-/// `$ cncli pool-stake --socket-path /home/westbam/haskell/pprod/db/socket --name go --output-file preprod_172_stake_snapshot.csv --network-magic 1`
-/// the last block of epoch 171 is 72662384.2f2bcab30dc53444cef311d6985eb126fd577a548b8e71cafecbb6e855bc8755
-
-/// Mock the ledger state for the block validator. These values are the happy path
-/// and don't really validate anything currently. We assume the pool has plenty of stake, the
-/// VRF key hash is always available.
-fn mock_ledger_state(vrf_vkey_hash: Hash<32>, pool_sigma: &PoolSigma) -> MockLedgerState {
-    let mut ledger_state = MockLedgerState::new();
-
-    let ps = pool_sigma.clone();
-    ledger_state
-        .expect_pool_id_to_sigma()
-        .returning(move |_| Ok(ps.clone()));
-
-    // assume that the vrf_vkey_hash is always available and the ledger value matches what was in the block.
-    ledger_state
-        .expect_vrf_vkey_hash()
-        .returning(move |_| Ok(vrf_vkey_hash));
-
-    // standard calculation for preprod and mainnet. Preview is different.
-    ledger_state.expect_slot_to_kes_period().returning(|slot| {
-        // hardcode some values from shelley-genesis.json for the mock implementation
-        let slots_per_kes_period: u64 = 129600; // from shelley-genesis.json (1.5 days in seconds)
-        slot / slots_per_kes_period
-    });
-
-    // standard kes rotation for preview, preprod, and mainnet configs
-    ledger_state.expect_max_kes_evolutions().returning(|| 62);
-
-    // assume this is the first block we've ever seen from this issuer_vkey (never fail).
-    ledger_state
-        .expect_latest_opcert_sequence_number()
-        .returning(|_| None);
-
-    ledger_state
-}
 
 /// Mocking this calculation specifically for preprod. We need to know the epoch for the slot so
 /// we can look up the epoch nonce.
@@ -81,6 +38,10 @@ fn epoch_for_preprod_slot(slot: u64) -> u64 {
 #[stage(name = "header_validation", unit = "PullEvent", worker = "Worker")]
 pub struct Stage {
     peer_session: Arc<Mutex<PeerClient>>,
+
+    ledger: Arc<Mutex<dyn LedgerState>>,
+    epoch_to_nonce: HashMap<Epoch, Hash<32>>,
+
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
 
@@ -95,9 +56,15 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub fn new(peer_session: Arc<Mutex<PeerClient>>) -> Self {
+    pub fn new(
+        peer_session: Arc<Mutex<PeerClient>>,
+        ledger: Arc<Mutex<dyn LedgerState>>,
+        epoch_to_nonce: HashMap<Epoch, Hash<32>>,
+    ) -> Self {
         Self {
             peer_session,
+            ledger,
+            epoch_to_nonce,
             upstream: Default::default(),
             downstream: Default::default(),
             block_count: Default::default(),
@@ -111,39 +78,12 @@ impl Stage {
     }
 }
 
-pub struct Worker {
-    pool_id_to_sigma: HashMap<Hash<28>, PoolSigma>,
-    epoch_to_nonce: HashMap<Epoch, Hash<32>>,
-}
+pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
-        let stake_snapshot_csv = include_str!("../../preprod_172_stake_snapshot.csv");
-        // create a hashmap of pool_id to Sigma based on the stake snapshot. this file contains the pool_id and then the sigma numerator and denominator
-        let mut pool_id_to_sigma = HashMap::new();
-        for line in stake_snapshot_csv.lines() {
-            let mut parts = line.split(',');
-            let pool_id: Hash<28> = parts.next().unwrap().parse().unwrap();
-            let numerator: u64 = parts.next().unwrap().parse().unwrap();
-            let denominator: u64 = parts.next().unwrap().parse().unwrap();
-            pool_id_to_sigma.insert(
-                pool_id,
-                PoolSigma {
-                    numerator,
-                    denominator,
-                },
-            );
-        }
-
-        let epoch_to_nonce = nonce::from_csv(&include_str!("../../data/preprod/nonces.csv"));
-
-        let worker = Self {
-            pool_id_to_sigma,
-            epoch_to_nonce,
-        };
-
-        Ok(worker)
+        Ok(Self {})
     }
 
     async fn schedule(
@@ -166,38 +106,23 @@ impl gasket::framework::Worker<Stage> for Worker {
                 match header {
                     MultiEraHeader::BabbageCompatible(_) => {
                         let minted_header = header.as_babbage().unwrap();
-                        let vrf_vkey_hash =
-                            Hasher::<256>::hash(minted_header.header_body.vrf_vkey.as_ref());
-                        let pool_id =
-                            issuer_vkey_to_pool_id(&minted_header.header_body.issuer_vkey);
-
                         let epoch = epoch_for_preprod_slot(minted_header.header_body.slot);
-                        let epoch_nonce = self
+
+                        // TODO: This is awkward, and should probably belong to the LedgerState
+                        // abstraction? The ledger shall keep track of the rolling nonce and
+                        // provide some endpoint for the consensus to access it.
+                        let epoch_nonce = stage
                             .epoch_to_nonce
                             .get(&epoch)
                             .ok_or(miette!("epoch nonce not found"))
                             .or_panic()?;
 
-                        let pool_sigma = if epoch == 172 {
-                            self.pool_id_to_sigma
-                                .get(&pool_id)
-                                .ok_or(miette!("pool not found"))
-                                .or_panic()?
-                        } else {
-                            // if validating other epochs on preprod (never fail)
-                            &PoolSigma {
-                                numerator: 1,
-                                denominator: 1,
-                            }
-                        };
-
-                        let ledger_state = mock_ledger_state(vrf_vkey_hash, pool_sigma);
-
                         let active_slots_coeff: FixedDecimal =
                             FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
                         let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
+                        let ledger = stage.ledger.lock().unwrap();
                         let block_validator =
-                            BlockValidator::new(minted_header, &ledger_state, epoch_nonce, &c);
+                            BlockValidator::new(minted_header, &*ledger, epoch_nonce, &c);
                         block_validator.validate().or_panic()?;
                         info!(?minted_header.header_body.block_number, "validated block");
                     }
