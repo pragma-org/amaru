@@ -8,8 +8,10 @@ use pallas_network::{
     },
 };
 use pallas_traverse::MultiEraHeader;
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio::time::timeout;
 use tracing::{debug, info};
 

@@ -1,10 +1,7 @@
-use crate::consensus::validate;
-use crate::ledger;
-use gasket::framework::AsWorkError;
+use crate::{consensus::validate, ledger};
 use gasket::runtime::Tether;
 use pallas_network::facades::PeerClient;
 use std::sync::{Arc, Mutex};
-use tracing::debug;
 
 mod fetch;
 mod pull;
@@ -44,21 +41,10 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
     }
 }
 
-pub fn bootstrap(config: Config) -> miette::Result<Vec<Tether>> {
-    // FIXME: this is a hack to get around the fact that PeerClient::connect is async
-    let peer_session = tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(async {
-            debug!("connecting to peer");
-            PeerClient::connect(config.upstream_peer.clone(), config.network_magic as u64).await
-        })
-    })
-    .or_retry()
-    .unwrap(); // fixme: unwrap
+pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
+    let mut pull = pull::Stage::new(client.clone(), config.intersection.clone());
 
-    let peer_session = Arc::new(Mutex::new(peer_session));
-    let mut pull = pull::Stage::new(Arc::clone(&peer_session), config.intersection.clone());
-
-    let mut validate = validate::Stage::new(Arc::clone(&peer_session));
+    let mut validate = validate::Stage::new(client.clone());
 
     let mut ledger = ledger::worker::Stage::new();
 

@@ -2,7 +2,11 @@ use crate::config::NetworkName;
 use amaru::sync::{Config, Point};
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::{Diagnostic, IntoDiagnostic};
-use std::time::Duration;
+use pallas_network::facades::PeerClient;
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
 use tracing::debug;
 
@@ -31,7 +35,13 @@ pub struct Args {
 pub async fn run(args: Args) -> miette::Result<()> {
     let config = parse_args(args)?;
 
-    let sync = amaru::sync::bootstrap(config)?;
+    let client = Arc::new(Mutex::new(
+        PeerClient::connect(config.upstream_peer.clone(), config.network_magic as u64)
+            .await
+            .into_diagnostic()?,
+    ));
+
+    let sync = amaru::sync::bootstrap(config, &client)?;
 
     let exit = crate::exit::hook_exit_token();
 
