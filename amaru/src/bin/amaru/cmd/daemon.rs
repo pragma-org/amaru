@@ -1,10 +1,19 @@
 use crate::config::NetworkName;
-use amaru::sync::{Config, Point};
+use amaru::{
+    consensus::nonce,
+    ledger::{stake_distribution, stake_pools},
+    sync::{Config, Point},
+};
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::{Diagnostic, IntoDiagnostic};
-use std::time::Duration;
+use pallas_network::facades::PeerClient;
+use std::{
+    path::{Path, PathBuf},
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tokio_util::sync::CancellationToken;
-use tracing::debug;
+use tracing::{debug, error};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -26,12 +35,23 @@ pub struct Args {
             .map(|s| s.parse::<NetworkName>().unwrap()),
     )]
     network: NetworkName,
+
+    /// Path to the directory containing blockchain data such as epoch nonces and stake
+    /// distribution.
+    #[arg(long, default_value = "./amaru/data")]
+    data_dir: String,
 }
 
 pub async fn run(args: Args) -> miette::Result<()> {
     let config = parse_args(args)?;
 
-    let sync = amaru::sync::bootstrap(config)?;
+    let client = Arc::new(Mutex::new(
+        PeerClient::connect(config.upstream_peer.clone(), config.network_magic as u64)
+            .await
+            .into_diagnostic()?,
+    ));
+
+    let sync = amaru::sync::bootstrap(config, &client)?;
 
     let exit = crate::exit::hook_exit_token();
 
@@ -70,10 +90,33 @@ enum Error<'a> {
 fn parse_args(args: Args) -> miette::Result<Config> {
     let point = parse_point(&args.from)?;
 
+    let root = Path::new(&args.data_dir).join(args.network.to_string());
+
+    let epoch = match args.network {
+        NetworkName::Mainnet => unimplemented!("attempting to run Amaru on mainnet?"),
+        NetworkName::Preprod => 4 + (point.slot_or_default() - 86400) / 432000,
+        NetworkName::Preview => point.slot_or_default() / 432000,
+    };
+
+    let stake_pools = read_csv(
+        &root.join("stake_pools").join(format!("{epoch}.csv")),
+        stake_pools::from_csv,
+    )?;
+
+    let stake_distribution = read_csv(
+        &root.join("stake_distribution").join(format!("{epoch}.csv")),
+        stake_distribution::from_csv,
+    )?;
+
+    let nonces = read_csv(&root.join("nonces.csv"), nonce::from_csv)?;
+
     Ok(Config {
         upstream_peer: args.peer_address,
         network_magic: args.network.to_network_magic(),
         intersection: vec![point],
+        stake_pools,
+        stake_distribution,
+        nonces,
     })
 }
 
@@ -98,4 +141,24 @@ fn parse_point(raw_str: &str) -> miette::Result<Point> {
         .into_diagnostic()?;
 
     Ok(Point::Specific(slot, block_header_hash))
+}
+
+fn read_csv<F, T>(filepath: &PathBuf, with: F) -> miette::Result<T>
+where
+    F: FnOnce(&str) -> T,
+{
+    Ok(with(
+        std::str::from_utf8(
+            std::fs::read(filepath)
+                .inspect_err(|e| {
+                    error!(
+                        "failed to read csv data file at {}: {e}",
+                        filepath.as_path().to_str().unwrap_or_default(),
+                    );
+                })
+                .into_diagnostic()?
+                .as_slice(),
+        )
+        .into_diagnostic()?,
+    ))
 }

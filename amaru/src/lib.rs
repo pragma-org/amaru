@@ -4,6 +4,11 @@
 /// applying them to the local chain.
 pub mod sync;
 
+/// Consensus interface
+///
+/// The consensus interface is responsible for validating block headers.
+pub mod consensus;
+
 /// Ledger interface
 ///
 /// A preliminary ledger implementation in memory. It's primarily meant for demo purpose
