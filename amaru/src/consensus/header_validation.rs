@@ -20,6 +20,7 @@ use tracing::{info, trace};
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 
+// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
 /// Mocking this calculation specifically for preprod. We need to know the epoch for the slot so
 /// we can look up the epoch nonce.
 fn epoch_for_preprod_slot(slot: u64) -> u64 {
@@ -117,6 +118,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                             .ok_or(miette!("epoch nonce not found"))
                             .or_panic()?;
 
+                        // TODO: Take this parameter from an input context, rather than hard-coding it.
                         let active_slots_coeff: FixedDecimal =
                             FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
                         let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
