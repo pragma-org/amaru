@@ -48,10 +48,7 @@ Then the aspect of contribution, experimenting and customizing the node became t
 
 Next on the menu was identifying who are the people that are in the environment of Amaru.
 
-<img src="https://i.imgur.com/z2uBl7F.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 45%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Problem statements](https://github.com/user-attachments/assets/4db86523-6edd-4d8c-b590-c42b27f62539)
 
 No surprises in the people impacted by a Cardano node, Developers & SPOs will be our users, and our customers will be DApps owners and Services Providers that uses the node in their setup (e.g. DEX)
 
@@ -63,10 +60,7 @@ For this category we asked ourselves what success would mean for people using Am
 
 This will serve to draft out metrics that will drive our decision making towards meeting those success criteria.
 
-<img src="https://i.imgur.com/Fggxenr.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 45%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![People desired outcomes](https://github.com/user-attachments/assets/960e2e5f-1289-4722-b4dd-796ae486542a)
 
 Here are two examples of the KPIs that we will monitor with the coming releases of Amaru thanks to the above results:
 > Resources consumption of running Amaru VS the Cardano Haskell node
@@ -79,10 +73,7 @@ Now we looked at what success meant for the current market in which the Cardano 
 
 As mentioned above this will provide valuable data to be gathered to identify if Amaru is going the right direction in its market.
 
-<img src="https://i.imgur.com/dbsRYpU.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 50%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Business desired outcomes](https://github.com/user-attachments/assets/240172b1-a6de-4008-a810-0f460ef31448)
 
 Here are two examples of the KPIs that we will monitor with the coming releases of Amaru thanks to the above results:
 > Percentage split of SPOs running Amaru on the network
@@ -95,10 +86,7 @@ As our final step before diving into the architecture of the solution we looked 
 
 The outcome of this will drive our synchronisation steps and the evolutions we plan for Amaru.
 
-<img src="https://i.imgur.com/PQg243u.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 80%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Constraints analysis](https://github.com/user-attachments/assets/33996d90-a677-4298-a08e-5f7ab6d1913c)
 
 Here is a list of things that are now integrated in the project:
 > Testing strategy for each pull requests and major releases
@@ -109,10 +97,7 @@ Here is a list of things that are now integrated in the project:
 
 To finalise our problem framing we ended up starting to draft risks that might impact the project.
 
-<img src="https://i.imgur.com/K2kcwiZ.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 80%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Risk Analysis](https://github.com/user-attachments/assets/67c6a3fe-4a8b-4bb2-95a3-e719c22ce7af)
 
 This initiated a risk register for the project and began mitigation plans related to the risk identified, here is an example of 2 mitigation plan ongoing:
 > Senior Rust advisor regular sanity checks on the code base built
@@ -123,10 +108,7 @@ This initiated a risk register for the project and began mitigation plans relate
 
 The next step towards building the product architecture was to use the [C4 Architecture](https://miro.com/app/board/uXjVNpawiPE=/?fromEmbed=1)
 
-<img src="https://i.imgur.com/zLGFoTr.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 50%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Context](https://github.com/user-attachments/assets/d55a8c9c-e16f-43fe-93b2-3d634c58c20e)
 
 Level 1 of the C4 methodology is about showing how the system fits into the world around it, here we can see the 3 main interaction points for Amaru:
 - Upstream nodes
@@ -135,36 +117,21 @@ Level 1 of the C4 methodology is about showing how the system fits into the worl
 
 Now if we dive a bit deeper into the system for Level 2, let's look at the containers and data stores inside our node:
 
-<img src="https://i.imgur.com/qUj8CMv.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 90%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Containers view](https://github.com/user-attachments/assets/c826ab17-c8fb-41e4-980b-8bdff60fdf27)
 
 Final step that we went through with the C4 model is the level 3: diving into the components inside each container.
 
 Consensus container:
-<img src="https://i.imgur.com/Pw9vdff.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 90%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Consensus container](https://github.com/user-attachments/assets/fbe9a00d-5cf6-4e03-8016-a3f578013b3a)
 
 Peer 2 Peer container:
-<img src="https://i.imgur.com/iKB2vtS.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 90%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Network container](https://github.com/user-attachments/assets/47cb1c15-55e7-4561-a35c-6ce2d8b28af3)
 
 RPC container:
-<img src="https://i.imgur.com/0IhAkCO.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 90%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![RPC Container](https://github.com/user-attachments/assets/fc52c608-ce39-4618-b7ca-edc1f10e7644)
 
 Transition container:
-<img src="https://i.imgur.com/0veQlnk.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 90%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Transition container](https://github.com/user-attachments/assets/23642f86-522c-4ba6-a9b5-283252563940)
 
 This level was sufficient for us to go to the final step of our design phase which is choosing bounded context and making scopes of the project that can be autonomously run by a team. 
 
@@ -174,10 +141,7 @@ The final design step was turning this architecture of the product into actionab
 
 While thinking about that representation we used the bounded context methodology of Domain Driven Design to represent relationships, shared kernels and interfaces that will have to be monitored by each team that owns the bounded contexts. 
 
-<img src="https://i.imgur.com/kYr4ofP.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 100%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Bounded contexts](https://github.com/user-attachments/assets/3a1d3b6d-ff2f-44ba-8f4f-c3fcf4d722bd)
 
 In this representation you can find the following types of links featured:
 - SK (Shared Kernel): contains code and data shared across multiple bounded contexts within the same domain
@@ -187,14 +151,11 @@ In this representation you can find the following types of links featured:
 
 This fuelled our discussion on which part to dedicate a team for our project and we came up with the following independent teams (that might be subject to change as the project evolves):
 
-<img src="https://i.imgur.com/idFRxrD.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 100%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Maintainers](https://github.com/user-attachments/assets/6f27ba9e-fa87-4cfa-b03e-65efb8a38f91)
 
 For each scope identified, we nominated an owner that has the responsibility of managing the interfaces and the coherence of its scope:
 - Amaru integration: Amaru Maintainers Committee (*to be re-allocated*)
-- Cardano Ledger owner: Matthias Benkort
+- Ledger owner: Matthias Benkort
 - Consensus owner: Arnaud Bailly
 - Dolos owner: Santiago Carmuega
 - Forge owner: (*to be allocated*)
@@ -203,6 +164,6 @@ For each scope identified, we nominated an owner that has the responsibility of 
 - Management RPC: (*to be allocated*)
 - Peer 2 peer (P2P) owner: Santiago Carmuega
 - Testnet facilitator owner: Chris Gianelloni
-- UTxO RPC specifications owner: Chris Gianelloni
+- UTxO RPC specifications owner: Chris Gianelloni & Santiago Carmuega
 
 This will be updated when we have start delivering and better understand the product.
