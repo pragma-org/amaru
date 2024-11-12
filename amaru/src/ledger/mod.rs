@@ -10,6 +10,9 @@ pub type Point = pallas_network::miniprotocols::Point;
 const MAX_ROLLBACK_DEPTH: u64 = 129600;
 const GC_DEFAULT_COUNTER: usize = 1000;
 
+pub(crate) mod mock;
+pub mod stake_distribution;
+pub mod stake_pools;
 pub(crate) mod worker;
 
 /// A 'dummy' in-memory ledger state focused solely on UTxO state management.

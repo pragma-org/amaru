@@ -36,7 +36,7 @@ impl NetworkName {
         &["mainnet", "preprod", "preview"]
     }
 
-    pub fn to_network_magic(&self) -> u32 {
+    pub fn to_network_magic(self) -> u32 {
         match self {
             Self::Mainnet => 764824073,
             Self::Preprod => 1,
