@@ -32,10 +32,7 @@ The roles included were also of a varied range: CEO, COO, CTO, Senior developer,
 
 The first task at hand was formalising "what problems are we trying to solve by starting Amaru?"
 
-<img src="https://i.imgur.com/5NLPQ7t.png"
-     alt="sample image"
-     style="display: block; margin-right: auto; margin-left: auto; width: 45%;
-     box-shadow: 0 4px 8px 0 rgba(0, 0, 0, 0.2), 0 6px 20px 0 rgba(0, 0, 0, 0.19)" />
+![Problem statements](https://github.com/user-attachments/assets/ae21dfbf-5f1a-4bac-8ca7-8b6603680546)
 
 The main driver will be to bring operational resilience, meaning our design and architecture must be robust and improve the security aspect of the Cardano network.
 
