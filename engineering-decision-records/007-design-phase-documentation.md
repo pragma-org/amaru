@@ -45,7 +45,7 @@ Then the aspect of contribution, experimenting and customizing the node became t
 
 Next on the menu was identifying who are the people that are in the environment of Amaru.
 
-![Problem statements](https://github.com/user-attachments/assets/4db86523-6edd-4d8c-b590-c42b27f62539)
+![People impacted](https://github.com/user-attachments/assets/b23bee65-36a5-4660-ab63-0fc52cd25b96)
 
 No surprises in the people impacted by a Cardano node, Developers & SPOs will be our users, and our customers will be DApps owners and Services Providers that uses the node in their setup (e.g. DEX)
 
