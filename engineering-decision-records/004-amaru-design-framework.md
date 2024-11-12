@@ -25,8 +25,8 @@ This framework needs to enable efficient coordination across diverse teams and e
 
 Amaru will be using a customised framework adapted to the setup of the project :
 
-[![Amaru](https://i.ibb.co/NrZ47nP/Capture-d-cran-2024-07-04-170154.png)](https://pragma.builders/projects/amaru/)
-_Representation of the development framework that will be used throughout the life of Amaru_
+![](https://github.com/user-attachments/assets/5bf1dd3b-5b2c-40ff-b6dd-c5ace85592c6)
+<p align="center"><code>Representation of the development framework that will be used throughout the life of Amaru</code></p>
 
 This representation encapsulates all the phases imagined for running the Amaru project :
 1. Problem framing : [DDD : Framing the problem](https://miro.com/app/board/uXjVNpa1sM0=/?fromEmbed=1) linking together Problem, People, Outcome and Constraints
@@ -37,7 +37,7 @@ This representation encapsulates all the phases imagined for running the Amaru p
 6. Reflect and learn : [Lean Startup : Validated learning](https://theleanstartup.com/principles) allocate time to confront the solution to the problem environment and its user
 7. Final solution deliver : [Lean Startup : Build, Measure, Learn](https://theleanstartup.com/principles) document the main delivery and discoveries related to the problems, prepare the next maintaining cycle
 
-You can find the details of the first 3 steps here: <insert link to the documentation>
+<!-- TODO: You can find the details of the first 3 steps here: <insert link to the documentation> -->
 
 ## Consequence
 
