@@ -6,6 +6,7 @@ use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{Arc, Mutex},
 };
 
@@ -62,7 +63,10 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
         ledger_mock.clone(),
         config.nonces,
     );
-    let mut ledger = ledger::worker::Stage::new();
+
+    // FIXME: Take from config / command args
+    let ledger_store = PathBuf::from("./ledger.db");
+    let mut ledger = ledger::Stage::new(ledger_store);
 
     let (to_header_validation, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);

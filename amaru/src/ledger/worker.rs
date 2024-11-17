@@ -1,8 +1,9 @@
-use crate::{consensus::ValidateHeaderEvent, ledger::LedgerState};
+use crate::{consensus::ValidateHeaderEvent, ledger};
 use gasket::framework::*;
 use pallas_codec::minicbor as cbor;
 use pallas_crypto::hash::{Hash, Hasher};
 use pallas_primitives::conway::MintedBlock;
+use std::path::{Path, PathBuf};
 use tracing::{error, info};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
@@ -22,14 +23,17 @@ impl Stage {
 }
 
 pub struct Worker {
-    ledger: LedgerState,
+    store: Box<dyn ledger::store::Store>,
+    state: ledger::state::State,
 }
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
+        let store = ledger::store::Store::new(&PathBuf::from("/tmp/amaru.db"));
         Ok(Self {
-            ledger: LedgerState::new(),
+            store,
+            state: ledger::state::State::new(&store),
         })
     }
 
@@ -57,9 +61,10 @@ impl gasket::framework::Worker<Stage> for Worker {
                     hex::encode(block_header_hash)
                 );
 
-                self.ledger
-                    .forward(block)
-                    .unwrap_or_else(|e| error!("failed to apply block: {e:?}"));
+                self.ledger.forward(block).map_err(|e| {
+                    error!("failed to apply block: {e:?}");
+                    WorkerError::Panic
+                })?;
 
                 info!("applied block={:?}", block_number);
             }
