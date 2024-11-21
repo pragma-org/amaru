@@ -1,4 +1,4 @@
-use super::kernel::{TransactionInput, TransactionOutput};
+use super::kernel::{Point, TransactionInput, TransactionOutput};
 use std::path::Path;
 
 // Store
@@ -7,10 +7,11 @@ use std::path::Path;
 pub trait Store {
     type Error;
 
-    fn save(
-        &mut self,
-        add: Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)>>,
-        remove: Box<dyn Iterator<Item = TransactionInput>>,
+    fn save<'a>(
+        &'_ mut self,
+        point: &'_ Point,
+        add: Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
+        remove: Box<dyn Iterator<Item = TransactionInput> + 'a>,
     ) -> Result<(), Self::Error>;
 }
 
@@ -22,14 +23,14 @@ pub mod impl_rocksdb {
     use pallas_codec::minicbor::{self as cbor, Encode};
     use rocksdb;
 
-    pub(crate) struct RocksDB {
-        db: rocksdb::DB,
+    pub struct RocksDB {
+        db: rocksdb::OptimisticTransactionDB,
     }
 
     impl RocksDB {
         pub fn new(target: &Path) -> Result<RocksDB, rocksdb::Error> {
             Ok(RocksDB {
-                db: rocksdb::DB::open_default(target)?,
+                db: rocksdb::OptimisticTransactionDB::open_default(target)?,
             })
         }
     }
@@ -37,22 +38,37 @@ pub mod impl_rocksdb {
     impl Store for RocksDB {
         type Error = rocksdb::Error;
 
-        fn save(
-            &mut self,
-            add: Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)>>,
-            remove: Box<dyn Iterator<Item = TransactionInput>>,
+        fn save<'a>(
+            &'_ mut self,
+            point: &'_ Point,
+            add: Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
+            remove: Box<dyn Iterator<Item = TransactionInput> + 'a>,
         ) -> Result<(), Self::Error> {
-            let mut batch = rocksdb::WriteBatchWithTransaction::<false>::default();
+            let batch = self.db.transaction();
 
-            for (input, output) in add {
-                batch.put(as_bytes(input), as_bytes(output));
+            let tip: Option<Point> = batch
+                .get("tip")?
+                .map(|bytes| cbor::decode(&bytes))
+                .transpose()
+                .expect("unable to decode database tip");
+
+            match (point, tip) {
+                (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
+                }
+                _ => {
+                    batch.put("tip", as_bytes(point))?;
+
+                    for (input, output) in add {
+                        batch.put(as_bytes(input), as_bytes(output))?;
+                    }
+
+                    for input in remove {
+                        batch.delete(as_bytes(input))?;
+                    }
+                }
             }
 
-            for input in remove {
-                batch.delete(as_bytes(input));
-            }
-
-            self.db.write(batch)
+            batch.commit()
         }
     }
 

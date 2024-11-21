@@ -13,10 +13,10 @@ use store::Store;
 pub mod stake_distribution;
 pub mod stake_pools;
 
-pub(crate) mod kernel;
-pub(crate) mod mock;
-pub(crate) mod state;
-pub(crate) mod store;
+pub mod kernel;
+pub mod mock;
+pub mod state;
+pub mod store;
 
 #[derive(Stage)]
 #[stage(name = "ledger", unit = "ValidateHeaderEvent", worker = "Worker")]

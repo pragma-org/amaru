@@ -31,3 +31,4 @@ tokio-util = "0.7.12"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }
 rocksdb = "0.22.0"
+indicatif = "0.17.9"

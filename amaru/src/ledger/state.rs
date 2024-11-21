@@ -93,6 +93,7 @@ impl<'a, E> State<'a, E> {
             let now_stable = self.volatile.pop_front().unwrap();
             self.stable
                 .save(
+                    &point,
                     Box::new(now_stable.produced.into_iter()),
                     Box::new(now_stable.consumed.into_iter()),
                 )

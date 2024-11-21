@@ -9,6 +9,9 @@ mod exit;
 enum Command {
     /// Run the node in all its glory.
     Daemon(cmd::daemon::Args),
+
+    /// The ledger state from a CBOR snapshot
+    Bootstrap(cmd::bootstrap::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -28,6 +31,7 @@ async fn main() -> miette::Result<()> {
 
     match args.command {
         Command::Daemon(args) => cmd::daemon::run(args).await,
+        Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
     }
 }
 
