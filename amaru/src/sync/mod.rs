@@ -58,11 +58,8 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
     )));
 
     let mut pull = pull::Stage::new(client.clone(), config.intersection.clone());
-    let mut header_validation = consensus::header_validation::Stage::new(
-        client.clone(),
-        ledger_mock.clone(),
-        config.nonces,
-    );
+    let mut header_validation =
+        consensus::worker::Stage::new(client.clone(), ledger_mock.clone(), config.nonces);
 
     // FIXME: Take from config / command args
     let ledger_store = PathBuf::from("./ledger.db");
