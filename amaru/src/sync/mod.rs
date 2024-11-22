@@ -52,7 +52,7 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
 
     let mut pull = pull::Stage::new(client.clone(), config.intersection.clone());
     let mut header_validation =
-        consensus::worker::Stage::new(client.clone(), ledger.state.clone(), config.nonces);
+        consensus::Stage::new(client.clone(), ledger.state.clone(), config.nonces);
 
     let (to_header_validation, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
