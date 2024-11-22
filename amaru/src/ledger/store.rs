@@ -13,11 +13,15 @@ pub trait Store {
         add: Add<'a>,
         remove: Remove<'a>,
     ) -> Result<(), Self::Error>;
+
+    fn get_tip(&self) -> Result<Point, Self::Error>;
+
+    fn get_pool(&self, pool: &PoolId, epoch: Epoch) -> Result<Option<PoolParams>, Self::Error>;
 }
 
 pub struct Add<'a> {
     pub utxo: Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
-    pub pool: Box<dyn Iterator<Item = (PoolId, PoolParams, Epoch)> + 'a>,
+    pub pools: Box<dyn Iterator<Item = (PoolId, PoolParams, Epoch)> + 'a>,
 }
 
 impl<'a> Default for Add<'a> {
@@ -25,7 +29,7 @@ impl<'a> Default for Add<'a> {
         Self {
             utxo: Box::new(iter::empty())
                 as Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
-            pool: Box::new(iter::empty())
+            pools: Box::new(iter::empty())
                 as Box<dyn Iterator<Item = (PoolId, PoolParams, Epoch)> + 'a>,
         }
     }
@@ -33,14 +37,14 @@ impl<'a> Default for Add<'a> {
 
 pub struct Remove<'a> {
     pub utxo: Box<dyn Iterator<Item = TransactionInput> + 'a>,
-    pub pool: Box<dyn Iterator<Item = (PoolId, Epoch)> + 'a>,
+    pub pools: Box<dyn Iterator<Item = (PoolId, Epoch)> + 'a>,
 }
 
 impl<'a> Default for Remove<'a> {
     fn default() -> Self {
         Self {
             utxo: Box::new(iter::empty()) as Box<dyn Iterator<Item = TransactionInput> + 'a>,
-            pool: Box::new(iter::empty()) as Box<dyn Iterator<Item = (PoolId, Epoch)> + 'a>,
+            pools: Box::new(iter::empty()) as Box<dyn Iterator<Item = (PoolId, Epoch)> + 'a>,
         }
     }
 }
@@ -113,7 +117,7 @@ pub mod impl_rocksdb {
                         batch.put(as_key(&PREFIX_UTXO, input), as_value(output))?;
                     }
 
-                    for (pool, params, epoch) in add.pool {
+                    for (pool, params, epoch) in add.pools {
                         // Pool parameters are stored in an epoch-aware fashion.
                         //
                         // - If no parameters exist for the pool, we can immediately create a new
@@ -135,7 +139,7 @@ pub mod impl_rocksdb {
                         batch.delete(as_key(&PREFIX_UTXO, input))?;
                     }
 
-                    for (pool, epoch) in remove.pool {
+                    for (pool, epoch) in remove.pools {
                         // Similarly, we do not delete pool immediately but rather schedule the
                         // removal as an empty parameter update. The 'pool reaping' happens on
                         // every epoch boundary in a separate thread.
@@ -151,6 +155,18 @@ pub mod impl_rocksdb {
             }
 
             batch.commit()
+        }
+
+        fn get_pool(
+            &self,
+            _pool: &PoolId,
+            _epoch: Epoch,
+        ) -> Result<Option<PoolParams>, Self::Error> {
+            Ok(None)
+        }
+
+        fn get_tip(&self) -> Result<Point, Self::Error> {
+            todo!()
         }
     }
 
