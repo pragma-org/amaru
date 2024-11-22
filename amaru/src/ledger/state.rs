@@ -48,17 +48,62 @@ impl<'a, E> State<'a, E> {
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
     pub fn forward(&mut self, block: MintedBlock<'_>) -> Result<(), ForwardErr<E>> {
-        let failed_transactions = FailedTransactions::from_block(&block);
-
         let point = block_point(&block);
 
-        let mut diff = Diff::default();
+        let diff = apply_block(block);
 
-        for (ix, transaction_body) in block.transaction_bodies.to_vec().into_iter().enumerate() {
-            let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
-            let transaction_body = transaction_body.unwrap();
+        if self.volatile.len() >= MAX_ROLLBACK_DEPTH {
+            let now_stable = self.volatile.pop_front().unwrap();
+            self.stable
+                .save(
+                    &point,
+                    Box::new(now_stable.produced.into_iter()),
+                    Box::new(now_stable.consumed.into_iter()),
+                )
+                .map_err(ForwardErr::StorageErr)?;
+        }
 
-            let (inputs, outputs) = if failed_transactions.has(ix as u32) {
+        self.volatile.push_back(diff.anchor(point));
+
+        Ok(())
+    }
+
+    pub fn backward<'b>(&mut self, to: &'b Point) -> Result<(), BackwardErr<'b>> {
+        if let Some(ix) = self.volatile.iter().position(|diff| &diff.point == to) {
+            self.volatile.resize_with(ix + 1, || {
+                unreachable!("ix is necessarly strictly smaller than the length")
+            });
+            Ok(())
+        } else {
+            Err(BackwardErr::UnknownRollbackPoint(to))
+        }
+    }
+}
+
+/// Process a given block into a series of ledger-state diff (a.k.a events) to apply.
+pub(crate) fn apply_block(block: MintedBlock<'_>) -> Diff<(), TransactionInput, TransactionOutput> {
+    let failed_transactions = FailedTransactions::from_block(&block);
+
+    let mut diff = Diff::default();
+
+    for (ix, transaction_body) in block.transaction_bodies.to_vec().into_iter().enumerate() {
+        let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
+
+        let transaction_body = transaction_body.unwrap();
+
+        let (inputs, outputs) = match failed_transactions.has(ix as u32) {
+            // NOTE: Successful transaction: standard inputs are consumed, and outputs produced.
+            false => {
+                let inputs = transaction_body.inputs.to_vec().into_iter();
+                let outputs = transaction_body.outputs.into_iter().map(|x| x.into());
+                (
+                    Box::new(inputs) as Box<dyn Iterator<Item = TransactionInput>>,
+                    Box::new(outputs) as Box<dyn Iterator<Item = TransactionOutput>>,
+                )
+            }
+
+            // NOTE: Failed transaction: collateral inputs are consumed, and collateral outputs produced (if any)
+            true => {
                 let inputs = transaction_body
                     .collateral
                     .map(|x| x.to_vec())
@@ -77,68 +122,36 @@ impl<'a, E> State<'a, E> {
                     Box::new(inputs) as Box<dyn Iterator<Item = TransactionInput>>,
                     outputs,
                 )
-            } else {
-                let inputs = transaction_body.inputs.to_vec().into_iter();
-                let outputs = transaction_body.outputs.into_iter().map(|x| x.into());
-                (
-                    Box::new(inputs) as Box<dyn Iterator<Item = TransactionInput>>,
-                    Box::new(outputs) as Box<dyn Iterator<Item = TransactionOutput>>,
-                )
-            };
+            }
+        };
 
-            diff.merge(self.apply_transaction(&transaction_id, inputs, outputs)?);
-        }
-
-        if self.volatile.len() >= MAX_ROLLBACK_DEPTH {
-            let now_stable = self.volatile.pop_front().unwrap();
-            self.stable
-                .save(
-                    &point,
-                    Box::new(now_stable.produced.into_iter()),
-                    Box::new(now_stable.consumed.into_iter()),
-                )
-                .map_err(ForwardErr::StorageErr)?;
-        }
-
-        self.volatile.push_back(diff.anchor(point));
-
-        Ok(())
+        diff.merge(apply_transaction(&transaction_id, inputs, outputs));
     }
 
-    fn apply_transaction(
-        &mut self,
-        transaction_id: &Hash<32>,
-        inputs: impl Iterator<Item = TransactionInput>,
-        outputs: impl Iterator<Item = TransactionOutput>,
-    ) -> Result<Diff<()>, ForwardErr<E>> {
-        let mut consumed = BTreeSet::new();
-        consumed.extend(inputs);
+    diff
+}
 
-        let mut produced = BTreeMap::new();
-        for (ix, output) in outputs.enumerate() {
-            let input = TransactionInput {
-                transaction_id: *transaction_id,
-                index: ix as u64,
-            };
-            produced.insert(input, output);
-        }
+pub(crate) fn apply_transaction(
+    transaction_id: &Hash<32>,
+    inputs: impl Iterator<Item = TransactionInput>,
+    outputs: impl Iterator<Item = TransactionOutput>,
+) -> Diff<(), TransactionInput, TransactionOutput> {
+    let mut consumed = BTreeSet::new();
+    consumed.extend(inputs);
 
-        Ok(Diff {
-            point: (),
-            consumed,
-            produced,
-        })
+    let mut produced = BTreeMap::new();
+    for (ix, output) in outputs.enumerate() {
+        let input = TransactionInput {
+            transaction_id: *transaction_id,
+            index: ix as u64,
+        };
+        produced.insert(input, output);
     }
 
-    pub fn backward<'b>(&mut self, to: &'b Point) -> Result<(), BackwardErr<'b>> {
-        if let Some(ix) = self.volatile.iter().position(|diff| &diff.point == to) {
-            self.volatile.resize_with(ix + 1, || {
-                unreachable!("ix is necessarly strictly smaller than the length")
-            });
-            Ok(())
-        } else {
-            Err(BackwardErr::UnknownRollbackPoint(to))
-        }
+    Diff {
+        point: (),
+        consumed,
+        produced,
     }
 }
 
@@ -172,20 +185,21 @@ impl FailedTransactions {
 // VolatileDB
 // ----------------------------------------------------------------------------
 
-// NOTE: Once we implement ledger validation, we might want to maintain an aggregated version of
-// this sequence of _Diff_, such that one can easily lookup the volatile database before reaching
-// for the stable storage.
+// NOTE: Once we implement ledger validation, we might want to maintain aggregated version(s) of
+// this sequence of _Diff_ at different points, such that one can easily lookup the volatile database
+// before reaching for the stable storage.
 //
 // Otherwise, we need to traverse the entire sequence for any query on the volatile state.
-type VolatileDB = VecDeque<Diff<Point>>;
+type VolatileDB = VecDeque<Diff<Point, TransactionInput, TransactionOutput>>;
 
-pub struct Diff<T> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Diff<T, K: Ord, V> {
     pub point: T,
-    pub consumed: BTreeSet<TransactionInput>,
-    pub produced: BTreeMap<TransactionInput, TransactionOutput>,
+    pub consumed: BTreeSet<K>,
+    pub produced: BTreeMap<K, V>,
 }
 
-impl Default for Diff<()> {
+impl<K: Ord, V> Default for Diff<(), K, V> {
     fn default() -> Self {
         Self {
             point: (),
@@ -195,18 +209,87 @@ impl Default for Diff<()> {
     }
 }
 
-impl Diff<()> {
-    pub fn merge(&mut self, other: Diff<()>) {
+impl<K: Ord, V> Diff<(), K, V> {
+    pub fn merge(&mut self, other: Diff<(), K, V>) {
+        self.produced.retain(|k, _| !other.consumed.contains(k));
+        self.consumed.retain(|k| !other.produced.contains_key(k));
         self.consumed.extend(other.consumed);
         self.produced.extend(other.produced);
-        self.produced.retain(|k, _| !self.consumed.contains(k));
     }
 
-    pub fn anchor(self, point: Point) -> Diff<Point> {
+    pub fn anchor(self, point: Point) -> Diff<Point, K, V> {
         Diff {
             point,
             consumed: self.consumed,
             produced: self.produced,
+        }
+    }
+}
+
+#[cfg(test)]
+mod diff_test {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::{BTreeMap, BTreeSet};
+
+    prop_compose! {
+        fn any_diff()(
+            consumed in
+                any::<BTreeSet<u8>>(),
+            mut produced in
+                any::<BTreeMap<u8, u8>>()
+        ) -> Diff<(), u8, u8> {
+            produced.retain(|k, _| !consumed.contains(k));
+            Diff {
+                point: (),
+                produced,
+                consumed,
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_merge_itself(mut st in any_diff()) {
+            let original = st.clone();
+            st.merge(st.clone());
+            prop_assert_eq!(st, original);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_merge_no_overlap(mut st in any_diff(), diff in any_diff()) {
+            st.merge(diff.clone());
+
+            for (k, v) in diff.produced.iter() {
+                prop_assert_eq!(
+                    st.produced.get(k),
+                    Some(v),
+                    "everything newly produced is produced"
+                );
+            }
+
+            for k in diff.consumed.iter() {
+                prop_assert!(
+                    st.consumed.contains(k),
+                    "everything newly consumed is consumed",
+                );
+            }
+
+            for (k, _) in st.produced.iter() {
+                prop_assert!(
+                    !st.consumed.contains(k),
+                    "nothing produced is also consumed",
+                )
+            }
+
+            for k in st.consumed.iter() {
+                prop_assert!(
+                    !st.produced.contains_key(k),
+                    "nothing consumed is also produced",
+                )
+            }
         }
     }
 }

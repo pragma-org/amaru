@@ -30,7 +30,7 @@ mod tests {
             );
         };
 
-        assert_eq!(stake_pools.len(), 304);
+        assert_eq!(stake_pools.len(), 405);
         hit(
             "10caff4f6980296efccd94b91a966e4692f8fc89de2490605454935a",
             "ed6b09ed118264f29bad9af7b785a48d562998924e2d0a98e9356fcf0a5a01f1",
