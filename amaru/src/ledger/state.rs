@@ -1,13 +1,18 @@
 use super::{
-    kernel::{block_point, Hash, Hasher, MintedBlock, Point, TransactionInput, TransactionOutput},
-    store::Store,
+    kernel::{
+        block_point, Hash, Hasher, MintedBlock, Point, PoolSigma, TransactionInput,
+        TransactionOutput,
+    },
+    store::{self, Store},
 };
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use crate::ledger::kernel::{PoolId, CONSENSUS_SECURITY_PARAM};
+use std::{
+    collections::{BTreeMap, BTreeSet, VecDeque},
+    sync::Arc,
+};
 
-/// The maximum depth of a rollback, also known as the security parameter 'k'.
-/// This translates down to the length of our volatile storage, containing states of the ledger
-/// which aren't yet considered final.
-pub const MAX_ROLLBACK_DEPTH: usize = 2160;
+// State
+// ----------------------------------------------------------------------------
 
 /// The state of the ledger split into two sub-components:
 ///
@@ -16,14 +21,14 @@ pub const MAX_ROLLBACK_DEPTH: usize = 2160;
 ///   blocks old; where 'k' is the security parameter of the protocol.
 ///
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
-///   top of the _stable_ store. It contains at most 'MAX_ROLLBACK_DEPTH' entries; old entries
+///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
 pub struct State<'a, E> {
     stable: StableDB<'a, E>,
     volatile: VolatileDB,
 }
 
-type StableDB<'a, E> = Box<dyn Store<Error = E> + 'a>;
+type StableDB<'a, E> = Arc<dyn Store<Error = E> + Send + Sync + 'a>;
 
 impl<'a, E> State<'a, E> {
     pub fn new(stable: StableDB<'a, E>) -> Self {
@@ -52,13 +57,19 @@ impl<'a, E> State<'a, E> {
 
         let diff = apply_block(block);
 
-        if self.volatile.len() >= MAX_ROLLBACK_DEPTH {
+        if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
             let now_stable = self.volatile.pop_front().unwrap();
             self.stable
                 .save(
                     &point,
-                    Box::new(now_stable.produced.into_iter()),
-                    Box::new(now_stable.consumed.into_iter()),
+                    store::Add {
+                        utxo: Box::new(now_stable.produced.into_iter()),
+                        ..Default::default()
+                    },
+                    store::Remove {
+                        utxo: Box::new(now_stable.consumed.into_iter()),
+                        ..Default::default()
+                    },
                 )
                 .map_err(ForwardErr::StorageErr)?;
         }
@@ -152,6 +163,37 @@ pub(crate) fn apply_transaction(
         point: (),
         consumed,
         produced,
+    }
+}
+
+impl<'a, E> ouroboros::ledger::LedgerState for State<'a, E> {
+    fn pool_id_to_sigma(&self, _pool_id: &PoolId) -> Result<PoolSigma, ouroboros::ledger::Error> {
+        // FIXME: Obtain from ledger's stake distribution
+        Err(ouroboros::ledger::Error::PoolIdNotFound)
+    }
+
+    fn vrf_vkey_hash(&self, _pool_id: &PoolId) -> Result<Hash<32>, ouroboros::ledger::Error> {
+        // self.pool_id_to_vrf
+        //     .get(pool_id)
+        //     .cloned()
+        //     .ok_or(ouroboros::ledger::Error::PoolIdNotFound)
+        todo!("coming in the next commit");
+    }
+
+    fn slot_to_kes_period(&self, slot: u64) -> u64 {
+        // FIXME: Extract from genesis configuration.
+        let slots_per_kes_period: u64 = 129600;
+        slot / slots_per_kes_period
+    }
+
+    fn max_kes_evolutions(&self) -> u64 {
+        // FIXME: Extract from genesis configuration.
+        62
+    }
+
+    fn latest_opcert_sequence_number(&self, _issuer_vkey: &[u8]) -> Option<u64> {
+        // FIXME: Obtain from protocol's state
+        None
     }
 }
 

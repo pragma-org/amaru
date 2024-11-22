@@ -3,18 +3,13 @@ use gasket::framework::*;
 use pallas_codec::minicbor as cbor;
 use pallas_crypto::hash::{Hash, Hasher};
 use pallas_primitives::conway::MintedBlock;
-use std::path::PathBuf;
+use std::{path::Path, sync::Arc};
+use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 
-use store::Store;
-
-pub mod stake_distribution;
-pub mod stake_pools;
-
 pub mod kernel;
-pub mod mock;
 pub mod state;
 pub mod store;
 
@@ -22,33 +17,27 @@ pub mod store;
 #[stage(name = "ledger", unit = "ValidateHeaderEvent", worker = "Worker")]
 pub struct Stage {
     pub upstream: UpstreamPort,
-    pub store: PathBuf,
+    pub state: Arc<Mutex<state::State<'static, rocksdb::Error>>>,
 }
 
 impl Stage {
-    pub fn new(store: PathBuf) -> Self {
+    pub fn new(store: &Path) -> Self {
+        let store = store::impl_rocksdb::RocksDB::new(store)
+            .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
+
         Self {
             upstream: Default::default(),
-            store,
+            state: Arc::new(Mutex::new(state::State::new(Arc::new(store)))),
         }
     }
 }
 
-pub struct Worker {
-    state: state::State<'static, rocksdb::Error>,
-}
+pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
-    async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let store = store::impl_rocksdb::RocksDB::new(&stage.store).map_err(|e| {
-            error!("{e:?}");
-            WorkerError::Panic
-        })?;
-
-        Ok(Self {
-            state: state::State::new(Box::new(store) as Box<dyn Store<Error = rocksdb::Error>>),
-        })
+    async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
+        Ok(Self {})
     }
 
     async fn schedule(
@@ -62,7 +51,7 @@ impl gasket::framework::Worker<Stage> for Worker {
     async fn execute(
         &mut self,
         unit: &ValidateHeaderEvent,
-        _stage: &mut Stage,
+        stage: &mut Stage,
     ) -> Result<(), WorkerError> {
         match unit {
             ValidateHeaderEvent::Validated(_point, raw_block) => {
@@ -75,7 +64,9 @@ impl gasket::framework::Worker<Stage> for Worker {
                     hex::encode(block_header_hash)
                 );
 
-                self.state.forward(block).map_err(|e| {
+                let mut state = stage.state.lock().await;
+
+                state.forward(block).map_err(|e| {
                     error!("failed to apply block: {e:?}");
                     WorkerError::Panic
                 })?;
@@ -86,7 +77,9 @@ impl gasket::framework::Worker<Stage> for Worker {
             ValidateHeaderEvent::Rollback(point) => {
                 info!("rolling back to {:?}", point);
 
-                if let Err(e) = self.state.backward(point) {
+                let mut state = stage.state.lock().await;
+
+                if let Err(e) = state.backward(point) {
                     match e {
                         BackwardErr::UnknownRollbackPoint(point) => {
                             warn!("tried to roll back to an unknown point: {point:?}")

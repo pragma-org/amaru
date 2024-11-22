@@ -1,4 +1,4 @@
-use crate::{consensus::ValidateHeaderEvent, sync::PullEvent};
+use crate::{consensus::ValidateHeaderEvent, ledger::kernel::epoch_slot, sync::PullEvent};
 use gasket::framework::*;
 use miette::miette;
 use ouroboros::{ledger::LedgerState, validator::Validator};
@@ -21,7 +21,7 @@ pub fn assert_header(
     match header {
         MultiEraHeader::BabbageCompatible(_) => {
             let minted_header = header.as_babbage().unwrap();
-            let epoch = epoch_for_preprod_slot(minted_header.header_body.slot);
+            let epoch = epoch_slot(minted_header.header_body.slot);
 
             // TODO: This is awkward, and should probably belong to the LedgerState
             // abstraction? The ledger shall keep track of the rolling nonce and
@@ -51,19 +51,4 @@ pub fn assert_header(
     }
 
     Ok(())
-}
-
-// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
-/// Mocking this calculation specifically for preprod. We need to know the epoch for the slot so
-/// we can look up the epoch nonce.
-fn epoch_for_preprod_slot(slot: u64) -> u64 {
-    let shelley_epoch_length = 432000; // 5 days in seconds
-    let shelley_transition_epoch: u64 = 4;
-    let byron_protocol_consts_k: u64 = 2160;
-    let byron_epoch_length = 10 * byron_protocol_consts_k;
-    let byron_slots = byron_epoch_length * shelley_transition_epoch;
-    let shelley_slots = slot - byron_slots;
-    let epoch = (shelley_slots / shelley_epoch_length) + shelley_transition_epoch;
-
-    epoch
 }

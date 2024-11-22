@@ -1,10 +1,9 @@
 use amaru::ledger::{
     self,
     kernel::{Point, TransactionInput, TransactionOutput},
-    store::Store,
+    store::{self, Store},
 };
 use clap::Parser;
-use core::iter;
 use indicatif::ProgressBar;
 use miette::{Diagnostic, IntoDiagnostic};
 use pallas_codec::minicbor as cbor;
@@ -40,7 +39,7 @@ enum Error<'a> {
 pub async fn run(args: Args) -> miette::Result<()> {
     let point = super::parse_point(&args.date, Error::MalformedDate).into_diagnostic()?;
 
-    let mut db = ledger::store::impl_rocksdb::RocksDB::new(&args.out).into_diagnostic()?;
+    let db = ledger::store::impl_rocksdb::RocksDB::new(&args.out).into_diagnostic()?;
 
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;
     let mut d = cbor::Decoder::new(&bytes);
@@ -76,23 +75,21 @@ pub async fn run(args: Args) -> miette::Result<()> {
         let chunk = utxo.drain(0..n);
 
         db.save(
-            // NOTE:
             &Point::Origin,
-            Box::new(chunk) as Box<(dyn Iterator<Item = (TransactionInput, TransactionOutput)>)>,
-            Box::new(iter::empty()) as Box<(dyn Iterator<Item = TransactionInput>)>,
+            store::Add {
+                utxo: Box::new(chunk)
+                    as Box<(dyn Iterator<Item = (TransactionInput, TransactionOutput)>)>,
+                ..Default::default()
+            },
+            Default::default(),
         )
         .into_diagnostic()?;
 
         progress.inc(n as u64);
     }
 
-    db.save(
-        &point,
-        Box::new(iter::empty())
-            as Box<(dyn Iterator<Item = (TransactionInput, TransactionOutput)>)>,
-        Box::new(iter::empty()) as Box<(dyn Iterator<Item = TransactionInput>)>,
-    )
-    .into_diagnostic()?;
+    db.save(&point, Default::default(), Default::default())
+        .into_diagnostic()?;
 
     progress.finish();
 

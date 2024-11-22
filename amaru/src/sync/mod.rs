@@ -1,14 +1,10 @@
 use crate::{consensus, ledger};
 use gasket::runtime::Tether;
-use ouroboros::ledger::{PoolId, PoolSigma};
 use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
-use std::{
-    collections::HashMap,
-    path::PathBuf,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use tokio::sync::Mutex;
 
 mod fetch;
 mod pull;
@@ -28,8 +24,6 @@ pub struct Config {
     pub upstream_peer: String,
     pub network_magic: u32,
     pub intersection: Vec<Point>,
-    pub stake_distribution: HashMap<PoolId, PoolSigma>,
-    pub stake_pools: HashMap<PoolId, Hash<32>>,
     pub nonces: HashMap<Epoch, Hash<32>>,
 }
 
@@ -52,18 +46,13 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 }
 
 pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
-    let ledger_mock = Arc::new(Mutex::new(ledger::mock::new(
-        config.stake_pools,
-        config.stake_distribution,
-    )));
+    // FIXME: Take from config / command args
+    let ledger_store = PathBuf::from("./ledger.db");
+    let mut ledger = ledger::Stage::new(&ledger_store);
 
     let mut pull = pull::Stage::new(client.clone(), config.intersection.clone());
     let mut header_validation =
-        consensus::worker::Stage::new(client.clone(), ledger_mock.clone(), config.nonces);
-
-    // FIXME: Take from config / command args
-    let ledger_store = PathBuf::from("./ledger.db");
-    let mut ledger = ledger::Stage::new(ledger_store);
+        consensus::worker::Stage::new(client.clone(), ledger.state.clone(), config.nonces);
 
     let (to_header_validation, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);

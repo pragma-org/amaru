@@ -9,10 +9,8 @@ use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
 use pallas_traverse::MultiEraHeader;
-use std::{
-    collections::HashMap,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::Mutex;
 use tracing::info;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
@@ -87,12 +85,12 @@ impl gasket::framework::Worker<Stage> for Worker {
                     .map_err(|e| miette!(e))
                     .or_panic()?;
 
-                let ledger = stage.ledger.lock().unwrap();
+                let ledger = stage.ledger.lock().await;
                 assert_header(&header, &stage.epoch_to_nonce, &*ledger)?;
 
                 let block = {
                     info!("fetching block...");
-                    let mut peer_session = stage.peer_session.lock().unwrap();
+                    let mut peer_session = stage.peer_session.lock().await;
                     let client = (*peer_session).blockfetch();
                     let block = client.fetch_single(point.clone()).await.or_restart()?;
                     info!("fetched block done.");
