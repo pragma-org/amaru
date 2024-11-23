@@ -83,6 +83,63 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
             Err(BackwardErr::UnknownRollbackPoint(to))
         }
     }
+
+    /// Fetch stake pool details from the current live view of the ledger.
+    pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, QueryErr<E>> {
+        let current_epoch = epoch_slot(self.tip.slot_or_default());
+
+        // NOTE: When we are near an epoch boundary, we need to consider the not-yet-stable changes
+        // that belong to the previous epoch. Any re-registration or retirement that would now be
+        // valid must be acknowledged.
+        let volatile = self
+            .volatile
+            .iter()
+            .fold(DiffEpochReg::default(), |mut state, step| {
+                if epoch_slot(step.point.slot_or_default()) < current_epoch {
+                    if let Some(registrations) = step.pools.registered.get(pool) {
+                        state.register(pool, registrations.last());
+                    }
+
+                    if let Some(retirement) = step.pools.unregistered.get(pool) {
+                        // NOTE: in principle, there's a minimum epoch retirement delay which will
+                        // likely always stay larger than one epoch. Thus, the case where we have a
+                        // retirement certificate in the previous epoch that is enacted in the
+                        // current epoch will never occur. Yet, since it is technically bounded by
+                        // a protocol parameter, we better get the logic right.
+                        if retirement <= &current_epoch {
+                            state.unregister(pool, *retirement);
+                        }
+                    }
+                }
+
+                state
+            });
+
+        if let Some(retirement) = volatile.unregistered.get(pool) {
+            if retirement <= &current_epoch {
+                return Ok(None);
+            }
+        }
+
+        if let Some(registrations) = volatile.registered.get(pool) {
+            return Ok(Some((*registrations.last()).clone()));
+        }
+
+        if let Some(state) = self.stable.get_pool(pool).map_err(QueryErr::StorageErr)? {
+            if let Some(params) = state
+                .future_params
+                .iter()
+                .filter(|(_, epoch)| epoch <= &current_epoch)
+                .last()
+            {
+                return Ok(Some(params.0.clone()));
+            }
+
+            return Ok(Some(state.current_params));
+        }
+
+        Ok(None)
+    }
 }
 
 /// Process a given block into a series of ledger-state diff (a.k.a events) to apply.
@@ -167,10 +224,10 @@ impl<'a, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<'a, E> {
         Err(ouroboros::ledger::Error::PoolIdNotFound)
     }
 
+    // FIXME: This method most probably needs pool from the mark or set snapshots (so one or two
+    // epochs in the past), and not from the live view.
     fn vrf_vkey_hash(&self, pool_id: &PoolId) -> Result<Hash<32>, ouroboros::ledger::Error> {
-        // FIXME: Look in the volatile part first
-        self.stable
-            .get_pool(pool_id, epoch_slot(self.tip.slot_or_default()))
+        self.get_pool(pool_id)
             .unwrap_or_else(|e| panic!("unable to fetch pool from database: {e:?}"))
             .map(|params| params.vrf)
             .ok_or(ouroboros::ledger::Error::PoolIdNotFound)
@@ -540,6 +597,11 @@ mod diff_set_test {
 
 // Errors
 // ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum QueryErr<E> {
+    StorageErr(E),
+}
 
 #[derive(Debug)]
 pub enum ForwardErr<E> {

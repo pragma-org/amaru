@@ -1,4 +1,5 @@
 use super::kernel::{Epoch, Point, PoolId, PoolParams, TransactionInput, TransactionOutput};
+use pallas_codec::minicbor::{self as cbor};
 use std::{iter, path::Path};
 
 // Store
@@ -16,7 +17,7 @@ pub trait Store {
 
     fn get_tip(&self) -> Result<Point, Self::Error>;
 
-    fn get_pool(&self, pool: &PoolId, epoch: Epoch) -> Result<Option<PoolParams>, Self::Error>;
+    fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParamsUpdates>, Self::Error>;
 }
 
 pub struct Add<'a> {
@@ -48,12 +49,81 @@ impl<'a> Default for Remove<'a> {
     }
 }
 
+// PoolParamsUpdates
+// ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct PoolParamsUpdates {
+    pub current_params: PoolParams,
+    pub future_params: Vec<(PoolParams, Epoch)>,
+}
+
+impl PoolParamsUpdates {
+    fn new(current_params: PoolParams) -> Self {
+        Self {
+            current_params,
+            future_params: Vec::new(),
+        }
+    }
+
+    fn extend(mut bytes: Vec<u8>, future_params: (Option<PoolParams>, Epoch)) -> Vec<u8> {
+        let tail = bytes.split_off(bytes.len() - 2);
+        assert_eq!(
+            tail,
+            vec![0xFF, 0xFF],
+            "invalid tail of serialized pool parameters"
+        );
+        cbor::encode(future_params, &mut bytes)
+            .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+        [bytes, tail].concat()
+    }
+}
+
+impl<C> cbor::encode::Encode<C> for PoolParamsUpdates {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        // NOTE: We explicitly enforce the use of *indefinite* arrays here because it allows us
+        // to extend the serialized data easily without having to deserialise it.
+        e.begin_array()?;
+        e.encode_with(&self.current_params, ctx)?;
+        e.begin_array()?;
+        for update in self.future_params.iter() {
+            e.encode_with(update, ctx)?;
+        }
+        e.end()?;
+        e.end()?;
+        Ok(())
+    }
+}
+
+impl<'a, C> cbor::decode::Decode<'a, C> for PoolParamsUpdates {
+    fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        let current_params = d.decode_with(ctx)?;
+
+        let mut iter = d.array_iter()?;
+
+        let mut future_params = Vec::new();
+        while let Some(item) = iter.next() {
+            future_params.push(item?);
+        }
+
+        Ok(PoolParamsUpdates {
+            current_params,
+            future_params,
+        })
+    }
+}
+
 // rocksDB implementation
 // ----------------------------------------------------------------------------
 
 pub mod impl_rocksdb {
     use super::*;
-    use pallas_codec::minicbor::{self as cbor, Encode};
+    use pallas_codec::minicbor::{self as cbor};
     use rocksdb;
 
     const SEPARATOR: [u8; 1] = [0x3a];
@@ -128,9 +198,9 @@ pub mod impl_rocksdb {
                         //   epoch boundary.
                         //
                         let params = match batch.get(as_key(&PREFIX_POOL, pool))? {
-                            None => as_value(EpochAwarePoolParams::new(params)),
+                            None => as_value(PoolParamsUpdates::new(params)),
                             Some(existing_params) => {
-                                EpochAwarePoolParams::extend(existing_params, (Some(params), epoch))
+                                PoolParamsUpdates::extend(existing_params, (Some(params), epoch))
                             }
                         };
 
@@ -149,7 +219,7 @@ pub mod impl_rocksdb {
                             None => (),
                             Some(existing_params) => batch.put(
                                 as_key(&PREFIX_POOL, pool),
-                                EpochAwarePoolParams::extend(existing_params, (None, epoch)),
+                                PoolParamsUpdates::extend(existing_params, (None, epoch)),
                             )?,
                         };
                     }
@@ -159,12 +229,13 @@ pub mod impl_rocksdb {
             batch.commit()
         }
 
-        fn get_pool(
-            &self,
-            _pool: &PoolId,
-            _epoch: Epoch,
-        ) -> Result<Option<PoolParams>, Self::Error> {
-            Ok(None)
+        fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParamsUpdates>, Self::Error> {
+            Ok(self
+                .db
+                .get(as_key(&PREFIX_POOL, pool))?
+                .map(|bytes| cbor::decode(&bytes))
+                .transpose()
+                .expect("unable to decode database's pool"))
         }
 
         fn get_tip(&self) -> Result<Point, Self::Error> {
@@ -176,70 +247,20 @@ pub mod impl_rocksdb {
     /// objects of the same type to emulate some kind of table organization within RocksDB. This
     /// allows to iterate over the store by specific prefixes and also avoid key-clashes across
     /// objects that could otherwise have an identical key.
-    fn as_key<T: Encode<()> + std::fmt::Debug>(prefix: &[u8], key: T) -> Vec<u8> {
+    fn as_key<T: cbor::Encode<()> + std::fmt::Debug>(prefix: &[u8], key: T) -> Vec<u8> {
         as_bytes(&[prefix, &SEPARATOR[..]].concat(), key)
     }
 
     /// A simple helper function to encode any (serialisable) value to CBOR bytes.
-    fn as_value<T: Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
+    fn as_value<T: cbor::Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
         as_bytes(&[], value)
     }
 
     /// A simple helper function to encode any (serialisable) value to CBOR bytes.
-    fn as_bytes<T: Encode<()> + std::fmt::Debug>(prefix: &[u8], value: T) -> Vec<u8> {
+    fn as_bytes<T: cbor::Encode<()> + std::fmt::Debug>(prefix: &[u8], value: T) -> Vec<u8> {
         let mut buffer = Vec::from(prefix);
         cbor::encode(value, &mut buffer)
             .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
         buffer
-    }
-
-    // EpochAwarePoolParams
-    // ----------------------------------------------------------------------------
-
-    #[derive(Debug)]
-    struct EpochAwarePoolParams {
-        current_params: PoolParams,
-        future_params: Vec<(PoolParams, Epoch)>,
-    }
-
-    impl EpochAwarePoolParams {
-        pub fn new(current_params: PoolParams) -> Self {
-            Self {
-                current_params,
-                future_params: Vec::new(),
-            }
-        }
-
-        pub fn extend(mut bytes: Vec<u8>, future_params: (Option<PoolParams>, Epoch)) -> Vec<u8> {
-            let tail = bytes.split_off(bytes.len() - 2);
-            assert_eq!(
-                tail,
-                vec![0xFF, 0xFF],
-                "invalid tail of serialized pool parameters"
-            );
-            cbor::encode(future_params, &mut bytes)
-                .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
-            [bytes, tail].concat()
-        }
-    }
-
-    impl<C> cbor::encode::Encode<C> for EpochAwarePoolParams {
-        fn encode<W: cbor::encode::Write>(
-            &self,
-            e: &mut cbor::Encoder<W>,
-            ctx: &mut C,
-        ) -> Result<(), cbor::encode::Error<W::Error>> {
-            // NOTE: We explicitly enforce the use of *indefinite* arrays here because it allows us
-            // to extend the serialized data easily without having to deserialise it.
-            e.begin_array()?;
-            e.encode_with(&self.current_params, ctx)?;
-            e.begin_array()?;
-            for update in self.future_params.iter() {
-                e.encode_with(update, ctx)?;
-            }
-            e.end()?;
-            e.end()?;
-            Ok(())
-        }
     }
 }
