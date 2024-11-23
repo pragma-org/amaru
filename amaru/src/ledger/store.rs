@@ -21,7 +21,7 @@ pub trait Store {
 
 pub struct Add<'a> {
     pub utxo: Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
-    pub pools: Box<dyn Iterator<Item = (PoolId, PoolParams, Epoch)> + 'a>,
+    pub pools: Box<dyn Iterator<Item = (PoolParams, Epoch)> + 'a>,
 }
 
 impl<'a> Default for Add<'a> {
@@ -29,8 +29,7 @@ impl<'a> Default for Add<'a> {
         Self {
             utxo: Box::new(iter::empty())
                 as Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
-            pools: Box::new(iter::empty())
-                as Box<dyn Iterator<Item = (PoolId, PoolParams, Epoch)> + 'a>,
+            pools: Box::new(iter::empty()) as Box<dyn Iterator<Item = (PoolParams, Epoch)> + 'a>,
         }
     }
 }
@@ -117,7 +116,9 @@ pub mod impl_rocksdb {
                         batch.put(as_key(&PREFIX_UTXO, input), as_value(output))?;
                     }
 
-                    for (pool, params, epoch) in add.pools {
+                    for (params, epoch) in add.pools {
+                        let pool = params.id;
+
                         // Pool parameters are stored in an epoch-aware fashion.
                         //
                         // - If no parameters exist for the pool, we can immediately create a new
@@ -132,6 +133,7 @@ pub mod impl_rocksdb {
                                 EpochAwarePoolParams::extend(existing_params, (Some(params), epoch))
                             }
                         };
+
                         batch.put(as_key(&PREFIX_POOL, pool), params)?;
                     }
 

@@ -1,15 +1,15 @@
 use super::{
     kernel::{
-        block_point, epoch_slot, Hash, Hasher, MintedBlock, Point, PoolSigma, TransactionInput,
-        TransactionOutput,
+        block_point, epoch_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, PoolParams,
+        PoolSigma, TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM,
     },
     store::{self, Store},
 };
-use crate::ledger::kernel::{PoolId, CONSENSUS_SECURITY_PARAM};
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
 };
+use vec1::{vec1, Vec1};
 
 // State
 // ----------------------------------------------------------------------------
@@ -59,26 +59,16 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
     pub fn forward(&mut self, block: MintedBlock<'_>) -> Result<(), ForwardErr<E>> {
         let point = block_point(&block);
 
-        let st = apply_block(block);
+        let state = apply_block(block);
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
-            let now_stable = self.volatile.pop_front().unwrap();
+            let (add, remove) = self.volatile.pop_front().unwrap().into_store_update();
             self.stable
-                .save(
-                    &point,
-                    store::Add {
-                        utxo: Box::new(now_stable.utxo.produced.into_iter()),
-                        ..Default::default()
-                    },
-                    store::Remove {
-                        utxo: Box::new(now_stable.utxo.consumed.into_iter()),
-                        ..Default::default()
-                    },
-                )
+                .save(&point, add, remove)
                 .map_err(ForwardErr::StorageErr)?;
         }
 
-        self.volatile.push_back(st.anchor(point));
+        self.volatile.push_back(state.anchor(point));
 
         Ok(())
     }
@@ -99,7 +89,7 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
 fn apply_block(block: MintedBlock<'_>) -> VolatileState<()> {
     let failed_transactions = FailedTransactions::from_block(&block);
 
-    let mut st = VolatileState::default();
+    let mut state = VolatileState::default();
 
     for (ix, transaction_body) in block.transaction_bodies.to_vec().into_iter().enumerate() {
         let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
@@ -107,7 +97,9 @@ fn apply_block(block: MintedBlock<'_>) -> VolatileState<()> {
         let transaction_body = transaction_body.unwrap();
 
         let (inputs, outputs) = match failed_transactions.has(ix as u32) {
-            // NOTE: Successful transaction: standard inputs are consumed, and outputs produced.
+            // == Successful transaction
+            // - inputs are consumed;
+            // - outputs are produced.
             false => {
                 let inputs = transaction_body.inputs.to_vec().into_iter();
                 let outputs = transaction_body.outputs.into_iter().map(|x| x.into());
@@ -117,7 +109,9 @@ fn apply_block(block: MintedBlock<'_>) -> VolatileState<()> {
                 )
             }
 
-            // NOTE: Failed transaction: collateral inputs are consumed, and collateral outputs produced (if any)
+            // == Failed transaction
+            // - collateral inputs are consumed;
+            // - collateral outputs produced (if any).
             true => {
                 let inputs = transaction_body
                     .collateral
@@ -140,17 +134,18 @@ fn apply_block(block: MintedBlock<'_>) -> VolatileState<()> {
             }
         };
 
-        st.merge(apply_transaction(&transaction_id, inputs, outputs));
+        apply_transaction(&mut state, &transaction_id, inputs, outputs);
     }
 
-    st
+    state
 }
 
-fn apply_transaction(
+fn apply_transaction<T>(
+    state: &mut VolatileState<T>,
     transaction_id: &Hash<32>,
     inputs: impl Iterator<Item = TransactionInput>,
     outputs: impl Iterator<Item = TransactionOutput>,
-) -> VolatileState<()> {
+) {
     let mut consumed = BTreeSet::new();
     consumed.extend(inputs);
 
@@ -163,10 +158,7 @@ fn apply_transaction(
         produced.insert(input, output);
     }
 
-    VolatileState {
-        utxo: DiffSet { consumed, produced },
-        ..VolatileState::default()
-    }
+    state.utxo.merge(DiffSet { consumed, produced });
 }
 
 impl<'a, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<'a, E> {
@@ -204,6 +196,8 @@ impl<'a, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<'a, E> {
 // FailedTransactions
 // ----------------------------------------------------------------------------
 
+/// Failed transactions aren'y immediately available in blocks. Only indices of those transactions
+/// are stored. This internal structure provides a clean(er) interface to accessing those indices.
 struct FailedTransactions {
     inner: BTreeSet<u32>,
 }
@@ -241,6 +235,7 @@ type VolatileDB = VecDeque<VolatileState<Point>>;
 struct VolatileState<T> {
     pub point: T,
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
+    pub pools: DiffEpochReg<PoolId, PoolParams>,
 }
 
 impl Default for VolatileState<()> {
@@ -248,6 +243,7 @@ impl Default for VolatileState<()> {
         Self {
             point: (),
             utxo: Default::default(),
+            pools: Default::default(),
         }
     }
 }
@@ -257,19 +253,161 @@ impl VolatileState<()> {
         VolatileState {
             point,
             utxo: self.utxo,
+            pools: self.pools,
         }
     }
 }
 
-impl<T> VolatileState<T> {
-    pub fn merge(&mut self, other: VolatileState<T>) {
-        self.utxo.merge(other.utxo);
+impl VolatileState<Point> {
+    pub fn into_store_update<'a>(self) -> (store::Add<'a>, store::Remove<'a>) {
+        (
+            store::Add {
+                utxo: Box::new(self.utxo.produced.into_iter()),
+                pools: Box::new(std::iter::empty()), // FIXME: get from state
+            },
+            store::Remove {
+                utxo: Box::new(self.utxo.consumed.into_iter()),
+                pools: Box::new(std::iter::empty()), // FIXME: get from state
+            },
+        )
+    }
+}
+
+// DiffEpochReg
+// ----------------------------------------------------------------------------
+
+/// A compact data-structure tracking deferred registration & unregistration changes in a key:value
+/// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
+/// occurs only after a certain epoch (specified when unregistering). Similarly, re-registering is
+/// treated as an update, but always deferred to some specified epoch as well.
+///
+/// The data-structure can be reduced through a composition relation that ensures two
+/// `DiffEpochReg` collapses into one that is equivalent to applying both `DiffEpochReg` in
+/// sequence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffEpochReg<K, V> {
+    pub registered: BTreeMap<K, Vec1<V>>,
+    pub unregistered: BTreeMap<K, Epoch>,
+}
+
+impl<K, V> Default for DiffEpochReg<K, V> {
+    fn default() -> Self {
+        Self {
+            registered: Default::default(),
+            unregistered: Default::default(),
+        }
+    }
+}
+
+impl<K: Ord, V> DiffEpochReg<K, V> {
+    /// We reduce registration and de-registration according to the following rules:
+    ///
+    /// 1. A single `DiffEpochReg` spans over *a block*. Thus, there is no epoch change whatsoever
+    ///    happening within a single block.
+    ///
+    /// 2. Beyond the first registration, any new registration takes precedence. Said differently,
+    ///    there's always _at most_ two registrations.
+    ///
+    ///    In practice, the first registation could also *sometimes* be collapsed, if there's
+    ///    already a registration in the stable storage. But we don't have acccess to the storage
+    ///    here, so by default, we'll always keep the first registration untouched.
+    ///
+    /// 3. Registration immediately cancels out any unregistration.
+    ///
+    /// 4. There can be at most 1 unregistration per entity. Any new unregistration is preferred
+    ///    and replaces previous registrations.
+    pub fn register(&mut self, k: K, v: V) {
+        self.unregistered.remove(&k);
+        match self.registered.get_mut(&k) {
+            None => {
+                self.registered.insert(k, vec1![v]);
+            }
+            Some(vs) => {
+                if vs.len() > 1 {
+                    vs[1] = v;
+                } else {
+                    vs.push(v);
+                }
+            }
+        }
+    }
+
+    // See 'register' for details.
+    pub fn unregister(&mut self, k: K, epoch: Epoch) {
+        self.unregistered.insert(k, epoch);
+    }
+}
+
+#[cfg(test)]
+mod diff_epoch_reg_test {
+    use super::*;
+    use proptest::prelude::*;
+    use std::collections::BTreeMap;
+
+    prop_compose! {
+        fn any_diff()(
+            registered in
+                any::<BTreeMap<u8, Vec<u8>>>(),
+            unregistered in
+                any::<BTreeMap<u8, Epoch>>()
+        ) -> DiffEpochReg<u8, u8> {
+            DiffEpochReg {
+                registered: registered
+                    .into_iter()
+                    .filter_map(|(k, mut v)| {
+                        v.truncate(2);
+                        let v = Vec1::try_from(v).ok()?;
+                        Some((k, v))
+                    })
+                    .collect::<BTreeMap<_, _>>(),
+                unregistered,
+            }
+        }
+    }
+
+    proptest! {
+        // NOTE: We could avoid this test altogether by modelling the type in a different way.
+        // Having a sum One(V) | Two(V, V) instead of a Vec1 would give us this guarantee _by
+        // construction_.
+        #[test]
+        fn prop_register(mut st in any_diff(), (k, v) in any::<(u8, u8)>()) {
+            st.register(k, v);
+            let vs = st.registered.get(&k).expect("we just registered an element");
+            assert!(vs.len() <= 2, "registered[{k}] = {:?} has more than 2 elements", vs);
+            if vs.len() == 1 {
+                assert_eq!(vs, &vec1![v], "only element is different");
+            } else {
+                assert_eq!(*vs.last(), v, "last element is different");
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_register_cancels_unregister(mut st in any_diff(), (k, v) in any::<(u8, u8)>()) {
+            st.register(k, v);
+            assert!(!st.unregistered.contains_key(&k))
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_unregister_right_biaised(mut st in any_diff(), (k, e) in any::<(u8, Epoch)>()) {
+            st.unregister(k, e);
+            let e_retained = st.unregistered.get(&k);
+            assert_eq!(e_retained, Some(&e))
+        }
     }
 }
 
 // DiffSet
 // ----------------------------------------------------------------------------
 
+/// A compact data-structure tracking changes in a DAG. A composition relation exists, allowing to reduce
+/// two `DiffSet` into one that is equivalent to applying both `DiffSet` in sequence.
+///
+/// Concretely, we use this to track changes to apply to the UTxO set across a block, coming from
+/// the processing of each transaction in sequence.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffSet<K: Ord, V> {
     pub consumed: BTreeSet<K>,
@@ -286,7 +424,7 @@ impl<K: Ord, V> Default for DiffSet<K, V> {
 }
 
 impl<K: Ord, V> DiffSet<K, V> {
-    pub fn merge(&mut self, other: DiffSet<K, V>) {
+    pub fn merge(&mut self, other: Self) {
         self.produced.retain(|k, _| !other.consumed.contains(k));
         self.consumed.retain(|k| !other.produced.contains_key(k));
         self.consumed.extend(other.consumed);
@@ -295,7 +433,7 @@ impl<K: Ord, V> DiffSet<K, V> {
 }
 
 #[cfg(test)]
-mod diff_test {
+mod diff_set_test {
     use super::*;
     use proptest::prelude::*;
     use std::collections::{BTreeMap, BTreeSet};
@@ -357,6 +495,45 @@ mod diff_test {
                     "nothing consumed is also produced",
                 )
             }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_composition(
+            st0 in any_diff().prop_map(|st| st.produced),
+            diffs in prop::collection::vec(any_diff(), 1..5),
+        ) {
+            // NOTE: The order in which we apply transformation here doesn't matter, because we
+            // know that DiffSet consumed and produced do not overlap _by construction_ (cf the
+            // prop_merge_no_overlap). So we could write the two statements below in any order.
+            fn apply(mut st: BTreeMap<u8, u8>, diff: &DiffSet<u8, u8>) -> BTreeMap<u8, u8> {
+                for k in diff.consumed.iter() {
+                    st.remove(k);
+                }
+
+                for (k, v) in diff.produced.iter() {
+                    st.insert(*k, *v);
+                }
+
+                st
+            }
+
+            // Apply each diff in sequence.
+            let st_seq = diffs.iter().fold(st0.clone(), apply);
+
+            // Apply a single reduced diff
+            let st_compose = apply(
+                st0,
+                &diffs
+                    .into_iter()
+                    .fold(DiffSet::default(), |mut acc, diff| {
+                        acc.merge(diff);
+                        acc
+                    })
+            );
+
+            assert_eq!(st_seq, st_compose);
         }
     }
 }
