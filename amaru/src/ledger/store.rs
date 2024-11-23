@@ -239,7 +239,13 @@ pub mod impl_rocksdb {
         }
 
         fn get_tip(&self) -> Result<Point, Self::Error> {
-            todo!()
+            Ok(self
+                .db
+                .get(KEY_TIP)?
+                .map(|bytes| cbor::decode(&bytes))
+                .transpose()
+                .expect("unable to decode database's tip")
+                .unwrap_or_else(|| panic!("no tip in database. Did you call 'import' first?")))
         }
     }
 

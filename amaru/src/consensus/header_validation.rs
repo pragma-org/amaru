@@ -1,6 +1,5 @@
 use crate::{consensus::ValidateHeaderEvent, ledger::kernel::epoch_slot, sync::PullEvent};
 use gasket::framework::*;
-use miette::miette;
 use ouroboros::{ledger::LedgerState, validator::Validator};
 use ouroboros_praos::consensus::BlockValidator;
 use pallas_crypto::hash::Hash;
@@ -8,7 +7,7 @@ use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_primitives::conway::Epoch;
 use pallas_traverse::MultiEraHeader;
 use std::collections::HashMap;
-use tracing::{info, trace};
+use tracing::{info, trace, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
@@ -23,21 +22,17 @@ pub fn assert_header(
             let minted_header = header.as_babbage().unwrap();
             let epoch = epoch_slot(minted_header.header_body.slot);
 
-            // TODO: This is awkward, and should probably belong to the LedgerState
-            // abstraction? The ledger shall keep track of the rolling nonce and
-            // provide some endpoint for the consensus to access it.
-            let epoch_nonce = epoch_to_nonce
-                .get(&epoch)
-                .ok_or(miette!("epoch nonce not found"))
-                .or_panic()?;
-
-            // TODO: Take this parameter from an input context, rather than hard-coding it.
-            let active_slots_coeff: FixedDecimal =
-                FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
-            let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
-            let block_validator = BlockValidator::new(minted_header, ledger, epoch_nonce, &c);
-            block_validator.validate().or_panic()?;
-            info!(?minted_header.header_body.block_number, "validated block");
+            if let Some(epoch_nonce) = epoch_to_nonce.get(&epoch) {
+                // TODO: Take this parameter from an input context, rather than hard-coding it.
+                let active_slots_coeff: FixedDecimal =
+                    FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
+                let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
+                let block_validator = BlockValidator::new(minted_header, ledger, epoch_nonce, &c);
+                block_validator.validate().or_panic()?;
+                info!(?minted_header.header_body.block_number, "validated block");
+            } else {
+                warn!(?minted_header.header_body.block_number, "missing epoch nonce; skipping validation");
+            }
         }
         MultiEraHeader::ShelleyCompatible(_) => {
             trace!("shelley compatible header, skipping validation");

@@ -9,6 +9,7 @@ use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
 };
+use tracing::info;
 use vec1::{vec1, Vec1};
 
 // State
@@ -66,6 +67,12 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
             self.stable
                 .save(&point, add, remove)
                 .map_err(ForwardErr::StorageErr)?;
+        } else {
+            info!(
+                ?point,
+                "warming up; {} volatile states",
+                self.volatile.len()
+            );
         }
 
         self.volatile.push_back(state.anchor(point));
@@ -369,6 +376,12 @@ impl VolatileState<()> {
 impl VolatileState<Point> {
     pub fn into_store_update<'a>(self) -> (store::Add<'a>, store::Remove<'a>) {
         let epoch = epoch_slot(self.point.slot_or_default());
+
+        info!(?self.point, "adding {} UTxO entries", self.utxo.produced.len());
+        info!(?self.point, "removing {} UTxO entries", self.utxo.consumed.len());
+        info!(?self.point, "registering/updating {} stake pools", self.pools.registered.len());
+        info!(?self.point, "retiring {} stake pools", self.pools.unregistered.len());
+
         (
             store::Add {
                 utxo: Box::new(self.utxo.produced.into_iter()),
