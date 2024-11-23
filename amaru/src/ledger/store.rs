@@ -107,7 +107,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for PoolParamsUpdates {
         let mut iter = d.array_iter()?;
 
         let mut future_params = Vec::new();
-        while let Some(item) = iter.next() {
+        for item in &mut iter {
             future_params.push(item?);
         }
 

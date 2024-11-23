@@ -6,7 +6,10 @@
 // While elements are being contributed upstream, they might transiently live in this module.
 
 pub use ouroboros::ledger::PoolSigma;
-pub use pallas_codec::{minicbor as cbor, utils::Nullable};
+pub use pallas_codec::{
+    minicbor as cbor,
+    utils::{Nullable, Set},
+};
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::conway::{
     AddrKeyhash, Certificate, Coin, Epoch, MintedBlock, PoolMetadata, Relay, RewardAccount,
@@ -50,7 +53,7 @@ pub struct PoolParams {
     pub cost: Coin,
     pub margin: UnitInterval,
     pub reward_account: RewardAccount,
-    pub owners: Vec<AddrKeyhash>,
+    pub owners: Set<AddrKeyhash>,
     pub relays: Vec<Relay>,
     pub metadata: Nullable<PoolMetadata>,
 }

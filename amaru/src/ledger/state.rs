@@ -257,7 +257,7 @@ fn apply_transaction<T>(
                         cost,
                         margin,
                         reward_account,
-                        owners: owners.to_vec(),
+                        owners,
                         relays,
                         metadata,
                     },
@@ -340,7 +340,7 @@ impl FailedTransactions {
 // Otherwise, we need to traverse the entire sequence for any query on the volatile state.
 type VolatileDB = VecDeque<VolatileState<Point>>;
 
-struct VolatileState<T> {
+pub struct VolatileState<T> {
     pub point: T,
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
