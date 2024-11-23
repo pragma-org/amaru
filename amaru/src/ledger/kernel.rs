@@ -9,8 +9,8 @@ pub use ouroboros::ledger::PoolSigma;
 pub use pallas_codec::{minicbor as cbor, utils::Nullable};
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::conway::{
-    AddrKeyhash, Coin, Epoch, MintedBlock, PoolMetadata, Relay, RewardAccount, TransactionInput,
-    TransactionOutput, UnitInterval, VrfKeyhash,
+    AddrKeyhash, Certificate, Coin, Epoch, MintedBlock, PoolMetadata, Relay, RewardAccount,
+    TransactionInput, TransactionOutput, UnitInterval, VrfKeyhash,
 };
 
 // Constants

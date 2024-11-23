@@ -1,7 +1,7 @@
 use super::{
     kernel::{
-        block_point, epoch_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, PoolParams,
-        PoolSigma, TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM,
+        block_point, epoch_slot, Certificate, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
+        PoolParams, PoolSigma, TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM,
     },
     store::{self, Store},
 };
@@ -191,7 +191,19 @@ fn apply_block(block: MintedBlock<'_>) -> VolatileState<()> {
             }
         };
 
-        apply_transaction(&mut state, &transaction_id, inputs, outputs);
+        apply_transaction(
+            &mut state,
+            &transaction_id,
+            inputs,
+            outputs,
+            // TODO: There should really be an Iterator instance in Pallas
+            // on those certificates...
+            transaction_body
+                .certificates
+                .map(|xs| xs.to_vec())
+                .unwrap_or_default()
+                .into_iter(),
+        );
     }
 
     state
@@ -202,20 +214,59 @@ fn apply_transaction<T>(
     transaction_id: &Hash<32>,
     inputs: impl Iterator<Item = TransactionInput>,
     outputs: impl Iterator<Item = TransactionOutput>,
+    certificates: impl Iterator<Item = Certificate>,
 ) {
-    let mut consumed = BTreeSet::new();
-    consumed.extend(inputs);
+    {
+        // Inputs/Outputs
+        let mut consumed = BTreeSet::new();
+        consumed.extend(inputs);
 
-    let mut produced = BTreeMap::new();
-    for (ix, output) in outputs.enumerate() {
-        let input = TransactionInput {
-            transaction_id: *transaction_id,
-            index: ix as u64,
-        };
-        produced.insert(input, output);
+        let mut produced = BTreeMap::new();
+        for (ix, output) in outputs.enumerate() {
+            let input = TransactionInput {
+                transaction_id: *transaction_id,
+                index: ix as u64,
+            };
+            produced.insert(input, output);
+        }
+
+        state.utxo.merge(DiffSet { consumed, produced });
     }
 
-    state.utxo.merge(DiffSet { consumed, produced });
+    {
+        // Certificates
+        for certificate in certificates {
+            match certificate {
+                Certificate::PoolRetirement(id, epoch) => state.pools.unregister(id, epoch),
+                Certificate::PoolRegistration {
+                    operator: id,
+                    vrf_keyhash: vrf,
+                    pledge,
+                    cost,
+                    margin,
+                    reward_account,
+                    pool_owners: owners,
+                    relays,
+                    pool_metadata: metadata,
+                } => state.pools.register(
+                    id,
+                    PoolParams {
+                        id,
+                        vrf,
+                        pledge,
+                        cost,
+                        margin,
+                        reward_account,
+                        owners: owners.to_vec(),
+                        relays,
+                        metadata,
+                    },
+                ),
+                // FIXME: Process other types of certificates
+                _ => {}
+            }
+        }
+    }
 }
 
 impl<'a, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<'a, E> {
@@ -317,14 +368,22 @@ impl VolatileState<()> {
 
 impl VolatileState<Point> {
     pub fn into_store_update<'a>(self) -> (store::Add<'a>, store::Remove<'a>) {
+        let epoch = epoch_slot(self.point.slot_or_default());
         (
             store::Add {
                 utxo: Box::new(self.utxo.produced.into_iter()),
-                pools: Box::new(std::iter::empty()), // FIXME: get from state
+                pools: Box::new(self.pools.registered.into_iter().flat_map(
+                    move |(_, registrations)| {
+                        registrations
+                            .into_iter()
+                            .map(|r| (r, epoch))
+                            .collect::<Vec<_>>()
+                    },
+                )),
             },
             store::Remove {
                 utxo: Box::new(self.utxo.consumed.into_iter()),
-                pools: Box::new(std::iter::empty()), // FIXME: get from state
+                pools: Box::new(self.pools.unregistered.into_iter()),
             },
         )
     }
