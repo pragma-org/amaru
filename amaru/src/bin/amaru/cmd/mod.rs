@@ -1,7 +1,7 @@
 use amaru::sync::Point;
 
-pub(crate) mod bootstrap;
 pub(crate) mod daemon;
+pub(crate) mod import;
 
 pub(crate) fn parse_point<'a, F, E>(raw_str: &str, bail: F) -> Result<Point, E>
 where
