@@ -19,18 +19,17 @@ In order to manage the decision making on the project and have a compelling prod
 
 ## Decision
 
-Here is the new composition of the Amaru maintainers committee:
+Here is the new composition of the Amaru maintainers committee (scope owners of the project):
 
-| Matthias Benkort <br/> [@KtorZ][] | Santiago Carmuega <br/> [@scarmuega][] |Andrew Westberg <br/> [@AndrewWestberg][] |  Arnaud Bailly <br/> [@abailly][] | Chris Gianelloni <br/> [@wolf31o2][] |   Pi Lanningham <br/> [@Quantumplation][] | Sebastien Guillemot <br/> [@wolf31o2][] |
-| ---                               | ---                                           | ---                            | ---                            | ---                             | ---                            | ---                             |
+| Matthias Benkort <br/> [@KtorZ][] | Santiago Carmuega <br/> [@scarmuega][] |Andrew Westberg <br/> [@AndrewWestberg][] |  Arnaud Bailly <br/> [@abailly][] | Chris Gianelloni <br/> [@wolf31o2][] |
+| ---                               | ---                                           | ---                            | ---                            | ---                                                      |
 
 [@KtorZ]: https://github.com/ktorz
 [@scarmuega]: https://github.com/scarmuega
 [@AndrewWestberg]: https://github.com/AndrewWestberg
 [@abailly]: https://github.com/abailly
 [@wolf31o2]: https://github.com/wolf31o2
-[@Quantumplation]: https://github.com/quantumplation
-[@sebastienGllmt]: https://github.com/sebastienGllmt
+
 
 The maintainer committee will be having a close relationship with the following scope owners:
 ![2024_11_26_Bounded_Context_v2](https://github.com/user-attachments/assets/78651029-58dc-4983-b683-740968344354)
