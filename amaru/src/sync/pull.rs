@@ -8,11 +8,8 @@ use pallas_network::{
     },
 };
 use pallas_traverse::MultiEraHeader;
-use std::{
-    sync::{Arc, Mutex},
-    time::Duration,
-};
-use tokio::time::timeout;
+use std::{sync::Arc, time::Duration};
+use tokio::{sync::Mutex, time::timeout};
 use tracing::{debug, info};
 
 use super::{PullEvent, RawHeader};
@@ -65,7 +62,7 @@ pub struct Worker {}
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let mut peer_session = stage.peer_session.lock().unwrap();
+        let mut peer_session = stage.peer_session.lock().await;
         let client = (*peer_session).chainsync();
 
         debug!("finding intersect");
@@ -85,7 +82,7 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        let mut peer_session = stage.peer_session.lock().unwrap();
+        let mut peer_session = stage.peer_session.lock().await;
         let client = (*peer_session).chainsync();
 
         if client.has_agency() {
@@ -99,7 +96,7 @@ impl gasket::framework::Worker<Stage> for Worker {
 
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
         let next = {
-            let mut peer_session = stage.peer_session.lock().unwrap();
+            let mut peer_session = stage.peer_session.lock().await;
             let client = (*peer_session).chainsync();
 
             match unit {

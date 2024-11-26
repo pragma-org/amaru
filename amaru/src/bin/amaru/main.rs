@@ -9,6 +9,9 @@ mod exit;
 enum Command {
     /// Run the node in all its glory.
     Daemon(cmd::daemon::Args),
+
+    /// Import the ledger state from a CBOR export produced by the Haskell node.
+    Import(cmd::import::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -28,6 +31,7 @@ async fn main() -> miette::Result<()> {
 
     match args.command {
         Command::Daemon(args) => cmd::daemon::run(args).await,
+        Command::Import(args) => cmd::import::run(args).await,
     }
 }
 

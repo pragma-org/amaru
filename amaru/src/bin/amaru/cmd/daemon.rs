@@ -1,17 +1,14 @@
 use crate::config::NetworkName;
-use amaru::{
-    consensus::nonce,
-    ledger::{stake_distribution, stake_pools},
-    sync::{Config, Point},
-};
+use amaru::{consensus::nonce, sync::Config};
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::{Diagnostic, IntoDiagnostic};
 use pallas_network::facades::PeerClient;
 use std::{
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
     time::Duration,
 };
+use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
 
@@ -81,32 +78,15 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
 enum Error<'a> {
-    #[error("malformed point's block header hash: failed to decode it from hex string")]
-    MalformedPointHeaderHash(hex::FromHexError),
     #[error("malformed point: {}", .0)]
     MalformedPoint(&'a str),
 }
 
 fn parse_args(args: Args) -> miette::Result<Config> {
-    let point = parse_point(&args.from)?;
+    // TODO: Figure out from ledger + consensus store
+    let point = super::parse_point(&args.from, Error::MalformedPoint)?;
 
     let root = Path::new(&args.data_dir).join(args.network.to_string());
-
-    let epoch = match args.network {
-        NetworkName::Mainnet => unimplemented!("attempting to run Amaru on mainnet?"),
-        NetworkName::Preprod => 4 + (point.slot_or_default() - 86400) / 432000,
-        NetworkName::Preview => point.slot_or_default() / 432000,
-    };
-
-    let stake_pools = read_csv(
-        &root.join("stake_pools").join(format!("{epoch}.csv")),
-        stake_pools::from_csv,
-    )?;
-
-    let stake_distribution = read_csv(
-        &root.join("stake_distribution").join(format!("{epoch}.csv")),
-        stake_distribution::from_csv,
-    )?;
 
     let nonces = read_csv(&root.join("nonces.csv"), nonce::from_csv)?;
 
@@ -114,33 +94,8 @@ fn parse_args(args: Args) -> miette::Result<Config> {
         upstream_peer: args.peer_address,
         network_magic: args.network.to_network_magic(),
         intersection: vec![point],
-        stake_pools,
-        stake_distribution,
         nonces,
     })
-}
-
-// NOTE: Consider moving this into a shared module if necessary.
-fn parse_point(raw_str: &str) -> miette::Result<Point> {
-    let mut split = raw_str.split('.');
-
-    let slot = split
-        .next()
-        .ok_or(Error::MalformedPoint("missing block header hash after '.'"))
-        .and_then(|s| {
-            s.parse::<u64>().map_err(|_| {
-                Error::MalformedPoint("failed to parse point's slot as a non-negative integer")
-            })
-        })
-        .into_diagnostic()?;
-
-    let block_header_hash = split
-        .next()
-        .ok_or(Error::MalformedPoint("missing block header hash after '.'"))
-        .and_then(|s| hex::decode(s).map_err(Error::MalformedPointHeaderHash))
-        .into_diagnostic()?;
-
-    Ok(Point::Specific(slot, block_header_hash))
 }
 
 fn read_csv<F, T>(filepath: &PathBuf, with: F) -> miette::Result<T>

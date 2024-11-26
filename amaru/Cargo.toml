@@ -30,3 +30,9 @@ tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util = "0.7.12"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }
+rocksdb = "0.22.0"
+indicatif = "0.17.9"
+vec1 = "1.12.1"
+
+[dev-dependencies]
+proptest = "1.5.0"

@@ -18,27 +18,37 @@ cargo build --release
 
 ### Running (demo)
 
+1. Import a [ledger snapshot](https://github.com/pragma-org/cardano-ledger-snapshots) (e.g. `68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa`)
+
+```console
+RUST_LOG=info cargo run --release -- import \
+  --date 68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4 \
+  --snapshot 68774372-36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa.cbor \
+  --out ledger.db
+```
+
+2. Run the node
+
 ```console
 RUST_LOG=info cargo run --release -- daemon \
   --peer-address=127.0.0.1:3000 \
   --network=preprod \
-  --from=72662420.dcda918eca2dbb3b574ca9256435b20c4457a80a438d757d2774689e602d1110
+  --from=68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa
 ```
 
 > [!TIP]
-> Replace `--peer-address` with your Cardano node peer address. I can be either
+> Replace `--peer-address` with your Cardano node peer address. It can be either
 > a local or remote node (i.e. any existing node relay).
 
 ## Overview
 
-At present, most of the work around Amaru is spread across different repositories summarized in the table below. As an initial goal, we aim to consolidate and channel these workstreams into a single project.
+Amaru is the integration point of several other projects / repositories. Amongst them, we find in particular:
 
  | Repository                                                      | Purpose                                                                                                                                               |
  | ---                                                             | ---                                                                                                                                                   |
- | [Pallas](https://github.com/txpipe/pallas)               | Hosts many Rust primitives and building blocks for the node already powering tools like Dolos. In particular, the networking and serialization logic. |
+ | [Pallas](https://github.com/txpipe/pallas)                      | Hosts many Rust primitives and building blocks for the node already powering tools like Dolos. In particular, the networking and serialization logic. |
  | [pragma-org/ouroboros](https://github.com/pragma-org/ouroboros) | Rust libraries/building blocks to implement an Ouroboros (Praos & Genesis) consensus.                                                                 |
  | [pragma-org/uplc](https://github.com/pragma-org/uplc)           | A highly performant UPLC parser and CEK machine.                                                                                                      |
-
 
 ### Other relevant projects
 
