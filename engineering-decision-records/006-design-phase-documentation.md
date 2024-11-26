@@ -148,19 +148,19 @@ In this representation you can find the following types of links featured:
 
 This fuelled our discussion on which part to dedicate a team for our project and we came up with the following independent teams (that might be subject to change as the project evolves):
 
-![Maintainers](https://github.com/user-attachments/assets/6f27ba9e-fa87-4cfa-b03e-65efb8a38f91)
+![2024_11_26_Bounded_Context_v2](https://github.com/user-attachments/assets/0f61fd51-24aa-4283-89fc-70bc5e300ee2)
 
 For each scope identified, we nominated an owner that has the responsibility of managing the interfaces and the coherence of its scope:
-- Amaru integration: Amaru Maintainers Committee (*to be re-allocated*)
+- Amaru integration: Amaru Maintainers Committee (with final deciding member: Matthias Benkort)
 - Ledger owner: Matthias Benkort
 - Consensus owner: Arnaud Bailly
-- Dolos owner: Santiago Carmuega
-- Forge owner: (*to be allocated*)
-- GO Node owner: Chris Gianelloni
 - Mempool owner: Andrew Westberg
-- Management RPC: (*to be allocated*)
 - Peer 2 peer (P2P) owner: Santiago Carmuega
 - Testnet facilitator owner: Chris Gianelloni
-- UTxO RPC specifications owner: Chris Gianelloni & Santiago Carmuega
+- UTxO RPC owner: Chris Gianelloni
 
-This will be updated when we have start delivering and better understand the product.
+The products that we will have a close relationship with also have the equivalent of an owner but since we won't be building anything for them (yet) we will only identify the person that manages that scope:
+- Dolos owner: Santiago Carmuega
+- GO Node owner: Chris Gianelloni
+
+This will be updated when we have start delivering and better understand the product and our project environment.
