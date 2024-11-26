@@ -18,7 +18,7 @@ cargo build --release
 
 ### Running (demo)
 
-1. Import a [ledger snapshot](https://github.com/pragma-org/cardano-ledger-snapshots) (e.g. `68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa`)
+1. Import a [ledger snapshot](./amaru/data/README.md#cardano-ledger-snapshots):
 
 ```console
 RUST_LOG=info cargo run --release -- import \
@@ -27,7 +27,7 @@ RUST_LOG=info cargo run --release -- import \
   --out ledger.db
 ```
 
-2. Run the node
+2. Run the node:
 
 ```console
 RUST_LOG=info cargo run --release -- daemon \
@@ -40,7 +40,7 @@ RUST_LOG=info cargo run --release -- daemon \
 > Replace `--peer-address` with your Cardano node peer address. It can be either
 > a local or remote node (i.e. any existing node relay).
 
-## Overview
+## Going further
 
 Amaru is the integration point of several other projects / repositories. Amongst them, we find in particular:
 
