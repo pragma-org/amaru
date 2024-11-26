@@ -1,6 +1,6 @@
 ---
 type: process
-status: proposed
+status: accepted
 ---
 
 # Git Etiquette
