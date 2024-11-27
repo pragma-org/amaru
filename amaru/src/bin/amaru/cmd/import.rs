@@ -1,6 +1,8 @@
 use amaru::ledger::{
     self,
-    kernel::{epoch_slot, Epoch, Point, PoolId, PoolParams, TransactionInput, TransactionOutput},
+    kernel::{
+        epoch_from_slot, Epoch, Point, PoolId, PoolParams, TransactionInput, TransactionOutput,
+    },
     store::{self, Store},
 };
 use clap::Parser;
@@ -99,7 +101,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
                     retiring = state.unregistered.len(),
                 );
 
-                let current_epoch = epoch_slot(point.slot_or_default());
+                let current_epoch = epoch_from_slot(point.slot_or_default());
 
                 db.save(
                     &Point::Origin,

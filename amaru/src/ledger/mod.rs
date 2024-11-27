@@ -1,11 +1,15 @@
-use crate::{consensus::ValidateHeaderEvent, ledger::state::BackwardErr};
+use crate::{
+    consensus::ValidateHeaderEvent,
+    ledger::{
+        kernel::{Hash, Hasher, MintedBlock, Point},
+        state::BackwardErr,
+    },
+};
 use gasket::framework::*;
 use pallas_codec::minicbor as cbor;
-use pallas_crypto::hash::{Hash, Hasher};
-use pallas_primitives::conway::MintedBlock;
 use std::{path::Path, sync::Arc};
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{error, info_span, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 
@@ -57,37 +61,47 @@ impl gasket::framework::Worker<Stage> for Worker {
             ValidateHeaderEvent::Validated(_point, raw_block) => {
                 let (block_header_hash, block) = parse_block(&raw_block[..]);
 
-                let block_number = block.header.header_body.block_number;
-                info!(
-                    "applying block={:?} ({:?})",
-                    block_number,
-                    hex::encode(block_header_hash)
-                );
+                let span_forward = info_span!(
+                    "applying_block",
+                    height = block.header.header_body.block_number,
+                    slot = block.header.header_body.slot,
+                    header_hash = hex::encode(block_header_hash)
+                )
+                .entered();
 
                 let mut state = stage.state.lock().await;
 
                 state.forward(block).map_err(|e| {
-                    error!("failed to apply block: {e:?}");
+                    error!(error = ?e, "failed to forward block");
                     WorkerError::Panic
                 })?;
 
-                info!("applied block={:?}", block_number);
+                span_forward.exit();
             }
 
             ValidateHeaderEvent::Rollback(point) => {
-                info!("rolling back to {:?}", point);
+                let span_backward = info_span!(
+                    "rolling_back",
+                    slot = point.slot_or_default(),
+                    header_hash = if let Point::Specific(_, header_hash) = point {
+                        hex::encode(header_hash)
+                    } else {
+                        String::new()
+                    }
+                )
+                .entered();
 
                 let mut state = stage.state.lock().await;
 
                 if let Err(e) = state.backward(point) {
                     match e {
-                        BackwardErr::UnknownRollbackPoint(point) => {
-                            warn!("tried to roll back to an unknown point: {point:?}")
+                        BackwardErr::UnknownRollbackPoint(_) => {
+                            warn!("tried to roll back to an unknown point")
                         }
                     }
                 }
 
-                info!("rolled back to {:?}", point);
+                span_backward.exit();
             }
         }
 

@@ -73,6 +73,7 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
     }
 
     debug!("shutting down pipeline");
+
     pipeline.teardown();
 }
 

@@ -27,10 +27,20 @@ pub use pallas_primitives::conway::{
 pub const CONSENSUS_SECURITY_PARAM: usize = 2160;
 
 /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Shelley's epoch length.
-pub const SHELLEY_EPOCH_LENGTH_SCALE_FACTOR: usize = 20;
+pub const SHELLEY_EPOCH_LENGTH_SCALE_FACTOR: usize = 200;
+
+/// Number of blocks in a Shelley epoch
+pub const SHELLEY_EPOCH_LENGTH: usize =
+    SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
 
 /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
 pub const BYRON_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
+
+/// Number of blocks in a Byron epoch
+pub const BYRON_EPOCH_LENGTH: usize = BYRON_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
+
+/// Number of slots in the Byron era, for PreProd
+pub const BYRON_TOTAL_SLOTS: usize = BYRON_EPOCH_LENGTH * PREPROD_SHELLEY_TRANSITION_EPOCH;
 
 /// Epoch number in which the PreProd network transitioned to Shelley.
 pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
@@ -108,16 +118,15 @@ pub fn block_point(block: &MintedBlock<'_>) -> Point {
 
 /// Calculate the epoch number corresponding to a given slot on the PreProd network.
 // FIXME: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
-pub fn epoch_slot(slot: u64) -> u64 {
-    let k = CONSENSUS_SECURITY_PARAM as u64;
+pub fn epoch_from_slot(slot: u64) -> u64 {
+    let shelley_slots = slot - BYRON_TOTAL_SLOTS as u64;
+    (shelley_slots / SHELLEY_EPOCH_LENGTH as u64) + PREPROD_SHELLEY_TRANSITION_EPOCH as u64
+}
 
-    let shelley_epoch_length = SHELLEY_EPOCH_LENGTH_SCALE_FACTOR as u64 * k;
-
-    let byron_epoch_length = BYRON_EPOCH_LENGTH_SCALE_FACTOR as u64 * k;
-
-    let byron_slots = byron_epoch_length * PREPROD_SHELLEY_TRANSITION_EPOCH as u64;
-
-    let shelley_slots = slot - byron_slots;
-
-    (shelley_slots / shelley_epoch_length) + PREPROD_SHELLEY_TRANSITION_EPOCH as u64
+/// Obtain the slot number relative to the epoch.
+// FIXME: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
+pub fn relative_slot(slot: u64) -> u64 {
+    let shelley_previous_slots = (epoch_from_slot(slot) - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
+        * SHELLEY_EPOCH_LENGTH as u64;
+    slot - shelley_previous_slots - BYRON_TOTAL_SLOTS as u64
 }

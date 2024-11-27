@@ -1,10 +1,11 @@
 use super::{
     kernel::{
-        block_point, epoch_slot, Certificate, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
+        block_point, epoch_from_slot, Certificate, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
         PoolParams, PoolSigma, TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM,
     },
     store::{self, Store},
 };
+use crate::ledger::kernel::relative_slot;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -36,6 +37,7 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
     pub fn new(stable: StableDB<'a, E>) -> Self {
         Self {
             stable,
+
             // NOTE: At this point, we always restart from an empty volatile state; which means
             // that there needs to be some form of synchronization between the consensus and the
             // ledger here. Few assumptions also stems from this:
@@ -79,12 +81,14 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
                 .save(&point, add, remove)
                 .map_err(ForwardErr::StorageErr)?;
         } else {
-            info!(
-                ?point,
-                "warming up; {} volatile states",
-                self.volatile.len()
-            );
+            info!(num_deltas = self.volatile.len(), "warming up volatile db",);
         }
+
+        info!(
+            target: "amaru::ledger::tip",
+            epoch = epoch_from_slot(point.slot_or_default()),
+            relative_slot = relative_slot(point.slot_or_default()),
+        );
 
         self.volatile.push_back(state.anchor(point));
 
@@ -104,7 +108,7 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
 
     /// Fetch stake pool details from the current live view of the ledger.
     pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, QueryErr<E>> {
-        let current_epoch = epoch_slot(self.tip().slot_or_default());
+        let current_epoch = epoch_from_slot(self.tip().slot_or_default());
 
         // NOTE: When we are near an epoch boundary, we need to consider the not-yet-stable changes
         // that belong to the previous epoch. Any re-registration or retirement that would now be
@@ -113,7 +117,7 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
             .volatile
             .iter()
             .fold(DiffEpochReg::default(), |mut state, step| {
-                if epoch_slot(step.point.slot_or_default()) < current_epoch {
+                if epoch_from_slot(step.point.slot_or_default()) < current_epoch {
                     if let Some(registrations) = step.pools.registered.get(pool) {
                         state.register(pool, registrations.last());
                     }
@@ -144,6 +148,10 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
         }
 
         if let Some(state) = self.stable.get_pool(pool).map_err(QueryErr::StorageErr)? {
+            // NOTE: Similarly, the stable DB is at most k blocks in the past. So, if a certificate
+            // is submitted near the end (i.e. within k blocks) of the last epoch, then we could be
+            // in a situation where we haven't yet processed the registrations (since they're
+            // processed with a delay of k blocks) but have already moved into the next epoch.
             if let Some(params) = state
                 .future_params
                 .iter()
@@ -392,12 +400,15 @@ impl VolatileState<()> {
 
 impl VolatileState<Point> {
     pub fn into_store_update<'a>(self) -> (store::Add<'a>, store::Remove<'a>) {
-        let epoch = epoch_slot(self.point.slot_or_default());
+        let epoch = epoch_from_slot(self.point.slot_or_default());
 
-        info!(?self.point, "adding {} UTxO entries", self.utxo.produced.len());
-        info!(?self.point, "removing {} UTxO entries", self.utxo.consumed.len());
-        info!(?self.point, "registering/updating {} stake pools", self.pools.registered.len());
-        info!(?self.point, "retiring {} stake pools", self.pools.unregistered.len());
+        info!(
+            utxo_produced = self.utxo.produced.len(),
+            utxo_consumed = self.utxo.produced.len(),
+            pools_registered = self.pools.registered.len(),
+            pools_retired = self.pools.unregistered.len(),
+            "updating stable db",
+        );
 
         (
             store::Add {

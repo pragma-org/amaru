@@ -37,17 +37,26 @@ async fn main() -> miette::Result<()> {
 
 pub fn setup_tracing() {
     use is_terminal::IsTerminal;
-    use tracing_subscriber::*;
+    use tracing_subscriber::{filter::FilterExt, *};
 
     let filter = EnvFilter::builder()
         .with_default_directive(filter::LevelFilter::INFO.into())
-        .from_env_lossy();
+        .from_env_lossy()
+        .and(
+            filter::Targets::new()
+                .with_target("gasket", filter::LevelFilter::INFO)
+                .not(),
+        )
+        .or(filter::Targets::new().with_target("gasket", filter::LevelFilter::ERROR));
+
+    let fmt_span = fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT;
 
     if std::io::stdout().is_terminal() {
         registry()
             .with(
                 fmt::layer()
                     .event_format(fmt::format().with_ansi(true).pretty())
+                    .with_span_events(fmt_span)
                     .with_filter(filter),
             )
             .init();
@@ -56,6 +65,7 @@ pub fn setup_tracing() {
             .with(
                 fmt::layer()
                     .event_format(fmt::format().json())
+                    .with_span_events(fmt_span)
                     .with_filter(filter),
             )
             .init();
