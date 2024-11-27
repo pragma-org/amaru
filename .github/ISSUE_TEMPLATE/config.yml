@@ -1,0 +1,13 @@
+blank_issues_enabled: false
+contact_links:
+  - name: PRAGMA Discord
+    url: https://discord.gg/Zbbumu9NMz
+    about: If you rather chat with maintainers and the community, Discord is the place.
+
+  - name: PRAGMA Twitter/X
+    url: https://x.com/pragma_org
+    about: Wanna draw our attention about something? Tag us @pragma_org!
+
+  - name: PRAGMA Website
+    url: https://pragma.io/
+    about: Looking for high-level information about PRAGMA and our projects? The official website shall help.

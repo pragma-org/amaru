@@ -1,0 +1,66 @@
+name: Bug Report
+description: You found an issue that you would like to report!
+body:
+  - type: textarea
+    id: version
+    attributes:
+      label: What revision are you using?
+      description: |
+        Please provide a **git commit hash** or a **release version**. Keep in mind that branch names like `main` are only meaningful at the time of writing, but useless when anyone reads the ticket.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: What operating system are you using?
+      options:
+        - Linux
+        - MacOS
+        - Windows
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: What architecture are you using?
+      options:
+        - x86_64/amd64
+        - aarch64/armv8
+        - armv7
+        - RISC-V
+    validations:
+      required: true
+
+  - type: markdown
+    id: problem
+    attributes:
+      label: What problem are you having? What should be the expected behaviour?
+      description: |
+        Please provide as much details as you can. We cannot help you without understanding the issue and/or your expecations.
+    validations:
+      required: true
+
+  - type: markdown
+    id: reproduction
+    attributes:
+      label: If possible, provide reproductions steps.
+      description: |
+        It is incredibly helpful to have ways of reproducing your issue. Please provide details about your configuration, commands you've run, and anything that could help reproduce the issue.
+
+  - type: markdown
+    id: logs
+    attributes:
+      label: If any, provide logs / error outputs from the system when the problem occurs.
+
+  - type: checkboxes
+    id: ack
+    attributes:
+      label: Please confirm that you've already searched issues, CHANGELOG and available documentation.
+      options:
+        - label: I searched, but no luck.
+          required: true
+    validations:
+      required: true
