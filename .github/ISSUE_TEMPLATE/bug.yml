@@ -34,7 +34,7 @@ body:
     validations:
       required: true
 
-  - type: markdown
+  - type: textarea
     id: problem
     attributes:
       label: What problem are you having? What should be the expected behaviour?
@@ -43,14 +43,14 @@ body:
     validations:
       required: true
 
-  - type: markdown
+  - type: textarea
     id: reproduction
     attributes:
       label: If possible, provide reproductions steps.
       description: |
         It is incredibly helpful to have ways of reproducing your issue. Please provide details about your configuration, commands you've run, and anything that could help reproduce the issue.
 
-  - type: markdown
+  - type: textarea
     id: logs
     attributes:
       label: If any, provide logs / error outputs from the system when the problem occurs.
