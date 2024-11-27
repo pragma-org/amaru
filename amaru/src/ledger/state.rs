@@ -6,6 +6,7 @@ use super::{
     store::{self, Store},
 };
 use std::{
+    borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::Arc,
 };
@@ -25,7 +26,6 @@ use vec1::{vec1, Vec1};
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
 pub struct State<'a, E> {
-    tip: Point,
     stable: StableDB<'a, E>,
     volatile: VolatileDB,
 }
@@ -35,9 +35,6 @@ type StableDB<'a, E> = Arc<dyn Store<Error = E> + Send + Sync + 'a>;
 impl<'a, E: std::fmt::Debug> State<'a, E> {
     pub fn new(stable: StableDB<'a, E>) -> Self {
         Self {
-            tip: stable
-                .get_tip()
-                .unwrap_or_else(|e| panic!("unable to initialize ledger-state's tip: {e:?}")),
             stable,
             // NOTE: At this point, we always restart from an empty volatile state; which means
             // that there needs to be some form of synchronization between the consensus and the
@@ -52,6 +49,20 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
             //     them quickly.
             volatile: VecDeque::new(),
         }
+    }
+
+    /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
+    /// applied to the ledger.
+    pub fn tip(&'a self) -> Cow<'a, Point> {
+        if let Some(st) = self.volatile.back() {
+            return Cow::Borrowed(&st.point);
+        }
+
+        Cow::Owned(
+            self.stable
+                .get_tip()
+                .unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")),
+        )
     }
 
     /// Roll the ledger forward with the given block by applying transactions one by one, in
@@ -93,7 +104,7 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
 
     /// Fetch stake pool details from the current live view of the ledger.
     pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, QueryErr<E>> {
-        let current_epoch = epoch_slot(self.tip.slot_or_default());
+        let current_epoch = epoch_slot(self.tip().slot_or_default());
 
         // NOTE: When we are near an epoch boundary, we need to consider the not-yet-stable changes
         // that belong to the previous epoch. Any re-registration or retirement that would now be
@@ -276,6 +287,12 @@ fn apply_transaction<T>(
     }
 }
 
+// LedgerState
+// ----------------------------------------------------------------------------
+
+// The 'LedgerState' trait materializes the interface required of the consensus layer in order to
+// validate block headers. It allows to keep the ledger implementation rather abstract to the
+// consensus in order to decouple both components.
 impl<'a, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<'a, E> {
     fn pool_id_to_sigma(&self, _pool_id: &PoolId) -> Result<PoolSigma, ouroboros::ledger::Error> {
         // FIXME: Obtain from ledger's stake distribution
