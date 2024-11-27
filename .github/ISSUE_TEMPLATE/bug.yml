@@ -1,7 +1,7 @@
 name: Bug Report
 description: You found an issue that you would like to report!
 body:
-  - type: textarea
+  - type: input
     id: version
     attributes:
       label: What revision are you using?
