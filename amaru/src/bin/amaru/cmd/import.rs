@@ -4,10 +4,11 @@ use amaru::ledger::{
     store::{self, Store},
 };
 use clap::Parser;
-use indicatif::ProgressBar;
+use indicatif::{ProgressBar, ProgressStyle};
 use miette::{Diagnostic, IntoDiagnostic};
 use pallas_codec::minicbor as cbor;
 use std::{collections::HashMap, fs, path::PathBuf};
+use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
 
@@ -92,9 +93,10 @@ pub async fn run(args: Args) -> miette::Result<()> {
                     state.unregister(pool, epoch);
                 }
 
-                eprintln!(
-                    "importing {} Stake Pools entries...",
-                    state.registered.len() + state.unregistered.len()
+                info!(
+                    what = "stake_pools",
+                    registered = state.registered.len(),
+                    retiring = state.unregistered.len(),
                 );
 
                 let current_epoch = epoch_slot(point.slot_or_default());
@@ -133,9 +135,12 @@ pub async fn run(args: Args) -> miette::Result<()> {
                     .into_iter()
                     .collect::<Vec<(TransactionInput, TransactionOutput)>>();
 
-                eprintln!("importing {} UTxO entries...", utxo.len());
+                info!(what = "utxo_entries", size = utxo.len());
 
-                let progress = ProgressBar::new(utxo.len() as u64);
+                let progress = ProgressBar::new(utxo.len() as u64).with_style(
+                    ProgressStyle::with_template("  UTxO entries {bar:70} {pos:>7}/{len:7}")
+                        .unwrap(),
+                );
 
                 while !utxo.is_empty() {
                     let n = std::cmp::min(BATCH_SIZE, utxo.len());

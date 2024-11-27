@@ -36,10 +36,28 @@ async fn main() -> miette::Result<()> {
 }
 
 pub fn setup_tracing() {
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_filter(tracing_subscriber::EnvFilter::from_default_env()),
-        )
-        .init();
+    use is_terminal::IsTerminal;
+    use tracing_subscriber::*;
+
+    let filter = EnvFilter::builder()
+        .with_default_directive(filter::LevelFilter::INFO.into())
+        .from_env_lossy();
+
+    if std::io::stdout().is_terminal() {
+        registry()
+            .with(
+                fmt::layer()
+                    .event_format(fmt::format().with_ansi(true).pretty())
+                    .with_filter(filter),
+            )
+            .init();
+    } else {
+        registry()
+            .with(
+                fmt::layer()
+                    .event_format(fmt::format().json())
+                    .with_filter(filter),
+            )
+            .init();
+    }
 }

@@ -197,6 +197,8 @@ pub mod impl_rocksdb {
                         // - If one already exists, then the parameters are stashed until the next
                         //   epoch boundary.
                         //
+                        // TODO: We might want to define a MERGE OPERATOR to speed this up if
+                        // necessary.
                         let params = match batch.get(as_key(&PREFIX_POOL, pool))? {
                             None => as_value(PoolParamsUpdates::new(params)),
                             Some(existing_params) => {

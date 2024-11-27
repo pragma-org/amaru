@@ -21,7 +21,7 @@ cargo build --release
 1. Import a [ledger snapshot](./amaru/data/README.md#cardano-ledger-snapshots):
 
 ```console
-RUST_LOG=info cargo run --release -- import \
+cargo run --release -- import \
   --date 68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4 \
   --snapshot 68774372-36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa.cbor \
   --out ledger.db
@@ -30,7 +30,7 @@ RUST_LOG=info cargo run --release -- import \
 2. Run the node:
 
 ```console
-RUST_LOG=info cargo run --release -- daemon \
+cargo run --release -- daemon \
   --peer-address=127.0.0.1:3000 \
   --network=preprod \
   --from=68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa
