@@ -2,6 +2,8 @@ use super::kernel::{Epoch, Point, PoolId, PoolParams, TransactionInput, Transact
 use pallas_codec::minicbor::{self as cbor};
 use std::{iter, path::Path};
 
+pub(crate) mod iterator;
+
 // Store
 // ----------------------------------------------------------------------------
 
@@ -21,10 +23,22 @@ pub trait Store {
     /// there's no existing snapshot and, to ensure that snapshots are taken in order.
     fn next_snapshot(&mut self, epoch: Epoch) -> Result<(), Self::Error>;
 
-    fn get_tip(&self) -> Result<Point, Self::Error>;
+    /// Access the tip of the stable store, corresponding to the latest point that was saved.
+    fn tip(&self) -> Result<Point, Self::Error>;
 
+    /// Provide an access to iterate on pools, in a way that enforces:
+    ///
+    /// 1. That mutations will be persisted on-disk
+    ///
+    /// 2. That all operations are consistent and atomic (the iteration occurs on a snapshot, and
+    ///    the mutation apply to the iterated items)
+    fn with_pools(&self, with: WithIterPools<'_>) -> Result<(), Self::Error>;
+
+    /// Get details about a specific pool
     fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParamsUpdates>, Self::Error>;
 }
+
+pub type WithIterPools<'a> = iterator::WithIterator<'a, Option<PoolParamsUpdates>>;
 
 pub struct Add<'a> {
     pub utxo: Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
@@ -58,10 +72,10 @@ impl<'a> Default for Remove<'a> {
 // PoolParamsUpdates
 // ----------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PoolParamsUpdates {
     pub current_params: PoolParams,
-    pub future_params: Vec<(PoolParams, Epoch)>,
+    pub future_params: Vec<(Option<PoolParams>, Epoch)>,
 }
 
 impl PoolParamsUpdates {
@@ -73,10 +87,10 @@ impl PoolParamsUpdates {
     }
 
     fn extend(mut bytes: Vec<u8>, future_params: (Option<PoolParams>, Epoch)) -> Vec<u8> {
-        let tail = bytes.split_off(bytes.len() - 2);
+        let tail = bytes.split_off(bytes.len() - 1);
         assert_eq!(
             tail,
-            vec![0xFF, 0xFF],
+            vec![0xFF],
             "invalid tail of serialized pool parameters"
         );
         cbor::encode(future_params, &mut bytes)
@@ -93,7 +107,7 @@ impl<C> cbor::encode::Encode<C> for PoolParamsUpdates {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         // NOTE: We explicitly enforce the use of *indefinite* arrays here because it allows us
         // to extend the serialized data easily without having to deserialise it.
-        e.begin_array()?;
+        e.array(2)?;
         e.encode_with(&self.current_params, ctx)?;
         e.begin_array()?;
         for update in self.future_params.iter() {
@@ -315,7 +329,7 @@ pub mod impl_rocksdb {
                 .expect("unable to decode database's pool"))
         }
 
-        fn get_tip(&self) -> Result<Point, Self::Error> {
+        fn tip(&self) -> Result<Point, Self::Error> {
             Ok(self
                 .db
                 .get(KEY_TIP)?
@@ -325,6 +339,39 @@ pub mod impl_rocksdb {
                 .unwrap_or_else(|| {
                     panic!("no database tip. Did you forget to 'import' a snapshot first?")
                 }))
+        }
+
+        fn with_pools(&self, with: WithIterPools<'_>) -> Result<(), rocksdb::Error> {
+            let db = self.db.transaction();
+
+            let mut iterator = iterator::DBIterator::new(
+                db.prefix_iterator(PREFIX_POOL)
+                    .map(|item| {
+                        // TODO: clarify what kind of errors can come from the database at this point.
+                        // We are merely iterating over a collection.
+                        item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+                    })
+                    // NOTE: Prefix iterator may seek into the _next_ prefix once it is done
+                    // iterating over the given prefix. This is a quirks of RocksDB and so we have
+                    // to manually check that the yielded item match the prefix otherwise we risk
+                    // yielding items that belong to another column.
+                    //
+                    // See: https://github.com/facebook/rocksdb/wiki/Prefix-Seek#transition-to-the-new-usage
+                    .take_while(|item| item.0.starts_with(&PREFIX_POOL)),
+            );
+
+            with(Box::new(&mut iterator));
+
+            for (k, v) in iterator.into_iter_updates() {
+                match v {
+                    Some(v) => db.put(k, as_value(v)),
+                    None => db.delete(k),
+                }?;
+            }
+
+            db.commit()?;
+
+            Ok(())
         }
     }
 

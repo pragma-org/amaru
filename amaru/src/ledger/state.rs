@@ -67,7 +67,7 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
             self.stable
                 .lock()
                 .unwrap()
-                .get_tip()
+                .tip()
                 .unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")),
         )
     }
@@ -84,12 +84,18 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
             let mut db = self.stable.lock().unwrap();
 
             let now_stable = self.volatile.pop_front().unwrap();
-            let epoch = epoch_from_slot(now_stable.point.slot_or_default());
+            let current_epoch = epoch_from_slot(now_stable.point.slot_or_default());
 
-            if epoch > db.most_recent_snapshot().unwrap_or_default() {
-                let span_snapshot = info_span!("snapshot", epoch).entered();
-                // TODO: Perform epoch-boundary computations before saving the snapshot.
-                db.next_snapshot(epoch).map_err(ForwardErr::StorageErr)?;
+            if current_epoch > db.most_recent_snapshot().unwrap_or_default() {
+                let span_snapshot = info_span!("snapshot", epoch = current_epoch).entered();
+                db.with_pools(Box::new(|iterator| {
+                    for pool in iterator {
+                        update_pool(pool, current_epoch)
+                    }
+                }))
+                .map_err(ForwardErr::StorageErr)?;
+                db.next_snapshot(current_epoch)
+                    .map_err(ForwardErr::StorageErr)?;
                 span_snapshot.exit();
             }
 
@@ -176,13 +182,77 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
                 .filter(|(_, epoch)| epoch <= &current_epoch)
                 .last()
             {
-                return Ok(Some(params.0.clone()));
+                return Ok(params.0.clone());
             }
 
             return Ok(Some(state.current_params));
         }
 
         Ok(None)
+    }
+}
+
+/// Alter a Pool object by applying updates recorded across the epoch. A pool can have two types of
+/// updates:
+///
+/// 1. Re-registration (effectively adjusting its underlying parameters), which always take effect
+///    on the next epoch boundary.
+///
+/// 2. Retirements, which specifies an epoch where the retirement becomes effective.
+///
+/// While we collect all updates as they arrive from blocks, a few rules apply:
+///
+/// a. Any re-registration that comes after a retirement cancels that retirement.
+/// b. Any retirement that come after a retirement cancels that initial retirement.
+fn update_pool<'a>(
+    mut entry: Box<dyn std::borrow::BorrowMut<Option<store::PoolParamsUpdates>> + 'a>,
+    current_epoch: Epoch,
+) {
+    let (update, retirement, needs_update) = match entry.borrow().as_ref() {
+        None => (None, None, false),
+        Some(pool) => pool.future_params.iter().fold(
+            (None, None, false),
+            |(update, retirement, needs_update), (params, epoch)| match params {
+                Some(params) if epoch <= &current_epoch => (Some(params), None, true),
+                None => (
+                    update,
+                    Some(*epoch),
+                    needs_update || epoch <= &current_epoch,
+                ),
+                Some(..) => (update, retirement, needs_update),
+            },
+        ),
+    };
+
+    if needs_update {
+        // This drops the immutable borrow. We avoid cloning inside the fold because we only ever need
+        // to clone the last update. Yet we can't hold onto a reference because we must acquire a
+        // mutable borrow below.
+        let update: Option<PoolParams> = update.cloned();
+
+        let pool: &mut Option<store::PoolParamsUpdates> = entry.borrow_mut();
+
+        // If the most recent retirement is effective as per the current epoch, we simply drop the
+        // entry. Note that, any re-registration happening after that retirement would cancel it,
+        // which is taken care of in the fold above (returning 'None').
+        if let Some(epoch) = retirement {
+            if epoch <= current_epoch {
+                *pool = None;
+                return;
+            }
+        }
+
+        // Unwrap is safe here because we know the entry exists. Otherwise we wouldn't have got an
+        // update to begin with!
+        let pool = pool.as_mut().unwrap();
+
+        if let Some(new_params) = update {
+            pool.current_params = new_params;
+        }
+
+        // Regardless, always prune future params from those that are now-obsolete.
+        pool.future_params
+            .retain(|(_, epoch)| epoch > &current_epoch);
     }
 }
 
