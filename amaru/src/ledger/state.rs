@@ -9,9 +9,9 @@ use crate::ledger::kernel::relative_slot;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
-    sync::Arc,
+    sync::{Arc, Mutex},
 };
-use tracing::info;
+use tracing::{info, info_span};
 use vec1::{vec1, Vec1};
 
 // State
@@ -27,11 +27,14 @@ use vec1::{vec1, Vec1};
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
 pub struct State<'a, E> {
+    /// A handle to the stable store, shared across all ledger instances.
     stable: StableDB<'a, E>,
+
+    /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
 }
 
-type StableDB<'a, E> = Arc<dyn Store<Error = E> + Send + Sync + 'a>;
+type StableDB<'a, E> = Arc<Mutex<dyn Store<Error = E> + Send + Sync + 'a>>;
 
 impl<'a, E: std::fmt::Debug> State<'a, E> {
     pub fn new(stable: StableDB<'a, E>) -> Self {
@@ -55,13 +58,15 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
     /// applied to the ledger.
-    pub fn tip(&'a self) -> Cow<'a, Point> {
+    pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.back() {
             return Cow::Borrowed(&st.point);
         }
 
         Cow::Owned(
             self.stable
+                .lock()
+                .unwrap()
                 .get_tip()
                 .unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")),
         )
@@ -76,9 +81,20 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
         let state = apply_block(block);
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
-            let (add, remove) = self.volatile.pop_front().unwrap().into_store_update();
-            self.stable
-                .save(&point, add, remove)
+            let mut db = self.stable.lock().unwrap();
+
+            let now_stable = self.volatile.pop_front().unwrap();
+            let epoch = epoch_from_slot(now_stable.point.slot_or_default());
+
+            if epoch > db.most_recent_snapshot().unwrap_or_default() {
+                let span_snapshot = info_span!("snapshot", epoch).entered();
+                // TODO: Perform epoch-boundary computations before saving the snapshot.
+                db.next_snapshot(epoch).map_err(ForwardErr::StorageErr)?;
+                span_snapshot.exit();
+            }
+
+            let (add, remove) = now_stable.into_store_update();
+            db.save(&point, add, remove)
                 .map_err(ForwardErr::StorageErr)?;
         } else {
             info!(num_deltas = self.volatile.len(), "warming up volatile db",);
@@ -147,7 +163,9 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
             return Ok(Some((*registrations.last()).clone()));
         }
 
-        if let Some(state) = self.stable.get_pool(pool).map_err(QueryErr::StorageErr)? {
+        let db = self.stable.lock().unwrap();
+
+        if let Some(state) = db.get_pool(pool).map_err(QueryErr::StorageErr)? {
             // NOTE: Similarly, the stable DB is at most k blocks in the past. So, if a certificate
             // is submitted near the end (i.e. within k blocks) of the last epoch, then we could be
             // in a situation where we haven't yet processed the registrations (since they're

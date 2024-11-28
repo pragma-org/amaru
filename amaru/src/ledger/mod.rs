@@ -31,7 +31,9 @@ impl Stage {
 
         Self {
             upstream: Default::default(),
-            state: Arc::new(Mutex::new(state::State::new(Arc::new(store)))),
+            state: Arc::new(Mutex::new(state::State::new(Arc::new(
+                std::sync::Mutex::new(store),
+            )))),
         }
     }
 }

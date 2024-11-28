@@ -3,7 +3,9 @@ use amaru::ledger::{
     kernel::{
         epoch_from_slot, Epoch, Point, PoolId, PoolParams, TransactionInput, TransactionOutput,
     },
-    store::{self, Store},
+    store::{
+        Store, {self},
+    },
 };
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -42,6 +44,7 @@ enum Error<'a> {
 pub async fn run(args: Args) -> miette::Result<()> {
     let point = super::parse_point(&args.date, Error::MalformedDate).into_diagnostic()?;
 
+    fs::create_dir_all(&args.out).into_diagnostic()?;
     let db = ledger::store::impl_rocksdb::RocksDB::new(&args.out).into_diagnostic()?;
 
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;

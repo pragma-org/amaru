@@ -15,6 +15,12 @@ pub trait Store {
         remove: Remove<'a>,
     ) -> Result<(), Self::Error>;
 
+    fn most_recent_snapshot(&self) -> Option<Epoch>;
+
+    /// Construct and save on-disk a snapshot of the store. The epoch number is used when
+    /// there's no existing snapshot and, to ensure that snapshots are taken in order.
+    fn next_snapshot(&mut self, epoch: Epoch) -> Result<(), Self::Error>;
+
     fn get_tip(&self) -> Result<Point, Self::Error>;
 
     fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParamsUpdates>, Self::Error>;
@@ -123,13 +129,26 @@ impl<'a, C> cbor::decode::Decode<'a, C> for PoolParamsUpdates {
 
 pub mod impl_rocksdb {
     use super::*;
+    use miette::Diagnostic;
     use pallas_codec::minicbor::{self as cbor};
     use rocksdb;
+    use std::{fs, io, path::PathBuf};
+    use tracing::{debug, info, warn};
 
+    /// Name separator used between keys prefix and their actual payload. UTF-8 encoding for ':'
     const SEPARATOR: [u8; 1] = [0x3a];
+
+    /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"
     const PREFIX_UTXO: [u8; 4] = [0x75, 0x74, 0x78, 0x6f];
+
+    /// Name prefixed used for storing pool entries. UTF-8 encoding for "pool"
     const PREFIX_POOL: [u8; 4] = [0x70, 0x6f, 0x6f, 0x6c];
+
+    /// Special key where we store the tip of the database (most recently applied delta)
     const KEY_TIP: &str = "tip";
+
+    /// Name of the directory containing the live ledger stable database.
+    const DIR_LIVE_DB: &str = "live";
 
     /// An opaque handle for a store implementation of top of RocksDB. The database has the
     /// following structure:
@@ -144,19 +163,75 @@ pub mod impl_rocksdb {
     ///
     /// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
     pub struct RocksDB {
+        /// The working directory where we store the various key/value stores.
+        dir: PathBuf,
+
+        /// An instance of RocksDB.
         db: rocksdb::OptimisticTransactionDB,
+
+        /// An ordered (asc) list of epochs for which we have available snapshots
+        snapshots: Vec<Epoch>,
+    }
+
+    #[derive(Debug, thiserror::Error, Diagnostic)]
+    pub enum OpenError {
+        #[error(transparent)]
+        RocksDB(rocksdb::Error),
+        #[error(transparent)]
+        IO(io::Error),
     }
 
     impl RocksDB {
-        pub fn new(target: &Path) -> Result<RocksDB, rocksdb::Error> {
+        pub fn new(dir: &Path) -> Result<RocksDB, OpenError> {
+            let mut snapshots: Vec<Epoch> = Vec::new();
+            for entry in fs::read_dir(dir).map_err(OpenError::IO)?.by_ref() {
+                let entry = entry.map_err(OpenError::IO)?;
+
+                if let Ok(epoch) = entry
+                    .file_name()
+                    .to_str()
+                    .unwrap_or_default()
+                    .parse::<Epoch>()
+                {
+                    info!(epoch, "found existing ledger snapshot");
+                    snapshots.push(epoch);
+                } else if entry.file_name() != DIR_LIVE_DB {
+                    warn!(
+                        dir_entry = entry.file_name().to_str().unwrap_or_default(),
+                        "unexpected file within the database directory folder; ignoring"
+                    );
+                }
+            }
+
+            snapshots.sort();
+
             Ok(RocksDB {
-                db: rocksdb::OptimisticTransactionDB::open_default(target)?,
+                snapshots,
+                dir: dir.to_path_buf(),
+                db: rocksdb::OptimisticTransactionDB::open_default(dir.join("live"))
+                    .map_err(OpenError::RocksDB)?,
             })
         }
     }
 
     impl Store for RocksDB {
         type Error = rocksdb::Error;
+
+        fn most_recent_snapshot(&'_ self) -> Option<Epoch> {
+            self.snapshots.last().cloned()
+        }
+
+        fn next_snapshot(&'_ mut self, epoch: Epoch) -> Result<(), Self::Error> {
+            let snapshot = self.most_recent_snapshot().map(|n| n + 1).unwrap_or(epoch);
+            if snapshot == epoch {
+                let path = self.dir.join(snapshot.to_string());
+                rocksdb::checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
+                self.snapshots.push(snapshot);
+            } else {
+                debug!(epoch, "snapshot already taken; ignoring");
+            }
+            Ok(())
+        }
 
         fn save<'a>(
             &'_ self,
@@ -247,7 +322,9 @@ pub mod impl_rocksdb {
                 .map(|bytes| cbor::decode(&bytes))
                 .transpose()
                 .expect("unable to decode database's tip")
-                .unwrap_or_else(|| panic!("no tip in database. Did you call 'import' first?")))
+                .unwrap_or_else(|| {
+                    panic!("no database tip. Did you forget to 'import' a snapshot first?")
+                }))
         }
     }
 
