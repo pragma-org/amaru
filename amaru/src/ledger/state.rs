@@ -26,18 +26,19 @@ use vec1::{vec1, Vec1};
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
-pub struct State<'a, E> {
+pub struct State<S, E>
+where
+    S: Store<Error = E>,
+{
     /// A handle to the stable store, shared across all ledger instances.
-    stable: StableDB<'a, E>,
+    stable: Arc<Mutex<S>>,
 
     /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
 }
 
-type StableDB<'a, E> = Arc<Mutex<dyn Store<Error = E> + Send + Sync + 'a>>;
-
-impl<'a, E: std::fmt::Debug> State<'a, E> {
-    pub fn new(stable: StableDB<'a, E>) -> Self {
+impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
+    pub fn new(stable: Arc<Mutex<S>>) -> Self {
         Self {
             stable,
 
@@ -389,7 +390,9 @@ fn apply_transaction<T>(
 // The 'LedgerState' trait materializes the interface required of the consensus layer in order to
 // validate block headers. It allows to keep the ledger implementation rather abstract to the
 // consensus in order to decouple both components.
-impl<'a, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<'a, E> {
+impl<S: Store<Error = E> + Sync + Send, E: std::fmt::Debug> ouroboros::ledger::LedgerState
+    for State<S, E>
+{
     fn pool_id_to_sigma(&self, _pool_id: &PoolId) -> Result<PoolSigma, ouroboros::ledger::Error> {
         // FIXME: Obtain from ledger's stake distribution
         Err(ouroboros::ledger::Error::PoolIdNotFound)
@@ -487,7 +490,18 @@ impl VolatileState<()> {
 }
 
 impl VolatileState<Point> {
-    pub fn into_store_update<'a>(self) -> (store::Add<'a>, store::Remove<'a>) {
+    pub fn into_store_update(
+        self,
+    ) -> (
+        store::Columns<
+            impl Iterator<Item = (TransactionInput, TransactionOutput)>,
+            impl Iterator<Item = (PoolParams, Epoch)>,
+        >,
+        store::Columns<
+            impl Iterator<Item = TransactionInput>,
+            impl Iterator<Item = (PoolId, Epoch)>,
+        >,
+    ) {
         let epoch = epoch_from_slot(self.point.slot_or_default());
 
         info!(
@@ -499,20 +513,22 @@ impl VolatileState<Point> {
         );
 
         (
-            store::Add {
-                utxo: Box::new(self.utxo.produced.into_iter()),
-                pools: Box::new(self.pools.registered.into_iter().flat_map(
-                    move |(_, registrations)| {
+            store::Columns {
+                utxo: self.utxo.produced.into_iter(),
+                pools: self
+                    .pools
+                    .registered
+                    .into_iter()
+                    .flat_map(move |(_, registrations)| {
                         registrations
                             .into_iter()
                             .map(|r| (r, epoch))
                             .collect::<Vec<_>>()
-                    },
-                )),
+                    }),
             },
-            store::Remove {
-                utxo: Box::new(self.utxo.consumed.into_iter()),
-                pools: Box::new(self.pools.unregistered.into_iter()),
+            store::Columns {
+                utxo: self.utxo.consumed.into_iter(),
+                pools: self.pools.unregistered.into_iter(),
             },
         )
     }

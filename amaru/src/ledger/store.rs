@@ -7,14 +7,34 @@ pub(crate) mod iterator;
 // Store
 // ----------------------------------------------------------------------------
 
+pub struct Columns<U, P> {
+    pub utxo: U,
+    pub pools: P,
+}
+
+impl<U, P> Default for Columns<iter::Empty<U>, iter::Empty<P>> {
+    fn default() -> Self {
+        Self {
+            utxo: iter::empty(),
+            pools: iter::empty(),
+        }
+    }
+}
+
 pub trait Store {
     type Error;
 
-    fn save<'a>(
+    fn save(
         &'_ self,
         point: &'_ Point,
-        add: Add<'a>,
-        remove: Remove<'a>,
+        add: Columns<
+            impl Iterator<Item = (TransactionInput, TransactionOutput)>,
+            impl Iterator<Item = (PoolParams, Epoch)>,
+        >,
+        remove: Columns<
+            impl Iterator<Item = TransactionInput>,
+            impl Iterator<Item = (PoolId, Epoch)>,
+        >,
     ) -> Result<(), Self::Error>;
 
     fn most_recent_snapshot(&self) -> Option<Epoch>;
@@ -39,35 +59,6 @@ pub trait Store {
 }
 
 pub type WithIterPools<'a> = iterator::WithIterator<'a, Option<PoolParamsUpdates>>;
-
-pub struct Add<'a> {
-    pub utxo: Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
-    pub pools: Box<dyn Iterator<Item = (PoolParams, Epoch)> + 'a>,
-}
-
-impl<'a> Default for Add<'a> {
-    fn default() -> Self {
-        Self {
-            utxo: Box::new(iter::empty())
-                as Box<dyn Iterator<Item = (TransactionInput, TransactionOutput)> + 'a>,
-            pools: Box::new(iter::empty()) as Box<dyn Iterator<Item = (PoolParams, Epoch)> + 'a>,
-        }
-    }
-}
-
-pub struct Remove<'a> {
-    pub utxo: Box<dyn Iterator<Item = TransactionInput> + 'a>,
-    pub pools: Box<dyn Iterator<Item = (PoolId, Epoch)> + 'a>,
-}
-
-impl<'a> Default for Remove<'a> {
-    fn default() -> Self {
-        Self {
-            utxo: Box::new(iter::empty()) as Box<dyn Iterator<Item = TransactionInput> + 'a>,
-            pools: Box::new(iter::empty()) as Box<dyn Iterator<Item = (PoolId, Epoch)> + 'a>,
-        }
-    }
-}
 
 // PoolParamsUpdates
 // ----------------------------------------------------------------------------
@@ -247,11 +238,17 @@ pub mod impl_rocksdb {
             Ok(())
         }
 
-        fn save<'a>(
+        fn save(
             &'_ self,
             point: &'_ Point,
-            add: Add<'a>,
-            remove: Remove<'a>,
+            add: Columns<
+                impl Iterator<Item = (TransactionInput, TransactionOutput)>,
+                impl Iterator<Item = (PoolParams, Epoch)>,
+            >,
+            remove: Columns<
+                impl Iterator<Item = TransactionInput>,
+                impl Iterator<Item = (PoolId, Epoch)>,
+            >,
         ) -> Result<(), Self::Error> {
             let batch = self.db.transaction();
 

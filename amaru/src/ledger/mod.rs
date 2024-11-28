@@ -3,6 +3,7 @@ use crate::{
     ledger::{
         kernel::{Hash, Hasher, MintedBlock, Point},
         state::BackwardErr,
+        store::impl_rocksdb::RocksDB,
     },
 };
 use gasket::framework::*;
@@ -21,13 +22,13 @@ pub mod store;
 #[stage(name = "ledger", unit = "ValidateHeaderEvent", worker = "Worker")]
 pub struct Stage {
     pub upstream: UpstreamPort,
-    pub state: Arc<Mutex<state::State<'static, rocksdb::Error>>>,
+    pub state: Arc<Mutex<state::State<RocksDB, rocksdb::Error>>>,
 }
 
 impl Stage {
     pub fn new(store: &Path) -> Self {
-        let store = store::impl_rocksdb::RocksDB::new(store)
-            .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
+        let store =
+            RocksDB::new(store).unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
 
         Self {
             upstream: Default::default(),

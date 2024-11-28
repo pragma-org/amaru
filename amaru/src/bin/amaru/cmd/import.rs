@@ -11,7 +11,7 @@ use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::{Diagnostic, IntoDiagnostic};
 use pallas_codec::minicbor as cbor;
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, iter, path::PathBuf};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -108,20 +108,21 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 db.save(
                     &Point::Origin,
-                    store::Add {
-                        pools: Box::new(state.registered.into_iter().flat_map(
-                            move |(_, registrations)| {
+                    store::Columns {
+                        utxo: iter::empty(),
+                        pools: state
+                            .registered
+                            .into_iter()
+                            .flat_map(move |(_, registrations)| {
                                 registrations
                                     .into_iter()
                                     .map(|r| (r, current_epoch))
                                     .collect::<Vec<_>>()
-                            },
-                        )),
-                        ..Default::default()
+                            }),
                     },
-                    store::Remove {
-                        pools: Box::new(state.unregistered.into_iter()),
-                        ..Default::default()
+                    store::Columns {
+                        pools: state.unregistered.into_iter(),
+                        utxo: iter::empty(),
                     },
                 )
                 .into_diagnostic()?;
@@ -153,12 +154,9 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     db.save(
                         &Point::Origin,
-                        store::Add {
-                            utxo: Box::new(chunk)
-                                as Box<
-                                    (dyn Iterator<Item = (TransactionInput, TransactionOutput)>),
-                                >,
-                            ..Default::default()
+                        store::Columns {
+                            utxo: chunk,
+                            pools: iter::empty(),
                         },
                         Default::default(),
                     )
