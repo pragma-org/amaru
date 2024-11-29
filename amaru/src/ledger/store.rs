@@ -2,7 +2,7 @@ use super::kernel::{Epoch, Point, PoolId, PoolParams, TransactionInput, Transact
 use pallas_codec::minicbor::{self as cbor};
 use std::{iter, path::Path};
 
-pub(crate) mod iterator;
+pub(crate) mod iter_borrow;
 
 // Store
 // ----------------------------------------------------------------------------
@@ -52,13 +52,13 @@ pub trait Store {
     ///
     /// 2. That all operations are consistent and atomic (the iteration occurs on a snapshot, and
     ///    the mutation apply to the iterated items)
-    fn with_pools(&self, with: WithIterPools<'_>) -> Result<(), Self::Error>;
+    fn with_pools(&self, with: impl Fn(IterPools<'_, '_>)) -> Result<(), Self::Error>;
 
     /// Get details about a specific pool
     fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParamsUpdates>, Self::Error>;
 }
 
-pub type WithIterPools<'a> = iterator::WithIterator<'a, Option<PoolParamsUpdates>>;
+pub type IterPools<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Option<PoolParamsUpdates>>;
 
 // PoolParamsUpdates
 // ----------------------------------------------------------------------------
@@ -343,17 +343,16 @@ pub mod impl_rocksdb {
                 }))
         }
 
-        fn with_pools(&self, with: WithIterPools<'_>) -> Result<(), rocksdb::Error> {
+        fn with_pools(&self, with: impl Fn(IterPools<'_, '_>)) -> Result<(), rocksdb::Error> {
             let db = self.db.transaction();
 
-            let mut iterator =
-                iterator::DBIterator::new(db.prefix_iterator(PREFIX_POOL).map(|item| {
-                    // TODO: clarify what kind of errors can come from the database at this point.
-                    // We are merely iterating over a collection.
-                    item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-                }));
+            let mut iterator = iter_borrow::new(db.prefix_iterator(PREFIX_POOL).map(|item| {
+                // TODO: clarify what kind of errors can come from the database at this point.
+                // We are merely iterating over a collection.
+                item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+            }));
 
-            with(Box::new(&mut iterator));
+            with(iterator.as_iter_borrow());
 
             for (k, v) in iterator.into_iter_updates() {
                 match v {

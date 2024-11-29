@@ -89,11 +89,11 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
             if current_epoch > db.most_recent_snapshot().unwrap_or_default() {
                 let span_snapshot = info_span!("snapshot", epoch = current_epoch).entered();
-                db.with_pools(Box::new(|iterator| {
+                db.with_pools(|iterator| {
                     for pool in iterator {
                         update_pool(pool, current_epoch)
                     }
-                }))
+                })
                 .map_err(ForwardErr::StorageErr)?;
                 db.next_snapshot(current_epoch)
                     .map_err(ForwardErr::StorageErr)?;

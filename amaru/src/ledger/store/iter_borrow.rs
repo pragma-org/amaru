@@ -2,42 +2,56 @@ use mutable_db_entry::MutableDBEntry;
 use pallas_codec::minicbor as cbor;
 use std::{borrow::BorrowMut, cell::RefCell, rc::Rc};
 
-/// An iterator only accessible through a continuation. This allows to define a safe bracket-style
-/// resource acquisition for an iterator iterating over borrowable items.
-pub type WithIterator<'a, T> =
-    Box<dyn Fn(Box<dyn Iterator<Item = Box<dyn BorrowMut<T> + '_>> + '_>) + 'a>;
+/// An iterator over borrowable items. This allows to define a Rust-idiomatic API for accessing
+/// items in read-only or read-write mode. When provided in a callback, it allows the callee to
+/// then perform specific operations (e.g. database updates) on items that have been mutably
+/// borrowed.
+pub type IterBorrow<'a, 'b, T> = Box<dyn Iterator<Item = Box<dyn BorrowMut<T> + 'a>> + 'b>;
 
-/// A DBIterator defines an abstraction on top of another iterator, that stores updates applied to
+pub fn new<'a, T: Clone>(
+    inner: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
+) -> KeyValueIterator<'a, T> {
+    KeyValueIterator {
+        inner: Box::new(inner),
+        updates: Rc::new(RefCell::new(Vec::new())),
+    }
+}
+
+/// A KeyValueIterator defines an abstraction on top of another iterator, that stores updates applied to
 /// iterated elements. This allows, for example, to iterate over elements of a key/value store,
 /// collect mutations to the underlying value, and persist those mutations without leaking the
 /// underlying store implementation to the caller.
-pub struct DBIterator<'a, T: Clone> {
+pub struct KeyValueIterator<'a, T: Clone> {
     updates: SharedVec<(Vec<u8>, Option<T>)>,
-    inner: KeyValueIterator<'a>,
+    inner: RawIterator<'a>,
 }
 
-pub type KeyValueIterator<'a> = Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
+pub type RawIterator<'a> = Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
 
 pub type SharedVec<T> = Rc<RefCell<Vec<T>>>;
 
-impl<'a, T: Clone> DBIterator<'a, T> {
-    pub fn new(inner: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a) -> Self {
-        Self {
-            inner: Box::new(inner),
-            updates: Rc::new(RefCell::new(Vec::new())),
-        }
-    }
-
-    /// Obtain an iterator on the updates to be done.
+impl<'a, T: Clone> KeyValueIterator<'a, T> {
+    /// Obtain an iterator on the updates to be done. This takes ownership of the original
+    /// iterator to ensure that it is correctly de-allocated as we now process updates.
     pub fn into_iter_updates(self) -> impl Iterator<Item = (Vec<u8>, Option<T>)> {
-        // NOTE: In principle, 'into_iter_updates' is only called once all callbacks on the
-        // inner iterator have resolved; so the absolute count of reference should be 1 and
-        // no cloning should occur here.
+        // NOTE: In principle, 'into_iter_updates' is only called once all callbacks on the inner
+        // iterator have resolved; so the absolute count of strong references should be 1 and no
+        // cloning should occur here. We can prove that with the next assertion.
+        assert_eq!(Rc::strong_count(&self.updates), 1);
         Rc::unwrap_or_clone(self.updates).into_inner().into_iter()
     }
 }
 
-impl<'a, T: Clone + for<'d> cbor::Decode<'d, ()>> Iterator for DBIterator<'a, T>
+impl<'a, T: Clone + for<'d> cbor::Decode<'d, ()>> KeyValueIterator<'a, T>
+where
+    Self: 'a,
+{
+    pub fn as_iter_borrow(&mut self) -> IterBorrow<'a, '_, Option<T>> {
+        Box::new(self)
+    }
+}
+
+impl<'a, T: Clone + for<'d> cbor::Decode<'d, ()>> Iterator for KeyValueIterator<'a, T>
 where
     Self: 'a,
 {
@@ -46,12 +60,8 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(k, v)| {
             let updates = self.updates.clone();
-            let original: T = cbor::decode(&v).unwrap_or_else(|e| {
-                panic!(
-                    "unable to decode database's object ({}): {e:?}",
-                    hex::encode(&v)
-                )
-            });
+            let original: T = cbor::decode(&v)
+                .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&v)));
             Box::new(MutableDBEntry::new(Some(original), move |new| {
                 updates
                     .as_ref()
@@ -138,7 +148,7 @@ mod tests {
 
         // Define some handler/worker task on the iterator. Here, we drop any apple and we change
         // the quantity of banana. We expects those to be persisted in the database.
-        let handler: WithIterator<'_, Option<Fruit>> = Box::new(|iterator| {
+        let handler = |iterator: IterBorrow<'_, '_, Option<Fruit>>| {
             for mut fruit in iterator {
                 if fruit.borrow().as_ref().map(|f| f.name.as_str()) == Some("apple") {
                     *fruit.as_mut().borrow_mut() = None;
@@ -147,16 +157,15 @@ mod tests {
                     fruit.as_mut().unwrap().quantity = 42;
                 }
             }
-        });
+        };
 
         // Simulate a series of operation on the "fruit" table, deferring updates to a separate
         // 'handler' function.
         {
             let batch = db.transaction();
-            let mut iterator: DBIterator<'_, Fruit> =
-                DBIterator::new(batch.prefix_iterator("fruit").map(|item| {
-                    item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-                }));
+            let mut iterator: KeyValueIterator<'_, Fruit> = new(batch
+                .prefix_iterator("fruit")
+                .map(|item| item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))));
 
             handler(Box::new(&mut iterator));
 
