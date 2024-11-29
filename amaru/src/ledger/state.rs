@@ -3,6 +3,7 @@ pub mod diff_set;
 
 use diff_epoch_reg::DiffEpochReg;
 use diff_set::DiffSet;
+use tracing::debug;
 
 use super::{
     kernel::{
@@ -94,20 +95,36 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             let now_stable = self.volatile.pop_front().unwrap();
             let current_epoch = epoch_from_slot(now_stable.point.slot_or_default());
 
-            if current_epoch > db.most_recent_snapshot().unwrap_or_default() {
-                let span_snapshot = info_span!("snapshot", epoch = current_epoch).entered();
+            // Note: the volatile sequence may contain points belonging to two epochs. We diligently
+            // make snapshots at the end of each epoch. Thus, as soon as the next stable block is
+            // exactly MORE than one epoch apart, it means that we've already pushed to the stable
+            // db all the blocks from the previous epoch and it's time to make a snapshot before we
+            // apply this new stable diff.
+            //
+            // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
+            // we must snapshot the one _just before_.
+            if current_epoch > db.most_recent_snapshot() + 1 {
+                let span_snapshot = info_span!("snapshot", epoch = current_epoch - 1).entered();
+                db.next_snapshot(current_epoch - 1)
+                    .map_err(ForwardErr::StorageErr)?;
+                span_snapshot.exit();
+
+                let span_tick_pool = info_span!("tick_pool", epoch = current_epoch).entered();
+                info!(epoch = current_epoch, "tick pools");
+                // Then we, can tick pools to compute their new state at the epoch boundary. Notice
+                // how we tick with the _current epoch_ however, but we take the snapshot before
+                // the tick since the actions are only effective once the epoch is crossed.
                 db.with_pools(|iterator| {
                     for pool in iterator {
                         tick_pool(pool, current_epoch)
                     }
                 })
                 .map_err(ForwardErr::StorageErr)?;
-                db.next_snapshot(current_epoch)
-                    .map_err(ForwardErr::StorageErr)?;
-                span_snapshot.exit();
+                span_tick_pool.exit();
             }
 
             let (add, remove) = now_stable.into_store_update();
+
             db.save(&point, add, remove)
                 .map_err(ForwardErr::StorageErr)?;
         } else {
@@ -115,7 +132,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         }
 
         info!(
-            target: "amaru::ledger::tip",
+            target: "amaru::ledger::state::tip",
             epoch = epoch_from_slot(point.slot_or_default()),
             relative_slot = relative_slot(point.slot_or_default()),
         );
@@ -233,6 +250,10 @@ fn tick_pool<'a>(
         // entry. Note that, any re-registration happening after that retirement would cancel it,
         // which is taken care of in the fold above (returning 'None').
         if let Some(epoch) = retirement {
+            debug!(
+                pool = ?pool.as_mut().unwrap().current_params.id,
+                "retiring"
+            );
             if epoch <= current_epoch {
                 *pool = None;
                 return;
@@ -244,6 +265,11 @@ fn tick_pool<'a>(
         let pool = pool.as_mut().unwrap();
 
         if let Some(new_params) = update {
+            debug!(
+                pool = ?pool.current_params.id,
+                ?new_params,
+                "updating parameters"
+            );
             pool.current_params = new_params;
         }
 
@@ -346,7 +372,10 @@ fn apply_transaction<T>(
         // Certificates
         for certificate in certificates {
             match certificate {
-                Certificate::PoolRetirement(id, epoch) => state.pools.unregister(id, epoch),
+                Certificate::PoolRetirement(id, epoch) => {
+                    debug!(pool = ?id, ?epoch, "certificate=retirement");
+                    state.pools.unregister(id, epoch)
+                }
                 Certificate::PoolRegistration {
                     operator: id,
                     vrf_keyhash: vrf,
@@ -357,9 +386,8 @@ fn apply_transaction<T>(
                     pool_owners: owners,
                     relays,
                     pool_metadata: metadata,
-                } => state.pools.register(
-                    id,
-                    PoolParams {
+                } => {
+                    let params = PoolParams {
                         id,
                         vrf,
                         pledge,
@@ -369,8 +397,16 @@ fn apply_transaction<T>(
                         owners,
                         relays,
                         metadata,
-                    },
-                ),
+                    };
+
+                    info!(
+                        pool = ?id,
+                        ?params,
+                        "certificate=registration"
+                    );
+
+                    state.pools.register(id, params)
+                }
                 // FIXME: Process other types of certificates
                 _ => {}
             }
@@ -498,7 +534,7 @@ impl VolatileState<Point> {
     ) {
         let epoch = epoch_from_slot(self.point.slot_or_default());
 
-        info!(
+        debug!(
             utxo_produced = self.utxo.produced.len(),
             utxo_consumed = self.utxo.produced.len(),
             pools_registered = self.pools.registered.len(),
@@ -516,7 +552,7 @@ impl VolatileState<Point> {
                     .flat_map(move |(_, registrations)| {
                         registrations
                             .into_iter()
-                            .map(|r| (r, epoch))
+                            .map(|r| (r, epoch + 1))
                             .collect::<Vec<_>>()
                     }),
             },

@@ -55,11 +55,7 @@ impl Row {
 
     pub fn extend(mut bytes: Vec<u8>, future_params: (Option<PoolParams>, Epoch)) -> Vec<u8> {
         let tail = bytes.split_off(bytes.len() - 1);
-        assert_eq!(
-            tail,
-            vec![0xFF],
-            "invalid tail of serialized pool parameters"
-        );
+        assert_eq!(tail, vec![0xFF], "invalid pool tail");
         cbor::encode(future_params, &mut bytes)
             .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
         [bytes, tail].concat()
@@ -115,6 +111,7 @@ pub mod rocksdb {
         store::rocksdb::common::{as_key, as_value, PREFIX_LEN},
     };
     use rocksdb::{self, OptimisticTransactionDB, ThreadMode, Transaction};
+    use tracing::{debug, warn};
 
     /// Name prefixed used for storing Pool entries. UTF-8 encoding for "pool"
     pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x6f, 0x6c];
@@ -146,8 +143,14 @@ pub mod rocksdb {
             // TODO: We might want to define a MERGE OPERATOR to speed this up if
             // necessary.
             let params = match db.get(as_key(&PREFIX, pool))? {
-                None => as_value(super::Row::new(params)),
-                Some(existing_params) => super::Row::extend(existing_params, (Some(params), epoch)),
+                None => {
+                    debug!(?pool, "insert");
+                    as_value(super::Row::new(params))
+                }
+                Some(existing_params) => {
+                    debug!(?pool, scheduled_for_epoch=?epoch, "extend");
+                    super::Row::extend(existing_params, (Some(params), epoch))
+                }
             };
 
             db.put(as_key(&PREFIX, pool), params)?;
@@ -161,11 +164,14 @@ pub mod rocksdb {
         rows: impl Iterator<Item = (PoolId, Epoch)>,
     ) -> Result<(), rocksdb::Error> {
         for (pool, epoch) in rows {
+            debug!(?pool, scheduled_for_epoch=?epoch, "remove");
             // We do not delete pool immediately but rather schedule the
             // removal as an empty parameter update. The 'pool reaping' happens on
             // every epoch boundary.
             match db.get(as_key(&PREFIX, pool))? {
-                None => (),
+                None => {
+                    warn!(?pool, "attempting to remove non existing pool")
+                }
                 Some(existing_params) => db.put(
                     as_key(&PREFIX, pool),
                     super::Row::extend(existing_params, (None, epoch)),

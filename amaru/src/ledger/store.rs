@@ -29,9 +29,9 @@ pub trait Store {
         >,
     ) -> Result<(), Self::Error>;
 
-    /// The most recent snapshot, if any. Note that apart from a system fresh start, there should
-    /// be at least one snapshot available.
-    fn most_recent_snapshot(&self) -> Option<Epoch>;
+    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    fn most_recent_snapshot(&self) -> Epoch;
 
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when
     /// there's no existing snapshot and, to ensure that snapshots are taken in order.
@@ -51,7 +51,7 @@ pub trait Store {
     ///
     /// 2. That all operations are consistent and atomic (the iteration occurs on a snapshot, and
     ///    the mutation apply to the iterated items)
-    fn with_pools(&self, with: impl Fn(pools::Iter<'_, '_>)) -> Result<(), Self::Error>;
+    fn with_pools(&self, with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), Self::Error>;
 }
 
 // Columns

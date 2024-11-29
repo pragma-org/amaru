@@ -19,6 +19,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::{debug, info, warn};
+use vec1::{vec1, Vec1};
 
 /// Special key where we store the tip of the database (most recently applied delta)
 const KEY_TIP: &str = "tip";
@@ -46,7 +47,7 @@ pub struct RocksDB {
     db: OptimisticTransactionDB,
 
     /// An ordered (asc) list of epochs for which we have available snapshots
-    snapshots: Vec<Epoch>,
+    snapshots: Vec1<Epoch>,
 }
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
@@ -55,6 +56,8 @@ pub enum OpenError {
     RocksDB(rocksdb::Error),
     #[error(transparent)]
     IO(io::Error),
+    #[error("no ledger stable snapshot found in ledger.db; at least one is expected")]
+    NoStableSnapshot,
 }
 
 impl RocksDB {
@@ -69,7 +72,7 @@ impl RocksDB {
                 .unwrap_or_default()
                 .parse::<Epoch>()
             {
-                info!(epoch, "found existing ledger snapshot");
+                debug!(epoch, "found existing ledger snapshot");
                 snapshots.push(epoch);
             } else if entry.file_name() != DIR_LIVE_DB {
                 warn!(
@@ -86,9 +89,20 @@ impl RocksDB {
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
 
         Ok(RocksDB {
-            snapshots,
+            snapshots: Vec1::try_from(snapshots).map_err(|_| OpenError::NoStableSnapshot)?,
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
+                .map_err(OpenError::RocksDB)?,
+        })
+    }
+
+    pub fn from_snapshot(dir: &Path, epoch: Epoch) -> Result<RocksDB, OpenError> {
+        let mut opts = Options::default();
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+        Ok(RocksDB {
+            snapshots: vec1![epoch],
+            dir: dir.to_path_buf(),
+            db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
                 .map_err(OpenError::RocksDB)?,
         })
     }
@@ -146,13 +160,14 @@ impl Store for RocksDB {
         batch.commit()
     }
 
-    fn most_recent_snapshot(&'_ self) -> Option<Epoch> {
-        self.snapshots.last().cloned()
+    fn most_recent_snapshot(&'_ self) -> Epoch {
+        *self.snapshots.last()
     }
 
     fn next_snapshot(&'_ mut self, epoch: Epoch) -> Result<(), Self::Error> {
-        let snapshot = self.most_recent_snapshot().map(|n| n + 1).unwrap_or(epoch);
+        let snapshot = self.most_recent_snapshot() + 1;
         if snapshot == epoch {
+            info!(?epoch, "next snapshot");
             let path = self.dir.join(snapshot.to_string());
             checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
             self.snapshots.push(snapshot);
@@ -166,7 +181,7 @@ impl Store for RocksDB {
         pools::rocksdb::get(&self.db, pool)
     }
 
-    fn with_pools(&self, with: impl Fn(pools::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
+    fn with_pools(&self, mut with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
         let db = self.db.transaction();
 
         let mut iterator =
@@ -188,5 +203,151 @@ impl Store for RocksDB {
         db.commit()?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ledger::kernel::encode_bech32;
+    use std::collections::BTreeMap;
+
+    fn compare_preprod_snapshot(epoch: Epoch) -> BTreeMap<String, PoolParams> {
+        let mut pools = BTreeMap::new();
+
+        let db = RocksDB::from_snapshot(&PathBuf::from("../ledger.db"), epoch).unwrap();
+
+        db.with_pools(|iterator| {
+            for row in iterator {
+                if let Some(pool) = row.borrow() {
+                    pools.insert(
+                        encode_bech32("pool", &pool.current_params.id[..]).unwrap(),
+                        pool.current_params.clone(),
+                    );
+                }
+            }
+        })
+        .unwrap();
+
+        pools
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_163() {
+        let pools = compare_preprod_snapshot(163);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_164() {
+        let pools = compare_preprod_snapshot(164);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_165() {
+        let pools = compare_preprod_snapshot(165);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_166() {
+        let pools = compare_preprod_snapshot(166);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_167() {
+        let pools = compare_preprod_snapshot(167);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_168() {
+        let pools = compare_preprod_snapshot(168);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_169() {
+        let pools = compare_preprod_snapshot(169);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_170() {
+        let pools = compare_preprod_snapshot(170);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_171() {
+        let pools = compare_preprod_snapshot(171);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_172() {
+        let pools = compare_preprod_snapshot(172);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_173() {
+        let pools = compare_preprod_snapshot(173);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_174() {
+        let pools = compare_preprod_snapshot(174);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_175() {
+        let pools = compare_preprod_snapshot(175);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_176() {
+        let pools = compare_preprod_snapshot(176);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_177() {
+        let pools = compare_preprod_snapshot(177);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_178() {
+        let pools = compare_preprod_snapshot(178);
+        insta::assert_json_snapshot!(pools);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_179() {
+        let pools = compare_preprod_snapshot(179);
+        insta::assert_json_snapshot!(pools);
     }
 }
