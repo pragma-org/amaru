@@ -16,6 +16,7 @@ use super::{
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
+    iter,
     sync::{Arc, Mutex},
 };
 use tracing::{info, info_span};
@@ -166,10 +167,8 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 state
             });
 
-        if let Some(retirement) = volatile.unregistered.get(pool) {
-            if retirement <= &current_epoch {
-                return Ok(None);
-            }
+        if volatile.unregistered.contains_key(pool) {
+            return Ok(None);
         }
 
         if let Some(registrations) = volatile.registered.get(pool) {
@@ -178,24 +177,26 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
         let db = self.stable.lock().unwrap();
 
-        if let Some(state) = db.pool(pool).map_err(QueryErr::StorageErr)? {
-            // NOTE: Similarly, the stable DB is at most k blocks in the past. So, if a certificate
-            // is submitted near the end (i.e. within k blocks) of the last epoch, then we could be
-            // in a situation where we haven't yet processed the registrations (since they're
-            // processed with a delay of k blocks) but have already moved into the next epoch.
-            if let Some(params) = state
-                .future_params
-                .iter()
-                .filter(|(_, epoch)| epoch <= &current_epoch)
-                .last()
-            {
-                return Ok(params.0.clone());
+        if let Some(pool) = db.pool(pool).map_err(QueryErr::StorageErr)? {
+            let (update, retirement, _) = pool.fold_future_params(current_epoch);
+
+            // The pool is actually now retired.
+            if let Some(epoch) = retirement {
+                if epoch <= current_epoch {
+                    return Ok(None);
+                }
             }
 
-            return Ok(Some(state.current_params));
-        }
+            // The pool is updated its parameters
+            if let Some(update) = update {
+                return Ok(Some(update.to_owned()));
+            }
 
-        Ok(None)
+            // The pool is according to its current state
+            Ok(Some(pool.current_params))
+        } else {
+            Ok(None)
+        }
     }
 }
 
@@ -217,18 +218,7 @@ fn tick_pool<'a>(
 ) {
     let (update, retirement, needs_update) = match row.borrow().as_ref() {
         None => (None, None, false),
-        Some(pool) => pool.future_params.iter().fold(
-            (None, None, false),
-            |(update, retirement, needs_update), (params, epoch)| match params {
-                Some(params) if epoch <= &current_epoch => (Some(params), None, true),
-                None => (
-                    update,
-                    Some(*epoch),
-                    needs_update || epoch <= &current_epoch,
-                ),
-                Some(..) => (update, retirement, needs_update),
-            },
-        ),
+        Some(pool) => pool.fold_future_params(current_epoch),
     };
 
     if needs_update {
@@ -300,9 +290,7 @@ fn apply_block(block: MintedBlock<'_>) -> VolatileState<()> {
                 let outputs = match transaction_body.collateral_return {
                     Some(output) => Box::new([output.into()].into_iter())
                         as Box<dyn Iterator<Item = TransactionOutput>>,
-                    None => {
-                        Box::new(std::iter::empty()) as Box<dyn Iterator<Item = TransactionOutput>>
-                    }
+                    None => Box::new(iter::empty()) as Box<dyn Iterator<Item = TransactionOutput>>,
                 };
 
                 (

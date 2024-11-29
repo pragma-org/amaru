@@ -22,6 +22,37 @@ impl Row {
         }
     }
 
+    /// Collapse stake pool future parameters according to the current epoch. The stable DB is at most k
+    /// blocks in the past. So, if a certificate is submitted near the end (i.e. within k blocks) of the
+    /// last epoch, then we could be in a situation where we haven't yet processed the registrations
+    /// (since they're processed with a delay of k blocks) but have already moved into the next epoch.
+    ///
+    /// The function returns any new params becoming active in the 'current_epoch', and the retirement
+    /// status of the pool. Note that the pool can both have new parameters AND a retirement scheduled
+    /// at a later epoch.
+    ///
+    /// The boolean indicates whether any of the future params are now-obsolete as per the
+    /// 'current_epoch'.
+    pub fn fold_future_params(
+        &self,
+        current_epoch: Epoch,
+    ) -> (Option<&PoolParams>, Option<Epoch>, bool) {
+        self.future_params.iter().fold(
+            (None, None, false),
+            |(update, retirement, any_now_obsolete), (params, epoch)| match params {
+                Some(params) if epoch <= &current_epoch => (Some(params), None, true),
+                None => {
+                    if epoch <= &current_epoch {
+                        (None, Some(*epoch), true)
+                    } else {
+                        (update, Some(*epoch), any_now_obsolete)
+                    }
+                }
+                Some(..) => (update, retirement, any_now_obsolete),
+            },
+        )
+    }
+
     pub fn extend(mut bytes: Vec<u8>, future_params: (Option<PoolParams>, Epoch)) -> Vec<u8> {
         let tail = bytes.split_off(bytes.len() - 1);
         assert_eq!(
