@@ -140,14 +140,15 @@ pub mod impl_rocksdb {
     use std::{fs, io, path::PathBuf};
     use tracing::{debug, info, warn};
 
-    /// Name separator used between keys prefix and their actual payload. UTF-8 encoding for ':'
-    const SEPARATOR: [u8; 1] = [0x3a];
+    /// Length of the prefix, here as a constant to keep is consistent across other constants and
+    /// database options.
+    const PREFIX_LEN: usize = 4;
 
     /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"
-    const PREFIX_UTXO: [u8; 4] = [0x75, 0x74, 0x78, 0x6f];
+    const PREFIX_UTXO: [u8; PREFIX_LEN] = [0x75, 0x74, 0x78, 0x6f];
 
     /// Name prefixed used for storing pool entries. UTF-8 encoding for "pool"
-    const PREFIX_POOL: [u8; 4] = [0x70, 0x6f, 0x6f, 0x6c];
+    const PREFIX_POOL: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x6f, 0x6c];
 
     /// Special key where we store the tip of the database (most recently applied delta)
     const KEY_TIP: &str = "tip";
@@ -210,10 +211,14 @@ pub mod impl_rocksdb {
 
             snapshots.sort();
 
+            let mut opts = rocksdb::Options::default();
+            opts.create_if_missing(true);
+            opts.set_prefix_extractor(rocksdb::SliceTransform::create_fixed_prefix(PREFIX_LEN));
+
             Ok(RocksDB {
                 snapshots,
                 dir: dir.to_path_buf(),
-                db: rocksdb::OptimisticTransactionDB::open_default(dir.join("live"))
+                db: rocksdb::OptimisticTransactionDB::open(&opts, dir.join("live"))
                     .map_err(OpenError::RocksDB)?,
             })
         }
@@ -341,21 +346,12 @@ pub mod impl_rocksdb {
         fn with_pools(&self, with: WithIterPools<'_>) -> Result<(), rocksdb::Error> {
             let db = self.db.transaction();
 
-            let mut iterator = iterator::DBIterator::new(
-                db.prefix_iterator(PREFIX_POOL)
-                    .map(|item| {
-                        // TODO: clarify what kind of errors can come from the database at this point.
-                        // We are merely iterating over a collection.
-                        item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-                    })
-                    // NOTE: Prefix iterator may seek into the _next_ prefix once it is done
-                    // iterating over the given prefix. This is a quirks of RocksDB and so we have
-                    // to manually check that the yielded item match the prefix otherwise we risk
-                    // yielding items that belong to another column.
-                    //
-                    // See: https://github.com/facebook/rocksdb/wiki/Prefix-Seek#transition-to-the-new-usage
-                    .take_while(|item| item.0.starts_with(&PREFIX_POOL)),
-            );
+            let mut iterator =
+                iterator::DBIterator::new(db.prefix_iterator(PREFIX_POOL).map(|item| {
+                    // TODO: clarify what kind of errors can come from the database at this point.
+                    // We are merely iterating over a collection.
+                    item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+                }));
 
             with(Box::new(&mut iterator));
 
@@ -377,7 +373,7 @@ pub mod impl_rocksdb {
     /// allows to iterate over the store by specific prefixes and also avoid key-clashes across
     /// objects that could otherwise have an identical key.
     fn as_key<T: cbor::Encode<()> + std::fmt::Debug>(prefix: &[u8], key: T) -> Vec<u8> {
-        as_bytes(&[prefix, &SEPARATOR[..]].concat(), key)
+        as_bytes(prefix, key)
     }
 
     /// A simple helper function to encode any (serialisable) value to CBOR bytes.
