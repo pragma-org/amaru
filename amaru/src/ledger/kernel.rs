@@ -12,8 +12,8 @@ pub use pallas_codec::{
 };
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::conway::{
-    AddrKeyhash, Certificate, Coin, Epoch, MintedBlock, PoolMetadata, Relay, RewardAccount,
-    TransactionInput, TransactionOutput, UnitInterval, VrfKeyhash,
+    AddrKeyhash, Certificate, Coin, Epoch, MintedBlock, PoolMetadata, RationalNumber, Relay,
+    RewardAccount, TransactionInput, TransactionOutput, UnitInterval, VrfKeyhash,
 };
 
 // Constants

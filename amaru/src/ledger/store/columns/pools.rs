@@ -8,7 +8,7 @@ use pallas_codec::minicbor::{self as cbor};
 /// imports.
 pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Option<Row>>;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Row {
     pub current_params: PoolParams,
     pub future_params: Vec<(Option<PoolParams>, Epoch)>,
@@ -85,7 +85,6 @@ impl<C> cbor::encode::Encode<C> for Row {
         for update in self.future_params.iter() {
             e.encode_with(update, ctx)?;
         }
-        e.end()?;
         e.end()?;
         Ok(())
     }
@@ -175,5 +174,83 @@ pub mod rocksdb {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ledger::kernel::{Hash, Nullable, RationalNumber};
+    use proptest::prelude::*;
+
+    prop_compose! {
+        fn any_pool_params()(
+            id in any::<[u8; 28]>(),
+            vrf in any::<[u8; 32]>(),
+            pledge in any::<u64>(),
+            cost in any::<u64>(),
+            margin in 0..100u64,
+            reward_account in any::<[u8; 28]>(),
+        ) -> PoolParams {
+            PoolParams {
+                id: Hash::new(id),
+                vrf: Hash::new(vrf),
+                pledge,
+                cost,
+                margin: RationalNumber { numerator: margin, denominator: 100 },
+                reward_account: [&[0xF0], &reward_account[..]].concat().into(),
+                // TODO: Generate some arbitrary data
+                owners: vec![].into(),
+                relays: vec![],
+                metadata: Nullable::Null,
+            }
+        }
+    }
+
+    fn any_future_params(epoch: Epoch) -> impl Strategy<Value = (Option<PoolParams>, Epoch)> {
+        prop_oneof![
+            Just((None, epoch)),
+            any_pool_params().prop_map(move |params| (Some(params), epoch))
+        ]
+    }
+
+    fn any_row() -> impl Strategy<Value = Row> {
+        any::<Vec<Epoch>>()
+            .prop_flat_map(|epochs| {
+                epochs
+                    .into_iter()
+                    .map(any_future_params)
+                    .collect::<Vec<_>>()
+            })
+            .prop_flat_map(|future_params| {
+                any_pool_params().prop_map(move |current_params| Row {
+                    current_params,
+                    future_params: future_params.clone(),
+                })
+            })
+    }
+
+    proptest! {
+        #[test]
+        fn prop_roundtrip_cbor(row in any_row()) {
+            let mut bytes = Vec::new();
+            cbor::encode(&row, &mut bytes)
+                .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+            assert_eq!(Ok(row), cbor::decode(&bytes).map_err(|e| e.to_string()));
+        }
+
+        #[test]
+        fn prop_decode_after_extend(row in any_row(), future_params in any_future_params(100)) {
+            let mut bytes = Vec::new();
+            cbor::encode(&row, &mut bytes)
+                .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+
+            let bytes_extended = Row::extend(bytes, future_params.clone());
+
+            let row_extended: Row = cbor::decode(&bytes_extended).unwrap();
+
+            assert_eq!(row_extended.future_params.len(), row.future_params.len() + 1);
+            assert_eq!(row_extended.future_params.last(), Some(&future_params));
+        }
     }
 }
