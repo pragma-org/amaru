@@ -45,7 +45,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     let point = super::parse_point(&args.date, Error::MalformedDate).into_diagnostic()?;
 
     fs::create_dir_all(&args.out).into_diagnostic()?;
-    let db = ledger::store::impl_rocksdb::RocksDB::new(&args.out).into_diagnostic()?;
+    let db = ledger::store::rocksdb::RocksDB::new(&args.out).into_diagnostic()?;
 
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;
     let mut d = cbor::Decoder::new(&bytes);
@@ -80,7 +80,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
                 // Deposits
                 d.skip().into_diagnostic()?;
 
-                let mut state = ledger::state::DiffEpochReg::default();
+                let mut state = ledger::state::diff_epoch_reg::DiffEpochReg::default();
                 for (pool, params) in pools.into_iter() {
                     // NOTE: We are importing pools for the next epoch onwards, so any pool update
                     // has technically become active at the epoch boundary. So it is sufficient to

@@ -1,18 +1,24 @@
+pub mod diff_epoch_reg;
+pub mod diff_set;
+
+use diff_epoch_reg::DiffEpochReg;
+use diff_set::DiffSet;
+
 use super::{
     kernel::{
-        block_point, epoch_from_slot, Certificate, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
-        PoolParams, PoolSigma, TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM,
+        block_point, epoch_from_slot, relative_slot, Certificate, Epoch, Hash, Hasher, MintedBlock,
+        Point, PoolId, PoolParams, PoolSigma, TransactionInput, TransactionOutput,
+        CONSENSUS_SECURITY_PARAM,
     },
-    store::{self, Store},
+    store::{self, columns::pools, Store},
 };
-use crate::ledger::kernel::relative_slot;
+
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use tracing::{info, info_span};
-use vec1::{vec1, Vec1};
 
 // State
 // ----------------------------------------------------------------------------
@@ -91,7 +97,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 let span_snapshot = info_span!("snapshot", epoch = current_epoch).entered();
                 db.with_pools(|iterator| {
                     for pool in iterator {
-                        update_pool(pool, current_epoch)
+                        tick_pool(pool, current_epoch)
                     }
                 })
                 .map_err(ForwardErr::StorageErr)?;
@@ -172,7 +178,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
         let db = self.stable.lock().unwrap();
 
-        if let Some(state) = db.get_pool(pool).map_err(QueryErr::StorageErr)? {
+        if let Some(state) = db.pool(pool).map_err(QueryErr::StorageErr)? {
             // NOTE: Similarly, the stable DB is at most k blocks in the past. So, if a certificate
             // is submitted near the end (i.e. within k blocks) of the last epoch, then we could be
             // in a situation where we haven't yet processed the registrations (since they're
@@ -205,11 +211,11 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 ///
 /// a. Any re-registration that comes after a retirement cancels that retirement.
 /// b. Any retirement that come after a retirement cancels that initial retirement.
-fn update_pool<'a>(
-    mut entry: Box<dyn std::borrow::BorrowMut<Option<store::PoolParamsUpdates>> + 'a>,
+fn tick_pool<'a>(
+    mut row: Box<dyn std::borrow::BorrowMut<Option<pools::Row>> + 'a>,
     current_epoch: Epoch,
 ) {
-    let (update, retirement, needs_update) = match entry.borrow().as_ref() {
+    let (update, retirement, needs_update) = match row.borrow().as_ref() {
         None => (None, None, false),
         Some(pool) => pool.future_params.iter().fold(
             (None, None, false),
@@ -231,7 +237,7 @@ fn update_pool<'a>(
         // mutable borrow below.
         let update: Option<PoolParams> = update.cloned();
 
-        let pool: &mut Option<store::PoolParamsUpdates> = entry.borrow_mut();
+        let pool: &mut Option<pools::Row> = row.borrow_mut();
 
         // If the most recent retirement is effective as per the current epoch, we simply drop the
         // entry. Note that, any re-registration happening after that retirement would cancel it,
@@ -531,271 +537,6 @@ impl VolatileState<Point> {
                 pools: self.pools.unregistered.into_iter(),
             },
         )
-    }
-}
-
-// DiffEpochReg
-// ----------------------------------------------------------------------------
-
-/// A compact data-structure tracking deferred registration & unregistration changes in a key:value
-/// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
-/// occurs only after a certain epoch (specified when unregistering). Similarly, re-registering is
-/// treated as an update, but always deferred to some specified epoch as well.
-///
-/// The data-structure can be reduced through a composition relation that ensures two
-/// `DiffEpochReg` collapses into one that is equivalent to applying both `DiffEpochReg` in
-/// sequence.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffEpochReg<K, V> {
-    pub registered: BTreeMap<K, Vec1<V>>,
-    pub unregistered: BTreeMap<K, Epoch>,
-}
-
-impl<K, V> Default for DiffEpochReg<K, V> {
-    fn default() -> Self {
-        Self {
-            registered: Default::default(),
-            unregistered: Default::default(),
-        }
-    }
-}
-
-impl<K: Ord, V> DiffEpochReg<K, V> {
-    /// We reduce registration and de-registration according to the following rules:
-    ///
-    /// 1. A single `DiffEpochReg` spans over *a block*. Thus, there is no epoch change whatsoever
-    ///    happening within a single block.
-    ///
-    /// 2. Beyond the first registration, any new registration takes precedence. Said differently,
-    ///    there's always _at most_ two registrations.
-    ///
-    ///    In practice, the first registation could also *sometimes* be collapsed, if there's
-    ///    already a registration in the stable storage. But we don't have acccess to the storage
-    ///    here, so by default, we'll always keep the first registration untouched.
-    ///
-    /// 3. Registration immediately cancels out any unregistration.
-    ///
-    /// 4. There can be at most 1 unregistration per entity. Any new unregistration is preferred
-    ///    and replaces previous registrations.
-    pub fn register(&mut self, k: K, v: V) {
-        self.unregistered.remove(&k);
-        match self.registered.get_mut(&k) {
-            None => {
-                self.registered.insert(k, vec1![v]);
-            }
-            Some(vs) => {
-                if vs.len() > 1 {
-                    vs[1] = v;
-                } else {
-                    vs.push(v);
-                }
-            }
-        }
-    }
-
-    // See 'register' for details.
-    pub fn unregister(&mut self, k: K, epoch: Epoch) {
-        self.unregistered.insert(k, epoch);
-    }
-}
-
-#[cfg(test)]
-mod diff_epoch_reg_test {
-    use super::*;
-    use proptest::prelude::*;
-    use std::collections::BTreeMap;
-
-    prop_compose! {
-        fn any_diff()(
-            registered in
-                any::<BTreeMap<u8, Vec<u8>>>(),
-            unregistered in
-                any::<BTreeMap<u8, Epoch>>()
-        ) -> DiffEpochReg<u8, u8> {
-            DiffEpochReg {
-                registered: registered
-                    .into_iter()
-                    .filter_map(|(k, mut v)| {
-                        v.truncate(2);
-                        let v = Vec1::try_from(v).ok()?;
-                        Some((k, v))
-                    })
-                    .collect::<BTreeMap<_, _>>(),
-                unregistered,
-            }
-        }
-    }
-
-    proptest! {
-        // NOTE: We could avoid this test altogether by modelling the type in a different way.
-        // Having a sum One(V) | Two(V, V) instead of a Vec1 would give us this guarantee _by
-        // construction_.
-        #[test]
-        fn prop_register(mut st in any_diff(), (k, v) in any::<(u8, u8)>()) {
-            st.register(k, v);
-            let vs = st.registered.get(&k).expect("we just registered an element");
-            assert!(vs.len() <= 2, "registered[{k}] = {:?} has more than 2 elements", vs);
-            if vs.len() == 1 {
-                assert_eq!(vs, &vec1![v], "only element is different");
-            } else {
-                assert_eq!(*vs.last(), v, "last element is different");
-            }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_register_cancels_unregister(mut st in any_diff(), (k, v) in any::<(u8, u8)>()) {
-            st.register(k, v);
-            assert!(!st.unregistered.contains_key(&k))
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_unregister_right_biaised(mut st in any_diff(), (k, e) in any::<(u8, Epoch)>()) {
-            st.unregister(k, e);
-            let e_retained = st.unregistered.get(&k);
-            assert_eq!(e_retained, Some(&e))
-        }
-    }
-}
-
-// DiffSet
-// ----------------------------------------------------------------------------
-
-/// A compact data-structure tracking changes in a DAG. A composition relation exists, allowing to reduce
-/// two `DiffSet` into one that is equivalent to applying both `DiffSet` in sequence.
-///
-/// Concretely, we use this to track changes to apply to the UTxO set across a block, coming from
-/// the processing of each transaction in sequence.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffSet<K: Ord, V> {
-    pub consumed: BTreeSet<K>,
-    pub produced: BTreeMap<K, V>,
-}
-
-impl<K: Ord, V> Default for DiffSet<K, V> {
-    fn default() -> Self {
-        Self {
-            consumed: Default::default(),
-            produced: Default::default(),
-        }
-    }
-}
-
-impl<K: Ord, V> DiffSet<K, V> {
-    pub fn merge(&mut self, other: Self) {
-        self.produced.retain(|k, _| !other.consumed.contains(k));
-        self.consumed.retain(|k| !other.produced.contains_key(k));
-        self.consumed.extend(other.consumed);
-        self.produced.extend(other.produced);
-    }
-}
-
-#[cfg(test)]
-mod diff_set_test {
-    use super::*;
-    use proptest::prelude::*;
-    use std::collections::{BTreeMap, BTreeSet};
-
-    prop_compose! {
-        fn any_diff()(
-            consumed in
-                any::<BTreeSet<u8>>(),
-            mut produced in
-                any::<BTreeMap<u8, u8>>()
-        ) -> DiffSet<u8, u8> {
-            produced.retain(|k, _| !consumed.contains(k));
-            DiffSet {
-                produced,
-                consumed,
-            }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_merge_itself(mut st in any_diff()) {
-            let original = st.clone();
-            st.merge(st.clone());
-            prop_assert_eq!(st, original);
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_merge_no_overlap(mut st in any_diff(), diff in any_diff()) {
-            st.merge(diff.clone());
-
-            for (k, v) in diff.produced.iter() {
-                prop_assert_eq!(
-                    st.produced.get(k),
-                    Some(v),
-                    "everything newly produced is produced"
-                );
-            }
-
-            for k in diff.consumed.iter() {
-                prop_assert!(
-                    st.consumed.contains(k),
-                    "everything newly consumed is consumed",
-                );
-            }
-
-            for (k, _) in st.produced.iter() {
-                prop_assert!(
-                    !st.consumed.contains(k),
-                    "nothing produced is also consumed",
-                )
-            }
-
-            for k in st.consumed.iter() {
-                prop_assert!(
-                    !st.produced.contains_key(k),
-                    "nothing consumed is also produced",
-                )
-            }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_composition(
-            st0 in any_diff().prop_map(|st| st.produced),
-            diffs in prop::collection::vec(any_diff(), 1..5),
-        ) {
-            // NOTE: The order in which we apply transformation here doesn't matter, because we
-            // know that DiffSet consumed and produced do not overlap _by construction_ (cf the
-            // prop_merge_no_overlap). So we could write the two statements below in any order.
-            fn apply(mut st: BTreeMap<u8, u8>, diff: &DiffSet<u8, u8>) -> BTreeMap<u8, u8> {
-                for k in diff.consumed.iter() {
-                    st.remove(k);
-                }
-
-                for (k, v) in diff.produced.iter() {
-                    st.insert(*k, *v);
-                }
-
-                st
-            }
-
-            // Apply each diff in sequence.
-            let st_seq = diffs.iter().fold(st0.clone(), apply);
-
-            // Apply a single reduced diff
-            let st_compose = apply(
-                st0,
-                &diffs
-                    .into_iter()
-                    .fold(DiffSet::default(), |mut acc, diff| {
-                        acc.merge(diff);
-                        acc
-                    })
-            );
-
-            assert_eq!(st_seq, st_compose);
-        }
     }
 }
 

@@ -3,7 +3,7 @@ use crate::{
     ledger::{
         kernel::{Hash, Hasher, MintedBlock, Point},
         state::BackwardErr,
-        store::impl_rocksdb::RocksDB,
+        store::rocksdb::RocksDB,
     },
 };
 use gasket::framework::*;

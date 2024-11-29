@@ -14,3 +14,8 @@ pub mod consensus;
 /// A preliminary ledger implementation in memory. It's primarily meant for demo purpose
 /// and will very likely move into its own crate eventually.
 pub mod ledger;
+
+/// Iterators
+///
+/// A set of additional primitives around iterators. Not Amaru-specific so-to-speak.
+pub mod iter;
