@@ -448,7 +448,7 @@ impl<S: Store<Error = E> + Sync + Send, E: std::fmt::Debug> ouroboros::ledger::L
         62
     }
 
-    fn latest_opcert_sequence_number(&self, _issuer_vkey: &[u8]) -> Option<u64> {
+    fn latest_opcert_sequence_number(&self, _issuer_vkey: &Hash<28>) -> Option<u64> {
         // FIXME: Obtain from protocol's state
         None
     }
