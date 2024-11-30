@@ -32,8 +32,7 @@ cargo run --release -- import \
 ```console
 cargo run --release -- daemon \
   --peer-address=127.0.0.1:3000 \
-  --network=preprod \
-  --from=68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa
+  --network=preprod
 ```
 
 > [!TIP]

@@ -26,16 +26,21 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub fn new(store: &Path) -> Self {
+    pub fn new(store: &Path) -> (Self, Point) {
         let store =
             RocksDB::new(store).unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
 
-        Self {
-            upstream: Default::default(),
-            state: Arc::new(Mutex::new(state::State::new(Arc::new(
-                std::sync::Mutex::new(store),
-            )))),
-        }
+        let state = state::State::new(Arc::new(std::sync::Mutex::new(store)));
+
+        let tip = state.tip().into_owned();
+
+        (
+            Self {
+                upstream: Default::default(),
+                state: Arc::new(Mutex::new(state)),
+            },
+            tip,
+        )
     }
 }
 
