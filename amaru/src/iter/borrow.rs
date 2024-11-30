@@ -1,4 +1,4 @@
-use mutable_db_entry::MutableDBEntry;
+use borrowable_proxy::BorrowableProxy;
 use pallas_codec::minicbor as cbor;
 use std::{borrow::BorrowMut, cell::RefCell, rc::Rc};
 
@@ -62,7 +62,7 @@ where
             let updates = self.updates.clone();
             let original: T = cbor::decode(&v)
                 .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&v)));
-            Box::new(MutableDBEntry::new(Some(original), move |new| {
+            Box::new(BorrowableProxy::new(Some(original), move |new| {
                 updates
                     .as_ref()
                     .borrow_mut()
@@ -223,7 +223,7 @@ mod tests {
     }
 }
 
-mod mutable_db_entry {
+mod borrowable_proxy {
     use std::borrow::{Borrow, BorrowMut};
 
     /// A wrapper around an item that allows to perform a specific action when mutated. This is handy
@@ -233,7 +233,7 @@ mod mutable_db_entry {
     /// More specifically, the provided hook is called whenever the item is mutably borrowed; from
     /// which it may or may not be mutated. But, why would one mutably borrow the item if not to mutate
     /// it?
-    pub struct MutableDBEntry<T, F>
+    pub struct BorrowableProxy<T, F>
     where
         F: FnMut(&T),
     {
@@ -242,7 +242,7 @@ mod mutable_db_entry {
         borrowed: bool,
     }
 
-    impl<T, F> MutableDBEntry<T, F>
+    impl<T, F> BorrowableProxy<T, F>
     where
         F: FnMut(&T),
     {
@@ -256,7 +256,7 @@ mod mutable_db_entry {
     }
 
     // Provide a read-only access, through an immutable borrow.
-    impl<T, F> Borrow<T> for MutableDBEntry<T, F>
+    impl<T, F> Borrow<T> for BorrowableProxy<T, F>
     where
         F: FnMut(&T),
     {
@@ -266,7 +266,7 @@ mod mutable_db_entry {
     }
 
     // Provide a write access, through a mutable borrow.
-    impl<T, F> BorrowMut<T> for MutableDBEntry<T, F>
+    impl<T, F> BorrowMut<T> for BorrowableProxy<T, F>
     where
         F: FnMut(&T),
     {
@@ -277,7 +277,7 @@ mod mutable_db_entry {
     }
 
     // Install a handler for the hook when the object is dropped from memory.
-    impl<T, F> Drop for MutableDBEntry<T, F>
+    impl<T, F> Drop for BorrowableProxy<T, F>
     where
         F: FnMut(&T),
     {
@@ -296,7 +296,7 @@ mod mutable_db_entry {
         fn trigger_hook_on_mutation() {
             let mut xs = Vec::new();
             {
-                let mut item = MutableDBEntry::new(42, |n| xs.push(*n));
+                let mut item = BorrowableProxy::new(42, |n| xs.push(*n));
                 let item_ref: &mut usize = item.borrow_mut();
                 *item_ref -= 28;
             }
@@ -307,7 +307,7 @@ mod mutable_db_entry {
         fn ignore_hook_on_simple_borrow() {
             let mut xs: Vec<usize> = Vec::new();
             {
-                let item = MutableDBEntry::new(42, |n| xs.push(*n));
+                let item = BorrowableProxy::new(42, |n| xs.push(*n));
                 let item_ref: &usize = item.borrow();
                 assert_eq!(item_ref, &42);
             }
