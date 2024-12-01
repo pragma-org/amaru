@@ -56,15 +56,41 @@ impl Row {
             // entry. Note that, any re-registration happening after that retirement would cancel it,
             // which is taken care of in the fold above (returning 'None').
             if let Some(epoch) = retirement {
-                debug!(
-                    pool = ?pool
+                if epoch <= current_epoch {
+                    debug!(
+                        pool = ?pool
+                            .as_ref()
+                            .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
+                            .current_params
+                            .id,
+                        "retiring"
+                    );
+
+                    // NOTE:
+                    // Callee shall ensure that all pools are ticked on epoch-boundaries.
+                    //
+                    // Hence, since:
+                    //
+                    // 1. Re-registrations can only be scheduled for next epoch;
+                    // 2. Re-registrations cancel out any retirement for the same epoch;
+                    // 3. Retirements cancel out any retirement scheduled and not yet enacted.
+                    //
+                    // Then we cannot find a case where a pool retires and still have a
+                    // re-registration or another retirement still scheduled. Note that the reason
+                    // we enforce this invariant here is because the next action will erase the
+                    // pool -- and any remaining updates with it. This would have dramatic
+                    // consequences should we still have updates stashed for the future.
+                    let last = pool
                         .as_ref()
                         .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
-                        .current_params
-                        .id,
-                    "retiring"
-                );
-                if epoch <= current_epoch {
+                        .future_params
+                        .last();
+                    assert_eq!(
+                        last,
+                        Some(&(None, current_epoch)),
+                        "invariant violation: most recent retirement is not last certificate: {:?}",
+                        last,
+                    );
                     *pool = None;
                     return;
                 }
@@ -293,8 +319,9 @@ mod tests {
         ]
     }
 
+    // Generate arbitrary `Row`, good for serialization for not for logic.
     fn any_row() -> impl Strategy<Value = Row> {
-        any::<Vec<Epoch>>()
+        prop::collection::vec(0..3u64, 0..3)
             .prop_flat_map(|epochs| {
                 epochs
                     .into_iter()
@@ -309,6 +336,26 @@ mod tests {
             })
     }
 
+    // Generate a sequence of plausible updates, where each item in the vector correspond to an
+    // epoch's update. So a caller is expected to tick a base Row between each application.
+    fn any_row_seq_updates() -> impl Strategy<Value = Vec<Vec<(Option<PoolParams>, Epoch)>>> {
+        prop::collection::vec(Just(()), 0..10).prop_flat_map(|cols| {
+            cols.iter()
+                .enumerate()
+                .map(|(epoch, _)| {
+                    let future_params = || {
+                        prop_oneof![
+                            (1..3u64).prop_map(move |offset| (None, epoch as u64 + offset)),
+                            any_pool_params()
+                                .prop_map(move |params| (Some(params), epoch as u64 + 1))
+                        ]
+                    };
+                    prop::collection::vec(future_params(), 0..3)
+                })
+                .collect::<Vec<_>>()
+        })
+    }
+
     proptest! {
         #[test]
         fn prop_roundtrip_cbor(row in any_row()) {
@@ -317,7 +364,9 @@ mod tests {
                 .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
             assert_eq!(Ok(row), cbor::decode(&bytes).map_err(|e| e.to_string()));
         }
+    }
 
+    proptest! {
         #[test]
         fn prop_decode_after_extend(row in any_row(), future_params in any_future_params(100)) {
             let mut bytes = Vec::new();
@@ -330,6 +379,88 @@ mod tests {
 
             assert_eq!(row_extended.future_params.len(), row.future_params.len() + 1);
             assert_eq!(row_extended.future_params.last(), Some(&future_params));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_tick_pool(initial_params in any_pool_params(), updates in any_row_seq_updates()) {
+            #[derive(Debug)]
+            struct Model {
+                current: Option<PoolParams>,
+                future: Option<PoolParams>,
+                retiring: Option<Epoch>,
+            }
+
+            let mut model = Model {
+                current: Some(initial_params.clone()),
+                future: None,
+                retiring: None,
+            };
+
+            let mut row = Some(Row::new(initial_params));
+            for (current_epoch, updates) in updates.into_iter().enumerate() {
+                // Apply model's changes at the epoch boundary
+                if let Some(retirement) = model.retiring {
+                    if retirement <= current_epoch as u64 {
+                        model.current = None;
+                    }
+                }
+                if let Some(future) = model.future {
+                    model.current = Some(future);
+                }
+                model.future = None;
+
+                // Process all updates through our simpler model
+                model = updates.iter().fold(model, |mut model, (update, epoch)| {
+                    // Schedule or apply updates according to the current state
+                    match update {
+                        // NOTE: cannot happen in principle as the ledger rules forbids this.
+                        // But our model is imperfect, so we simply ignore retirement when there's
+                        // no pool.
+                        None if model.current.is_none() => {},
+                        None => {
+                            model.retiring = Some(*epoch);
+                        },
+                        Some(params) if model.current.is_none() => {
+                            model.retiring = None;
+                            model.current = Some(params.clone());
+                        },
+                        Some(params) => {
+                            model.retiring = None;
+                            model.future = Some(params.clone());
+                        },
+                    }
+
+                    model
+                });
+
+                // Process them through row ticks, and ensure conformance with the model
+                Row::tick(Box::new(&mut row), current_epoch as Epoch);
+                match row.as_mut() {
+                    None => {
+                        // Re-register the pool if we end up de-registering it.
+                        if let Some(params) = updates.iter().find(|(params, _)| params.is_some()).cloned() {
+                            let mut new = Row::new(params.0.unwrap());
+                            new.future_params.extend(updates);
+                            row = Some(new);
+                        }
+                    },
+                    Some(row) => {
+                        assert_eq!(
+                            model.current.as_ref(),
+                            Some(&row.current_params),
+                            "current_epoch = {current_epoch:?}, model = {model:?}",
+                        );
+                        assert!(
+                            row.future_params.iter().filter(|(_, epoch)| epoch <= &(current_epoch as u64)).count() == 0,
+                            "future params = {:?}",
+                            row.future_params,
+                        );
+                        row.future_params.extend(updates);
+                    }
+                }
+            }
         }
     }
 }
