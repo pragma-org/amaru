@@ -92,7 +92,9 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
             let mut db = self.stable.lock().unwrap();
 
-            let now_stable = self.volatile.pop_front().unwrap();
+            let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
+                unreachable!("pre-condition: self.volatile.len() >= CONSENSUS_SECURITY_PARAM")
+            });
             let current_epoch = epoch_from_slot(now_stable.point.slot_or_default());
 
             // Note: the volatile sequence may contain points belonging to two epochs. We diligently

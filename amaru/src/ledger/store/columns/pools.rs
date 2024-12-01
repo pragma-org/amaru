@@ -57,7 +57,11 @@ impl Row {
             // which is taken care of in the fold above (returning 'None').
             if let Some(epoch) = retirement {
                 debug!(
-                    pool = ?pool.as_mut().unwrap().current_params.id,
+                    pool = ?pool
+                        .as_ref()
+                        .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
+                        .current_params
+                        .id,
                     "retiring"
                 );
                 if epoch <= current_epoch {
@@ -68,7 +72,9 @@ impl Row {
 
             // Unwrap is safe here because we know the entry exists. Otherwise we wouldn't have got an
             // update to begin with!
-            let pool = pool.as_mut().unwrap();
+            let pool = pool
+                .as_mut()
+                .unwrap_or_else(|| unreachable!("pre-condition: needs_update"));
 
             if let Some(new_params) = update {
                 debug!(
@@ -120,13 +126,17 @@ impl Row {
         let tail = bytes.split_off(bytes.len() - 1);
         assert_eq!(tail, vec![0xFF], "invalid pool tail");
         cbor::encode(future_params, &mut bytes)
-            .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+            .unwrap_or_else(|e| panic!("unable to encode pool params to CBOR: {e:?}"));
         [bytes, tail].concat()
     }
 
     fn unsafe_decode(bytes: Vec<u8>) -> Self {
-        cbor::decode(&bytes)
-            .unwrap_or_else(|e| panic!("unable to decode pool ({}): {e:?}", hex::encode(&bytes)))
+        cbor::decode(&bytes).unwrap_or_else(|e| {
+            panic!(
+                "unable to decode pool from CBOR ({}): {e:?}",
+                hex::encode(&bytes)
+            )
+        })
     }
 }
 

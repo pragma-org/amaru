@@ -126,7 +126,7 @@ impl serde::Serialize for PoolParams {
         fn as_bech32_addr(bytes: &[u8]) -> String {
             Address::from_bytes(bytes)
                 .and_then(|addr| addr.to_bech32())
-                .unwrap()
+                .unwrap_or_else(|e| panic!("failed to encode address to bech32: {e:?}"))
         }
 
         struct WrapRelay<'a>(&'a Relay);
@@ -208,7 +208,7 @@ pub fn block_point(block: &MintedBlock<'_>) -> Point {
 }
 
 pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, bech32::EncodeError> {
-    let hrp = bech32::Hrp::parse(hrp).expect("invalid HRP");
+    let hrp = bech32::Hrp::parse(hrp).unwrap_or_else(|e| panic!("invalid HRP: {e:?}"));
     bech32::encode::<bech32::Bech32>(hrp, payload)
 }
 

@@ -110,8 +110,8 @@ mod tests {
     /// A simple helper function to encode any (serialisable) value to CBOR bytes.
     fn to_cbor<T: cbor::Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
         let mut buffer = Vec::new();
-        cbor::encode(value, &mut buffer)
-            .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+        cbor::encode(&value, &mut buffer)
+            .unwrap_or_else(|e| panic!("unable to encode value ({value:?}) to CBOR: {e:?}"));
         buffer
     }
 

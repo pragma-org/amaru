@@ -186,7 +186,7 @@ impl Store for RocksDB {
 
         let mut iterator =
             iter_borrow::new(db.prefix_iterator(pools::rocksdb::PREFIX).map(|item| {
-                // TODO: clarify what kind of errors can come from the database at this point.
+                // FIXME: clarify what kind of errors can come from the database at this point.
                 // We are merely iterating over a collection.
                 item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
             }));
