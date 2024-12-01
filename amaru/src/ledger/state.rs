@@ -1,18 +1,26 @@
+pub mod diff_epoch_reg;
+pub mod diff_set;
+
+use diff_epoch_reg::DiffEpochReg;
+use diff_set::DiffSet;
+use tracing::debug;
+
 use super::{
     kernel::{
-        block_point, epoch_from_slot, Certificate, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
-        PoolParams, PoolSigma, TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM,
+        block_point, epoch_from_slot, relative_slot, Certificate, Epoch, Hash, Hasher, MintedBlock,
+        Point, PoolId, PoolParams, PoolSigma, TransactionInput, TransactionOutput,
+        CONSENSUS_SECURITY_PARAM,
     },
-    store::{self, Store},
+    store::{self, columns::pools, Store},
 };
-use crate::ledger::kernel::relative_slot;
+
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
-    sync::Arc,
+    iter,
+    sync::{Arc, Mutex},
 };
-use tracing::info;
-use vec1::{vec1, Vec1};
+use tracing::{info, info_span};
 
 // State
 // ----------------------------------------------------------------------------
@@ -26,15 +34,19 @@ use vec1::{vec1, Vec1};
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
-pub struct State<'a, E> {
-    stable: StableDB<'a, E>,
+pub struct State<S, E>
+where
+    S: Store<Error = E>,
+{
+    /// A handle to the stable store, shared across all ledger instances.
+    stable: Arc<Mutex<S>>,
+
+    /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
 }
 
-type StableDB<'a, E> = Arc<dyn Store<Error = E> + Send + Sync + 'a>;
-
-impl<'a, E: std::fmt::Debug> State<'a, E> {
-    pub fn new(stable: StableDB<'a, E>) -> Self {
+impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
+    pub fn new(stable: Arc<Mutex<S>>) -> Self {
         Self {
             stable,
 
@@ -55,14 +67,16 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
     /// applied to the ledger.
-    pub fn tip(&'a self) -> Cow<'a, Point> {
+    pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.back() {
             return Cow::Borrowed(&st.point);
         }
 
         Cow::Owned(
             self.stable
-                .get_tip()
+                .lock()
+                .unwrap()
+                .tip()
                 .unwrap_or_else(|e| panic!("no tip found in stable db: {e:?}")),
         )
     }
@@ -76,16 +90,51 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
         let state = apply_block(block);
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
-            let (add, remove) = self.volatile.pop_front().unwrap().into_store_update();
-            self.stable
-                .save(&point, add, remove)
+            let mut db = self.stable.lock().unwrap();
+
+            let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
+                unreachable!("pre-condition: self.volatile.len() >= CONSENSUS_SECURITY_PARAM")
+            });
+            let current_epoch = epoch_from_slot(now_stable.point.slot_or_default());
+
+            // Note: the volatile sequence may contain points belonging to two epochs. We diligently
+            // make snapshots at the end of each epoch. Thus, as soon as the next stable block is
+            // exactly MORE than one epoch apart, it means that we've already pushed to the stable
+            // db all the blocks from the previous epoch and it's time to make a snapshot before we
+            // apply this new stable diff.
+            //
+            // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
+            // we must snapshot the one _just before_.
+            if current_epoch > db.most_recent_snapshot() + 1 {
+                let span_snapshot = info_span!("snapshot", epoch = current_epoch - 1).entered();
+                db.next_snapshot(current_epoch - 1)
+                    .map_err(ForwardErr::StorageErr)?;
+                span_snapshot.exit();
+
+                let span_tick_pool = info_span!("tick_pool", epoch = current_epoch).entered();
+                info!(epoch = current_epoch, "tick pools");
+                // Then we, can tick pools to compute their new state at the epoch boundary. Notice
+                // how we tick with the _current epoch_ however, but we take the snapshot before
+                // the tick since the actions are only effective once the epoch is crossed.
+                db.with_pools(|iterator| {
+                    for pool in iterator {
+                        pools::Row::tick(pool, current_epoch)
+                    }
+                })
+                .map_err(ForwardErr::StorageErr)?;
+                span_tick_pool.exit();
+            }
+
+            let (add, remove) = now_stable.into_store_update();
+
+            db.save(&point, add, remove)
                 .map_err(ForwardErr::StorageErr)?;
         } else {
             info!(num_deltas = self.volatile.len(), "warming up volatile db",);
         }
 
         info!(
-            target: "amaru::ledger::tip",
+            target: "amaru::ledger::state::tip",
             epoch = epoch_from_slot(point.slot_or_default()),
             relative_slot = relative_slot(point.slot_or_default()),
         );
@@ -110,61 +159,21 @@ impl<'a, E: std::fmt::Debug> State<'a, E> {
     pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, QueryErr<E>> {
         let current_epoch = epoch_from_slot(self.tip().slot_or_default());
 
-        // NOTE: When we are near an epoch boundary, we need to consider the not-yet-stable changes
-        // that belong to the previous epoch. Any re-registration or retirement that would now be
-        // valid must be acknowledged.
-        let volatile = self
+        let volatile_view = self
             .volatile
             .iter()
-            .fold(DiffEpochReg::default(), |mut state, step| {
-                if epoch_from_slot(step.point.slot_or_default()) < current_epoch {
-                    if let Some(registrations) = step.pools.registered.get(pool) {
-                        state.register(pool, registrations.last());
-                    }
+            .map(|st| (epoch_from_slot(st.point.slot_or_default()), &st.pools));
 
-                    if let Some(retirement) = step.pools.unregistered.get(pool) {
-                        // NOTE: in principle, there's a minimum epoch retirement delay which will
-                        // likely always stay larger than one epoch. Thus, the case where we have a
-                        // retirement certificate in the previous epoch that is enacted in the
-                        // current epoch will never occur. Yet, since it is technically bounded by
-                        // a protocol parameter, we better get the logic right.
-                        if retirement <= &current_epoch {
-                            state.unregister(pool, *retirement);
-                        }
-                    }
-                }
-
-                state
-            });
-
-        if let Some(retirement) = volatile.unregistered.get(pool) {
-            if retirement <= &current_epoch {
-                return Ok(None);
+        match diff_epoch_reg::Fold::for_epoch(current_epoch, pool, volatile_view) {
+            diff_epoch_reg::Fold::Registered(pool) => Ok(Some(pool.clone())),
+            diff_epoch_reg::Fold::Unregistered => Ok(None),
+            diff_epoch_reg::Fold::Undetermined => {
+                let db = self.stable.lock().unwrap();
+                let mut row = db.pool(pool).map_err(QueryErr::StorageErr)?;
+                pools::Row::tick(Box::new(&mut row), current_epoch);
+                Ok(row.map(|row| row.current_params))
             }
         }
-
-        if let Some(registrations) = volatile.registered.get(pool) {
-            return Ok(Some((*registrations.last()).clone()));
-        }
-
-        if let Some(state) = self.stable.get_pool(pool).map_err(QueryErr::StorageErr)? {
-            // NOTE: Similarly, the stable DB is at most k blocks in the past. So, if a certificate
-            // is submitted near the end (i.e. within k blocks) of the last epoch, then we could be
-            // in a situation where we haven't yet processed the registrations (since they're
-            // processed with a delay of k blocks) but have already moved into the next epoch.
-            if let Some(params) = state
-                .future_params
-                .iter()
-                .filter(|(_, epoch)| epoch <= &current_epoch)
-                .last()
-            {
-                return Ok(Some(params.0.clone()));
-            }
-
-            return Ok(Some(state.current_params));
-        }
-
-        Ok(None)
     }
 }
 
@@ -205,9 +214,7 @@ fn apply_block(block: MintedBlock<'_>) -> VolatileState<()> {
                 let outputs = match transaction_body.collateral_return {
                     Some(output) => Box::new([output.into()].into_iter())
                         as Box<dyn Iterator<Item = TransactionOutput>>,
-                    None => {
-                        Box::new(std::iter::empty()) as Box<dyn Iterator<Item = TransactionOutput>>
-                    }
+                    None => Box::new(iter::empty()) as Box<dyn Iterator<Item = TransactionOutput>>,
                 };
 
                 (
@@ -263,7 +270,10 @@ fn apply_transaction<T>(
         // Certificates
         for certificate in certificates {
             match certificate {
-                Certificate::PoolRetirement(id, epoch) => state.pools.unregister(id, epoch),
+                Certificate::PoolRetirement(id, epoch) => {
+                    debug!(pool = ?id, ?epoch, "certificate=retirement");
+                    state.pools.unregister(id, epoch)
+                }
                 Certificate::PoolRegistration {
                     operator: id,
                     vrf_keyhash: vrf,
@@ -274,9 +284,8 @@ fn apply_transaction<T>(
                     pool_owners: owners,
                     relays,
                     pool_metadata: metadata,
-                } => state.pools.register(
-                    id,
-                    PoolParams {
+                } => {
+                    let params = PoolParams {
                         id,
                         vrf,
                         pledge,
@@ -286,8 +295,16 @@ fn apply_transaction<T>(
                         owners,
                         relays,
                         metadata,
-                    },
-                ),
+                    };
+
+                    info!(
+                        pool = ?id,
+                        ?params,
+                        "certificate=registration"
+                    );
+
+                    state.pools.register(id, params)
+                }
                 // FIXME: Process other types of certificates
                 _ => {}
             }
@@ -301,7 +318,9 @@ fn apply_transaction<T>(
 // The 'LedgerState' trait materializes the interface required of the consensus layer in order to
 // validate block headers. It allows to keep the ledger implementation rather abstract to the
 // consensus in order to decouple both components.
-impl<'a, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<'a, E> {
+impl<S: Store<Error = E> + Sync + Send, E: std::fmt::Debug> ouroboros::ledger::LedgerState
+    for State<S, E>
+{
     fn pool_id_to_sigma(&self, _pool_id: &PoolId) -> Result<PoolSigma, ouroboros::ledger::Error> {
         // FIXME: Obtain from ledger's stake distribution
         Err(ouroboros::ledger::Error::PoolIdNotFound)
@@ -327,7 +346,7 @@ impl<'a, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<'a, E> {
         62
     }
 
-    fn latest_opcert_sequence_number(&self, _issuer_vkey: &[u8]) -> Option<u64> {
+    fn latest_opcert_sequence_number(&self, _issuer_vkey: &Hash<28>) -> Option<u64> {
         // FIXME: Obtain from protocol's state
         None
     }
@@ -399,10 +418,21 @@ impl VolatileState<()> {
 }
 
 impl VolatileState<Point> {
-    pub fn into_store_update<'a>(self) -> (store::Add<'a>, store::Remove<'a>) {
+    pub fn into_store_update(
+        self,
+    ) -> (
+        store::Columns<
+            impl Iterator<Item = (TransactionInput, TransactionOutput)>,
+            impl Iterator<Item = (PoolParams, Epoch)>,
+        >,
+        store::Columns<
+            impl Iterator<Item = TransactionInput>,
+            impl Iterator<Item = (PoolId, Epoch)>,
+        >,
+    ) {
         let epoch = epoch_from_slot(self.point.slot_or_default());
 
-        info!(
+        debug!(
             utxo_produced = self.utxo.produced.len(),
             utxo_consumed = self.utxo.produced.len(),
             pools_registered = self.pools.registered.len(),
@@ -411,287 +441,24 @@ impl VolatileState<Point> {
         );
 
         (
-            store::Add {
-                utxo: Box::new(self.utxo.produced.into_iter()),
-                pools: Box::new(self.pools.registered.into_iter().flat_map(
-                    move |(_, registrations)| {
+            store::Columns {
+                utxo: self.utxo.produced.into_iter(),
+                pools: self
+                    .pools
+                    .registered
+                    .into_iter()
+                    .flat_map(move |(_, registrations)| {
                         registrations
                             .into_iter()
-                            .map(|r| (r, epoch))
+                            .map(|r| (r, epoch + 1))
                             .collect::<Vec<_>>()
-                    },
-                )),
+                    }),
             },
-            store::Remove {
-                utxo: Box::new(self.utxo.consumed.into_iter()),
-                pools: Box::new(self.pools.unregistered.into_iter()),
+            store::Columns {
+                utxo: self.utxo.consumed.into_iter(),
+                pools: self.pools.unregistered.into_iter(),
             },
         )
-    }
-}
-
-// DiffEpochReg
-// ----------------------------------------------------------------------------
-
-/// A compact data-structure tracking deferred registration & unregistration changes in a key:value
-/// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
-/// occurs only after a certain epoch (specified when unregistering). Similarly, re-registering is
-/// treated as an update, but always deferred to some specified epoch as well.
-///
-/// The data-structure can be reduced through a composition relation that ensures two
-/// `DiffEpochReg` collapses into one that is equivalent to applying both `DiffEpochReg` in
-/// sequence.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffEpochReg<K, V> {
-    pub registered: BTreeMap<K, Vec1<V>>,
-    pub unregistered: BTreeMap<K, Epoch>,
-}
-
-impl<K, V> Default for DiffEpochReg<K, V> {
-    fn default() -> Self {
-        Self {
-            registered: Default::default(),
-            unregistered: Default::default(),
-        }
-    }
-}
-
-impl<K: Ord, V> DiffEpochReg<K, V> {
-    /// We reduce registration and de-registration according to the following rules:
-    ///
-    /// 1. A single `DiffEpochReg` spans over *a block*. Thus, there is no epoch change whatsoever
-    ///    happening within a single block.
-    ///
-    /// 2. Beyond the first registration, any new registration takes precedence. Said differently,
-    ///    there's always _at most_ two registrations.
-    ///
-    ///    In practice, the first registation could also *sometimes* be collapsed, if there's
-    ///    already a registration in the stable storage. But we don't have acccess to the storage
-    ///    here, so by default, we'll always keep the first registration untouched.
-    ///
-    /// 3. Registration immediately cancels out any unregistration.
-    ///
-    /// 4. There can be at most 1 unregistration per entity. Any new unregistration is preferred
-    ///    and replaces previous registrations.
-    pub fn register(&mut self, k: K, v: V) {
-        self.unregistered.remove(&k);
-        match self.registered.get_mut(&k) {
-            None => {
-                self.registered.insert(k, vec1![v]);
-            }
-            Some(vs) => {
-                if vs.len() > 1 {
-                    vs[1] = v;
-                } else {
-                    vs.push(v);
-                }
-            }
-        }
-    }
-
-    // See 'register' for details.
-    pub fn unregister(&mut self, k: K, epoch: Epoch) {
-        self.unregistered.insert(k, epoch);
-    }
-}
-
-#[cfg(test)]
-mod diff_epoch_reg_test {
-    use super::*;
-    use proptest::prelude::*;
-    use std::collections::BTreeMap;
-
-    prop_compose! {
-        fn any_diff()(
-            registered in
-                any::<BTreeMap<u8, Vec<u8>>>(),
-            unregistered in
-                any::<BTreeMap<u8, Epoch>>()
-        ) -> DiffEpochReg<u8, u8> {
-            DiffEpochReg {
-                registered: registered
-                    .into_iter()
-                    .filter_map(|(k, mut v)| {
-                        v.truncate(2);
-                        let v = Vec1::try_from(v).ok()?;
-                        Some((k, v))
-                    })
-                    .collect::<BTreeMap<_, _>>(),
-                unregistered,
-            }
-        }
-    }
-
-    proptest! {
-        // NOTE: We could avoid this test altogether by modelling the type in a different way.
-        // Having a sum One(V) | Two(V, V) instead of a Vec1 would give us this guarantee _by
-        // construction_.
-        #[test]
-        fn prop_register(mut st in any_diff(), (k, v) in any::<(u8, u8)>()) {
-            st.register(k, v);
-            let vs = st.registered.get(&k).expect("we just registered an element");
-            assert!(vs.len() <= 2, "registered[{k}] = {:?} has more than 2 elements", vs);
-            if vs.len() == 1 {
-                assert_eq!(vs, &vec1![v], "only element is different");
-            } else {
-                assert_eq!(*vs.last(), v, "last element is different");
-            }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_register_cancels_unregister(mut st in any_diff(), (k, v) in any::<(u8, u8)>()) {
-            st.register(k, v);
-            assert!(!st.unregistered.contains_key(&k))
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_unregister_right_biaised(mut st in any_diff(), (k, e) in any::<(u8, Epoch)>()) {
-            st.unregister(k, e);
-            let e_retained = st.unregistered.get(&k);
-            assert_eq!(e_retained, Some(&e))
-        }
-    }
-}
-
-// DiffSet
-// ----------------------------------------------------------------------------
-
-/// A compact data-structure tracking changes in a DAG. A composition relation exists, allowing to reduce
-/// two `DiffSet` into one that is equivalent to applying both `DiffSet` in sequence.
-///
-/// Concretely, we use this to track changes to apply to the UTxO set across a block, coming from
-/// the processing of each transaction in sequence.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffSet<K: Ord, V> {
-    pub consumed: BTreeSet<K>,
-    pub produced: BTreeMap<K, V>,
-}
-
-impl<K: Ord, V> Default for DiffSet<K, V> {
-    fn default() -> Self {
-        Self {
-            consumed: Default::default(),
-            produced: Default::default(),
-        }
-    }
-}
-
-impl<K: Ord, V> DiffSet<K, V> {
-    pub fn merge(&mut self, other: Self) {
-        self.produced.retain(|k, _| !other.consumed.contains(k));
-        self.consumed.retain(|k| !other.produced.contains_key(k));
-        self.consumed.extend(other.consumed);
-        self.produced.extend(other.produced);
-    }
-}
-
-#[cfg(test)]
-mod diff_set_test {
-    use super::*;
-    use proptest::prelude::*;
-    use std::collections::{BTreeMap, BTreeSet};
-
-    prop_compose! {
-        fn any_diff()(
-            consumed in
-                any::<BTreeSet<u8>>(),
-            mut produced in
-                any::<BTreeMap<u8, u8>>()
-        ) -> DiffSet<u8, u8> {
-            produced.retain(|k, _| !consumed.contains(k));
-            DiffSet {
-                produced,
-                consumed,
-            }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_merge_itself(mut st in any_diff()) {
-            let original = st.clone();
-            st.merge(st.clone());
-            prop_assert_eq!(st, original);
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_merge_no_overlap(mut st in any_diff(), diff in any_diff()) {
-            st.merge(diff.clone());
-
-            for (k, v) in diff.produced.iter() {
-                prop_assert_eq!(
-                    st.produced.get(k),
-                    Some(v),
-                    "everything newly produced is produced"
-                );
-            }
-
-            for k in diff.consumed.iter() {
-                prop_assert!(
-                    st.consumed.contains(k),
-                    "everything newly consumed is consumed",
-                );
-            }
-
-            for (k, _) in st.produced.iter() {
-                prop_assert!(
-                    !st.consumed.contains(k),
-                    "nothing produced is also consumed",
-                )
-            }
-
-            for k in st.consumed.iter() {
-                prop_assert!(
-                    !st.produced.contains_key(k),
-                    "nothing consumed is also produced",
-                )
-            }
-        }
-    }
-
-    proptest! {
-        #[test]
-        fn prop_composition(
-            st0 in any_diff().prop_map(|st| st.produced),
-            diffs in prop::collection::vec(any_diff(), 1..5),
-        ) {
-            // NOTE: The order in which we apply transformation here doesn't matter, because we
-            // know that DiffSet consumed and produced do not overlap _by construction_ (cf the
-            // prop_merge_no_overlap). So we could write the two statements below in any order.
-            fn apply(mut st: BTreeMap<u8, u8>, diff: &DiffSet<u8, u8>) -> BTreeMap<u8, u8> {
-                for k in diff.consumed.iter() {
-                    st.remove(k);
-                }
-
-                for (k, v) in diff.produced.iter() {
-                    st.insert(*k, *v);
-                }
-
-                st
-            }
-
-            // Apply each diff in sequence.
-            let st_seq = diffs.iter().fold(st0.clone(), apply);
-
-            // Apply a single reduced diff
-            let st_compose = apply(
-                st0,
-                &diffs
-                    .into_iter()
-                    .fold(DiffSet::default(), |mut acc, diff| {
-                        acc.merge(diff);
-                        acc
-                    })
-            );
-
-            assert_eq!(st_seq, st_compose);
-        }
     }
 }
 

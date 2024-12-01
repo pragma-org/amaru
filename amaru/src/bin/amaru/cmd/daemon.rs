@@ -1,7 +1,7 @@
 use crate::config::NetworkName;
 use amaru::{consensus::nonce, sync::Config};
 use clap::{builder::TypedValueParser as _, Parser};
-use miette::{Diagnostic, IntoDiagnostic};
+use miette::IntoDiagnostic;
 use pallas_network::facades::PeerClient;
 use std::{
     path::{Path, PathBuf},
@@ -18,12 +18,6 @@ pub struct Args {
     #[arg(long)]
     peer_address: String,
 
-    /// A `slot#block_header_hash` point to start synchronizing from
-    /// For example:
-    ///   61841373.fddcbaddb5fce04f01d26a39d5bab6b59ed2387412e9cf7431f00f25f9ce557d
-    #[arg(long, verbatim_doc_comment)]
-    from: String,
-
     /// The target network to choose from.
     #[arg(
         long,
@@ -33,8 +27,7 @@ pub struct Args {
     )]
     network: NetworkName,
 
-    /// Path to the directory containing blockchain data such as epoch nonces and stake
-    /// distribution.
+    /// Path to the directory containing blockchain data such as epoch nonces.
     #[arg(long, default_value = "./amaru/data")]
     data_dir: String,
 }
@@ -77,16 +70,8 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
     pipeline.teardown();
 }
 
-#[derive(Debug, thiserror::Error, Diagnostic)]
-enum Error<'a> {
-    #[error("malformed point: {}", .0)]
-    MalformedPoint(&'a str),
-}
-
 fn parse_args(args: Args) -> miette::Result<Config> {
     // TODO: Figure out from ledger + consensus store
-    let point = super::parse_point(&args.from, Error::MalformedPoint)?;
-
     let root = Path::new(&args.data_dir).join(args.network.to_string());
 
     let nonces = read_csv(&root.join("nonces.csv"), nonce::from_csv)?;
@@ -94,7 +79,6 @@ fn parse_args(args: Args) -> miette::Result<Config> {
     Ok(Config {
         upstream_peer: args.peer_address,
         network_magic: args.network.to_network_magic(),
-        intersection: vec![point],
         nonces,
     })
 }

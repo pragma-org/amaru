@@ -3,13 +3,15 @@ use amaru::ledger::{
     kernel::{
         epoch_from_slot, Epoch, Point, PoolId, PoolParams, TransactionInput, TransactionOutput,
     },
-    store::{self, Store},
+    store::{
+        Store, {self},
+    },
 };
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::{Diagnostic, IntoDiagnostic};
 use pallas_codec::minicbor as cbor;
-use std::{collections::HashMap, fs, path::PathBuf};
+use std::{collections::HashMap, fs, iter, path::PathBuf};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -42,7 +44,8 @@ enum Error<'a> {
 pub async fn run(args: Args) -> miette::Result<()> {
     let point = super::parse_point(&args.date, Error::MalformedDate).into_diagnostic()?;
 
-    let db = ledger::store::impl_rocksdb::RocksDB::new(&args.out).into_diagnostic()?;
+    fs::create_dir_all(&args.out).into_diagnostic()?;
+    let mut db = ledger::store::rocksdb::RocksDB::new(&args.out).into_diagnostic()?;
 
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;
     let mut d = cbor::Decoder::new(&bytes);
@@ -77,7 +80,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
                 // Deposits
                 d.skip().into_diagnostic()?;
 
-                let mut state = ledger::state::DiffEpochReg::default();
+                let mut state = ledger::state::diff_epoch_reg::DiffEpochReg::default();
                 for (pool, params) in pools.into_iter() {
                     // NOTE: We are importing pools for the next epoch onwards, so any pool update
                     // has technically become active at the epoch boundary. So it is sufficient to
@@ -105,20 +108,21 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 db.save(
                     &Point::Origin,
-                    store::Add {
-                        pools: Box::new(state.registered.into_iter().flat_map(
-                            move |(_, registrations)| {
+                    store::Columns {
+                        utxo: iter::empty(),
+                        pools: state
+                            .registered
+                            .into_iter()
+                            .flat_map(move |(_, registrations)| {
                                 registrations
                                     .into_iter()
                                     .map(|r| (r, current_epoch))
                                     .collect::<Vec<_>>()
-                            },
-                        )),
-                        ..Default::default()
+                            }),
                     },
-                    store::Remove {
-                        pools: Box::new(state.unregistered.into_iter()),
-                        ..Default::default()
+                    store::Columns {
+                        pools: state.unregistered.into_iter(),
+                        utxo: iter::empty(),
                     },
                 )
                 .into_diagnostic()?;
@@ -150,12 +154,9 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     db.save(
                         &Point::Origin,
-                        store::Add {
-                            utxo: Box::new(chunk)
-                                as Box<
-                                    (dyn Iterator<Item = (TransactionInput, TransactionOutput)>),
-                                >,
-                            ..Default::default()
+                        store::Columns {
+                            utxo: chunk,
+                            pools: iter::empty(),
                         },
                         Default::default(),
                     )
@@ -170,6 +171,9 @@ pub async fn run(args: Args) -> miette::Result<()> {
     }
 
     db.save(&point, Default::default(), Default::default())
+        .into_diagnostic()?;
+
+    db.next_snapshot(epoch_from_slot(point.slot_or_default()))
         .into_diagnostic()?;
 
     Ok(())

@@ -9,6 +9,7 @@ repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
 readme = "README.md"
+rust-version = "1.81.0"
 
 [dependencies]
 async-trait = "0.1.83"
@@ -16,16 +17,17 @@ clap = { version = "4.5.20", features = ["derive"] }
 gasket = { version = "0.8.0", features = ["derive"] }
 hex = "0.4.3"
 miette = "7.2.0"
-ouroboros = { git = "https://github.com/pragma-org/ouroboros", rev = "5d914a7e8435a1860cf7747d15db9692c2a06110" }
-ouroboros-praos = { git = "https://github.com/pragma-org/ouroboros", rev = "5d914a7e8435a1860cf7747d15db9692c2a06110" }
-pallas-codec = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
-pallas-crypto = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
-pallas-primitives = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
-pallas-math = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
-pallas-network = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
-pallas-traverse = { git = "https://github.com/txpipe/pallas", rev = "4871342a8deffaceafb5e0f771e1623dfe57e25f" }
-uplc = { git = "https://github.com/aiken-lang/aiken", branch = "amaru-demo" }
-thiserror = "1.0.64"
+ouroboros = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
+ouroboros-praos = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
+pallas-addresses = "0.31.0"
+pallas-codec = "0.31.0"
+pallas-crypto = "0.31.0"
+pallas-primitives = "0.31.0"
+pallas-math = "0.31.0"
+pallas-network = "0.31.0"
+pallas-traverse = "0.31.0"
+uplc = "1.1.7"
+thiserror = "2.0.3"
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util = "0.7.12"
 tracing = "0.1.40"
@@ -34,6 +36,9 @@ rocksdb = "0.22.0"
 indicatif = "0.17.9"
 vec1 = "1.12.1"
 is-terminal = "0.4.13"
+serde = "1.0.215"
+bech32 = "0.11.0"
 
 [dev-dependencies]
+insta = { version = "1.41.1", features = ["json"] }
 proptest = "1.5.0"

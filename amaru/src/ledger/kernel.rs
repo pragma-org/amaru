@@ -12,8 +12,8 @@ pub use pallas_codec::{
 };
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::conway::{
-    AddrKeyhash, Certificate, Coin, Epoch, MintedBlock, PoolMetadata, Relay, RewardAccount,
-    TransactionInput, TransactionOutput, UnitInterval, VrfKeyhash,
+    AddrKeyhash, Certificate, Coin, Epoch, MintedBlock, PoolMetadata, RationalNumber, Relay,
+    RewardAccount, TransactionInput, TransactionOutput, UnitInterval, VrfKeyhash,
 };
 
 // Constants
@@ -105,6 +105,97 @@ impl<'b, C> cbor::decode::Decode<'b, C> for PoolParams {
     }
 }
 
+impl serde::Serialize for PoolParams {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use pallas_addresses::Address;
+        use serde::ser::SerializeStruct;
+        use std::collections::BTreeMap;
+
+        fn as_lovelace_map(n: u64) -> BTreeMap<String, BTreeMap<String, u64>> {
+            let mut lovelace = BTreeMap::new();
+            lovelace.insert("lovelace".to_string(), n);
+            let mut ada = BTreeMap::new();
+            ada.insert("ada".to_string(), lovelace);
+            ada
+        }
+
+        fn as_string_ratio(r: &UnitInterval) -> String {
+            format!("{}/{}", r.numerator, r.denominator)
+        }
+
+        fn as_bech32_addr(bytes: &[u8]) -> String {
+            Address::from_bytes(bytes)
+                .and_then(|addr| addr.to_bech32())
+                .unwrap_or_else(|e| panic!("failed to encode address to bech32: {e:?}"))
+        }
+
+        struct WrapRelay<'a>(&'a Relay);
+
+        impl<'relay> serde::Serialize for WrapRelay<'relay> {
+            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+                match self.0 {
+                    Relay::SingleHostAddr(port, ipv4, ipv6) => {
+                        let mut s = serializer.serialize_struct("Relay::SingleHostAddr", 4)?;
+                        s.serialize_field("type", "ipAddress")?;
+                        if let Nullable::Some(ipv4) = ipv4 {
+                            s.serialize_field(
+                                "ipv4",
+                                &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]),
+                            )?;
+                        }
+                        if let Nullable::Some(ipv6) = ipv6 {
+                            s.serialize_field("ipv6", ipv6)?;
+                        }
+                        if let Nullable::Some(port) = port {
+                            s.serialize_field("port", port)?;
+                        }
+                        s.end()
+                    }
+                    Relay::SingleHostName(port, hostname) => {
+                        let mut s = serializer.serialize_struct("Relay::SingleHostName", 3)?;
+                        s.serialize_field("type", "hostname")?;
+                        s.serialize_field("hostname", hostname)?;
+                        if let Nullable::Some(port) = port {
+                            s.serialize_field("port", port)?;
+                        }
+                        s.end()
+                    }
+                    Relay::MultiHostName(hostname) => {
+                        let mut s = serializer.serialize_struct("Relay::MultiHostName", 2)?;
+                        s.serialize_field("type", "hostname")?;
+                        s.serialize_field("hostname", hostname)?;
+                        s.end()
+                    }
+                }
+            }
+        }
+
+        let mut s = serializer.serialize_struct("PoolParams", 9)?;
+        s.serialize_field("id", &hex::encode(self.id))?;
+        s.serialize_field("vrfVerificationKeyHash", &hex::encode(self.vrf))?;
+        s.serialize_field("pledge", &as_lovelace_map(self.pledge))?;
+        s.serialize_field("cost", &as_lovelace_map(self.cost))?;
+        s.serialize_field("margin", &as_string_ratio(&self.margin))?;
+        s.serialize_field("rewardAccount", &as_bech32_addr(&self.reward_account))?;
+        s.serialize_field(
+            "owners",
+            &self.owners.iter().map(hex::encode).collect::<Vec<String>>(),
+        )?;
+        s.serialize_field(
+            "relays",
+            &self
+                .relays
+                .iter()
+                .map(WrapRelay)
+                .collect::<Vec<WrapRelay<'_>>>(),
+        )?;
+        if let Nullable::Some(metadata) = &self.metadata {
+            s.serialize_field("metadata", metadata)?;
+        }
+        s.end()
+    }
+}
+
 // Helpers
 // ----------------------------------------------------------------------------
 
@@ -114,6 +205,11 @@ pub fn block_point(block: &MintedBlock<'_>) -> Point {
         block.header.header_body.slot,
         Hasher::<256>::hash(block.header.raw_cbor()).to_vec(),
     )
+}
+
+pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, bech32::EncodeError> {
+    let hrp = bech32::Hrp::parse(hrp).unwrap_or_else(|e| panic!("invalid HRP: {e:?}"));
+    bech32::encode::<bech32::Bech32>(hrp, payload)
 }
 
 /// Calculate the epoch number corresponding to a given slot on the PreProd network.
