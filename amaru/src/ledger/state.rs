@@ -116,7 +116,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 // the tick since the actions are only effective once the epoch is crossed.
                 db.with_pools(|iterator| {
                     for pool in iterator {
-                        tick_pool(pool, current_epoch)
+                        pools::Row::tick(pool, current_epoch)
                     }
                 })
                 .map_err(ForwardErr::StorageErr)?;
@@ -157,103 +157,21 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, QueryErr<E>> {
         let current_epoch = epoch_from_slot(self.tip().slot_or_default());
 
-        let iter = self
+        let volatile_view = self
             .volatile
             .iter()
             .map(|st| (epoch_from_slot(st.point.slot_or_default()), &st.pools));
 
-        match diff_epoch_reg::Fold::for_epoch(current_epoch, pool, iter) {
+        match diff_epoch_reg::Fold::for_epoch(current_epoch, pool, volatile_view) {
             diff_epoch_reg::Fold::Registered(pool) => Ok(Some(pool.clone())),
             diff_epoch_reg::Fold::Unregistered => Ok(None),
             diff_epoch_reg::Fold::Undetermined => {
                 let db = self.stable.lock().unwrap();
-
-                if let Some(pool) = db.pool(pool).map_err(QueryErr::StorageErr)? {
-                    let (update, retirement, _) = pool.fold_future_params(current_epoch);
-
-                    // TODO: use tick_pool here below to avoid logic duplication
-
-                    // The pool is actually now retired.
-                    if let Some(epoch) = retirement {
-                        if epoch <= current_epoch {
-                            return Ok(None);
-                        }
-                    }
-
-                    // The pool is updated its parameters
-                    if let Some(update) = update {
-                        return Ok(Some(update.to_owned()));
-                    }
-
-                    // The pool is according to its current state
-                    Ok(Some(pool.current_params))
-                } else {
-                    Ok(None)
-                }
+                let mut row = db.pool(pool).map_err(QueryErr::StorageErr)?;
+                pools::Row::tick(Box::new(&mut row), current_epoch);
+                Ok(row.map(|row| row.current_params))
             }
         }
-    }
-}
-
-/// Alter a Pool object by applying updates recorded across the epoch. A pool can have two types of
-/// updates:
-///
-/// 1. Re-registration (effectively adjusting its underlying parameters), which always take effect
-///    on the next epoch boundary.
-///
-/// 2. Retirements, which specifies an epoch where the retirement becomes effective.
-///
-/// While we collect all updates as they arrive from blocks, a few rules apply:
-///
-/// a. Any re-registration that comes after a retirement cancels that retirement.
-/// b. Any retirement that come after a retirement cancels that initial retirement.
-fn tick_pool<'a>(
-    mut row: Box<dyn std::borrow::BorrowMut<Option<pools::Row>> + 'a>,
-    current_epoch: Epoch,
-) {
-    let (update, retirement, needs_update) = match row.borrow().as_ref() {
-        None => (None, None, false),
-        Some(pool) => pool.fold_future_params(current_epoch),
-    };
-
-    if needs_update {
-        // This drops the immutable borrow. We avoid cloning inside the fold because we only ever need
-        // to clone the last update. Yet we can't hold onto a reference because we must acquire a
-        // mutable borrow below.
-        let update: Option<PoolParams> = update.cloned();
-
-        let pool: &mut Option<pools::Row> = row.borrow_mut();
-
-        // If the most recent retirement is effective as per the current epoch, we simply drop the
-        // entry. Note that, any re-registration happening after that retirement would cancel it,
-        // which is taken care of in the fold above (returning 'None').
-        if let Some(epoch) = retirement {
-            debug!(
-                pool = ?pool.as_mut().unwrap().current_params.id,
-                "retiring"
-            );
-            if epoch <= current_epoch {
-                *pool = None;
-                return;
-            }
-        }
-
-        // Unwrap is safe here because we know the entry exists. Otherwise we wouldn't have got an
-        // update to begin with!
-        let pool = pool.as_mut().unwrap();
-
-        if let Some(new_params) = update {
-            debug!(
-                pool = ?pool.current_params.id,
-                ?new_params,
-                "updating parameters"
-            );
-            pool.current_params = new_params;
-        }
-
-        // Regardless, always prune future params from those that are now-obsolete.
-        pool.future_params
-            .retain(|(_, epoch)| epoch > &current_epoch);
     }
 }
 

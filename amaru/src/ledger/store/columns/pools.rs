@@ -3,6 +3,7 @@ use crate::{
     ledger::kernel::{Epoch, PoolParams},
 };
 use pallas_codec::minicbor::{self as cbor};
+use tracing::debug;
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified
 /// imports.
@@ -22,6 +23,68 @@ impl Row {
         }
     }
 
+    /// Alter a Pool object by applying updates recorded across the epoch. A pool can have two types of
+    /// updates:
+    ///
+    /// 1. Re-registration (effectively adjusting its underlying parameters), which always take effect
+    ///    on the next epoch boundary.
+    ///
+    /// 2. Retirements, which specifies an epoch where the retirement becomes effective.
+    ///
+    /// While we collect all updates as they arrive from blocks, a few rules apply:
+    ///
+    /// a. Any re-registration that comes after a retirement cancels that retirement.
+    /// b. Any retirement that come after a retirement cancels that initial retirement.
+    pub fn tick<'a>(
+        mut row: Box<dyn std::borrow::BorrowMut<Option<Self>> + 'a>,
+        current_epoch: Epoch,
+    ) {
+        let (update, retirement, needs_update) = match row.borrow().as_ref() {
+            None => (None, None, false),
+            Some(pool) => pool.fold_future_params(current_epoch),
+        };
+
+        if needs_update {
+            // This drops the immutable borrow. We avoid cloning inside the fold because we only ever need
+            // to clone the last update. Yet we can't hold onto a reference because we must acquire a
+            // mutable borrow below.
+            let update: Option<PoolParams> = update.cloned();
+
+            let pool: &mut Option<Row> = row.borrow_mut();
+
+            // If the most recent retirement is effective as per the current epoch, we simply drop the
+            // entry. Note that, any re-registration happening after that retirement would cancel it,
+            // which is taken care of in the fold above (returning 'None').
+            if let Some(epoch) = retirement {
+                debug!(
+                    pool = ?pool.as_mut().unwrap().current_params.id,
+                    "retiring"
+                );
+                if epoch <= current_epoch {
+                    *pool = None;
+                    return;
+                }
+            }
+
+            // Unwrap is safe here because we know the entry exists. Otherwise we wouldn't have got an
+            // update to begin with!
+            let pool = pool.as_mut().unwrap();
+
+            if let Some(new_params) = update {
+                debug!(
+                    pool = ?pool.current_params.id,
+                    ?new_params,
+                    "updating parameters"
+                );
+                pool.current_params = new_params;
+            }
+
+            // Regardless, always prune future params from those that are now-obsolete.
+            pool.future_params
+                .retain(|(_, epoch)| epoch > &current_epoch);
+        }
+    }
+
     /// Collapse stake pool future parameters according to the current epoch. The stable DB is at most k
     /// blocks in the past. So, if a certificate is submitted near the end (i.e. within k blocks) of the
     /// last epoch, then we could be in a situation where we haven't yet processed the registrations
@@ -33,7 +96,7 @@ impl Row {
     ///
     /// The boolean indicates whether any of the future params are now-obsolete as per the
     /// 'current_epoch'.
-    pub fn fold_future_params(
+    fn fold_future_params(
         &self,
         current_epoch: Epoch,
     ) -> (Option<&PoolParams>, Option<Epoch>, bool) {
