@@ -64,11 +64,60 @@ impl<K: Ord, V> DiffEpochReg<K, V> {
     }
 }
 
+/// Captures the outcome of folding over a sequence of DiffEpochReg. The 'Undetermined' case
+/// indicates that it isn't possible to conclude anything from the sequence and more information
+/// (from the stable storage) is needed to obtain the current state of the item `V`.
+#[derive(Debug, PartialEq)]
+pub enum Fold<'a, V> {
+    Registered(&'a V),
+    Unregistered,
+    Undetermined,
+}
+
+impl<'a, V> Fold<'a, V> {
+    /// View the result of a sequence of 'DiffEpochReg' from a given epoch and for a particular
+    /// key. This is used to determine whether the current sequence of diffs is enough to know the
+    /// current (as per the given epoch) state of the tracked values.
+    pub fn for_epoch<K: Ord + 'a>(
+        epoch: Epoch,
+        key: &K,
+        iterator: impl Iterator<Item = (Epoch, &'a DiffEpochReg<K, V>)>,
+    ) -> Self {
+        let fold = iterator.fold(DiffEpochReg::default(), |mut state, step| {
+            if step.0 < epoch {
+                if let Some(registrations) = step.1.registered.get(key) {
+                    state.register(key, registrations.last());
+                }
+
+                if let Some(retirement) = step.1.unregistered.get(key) {
+                    if retirement <= &epoch {
+                        state.unregister(key, *retirement);
+                    }
+                }
+            }
+
+            state
+        });
+
+        if fold.unregistered.contains_key(key) {
+            return Fold::Unregistered;
+        }
+
+        if let Some(registrations) = fold.registered.get(key) {
+            return Fold::Registered(registrations.last());
+        }
+
+        Fold::Undetermined
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use std::collections::BTreeMap;
+    use std::collections::{btree_map, BTreeMap};
+
+    pub const MAX_EPOCH: Epoch = 4;
 
     prop_compose! {
         fn any_diff()(
@@ -122,6 +171,175 @@ mod tests {
             st.unregister(k, e);
             let e_retained = st.unregistered.get(&k);
             assert_eq!(e_retained, Some(&e))
+        }
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum Message<K, V> {
+        Register(K, V),
+        Unregister(K, Epoch),
+    }
+
+    prop_compose! {
+        fn any_message(max_epoch: Epoch)(
+            k in
+                prop_oneof![Just('a'), Just('b'), Just('c')],
+            v in
+                any::<u8>(),
+            epoch in
+                prop_oneof![Just(None), (0..max_epoch).prop_map(Some)]
+        ) -> Message<char, u8> {
+            match epoch {
+                None => Message::Register(k, v),
+                Some(epoch) => Message::Unregister(k, epoch),
+            }
+        }
+
+    }
+
+    fn any_message_sequence() -> impl Strategy<Value = Vec<(Epoch, Vec<Message<char, u8>>)>> {
+        let any_block = || prop::collection::vec(any_message(MAX_EPOCH), 0..5);
+        prop::collection::vec(0..MAX_EPOCH, 1..30).prop_flat_map(move |mut epochs| {
+            epochs.sort();
+            prop::collection::vec(any_block(), epochs.len()).prop_map(move |msgs| {
+                epochs
+                    .iter()
+                    .cloned()
+                    .zip(msgs)
+                    .map(|(epoch, blk)| {
+                        (
+                            epoch,
+                            blk.into_iter()
+                                .map(|msg| {
+                                    if let Message::Unregister(k, offset) = msg {
+                                        Message::Unregister(k, 1 + epoch + offset)
+                                    } else {
+                                        msg
+                                    }
+                                })
+                                .collect::<Vec<_>>(),
+                        )
+                    })
+                    .collect()
+            })
+        })
+    }
+
+    proptest! {
+        #[test]
+        fn prop_messages_are_in_ascending_epoch(msgs in any_message_sequence()) {
+            msgs.into_iter().fold(0, |current_epoch, (epoch, _)| {
+                assert!(epoch <= MAX_EPOCH);
+                assert!(epoch >= current_epoch);
+                epoch
+            });
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_equivalent_to_simpler_model(msgs in any_message_sequence()) {
+            #[derive(Debug, Default)]
+            struct Model {
+                epoch: Epoch,
+                current: BTreeMap<char, u8>,
+                future: BTreeMap<char, u8>,
+                retiring: BTreeMap<char, Epoch>,
+            }
+
+            // Process messages through the model implementation
+            let model = msgs.iter().fold(Model::default(), |mut model, (epoch, blk)| {
+                // Apply transition rules on epoch boundary.
+                if epoch > &model.epoch {
+                    model.current.append(&mut model.future);
+                    let mut ks = Vec::new();
+                    for (k, retirement) in model.retiring.iter() {
+                        if retirement <= epoch {
+                            model.current.remove(k);
+                            ks.push(*k);
+                        }
+                    }
+                    for k in ks {
+                        model.retiring.remove(&k);
+                    }
+                }
+
+                for msg in blk {
+                    match msg {
+                        Message::Register(k, v) => {
+                            model.retiring.remove(k);
+                            if let btree_map::Entry::Vacant(entry) = model.current.entry(*k)  {
+                                entry.insert(*v);
+                            } else {
+                                model.future.insert(*k, *v);
+                            }
+                        }
+                        Message::Unregister(k, e) => {
+                            model.retiring.insert(*k, *e);
+                        }
+                    }
+                }
+
+                model
+            });
+
+            // Process messages through the real implementation
+            let real = msgs.iter().fold(Vec::new(), |mut real, (epoch, blk)| {
+                let mut diff = DiffEpochReg::default();
+                for msg in blk {
+                    match msg {
+                        Message::Register(k, v) => diff.register(*k, *v),
+                        Message::Unregister(k, e) => diff.unregister(*k, *e),
+                    }
+                }
+                real.push((*epoch, diff));
+                real
+            });
+
+            // Compare real & model
+            for (k, v) in model.current.iter() {
+                let fold = Fold::for_epoch(
+                    model.epoch,
+                    k,
+                    real.iter().map(|(epoch, diff)| (*epoch, diff))
+                );
+
+                // NOTE: when we only register a value once, the real implementation cannot
+                // properly determine whether its a genuine new registration or a re-registration.
+                if fold != Fold::Undetermined {
+                    assert_eq!(
+                        fold,
+                        Fold::Registered(v),
+                        "model = {model:?}\nreal = {real:?}"
+                    );
+                }
+            }
+
+            for (k, e) in model.retiring.iter() {
+                let fold = Fold::for_epoch(
+                    model.epoch,
+                    k,
+                    real.iter().map(|(epoch, diff)| (*epoch, diff))
+                );
+
+                assert_eq!(
+                    fold,
+                    Fold::Undetermined,
+                    "model = {model:?}\nreal = {real:?}"
+                );
+
+                let fold = Fold::for_epoch(
+                    *e,
+                    k,
+                    real.iter().map(|(epoch, diff)| (*epoch, diff))
+                );
+
+                assert_eq!(
+                    fold,
+                    Fold::Unregistered,
+                    "model = {model:?}\nreal = {real:?}"
+                );
+            }
         }
     }
 }

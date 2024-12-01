@@ -157,62 +157,40 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, QueryErr<E>> {
         let current_epoch = epoch_from_slot(self.tip().slot_or_default());
 
-        // NOTE: When we are near an epoch boundary, we need to consider the not-yet-stable changes
-        // that belong to the previous epoch. Any re-registration or retirement that would now be
-        // valid must be acknowledged.
-        let volatile = self
+        let iter = self
             .volatile
             .iter()
-            .fold(DiffEpochReg::default(), |mut state, step| {
-                if epoch_from_slot(step.point.slot_or_default()) < current_epoch {
-                    if let Some(registrations) = step.pools.registered.get(pool) {
-                        state.register(pool, registrations.last());
-                    }
+            .map(|st| (epoch_from_slot(st.point.slot_or_default()), &st.pools));
 
-                    if let Some(retirement) = step.pools.unregistered.get(pool) {
-                        // NOTE: in principle, there's a minimum epoch retirement delay which will
-                        // likely always stay larger than one epoch. Thus, the case where we have a
-                        // retirement certificate in the previous epoch that is enacted in the
-                        // current epoch will never occur. Yet, since it is technically bounded by
-                        // a protocol parameter, we better get the logic right.
-                        if retirement <= &current_epoch {
-                            state.unregister(pool, *retirement);
+        match diff_epoch_reg::Fold::for_epoch(current_epoch, pool, iter) {
+            diff_epoch_reg::Fold::Registered(pool) => Ok(Some(pool.clone())),
+            diff_epoch_reg::Fold::Unregistered => Ok(None),
+            diff_epoch_reg::Fold::Undetermined => {
+                let db = self.stable.lock().unwrap();
+
+                if let Some(pool) = db.pool(pool).map_err(QueryErr::StorageErr)? {
+                    let (update, retirement, _) = pool.fold_future_params(current_epoch);
+
+                    // TODO: use tick_pool here below to avoid logic duplication
+
+                    // The pool is actually now retired.
+                    if let Some(epoch) = retirement {
+                        if epoch <= current_epoch {
+                            return Ok(None);
                         }
                     }
-                }
 
-                state
-            });
+                    // The pool is updated its parameters
+                    if let Some(update) = update {
+                        return Ok(Some(update.to_owned()));
+                    }
 
-        if volatile.unregistered.contains_key(pool) {
-            return Ok(None);
-        }
-
-        if let Some(registrations) = volatile.registered.get(pool) {
-            return Ok(Some((*registrations.last()).clone()));
-        }
-
-        let db = self.stable.lock().unwrap();
-
-        if let Some(pool) = db.pool(pool).map_err(QueryErr::StorageErr)? {
-            let (update, retirement, _) = pool.fold_future_params(current_epoch);
-
-            // The pool is actually now retired.
-            if let Some(epoch) = retirement {
-                if epoch <= current_epoch {
-                    return Ok(None);
+                    // The pool is according to its current state
+                    Ok(Some(pool.current_params))
+                } else {
+                    Ok(None)
                 }
             }
-
-            // The pool is updated its parameters
-            if let Some(update) = update {
-                return Ok(Some(update.to_owned()));
-            }
-
-            // The pool is according to its current state
-            Ok(Some(pool.current_params))
-        } else {
-            Ok(None)
         }
     }
 }
