@@ -1,9 +1,11 @@
 use clap::{Parser, Subcommand};
-use tracing_subscriber::prelude::*;
+use std::env;
 
 mod cmd;
 mod config;
 mod exit;
+
+pub const SERVICE_NAME: &str = "amaru";
 
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -36,38 +38,66 @@ async fn main() -> miette::Result<()> {
 }
 
 pub fn setup_tracing() {
-    use is_terminal::IsTerminal;
-    use tracing_subscriber::{filter::FilterExt, *};
+    use tracing_subscriber::{prelude::*, *};
 
-    let filter = EnvFilter::builder()
-        .with_default_directive(filter::LevelFilter::INFO.into())
-        .from_env_lossy()
-        .and(
-            filter::Targets::new()
-                .with_target("gasket", filter::LevelFilter::INFO)
-                .not(),
-        )
-        .or(filter::Targets::new().with_target("gasket", filter::LevelFilter::ERROR));
+    // Enabling filtering from the RUST_LOG var; but disable gasket low-level traces regardless.
+    // We use the RUST_LOG directive filtering here instead of the .or / .and Rust API provided on
+    // EnvFilter so that we allow users to override those settings should they ever want to.
+    let filter = || {
+        EnvFilter::builder()
+            .parse(format!(
+                "gasket=error,amaru=info,{}",
+                env::var(EnvFilter::DEFAULT_ENV).ok().unwrap_or_default()
+            ))
+            .unwrap_or_else(|e| panic!("invalid log/trace filters: {e}"))
+    };
 
-    let fmt_span = fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT;
+    // The subscriber for the console, mostly for development.
+    let console_layer = fmt::layer()
+        .event_format(fmt::format().with_ansi(true).pretty())
+        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
+        .with_filter(filter());
 
-    if std::io::stdout().is_terminal() {
-        registry()
-            .with(
-                fmt::layer()
-                    .event_format(fmt::format().with_ansi(true).pretty())
-                    .with_span_events(fmt_span)
-                    .with_filter(filter),
+    // Layer for open-telemetry. Requires an opentelemetry-compatible collector to run
+    // as an additional service.
+    #[cfg(feature = "telemetry")]
+    {
+        use opentelemetry::{trace::TracerProvider as _, KeyValue};
+        use opentelemetry_sdk::Resource;
+
+        let opentelemetry_layer = tracing_opentelemetry::layer()
+            .with_tracer(
+                opentelemetry_sdk::trace::TracerProvider::builder()
+                    .with_resource(Resource::new(vec![KeyValue::new(
+                        "service.name",
+                        SERVICE_NAME,
+                    )]))
+                    .with_batch_exporter(
+                        opentelemetry_otlp::SpanExporter::builder()
+                            .with_tonic()
+                            .build()
+                            .unwrap_or_else(|e| {
+                                panic!("failed to setup opentelemetry span exporter: {e}")
+                            }),
+                        opentelemetry_sdk::runtime::Tokio,
+                    )
+                    .build()
+                    .tracer(SERVICE_NAME),
             )
+            .with_filter(filter());
+
+        opentelemetry::global::set_text_map_propagator(
+            opentelemetry_sdk::propagation::TraceContextPropagator::new(),
+        );
+
+        tracing_subscriber::registry()
+            .with(console_layer)
+            .with(opentelemetry_layer)
             .init();
-    } else {
-        registry()
-            .with(
-                fmt::layer()
-                    .event_format(fmt::format().json())
-                    .with_span_events(fmt_span)
-                    .with_filter(filter),
-            )
-            .init();
+    }
+
+    #[cfg(not(feature = "telemetry"))]
+    {
+        tracing_subscriber::registry().with(console_layer).init();
     }
 }
