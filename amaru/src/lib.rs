@@ -19,3 +19,9 @@ pub mod ledger;
 ///
 /// A set of additional primitives around iterators. Not Amaru-specific so-to-speak.
 pub mod iter;
+
+/// Mempool interface
+///
+/// A preliminary mempool implementation in memory. It's primarily meant for demo purpose
+/// and will very likely move into its own crate eventually.
+pub mod mempool;

@@ -389,7 +389,7 @@ impl FailedTransactions {
 // before reaching for the stable storage.
 //
 // Otherwise, we need to traverse the entire sequence for any query on the volatile state.
-type VolatileDB = VecDeque<VolatileState<Point>>;
+pub type VolatileDB = VecDeque<VolatileState<Point>>;
 
 pub struct VolatileState<T> {
     pub point: T,
