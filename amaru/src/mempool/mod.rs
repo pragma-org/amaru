@@ -39,6 +39,9 @@ pub trait MempoolTx<M>: Ord + PartialEq {
     fn tx(&self) -> &Tx;
 }
 
+/// An ordered queue of transactions.
+pub type TxQueue<T> = BTreeSet<T>;
+
 /// The mempool is a queue of transactions that are waiting to be validated and applied to an
 /// ephemeral ledger state.
 pub struct Mempool<T, M>
@@ -47,7 +50,7 @@ where
 {
     /// The queue of transactions. The ordering of transactions are defined by the Ord trait of the
     /// type T and left to the implementer.
-    transactions: Arc<RwLock<BTreeSet<T>>>,
+    transactions: Arc<RwLock<TxQueue<T>>>,
 
     _marker: std::marker::PhantomData<M>,
 }
