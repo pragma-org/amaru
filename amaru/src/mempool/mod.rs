@@ -26,7 +26,7 @@ where
     ephemeral: ledger::state::VolatileDB,
 }
 
-/// A transaction in the mempool.
+/// A transaction in the mempool with optional _M_ metadata type useful for ordering transactions.
 pub trait MempoolTx<M>: Ord + PartialEq {
     /// Any additional _metadata_ associated with the transaction. For example, it could include a timestamp
     /// of when it was received, a reference to the peer that sent it, or some priority value used
