@@ -147,7 +147,9 @@ impl Store for RocksDB {
         });
 
         match (point, tip) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {}
+            (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
+                info!("point already known; save skipped");
+            }
             _ => {
                 batch.put(KEY_TIP, as_value(point))?;
                 utxo::rocksdb::add(&batch, add.utxo)?;

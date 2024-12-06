@@ -71,9 +71,9 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 let span_forward = info_span!(
                     "applying_block",
-                    height = block.header.header_body.block_number,
-                    slot = block.header.header_body.slot,
-                    header_hash = hex::encode(block_header_hash)
+                    header.height = block.header.header_body.block_number,
+                    header.slot = block.header.header_body.slot,
+                    header.hash = hex::encode(block_header_hash)
                 )
                 .entered();
 
@@ -90,8 +90,8 @@ impl gasket::framework::Worker<Stage> for Worker {
             ValidateHeaderEvent::Rollback(point) => {
                 let span_backward = info_span!(
                     "rolling_back",
-                    slot = point.slot_or_default(),
-                    header_hash = if let Point::Specific(_, header_hash) = point {
+                    point.slot = point.slot_or_default(),
+                    point.hash = if let Point::Specific(_, header_hash) = point {
                         hex::encode(header_hash)
                     } else {
                         String::new()
@@ -104,7 +104,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                 if let Err(e) = state.backward(point) {
                     match e {
                         BackwardErr::UnknownRollbackPoint(_) => {
-                            warn!("tried to roll back to an unknown point")
+                            warn!("unknown_rollback_point")
                         }
                     }
                 }

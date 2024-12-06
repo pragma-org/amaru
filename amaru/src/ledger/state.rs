@@ -1,10 +1,6 @@
 pub mod diff_epoch_reg;
 pub mod diff_set;
 
-use diff_epoch_reg::DiffEpochReg;
-use diff_set::DiffSet;
-use tracing::debug;
-
 use super::{
     kernel::{
         block_point, epoch_from_slot, relative_slot, Certificate, Epoch, Hash, Hasher, MintedBlock,
@@ -13,14 +9,15 @@ use super::{
     },
     store::{self, columns::pools, Store},
 };
-
+use diff_epoch_reg::DiffEpochReg;
+use diff_set::DiffSet;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
     iter,
     sync::{Arc, Mutex},
 };
-use tracing::{info, info_span};
+use tracing::{debug, info, info_span};
 
 // State
 // ----------------------------------------------------------------------------
@@ -112,7 +109,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 span_snapshot.exit();
 
                 let span_tick_pool = info_span!("tick_pool", epoch = current_epoch).entered();
-                info!(epoch = current_epoch, "tick pools");
+                info!(epoch = current_epoch, "tick_pools");
                 // Then we, can tick pools to compute their new state at the epoch boundary. Notice
                 // how we tick with the _current epoch_ however, but we take the snapshot before
                 // the tick since the actions are only effective once the epoch is crossed.
@@ -127,16 +124,18 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
             let (add, remove) = now_stable.into_store_update();
 
+            let span_save = info_span!("save").entered();
             db.save(&point, add, remove)
                 .map_err(ForwardErr::StorageErr)?;
+            span_save.exit();
         } else {
             info!(num_deltas = self.volatile.len(), "warming up volatile db",);
         }
 
         info!(
-            target: "amaru::ledger::state::tip",
             epoch = epoch_from_slot(point.slot_or_default()),
             relative_slot = relative_slot(point.slot_or_default()),
+            "tip"
         );
 
         self.volatile.push_back(state.anchor(point));
