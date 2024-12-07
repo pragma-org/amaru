@@ -116,7 +116,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 // how we tick with the _current epoch_ however, but we take the snapshot before
                 // the tick since the actions are only effective once the epoch is crossed.
                 db.with_pools(|iterator| {
-                    for pool in iterator {
+                    for (_, pool) in iterator {
                         pools::Row::tick(pool, current_epoch)
                     }
                 })

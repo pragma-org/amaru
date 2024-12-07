@@ -1,19 +1,20 @@
 use borrowable_proxy::BorrowableProxy;
 use pallas_codec::minicbor as cbor;
-use std::{borrow::BorrowMut, cell::RefCell, rc::Rc};
+use std::{borrow::BorrowMut, cell::RefCell, marker::PhantomData, rc::Rc};
 
 /// An iterator over borrowable items. This allows to define a Rust-idiomatic API for accessing
 /// items in read-only or read-write mode. When provided in a callback, it allows the callee to
 /// then perform specific operations (e.g. database updates) on items that have been mutably
 /// borrowed.
-pub type IterBorrow<'a, 'b, T> = Box<dyn Iterator<Item = Box<dyn BorrowMut<T> + 'a>> + 'b>;
+pub type IterBorrow<'a, 'b, K, V> = Box<dyn Iterator<Item = (K, Box<dyn BorrowMut<V> + 'a>)> + 'b>;
 
-pub fn new<'a, T: Clone>(
+pub fn new<'a, const PREFIX: usize, K: Clone, V: Clone>(
     inner: impl Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a,
-) -> KeyValueIterator<'a, T> {
+) -> KeyValueIterator<'a, PREFIX, K, V> {
     KeyValueIterator {
         inner: Box::new(inner),
         updates: Rc::new(RefCell::new(Vec::new())),
+        phantom_k: PhantomData,
     }
 }
 
@@ -21,19 +22,20 @@ pub fn new<'a, T: Clone>(
 /// iterated elements. This allows, for example, to iterate over elements of a key/value store,
 /// collect mutations to the underlying value, and persist those mutations without leaking the
 /// underlying store implementation to the caller.
-pub struct KeyValueIterator<'a, T: Clone> {
-    updates: SharedVec<(Vec<u8>, Option<T>)>,
+pub struct KeyValueIterator<'a, const PREFIX: usize, K, V: Clone> {
+    updates: SharedVec<Option<V>>,
     inner: RawIterator<'a>,
+    phantom_k: PhantomData<&'a K>,
 }
 
 pub type RawIterator<'a> = Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>;
 
-pub type SharedVec<T> = Rc<RefCell<Vec<T>>>;
+pub type SharedVec<T> = Rc<RefCell<Vec<(Vec<u8>, T)>>>;
 
-impl<'a, T: Clone> KeyValueIterator<'a, T> {
+impl<'a, const PREFIX: usize, K: Clone, V: Clone> KeyValueIterator<'a, PREFIX, K, V> {
     /// Obtain an iterator on the updates to be done. This takes ownership of the original
     /// iterator to ensure that it is correctly de-allocated as we now process updates.
-    pub fn into_iter_updates(self) -> impl Iterator<Item = (Vec<u8>, Option<T>)> {
+    pub fn into_iter_updates(self) -> impl Iterator<Item = (Vec<u8>, Option<V>)> {
         // NOTE: In principle, 'into_iter_updates' is only called once all callbacks on the inner
         // iterator have resolved; so the absolute count of strong references should be 1 and no
         // cloning should occur here. We can prove that with the next assertion.
@@ -42,32 +44,54 @@ impl<'a, T: Clone> KeyValueIterator<'a, T> {
     }
 }
 
-impl<'a, T: Clone + for<'d> cbor::Decode<'d, ()>> KeyValueIterator<'a, T>
+impl<
+        'a,
+        const PREFIX: usize,
+        K: Clone + for<'d> cbor::Decode<'d, ()>,
+        V: Clone + for<'d> cbor::Decode<'d, ()>,
+    > KeyValueIterator<'a, PREFIX, K, V>
 where
     Self: 'a,
 {
-    pub fn as_iter_borrow(&mut self) -> IterBorrow<'a, '_, Option<T>> {
+    pub fn as_iter_borrow(&mut self) -> IterBorrow<'a, '_, K, Option<V>> {
         Box::new(self)
     }
 }
 
-impl<'a, T: Clone + for<'d> cbor::Decode<'d, ()>> Iterator for KeyValueIterator<'a, T>
+impl<
+        'a,
+        const PREFIX: usize,
+        K: Clone + for<'d> cbor::Decode<'d, ()>,
+        V: Clone + for<'d> cbor::Decode<'d, ()>,
+    > Iterator for KeyValueIterator<'a, PREFIX, K, V>
 where
     Self: 'a,
 {
-    type Item = Box<dyn BorrowMut<Option<T>> + 'a>;
+    type Item = (K, Box<dyn BorrowMut<Option<V>> + 'a>);
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(k, v)| {
-            let updates = self.updates.clone();
-            let original: T = cbor::decode(&v)
+            let key: K = cbor::decode(&k[PREFIX..])
+                .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&k)));
+
+            let original: V = cbor::decode(&v)
                 .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&v)));
-            Box::new(BorrowableProxy::new(Some(original), move |new| {
+
+            // NOTE: .clone() is cheap, because `self.updates` is an Rc
+            let updates = self.updates.clone();
+
+            let on_update = move |new: &Option<V>| {
                 updates
                     .as_ref()
                     .borrow_mut()
                     .push((k.to_vec(), new.clone()))
-            })) as Self::Item
+            };
+
+            (
+                key,
+                Box::new(BorrowableProxy::new(Some(original), on_update))
+                    as Box<dyn BorrowMut<Option<V>> + 'a>,
+            )
         })
     }
 }
@@ -75,6 +99,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ledger::store::rocksdb::common::as_key;
     use pallas_codec::minicbor as cbor;
     use rocksdb::OptimisticTransactionDB;
 
@@ -117,12 +142,16 @@ mod tests {
 
     #[test]
     fn db_iterator_mutate() {
-        let db: OptimisticTransactionDB =
-            OptimisticTransactionDB::open_default(std::env::temp_dir()).unwrap();
+        let db: OptimisticTransactionDB = OptimisticTransactionDB::open_default(
+            envpath::dirs::get_tmp_random_dir(Some("db_iterator_mutate"), None),
+        )
+        .unwrap();
+
+        let prefix = "fruit:".as_bytes();
 
         // Insert some values in a prefixed colletion
         db.put(
-            "fruit:apple",
+            as_key(prefix, "apple"),
             to_cbor(Fruit {
                 name: "apple".to_string(),
                 quantity: 1,
@@ -130,7 +159,7 @@ mod tests {
         )
         .unwrap();
         db.put(
-            "fruit:banana",
+            as_key(prefix, "banana"),
             to_cbor(Fruit {
                 name: "banana".to_string(),
                 quantity: 2,
@@ -138,7 +167,7 @@ mod tests {
         )
         .unwrap();
         db.put(
-            "fruit:kiwi",
+            as_key(prefix, "kiwi"),
             to_cbor(Fruit {
                 name: "kiwi".to_string(),
                 quantity: 3,
@@ -148,13 +177,15 @@ mod tests {
 
         // Define some handler/worker task on the iterator. Here, we drop any apple and we change
         // the quantity of banana. We expects those to be persisted in the database.
-        let handler = |iterator: IterBorrow<'_, '_, Option<Fruit>>| {
-            for mut fruit in iterator {
-                if fruit.borrow().as_ref().map(|f| f.name.as_str()) == Some("apple") {
+        let handler = |iterator: IterBorrow<'_, '_, String, Option<Fruit>>| {
+            for (key, mut fruit) in iterator {
+                if key == "apple" {
                     *fruit.as_mut().borrow_mut() = None;
-                } else if fruit.borrow().as_ref().map(|f| f.name.as_str()) == Some("banana") {
+                } else if key == "banana" {
                     let fruit: &mut Option<Fruit> = fruit.as_mut().borrow_mut();
                     fruit.as_mut().unwrap().quantity = 42;
+                } else {
+                    assert_eq!(fruit.borrow().as_ref().map(|f| f.quantity), Some(3));
                 }
             }
         };
@@ -163,8 +194,8 @@ mod tests {
         // 'handler' function.
         {
             let batch = db.transaction();
-            let mut iterator: KeyValueIterator<'_, Fruit> = new(batch
-                .prefix_iterator("fruit")
+            let mut iterator: KeyValueIterator<'_, 6, String, Fruit> = new(batch
+                .prefix_iterator(prefix)
                 .map(|item| item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))));
 
             handler(Box::new(&mut iterator));
@@ -180,21 +211,21 @@ mod tests {
 
             // Ensure that the database is unchanged before we commit anything
             assert_eq!(
-                db.get("fruit:apple").unwrap(),
+                db.get(as_key(prefix, "apple")).unwrap(),
                 Some(to_cbor(Fruit {
                     name: "apple".to_string(),
                     quantity: 1,
                 }))
             );
             assert_eq!(
-                db.get("fruit:banana").unwrap(),
+                db.get(as_key(prefix, "banana")).unwrap(),
                 Some(to_cbor(Fruit {
                     name: "banana".to_string(),
                     quantity: 2
                 }))
             );
             assert_eq!(
-                db.get("fruit:kiwi").unwrap(),
+                db.get(as_key(prefix, "kiwi")).unwrap(),
                 Some(to_cbor(Fruit {
                     name: "kiwi".to_string(),
                     quantity: 3
@@ -205,16 +236,16 @@ mod tests {
         }
 
         // Inspect the database after we commit all updates.
-        assert_eq!(db.get("fruit:apple").unwrap(), None);
+        assert_eq!(db.get(as_key(prefix, "apple")).unwrap(), None);
         assert_eq!(
-            db.get("fruit:banana").unwrap(),
+            db.get(as_key(prefix, "banana")).unwrap(),
             Some(to_cbor(Fruit {
                 name: "banana".to_string(),
                 quantity: 42
             }))
         );
         assert_eq!(
-            db.get("fruit:kiwi").unwrap(),
+            db.get(as_key(prefix, "kiwi")).unwrap(),
             Some(to_cbor(Fruit {
                 name: "kiwi".to_string(),
                 quantity: 3

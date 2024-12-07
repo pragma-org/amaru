@@ -5,7 +5,7 @@ use crate::{
 use pallas_codec::minicbor::{self as cbor};
 
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Option<Row>>;
+pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, StakeCredential, Option<Row>>;
 
 pub type Add = (StakeCredential, Option<PoolId>, Lovelace, Lovelace);
 
