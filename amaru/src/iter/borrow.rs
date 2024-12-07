@@ -80,12 +80,8 @@ where
             // NOTE: .clone() is cheap, because `self.updates` is an Rc
             let updates = self.updates.clone();
 
-            let on_update = move |new: &Option<V>| {
-                updates
-                    .as_ref()
-                    .borrow_mut()
-                    .push((k.to_vec(), new.clone()))
-            };
+            let on_update =
+                move |new: Option<V>| updates.as_ref().borrow_mut().push((k.to_vec(), new));
 
             (
                 key,
@@ -266,21 +262,21 @@ mod borrowable_proxy {
     /// it?
     pub struct BorrowableProxy<T, F>
     where
-        F: FnMut(&T),
+        F: FnOnce(T),
     {
-        item: T,
-        hook: F,
+        item: Option<T>,
+        hook: Option<F>,
         borrowed: bool,
     }
 
     impl<T, F> BorrowableProxy<T, F>
     where
-        F: FnMut(&T),
+        F: FnOnce(T),
     {
         pub fn new(item: T, hook: F) -> Self {
             Self {
-                item,
-                hook,
+                item: Some(item),
+                hook: Some(hook),
                 borrowed: false,
             }
         }
@@ -289,32 +285,34 @@ mod borrowable_proxy {
     // Provide a read-only access, through an immutable borrow.
     impl<T, F> Borrow<T> for BorrowableProxy<T, F>
     where
-        F: FnMut(&T),
+        F: FnOnce(T),
     {
         fn borrow(&self) -> &T {
-            &self.item
+            self.item.as_ref().unwrap()
         }
     }
 
     // Provide a write access, through a mutable borrow.
     impl<T, F> BorrowMut<T> for BorrowableProxy<T, F>
     where
-        F: FnMut(&T),
+        F: FnOnce(T),
     {
         fn borrow_mut(&mut self) -> &mut T {
             self.borrowed = true;
-            &mut self.item
+            self.item.as_mut().unwrap()
         }
     }
 
     // Install a handler for the hook when the object is dropped from memory.
     impl<T, F> Drop for BorrowableProxy<T, F>
     where
-        F: FnMut(&T),
+        F: FnOnce(T),
     {
         fn drop(&mut self) {
             if self.borrowed {
-                (self.hook)(&self.item);
+                if let (Some(item), Some(hook)) = (self.item.take(), self.hook.take()) {
+                    hook(item);
+                }
             }
         }
     }
@@ -327,7 +325,7 @@ mod borrowable_proxy {
         fn trigger_hook_on_mutation() {
             let mut xs = Vec::new();
             {
-                let mut item = BorrowableProxy::new(42, |n| xs.push(*n));
+                let mut item = BorrowableProxy::new(42, |n| xs.push(n));
                 let item_ref: &mut usize = item.borrow_mut();
                 *item_ref -= 28;
             }
@@ -338,7 +336,7 @@ mod borrowable_proxy {
         fn ignore_hook_on_simple_borrow() {
             let mut xs: Vec<usize> = Vec::new();
             {
-                let item = BorrowableProxy::new(42, |n| xs.push(*n));
+                let item = BorrowableProxy::new(42, |n| xs.push(n));
                 let item_ref: &usize = item.borrow();
                 assert_eq!(item_ref, &42);
             }
