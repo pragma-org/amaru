@@ -5,6 +5,7 @@ use amaru::ledger::{
         TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
     },
     store::{
+        columns::pools,
         Store, {self},
     },
 };
@@ -110,12 +111,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 let mut state = ledger::state::diff_epoch_reg::DiffEpochReg::default();
                 for (pool, params) in pools.into_iter() {
-                    // NOTE: We are importing pools for the next epoch onwards, so any pool update
-                    // has technically become active at the epoch boundary. So it is sufficient to
-                    // import only the updates if any.
-                    if !updates.contains_key(&pool) {
-                        state.register(pool, params);
-                    }
+                    state.register(pool, params);
                 }
 
                 for (pool, params) in updates.into_iter() {
@@ -168,8 +164,8 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     // credentials
                     {
-                        let mut credentials = d
-                            .decode::<HashMap<
+                        let mut credentials =
+                            d.decode::<HashMap<
                                 StakeCredential,
                                 (
                                     StrictMaybe<(Lovelace, Lovelace)>,
@@ -186,11 +182,20 @@ pub async fn run(args: Args) -> miette::Result<()> {
                                         Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
                                             .unwrap_or((0, STAKE_CREDENTIAL_DEPOSIT as u64));
 
-                                    (credential, Option::<PoolId>::from(pool), deposit, rewards)
+                                    (
+                                        credential,
+                                        Option::<PoolId>::from(pool),
+                                        Some(deposit),
+                                        rewards,
+                                    )
                                 },
                             )
-                            .collect::<Vec<(StakeCredential, Option<PoolId>, Lovelace, Lovelace)>>(
-                            );
+                            .collect::<Vec<(
+                                StakeCredential,
+                                Option<PoolId>,
+                                Option<Lovelace>,
+                                Lovelace,
+                            )>>();
 
                         info!(what = "credentials", size = credentials.len());
 
@@ -279,8 +284,16 @@ pub async fn run(args: Args) -> miette::Result<()> {
     db.save(&point, Default::default(), Default::default())
         .into_diagnostic()?;
 
-    db.next_snapshot(epoch_from_slot(point.slot_or_default()))
-        .into_diagnostic()?;
+    let epoch = epoch_from_slot(point.slot_or_default());
+
+    db.next_snapshot(epoch).into_diagnostic()?;
+
+    db.with_pools(|iterator| {
+        for (_, pool) in iterator {
+            pools::Row::tick(pool, epoch + 1)
+        }
+    })
+    .into_diagnostic()?;
 
     Ok(())
 }

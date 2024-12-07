@@ -1,7 +1,7 @@
 pub(crate) mod common;
 
 use crate::{
-    iter::borrow as iter_borrow,
+    iter::{borrow as iter_borrow, borrow::IterBorrow},
     ledger::{
         kernel::{Epoch, Point, PoolId},
         store::{columns::*, Columns, Store},
@@ -12,7 +12,7 @@ use common::{as_value, PREFIX_LEN};
 use miette::Diagnostic;
 use pallas_codec::minicbor::{self as cbor};
 use std::{
-    fs, io,
+    fmt, fs, io,
     path::{Path, PathBuf},
 };
 use tracing::{debug, info, warn};
@@ -203,44 +203,76 @@ impl Store for RocksDB {
         pools::rocksdb::get(&self.db, pool)
     }
 
-    fn with_pools(&self, mut with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
-        let db = self.db.transaction();
-
-        let mut iterator =
-            iter_borrow::new(db.prefix_iterator(pools::rocksdb::PREFIX).map(|item| {
-                // FIXME: clarify what kind of errors can come from the database at this point.
-                // We are merely iterating over a collection.
-                item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-            }));
-
-        with(iterator.as_iter_borrow());
-
-        for (k, v) in iterator.into_iter_updates() {
-            match v {
-                Some(v) => db.put(k, as_value(v)),
-                None => db.delete(k),
-            }?;
-        }
-
-        db.commit()?;
-
-        Ok(())
+    fn with_pools(&self, with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
+        with_prefix_iterator(self.db.transaction(), pools::rocksdb::PREFIX, with)
     }
+
+    fn with_accounts(
+        &self,
+        with: impl FnMut(accounts::Iter<'_, '_>),
+    ) -> Result<(), rocksdb::Error> {
+        with_prefix_iterator(self.db.transaction(), accounts::rocksdb::PREFIX, with)
+    }
+}
+
+/// An generic column iterator, provided that rows from the column are (de)serialisable.
+fn with_prefix_iterator<
+    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    DB,
+>(
+    db: rocksdb::Transaction<'_, DB>,
+    prefix: [u8; PREFIX_LEN],
+    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
+) -> Result<(), rocksdb::Error> {
+    let mut iterator =
+        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
+            // FIXME: clarify what kind of errors can come from the database at this point.
+            // We are merely iterating over a collection.
+            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+        }));
+
+    with(iterator.as_iter_borrow());
+
+    for (k, v) in iterator.into_iter_updates() {
+        match v {
+            Some(v) => db.put(k, as_value(v)),
+            None => db.delete(k),
+        }?;
+    }
+
+    db.commit()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ledger::kernel::{encode_bech32, PoolParams};
+    use crate::ledger::kernel::{encode_bech32, PoolParams, StakeCredential};
+    use serde::ser::SerializeStruct;
     use std::collections::BTreeMap;
 
-    fn compare_preprod_snapshot(epoch: Epoch) -> BTreeMap<String, PoolParams> {
-        let mut pools = BTreeMap::new();
+    struct Snapshot {
+        keys: BTreeMap<String, String>,
+        scripts: BTreeMap<String, String>,
+        pools: BTreeMap<String, PoolParams>,
+    }
 
+    impl serde::Serialize for Snapshot {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut s = serializer.serialize_struct("Snapshot", 3)?;
+            s.serialize_field("keys", &self.keys)?;
+            s.serialize_field("scripts", &self.scripts)?;
+            s.serialize_field("stakePoolParameters", &self.pools)?;
+            s.end()
+        }
+    }
+
+    fn new_preprod_snapshot(epoch: Epoch) -> Snapshot {
         let db = RocksDB::from_snapshot(&PathBuf::from("../ledger.db"), epoch).unwrap();
 
-        db.with_pools(|iterator| {
-            for row in iterator {
+        let mut pools = BTreeMap::new();
+        db.with_pools(|rows| {
+            for (_, row) in rows {
                 if let Some(pool) = row.borrow() {
                     pools.insert(
                         encode_bech32("pool", &pool.current_params.id[..]).unwrap(),
@@ -251,125 +283,160 @@ mod tests {
         })
         .unwrap();
 
-        pools
+        let mut accounts_scripts = BTreeMap::new();
+        let mut accounts_keys = BTreeMap::new();
+        db.with_accounts(|rows| {
+            for (key, row) in rows {
+                if let Some(account) = row.borrow() {
+                    // TODO: We should also check registered but non-delegated accounts.
+                    // However, the snapshots we currently have available only contain registered
+                    // credentials... So we'll have to re-generate new snapshots first.
+                    if let Some(pool) = account.delegatee {
+                        let payload = encode_bech32("pool", &pool[..]).unwrap();
+                        match key {
+                            StakeCredential::ScriptHash(script) => {
+                                accounts_scripts.insert(hex::encode(script), payload);
+                            }
+                            StakeCredential::AddrKeyhash(key) => {
+                                accounts_keys.insert(hex::encode(key), payload);
+                            }
+                        }
+                    }
+                }
+            }
+        })
+        .unwrap();
+
+        Snapshot {
+            keys: accounts_keys,
+            scripts: accounts_scripts,
+            pools,
+        }
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_163() {
-        let pools = compare_preprod_snapshot(163);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(163);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_164() {
-        let pools = compare_preprod_snapshot(164);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(164);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_165() {
-        let pools = compare_preprod_snapshot(165);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(165);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_166() {
-        let pools = compare_preprod_snapshot(166);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(166);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_167() {
-        let pools = compare_preprod_snapshot(167);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(167);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_168() {
-        let pools = compare_preprod_snapshot(168);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(168);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_169() {
-        let pools = compare_preprod_snapshot(169);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(169);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_170() {
-        let pools = compare_preprod_snapshot(170);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(170);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_171() {
-        let pools = compare_preprod_snapshot(171);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(171);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_172() {
-        let pools = compare_preprod_snapshot(172);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(172);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_173() {
-        let pools = compare_preprod_snapshot(173);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(173);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_174() {
-        let pools = compare_preprod_snapshot(174);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(174);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_175() {
-        let pools = compare_preprod_snapshot(175);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(175);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_176() {
-        let pools = compare_preprod_snapshot(176);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(176);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_177() {
-        let pools = compare_preprod_snapshot(177);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(177);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_178() {
-        let pools = compare_preprod_snapshot(178);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(178);
+        insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_179() {
-        let pools = compare_preprod_snapshot(179);
-        insta::assert_json_snapshot!(pools);
+        let snapshot = new_preprod_snapshot(179);
+        insta::assert_json_snapshot!(snapshot);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_180() {
+        let snapshot = new_preprod_snapshot(180);
+        insta::assert_json_snapshot!(snapshot);
     }
 }
