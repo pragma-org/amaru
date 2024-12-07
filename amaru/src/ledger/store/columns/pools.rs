@@ -6,7 +6,7 @@ use pallas_codec::minicbor::{self as cbor};
 use tracing::debug;
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Option<Row>>;
+pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, PoolId, Option<Row>>;
 
 pub type Add = (PoolParams, Epoch);
 
