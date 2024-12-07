@@ -19,7 +19,6 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::{debug, info, warn};
-use vec1::{vec1, Vec1};
 
 /// Special key where we store the tip of the database (most recently applied delta)
 const KEY_TIP: &str = "tip";
@@ -47,7 +46,7 @@ pub struct RocksDB {
     db: OptimisticTransactionDB,
 
     /// An ordered (asc) list of epochs for which we have available snapshots
-    snapshots: Vec1<Epoch>,
+    snapshots: Vec<Epoch>,
 }
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
@@ -88,8 +87,24 @@ impl RocksDB {
         opts.create_if_missing(true);
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
 
+        if snapshots.is_empty() {
+            return Err(OpenError::NoStableSnapshot);
+        }
+
         Ok(RocksDB {
-            snapshots: Vec1::try_from(snapshots).map_err(|_| OpenError::NoStableSnapshot)?,
+            snapshots,
+            dir: dir.to_path_buf(),
+            db: OptimisticTransactionDB::open(&opts, dir.join("live"))
+                .map_err(OpenError::RocksDB)?,
+        })
+    }
+
+    pub fn empty(dir: &Path) -> Result<RocksDB, OpenError> {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+        Ok(RocksDB {
+            snapshots: vec![],
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(OpenError::RocksDB)?,
@@ -100,7 +115,7 @@ impl RocksDB {
         let mut opts = Options::default();
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
         Ok(RocksDB {
-            snapshots: vec1![epoch],
+            snapshots: vec![epoch],
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
                 .map_err(OpenError::RocksDB)?,
@@ -147,7 +162,9 @@ impl Store for RocksDB {
         });
 
         match (point, tip) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {}
+            (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
+                info!("point already known; save skipped");
+            }
             _ => {
                 batch.put(KEY_TIP, as_value(point))?;
                 utxo::rocksdb::add(&batch, add.utxo)?;
@@ -161,11 +178,14 @@ impl Store for RocksDB {
     }
 
     fn most_recent_snapshot(&'_ self) -> Epoch {
-        *self.snapshots.last()
+        self.snapshots
+            .last()
+            .cloned()
+            .unwrap_or_else(|| panic!("called 'most_recent_snapshot' on empty database?!"))
     }
 
     fn next_snapshot(&'_ mut self, epoch: Epoch) -> Result<(), Self::Error> {
-        let snapshot = self.most_recent_snapshot() + 1;
+        let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             info!(?epoch, "next snapshot");
             let path = self.dir.join(snapshot.to_string());

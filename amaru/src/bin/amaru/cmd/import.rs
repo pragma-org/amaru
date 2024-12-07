@@ -45,7 +45,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     let point = super::parse_point(&args.date, Error::MalformedDate).into_diagnostic()?;
 
     fs::create_dir_all(&args.out).into_diagnostic()?;
-    let mut db = ledger::store::rocksdb::RocksDB::new(&args.out).into_diagnostic()?;
+    let mut db = ledger::store::rocksdb::RocksDB::empty(&args.out).into_diagnostic()?;
 
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;
     let mut d = cbor::Decoder::new(&bytes);
