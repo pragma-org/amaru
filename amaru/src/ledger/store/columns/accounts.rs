@@ -7,7 +7,7 @@ use pallas_codec::minicbor::{self as cbor};
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, StakeCredential, Option<Row>>;
 
-pub type Add = (StakeCredential, Option<PoolId>, Lovelace, Lovelace);
+pub type Add = (StakeCredential, Option<PoolId>, Option<Lovelace>, Lovelace);
 
 pub type Remove = StakeCredential;
 
@@ -62,6 +62,7 @@ pub mod rocksdb {
     use super::Row;
     use crate::ledger::store::rocksdb::common::{as_key, as_value, PREFIX_LEN};
     use rocksdb::{self, Transaction};
+    use tracing::error;
 
     /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
     pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
@@ -72,23 +73,29 @@ pub mod rocksdb {
         rows: impl Iterator<Item = super::Add>,
     ) -> Result<(), rocksdb::Error> {
         for (credential, delegatee, deposit, rewards) in rows {
-            let key = as_key(&PREFIX, credential);
+            let key = as_key(&PREFIX, &credential);
 
             // In case where a registration already exists, then we must only update the underlying
             // entry, while preserving the reward amount.
-            let row = if let Some(mut row) = db.get(&key)?.map(Row::unsafe_decode) {
+            if let Some(mut row) = db.get(&key)?.map(Row::unsafe_decode) {
                 row.delegatee = delegatee;
-                row.deposit = deposit;
-                row
-            } else {
-                Row {
+                if let Some(deposit) = deposit {
+                    row.deposit = deposit;
+                }
+                db.put(key, as_value(row))?;
+            } else if let Some(deposit) = deposit {
+                let row = Row {
                     delegatee,
                     deposit,
                     rewards,
-                }
+                };
+                db.put(key, as_value(row))?;
+            } else {
+                error!(
+                    "attempted to register account ({:?}) without deposit",
+                    credential
+                )
             };
-
-            db.put(key, as_value(row))?;
         }
 
         Ok(())

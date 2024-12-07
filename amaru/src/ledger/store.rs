@@ -47,13 +47,16 @@ pub trait Store {
     /// Get details about a specific pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error>;
 
-    /// Provide an access to iterate on pools, in a way that enforces:
+    /// Provide an access to iterate over pools, in a way that enforces:
     ///
     /// 1. That mutations will be persisted on-disk
     ///
     /// 2. That all operations are consistent and atomic (the iteration occurs on a snapshot, and
     ///    the mutation apply to the iterated items)
     fn with_pools(&self, with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), Self::Error>;
+
+    /// Provide an access to iterate over accounts, similar to 'with_pools'.
+    fn with_accounts(&self, with: impl FnMut(accounts::Iter<'_, '_>)) -> Result<(), Self::Error>;
 }
 
 // Columns
