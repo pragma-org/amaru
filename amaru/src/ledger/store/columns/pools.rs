@@ -1,13 +1,16 @@
 use crate::{
     iter::borrow as iter_borrow,
-    ledger::kernel::{Epoch, PoolParams},
+    ledger::kernel::{Epoch, PoolId, PoolParams},
 };
 use pallas_codec::minicbor::{self as cbor};
 use tracing::debug;
 
-/// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified
-/// imports.
+/// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Option<Row>>;
+
+pub type Add = (PoolParams, Epoch);
+
+pub type Remove = (PoolId, Epoch);
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
@@ -206,7 +209,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 pub mod rocksdb {
     use crate::ledger::{
-        kernel::{Epoch, PoolId, PoolParams},
+        kernel::PoolId,
         store::rocksdb::common::{as_key, as_value, PREFIX_LEN},
     };
     use rocksdb::{self, OptimisticTransactionDB, ThreadMode, Transaction};
@@ -226,7 +229,7 @@ pub mod rocksdb {
 
     pub fn add<DB>(
         db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = (PoolParams, Epoch)>,
+        rows: impl Iterator<Item = super::Add>,
     ) -> Result<(), rocksdb::Error> {
         for (params, epoch) in rows {
             let pool = params.id;
@@ -260,7 +263,7 @@ pub mod rocksdb {
 
     pub fn remove<DB>(
         db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = (PoolId, Epoch)>,
+        rows: impl Iterator<Item = super::Remove>,
     ) -> Result<(), rocksdb::Error> {
         for (pool, epoch) in rows {
             debug!(?pool, scheduled_for_epoch=?epoch, "remove");

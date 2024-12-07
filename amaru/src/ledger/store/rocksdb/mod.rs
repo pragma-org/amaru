@@ -3,11 +3,8 @@ pub(crate) mod common;
 use crate::{
     iter::borrow as iter_borrow,
     ledger::{
-        kernel::{Epoch, Point, PoolId, PoolParams, TransactionInput, TransactionOutput},
-        store::{
-            columns::{pools, utxo},
-            Columns, Store,
-        },
+        kernel::{Epoch, Point, PoolId},
+        store::{columns::*, Columns, Store},
     },
 };
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
@@ -35,6 +32,7 @@ const DIR_LIVE_DB: &str = "live";
 /// * 'tip'                   * Point                                          *
 /// * 'utxo:'TransactionInput * TransactionOutput                              *
 /// * 'pool:'PoolId           * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
+/// * 'acct:'StakeCredential  * (Option<PoolId>, Lovelace, Lovelace)           *
 /// * ========================*=============================================== *
 ///
 /// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
@@ -142,12 +140,14 @@ impl Store for RocksDB {
         &'_ self,
         point: &'_ Point,
         add: Columns<
-            impl Iterator<Item = (TransactionInput, TransactionOutput)>,
-            impl Iterator<Item = (PoolParams, Epoch)>,
+            impl Iterator<Item = utxo::Add>,
+            impl Iterator<Item = pools::Add>,
+            impl Iterator<Item = accounts::Add>,
         >,
         remove: Columns<
-            impl Iterator<Item = TransactionInput>,
-            impl Iterator<Item = (PoolId, Epoch)>,
+            impl Iterator<Item = utxo::Remove>,
+            impl Iterator<Item = pools::Remove>,
+            impl Iterator<Item = accounts::Remove>,
         >,
     ) -> Result<(), Self::Error> {
         let batch = self.db.transaction();
@@ -169,8 +169,10 @@ impl Store for RocksDB {
                 batch.put(KEY_TIP, as_value(point))?;
                 utxo::rocksdb::add(&batch, add.utxo)?;
                 pools::rocksdb::add(&batch, add.pools)?;
+                accounts::rocksdb::add(&batch, add.accounts)?;
                 utxo::rocksdb::remove(&batch, remove.utxo)?;
                 pools::rocksdb::remove(&batch, remove.pools)?;
+                accounts::rocksdb::remove(&batch, remove.accounts)?;
             }
         }
 
@@ -229,7 +231,7 @@ impl Store for RocksDB {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ledger::kernel::encode_bech32;
+    use crate::ledger::kernel::{encode_bech32, PoolParams};
     use std::collections::BTreeMap;
 
     fn compare_preprod_snapshot(epoch: Epoch) -> BTreeMap<String, PoolParams> {

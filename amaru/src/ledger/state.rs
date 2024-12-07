@@ -1,14 +1,16 @@
+pub mod diff_bind;
 pub mod diff_epoch_reg;
 pub mod diff_set;
 
-use super::{
+use crate::ledger::{
     kernel::{
-        block_point, epoch_from_slot, relative_slot, Certificate, Epoch, Hash, Hasher, MintedBlock,
-        Point, PoolId, PoolParams, PoolSigma, TransactionInput, TransactionOutput,
-        CONSENSUS_SECURITY_PARAM,
+        block_point, epoch_from_slot, relative_slot, Certificate, Hash, Hasher, Lovelace,
+        MintedBlock, Point, PoolId, PoolParams, PoolSigma, StakeCredential, TransactionInput,
+        TransactionOutput, CONSENSUS_SECURITY_PARAM, STAKE_CREDENTIAL_DEPOSIT,
     },
-    store::{self, columns::pools, Store},
+    store::{self, columns::*, Store},
 };
+use diff_bind::DiffBind;
 use diff_epoch_reg::DiffEpochReg;
 use diff_set::DiffSet;
 use std::{
@@ -269,8 +271,36 @@ fn apply_transaction<T>(
         // Certificates
         for certificate in certificates {
             match certificate {
+                Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) => {
+                    debug!(?credential, "certificate.stake.registration");
+                    state
+                        .accounts
+                        .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
+                }
+                Certificate::StakeDelegation(credential, pool)
+                // FIXME: register DRep delegation
+                | Certificate::StakeVoteDeleg(credential, pool, ..) => {
+                    debug!(?credential, ?pool, "certificate.stake.delegation");
+                    state.accounts.bind(credential, Some(pool));
+                }
+                Certificate::StakeRegDeleg(credential, pool, ..)
+                // FIXME: register DRep delegation
+                | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
+                    debug!(?credential, "certificate.stake.registration");
+                    debug!(?credential, ?pool, "certificate.stake.delegation");
+                    state.accounts.register(
+                        credential,
+                        STAKE_CREDENTIAL_DEPOSIT as Lovelace,
+                        Some(pool),
+                    );
+                }
+                Certificate::StakeDeregistration(credential)
+                | Certificate::UnReg(credential, ..) => {
+                    debug!(?credential, "certificate.stake.deregistration");
+                    state.accounts.unregister(credential);
+                }
                 Certificate::PoolRetirement(id, epoch) => {
-                    debug!(pool = ?id, ?epoch, "certificate=retirement");
+                    debug!(pool = ?id, ?epoch, "certificate.pool.retirement");
                     state.pools.unregister(id, epoch)
                 }
                 Certificate::PoolRegistration {
@@ -394,6 +424,7 @@ pub struct VolatileState<T> {
     pub point: T,
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
+    pub accounts: DiffBind<StakeCredential, PoolId, Lovelace>,
 }
 
 impl Default for VolatileState<()> {
@@ -402,6 +433,7 @@ impl Default for VolatileState<()> {
             point: (),
             utxo: Default::default(),
             pools: Default::default(),
+            accounts: Default::default(),
         }
     }
 }
@@ -412,6 +444,7 @@ impl VolatileState<()> {
             point,
             utxo: self.utxo,
             pools: self.pools,
+            accounts: self.accounts,
         }
     }
 }
@@ -421,21 +454,23 @@ impl VolatileState<Point> {
         self,
     ) -> (
         store::Columns<
-            impl Iterator<Item = (TransactionInput, TransactionOutput)>,
-            impl Iterator<Item = (PoolParams, Epoch)>,
+            impl Iterator<Item = utxo::Add>,
+            impl Iterator<Item = pools::Add>,
+            impl Iterator<Item = accounts::Add>,
         >,
         store::Columns<
-            impl Iterator<Item = TransactionInput>,
-            impl Iterator<Item = (PoolId, Epoch)>,
+            impl Iterator<Item = utxo::Remove>,
+            impl Iterator<Item = pools::Remove>,
+            impl Iterator<Item = accounts::Remove>,
         >,
     ) {
         let epoch = epoch_from_slot(self.point.slot_or_default());
 
         debug!(
-            utxo_produced = self.utxo.produced.len(),
-            utxo_consumed = self.utxo.produced.len(),
-            pools_registered = self.pools.registered.len(),
-            pools_retired = self.pools.unregistered.len(),
+            utxo.produced = self.utxo.produced.len(),
+            utxo.consumed = self.utxo.produced.len(),
+            pools.registered = self.pools.registered.len(),
+            pools.retired = self.pools.unregistered.len(),
             "updating stable db",
         );
 
@@ -449,13 +484,27 @@ impl VolatileState<Point> {
                     .flat_map(move |(_, registrations)| {
                         registrations
                             .into_iter()
-                            .map(|r| (r, epoch + 1))
+                            // NOTE/TODO: Re-registrations (a.k.a pool params updates) are always
+                            // happening on the following epoch. We do not explicitly store epochs
+                            // for registrations in the DiffEpochReg (which may be an arguable
+                            // choice?) so we have to artificially set it here. Note that for
+                            // registrations (when there's no existing entry), the epoch is wrong
+                            // but it is fully ignored. It's slightly ugly, but we cannot know if
+                            // an entry exists without querying the stable store -- and frankly, we
+                            // don't _have to_.
+                            .map(|pool| (pool, epoch + 1))
                             .collect::<Vec<_>>()
                     }),
+                accounts: self
+                    .accounts
+                    .registered
+                    .into_iter()
+                    .map(|(credential, (pool, deposit))| (credential, pool, deposit, 0)),
             },
             store::Columns {
                 utxo: self.utxo.consumed.into_iter(),
                 pools: self.pools.unregistered.into_iter(),
+                accounts: self.accounts.unregistered.into_iter(),
             },
         )
     }
