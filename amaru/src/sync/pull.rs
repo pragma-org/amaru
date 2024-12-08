@@ -10,9 +10,11 @@ use pallas_network::{
 use pallas_traverse::MultiEraHeader;
 use std::{sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::timeout};
-use tracing::{debug, info};
+use tracing::info_span;
 
 use super::{PullEvent, RawHeader};
+
+const EVENT_TARGET: &str = "amaru::sync";
 
 fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {
@@ -65,16 +67,17 @@ impl gasket::framework::Worker<Stage> for Worker {
         let mut peer_session = stage.peer_session.lock().await;
         let client = (*peer_session).chainsync();
 
-        debug!("finding intersect");
+        let span_intersect =
+            info_span!(target: EVENT_TARGET, "intersect", point = ?stage.intersection).entered();
 
         let (point, _) = client
             .find_intersect(stage.intersection.clone())
             .await
             .or_restart()?;
 
-        let intersection = point.ok_or(miette!("couldn't find intersect")).or_panic()?;
+        span_intersect.exit();
 
-        info!(?intersection, "found intersection");
+        let _intersection = point.ok_or(miette!("couldn't find intersect")).or_panic()?;
 
         let worker = Self {};
 
@@ -100,13 +103,8 @@ impl gasket::framework::Worker<Stage> for Worker {
             let client = (*peer_session).chainsync();
 
             match unit {
-                WorkUnit::Pull => {
-                    info!("pulling block batch from upstream peer");
-
-                    client.request_next().await.or_restart()?
-                }
+                WorkUnit::Pull => client.request_next().await.or_restart()?,
                 WorkUnit::Await => {
-                    info!("awaiting for new block");
                     //FIXME: This isn't ideal to use a timeout because we won't see the block the second
                     // it arrives. Ideally, we could just recv_while_must_reply().await forever, but that
                     // causes worker starvation downstream because they cannot lock() the peer_session.
@@ -123,8 +121,6 @@ impl gasket::framework::Worker<Stage> for Worker {
                 let header = to_traverse(&header).or_panic()?;
                 let point = Point::Specific(header.slot(), header.hash().to_vec());
 
-                info!(?point, "new block received from upstream peer");
-
                 let raw_header: RawHeader = header.cbor().to_vec();
 
                 stage
@@ -133,26 +129,18 @@ impl gasket::framework::Worker<Stage> for Worker {
                     .await
                     .or_panic()?;
 
-                info!("block sent downstream");
-
                 stage.track_tip(&tip);
             }
             NextResponse::RollBackward(point, tip) => {
-                info!(?point, "rollback sent by upstream peer");
-
                 stage
                     .downstream
                     .send(PullEvent::Rollback(point).into())
                     .await
                     .or_panic()?;
 
-                info!("rollback sent downstream");
-
                 stage.track_tip(&tip);
             }
-            NextResponse::Await => {
-                info!("reached tip of the chain");
-            }
+            NextResponse::Await => {}
         };
 
         Ok(())

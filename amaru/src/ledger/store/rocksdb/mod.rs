@@ -17,6 +17,8 @@ use std::{
 };
 use tracing::{debug, info, warn};
 
+const EVENT_TARGET: &str = "amaru::ledger::store";
+
 /// Special key where we store the tip of the database (most recently applied delta)
 const KEY_TIP: &str = "tip";
 
@@ -69,12 +71,13 @@ impl RocksDB {
                 .unwrap_or_default()
                 .parse::<Epoch>()
             {
-                debug!(epoch, "found existing ledger snapshot");
+                debug!(target: EVENT_TARGET, epoch, "new.found_snapshot");
                 snapshots.push(epoch);
             } else if entry.file_name() != DIR_LIVE_DB {
                 warn!(
-                    dir_entry = entry.file_name().to_str().unwrap_or_default(),
-                    "unexpected file within the database directory folder; ignoring"
+                    target: EVENT_TARGET,
+                    filename = entry.file_name().to_str().unwrap_or_default(),
+                    "new.unexpected_file"
                 );
             }
         }
@@ -163,7 +166,7 @@ impl Store for RocksDB {
 
         match (point, tip) {
             (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
-                info!("point already known; save skipped");
+                info!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
                 batch.put(KEY_TIP, as_value(point))?;
@@ -189,12 +192,11 @@ impl Store for RocksDB {
     fn next_snapshot(&'_ mut self, epoch: Epoch) -> Result<(), Self::Error> {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
-            info!(?epoch, "next snapshot");
             let path = self.dir.join(snapshot.to_string());
             checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
             self.snapshots.push(snapshot);
         } else {
-            debug!(epoch, "snapshot already taken; ignoring");
+            info!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
         }
         Ok(())
     }

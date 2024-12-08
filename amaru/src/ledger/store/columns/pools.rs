@@ -5,6 +5,8 @@ use crate::{
 use pallas_codec::minicbor::{self as cbor};
 use tracing::debug;
 
+const EVENT_TARGET: &str = "amaru::ledger::store::pools";
+
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, PoolId, Option<Row>>;
 
@@ -61,12 +63,13 @@ impl Row {
             if let Some(epoch) = retirement {
                 if epoch <= current_epoch {
                     debug!(
-                        pool = ?pool
+                        target: EVENT_TARGET,
+                        pool = %pool
                             .as_ref()
                             .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
                             .current_params
                             .id,
-                        "retiring"
+                        "tick.retiring"
                     );
 
                     // NOTE:
@@ -107,9 +110,10 @@ impl Row {
 
             if let Some(new_params) = update {
                 debug!(
-                    pool = ?pool.current_params.id,
+                    target: EVENT_TARGET,
+                    pool = %pool.current_params.id,
                     ?new_params,
-                    "updating parameters"
+                    "tick.updating"
                 );
                 pool.current_params = new_params;
             }
@@ -208,12 +212,13 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 }
 
 pub mod rocksdb {
+    use super::EVENT_TARGET;
     use crate::ledger::{
         kernel::PoolId,
         store::rocksdb::common::{as_key, as_value, PREFIX_LEN},
     };
     use rocksdb::{self, OptimisticTransactionDB, ThreadMode, Transaction};
-    use tracing::{debug, warn};
+    use tracing::error;
 
     /// Name prefixed used for storing Pool entries. UTF-8 encoding for "pool"
     pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x6f, 0x6c];
@@ -245,14 +250,8 @@ pub mod rocksdb {
             // TODO: We might want to define a MERGE OPERATOR to speed this up if
             // necessary.
             let params = match db.get(as_key(&PREFIX, pool))? {
-                None => {
-                    debug!(?pool, "insert");
-                    as_value(super::Row::new(params))
-                }
-                Some(existing_params) => {
-                    debug!(?pool, scheduled_for_epoch=?epoch, "extend");
-                    super::Row::extend(existing_params, (Some(params), epoch))
-                }
+                None => as_value(super::Row::new(params)),
+                Some(existing_params) => super::Row::extend(existing_params, (Some(params), epoch)),
             };
 
             db.put(as_key(&PREFIX, pool), params)?;
@@ -266,13 +265,12 @@ pub mod rocksdb {
         rows: impl Iterator<Item = super::Remove>,
     ) -> Result<(), rocksdb::Error> {
         for (pool, epoch) in rows {
-            debug!(?pool, scheduled_for_epoch=?epoch, "remove");
             // We do not delete pool immediately but rather schedule the
             // removal as an empty parameter update. The 'pool reaping' happens on
             // every epoch boundary.
             match db.get(as_key(&PREFIX, pool))? {
                 None => {
-                    warn!(?pool, "attempting to remove non existing pool")
+                    error!(target: EVENT_TARGET, ?pool, "remove.unknown")
                 }
                 Some(existing_params) => db.put(
                     as_key(&PREFIX, pool),
