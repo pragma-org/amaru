@@ -288,17 +288,20 @@ mod tests {
         db.with_accounts(|rows| {
             for (key, row) in rows {
                 if let Some(account) = row.borrow() {
-                    // TODO: We should also check registered but non-delegated accounts.
-                    // However, the snapshots we currently have available only contain registered
-                    // credentials... So we'll have to re-generate new snapshots first.
+                    // NOTE: Snapshots from the Haskell node actually excludes:
+                    //
+                    // 1. Any stake credential that is registered but not delegated.
+                    // 2. Any stake credential delegated to a now-retired stake pool.
                     if let Some(pool) = account.delegatee {
-                        let payload = encode_bech32("pool", &pool[..]).unwrap();
-                        match key {
-                            StakeCredential::ScriptHash(script) => {
-                                accounts_scripts.insert(hex::encode(script), payload);
-                            }
-                            StakeCredential::AddrKeyhash(key) => {
-                                accounts_keys.insert(hex::encode(key), payload);
+                        let pool_str = encode_bech32("pool", &pool[..]).unwrap();
+                        if pools.contains_key(&pool_str) {
+                            match key {
+                                StakeCredential::ScriptHash(script) => {
+                                    accounts_scripts.insert(hex::encode(script), pool_str);
+                                }
+                                StakeCredential::AddrKeyhash(key) => {
+                                    accounts_keys.insert(hex::encode(key), pool_str);
+                                }
                             }
                         }
                     }

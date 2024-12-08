@@ -20,10 +20,12 @@ impl<K: Ord, J, V> Default for DiffBind<K, J, V> {
 
 impl<K: Ord + std::fmt::Debug, J: Clone + std::fmt::Debug, V> DiffBind<K, J, V> {
     pub fn register(&mut self, k: K, v: V, j: Option<J>) {
+        self.unregistered.remove(&k);
         self.registered.insert(k, (j, Some(v)));
     }
 
     pub fn bind(&mut self, k: K, j: Option<J>) {
+        assert!(!self.unregistered.contains(&k));
         match self.registered.entry(k) {
             Entry::Occupied(mut e) => {
                 e.get_mut().0 = j;
