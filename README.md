@@ -39,6 +39,10 @@ cargo run --release -- daemon \
 > Replace `--peer-address` with your Cardano node peer address. It can be either
 > a local or remote node (i.e. any existing node relay).
 
+### Monitoring
+
+See [MONITORING.md](./MONITORING.md)
+
 ## Going further
 
 Amaru is the integration point of several other projects / repositories. Amongst them, we find in particular:

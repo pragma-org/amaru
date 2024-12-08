@@ -12,6 +12,8 @@ use std::{path::Path, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{error, info_span, warn};
 
+const EVENT_TARGET: &str = "amaru::ledger";
+
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 
 pub mod kernel;
@@ -70,17 +72,21 @@ impl gasket::framework::Worker<Stage> for Worker {
                 let (block_header_hash, block) = parse_block(&raw_block[..]);
 
                 let span_forward = info_span!(
-                    "applying_block",
+                    target: EVENT_TARGET,
+                    "forward",
                     header.height = block.header.header_body.block_number,
                     header.slot = block.header.header_body.slot,
-                    header.hash = hex::encode(block_header_hash)
+                    header.hash = hex::encode(block_header_hash),
+                    stable.epoch = tracing::field::Empty,
+                    tip.epoch = tracing::field::Empty,
+                    tip.relative_slot = tracing::field::Empty,
                 )
                 .entered();
 
                 let mut state = stage.state.lock().await;
 
-                state.forward(block).map_err(|e| {
-                    error!(error = ?e, "failed to forward block");
+                state.forward(&span_forward, block).map_err(|e| {
+                    error!(target: EVENT_TARGET, error = ?e, "forward.failed");
                     WorkerError::Panic
                 })?;
 
@@ -89,22 +95,23 @@ impl gasket::framework::Worker<Stage> for Worker {
 
             ValidateHeaderEvent::Rollback(point) => {
                 let span_backward = info_span!(
-                    "rolling_back",
+                    target: EVENT_TARGET,
+                    "backward",
                     point.slot = point.slot_or_default(),
-                    point.hash = if let Point::Specific(_, header_hash) = point {
-                        hex::encode(header_hash)
-                    } else {
-                        String::new()
-                    }
+                    point.hash = tracing::field::Empty,
                 )
                 .entered();
+
+                if let Point::Specific(_, header_hash) = point {
+                    span_backward.record("point.hash", hex::encode(header_hash));
+                }
 
                 let mut state = stage.state.lock().await;
 
                 if let Err(e) = state.backward(point) {
                     match e {
                         BackwardErr::UnknownRollbackPoint(_) => {
-                            warn!("unknown_rollback_point")
+                            warn!(target: EVENT_TARGET, "rollback.unknown_point")
                         }
                     }
                 }

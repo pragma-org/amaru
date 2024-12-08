@@ -8,7 +8,6 @@ use pallas_primitives::conway::Epoch;
 use pallas_traverse::MultiEraHeader;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
-use tracing::info;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
@@ -88,7 +87,6 @@ impl gasket::framework::Worker<Stage> for Worker {
     async fn execute(&mut self, unit: &PullEvent, stage: &mut Stage) -> Result<(), WorkerError> {
         match unit {
             PullEvent::RollForward(point, raw_header) => {
-                info!(?point, "validating roll forward");
                 let header = MultiEraHeader::decode(6, None, raw_header)
                     .map_err(|e| miette!(e))
                     .or_panic()?;
@@ -97,31 +95,22 @@ impl gasket::framework::Worker<Stage> for Worker {
                 assert_header(&header, &stage.epoch_to_nonce, &*ledger)?;
 
                 let block = {
-                    info!("fetching block...");
                     let mut peer_session = stage.peer_session.lock().await;
                     let client = (*peer_session).blockfetch();
                     let block = client.fetch_single(point.clone()).await.or_restart()?;
-                    info!("fetched block done.");
                     block
                 };
 
-                // info!(?block, "fetched block");
-
-                info!("sending validated block downstream");
                 stage
                     .downstream
                     .send(ValidateHeaderEvent::Validated(point.clone(), block).into())
                     .await
                     .or_panic()?;
 
-                info!("sent validated block downstream");
-
                 stage.block_count.inc(1);
                 stage.track_validation_tip(point);
             }
             PullEvent::Rollback(rollback) => {
-                info!(?rollback, "validating roll back");
-
                 stage
                     .downstream
                     .send(ValidateHeaderEvent::Rollback(rollback.clone()).into())

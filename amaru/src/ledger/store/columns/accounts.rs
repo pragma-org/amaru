@@ -4,6 +4,8 @@ use crate::{
 };
 use pallas_codec::minicbor::{self as cbor};
 
+const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
+
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, StakeCredential, Option<Row>>;
 
@@ -59,7 +61,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 }
 
 pub mod rocksdb {
-    use super::Row;
+    use super::{Row, EVENT_TARGET};
     use crate::ledger::store::rocksdb::common::{as_key, as_value, PREFIX_LEN};
     use rocksdb::{self, Transaction};
     use tracing::error;
@@ -92,8 +94,9 @@ pub mod rocksdb {
                 db.put(key, as_value(row))?;
             } else {
                 error!(
-                    "attempted to register account ({:?}) without deposit",
-                    credential
+                    target: EVENT_TARGET,
+                    ?credential,
+                    "add.register_no_deposit",
                 )
             };
         }
