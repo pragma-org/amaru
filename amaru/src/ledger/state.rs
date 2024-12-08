@@ -135,9 +135,9 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         }
 
         info!(
+            target: "amaru::ledger::state::tip",
             epoch = epoch_from_slot(point.slot_or_default()),
             relative_slot = relative_slot(point.slot_or_default()),
-            "tip"
         );
 
         self.volatile.push_back(state.anchor(point));
@@ -271,8 +271,8 @@ fn apply_transaction<T>(
         // Certificates
         for certificate in certificates {
             match certificate {
-                Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) => {
-                    debug!(?credential, "certificate.stake.registration");
+                Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
+                    info!(target: "apply_transaction", ?credential, "certificate.stake.registration");
                     state
                         .accounts
                         .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
@@ -280,14 +280,14 @@ fn apply_transaction<T>(
                 Certificate::StakeDelegation(credential, pool)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(?credential, ?pool, "certificate.stake.delegation");
+                    info!(target: "apply_transaction", ?credential, ?pool, "certificate.stake.delegation");
                     state.accounts.bind(credential, Some(pool));
                 }
                 Certificate::StakeRegDeleg(credential, pool, ..)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(?credential, "certificate.stake.registration");
-                    debug!(?credential, ?pool, "certificate.stake.delegation");
+                    info!(target: "apply_transaction", ?credential, "certificate.stake.registration");
+                    info!(target: "apply_transaction", ?credential, ?pool, "certificate.stake.delegation");
                     state.accounts.register(
                         credential,
                         STAKE_CREDENTIAL_DEPOSIT as Lovelace,
@@ -296,7 +296,7 @@ fn apply_transaction<T>(
                 }
                 Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, ..) => {
-                    debug!(?credential, "certificate.stake.deregistration");
+                    info!(target: "apply_transaction", ?credential, "certificate.stake.deregistration");
                     state.accounts.unregister(credential);
                 }
                 Certificate::PoolRetirement(id, epoch) => {
