@@ -7,7 +7,7 @@ use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_primitives::conway::Epoch;
 use pallas_traverse::MultiEraHeader;
 use std::collections::HashMap;
-use tracing::{trace, warn};
+use tracing::warn;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
@@ -31,18 +31,16 @@ pub fn assert_header(
                 block_validator
                     .validate()
                     .unwrap_or_else(|e| warn!(error = ?e, "block validation failed"));
-            } else {
-                warn!(height = ?minted_header.header_body.block_number, "missing epoch nonce; skipping validation");
             }
         }
         MultiEraHeader::ShelleyCompatible(_) => {
-            trace!("shelley compatible header, skipping validation");
+            warn!("shelley compatible header, skipping validation");
         }
         MultiEraHeader::EpochBoundary(_) => {
-            trace!("epoch boundary header, skipping validation");
+            warn!("epoch boundary header, skipping validation");
         }
         MultiEraHeader::Byron(_) => {
-            trace!("byron header, skipping validation");
+            warn!("byron header, skipping validation");
         }
     }
 
