@@ -40,23 +40,31 @@ async fn main() -> miette::Result<()> {
 pub fn setup_tracing() {
     use tracing_subscriber::{prelude::*, *};
 
-    // Enabling filtering from the RUST_LOG var; but disable gasket low-level traces regardless.
-    // We use the RUST_LOG directive filtering here instead of the .or / .and Rust API provided on
-    // EnvFilter so that we allow users to override those settings should they ever want to.
-    let filter = || {
+    const AMARU_LOG: &str = "AMARU_LOG";
+    const AMARU_DEV_LOG: &str = "AMARU_DEV_LOG";
+
+    // Enabling filtering from env var; but disable gasket low-level traces regardless. We use the
+    // env directive filtering here instead of the .or() / .and() Rust API provided on EnvFilter so
+    // that we allow users to override those settings should they ever want to.
+    let filter = |env: &str| {
         EnvFilter::builder()
             .parse(format!(
-                "gasket=error,amaru=info,{}",
-                env::var(EnvFilter::DEFAULT_ENV).ok().unwrap_or_default()
+                "info,gasket=error,{}",
+                if env == AMARU_DEV_LOG {
+                    env::var(env)
+                        .or_else(|_| env::var(AMARU_LOG))
+                        .ok()
+                        .unwrap_or_default()
+                } else {
+                    env::var(env).ok().unwrap_or_default()
+                }
             ))
             .unwrap_or_else(|e| panic!("invalid log/trace filters: {e}"))
     };
 
-    // The subscriber for the console, mostly for development.
-    let console_layer = fmt::layer()
-        .event_format(fmt::format().with_ansi(true).pretty())
-        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
-        .with_filter(filter());
+    let pretty = || fmt::format().with_ansi(true).pretty();
+
+    let fmt_span = || fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT;
 
     // Layer for open-telemetry. Requires an opentelemetry-compatible collector to run
     // as an additional service.
@@ -65,39 +73,53 @@ pub fn setup_tracing() {
         use opentelemetry::{trace::TracerProvider as _, KeyValue};
         use opentelemetry_sdk::Resource;
 
-        let opentelemetry_layer = tracing_opentelemetry::layer()
-            .with_tracer(
-                opentelemetry_sdk::trace::TracerProvider::builder()
-                    .with_resource(Resource::new(vec![KeyValue::new(
-                        "service.name",
-                        SERVICE_NAME,
-                    )]))
-                    .with_batch_exporter(
-                        opentelemetry_otlp::SpanExporter::builder()
-                            .with_tonic()
-                            .build()
-                            .unwrap_or_else(|e| {
-                                panic!("failed to setup opentelemetry span exporter: {e}")
-                            }),
-                        opentelemetry_sdk::runtime::Tokio,
-                    )
-                    .build()
-                    .tracer(SERVICE_NAME),
-            )
-            .with_filter(filter());
+        let opentelemetry_layer = || {
+            tracing_opentelemetry::layer()
+                .with_tracer(
+                    opentelemetry_sdk::trace::TracerProvider::builder()
+                        .with_resource(Resource::new(vec![KeyValue::new(
+                            "service.name",
+                            SERVICE_NAME,
+                        )]))
+                        .with_batch_exporter(
+                            opentelemetry_otlp::SpanExporter::builder()
+                                .with_tonic()
+                                .build()
+                                .unwrap_or_else(|e| {
+                                    panic!("failed to setup opentelemetry span exporter: {e}")
+                                }),
+                            opentelemetry_sdk::runtime::Tokio,
+                        )
+                        .build()
+                        .tracer(SERVICE_NAME),
+                )
+                .with_filter(filter(AMARU_LOG))
+        };
 
         opentelemetry::global::set_text_map_propagator(
             opentelemetry_sdk::propagation::TraceContextPropagator::new(),
         );
 
         tracing_subscriber::registry()
-            .with(console_layer)
-            .with(opentelemetry_layer)
+            .with(
+                fmt::layer()
+                    .event_format(pretty())
+                    .with_span_events(fmt_span())
+                    .with_filter(filter(AMARU_DEV_LOG)),
+            )
+            .with(opentelemetry_layer())
             .init();
     }
 
     #[cfg(not(feature = "telemetry"))]
     {
-        tracing_subscriber::registry().with(console_layer).init();
+        tracing_subscriber::registry()
+            .with(
+                fmt::layer()
+                    .event_format(pretty())
+                    .with_span_events(fmt_span())
+                    .with_filter(filter(AMARU_DEV_LOG)),
+            )
+            .init();
     }
 }

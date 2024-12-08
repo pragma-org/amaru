@@ -1,8 +1,8 @@
 pub mod columns;
 pub mod rocksdb;
 
-use super::kernel::{Epoch, Point, PoolId, PoolParams, TransactionInput, TransactionOutput};
-use columns::pools;
+use super::kernel::{Epoch, Point, PoolId};
+use columns::*;
 use std::iter;
 
 // Store
@@ -20,12 +20,14 @@ pub trait Store {
         &'_ self,
         point: &'_ Point,
         add: Columns<
-            impl Iterator<Item = (TransactionInput, TransactionOutput)>,
-            impl Iterator<Item = (PoolParams, Epoch)>,
+            impl Iterator<Item = utxo::Add>,
+            impl Iterator<Item = pools::Add>,
+            impl Iterator<Item = accounts::Add>,
         >,
         remove: Columns<
-            impl Iterator<Item = TransactionInput>,
-            impl Iterator<Item = (PoolId, Epoch)>,
+            impl Iterator<Item = utxo::Remove>,
+            impl Iterator<Item = pools::Remove>,
+            impl Iterator<Item = accounts::Remove>,
         >,
     ) -> Result<(), Self::Error>;
 
@@ -45,13 +47,16 @@ pub trait Store {
     /// Get details about a specific pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error>;
 
-    /// Provide an access to iterate on pools, in a way that enforces:
+    /// Provide an access to iterate over pools, in a way that enforces:
     ///
     /// 1. That mutations will be persisted on-disk
     ///
     /// 2. That all operations are consistent and atomic (the iteration occurs on a snapshot, and
     ///    the mutation apply to the iterated items)
     fn with_pools(&self, with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), Self::Error>;
+
+    /// Provide an access to iterate over accounts, similar to 'with_pools'.
+    fn with_accounts(&self, with: impl FnMut(accounts::Iter<'_, '_>)) -> Result<(), Self::Error>;
 }
 
 // Columns
@@ -59,16 +64,18 @@ pub trait Store {
 
 /// A summary of all database columns, in a single struct. This can be derived to provide updates
 /// operations on multiple columns in a single db-transaction.
-pub struct Columns<U, P> {
+pub struct Columns<U, P, A> {
     pub utxo: U,
     pub pools: P,
+    pub accounts: A,
 }
 
-impl<U, P> Default for Columns<iter::Empty<U>, iter::Empty<P>> {
+impl<U, P, A> Default for Columns<iter::Empty<U>, iter::Empty<P>, iter::Empty<A>> {
     fn default() -> Self {
         Self {
             utxo: iter::empty(),
             pools: iter::empty(),
+            accounts: iter::empty(),
         }
     }
 }

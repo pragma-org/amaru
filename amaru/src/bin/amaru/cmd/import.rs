@@ -1,9 +1,11 @@
 use amaru::ledger::{
     self,
     kernel::{
-        epoch_from_slot, Epoch, Point, PoolId, PoolParams, TransactionInput, TransactionOutput,
+        epoch_from_slot, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Set, StakeCredential,
+        TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
     },
     store::{
+        columns::pools,
         Store, {self},
     },
 };
@@ -39,6 +41,33 @@ pub struct Args {
 enum Error<'a> {
     #[error("malformed date: {}", .0)]
     MalformedDate(&'a str),
+}
+
+#[derive(Debug)]
+enum StrictMaybe<T> {
+    Nothing,
+    Just(T),
+}
+
+impl<'b, C, T: cbor::decode::Decode<'b, C>> cbor::decode::Decode<'b, C> for StrictMaybe<T> {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let len = d.array()?;
+        if len != Some(0) {
+            let t = d.decode_with(ctx)?;
+            Ok(StrictMaybe::Just(t))
+        } else {
+            Ok(StrictMaybe::Nothing)
+        }
+    }
+}
+
+impl<T> From<StrictMaybe<T>> for Option<T> {
+    fn from(value: StrictMaybe<T>) -> Option<T> {
+        match value {
+            StrictMaybe::Nothing => None,
+            StrictMaybe::Just(t) => Some(t),
+        }
+    }
 }
 
 pub async fn run(args: Args) -> miette::Result<()> {
@@ -82,12 +111,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 let mut state = ledger::state::diff_epoch_reg::DiffEpochReg::default();
                 for (pool, params) in pools.into_iter() {
-                    // NOTE: We are importing pools for the next epoch onwards, so any pool update
-                    // has technically become active at the epoch boundary. So it is sufficient to
-                    // import only the updates if any.
-                    if !updates.contains_key(&pool) {
-                        state.register(pool, params);
-                    }
+                    state.register(pool, params);
                 }
 
                 for (pool, params) in updates.into_iter() {
@@ -119,17 +143,103 @@ pub async fn run(args: Args) -> miette::Result<()> {
                                     .map(|r| (r, current_epoch))
                                     .collect::<Vec<_>>()
                             }),
+                        accounts: iter::empty(),
                     },
                     store::Columns {
                         pools: state.unregistered.into_iter(),
                         utxo: iter::empty(),
+                        accounts: iter::empty(),
                     },
                 )
                 .into_diagnostic()?;
             }
 
             // Epoch State / Ledger State / Cert State / Delegation state
-            d.skip().into_diagnostic()?;
+            {
+                let _delegation_state_len = d.array().into_diagnostic()?;
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
+                {
+                    let _stake_credentials_len = d.array().into_diagnostic()?;
+
+                    // credentials
+                    {
+                        let mut credentials =
+                            d.decode::<HashMap<
+                                StakeCredential,
+                                (
+                                    StrictMaybe<(Lovelace, Lovelace)>,
+                                    Set<()>,
+                                    StrictMaybe<PoolId>,
+                                    StrictMaybe<DRep>,
+                                ),
+                            >>()
+                            .into_diagnostic()?
+                            .into_iter()
+                            .map(
+                                |(credential, (rewards_and_deposit, _pointers, pool, _drep))| {
+                                    let (rewards, deposit) =
+                                        Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
+                                            .unwrap_or((0, STAKE_CREDENTIAL_DEPOSIT as u64));
+
+                                    (
+                                        credential,
+                                        Option::<PoolId>::from(pool),
+                                        Some(deposit),
+                                        rewards,
+                                    )
+                                },
+                            )
+                            .collect::<Vec<(
+                                StakeCredential,
+                                Option<PoolId>,
+                                Option<Lovelace>,
+                                Lovelace,
+                            )>>();
+
+                        info!(what = "credentials", size = credentials.len());
+
+                        let progress = ProgressBar::new(credentials.len() as u64).with_style(
+                            ProgressStyle::with_template("  Accounts {bar:70} {pos:>7}/{len:7}")
+                                .unwrap(),
+                        );
+
+                        while !credentials.is_empty() {
+                            let n = std::cmp::min(BATCH_SIZE, credentials.len());
+                            let chunk = credentials.drain(0..n);
+
+                            db.save(
+                                &Point::Origin,
+                                store::Columns {
+                                    utxo: iter::empty(),
+                                    pools: iter::empty(),
+                                    accounts: chunk,
+                                },
+                                Default::default(),
+                            )
+                            .into_diagnostic()?;
+
+                            progress.inc(n as u64);
+                        }
+
+                        progress.finish();
+                    }
+
+                    // pointers
+                    {
+                        d.skip().into_diagnostic()?;
+                    }
+                }
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
+                d.skip().into_diagnostic()?;
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
+                d.skip().into_diagnostic()?;
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
+                d.skip().into_diagnostic()?;
+            }
 
             // Epoch State / Ledger State / UTxO State
             {
@@ -157,6 +267,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
                         store::Columns {
                             utxo: chunk,
                             pools: iter::empty(),
+                            accounts: iter::empty(),
                         },
                         Default::default(),
                     )
@@ -173,8 +284,16 @@ pub async fn run(args: Args) -> miette::Result<()> {
     db.save(&point, Default::default(), Default::default())
         .into_diagnostic()?;
 
-    db.next_snapshot(epoch_from_slot(point.slot_or_default()))
-        .into_diagnostic()?;
+    let epoch = epoch_from_slot(point.slot_or_default());
+
+    db.next_snapshot(epoch).into_diagnostic()?;
+
+    db.with_pools(|iterator| {
+        for (_, pool) in iterator {
+            pools::Row::tick(pool, epoch + 1)
+        }
+    })
+    .into_diagnostic()?;
 
     Ok(())
 }

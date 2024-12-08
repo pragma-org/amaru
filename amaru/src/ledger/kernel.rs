@@ -12,8 +12,8 @@ pub use pallas_codec::{
 };
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::conway::{
-    AddrKeyhash, Certificate, Coin, Epoch, MintedBlock, PoolMetadata, RationalNumber, Relay,
-    RewardAccount, TransactionInput, TransactionOutput, UnitInterval, VrfKeyhash,
+    AddrKeyhash, Certificate, Coin, DRep, Epoch, MintedBlock, PoolMetadata, RationalNumber, Relay,
+    RewardAccount, StakeCredential, TransactionInput, TransactionOutput, UnitInterval, VrfKeyhash,
 };
 
 // Constants
@@ -45,12 +45,17 @@ pub const BYRON_TOTAL_SLOTS: usize = BYRON_EPOCH_LENGTH * PREPROD_SHELLEY_TRANSI
 /// Epoch number in which the PreProd network transitioned to Shelley.
 pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
 
+/// Value, in Lovelace, that one must deposit when registering a new stake credential
+pub const STAKE_CREDENTIAL_DEPOSIT: usize = 500000000;
+
 // Re-exports
 // ----------------------------------------------------------------------------
 
 pub type Point = pallas_network::miniprotocols::Point;
 
 pub type PoolId = Hash<28>;
+
+pub type Lovelace = u64;
 
 // PoolParams
 // ----------------------------------------------------------------------------
