@@ -18,7 +18,7 @@ cargo build --release
 
 ### Running (demo)
 
-1. Import a [ledger snapshot](./amaru/data/README.md#cardano-ledger-snapshots):
+1. Import a [ledger snapshot](./data/README.md#cardano-ledger-snapshots):
 
 ```console
 cargo run --release -- import \
