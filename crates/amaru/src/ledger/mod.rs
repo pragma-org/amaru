@@ -7,6 +7,7 @@ use crate::{
     },
 };
 use gasket::framework::*;
+use opentelemetry::metrics::Counter;
 use pallas_codec::minicbor as cbor;
 use std::{path::Path, sync::Arc};
 use tokio::sync::Mutex;
@@ -25,10 +26,11 @@ pub mod store;
 pub struct Stage {
     pub upstream: UpstreamPort,
     pub state: Arc<Mutex<state::State<RocksDB, rocksdb::Error>>>,
+    pub counter: Counter<u64>,
 }
 
 impl Stage {
-    pub fn new(store: &Path) -> (Self, Point) {
+    pub fn new(store: &Path, counter: Counter<u64>) -> (Self, Point) {
         let store =
             RocksDB::new(store).unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
 
@@ -40,6 +42,7 @@ impl Stage {
             Self {
                 upstream: Default::default(),
                 state: Arc::new(Mutex::new(state)),
+                counter,
             },
             tip,
         )
@@ -70,6 +73,8 @@ impl gasket::framework::Worker<Stage> for Worker {
         match unit {
             ValidateHeaderEvent::Validated(_point, raw_block) => {
                 let (block_header_hash, block) = parse_block(&raw_block[..]);
+
+                stage.counter.add(1, &[]);
 
                 let span_forward = info_span!(
                     target: EVENT_TARGET,

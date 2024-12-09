@@ -1,5 +1,6 @@
 use crate::{consensus, ledger};
 use gasket::runtime::Tether;
+use opentelemetry::metrics::Counter;
 use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
@@ -24,6 +25,7 @@ pub struct Config {
     pub upstream_peer: String,
     pub network_magic: u32,
     pub nonces: HashMap<Epoch, Hash<32>>,
+    pub counter: Counter<u64>,
 }
 
 fn define_gasket_policy() -> gasket::runtime::Policy {
@@ -47,7 +49,7 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
     // FIXME: Take from config / command args
     let ledger_store = PathBuf::from("./ledger.db");
-    let (mut ledger, tip) = ledger::Stage::new(&ledger_store);
+    let (mut ledger, tip) = ledger::Stage::new(&ledger_store, config.counter.clone());
 
     let mut pull = pull::Stage::new(client.clone(), vec![tip]);
     let mut header_validation =

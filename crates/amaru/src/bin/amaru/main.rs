@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use opentelemetry::metrics::Counter;
 use std::env;
 
 mod cmd;
@@ -37,7 +38,7 @@ async fn main() -> miette::Result<()> {
     }
 }
 
-pub fn setup_tracing() {
+pub fn setup_tracing() -> Counter<u64> {
     use opentelemetry::{metrics::MeterProvider, trace::TracerProvider as _, KeyValue};
     use opentelemetry_sdk::{metrics::Temporality, Resource};
     use tracing_subscriber::{prelude::*, *};
@@ -87,7 +88,7 @@ pub fn setup_tracing() {
 
     // Metrics
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
-        .with_tonic()
+        .with_http()
         .with_temporality(Temporality::default())
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
@@ -117,4 +118,8 @@ pub fn setup_tracing() {
         )
         .with(opentelemetry_layer)
         .init();
+
+    let counter = meter.u64_counter("block.count").build();
+
+    counter
 }
