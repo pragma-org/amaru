@@ -1,0 +1,29 @@
+services:
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    volumes:
+      - "./jaeger-ui.json:/etc/jaeger/jaeger-ui.json"
+      - "./jaeger.yml:/etc/jaeger/config.yml"
+    command: ["--config", "/etc/jaeger/config.yml"]
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+
+  otlp-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    volumes:
+      - "./otlp-collector.yml:/etc/otlp-collector.yml"
+    command: ["--config", "/etc/otlp-collector.yml"]
+    ports:
+      - "4318:4318"
+
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    command:
+      [ "--web.enable-otlp-receiver"
+      , "--config.file=/etc/prometheus/prometheus.yml"
+      ]
+    volumes:
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"

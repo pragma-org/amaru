@@ -29,7 +29,7 @@ pub struct Args {
     network: NetworkName,
 
     /// Path to the directory containing blockchain data such as epoch nonces.
-    #[arg(long, default_value = "./amaru/data")]
+    #[arg(long, default_value = "./data")]
     data_dir: String,
 }
 

@@ -1,8 +1,13 @@
 # Monitoring
 
-This document summarizes the various details regarding to monitoring Amaru. As a pre-requisite, it's important to note that Amaru leverages [OpenTelemetry](https://opentelemetry.io/) to emit traces & metrics. A compatible observability backend such as [Jaeger](https://www.jaegertracing.io/) or [Prometheus](https://prometheus.io/) is therefore needed to collect and visualise telemetry.
+This document summarizes the various details regarding to monitoring Amaru. As a pre-requisite, it's important to note that Amaru leverages [OpenTelemetry](https://opentelemetry.io/) to emit traces & metrics. A compatible observability backend such as [Jaeger](https://www.jaegertracing.io/), [Grafana Tempo](https://grafana.com/docs/tempo/latest/) and/or [Prometheus](https://prometheus.io/) is therefore needed to collect and visualise telemetry.
 
-## Filtering
+We provide example configurations using different compositions of tools:
+
+- [Jaeger + Prometheus](./jaeger) _(simple)_
+- [Grafana + Tempo + Prometheus](./grafana-tempo) _(more advanced)_
+
+## Filtering traces
 
 Any event (trace, span or metric) can be filtered by target and severity using two environment variables:
 
