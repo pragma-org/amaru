@@ -27,10 +27,16 @@ cargo run --release -- import \
   --out ledger.db
 ```
 
-2. Run the node:
+2. Setup observability backends:
 
 ```console
-cargo run --release -- daemon \
+docker-compose -f monitoring/jaeger/docker-compose.yml up
+```
+
+3. Run the node:
+
+```console
+AMARU_DEV_LOG=error cargo run --release -- daemon \
   --peer-address=127.0.0.1:3000 \
   --network=preprod
 ```
@@ -47,32 +53,11 @@ See [monitoring/README.md](./monitoring/README.md).
 
 Amaru is the integration point of several other projects / repositories. Amongst them, we find in particular:
 
- | Repository                                                      | Purpose                                                                                                                                               |
- | ---                                                             | ---                                                                                                                                                   |
- | [Pallas](https://github.com/txpipe/pallas)                      | Hosts many Rust primitives and building blocks for the node already powering tools like Dolos. In particular, the networking and serialization logic. |
- | [pragma-org/ouroboros](https://github.com/pragma-org/ouroboros) | Rust libraries/building blocks to implement an Ouroboros (Praos & Genesis) consensus.                                                                 |
- | [pragma-org/uplc](https://github.com/pragma-org/uplc)           | A highly performant UPLC parser and CEK machine.                                                                                                      |
-
-### Other relevant projects
-
-While Amaru materialises a final binary executable, there is a variety of other
-projects that are directly or indirectly relevant to Amaru. For example, Dolos
-is a similar project with some overlap, but isn't directly used by Amaru.
-Mithril on the other hand may become a first-class citizen in a later version of
-Amaru.
-
-To make things easier to follow, here's a list of relevant open source projects
-in the context of Amaru:
-
-| Repository                                                                                    | Relevance                                                                                                                                                                      |
-| ---                                                                                           | ---                                                                                                                                                                            |
-| [Dolos](https://github.com/txpipe/dolos)                                                      | A first incarnation of a node client, albeit geared towards client applications such as DApps. Dolos is de-facto a foundation which will inspire the design and work on Amaru. |
-| [java-rewards-calculation](https://github.com/cardano-foundation/cf-java-rewards-calculation) | A Java re-implementation of the Cardano rewards calculation which can now serve as a reference implementation for a Rust version.                                              |
-| [mithril](https://github.com/input-output-hk/mithril)                                         | A stake-based threshold multi-signatures protocol.                                                                                                                             |
-| [cardano-multiplatform-library](https://github.com/dcSpark/cardano-multiplatform-lib)         | A Rust implementation of various Cardano data and crypto primitives.                                                                                                           |
-| [aiken-lang/uplc](https://github.com/aiken-lang/aiken/tree/main/crates/uplc)                  | An Untyped Plutus Core (UPLC) parser and CEK machine for evaluating Plutus V2 and Plutus V3 on-chain scripts.                                                                  |
-| [cncli](https://github.com/cardano-community/cncli)                                           | A Rust implementation of Cardano CLI tools including VRF functionality, and some consensus tooling like leaderlogs.                                                            |
-| [gouroboros](https://github.com/blinklabs-io/gouroboros)                                      | Go implementation of the Cardano Ouroboros family of protocols                                                                                                                 |
+| Repository                                                      | Purpose                                                                                                                                               |
+| ---                                                             | ---                                                                                                                                                   |
+| [txpipe/pallas](https://github.com/txpipe/pallas)               | Hosts many Rust primitives and building blocks for the node already powering tools like Dolos. In particular, the networking and serialization logic. |
+| [pragma-org/ouroboros](https://github.com/pragma-org/ouroboros) | Rust libraries/building blocks to implement an Ouroboros (Praos & Genesis) consensus.                                                                 |
+| [pragma-org/uplc](https://github.com/pragma-org/uplc)           | A highly performant UPLC parser and CEK machine.                                                                                                      |
 
 <hr/>
 
