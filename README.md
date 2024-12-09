@@ -41,7 +41,7 @@ cargo run --release -- daemon \
 
 ### Monitoring
 
-See [MONITORING.md](./MONITORING.md)
+See [monitoring/README.md](./monitoring/README.md).
 
 ## Going further
 

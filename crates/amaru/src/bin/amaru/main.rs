@@ -87,6 +87,8 @@ pub fn setup_tracing() -> Counter<u64> {
         .with_filter(filter(AMARU_LOG));
 
     // Metrics
+    // NOTE: We use the http exporter here because not every OTLP receivers (in particular Jaeger)
+    // support gRPC for metrics.
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_http()
         .with_temporality(Temporality::default())
