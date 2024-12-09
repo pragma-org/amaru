@@ -270,7 +270,7 @@ mod tests {
     }
 
     fn new_preprod_snapshot(epoch: Epoch) -> Snapshot {
-        let db = RocksDB::from_snapshot(&PathBuf::from("../ledger.db"), epoch).unwrap();
+        let db = RocksDB::from_snapshot(&PathBuf::from("../../ledger.db"), epoch).unwrap();
 
         let mut pools = BTreeMap::new();
         db.with_pools(|rows| {

@@ -23,7 +23,7 @@ mod tests {
 
     #[test]
     fn preprod_4_174() {
-        let nonces = from_csv(include_str!("../../data/preprod/nonces.csv"));
+        let nonces = from_csv(include_str!("../../../../data/preprod/nonces.csv"));
 
         let hit = |epoch, hash| {
             assert_eq!(
