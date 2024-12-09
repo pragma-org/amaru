@@ -277,15 +277,3 @@ Coming soon.
 > The plan so far is to maximise compatibility with the existing Haskell node Prometheus metrics such that tools like [`gLiveView`](https://cardano-community.github.io/guild-operators/Scripts/gliveview/?h=gliveview) and [`nview`](https://github.com/blinklabs-io/nview) keep working out-of-the-box.
 >
 > We are planning, however, to add more metrics to Amaru.
-
-## Quickstart: Jaeger
-
-Coming soon.
-
-## Quickstart: Prometheus
-
-Coming soon.
-
-## Quickstart: Grafana
-
-Coming soon.
