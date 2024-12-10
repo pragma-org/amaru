@@ -10,7 +10,7 @@ Furthermore, one of the goals of the Amaru projects is to document and generalis
 
 The following picture summarizes core ideas of the current testing process for the consensus:
 
-![Testing consensus flow](./testing-strategy.jpg)
+![Testing consensus flow](./testing-consensus.jpg)
 
 * The overall approach is _Model based_, using _State Machine_ models of the expected behaviour of interacting parts of the system to generate test traces and validate _SUT_'s behaviour
 * A complete chain is generated, possibly with varying characteristics: length of tines, frequency of forks, distance between blocks, etc. This simulates how a node would see the chain progressing,
