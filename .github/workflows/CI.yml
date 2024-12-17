@@ -33,12 +33,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: ${{ matrix.environments.target }}
       - name: Check format
         run: cargo fmt --all -- --check
       - name: Run clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: rustup target add ${{ matrix.environments.target }}
       - name: Run tests
         run: cargo test --locked --all-features --workspace --target ${{ matrix.environments.target }}
