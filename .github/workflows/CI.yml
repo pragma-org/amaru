@@ -1,0 +1,43 @@
+name: Continuous Integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: ["*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build on ${{ matrix.environments.runner }} with target ${{ matrix.environments.target }}
+    strategy:
+      matrix:
+        environments:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: wasm32-unknown-unknown
+            optional: true
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+    timeout-minutes: 30
+    runs-on: ${{ matrix.environments.runner }}
+    continue-on-error: ${{ matrix.environments.optional || false }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.environments.target }}
+      - name: Check format
+        run: cargo fmt --all -- --check
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Run tests
+        run: cargo test --locked --all-features --workspace --target ${{ matrix.environments.target }}
