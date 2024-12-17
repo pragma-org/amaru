@@ -24,7 +24,7 @@ jobs:
             target: wasm32-unknown-unknown
             optional: true
           - runner: macos-latest
-            target: x86_64-apple-darwin
+            target: aarch64-apple-darwin
     timeout-minutes: 30
     runs-on: ${{ matrix.environments.runner }}
     continue-on-error: ${{ matrix.environments.optional || false }}
