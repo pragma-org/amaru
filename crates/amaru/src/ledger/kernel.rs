@@ -136,7 +136,7 @@ impl serde::Serialize for PoolParams {
 
         struct WrapRelay<'a>(&'a Relay);
 
-        impl<'relay> serde::Serialize for WrapRelay<'relay> {
+        impl serde::Serialize for WrapRelay<'_> {
             fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
                 match self.0 {
                     Relay::SingleHostAddr(port, ipv4, ipv6) => {

@@ -32,7 +32,7 @@ pub type RawIterator<'a> = Box<dyn Iterator<Item = (Box<[u8]>, Box<[u8]>)> + 'a>
 
 pub type SharedVec<T> = Rc<RefCell<Vec<(Vec<u8>, T)>>>;
 
-impl<'a, const PREFIX: usize, K: Clone, V: Clone> KeyValueIterator<'a, PREFIX, K, V> {
+impl<const PREFIX: usize, K: Clone, V: Clone> KeyValueIterator<'_, PREFIX, K, V> {
     /// Obtain an iterator on the updates to be done. This takes ownership of the original
     /// iterator to ensure that it is correctly de-allocated as we now process updates.
     pub fn into_iter_updates(self) -> impl Iterator<Item = (Vec<u8>, Option<V>)> {

@@ -97,8 +97,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                 let block = {
                     let mut peer_session = stage.peer_session.lock().await;
                     let client = (*peer_session).blockfetch();
-                    let block = client.fetch_single(point.clone()).await.or_restart()?;
-                    block
+                    client.fetch_single(point.clone()).await.or_restart()?
                 };
 
                 stage
