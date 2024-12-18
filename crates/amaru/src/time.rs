@@ -1,6 +1,6 @@
 #[derive(PartialEq, Eq)]
 pub struct Bound {
-    pub bound_time: u64,
+    pub bound_time: u64, // Milliseconds
     pub bound_slot: u64,
     pub bound_epoch: u64,
 }
@@ -14,8 +14,7 @@ pub enum EraEnd {
 #[derive(PartialEq, Eq)]
 pub struct EraParams {
     pub era_epoch_size: u64,
-    // Milliseconds
-    pub era_slot_length: u64,
+    pub era_slot_length: u64, // Milliseconds
     // If the next era has not yet been announced then it is impossible for it
     // to occur in the next `era_safe_zone` slots after the tip. But because a
     // fork can only occur at an epoch boundary, in practice the safe zone
@@ -24,6 +23,8 @@ pub struct EraParams {
     pub era_genesis_window: u64,
 }
 
+// The start is inclusive and the end is exclusive. In a valid EraHistory, the
+// end of each era will equal the start of the next one.
 #[derive(PartialEq, Eq)]
 pub struct Summary {
     pub era_start: Bound,
@@ -43,9 +44,9 @@ pub enum TimeHorizonError {
     InvalidEraHistory(u64),
 }
 
-// The last era in the provided EraHistory must end at the time horizon for
-// correct results. Returns number of seconds elapsed since the system start
-// time.
+// The last era in the provided EraHistory must end at the time horizon for accurate results. The
+// horizon is the end of the epoch containing the end of the current era's safe zone relative to
+// the current tip. Returns number of milliseconds elapsed since the system start time.
 pub fn slot_to_relative_time(eras: &EraHistory, slot: u64) -> Result<u64, TimeHorizonError> {
     for era in &eras.eras {
         if era.era_start.bound_slot > slot {
