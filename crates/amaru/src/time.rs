@@ -9,12 +9,6 @@ pub struct Bound {
 pub struct EraParams {
     pub epoch_size: u64,
     pub slot_length: u64, // Milliseconds
-    // If the next era has not yet been announced then it is impossible for it
-    // to occur in the next `safe_zone` slots after the tip. But because a
-    // fork can only occur at an epoch boundary, in practice the safe zone
-    // will get rounded up to the end of that epoch.
-    pub safe_zone: u64,
-    pub genesis_window: u64,
 }
 
 // The start is inclusive and the end is exclusive. In a valid EraHistory, the
@@ -100,8 +94,8 @@ pub fn epoch_bounds(eras: &EraHistory, epoch: u64) -> Result<EpochBounds, TimeHo
         if era.start.bound_epoch > epoch {
             return Err(TimeHorizonError::InvalidEraHistory)
         }
-            // We can't answer queries about the upper bound epoch of the era because the bound is
-            // exclusive.
+        // We can't answer queries about the upper bound epoch of the era because the bound is
+        // exclusive.
         if era.end.bound_epoch > epoch {
             let epochs_elapsed = epoch - era.start.bound_epoch;
             let offset = era.start.bound_slot;
@@ -138,8 +132,6 @@ mod tests {
                     params: EraParams {
                         epoch_size: 86400,
                         slot_length: 1000,
-                        safe_zone: 25920, // 3k/f where k=432 and f=0.05
-                        genesis_window: 25920,
                     },
                 },
                 Summary {
@@ -156,8 +148,6 @@ mod tests {
                     params: EraParams {
                         epoch_size: 86400,
                         slot_length: 1000,
-                        safe_zone: 25920,
-                        genesis_window: 25920,
                     },
                 },
             ],
@@ -165,7 +155,6 @@ mod tests {
         let t0 = slot_to_relative_time(&eras, 172801);
         match t0 {
             Err(TimeHorizonError::PastTimeHorizon) => {
-                assert_eq!(s, 172801);
             }
             _ => {
                 panic!("expected error");
@@ -200,8 +189,6 @@ mod tests {
                     params: EraParams {
                         epoch_size: 86400,
                         slot_length: 1000,
-                        safe_zone: 25920,
-                        genesis_window: 25920,
                     },
                 },
             ],
@@ -219,7 +206,6 @@ mod tests {
         let bounds1 = epoch_bounds(&eras, 10);
         match bounds1 {
             Err(TimeHorizonError::PastTimeHorizon) => {
-                assert_eq!(s, 10);
             }
             _ => {
                 panic!("expected error");
@@ -245,8 +231,6 @@ mod tests {
                     params: EraParams {
                         epoch_size: 86400,
                         slot_length: 1000,
-                        safe_zone: 25920,
-                        genesis_window: 25920,
                     },
                 },
             ],
@@ -281,7 +265,6 @@ mod tests {
         let e3 = slot_to_epoch(&eras, 864001);
         match e3 {
             Err(TimeHorizonError::PastTimeHorizon) => {
-                assert_eq!(s, 864001);
             }
             _ => {
                 panic!("expected error");
