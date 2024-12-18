@@ -48,14 +48,16 @@ pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
 /// Value, in Lovelace, that one must deposit when registering a new stake credential
 pub const STAKE_CREDENTIAL_DEPOSIT: usize = 500000000;
 
-// Re-exports
+// Re-exports & extra aliases
 // ----------------------------------------------------------------------------
+
+pub type Lovelace = u64;
 
 pub type Point = pallas_network::miniprotocols::Point;
 
 pub type PoolId = Hash<28>;
 
-pub type Lovelace = u64;
+pub type Slot = u64;
 
 // PoolParams
 // ----------------------------------------------------------------------------

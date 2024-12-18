@@ -19,6 +19,7 @@ pub trait Store {
     fn save(
         &'_ self,
         point: &'_ Point,
+        issuer: Option<&'_ PoolId>,
         add: Columns<
             impl Iterator<Item = utxo::Add>,
             impl Iterator<Item = pools::Add>,
@@ -57,6 +58,11 @@ pub trait Store {
 
     /// Provide an access to iterate over accounts, similar to 'with_pools'.
     fn with_accounts(&self, with: impl FnMut(accounts::Iter<'_, '_>)) -> Result<(), Self::Error>;
+
+    /// Provide an iterator over slot leaders, similar to 'with_pools'. Note that slot leaders are
+    /// stored as a bounded FIFO, so it only make sense to use this function at the end of an epoch
+    /// (or at the beginning, before any block is applied, depending on your perspective).
+    fn with_block_issuers(&self, with: impl FnMut(slots::Iter<'_, '_>)) -> Result<(), Self::Error>;
 }
 
 // Columns
