@@ -132,6 +132,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 db.save(
                     &Point::Origin,
+                    None,
                     store::Columns {
                         utxo: iter::empty(),
                         pools: state
@@ -210,6 +211,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                             db.save(
                                 &Point::Origin,
+                                None,
                                 store::Columns {
                                     utxo: iter::empty(),
                                     pools: iter::empty(),
@@ -264,6 +266,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     db.save(
                         &Point::Origin,
+                        None,
                         store::Columns {
                             utxo: chunk,
                             pools: iter::empty(),
@@ -281,7 +284,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
         }
     }
 
-    db.save(&point, Default::default(), Default::default())
+    db.save(&point, None, Default::default(), Default::default())
         .into_diagnostic()?;
 
     let epoch = epoch_from_slot(point.slot_or_default());

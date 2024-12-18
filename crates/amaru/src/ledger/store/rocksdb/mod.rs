@@ -35,6 +35,7 @@ const DIR_LIVE_DB: &str = "live";
 /// * 'utxo:'TransactionInput * TransactionOutput                              *
 /// * 'pool:'PoolId           * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
 /// * 'acct:'StakeCredential  * (Option<PoolId>, Lovelace, Lovelace)           *
+/// * 'slot':slot             * PoolId
 /// * ========================*=============================================== *
 ///
 /// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
@@ -142,6 +143,7 @@ impl Store for RocksDB {
     fn save(
         &'_ self,
         point: &'_ Point,
+        issuer: Option<&'_ PoolId>,
         add: Columns<
             impl Iterator<Item = utxo::Add>,
             impl Iterator<Item = pools::Add>,
@@ -170,6 +172,13 @@ impl Store for RocksDB {
             }
             _ => {
                 batch.put(KEY_TIP, as_value(point))?;
+                if let Some(issuer) = issuer {
+                    slots::rocksdb::put(
+                        &batch,
+                        &point.slot_or_default(),
+                        slots::Row::new(*issuer),
+                    )?;
+                }
                 utxo::rocksdb::add(&batch, add.utxo)?;
                 pools::rocksdb::add(&batch, add.pools)?;
                 accounts::rocksdb::add(&batch, add.accounts)?;
@@ -214,6 +223,13 @@ impl Store for RocksDB {
         with: impl FnMut(accounts::Iter<'_, '_>),
     ) -> Result<(), rocksdb::Error> {
         with_prefix_iterator(self.db.transaction(), accounts::rocksdb::PREFIX, with)
+    }
+
+    fn with_block_issuers(
+        &self,
+        with: impl FnMut(slots::Iter<'_, '_>),
+    ) -> Result<(), rocksdb::Error> {
+        with_prefix_iterator(self.db.transaction(), slots::rocksdb::PREFIX, with)
     }
 }
 
