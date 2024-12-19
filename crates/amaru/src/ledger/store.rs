@@ -48,6 +48,9 @@ pub trait Store {
     /// Get details about a specific pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error>;
 
+    /// Get current values of the treasury and reserves accounts.
+    fn pots(&self) -> Result<pots::Row, Self::Error>;
+
     /// Provide an access to iterate over pools, in a way that enforces:
     ///
     /// 1. That mutations will be persisted on-disk
