@@ -210,6 +210,10 @@ impl Store for RocksDB {
         Ok(())
     }
 
+    fn pots(&self) -> Result<pots::Row, Self::Error> {
+        pots::rocksdb::get(&self.db)
+    }
+
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error> {
         pools::rocksdb::get(&self.db, pool)
     }
