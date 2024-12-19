@@ -22,19 +22,20 @@ const BATCH_SIZE: usize = 5000;
 pub struct Args {
     /// Path to the CBOR snapshot. The snapshot can be obtained from the Haskell
     /// cardano-node, using the `DebugEpochState` command, serialised as CBOR.
-    #[arg(long)]
+    ///
+    /// The snapshot must be named after the point on-chain it is reflecting, as
+    ///
+    /// `  {SLOT}.{BLOCK_HEADER_HASH}.cbor`
+    ///
+    /// For example:
+    ///
+    ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
+    #[arg(long, verbatim_doc_comment)]
     snapshot: PathBuf,
 
     /// Path to the ledger database folder.
     #[arg(long)]
     out: PathBuf,
-
-    /// A `slot#block_header_hash` snapshot's point.
-    ///
-    /// For example:
-    ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4
-    #[arg(long, verbatim_doc_comment)]
-    date: String,
 }
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
@@ -71,13 +72,34 @@ impl<T> From<StrictMaybe<T>> for Option<T> {
 }
 
 pub async fn run(args: Args) -> miette::Result<()> {
-    let point = super::parse_point(&args.date, Error::MalformedDate).into_diagnostic()?;
+    let point = super::parse_point(
+        args.snapshot
+            .as_path()
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap(),
+        Error::MalformedDate,
+    )
+    .into_diagnostic()?;
 
     fs::create_dir_all(&args.out).into_diagnostic()?;
     let mut db = ledger::store::rocksdb::RocksDB::empty(&args.out).into_diagnostic()?;
 
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;
+
     let mut d = cbor::Decoder::new(&bytes);
+
+    let _new_epoch_state_len = d.array().into_diagnostic()?;
+
+    // EpochNo
+    let epoch = d.u64().into_diagnostic()?;
+    assert_eq!(epoch, epoch_from_slot(point.slot_or_default()));
+
+    // Previous blocks made
+    d.skip().into_diagnostic()?;
+
+    // Current blocks made
+    d.skip().into_diagnostic()?;
 
     // Epoch State
     {
@@ -128,8 +150,6 @@ pub async fn run(args: Args) -> miette::Result<()> {
                     retiring = state.unregistered.len(),
                 );
 
-                let current_epoch = epoch_from_slot(point.slot_or_default());
-
                 db.save(
                     &Point::Origin,
                     None,
@@ -141,7 +161,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
                             .flat_map(move |(_, registrations)| {
                                 registrations
                                     .into_iter()
-                                    .map(|r| (r, current_epoch))
+                                    .map(|r| (r, epoch))
                                     .collect::<Vec<_>>()
                             }),
                         accounts: iter::empty(),
@@ -170,7 +190,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
                                 StakeCredential,
                                 (
                                     StrictMaybe<(Lovelace, Lovelace)>,
-                                    Set<()>,
+                                    Set<(u64, u64, u64)>,
                                     StrictMaybe<PoolId>,
                                     StrictMaybe<DRep>,
                                 ),
@@ -286,8 +306,6 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
     db.save(&point, None, Default::default(), Default::default())
         .into_diagnostic()?;
-
-    let epoch = epoch_from_slot(point.slot_or_default());
 
     db.next_snapshot(epoch).into_diagnostic()?;
 
