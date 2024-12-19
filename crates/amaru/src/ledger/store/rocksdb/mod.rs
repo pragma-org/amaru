@@ -222,6 +222,10 @@ impl Store for RocksDB {
         pools::rocksdb::get(&self.db, pool)
     }
 
+    fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
+        with_prefix_iterator(self.db.transaction(), utxo::rocksdb::PREFIX, with)
+    }
+
     fn with_pools(&self, with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
         with_prefix_iterator(self.db.transaction(), pools::rocksdb::PREFIX, with)
     }
@@ -273,14 +277,79 @@ fn with_prefix_iterator<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ledger::kernel::{encode_bech32, PoolParams, StakeCredential};
+    use crate::ledger::kernel::{
+        encode_bech32, output_lovelace, output_stake_credential, Lovelace, PoolParams,
+        StakeCredential,
+    };
     use serde::ser::SerializeStruct;
     use std::collections::BTreeMap;
 
+    const LEDGER_DB: &str = "../../ledger.db";
+
+    struct RewardProvenance {
+        total_blocks_made: u64,
+        active_stake: u64,
+    }
+
+    impl serde::Serialize for RewardProvenance {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut s = serializer.serialize_struct("RewardProvenance", 2)?;
+            s.serialize_field("totalBlocksMade", &self.total_blocks_made)?;
+            s.serialize_field("activeStake", &self.active_stake)?;
+            s.end()
+        }
+    }
+
+    fn new_preprod_reward_provenance(epoch: Epoch) -> RewardProvenance {
+        let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap();
+
+        let mut total_blocks_made = 0;
+        db.with_block_issuers(|blocks| {
+            total_blocks_made = blocks.count() as u64;
+        })
+        .unwrap();
+
+        let mut accounts = BTreeMap::new();
+        db.with_accounts(|rows| {
+            for (credential, row) in rows {
+                if let Some(account) = row.borrow() {
+                    if account.delegatee.is_some() {
+                        accounts.insert(credential, account.rewards);
+                    }
+                }
+            }
+        })
+        .unwrap();
+
+        db.with_utxo(|rows| {
+            for (_, row) in rows {
+                if let Some(output) = row.borrow() {
+                    if let Some(credential) = output_stake_credential(output) {
+                        let value = output_lovelace(output);
+                        accounts
+                            .entry(credential)
+                            .and_modify(|total| *total += value);
+                    }
+                }
+            }
+        })
+        .unwrap();
+
+        RewardProvenance {
+            total_blocks_made,
+            active_stake: accounts.iter().fold(0, |acc, (_, value)| acc + value),
+        }
+    }
+
     struct Snapshot {
-        keys: BTreeMap<String, String>,
-        scripts: BTreeMap<String, String>,
+        keys: BTreeMap<String, AccountState>,
+        scripts: BTreeMap<String, AccountState>,
         pools: BTreeMap<String, PoolParams>,
+    }
+
+    struct AccountState {
+        lovelace: Lovelace,
+        pool: String,
     }
 
     impl serde::Serialize for Snapshot {
@@ -293,8 +362,17 @@ mod tests {
         }
     }
 
+    impl serde::Serialize for AccountState {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut s = serializer.serialize_struct("AccountState", 2)?;
+            s.serialize_field("lovelace", &self.lovelace)?;
+            s.serialize_field("pool", &self.pool)?;
+            s.end()
+        }
+    }
+
     fn new_preprod_snapshot(epoch: Epoch) -> Snapshot {
-        let db = RocksDB::from_snapshot(&PathBuf::from("../../ledger.db"), epoch).unwrap();
+        let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap();
 
         let mut pools = BTreeMap::new();
         db.with_pools(|rows| {
@@ -323,13 +401,44 @@ mod tests {
                         if pools.contains_key(&pool_str) {
                             match key {
                                 StakeCredential::ScriptHash(script) => {
-                                    accounts_scripts.insert(hex::encode(script), pool_str);
+                                    accounts_scripts.insert(
+                                        hex::encode(script),
+                                        AccountState {
+                                            pool: pool_str,
+                                            lovelace: account.rewards,
+                                        },
+                                    );
                                 }
                                 StakeCredential::AddrKeyhash(key) => {
-                                    accounts_keys.insert(hex::encode(key), pool_str);
+                                    accounts_keys.insert(
+                                        hex::encode(key),
+                                        AccountState {
+                                            pool: pool_str,
+                                            lovelace: account.rewards,
+                                        },
+                                    );
                                 }
                             }
                         }
+                    }
+                }
+            }
+        })
+        .unwrap();
+
+        db.with_utxo(|rows| {
+            for (_, row) in rows {
+                if let Some(output) = row.borrow() {
+                    if let Some(credential) = output_stake_credential(output) {
+                        let value = output_lovelace(output);
+                        match credential {
+                            StakeCredential::ScriptHash(script) => accounts_scripts
+                                .entry(hex::encode(script))
+                                .and_modify(|total| total.lovelace += value),
+                            StakeCredential::AddrKeyhash(key) => accounts_keys
+                                .entry(hex::encode(key))
+                                .and_modify(|total| total.lovelace += value),
+                        };
                     }
                 }
             }
@@ -343,19 +452,6 @@ mod tests {
         }
     }
 
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_163() {
-        let snapshot = new_preprod_snapshot(163);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_164() {
-        let snapshot = new_preprod_snapshot(164);
-        insta::assert_json_snapshot!(snapshot);
-    }
 
     #[test]
     #[ignore]
@@ -466,6 +562,13 @@ mod tests {
     #[ignore]
     fn compare_preprod_snapshot_180() {
         let snapshot = new_preprod_snapshot(180);
+        insta::assert_json_snapshot!(snapshot);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_181() {
+        let snapshot = new_preprod_snapshot(181);
         insta::assert_json_snapshot!(snapshot);
     }
 }

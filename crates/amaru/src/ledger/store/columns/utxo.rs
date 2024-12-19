@@ -1,8 +1,15 @@
-use crate::ledger::kernel::{TransactionInput, TransactionOutput};
+use crate::{
+    iter::borrow as iter_borrow,
+    ledger::kernel::{TransactionInput, TransactionOutput},
+};
 
 pub type Add = (TransactionInput, TransactionOutput);
 
 pub type Remove = TransactionInput;
+
+/// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
+pub type Iter<'a, 'b> =
+    iter_borrow::IterBorrow<'a, 'b, TransactionInput, Option<TransactionOutput>>;
 
 pub mod rocksdb {
     use crate::ledger::store::rocksdb::common::{as_key, as_value, PREFIX_LEN};
