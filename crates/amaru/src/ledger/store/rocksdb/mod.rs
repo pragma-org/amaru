@@ -123,6 +123,10 @@ impl RocksDB {
                 .map_err(OpenError::RocksDB)?,
         })
     }
+
+    pub fn unsafe_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
+        self.db.transaction()
+    }
 }
 
 impl Store for RocksDB {
