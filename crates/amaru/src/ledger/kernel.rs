@@ -34,11 +34,14 @@ pub const MAX_LOVELACE_SUPPLY: u64 = 45000000000000000;
 pub const CONSENSUS_SECURITY_PARAM: usize = 2160;
 
 /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Shelley's epoch length.
-pub const SHELLEY_EPOCH_LENGTH_SCALE_FACTOR: usize = 200;
+pub const SHELLEY_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
 
-/// Number of blocks in a Shelley epoch
+/// Inverse of the active slot coefficient (i.e. 1/f);
+pub const ACTIVE_SLOT_COEFF_INVERSE: usize = 20;
+
+/// Number of slots in a Shelley epoch
 pub const SHELLEY_EPOCH_LENGTH: usize =
-    SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
+    ACTIVE_SLOT_COEFF_INVERSE * SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
 
 /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
 pub const BYRON_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
