@@ -101,6 +101,9 @@ fn decode_new_epoch_state(
     import_block_issuers(db, d.decode().into_diagnostic()?)?;
 
     let accounts: HashMap<StakeCredential, Account>;
+    let fees: i64;
+    let treasury: i64;
+    let reserves: i64;
 
     // Epoch State
     {
@@ -108,8 +111,8 @@ fn decode_new_epoch_state(
 
         // Epoch State / Account State
         d.array().into_diagnostic()?;
-        let treasury: u64 = d.decode().into_diagnostic()?;
-        let reserves: u64 = d.decode().into_diagnostic()?;
+        treasury = d.decode().into_diagnostic()?;
+        reserves = d.decode().into_diagnostic()?;
 
         // Epoch State / Ledger State
         d.array().into_diagnostic()?;
@@ -175,7 +178,7 @@ fn decode_new_epoch_state(
 
                 let _deposited: u64 = d.decode().into_diagnostic()?;
 
-                import_pots(db, treasury, reserves, d.decode().into_diagnostic()?)?;
+                fees = d.decode().into_diagnostic()?;
 
                 // Epoch State / Ledger State / UTxO State / utxosGovState
                 d.skip().into_diagnostic()?;
@@ -205,11 +208,26 @@ fn decode_new_epoch_state(
         );
         d.array().into_diagnostic()?;
 
-        // ΔT
+        let delta_treasury: i64 = d.decode().into_diagnostic()?;
+
+        let delta_reserves: i64 = d.decode().into_diagnostic()?;
+
+        let rewards: HashMap<StakeCredential, Set<Reward>> = d.decode().into_diagnostic()?;
+        let delta_fees: i64 = d.decode().into_diagnostic()?;
+
+        // NonMyopic
         d.skip().into_diagnostic()?;
-        // ΔR
-        d.skip().into_diagnostic()?;
-        import_accounts(db, accounts, d.decode().into_diagnostic()?)?;
+
+        import_accounts(db, accounts, rewards)?;
+
+        // TODO: Also add the total of unregistered rewards, that is, rewards supposed to go to stake
+        // credentials that are no longer registered going to the treasury instead.
+        import_pots(
+            db,
+            (treasury + delta_treasury) as u64,
+            (reserves - delta_reserves) as u64,
+            (fees - delta_fees) as u64,
+        )?;
     }
 
     Ok(epoch)
