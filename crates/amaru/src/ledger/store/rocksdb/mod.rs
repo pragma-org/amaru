@@ -278,43 +278,89 @@ fn with_prefix_iterator<
 mod tests {
     use super::*;
     use crate::ledger::kernel::{
-        encode_bech32, output_lovelace, output_stake_credential, Lovelace, PoolParams,
+        encode_bech32, output_lovelace, output_stake_credential, Hash, Lovelace, PoolParams,
         StakeCredential,
     };
+    use num::BigRational;
     use serde::ser::SerializeStruct;
     use std::collections::BTreeMap;
 
     const LEDGER_DB: &str = "../../ledger.db";
 
-    struct RewardProvenance {
-        total_blocks_made: u64,
-        active_stake: u64,
+    struct Snapshot {
+        keys: BTreeMap<Hash<28>, AccountState>,
+        scripts: BTreeMap<Hash<28>, AccountState>,
+        pools: BTreeMap<PoolId, PoolState>,
     }
 
-    impl serde::Serialize for RewardProvenance {
+    impl serde::Serialize for Snapshot {
         fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut s = serializer.serialize_struct("RewardProvenance", 2)?;
-            s.serialize_field("totalBlocksMade", &self.total_blocks_made)?;
-            s.serialize_field("activeStake", &self.active_stake)?;
+            let mut s = serializer.serialize_struct("Snapshot", 3)?;
+            s.serialize_field("keys", &self.keys)?;
+            s.serialize_field("scripts", &self.scripts)?;
+            let mut pools = self
+                .pools
+                .iter()
+                .map(|(k, v)| (encode_bech32("pool", &k[..]).unwrap(), v))
+                .collect::<Vec<_>>();
+            pools.sort_by(|a, b| a.0.cmp(&b.0));
+            s.serialize_field(
+                "stakePoolParameters",
+                &pools.into_iter().collect::<BTreeMap<String, &PoolState>>(),
+            )?;
             s.end()
         }
     }
 
-    fn new_preprod_reward_provenance(epoch: Epoch) -> RewardProvenance {
-        let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap();
+    struct AccountState {
+        lovelace: Lovelace,
+        pool: PoolId,
+    }
 
-        let mut total_blocks_made = 0;
-        db.with_block_issuers(|blocks| {
-            total_blocks_made = blocks.count() as u64;
-        })
-        .unwrap();
+    impl serde::Serialize for AccountState {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut s = serializer.serialize_struct("AccountState", 2)?;
+            s.serialize_field("lovelace", &self.lovelace)?;
+            s.serialize_field("pool", &encode_bech32("pool", &self.pool[..]).unwrap())?;
+            s.end()
+        }
+    }
+
+    struct PoolState {
+        blocks_count: u64,
+        relative_stake: BigRational,
+        parameters: PoolParams,
+    }
+
+    impl serde::Serialize for PoolState {
+        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            let mut s = serializer.serialize_struct("PoolState", 3)?;
+            s.serialize_field("blocksCount", &self.blocks_count)?;
+            s.serialize_field("relativeStake", &serialize_ratio(&self.relative_stake))?;
+            s.serialize_field("parameters", &self.parameters)?;
+            s.end()
+        }
+    }
+
+    fn serialize_ratio(r: &BigRational) -> String {
+        format!("{}/{}", r.numer(), r.denom())
+    }
+
+    fn new_preprod_snapshot(epoch: Epoch, total_stake: Lovelace) -> Snapshot {
+        let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap();
 
         let mut accounts = BTreeMap::new();
         db.with_accounts(|rows| {
             for (credential, row) in rows {
                 if let Some(account) = row.borrow() {
-                    if account.delegatee.is_some() {
-                        accounts.insert(credential, account.rewards);
+                    if let Some(pool) = account.delegatee {
+                        accounts.insert(
+                            credential,
+                            AccountState {
+                                pool,
+                                lovelace: account.rewards,
+                            },
+                        );
                     }
                 }
             }
@@ -328,59 +374,24 @@ mod tests {
                         let value = output_lovelace(output);
                         accounts
                             .entry(credential)
-                            .and_modify(|total| *total += value);
+                            .and_modify(|account| account.lovelace += value);
                     }
                 }
             }
         })
         .unwrap();
 
-        RewardProvenance {
-            total_blocks_made,
-            active_stake: accounts.iter().fold(0, |acc, (_, value)| acc + value),
-        }
-    }
-
-    struct Snapshot {
-        keys: BTreeMap<String, AccountState>,
-        scripts: BTreeMap<String, AccountState>,
-        pools: BTreeMap<String, PoolParams>,
-    }
-
-    struct AccountState {
-        lovelace: Lovelace,
-        pool: String,
-    }
-
-    impl serde::Serialize for Snapshot {
-        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut s = serializer.serialize_struct("Snapshot", 3)?;
-            s.serialize_field("keys", &self.keys)?;
-            s.serialize_field("scripts", &self.scripts)?;
-            s.serialize_field("stakePoolParameters", &self.pools)?;
-            s.end()
-        }
-    }
-
-    impl serde::Serialize for AccountState {
-        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut s = serializer.serialize_struct("AccountState", 2)?;
-            s.serialize_field("lovelace", &self.lovelace)?;
-            s.serialize_field("pool", &self.pool)?;
-            s.end()
-        }
-    }
-
-    fn new_preprod_snapshot(epoch: Epoch) -> Snapshot {
-        let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap();
-
-        let mut pools = BTreeMap::new();
+        let mut pools: BTreeMap<PoolId, PoolState> = BTreeMap::new();
         db.with_pools(|rows| {
-            for (_, row) in rows {
-                if let Some(pool) = row.borrow() {
+            for (pool, row) in rows {
+                if let Some(row) = row.borrow() {
                     pools.insert(
-                        encode_bech32("pool", &pool.current_params.id[..]).unwrap(),
-                        pool.current_params.clone(),
+                        pool,
+                        PoolState {
+                            relative_stake: BigRational::from_integer(0.into()),
+                            blocks_count: 0,
+                            parameters: row.current_params.clone(),
+                        },
                     );
                 }
             }
@@ -389,57 +400,31 @@ mod tests {
 
         let mut accounts_scripts = BTreeMap::new();
         let mut accounts_keys = BTreeMap::new();
-        db.with_accounts(|rows| {
-            for (key, row) in rows {
-                if let Some(account) = row.borrow() {
-                    // NOTE: Snapshots from the Haskell node actually excludes:
-                    //
-                    // 1. Any stake credential that is registered but not delegated.
-                    // 2. Any stake credential delegated to a now-retired stake pool.
-                    if let Some(pool) = account.delegatee {
-                        let pool_str = encode_bech32("pool", &pool[..]).unwrap();
-                        if pools.contains_key(&pool_str) {
-                            match key {
-                                StakeCredential::ScriptHash(script) => {
-                                    accounts_scripts.insert(
-                                        hex::encode(script),
-                                        AccountState {
-                                            pool: pool_str,
-                                            lovelace: account.rewards,
-                                        },
-                                    );
-                                }
-                                StakeCredential::AddrKeyhash(key) => {
-                                    accounts_keys.insert(
-                                        hex::encode(key),
-                                        AccountState {
-                                            pool: pool_str,
-                                            lovelace: account.rewards,
-                                        },
-                                    );
-                                }
-                            }
-                        }
+        for (credential, account) in accounts.into_iter() {
+            // TODO: Add active stake
+
+            pools.entry(account.pool).and_modify(|st| {
+                st.relative_stake += BigRational::new(account.lovelace.into(), total_stake.into());
+            });
+
+            if pools.contains_key(&account.pool) {
+                match credential {
+                    StakeCredential::ScriptHash(script) => {
+                        accounts_scripts.insert(script, account);
+                    }
+                    StakeCredential::AddrKeyhash(key) => {
+                        accounts_keys.insert(key, account);
                     }
                 }
             }
-        })
-        .unwrap();
+        }
 
-        db.with_utxo(|rows| {
+        db.with_block_issuers(|rows| {
             for (_, row) in rows {
-                if let Some(output) = row.borrow() {
-                    if let Some(credential) = output_stake_credential(output) {
-                        let value = output_lovelace(output);
-                        match credential {
-                            StakeCredential::ScriptHash(script) => accounts_scripts
-                                .entry(hex::encode(script))
-                                .and_modify(|total| total.lovelace += value),
-                            StakeCredential::AddrKeyhash(key) => accounts_keys
-                                .entry(hex::encode(key))
-                                .and_modify(|total| total.lovelace += value),
-                        };
-                    }
+                if let Some(issuer) = row.borrow() {
+                    pools
+                        .entry(issuer.slot_leader)
+                        .and_modify(|pool| pool.blocks_count += 1);
                 }
             }
         })
@@ -452,123 +437,108 @@ mod tests {
         }
     }
 
-
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_165() {
-        let snapshot = new_preprod_snapshot(165);
+        let snapshot = new_preprod_snapshot(165, 31112793878086059);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_166() {
-        let snapshot = new_preprod_snapshot(166);
+        let snapshot = new_preprod_snapshot(166, 31119117576599736);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_167() {
-        let snapshot = new_preprod_snapshot(167);
+        let snapshot = new_preprod_snapshot(167, 31125529153288004);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_168() {
-        let snapshot = new_preprod_snapshot(168);
+        let snapshot = new_preprod_snapshot(168, 31131906732704284);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_169() {
-        let snapshot = new_preprod_snapshot(169);
+        let snapshot = new_preprod_snapshot(169, 31138307137790052);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_170() {
-        let snapshot = new_preprod_snapshot(170);
+        let snapshot = new_preprod_snapshot(170, 31144692895041950);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_171() {
-        let snapshot = new_preprod_snapshot(171);
+        let snapshot = new_preprod_snapshot(171, 31150987758289950);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_172() {
-        let snapshot = new_preprod_snapshot(172);
+        let snapshot = new_preprod_snapshot(172, 31157306038590590);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_173() {
-        let snapshot = new_preprod_snapshot(173);
+        let snapshot = new_preprod_snapshot(173, 31163830817196470);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_174() {
-        let snapshot = new_preprod_snapshot(174);
+        let snapshot = new_preprod_snapshot(174, 31170156774217170);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_175() {
-        let snapshot = new_preprod_snapshot(175);
+        let snapshot = new_preprod_snapshot(175, 31176424921600024);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_176() {
-        let snapshot = new_preprod_snapshot(176);
+        let snapshot = new_preprod_snapshot(176, 31183205224639780);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_177() {
-        let snapshot = new_preprod_snapshot(177);
+        let snapshot = new_preprod_snapshot(177, 31189917429258484);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_178() {
-        let snapshot = new_preprod_snapshot(178);
+        let snapshot = new_preprod_snapshot(178, 31196606373586140);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_179() {
-        let snapshot = new_preprod_snapshot(179);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_180() {
-        let snapshot = new_preprod_snapshot(180);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_181() {
-        let snapshot = new_preprod_snapshot(181);
+        let snapshot = new_preprod_snapshot(179, 31203363503294896);
         insta::assert_json_snapshot!(snapshot);
     }
 }
