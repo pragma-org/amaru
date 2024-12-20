@@ -1,3 +1,5 @@
+use minicbor::{Encode, Decode};
+
 type Slot = u64;
 
 #[derive(Clone, PartialEq, Eq)]
@@ -5,6 +7,21 @@ pub struct Bound {
     pub time: u64, // Milliseconds
     pub slot: Slot,
     pub epoch: u64,
+}
+
+impl<C> Encode<C> for Bound {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.begin_array()?;
+        self.time.encode(e, ctx)?;
+        self.slot.encode(e, ctx)?;
+        self.epoch.encode(e, ctx)?;
+        e.end()?;
+        Ok(())
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
@@ -28,6 +45,20 @@ impl EraParams {
     }
 }
 
+impl<C> Encode<C> for EraParams {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.begin_array()?;
+        self.epoch_size.encode(e, ctx)?;
+        self.slot_length.encode(e, ctx)?;
+        e.end()?;
+        Ok(())
+    }
+}
+
 // The start is inclusive and the end is exclusive. In a valid EraHistory, the
 // end of each era will equal the start of the next one.
 #[derive(Clone, PartialEq, Eq)]
@@ -37,10 +68,40 @@ pub struct Summary {
     pub params: EraParams,
 }
 
+impl<C> Encode<C> for Summary {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.begin_array()?;
+        self.start.encode(e, ctx)?;
+        self.end.encode(e, ctx)?;
+        self.params.encode(e, ctx)?;
+        e.end()?;
+        Ok(())
+    }
+}
+
 // A complete history of eras that have taken place.
 #[derive(PartialEq, Eq)]
 pub struct EraHistory {
     pub eras: Vec<Summary>,
+}
+
+impl<C> Encode<C> for EraHistory {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        e.begin_array()?;
+        for s in &self.eras {
+            s.encode(e, ctx)?;
+        }
+        e.end()?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -133,6 +194,7 @@ impl EraHistory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use hex;
 
     #[test]
     fn test_slot_to_time() {
@@ -226,5 +288,32 @@ mod tests {
         assert_eq!(e2, Ok(10));
         let e3 = eras.slot_to_epoch(864001);
         assert_eq!(e3, Err(TimeHorizonError::PastTimeHorizon));
+    }
+
+    #[test]
+    fn test_encode_era_history() {
+        let params = EraParams::new(86400, 1000).unwrap();
+        let eras = EraHistory {
+            eras: vec![
+                Summary {
+                    start: Bound {
+                        time: 0,
+                        slot: 0,
+                        epoch: 0,
+                    },
+                    end: Bound {
+                        time: 864000000,
+                        slot: 864000,
+                        epoch: 10,
+                    },
+                    params: params,
+                },
+            ],
+        };
+        let buffer = minicbor::to_vec(&eras).unwrap();
+        assert_eq!(
+            hex::encode(buffer),
+            "9f9f9f000000ff9f1a337f98001a000d2f000aff9f1a000151801903e8ffffff"
+        );
     }
 }
