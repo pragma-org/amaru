@@ -23,7 +23,7 @@ cargo build --release
 ```console
 cargo run --release -- import \
   --date 68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4 \
-  --snapshot 68774372-36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa.cbor \
+  --snapshot 68774372-36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor \
   --out ledger.db
 ```
 
