@@ -1,0 +1,12 @@
+[package]
+name = "time"
+version = "0.1.0"
+edition = "2021"
+description = "Cardano time arithmetic"
+license = "Apache-2.0"
+authors = ["Amaru Maintainers <amaru@pragma.builders>"]
+repository = "https://github.com/pragma-org/amaru"
+homepage = "https://github.com/pragma-org/amaru"
+documentation = "https://docs.rs/amaru"
+readme = "README.md"
+rust-version = "1.81.0"
