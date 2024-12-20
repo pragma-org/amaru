@@ -3445,6 +3445,10 @@ dependencies = [
 [[package]]
 name = "time"
 version = "0.1.0"
+dependencies = [
+ "hex",
+ "minicbor",
+]
 
 [[package]]
 name = "tinystr"
