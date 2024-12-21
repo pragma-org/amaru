@@ -94,6 +94,9 @@ impl gasket::framework::Worker<Stage> for Worker {
                 let ledger = stage.ledger.lock().await;
                 assert_header(&header, &stage.epoch_to_nonce, &*ledger)?;
 
+                // Make sure the Mutex is released as soon as possible
+                drop(ledger);
+
                 let block = {
                     let mut peer_session = stage.peer_session.lock().await;
                     let client = (*peer_session).blockfetch();
