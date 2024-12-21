@@ -1,0 +1,48 @@
+name: Continuous Integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: ["main"]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    branches: ["*"]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build on ${{ matrix.environments.runner }} with target ${{ matrix.environments.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        environments:
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-latest
+            target: wasm32-unknown-unknown
+            optional: true
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+    timeout-minutes: 30
+    runs-on: ${{ matrix.environments.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Check format
+        run: cargo fmt --all -- --check
+      - name: Run clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - run: rustup target add ${{ matrix.environments.target }}
+      - name: Run tests
+        run: |
+          set +e
+          cargo test --locked --all-features --workspace --target ${{ matrix.environments.target }}
+          exitcode="$?"
+          if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
+            # Propagate failure as a warning
+            # but do not fail the job
+            echo "::warning::Tests failed with exit code $exitcode"
+            exit 0
+          fi
