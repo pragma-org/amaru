@@ -34,7 +34,6 @@ pub struct Args {
 }
 
 pub async fn run(args: Args, counter: Counter<u64>) -> miette::Result<()> {
-    panic!("sample panic for testing");
     let config = parse_args(args, counter)?;
 
     let client = Arc::new(Mutex::new(
