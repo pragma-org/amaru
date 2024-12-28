@@ -104,7 +104,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
         // Epoch State / Account State
         {
-            let account_span = info_span!(
+            let _account_span = info_span!(
                 target: EVENT_TARGET,
                 "account_state",
                 skipped = true,
@@ -115,7 +115,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
         // Epoch State / Ledger State
         {
-            let ledger_span = info_span!(
+            let _ledger_span = info_span!(
                 target: EVENT_TARGET,
                 "ledger_state",
                 length = d.array().into_diagnostic()?,
@@ -124,7 +124,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
             // Epoch State / Ledger State / Cert State
             {
-                let cert_span = info_span!(
+                let _cert_span = info_span!(
                     target: EVENT_TARGET,
                     "cert_state",
                     length = d.array().into_diagnostic()?,
@@ -133,7 +133,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 // Epoch State / Ledger State / Cert State / Voting State
                 {
-                    let vote_span = info_span!(
+                    let _vote_span = info_span!(
                         target: EVENT_TARGET,
                         "voting_state",
                         skipped = true,
@@ -144,7 +144,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 // Epoch State / Ledger State / Cert State / Pool State
                 {
-                    let pool_span = info_span!(
+                    let _pool_span = info_span!(
                         target: EVENT_TARGET,
                         "pool_state",
                         length = d.array().into_diagnostic()?,
@@ -159,7 +159,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     // Deposits
                     {
-                        let deposit_span = info_span!(
+                        let _deposit_span = info_span!(
                             target: EVENT_TARGET,
                             "deposits",
                             skipped = true,
@@ -215,7 +215,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 // Epoch State / Ledger State / Cert State / Delegation state
                 {
-                    let delegation_span = info_span!(
+                    let _delegation_span = info_span!(
                         target: EVENT_TARGET,
                         "delegation_state",
                         length = d.array().into_diagnostic()?,
@@ -224,7 +224,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
                     {
-                        let unified_span = info_span!(
+                        let _unified_span = info_span!(
                             target: EVENT_TARGET,
                             "unified",
                             length = d.array().into_diagnostic()?,
@@ -233,7 +233,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                         // credentials
                         {
-                            let credentials_span = info_span!(
+                            let _credentials_span = info_span!(
                                 target: EVENT_TARGET,
                                 "credentials"
                             )
@@ -309,7 +309,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                         // pointers
                         {
-                            let pointers_span = info_span!(
+                            let _pointers_span = info_span!(
                                 target: EVENT_TARGET,
                                 "pointers",
                                 skipped = true,
@@ -321,7 +321,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
                     {
-                        let future_gen_span = info_span!(
+                        let _future_gen_span = info_span!(
                             target: EVENT_TARGET,
                             "future_gen_delegations",
                             skipped = true,
@@ -332,7 +332,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
                     {
-                        let gen_delegs_span = info_span!(
+                        let _gen_delegs_span = info_span!(
                             target: EVENT_TARGET,
                             "gen_delegations",
                             skipped = true,
@@ -343,7 +343,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                     // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
                     {
-                        let rewards_span = info_span!(
+                        let _rewards_span = info_span!(
                             target: EVENT_TARGET,
                             "rewards",
                             skipped = true,
@@ -355,7 +355,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
                 // Epoch State / Ledger State / UTxO State
                 {
-                    let utxo_span = info_span!(
+                    let _utxo_span = info_span!(
                         target: EVENT_TARGET,
                         "utxo_state",
                         length = d.array().into_diagnostic()?,
@@ -405,7 +405,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     let epoch = epoch_from_slot(point.slot_or_default());
 
     {
-        let snapshot_span = info_span!(
+        let _snapshot_span = info_span!(
             target: EVENT_TARGET,
             "snapshot"
         )
@@ -414,7 +414,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     }
 
     {
-        let pool_span = info_span!(
+        let _pool_span = info_span!(
             target: EVENT_TARGET,
             "pools"
         )
