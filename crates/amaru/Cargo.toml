@@ -19,8 +19,6 @@ gasket = { version = "0.8.0", features = ["derive"] }
 hex = "0.4.3"
 miette = "7.2.0"
 indoc = "2.0"
-strip-ansi-escapes = "0.1.1"
-owo-colors = { version = "3.5.0", features = ["supports-colors"] }
 ouroboros = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
 ouroboros-praos = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
 pallas-addresses = "0.31.0"

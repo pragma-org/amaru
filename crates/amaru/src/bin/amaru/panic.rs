@@ -1,5 +1,3 @@
-use owo_colors::OwoColorize;
-
 /// Installs a panic handler that prints some useful diagnostics and
 /// asks the user to report the issue.
 pub fn panic_handler() {
@@ -47,8 +45,8 @@ pub fn panic_handler() {
 
                         {location}{message}"#,
             info = node_info(),
-            fatal = "amaru::fatal::error".red().bold(),
-            location = location.purple(),
+            fatal = "amaru::fatal::error",
+            location = location,
         };
 
         println!("\n{}", indent(&error_message, 3));
@@ -67,7 +65,7 @@ pub fn indent(lines: &str, n: usize) -> String {
 }
 
 pub fn pad_left(mut text: String, n: usize, delimiter: &str) -> String {
-    let diff = n as i32 - ansi_len(&text) as i32;
+    let diff = n as i32 - text.len() as i32;
     if diff.is_positive() {
         for _ in 0..diff {
             text.insert_str(0, delimiter);
@@ -76,18 +74,12 @@ pub fn pad_left(mut text: String, n: usize, delimiter: &str) -> String {
     text
 }
 
-pub fn ansi_len(s: &str) -> usize {
-    String::from_utf8(strip_ansi_escapes::strip(s).unwrap())
-        .unwrap()
-        .chars()
-        .count()
-}
-
 // TODO: pulled from aiken; should we have our own config utility crate?
 // https://github.com/aiken-lang/aiken/blob/main/crates/aiken-project/src/config.rs#L382C1-L393C2
 mod built_info {
     include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
+
 pub fn node_info() -> String {
     format!(
         r#"
@@ -99,6 +91,7 @@ Version:          {}"#,
         node_version(true),
     )
 }
+
 pub fn node_version(include_commit_hash: bool) -> String {
     let version = built_info::PKG_VERSION;
     let suffix = if include_commit_hash {
