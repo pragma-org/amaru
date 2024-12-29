@@ -1,10 +1,12 @@
 use clap::{Parser, Subcommand};
 use opentelemetry::metrics::Counter;
+use panic::panic_handler;
 use std::env;
 
 mod cmd;
 mod config;
 mod exit;
+mod panic;
 
 pub const SERVICE_NAME: &str = "amaru";
 
@@ -28,6 +30,8 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
+    panic_handler();
+
     let counter = setup_tracing();
 
     let args = Cli::parse();

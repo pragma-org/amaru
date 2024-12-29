@@ -10,6 +10,7 @@ homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
 readme = "README.md"
 rust-version = "1.81.0"
+build = "build.rs"
 
 [dependencies]
 async-trait = "0.1.83"
@@ -17,6 +18,7 @@ clap = { version = "4.5.20", features = ["derive"] }
 gasket = { version = "0.8.0", features = ["derive"] }
 hex = "0.4.3"
 miette = "7.2.0"
+indoc = "2.0"
 ouroboros = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
 ouroboros-praos = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
 pallas-addresses = "0.31.0"
@@ -39,10 +41,17 @@ serde = "1.0.215"
 bech32 = "0.11.0"
 opentelemetry = { version = "0.27.1" }
 opentelemetry_sdk = { version = "0.27.1", features = ["async-std", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.27.0", features = ["grpc-tonic", "http-proto", "reqwest-client"] }
+opentelemetry-otlp = { version = "0.27.0", features = [
+    "grpc-tonic",
+    "http-proto",
+    "reqwest-client",
+] }
 tracing-opentelemetry = { version = "0.28.0" }
 
 [dev-dependencies]
 envpath = { version = "0.0.1-beta.3", features = ["rand"] }
 insta = { version = "1.41.1", features = ["json"] }
 proptest = "1.5.0"
+
+[build-dependencies]
+built = { version = "0.7.1", features = ["git2"] }
