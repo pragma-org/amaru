@@ -10,6 +10,17 @@ services:
       - "55679:55679"
       - "13133:13133"
 
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    command:
+      [ "--web.enable-otlp-receiver"
+      , "--config.file=/etc/prometheus/prometheus.yml"
+      ]
+    volumes:
+      - "./prometheus.yml:/etc/prometheus/prometheus.yml"
+    ports:
+      - "9090:9090"
+
   tempo:
     image: grafana/tempo:latest
     ports:
