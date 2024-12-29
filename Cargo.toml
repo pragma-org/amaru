@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/amaru"]
+members = ["crates/amaru", "crates/time"]
 resolver = "2"
 
 [profile.dev.package]
