@@ -72,21 +72,36 @@ impl gasket::framework::Worker<Stage> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             ValidateHeaderEvent::Validated(_point, raw_block) => {
-                let (block_header_hash, block) = parse_block(&raw_block[..]);
-
-                stage.counter.add(1, &[]);
-
                 let span_forward = info_span!(
                     target: EVENT_TARGET,
                     "forward",
-                    header.height = block.header.header_body.block_number,
-                    header.slot = block.header.header_body.slot,
-                    header.hash = hex::encode(block_header_hash),
+                    header.height = tracing::field::Empty,
+                    header.slot = tracing::field::Empty,
+                    header.hash = tracing::field::Empty,
                     stable.epoch = tracing::field::Empty,
                     tip.epoch = tracing::field::Empty,
                     tip.relative_slot = tracing::field::Empty,
                 )
                 .entered();
+
+                let span_parse_block = info_span!(
+                    target: EVENT_TARGET,
+                    parent: &span_forward,
+                    "parse_block",
+                    point = _point.slot_or_default(),
+                    block.size = raw_block.len(),
+                )
+                .entered();
+
+                let (block_header_hash, block) = parse_block(&raw_block[..]);
+
+                span_parse_block.exit();
+
+                span_forward.record("header.height", block.header.header_body.block_number);
+                span_forward.record("header.slot", block.header.header_body.slot);
+                span_forward.record("header.hash", hex::encode(block_header_hash));
+
+                stage.counter.add(1, &[]);
 
                 let mut state = stage.state.lock().await;
 
