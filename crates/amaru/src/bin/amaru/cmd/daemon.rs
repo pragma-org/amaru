@@ -1,8 +1,10 @@
 use crate::config::NetworkName;
+use crate::metrics::track_system_metrics;
 use amaru::{consensus::nonce, sync::Config};
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::IntoDiagnostic;
 use opentelemetry::metrics::Counter;
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
 use std::{
     path::{Path, PathBuf},
@@ -33,8 +35,14 @@ pub struct Args {
     data_dir: String,
 }
 
-pub async fn run(args: Args, counter: Counter<u64>) -> miette::Result<()> {
+pub async fn run(
+    args: Args,
+    counter: Counter<u64>,
+    metrics: SdkMeterProvider,
+) -> miette::Result<()> {
     let config = parse_args(args, counter)?;
+
+    let metrics = track_system_metrics(metrics);
 
     let client = Arc::new(Mutex::new(
         PeerClient::connect(config.upstream_peer.clone(), config.network_magic as u64)
@@ -47,6 +55,8 @@ pub async fn run(args: Args, counter: Counter<u64>) -> miette::Result<()> {
     let exit = crate::exit::hook_exit_token();
 
     run_pipeline(gasket::daemon::Daemon::new(sync), exit.clone()).await;
+
+    metrics.abort();
 
     Ok(())
 }
