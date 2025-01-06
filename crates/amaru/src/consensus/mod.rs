@@ -14,6 +14,7 @@ pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 pub type RawBlock = Vec<u8>;
 pub type Point = pallas_network::miniprotocols::Point;
 
+pub mod chain_selection;
 pub mod header_validation;
 pub mod nonce;
 
