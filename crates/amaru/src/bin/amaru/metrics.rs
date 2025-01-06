@@ -25,7 +25,8 @@ pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
                 Ok(sys) => sys,
                 Err(err) => {
                     warn!("failed to read system metrics: {}", err);
-                    delay = delay * 2;
+                    // Back off slightly so the logs aren't as noisy
+                    delay *= 2;
                     if delay > Duration::from_secs(30) {
                         delay = Duration::from_secs(30);
                     }
