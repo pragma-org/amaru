@@ -49,3 +49,4 @@ jobs:
             echo "::warning::Tests failed with exit code $exitcode"
             exit 0
           fi
+        shell: bash
