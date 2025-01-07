@@ -58,6 +58,7 @@ mod tests {
 
     use pallas_codec::minicbor as cbor;
     use pallas_crypto::hash::{Hash, Hasher};
+    use rand::{rngs::StdRng, RngCore, SeedableRng};
 
     #[derive(Debug, PartialEq, Clone, Copy)]
     enum TestHeader {
@@ -65,6 +66,7 @@ mod tests {
             block_number: u64,
             slot: u64,
             parent: Hash<32>,
+            body_hash: Hash<32>,
         },
         Genesis,
     }
@@ -93,12 +95,14 @@ mod tests {
                     block_number,
                     slot,
                     parent,
+                    body_hash,
                 } => e
                     .encode(0)?
-                    .array(3)?
+                    .array(4)?
                     .encode_with(block_number, ctx)?
                     .encode_with(slot, ctx)?
                     .encode_with(parent, ctx)?
+                    .encode_with(body_hash, ctx)?
                     .ok(),
                 TestHeader::Genesis => e.encode(1)?.ok(),
             }
@@ -113,10 +117,12 @@ mod tests {
                     let block_number = d.decode_with(ctx)?;
                     let slot = d.decode_with(ctx)?;
                     let parent = d.decode_with(ctx)?;
+                    let body_hash = d.decode_with(ctx)?;
                     Ok(TestHeader::TestHeader {
                         block_number,
                         slot,
                         parent,
+                        body_hash,
                     })
                 }
                 1 => Ok(TestHeader::Genesis),
@@ -136,6 +142,46 @@ mod tests {
                 .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
             buffer
         }
+
+        fn block_height(&self) -> u32 {
+            match self {
+                TestHeader::TestHeader { block_number, .. } => *block_number as u32,
+                TestHeader::Genesis => 0,
+            }
+        }
+
+        fn slot(&self) -> u32 {
+            match self {
+                TestHeader::TestHeader { slot, .. } => *slot as u32,
+                TestHeader::Genesis => 0,
+            }
+        }
+    }
+
+    fn generate_headers_anchored_at(anchor: TestHeader, length: u32) -> Vec<TestHeader> {
+        let mut headers: Vec<TestHeader> = Vec::new();
+        for i in 0..length {
+            let parent = if i == 0 {
+                anchor.hash()
+            } else {
+                headers[i as usize - 1].hash()
+            };
+            let header = TestHeader::TestHeader {
+                block_number: (i + anchor.block_height()) as u64,
+                slot: (i + anchor.slot()) as u64,
+                parent,
+                body_hash: random_bytes(32).as_slice().into(),
+            };
+            headers.push(header);
+        }
+        headers
+    }
+
+    fn random_bytes(arg: u32) -> Vec<u8> {
+        let mut rng = StdRng::from_entropy();
+        let mut buffer = vec![0; arg as usize];
+        rng.fill_bytes(&mut buffer);
+        buffer
     }
 
     #[test]
@@ -145,6 +191,7 @@ mod tests {
             block_number: 1,
             slot: 0,
             parent: TestHeader::Genesis.hash(),
+            body_hash: random_bytes(32).as_slice().into(),
         };
 
         let result = chain_selector.roll_forward(header);
@@ -159,11 +206,13 @@ mod tests {
             block_number: 1,
             slot: 0,
             parent: TestHeader::Genesis.hash(),
+            body_hash: random_bytes(32).as_slice().into(),
         };
         let new_header = TestHeader::TestHeader {
             block_number: 1,
             slot: 1,
             parent: TestHeader::Genesis.hash(),
+            body_hash: random_bytes(32).as_slice().into(),
         };
 
         chain_selector.roll_forward(header);
@@ -178,5 +227,23 @@ mod tests {
         let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
 
         chain_selector.roll_forward(TestHeader::Genesis);
+    }
+
+    #[test]
+    fn switch_to_fork_given_extension_is_longer_than_current_chain() {
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
+        let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
+        let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
+
+        chain1.iter().for_each(|header| {
+            chain_selector.roll_forward(*header);
+        });
+
+        let result = chain2
+            .iter()
+            .map(|header| chain_selector.roll_forward(*header))
+            .last();
+
+        assert_eq!(NewTip(*chain2.last().unwrap()), result.unwrap());
     }
 }
