@@ -69,6 +69,7 @@ pub struct ChainSelector<H: Header> {
 #[derive(Debug, PartialEq)]
 pub enum ChainSelection<H: Header> {
     NewTip(H),
+    RollbackTo(Hash<32>),
     NoChange,
 }
 
@@ -118,6 +119,10 @@ impl<H: Header + Clone> ChainSelector<H> {
 
     pub fn best_chain(&self) -> &H {
         &self.tip
+    }
+
+    pub fn rollback(&self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
+        ChainSelection::RollbackTo(point)
     }
 }
 
@@ -353,5 +358,23 @@ mod tests {
             .last();
 
         assert_eq!(NoChange, result.unwrap());
+    }
+
+    #[test]
+    fn rollback_to_point_given_chain_is_still_longest() {
+        let alice = Peer::new("alice");
+        let peers = [alice.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
+
+        chain1.iter().for_each(|header| {
+            chain_selector.roll_forward(&alice, *header);
+        });
+
+        let hash = chain1[3].hash();
+
+        let result = chain_selector.rollback(&alice, hash);
+
+        assert_eq!(RollbackTo(hash), result);
     }
 }
