@@ -1,4 +1,7 @@
 use tokio_util::sync::CancellationToken;
+#[cfg(windows)]
+use tracing::debug;
+#[cfg(unix)]
 use tracing::{debug, warn};
 
 #[inline]
