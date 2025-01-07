@@ -1,6 +1,5 @@
-use std::{collections::HashMap, iter::Map};
-
 use pallas_crypto::hash::Hash;
+use std::{collections::HashMap, iter::Map};
 
 /// Interface to a header for the purpose of chain selection.
 pub trait Header {
@@ -14,6 +13,9 @@ pub trait Header {
     /// Parent hash of the header
     /// Not all headers have a parent, eg. genesis block.
     fn parent(&self) -> Option<Hash<32>>;
+
+    /// Block height of the header w.r.t genesis block
+    fn block_height(&self) -> u64;
 }
 
 /// A single peer in the network, uniquely identified.
@@ -48,6 +50,10 @@ impl<H: Header + Clone> Fragment<H> {
             anchor: tip.clone(),
         }
     }
+
+    fn height(&self) -> u64 {
+        self.headers.len() as u64 + self.anchor.block_height()
+    }
 }
 
 /// Current state of chain selection process
@@ -76,15 +82,38 @@ impl<H: Header + Clone> ChainSelector<H> {
         ChainSelector { tip, peers_chains }
     }
 
+    /// Roll forward the chain with a new header from given peer.
+    ///
+    /// The function returns the result of the chain selection process, which might lead
+    /// to a new tip, no change, or some change in status for the peer.
     pub fn roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
-        match header.parent() {
-            Some(parent) if parent != self.tip.hash() => ChainSelection::NoChange,
-            None => panic!("genesis block is not expected to be rolled forward"),
-            _ => {
-                self.tip = header;
-                ChainSelection::NewTip(self.tip.clone())
+        let fragment = self.peers_chains.get_mut(peer).unwrap();
+        let parent = header.parent().unwrap();
+        let what_to_do = match fragment.headers.last() {
+            Some(peer_tip) => {
+                if peer_tip.hash() == parent {
+                    ChainSelection::NewTip(header)
+                } else {
+                    ChainSelection::NoChange
+                }
+            }
+            None => {
+                if fragment.anchor.hash() == parent {
+                    ChainSelection::NewTip(header)
+                } else {
+                    ChainSelection::NoChange
+                }
+            }
+        };
+        if let ChainSelection::NewTip(hdr) = what_to_do {
+            // TODO: Avoid all those clones
+            fragment.headers.push(hdr.clone());
+            if fragment.height() > self.tip.block_height() {
+                self.tip = hdr.clone();
+                return ChainSelection::NewTip(self.tip.clone());
             }
         }
+        ChainSelection::NoChange
     }
 
     pub fn best_chain(&self) -> &H {
@@ -122,6 +151,13 @@ mod tests {
             match self {
                 TestHeader::TestHeader { parent, .. } => Some(*parent),
                 TestHeader::Genesis => None,
+            }
+        }
+
+        fn block_height(&self) -> u64 {
+            match self {
+                TestHeader::TestHeader { block_number, .. } => *block_number,
+                TestHeader::Genesis => 0,
             }
         }
     }
@@ -296,5 +332,26 @@ mod tests {
             .last();
 
         assert_eq!(NewTip(*chain2.last().unwrap()), result.unwrap());
+    }
+
+    #[test]
+    fn dont_switch_to_fork_given_extension_is_not_longer_than_current_chain() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let peers = [alice.clone(), bob.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
+        let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
+
+        chain2.iter().for_each(|header| {
+            chain_selector.roll_forward(&bob, *header);
+        });
+
+        let result = chain1
+            .iter()
+            .map(|header| chain_selector.roll_forward(&alice, *header))
+            .last();
+
+        assert_eq!(NoChange, result.unwrap());
     }
 }
