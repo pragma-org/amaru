@@ -11,13 +11,20 @@ pub use pallas_codec::{
     utils::{Nullable, Set},
 };
 pub use pallas_crypto::hash::{Hash, Hasher};
-pub use pallas_primitives::conway::{
-    AddrKeyhash, Certificate, Coin, DRep, Epoch, MintedBlock, PoolMetadata, RationalNumber, Relay,
-    RewardAccount, StakeCredential, TransactionInput, TransactionOutput, UnitInterval, VrfKeyhash,
+pub use pallas_primitives::{
+    alonzo,
+    conway::{
+        AddrKeyhash, Certificate, Coin, DRep, Epoch, MintedBlock, MintedTransactionOutput,
+        PoolMetadata, RationalNumber, Relay, RewardAccount, StakeCredential, TransactionInput,
+        TransactionOutput, UnitInterval, Value, VrfKeyhash,
+    },
 };
 
 // Constants
 // ----------------------------------------------------------------------------
+
+/// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
+pub const MAX_LOVELACE_SUPPLY: u64 = 45000000000000000;
 
 /// The maximum depth of a rollback, also known as the security parameter 'k'.
 /// This translates down to the length of our volatile storage, containing states of the ledger
@@ -27,11 +34,14 @@ pub use pallas_primitives::conway::{
 pub const CONSENSUS_SECURITY_PARAM: usize = 2160;
 
 /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Shelley's epoch length.
-pub const SHELLEY_EPOCH_LENGTH_SCALE_FACTOR: usize = 200;
+pub const SHELLEY_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
 
-/// Number of blocks in a Shelley epoch
+/// Inverse of the active slot coefficient (i.e. 1/f);
+pub const ACTIVE_SLOT_COEFF_INVERSE: usize = 20;
+
+/// Number of slots in a Shelley epoch
 pub const SHELLEY_EPOCH_LENGTH: usize =
-    SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
+    ACTIVE_SLOT_COEFF_INVERSE * SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
 
 /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
 pub const BYRON_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
@@ -45,17 +55,22 @@ pub const BYRON_TOTAL_SLOTS: usize = BYRON_EPOCH_LENGTH * PREPROD_SHELLEY_TRANSI
 /// Epoch number in which the PreProd network transitioned to Shelley.
 pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
 
-/// Value, in Lovelace, that one must deposit when registering a new stake credential
-pub const STAKE_CREDENTIAL_DEPOSIT: usize = 500000000;
+/// Value, in Lovelace, that one must deposit when registering a new stake pool
+pub const STAKE_POOL_DEPOSIT: usize = 500000000;
 
-// Re-exports
+/// Value, in Lovelace, that one must deposit when registering a new stake credential
+pub const STAKE_CREDENTIAL_DEPOSIT: usize = 2000000;
+
+// Re-exports & extra aliases
 // ----------------------------------------------------------------------------
+
+pub type Lovelace = u64;
 
 pub type Point = pallas_network::miniprotocols::Point;
 
 pub type PoolId = Hash<28>;
 
-pub type Lovelace = u64;
+pub type Slot = u64;
 
 // PoolParams
 // ----------------------------------------------------------------------------
@@ -230,4 +245,46 @@ pub fn relative_slot(slot: u64) -> u64 {
     let shelley_previous_slots = (epoch_from_slot(slot) - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
         * SHELLEY_EPOCH_LENGTH as u64;
     slot - shelley_previous_slots - BYRON_TOTAL_SLOTS as u64
+}
+
+/// FIXME: Ideally, we should either:
+///
+/// - Have pallas_traverse or a similar API works directly from base objects instead of KeepRaw
+///   objects (i.e. MintedTransactionOutput)
+/// - Ensure that our database iterator yields MintedTransactionOutput and not TransactionOutput, o
+///   we can use pallas_traverse out of the box.
+///
+/// Doing the latter properly is a lifetime hell I am not willing to explore right now.
+pub fn output_lovelace(output: &TransactionOutput) -> Lovelace {
+    match output {
+        TransactionOutput::Legacy(legacy) => match legacy.amount {
+            alonzo::Value::Coin(lovelace) => lovelace,
+            alonzo::Value::Multiasset(lovelace, _) => lovelace,
+        },
+        TransactionOutput::PostAlonzo(modern) => match modern.value {
+            Value::Coin(lovelace) => lovelace,
+            Value::Multiasset(lovelace, _) => lovelace,
+        },
+    }
+}
+
+/// FIXME: See 'output_lovelace', same remark applies.
+pub fn output_stake_credential(output: &TransactionOutput) -> Option<StakeCredential> {
+    use pallas_addresses::*;
+
+    let address = Address::from_bytes(match output {
+        TransactionOutput::Legacy(legacy) => &legacy.address[..],
+        TransactionOutput::PostAlonzo(modern) => &modern.address[..],
+    })
+    .unwrap_or_else(|_| panic!("unable to deserialise address from output: {output:#?}"));
+
+    match address {
+        Address::Shelley(shelley) => match shelley.delegation() {
+            ShelleyDelegationPart::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
+            ShelleyDelegationPart::Script(script) => Some(StakeCredential::ScriptHash(*script)),
+            ShelleyDelegationPart::Pointer(..) | ShelleyDelegationPart::Null => None,
+        },
+        Address::Byron(..) => None,
+        Address::Stake(..) => unreachable!("stake address inside output?"),
+    }
 }

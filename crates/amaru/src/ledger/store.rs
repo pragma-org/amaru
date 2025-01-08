@@ -19,6 +19,7 @@ pub trait Store {
     fn save(
         &'_ self,
         point: &'_ Point,
+        issuer: Option<&'_ PoolId>,
         add: Columns<
             impl Iterator<Item = utxo::Add>,
             impl Iterator<Item = pools::Add>,
@@ -47,6 +48,9 @@ pub trait Store {
     /// Get details about a specific pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error>;
 
+    /// Get current values of the treasury and reserves accounts.
+    fn pots(&self) -> Result<pots::Row, Self::Error>;
+
     /// Provide an access to iterate over pools, in a way that enforces:
     ///
     /// 1. That mutations will be persisted on-disk
@@ -57,6 +61,14 @@ pub trait Store {
 
     /// Provide an access to iterate over accounts, similar to 'with_pools'.
     fn with_accounts(&self, with: impl FnMut(accounts::Iter<'_, '_>)) -> Result<(), Self::Error>;
+
+    /// Provide an iterator over slot leaders, similar to 'with_pools'. Note that slot leaders are
+    /// stored as a bounded FIFO, so it only make sense to use this function at the end of an epoch
+    /// (or at the beginning, before any block is applied, depending on your perspective).
+    fn with_block_issuers(&self, with: impl FnMut(slots::Iter<'_, '_>)) -> Result<(), Self::Error>;
+
+    /// Provide an access to iterate over utxo, similar to 'with_pools'.
+    fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), Self::Error>;
 }
 
 // Columns

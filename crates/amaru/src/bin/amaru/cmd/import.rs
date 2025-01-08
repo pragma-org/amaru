@@ -5,7 +5,7 @@ use amaru::ledger::{
         TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
     },
     store::{
-        columns::pools,
+        columns::{pools, pots, slots},
         Store, {self},
     },
 };
@@ -22,25 +22,393 @@ const BATCH_SIZE: usize = 5000;
 pub struct Args {
     /// Path to the CBOR snapshot. The snapshot can be obtained from the Haskell
     /// cardano-node, using the `DebugEpochState` command, serialised as CBOR.
-    #[arg(long)]
+    ///
+    /// The snapshot must be named after the point on-chain it is reflecting, as
+    ///
+    /// `  {SLOT}.{BLOCK_HEADER_HASH}.cbor`
+    ///
+    /// For example:
+    ///
+    ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
+    #[arg(long, verbatim_doc_comment)]
     snapshot: PathBuf,
 
     /// Path to the ledger database folder.
     #[arg(long)]
     out: PathBuf,
-
-    /// A `slot#block_header_hash` snapshot's point.
-    ///
-    /// For example:
-    ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4
-    #[arg(long, verbatim_doc_comment)]
-    date: String,
 }
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
 enum Error<'a> {
     #[error("malformed date: {}", .0)]
     MalformedDate(&'a str),
+}
+
+pub async fn run(args: Args) -> miette::Result<()> {
+    let point = super::parse_point(
+        args.snapshot
+            .as_path()
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap(),
+        Error::MalformedDate,
+    )
+    .into_diagnostic()?;
+
+    fs::create_dir_all(&args.out).into_diagnostic()?;
+    let mut db = ledger::store::rocksdb::RocksDB::empty(&args.out).into_diagnostic()?;
+    let bytes = fs::read(&args.snapshot).into_diagnostic()?;
+
+    let epoch = decode_new_epoch_state(&db, &bytes, &point)?;
+
+    db.save(&point, None, Default::default(), Default::default())
+        .into_diagnostic()?;
+
+    db.next_snapshot(epoch).into_diagnostic()?;
+
+    db.with_pools(|iterator| {
+        for (_, pool) in iterator {
+            pools::Row::tick(pool, epoch + 1)
+        }
+    })
+    .into_diagnostic()?;
+
+    Ok(())
+}
+
+fn decode_new_epoch_state(
+    db: &store::rocksdb::RocksDB,
+    bytes: &[u8],
+    point: &Point,
+) -> miette::Result<Epoch> {
+    let mut d = cbor::Decoder::new(bytes);
+
+    d.array().into_diagnostic()?;
+
+    // EpochNo
+    let epoch = d.u64().into_diagnostic()?;
+    assert_eq!(epoch, epoch_from_slot(point.slot_or_default()));
+    info!(epoch, "importing_snapshot");
+
+    // Previous blocks made
+    d.skip().into_diagnostic()?;
+
+    // Current blocks made
+    // NOTE: We use the current blocks made here as we assume that users are providing snapshots of
+    // the last block of the epoch. We have no intrinsic ways to check that this is the case since
+    // we do not know what the last block of an epoch is, and we can't reliably look at the number
+    // of blocks either.
+    import_block_issuers(db, d.decode().into_diagnostic()?)?;
+
+    let accounts: HashMap<StakeCredential, Account>;
+    let fees: i64;
+    let treasury: i64;
+    let reserves: i64;
+
+    // Epoch State
+    {
+        d.array().into_diagnostic()?;
+
+        // Epoch State / Account State
+        d.array().into_diagnostic()?;
+        treasury = d.decode().into_diagnostic()?;
+        reserves = d.decode().into_diagnostic()?;
+
+        // Epoch State / Ledger State
+        d.array().into_diagnostic()?;
+
+        // Epoch State / Ledger State / Cert State
+        {
+            d.array().into_diagnostic()?;
+
+            // Epoch State / Ledger State / Cert State / Voting State
+            d.skip().into_diagnostic()?;
+
+            // Epoch State / Ledger State / Cert State / Pool State
+            {
+                d.array().into_diagnostic()?;
+                import_stake_pools(
+                    db,
+                    epoch,
+                    // Pools
+                    d.decode().into_diagnostic()?,
+                    // Updates
+                    d.decode().into_diagnostic()?,
+                    // Retirements
+                    d.decode().into_diagnostic()?,
+                )?;
+                // Deposits
+                d.skip().into_diagnostic()?;
+            }
+
+            // Epoch State / Ledger State / Cert State / Delegation state
+            {
+                d.array().into_diagnostic()?;
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
+                {
+                    d.array().into_diagnostic()?;
+                    // credentials
+                    accounts = d.decode().into_diagnostic()?;
+                    // pointers
+                    d.skip().into_diagnostic()?;
+                }
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
+                d.skip().into_diagnostic()?;
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
+                d.skip().into_diagnostic()?;
+
+                // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
+                d.skip().into_diagnostic()?;
+            }
+
+            // Epoch State / Ledger State / UTxO State
+            {
+                d.array().into_diagnostic()?;
+
+                import_utxo(
+                    db,
+                    d.decode::<HashMap<TransactionInput, TransactionOutput>>()
+                        .into_diagnostic()?
+                        .into_iter()
+                        .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
+                )?;
+
+                let _deposited: u64 = d.decode().into_diagnostic()?;
+
+                fees = d.decode().into_diagnostic()?;
+
+                // Epoch State / Ledger State / UTxO State / utxosGovState
+                d.skip().into_diagnostic()?;
+
+                // Epoch State / Ledger State / UTxO State / utxosStakeDistr
+                d.skip().into_diagnostic()?;
+
+                // Epoch State / Ledger State / UTxO State / utxosDonation
+                d.skip().into_diagnostic()?;
+            }
+        }
+
+        // Epoch State / Snapshots
+        d.skip().into_diagnostic()?;
+        // Epoch State / NonMyopic
+        d.skip().into_diagnostic()?;
+    }
+
+    // Rewards Update
+    {
+        d.array().into_diagnostic()?;
+        d.array().into_diagnostic()?;
+        assert_eq!(
+            d.u32().into_diagnostic()?,
+            1,
+            "expected complete pulsing reward state"
+        );
+        d.array().into_diagnostic()?;
+
+        let delta_treasury: i64 = d.decode().into_diagnostic()?;
+
+        let delta_reserves: i64 = d.decode().into_diagnostic()?;
+
+        let rewards: HashMap<StakeCredential, Set<Reward>> = d.decode().into_diagnostic()?;
+        let delta_fees: i64 = d.decode().into_diagnostic()?;
+
+        // NonMyopic
+        d.skip().into_diagnostic()?;
+
+        import_accounts(db, accounts, rewards)?;
+
+        // TODO: Also add the total of unregistered rewards, that is, rewards supposed to go to stake
+        // credentials that are no longer registered going to the treasury instead.
+        import_pots(
+            db,
+            (treasury + delta_treasury) as u64,
+            (reserves - delta_reserves) as u64,
+            (fees - delta_fees) as u64,
+        )?;
+    }
+
+    Ok(epoch)
+}
+
+fn import_block_issuers(
+    db: &store::rocksdb::RocksDB,
+    blocks: HashMap<PoolId, u64>,
+) -> miette::Result<()> {
+    let batch = db.unsafe_transaction();
+    let mut fake_slot = 0;
+    for (pool, mut count) in blocks.into_iter() {
+        while count > 0 {
+            slots::rocksdb::put(&batch, &fake_slot, slots::Row::new(pool)).into_diagnostic()?;
+            count -= 1;
+            fake_slot += 1;
+        }
+    }
+    info!(what = "block_issuers", count = fake_slot);
+    batch.commit().into_diagnostic()
+}
+
+fn import_utxo(
+    db: &store::rocksdb::RocksDB,
+    mut utxo: Vec<(TransactionInput, TransactionOutput)>,
+) -> miette::Result<()> {
+    info!(what = "utxo_entries", size = utxo.len());
+
+    let progress = ProgressBar::new(utxo.len() as u64).with_style(
+        ProgressStyle::with_template("  UTxO entries {bar:70} {pos:>7}/{len:7}").unwrap(),
+    );
+
+    while !utxo.is_empty() {
+        let n = std::cmp::min(BATCH_SIZE, utxo.len());
+        let chunk = utxo.drain(0..n);
+
+        db.save(
+            &Point::Origin,
+            None,
+            store::Columns {
+                utxo: chunk,
+                pools: iter::empty(),
+                accounts: iter::empty(),
+            },
+            Default::default(),
+        )
+        .into_diagnostic()?;
+
+        progress.inc(n as u64);
+    }
+
+    progress.finish();
+
+    Ok(())
+}
+
+fn import_stake_pools(
+    db: &store::rocksdb::RocksDB,
+    epoch: Epoch,
+    pools: HashMap<PoolId, PoolParams>,
+    updates: HashMap<PoolId, PoolParams>,
+    retirements: HashMap<PoolId, Epoch>,
+) -> miette::Result<()> {
+    let mut state = ledger::state::diff_epoch_reg::DiffEpochReg::default();
+    for (pool, params) in pools.into_iter() {
+        state.register(pool, params);
+    }
+
+    for (pool, params) in updates.into_iter() {
+        state.register(pool, params);
+    }
+
+    for (pool, epoch) in retirements.into_iter() {
+        state.unregister(pool, epoch);
+    }
+
+    info!(
+        what = "stake_pools",
+        registered = state.registered.len(),
+        retiring = state.unregistered.len(),
+    );
+
+    db.save(
+        &Point::Origin,
+        None,
+        store::Columns {
+            utxo: iter::empty(),
+            pools: state
+                .registered
+                .into_iter()
+                .flat_map(move |(_, registrations)| {
+                    registrations
+                        .into_iter()
+                        .map(|r| (r, epoch))
+                        .collect::<Vec<_>>()
+                }),
+            accounts: iter::empty(),
+        },
+        store::Columns {
+            pools: state.unregistered.into_iter(),
+            utxo: iter::empty(),
+            accounts: iter::empty(),
+        },
+    )
+    .into_diagnostic()
+}
+
+fn import_pots(
+    db: &store::rocksdb::RocksDB,
+    treasury: u64,
+    reserves: u64,
+    fees: u64,
+) -> miette::Result<()> {
+    let batch = db.unsafe_transaction();
+    pots::rocksdb::put(&batch, pots::Row::new(treasury, reserves, fees)).into_diagnostic()?;
+    batch.commit().into_diagnostic()?;
+    info!(what = "pots", treasury, reserves, fees);
+    Ok(())
+}
+
+fn import_accounts(
+    db: &store::rocksdb::RocksDB,
+    accounts: HashMap<StakeCredential, Account>,
+    rewards_updates: HashMap<StakeCredential, Set<Reward>>,
+) -> miette::Result<()> {
+    let mut credentials = accounts
+        .into_iter()
+        .map(
+            |(
+                credential,
+                Account {
+                    rewards_and_deposit,
+                    pool,
+                    ..
+                },
+            )| {
+                let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
+                    .unwrap_or((0, STAKE_CREDENTIAL_DEPOSIT as u64));
+
+                let rewards_update = match rewards_updates.get(&credential) {
+                    None => 0,
+                    Some(set) => set.iter().fold(0, |total, update| total + update.amount),
+                };
+
+                (
+                    credential,
+                    Option::<PoolId>::from(pool),
+                    Some(deposit),
+                    rewards + rewards_update,
+                )
+            },
+        )
+        .collect::<Vec<(StakeCredential, Option<PoolId>, Option<Lovelace>, Lovelace)>>();
+
+    info!(what = "credentials", size = credentials.len());
+
+    let progress = ProgressBar::new(credentials.len() as u64)
+        .with_style(ProgressStyle::with_template("  Accounts {bar:70} {pos:>7}/{len:7}").unwrap());
+
+    while !credentials.is_empty() {
+        let n = std::cmp::min(BATCH_SIZE, credentials.len());
+        let chunk = credentials.drain(0..n);
+
+        db.save(
+            &Point::Origin,
+            None,
+            store::Columns {
+                utxo: iter::empty(),
+                pools: iter::empty(),
+                accounts: chunk,
+            },
+            Default::default(),
+        )
+        .into_diagnostic()?;
+
+        progress.inc(n as u64);
+    }
+
+    progress.finish();
+
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -70,230 +438,59 @@ impl<T> From<StrictMaybe<T>> for Option<T> {
     }
 }
 
-pub async fn run(args: Args) -> miette::Result<()> {
-    let point = super::parse_point(&args.date, Error::MalformedDate).into_diagnostic()?;
+#[derive(Debug)]
+struct Reward {
+    #[allow(dead_code)]
+    kind: RewardKind,
+    #[allow(dead_code)]
+    pool: PoolId,
+    amount: Lovelace,
+}
 
-    fs::create_dir_all(&args.out).into_diagnostic()?;
-    let mut db = ledger::store::rocksdb::RocksDB::empty(&args.out).into_diagnostic()?;
-
-    let bytes = fs::read(&args.snapshot).into_diagnostic()?;
-    let mut d = cbor::Decoder::new(&bytes);
-
-    // Epoch State
-    {
-        let _epoch_state_len = d.array().into_diagnostic()?;
-
-        // Epoch State / Account State
-        d.skip().into_diagnostic()?;
-
-        // Epoch State / Ledger State
-        let _ledger_state_len = d.array().into_diagnostic()?;
-
-        // Epoch State / Ledger State / Cert State
-        {
-            let _cert_state_len = d.array().into_diagnostic()?;
-
-            // Epoch State / Ledger State / Cert State / Voting State
-            d.skip().into_diagnostic()?;
-
-            // Epoch State / Ledger State / Cert State / Pool State
-            {
-                let _pool_state_len = d.array().into_diagnostic()?;
-
-                let pools: HashMap<PoolId, PoolParams> = d.decode().into_diagnostic()?;
-
-                let updates: HashMap<PoolId, PoolParams> = d.decode().into_diagnostic()?;
-
-                let retirements: HashMap<PoolId, Epoch> = d.decode().into_diagnostic()?;
-
-                // Deposits
-                d.skip().into_diagnostic()?;
-
-                let mut state = ledger::state::diff_epoch_reg::DiffEpochReg::default();
-                for (pool, params) in pools.into_iter() {
-                    state.register(pool, params);
-                }
-
-                for (pool, params) in updates.into_iter() {
-                    state.register(pool, params);
-                }
-
-                for (pool, epoch) in retirements.into_iter() {
-                    state.unregister(pool, epoch);
-                }
-
-                info!(
-                    what = "stake_pools",
-                    registered = state.registered.len(),
-                    retiring = state.unregistered.len(),
-                );
-
-                let current_epoch = epoch_from_slot(point.slot_or_default());
-
-                db.save(
-                    &Point::Origin,
-                    store::Columns {
-                        utxo: iter::empty(),
-                        pools: state
-                            .registered
-                            .into_iter()
-                            .flat_map(move |(_, registrations)| {
-                                registrations
-                                    .into_iter()
-                                    .map(|r| (r, current_epoch))
-                                    .collect::<Vec<_>>()
-                            }),
-                        accounts: iter::empty(),
-                    },
-                    store::Columns {
-                        pools: state.unregistered.into_iter(),
-                        utxo: iter::empty(),
-                        accounts: iter::empty(),
-                    },
-                )
-                .into_diagnostic()?;
-            }
-
-            // Epoch State / Ledger State / Cert State / Delegation state
-            {
-                let _delegation_state_len = d.array().into_diagnostic()?;
-
-                // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
-                {
-                    let _stake_credentials_len = d.array().into_diagnostic()?;
-
-                    // credentials
-                    {
-                        let mut credentials =
-                            d.decode::<HashMap<
-                                StakeCredential,
-                                (
-                                    StrictMaybe<(Lovelace, Lovelace)>,
-                                    Set<()>,
-                                    StrictMaybe<PoolId>,
-                                    StrictMaybe<DRep>,
-                                ),
-                            >>()
-                            .into_diagnostic()?
-                            .into_iter()
-                            .map(
-                                |(credential, (rewards_and_deposit, _pointers, pool, _drep))| {
-                                    let (rewards, deposit) =
-                                        Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
-                                            .unwrap_or((0, STAKE_CREDENTIAL_DEPOSIT as u64));
-
-                                    (
-                                        credential,
-                                        Option::<PoolId>::from(pool),
-                                        Some(deposit),
-                                        rewards,
-                                    )
-                                },
-                            )
-                            .collect::<Vec<(
-                                StakeCredential,
-                                Option<PoolId>,
-                                Option<Lovelace>,
-                                Lovelace,
-                            )>>();
-
-                        info!(what = "credentials", size = credentials.len());
-
-                        let progress = ProgressBar::new(credentials.len() as u64).with_style(
-                            ProgressStyle::with_template("  Accounts {bar:70} {pos:>7}/{len:7}")
-                                .unwrap(),
-                        );
-
-                        while !credentials.is_empty() {
-                            let n = std::cmp::min(BATCH_SIZE, credentials.len());
-                            let chunk = credentials.drain(0..n);
-
-                            db.save(
-                                &Point::Origin,
-                                store::Columns {
-                                    utxo: iter::empty(),
-                                    pools: iter::empty(),
-                                    accounts: chunk,
-                                },
-                                Default::default(),
-                            )
-                            .into_diagnostic()?;
-
-                            progress.inc(n as u64);
-                        }
-
-                        progress.finish();
-                    }
-
-                    // pointers
-                    {
-                        d.skip().into_diagnostic()?;
-                    }
-                }
-
-                // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
-                d.skip().into_diagnostic()?;
-
-                // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
-                d.skip().into_diagnostic()?;
-
-                // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
-                d.skip().into_diagnostic()?;
-            }
-
-            // Epoch State / Ledger State / UTxO State
-            {
-                let _utxo_state_len = d.array().into_diagnostic()?;
-
-                let mut utxo: Vec<(TransactionInput, TransactionOutput)> = d
-                    .decode::<HashMap<TransactionInput, TransactionOutput>>()
-                    .into_diagnostic()?
-                    .into_iter()
-                    .collect::<Vec<(TransactionInput, TransactionOutput)>>();
-
-                info!(what = "utxo_entries", size = utxo.len());
-
-                let progress = ProgressBar::new(utxo.len() as u64).with_style(
-                    ProgressStyle::with_template("  UTxO entries {bar:70} {pos:>7}/{len:7}")
-                        .unwrap(),
-                );
-
-                while !utxo.is_empty() {
-                    let n = std::cmp::min(BATCH_SIZE, utxo.len());
-                    let chunk = utxo.drain(0..n);
-
-                    db.save(
-                        &Point::Origin,
-                        store::Columns {
-                            utxo: chunk,
-                            pools: iter::empty(),
-                            accounts: iter::empty(),
-                        },
-                        Default::default(),
-                    )
-                    .into_diagnostic()?;
-
-                    progress.inc(n as u64);
-                }
-
-                progress.finish();
-            }
-        }
+impl<'b, C> cbor::decode::Decode<'b, C> for Reward {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        let kind = d.decode_with(ctx)?;
+        let pool = d.decode_with(ctx)?;
+        let amount = d.decode_with(ctx)?;
+        Ok(Reward { kind, pool, amount })
     }
+}
 
-    db.save(&point, Default::default(), Default::default())
-        .into_diagnostic()?;
+#[derive(Debug)]
+enum RewardKind {
+    Member,
+    Leader,
+}
 
-    let epoch = epoch_from_slot(point.slot_or_default());
+impl<'b, C> cbor::decode::Decode<'b, C> for RewardKind {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Ok(match d.u8()? {
+            0 => RewardKind::Member,
+            1 => RewardKind::Leader,
+            k => panic!("unexpected reward kind: {k}"),
+        })
+    }
+}
 
-    db.next_snapshot(epoch).into_diagnostic()?;
+#[derive(Debug)]
+struct Account {
+    rewards_and_deposit: StrictMaybe<(Lovelace, Lovelace)>,
+    #[allow(dead_code)]
+    pointers: Set<(u64, u64, u64)>,
+    pool: StrictMaybe<PoolId>,
+    #[allow(dead_code)]
+    drep: StrictMaybe<DRep>,
+}
 
-    db.with_pools(|iterator| {
-        for (_, pool) in iterator {
-            pools::Row::tick(pool, epoch + 1)
-        }
-    })
-    .into_diagnostic()?;
-
-    Ok(())
+impl<'b, C> cbor::decode::Decode<'b, C> for Account {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        Ok(Account {
+            rewards_and_deposit: d.decode_with(ctx)?,
+            pointers: d.decode_with(ctx)?,
+            pool: d.decode_with(ctx)?,
+            drep: d.decode_with(ctx)?,
+        })
+    }
 }

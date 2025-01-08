@@ -86,6 +86,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     /// the internal state of the ledger.
     pub fn forward(&mut self, span: &Span, block: MintedBlock<'_>) -> Result<(), ForwardErr<E>> {
         let point = block_point(&block);
+        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
 
         let span_apply_block = info_span!(
             target: EVENT_TARGET,
@@ -137,8 +138,10 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
             let (add, remove) = now_stable.into_store_update();
 
-            info_span!(target: EVENT_TARGET, parent: span, "save")
-                .in_scope(|| db.save(&point, add, remove).map_err(ForwardErr::StorageErr))?;
+            info_span!(target: EVENT_TARGET, parent: span, "save").in_scope(|| {
+                db.save(&point, Some(&issuer), add, remove)
+                    .map_err(ForwardErr::StorageErr)
+            })?;
         } else {
             info!(target: EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
         }
