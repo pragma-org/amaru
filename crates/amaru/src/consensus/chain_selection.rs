@@ -18,7 +18,7 @@ pub trait Header {
     fn block_height(&self) -> u64;
 }
 
-/// A single peer in the network, uniquely identified.
+/// A single peer in the network, with a unique identifier.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Peer {
     name: String,
@@ -53,6 +53,19 @@ impl<H: Header + Clone> Fragment<H> {
 
     fn height(&self) -> u64 {
         self.headers.len() as u64 + self.anchor.block_height()
+    }
+
+    fn position_of(&self, point: Hash<32>) -> Option<usize> {
+        self.headers
+            .iter()
+            .position(|header| header.hash() == point)
+    }
+
+    fn tip(&self) -> H {
+        match self.headers.last() {
+            Some(header) => header.clone(),
+            None => self.anchor.clone(),
+        }
     }
 }
 
@@ -121,16 +134,38 @@ impl<H: Header + Clone> ChainSelector<H> {
         &self.tip
     }
 
+    /// Rollback the chain to a given point.
     pub fn rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
+        self.rollback_fragment(peer, point);
+
+        let (best_peer, best_tip) = self.find_best_chain().unwrap();
+
+        let result = if best_peer == *peer {
+            ChainSelection::RollbackTo(point)
+        } else {
+            ChainSelection::NewTip(best_tip.clone())
+        };
+
+        self.tip = best_tip.clone();
+
+        result
+    }
+
+    fn find_best_chain(&self) -> Option<(Peer, H)> {
+        let mut best: Option<(Peer, H)> = None;
+        for (peer, fragment) in self.peers_chains.iter() {
+            let best_height = best.as_ref().map_or(0, |(_, tip)| tip.block_height());
+            if fragment.height() > best_height {
+                best = Some((peer.clone(), fragment.tip()));
+            }
+        }
+        best
+    }
+
+    fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
-        let rollback_point = fragment
-            .headers
-            .iter()
-            .position(|header| header.hash() == point)
-            .unwrap();
+        let rollback_point = fragment.position_of(point).unwrap();
         fragment.headers.truncate(rollback_point + 1);
-        self.tip = fragment.headers[rollback_point].clone();
-        ChainSelection::RollbackTo(point)
     }
 }
 
@@ -414,5 +449,29 @@ mod tests {
         let result = chain_selector.roll_forward(&alice, new_header);
 
         assert_eq!(NewTip(new_header), result);
+    }
+
+    #[test]
+    fn rollback_to_point_before_other_candidate_switch_chain() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let peers = [alice.clone(), bob.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 6);
+        let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
+
+        chain1.iter().for_each(|header| {
+            chain_selector.roll_forward(&alice, *header);
+        });
+
+        chain2.iter().for_each(|header| {
+            chain_selector.roll_forward(&bob, *header);
+        });
+
+        let rollback_point = &chain1[4];
+        let result = chain_selector.rollback(&alice, rollback_point.hash());
+
+        let expected_new_tip = chain2[5];
+        assert_eq!(NewTip(expected_new_tip), result);
     }
 }
