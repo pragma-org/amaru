@@ -1,5 +1,8 @@
 use pallas_crypto::hash::Hash;
+use super::peer::Peer;
+use std::fmt::Debug;
 use std::{collections::HashMap, iter::Map};
+use tracing::instrument;
 
 /// Interface to a header for the purpose of chain selection.
 pub trait Header {
@@ -16,20 +19,6 @@ pub trait Header {
 
     /// Block height of the header w.r.t genesis block
     fn block_height(&self) -> u64;
-}
-
-/// A single peer in the network, with a unique identifier.
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct Peer {
-    name: String,
-}
-
-impl Peer {
-    pub fn new(name: &str) -> Peer {
-        Peer {
-            name: name.to_string(),
-        }
-    }
 }
 
 /// A fragment of the chain, represented by a list of headers
@@ -86,7 +75,10 @@ pub enum ChainSelection<H: Header> {
     NoChange,
 }
 
-impl<H: Header + Clone> ChainSelector<H> {
+impl<H> ChainSelector<H>
+where
+    H: Header + Clone + Debug,
+{
     pub fn new(tip: H, peers: &[Peer]) -> ChainSelector<H> {
         let peers_chains: HashMap<Peer, Fragment<H>> = peers
             .iter()
@@ -100,6 +92,7 @@ impl<H: Header + Clone> ChainSelector<H> {
     ///
     /// The function returns the result of the chain selection process, which might lead
     /// to a new tip, no change, or some change in status for the peer.
+    #[instrument(skip(self))]
     pub fn roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let parent = header.parent().unwrap();
@@ -135,6 +128,12 @@ impl<H: Header + Clone> ChainSelector<H> {
     }
 
     /// Rollback the chain to a given point.
+    ///
+    /// This function will rollback the chain of the given peer to the given point.
+    /// If the chain of the peer is still the longest, the function will return a
+    /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
+    /// tip of the chain.
+    #[instrument(skip(self))]
     pub fn rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
         self.rollback_fragment(peer, point);
 
@@ -452,7 +451,7 @@ mod tests {
     }
 
     #[test]
-    fn rollback_to_point_before_other_candidate_switch_chain() {
+    fn rollback_can_switch_chain_given_other_chain_is_longer() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
         let peers = [alice.clone(), bob.clone()];
