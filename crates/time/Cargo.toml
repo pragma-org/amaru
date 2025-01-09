@@ -12,5 +12,9 @@ readme = "README.md"
 rust-version = "1.81.0"
 
 [dependencies]
+quickcheck = "1.0.3"
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] }
 hex = "0.4.3"
+
+[dev-dependencies]
+quickcheck_macros = "1"

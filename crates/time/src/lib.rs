@@ -1,4 +1,6 @@
 use minicbor::{Encode, Decode, Decoder};
+use quickcheck::{Arbitrary, Gen};
+use std::cmp::{max, min};
 
 type Slot = u64;
 
@@ -36,6 +38,16 @@ impl<'b, C> Decode<'b, C> for Bound {
             slot,
             epoch,
         })
+    }
+}
+
+impl Arbitrary for Bound {
+    fn arbitrary(g: &mut Gen) -> Self {
+        Bound {
+            time_ms: u64::arbitrary(g),
+            slot: u64::arbitrary(g),
+            epoch: u64::arbitrary(g),
+        }
     }
 }
 
@@ -87,6 +99,17 @@ impl<'b, C> Decode<'b, C> for EraParams {
     }
 }
 
+impl Arbitrary for EraParams {
+    fn arbitrary(g: &mut Gen) -> Self {
+        EraParams {
+            // An epoch can't be zero slots
+            epoch_size_slots: max(1, u16::arbitrary(g) as u64),
+            // A slot can't be zero milliseconds
+            slot_length: max(1, u16::arbitrary(g) as u64),
+        }
+    }
+}
+
 // The start is inclusive and the end is exclusive. In a valid EraHistory, the
 // end of each era will equal the start of the next one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,8 +149,34 @@ impl<'b, C> Decode<'b, C> for Summary {
     }
 }
 
+impl Arbitrary for Summary {
+    fn arbitrary(g: &mut Gen) -> Summary {
+        let b1 = u16::arbitrary(g) as u64;
+        let b2 = u16::arbitrary(g) as u64;
+        let params = EraParams::arbitrary(g);
+        let start = Bound {
+            time_ms: u16::arbitrary(g) as u64,
+            slot: u16::arbitrary(g) as u64,
+            epoch: min(b1, b2),
+        };
+        let epochs_elapsed = max(b1, b2) - min(b1, b2);
+        let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
+        let time_elapsed = slots_elapsed * params.slot_length;
+        let end = Bound {
+            time_ms: start.time_ms + time_elapsed,
+            slot: start.slot + slots_elapsed,
+            epoch: max(b1, b2),
+        };
+        Summary {
+            start,
+            end,
+            params,
+        }
+    }
+}
+
 // A complete history of eras that have taken place.
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EraHistory {
     pub eras: Vec<Summary>,
 }
@@ -157,6 +206,56 @@ impl<'b, C> Decode<'b, C> for EraHistory {
         Ok(EraHistory {
             eras,
         })
+    }
+}
+
+impl Arbitrary for EraHistory {
+    fn arbitrary(g: &mut Gen) -> EraHistory {
+        // Generate a number of boundaries corresponding to the generator size
+        let mut boundaries = vec![];
+        boundaries.push(u16::arbitrary(g) as u64);
+        for i in 0..g.size() {
+            // An era can't be zero-length
+            boundaries.push(boundaries[i] + max(1, u16::arbitrary(g) as u64));
+        }
+        let genesis = Bound {
+            time_ms: 0,
+            slot: 0,
+            epoch: 0,
+        };
+        let genesis_era_params = EraParams::arbitrary(g);
+
+        let mut prev_bound = genesis;
+        let mut prev_era_params = genesis_era_params;
+
+        // For each boundary, compute the time and slot for that epoch based on the era params and
+        // construct a summary from the boundary pair
+        let mut summaries = vec![];
+        for i in 1..g.size() {
+            let boundary = boundaries[i];
+            let epochs_elapsed = boundary - prev_bound.epoch;
+            let slots_elapsed = epochs_elapsed * prev_era_params.epoch_size_slots;
+            let time_elapsed = slots_elapsed * prev_era_params.slot_length;
+            let new_bound = Bound {
+                time_ms: prev_bound.time_ms + time_elapsed,
+                slot: prev_bound.slot + slots_elapsed,
+                epoch: boundary,
+            };
+            let new_era_params = EraParams::arbitrary(g);
+
+            summaries.push(Summary {
+                start: prev_bound,
+                end: new_bound.clone(),
+                params: prev_era_params,
+            });
+
+            prev_era_params = new_era_params;
+            prev_bound = new_bound;
+        }
+
+        EraHistory {
+            eras: summaries,
+        }
     }
 }
 
@@ -251,6 +350,8 @@ impl EraHistory {
 mod tests {
     use super::*;
     use hex;
+    #[macro_use(quickcheck)]
+    use quickcheck_macros::quickcheck;
 
     fn default_params() -> EraParams {
         EraParams::new(86400, 1000).unwrap()
@@ -378,14 +479,9 @@ mod tests {
         );
     }
 
-    #[test]
-    fn roundtrip_era_history() {
-        let eras = one_era();
+    #[quickcheck]
+    fn roundtrip_era_history(eras: EraHistory) {
         let buffer = minicbor::to_vec(&eras).unwrap();
-        assert_eq!(
-            hex::encode(&buffer),
-            "9f9f9f000000ff9f1a337f98001a000d2f000aff9f1a000151801903e8ffffff"
-        );
         let decoded = minicbor::decode(&buffer).unwrap();
         assert_eq!(eras, decoded);
     }
