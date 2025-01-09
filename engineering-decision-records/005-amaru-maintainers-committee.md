@@ -43,7 +43,7 @@ The maintainer committee will be having a close relationship with the following 
 
 The products that we will have a close relationship with also have the equivalent of an owner but since we won't be building anything for them (yet) we will only identify the person that manages that scope:
 - Dolos owner: [Santiago Carmuega](https://github.com/scarmuega)
-- GO Node owner: [Chris Gianelloni](https://github.com/wolf31o2)
+- Dingo owner: [Chris Gianelloni](https://github.com/wolf31o2)
 
 ## Discussion points
 
