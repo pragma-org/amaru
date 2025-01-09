@@ -238,6 +238,13 @@ fn import_block_issuers(
     blocks: HashMap<PoolId, u64>,
 ) -> miette::Result<()> {
     let batch = db.unsafe_transaction();
+    db.with_block_issuers(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })
+    .into_diagnostic()?;
+
     let mut fake_slot = 0;
     for (pool, mut count) in blocks.into_iter() {
         while count > 0 {
@@ -255,6 +262,20 @@ fn import_utxo(
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
 ) -> miette::Result<()> {
     info!(what = "utxo_entries", size = utxo.len());
+
+    let progress_delete = ProgressBar::no_length().with_style(
+        ProgressStyle::with_template("  Pruning UTxO entries {spinner} {elapsed}").unwrap(),
+    );
+
+    db.with_utxo(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+            progress_delete.tick();
+        }
+    })
+    .into_diagnostic()?;
+
+    progress_delete.finish_and_clear();
 
     let progress = ProgressBar::new(utxo.len() as u64).with_style(
         ProgressStyle::with_template("  UTxO entries {bar:70} {pos:>7}/{len:7}").unwrap(),
@@ -279,7 +300,7 @@ fn import_utxo(
         progress.inc(n as u64);
     }
 
-    progress.finish();
+    progress.finish_and_clear();
 
     Ok(())
 }
@@ -309,6 +330,13 @@ fn import_stake_pools(
         registered = state.registered.len(),
         retiring = state.unregistered.len(),
     );
+
+    db.with_pools(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })
+    .into_diagnostic()?;
 
     db.save(
         &Point::Origin,
@@ -353,6 +381,13 @@ fn import_accounts(
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: HashMap<StakeCredential, Set<Reward>>,
 ) -> miette::Result<()> {
+    db.with_accounts(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })
+    .into_diagnostic()?;
+
     let mut credentials = accounts
         .into_iter()
         .map(
@@ -406,7 +441,7 @@ fn import_accounts(
         progress.inc(n as u64);
     }
 
-    progress.finish();
+    progress.finish_and_clear();
 
     Ok(())
 }
