@@ -13,6 +13,7 @@ use sys_metrics::{
 use tokio::task::JoinHandle;
 use tracing::warn;
 
+#[cfg(not(windows))]
 pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
     tokio::spawn(async move {
         let counters = make_system_counters(metrics);
@@ -38,6 +39,13 @@ pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
             record_system_metrics(reading, &counters);
         }
     })
+}
+
+#[cfg(windows)]
+pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
+    use tracing::info;
+    info!("System metrics currently not supported on Windows");
+    tokio::spawn(async {})
 }
 
 struct SystemCounters {
@@ -88,6 +96,7 @@ fn make_system_counters(metrics: SdkMeterProvider) -> SystemCounters {
     }
 }
 
+#[cfg(not(windows))]
 fn get_reading() -> miette::Result<Reading> {
     use sys_metrics::*;
     let memory = memory::get_memory().into_diagnostic()?;
