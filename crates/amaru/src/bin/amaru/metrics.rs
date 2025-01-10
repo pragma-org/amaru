@@ -1,20 +1,14 @@
-use std::time::Duration;
-
-use miette::IntoDiagnostic;
 use opentelemetry::{
     metrics::{Counter, Gauge, MeterProvider},
     KeyValue,
 };
 use opentelemetry_sdk::metrics::SdkMeterProvider;
-use sys_metrics::{
-    cpu::{CpuTimes, LoadAvg},
-    memory::Memory,
-};
 use tokio::task::JoinHandle;
-use tracing::warn;
 
 #[cfg(not(windows))]
 pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
+    use std::time::Duration;
+    use tracing::warn;
     tokio::spawn(async move {
         let counters = make_system_counters(metrics);
         let mut delay = Duration::from_secs(1);
@@ -42,7 +36,7 @@ pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
 }
 
 #[cfg(windows)]
-pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
+pub fn track_system_metrics(_metrics: SdkMeterProvider) -> JoinHandle<()> {
     use tracing::info;
     info!("System metrics currently not supported on Windows");
     tokio::spawn(async {})
@@ -55,11 +49,12 @@ struct SystemCounters {
     user_time: Counter<u64>,
 }
 
+#[cfg(not(windows))]
 #[derive(Debug)]
 struct Reading {
-    memory: Memory,
-    cpu: CpuTimes,
-    load: LoadAvg,
+    memory: sys_metrics::memory::Memory,
+    cpu: sys_metrics::cpu::CpuTimes,
+    load: sys_metrics::cpu::LoadAvg,
 }
 
 fn make_system_counters(metrics: SdkMeterProvider) -> SystemCounters {
@@ -98,6 +93,7 @@ fn make_system_counters(metrics: SdkMeterProvider) -> SystemCounters {
 
 #[cfg(not(windows))]
 fn get_reading() -> miette::Result<Reading> {
+    use miette::IntoDiagnostic;
     use sys_metrics::*;
     let memory = memory::get_memory().into_diagnostic()?;
     let cpu = cpu::get_cputimes().into_diagnostic()?;
@@ -106,6 +102,7 @@ fn get_reading() -> miette::Result<Reading> {
     Ok(Reading { memory, cpu, load })
 }
 
+#[cfg(not(windows))]
 fn record_system_metrics(reading: Reading, counters: &SystemCounters) {
     counters.total_memory.record(reading.memory.total, &[]);
     counters.free_memory.record(reading.memory.free, &[]);
@@ -118,7 +115,7 @@ fn record_system_metrics(reading: Reading, counters: &SystemCounters) {
         .add(reading.cpu.system, &[KeyValue::new("state", "system")]);
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(windows)))]
 mod tests {
     use super::*;
 
