@@ -5,6 +5,8 @@
 // It's also the right place to put rather general functions or types that ought to be in pallas.
 // While elements are being contributed upstream, they might transiently live in this module.
 
+use num::{BigInt, BigRational};
+use once_cell::sync::Lazy;
 pub use ouroboros::ledger::PoolSigma;
 pub use pallas_codec::{
     minicbor as cbor,
@@ -61,23 +63,17 @@ pub const STAKE_POOL_DEPOSIT: usize = 500000000;
 /// Value, in Lovelace, that one must deposit when registering a new stake credential
 pub const STAKE_CREDENTIAL_DEPOSIT: usize = 2000000;
 
-/// Numerator of the monetary expansion rate, a.k.a ρ
-pub const MONETARY_EXPANSION_RATE_NUM: usize = 3;
+// The monetary expansion value, a.k.a ρ
+pub static MONETARY_EXPANSION: Lazy<BigRational> =
+    Lazy::new(|| BigRational::new_raw(BigInt::from(3), BigInt::from(1000)));
 
-/// Denominator of the monetary expansion rate, a.k.a ρ
-pub const MONETARY_EXPANSION_RATE_DEN: usize = 1000;
+/// Treasury tax, a.k.a τ
+pub static TREASURY_TAX: Lazy<BigRational> =
+    Lazy::new(|| BigRational::new_raw(BigInt::from(20), BigInt::from(100)));
 
-/// Numerator of the treasury tax, a.k.a τ
-pub const TREASURY_TAX_NUM: usize = 20;
-
-/// Denominator of the treasury tax, a.k.a τ
-pub const TREASURY_TAX_DEN: usize = 100;
-
-/// Numerator of the pledge influence parameter, a.k.a a0
-pub const PLEDGE_INFLUENCE_NUM: usize = 3;
-
-/// Denominator of the pledge influence parameter, a.k.a a0
-pub const PLEDGE_INFLUENCE_DEN: usize = 10;
+/// Pledge influence parameter, a.k.a a0
+pub static PLEDGE_INFLUENCE: Lazy<BigRational> =
+    Lazy::new(|| BigRational::new_raw(BigInt::from(3), BigInt::from(10)));
 
 /// The optimal number of stake pools target for the incentives, a.k.a k
 pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
