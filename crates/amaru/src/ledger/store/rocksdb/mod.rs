@@ -279,9 +279,15 @@ mod tests {
     use super::*;
     use crate::ledger::kernel::{
         encode_bech32, output_lovelace, output_stake_credential, Hash, Lovelace, PoolParams,
-        StakeCredential,
+        StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY,
+        MONETARY_EXPANSION_RATE_DEN, MONETARY_EXPANSION_RATE_NUM, OPTIMAL_STAKE_POOLS_COUNT,
+        PLEDGE_INFLUENCE_DEN, PLEDGE_INFLUENCE_NUM, SHELLEY_EPOCH_LENGTH, TREASURY_TAX_DEN,
+        TREASURY_TAX_NUM,
     };
-    use num::BigRational;
+    use num::{
+        traits::{One, Zero},
+        BigInt, BigRational,
+    };
     use serde::ser::SerializeStruct;
     use std::collections::BTreeMap;
 
@@ -312,6 +318,7 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct AccountState {
         lovelace: Lovelace,
         pool: PoolId,
@@ -326,10 +333,122 @@ mod tests {
         }
     }
 
+    #[derive(Debug)]
     struct PoolState {
         blocks_count: u64,
         relative_stake: BigRational,
         parameters: PoolParams,
+        rewards_pot: BigInt,
+        leader_rewards: BigInt,
+    }
+
+    impl PoolState {
+        pub fn owner_stake(&self, accounts: &BTreeMap<Hash<28>, AccountState>) -> BigInt {
+            self.parameters
+                .owners
+                .iter()
+                .fold(BigInt::ZERO, |total, owner| match accounts.get(owner) {
+                    Some(account) if account.pool == self.parameters.id => {
+                        total + BigInt::from(account.lovelace)
+                    }
+                    _ => total,
+                })
+        }
+
+        pub fn apparent_performances(
+            &self,
+            blocks_count: &BigInt,
+            active_stake: &BigInt,
+            total_stake: &BigInt,
+        ) -> BigRational {
+            if self.relative_stake.is_zero() {
+                BigRational::zero()
+            } else {
+                let beta = BigRational::new(
+                    BigInt::from(self.blocks_count),
+                    blocks_count.max(&BigInt::one()).clone(),
+                );
+                let sigma_a = &self.relative_stake * total_stake / active_stake;
+                beta / sigma_a
+            }
+        }
+
+        // Optimal (i.e. maximum) rewards for a pool assuming it is fully saturated and producing
+        // its expected number of blocks.
+        //
+        // The results is then used to calculate the _actual rewards_ based on the pool
+        // performances and its actual saturation level.
+        pub fn optimal_rewards(&self, available_rewards: &BigInt, total_stake: &BigInt) -> BigInt {
+            let one = BigRational::from_integer(1.into());
+            let a0 = BigRational::new(PLEDGE_INFLUENCE_NUM.into(), PLEDGE_INFLUENCE_DEN.into());
+            let z0 = BigRational::new(1.into(), OPTIMAL_STAKE_POOLS_COUNT.into());
+
+            let pledge = BigRational::new(self.parameters.pledge.into(), total_stake.clone());
+
+            let relative_pledge = (&z0).min(&pledge);
+            let relative_stake = (&z0).min(&self.relative_stake);
+
+            // factor1 = coinToRational r / (1 + unboundRational a0)
+            let factor1 = BigRational::from_integer(available_rewards.clone()) / (one + &a0);
+
+            // factor4 = (z0 - sigma') / z0
+            let factor4 = (&z0 - relative_stake) / &z0;
+
+            // factor3 = (sigma' - p' * factor4) / z0
+            let factor3 = (relative_stake - relative_pledge * factor4) / &z0;
+
+            // factor2 = sigma' + p' * unboundRational a0 * factor3
+            let factor2 = relative_stake + relative_pledge * &a0 * factor3;
+
+            (factor1 * factor2).floor().to_integer()
+        }
+
+        pub fn pool_rewards(
+            &self,
+            available_rewards: &BigInt,
+            blocks_count: &BigInt,
+            active_stake: &BigInt,
+            total_stake: &BigInt,
+            owner_stake: &BigInt,
+        ) -> BigInt {
+            if &BigInt::from(self.parameters.pledge) <= owner_stake {
+                (self.apparent_performances(blocks_count, active_stake, total_stake)
+                    * self.optimal_rewards(available_rewards, total_stake))
+                .floor()
+                .to_integer()
+            } else {
+                BigInt::ZERO
+            }
+        }
+
+        pub fn leader_rewards(
+            &self,
+            pool_rewards: BigInt,
+            owner_stake: BigInt,
+            total_stake: &BigInt,
+        ) -> BigInt {
+            let cost: BigInt = self.parameters.cost.into();
+
+            let margin: BigRational = BigRational::new(
+                self.parameters.margin.numerator.into(),
+                self.parameters.margin.denominator.into(),
+            );
+
+            if pool_rewards <= cost {
+                pool_rewards
+            } else {
+                let member_rewards: BigInt = pool_rewards - &cost;
+                let owner_stake_ratio = if total_stake.is_zero() {
+                    BigRational::zero()
+                } else {
+                    BigRational::new(owner_stake, total_stake.clone())
+                };
+                let margin_factor: BigRational = &margin
+                    + (BigRational::from_integer(BigInt::from(1)) - &margin) * &owner_stake_ratio
+                        / &self.relative_stake;
+                cost + (margin_factor * member_rewards).floor().to_integer()
+            }
+        }
     }
 
     impl serde::Serialize for PoolState {
@@ -337,6 +456,11 @@ mod tests {
             let mut s = serializer.serialize_struct("PoolState", 3)?;
             s.serialize_field("blocksCount", &self.blocks_count)?;
             s.serialize_field("relativeStake", &serialize_ratio(&self.relative_stake))?;
+            s.serialize_field("rewardsPot", &u64::try_from(&self.rewards_pot).unwrap())?;
+            s.serialize_field(
+                "leaderRewards",
+                &u64::try_from(&self.leader_rewards).unwrap(),
+            )?;
             s.serialize_field("parameters", &self.parameters)?;
             s.end()
         }
@@ -346,7 +470,13 @@ mod tests {
         format!("{}/{}", r.numer(), r.denom())
     }
 
-    fn new_preprod_snapshot(epoch: Epoch, total_stake: Lovelace) -> Snapshot {
+    fn new_preprod_snapshot(epoch: Epoch) -> Snapshot {
+        let db_future = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch + 2).unwrap();
+
+        let pots = db_future.pots().unwrap();
+
+        let total_stake: BigInt = (MAX_LOVELACE_SUPPLY - pots.reserves).into();
+
         let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap();
 
         let mut accounts = BTreeMap::new();
@@ -390,6 +520,8 @@ mod tests {
                         PoolState {
                             relative_stake: BigRational::from_integer(0.into()),
                             blocks_count: 0,
+                            rewards_pot: BigInt::ZERO,
+                            leader_rewards: BigInt::ZERO,
                             parameters: row.current_params.clone(),
                         },
                     );
@@ -400,11 +532,11 @@ mod tests {
 
         let mut accounts_scripts = BTreeMap::new();
         let mut accounts_keys = BTreeMap::new();
+        let mut active_stake: BigInt = BigInt::ZERO;
         for (credential, account) in accounts.into_iter() {
-            // TODO: Add active stake
-
             pools.entry(account.pool).and_modify(|st| {
-                st.relative_stake += BigRational::new(account.lovelace.into(), total_stake.into());
+                active_stake += account.lovelace;
+                st.relative_stake += BigRational::new(account.lovelace.into(), total_stake.clone());
             });
 
             if pools.contains_key(&account.pool) {
@@ -418,6 +550,87 @@ mod tests {
                 }
             }
         }
+
+        let mut blocks_count = 0;
+        db_future
+            .with_block_issuers(|rows| {
+                for (_, row) in rows {
+                    if let Some(issuer) = row.borrow() {
+                        blocks_count += 1;
+                        pools
+                            .entry(issuer.slot_leader)
+                            .and_modify(|pool| pool.blocks_count += 1);
+                    }
+                }
+            })
+            .unwrap();
+
+        assert_eq!(
+            active_stake,
+            BigInt::from(331086649066019_u64),
+            "active_stake"
+        );
+
+        // The monetary expansion value, a.k.a ρ
+        let monetary_expansion = BigRational::new(
+            MONETARY_EXPANSION_RATE_NUM.into(),
+            MONETARY_EXPANSION_RATE_DEN.into(),
+        );
+
+        // The treasury tax value, a.k.a τ
+        let treasury_tax = BigRational::new(TREASURY_TAX_NUM.into(), TREASURY_TAX_DEN.into());
+
+        // The ratio of block produced over the number of expected blocks (a.k.a η).
+        // Expected blocks are fixed for an epoch and depends on protocol parameters.
+        //
+        // Note that, this ratio **may be greater than one**, since the slot election is random and
+        // only averages towards a certain number per epoch.
+        let epoch_blocks = BigRational::new(
+            BigInt::from(blocks_count) * ACTIVE_SLOT_COEFF_INVERSE,
+            SHELLEY_EPOCH_LENGTH.into(),
+        );
+        assert_eq!(epoch_blocks, BigRational::new(541.into(), 720.into()), "η",);
+
+        // The amount of Ada taken out of the reserves as incentivies at this particular epoch
+        // (a.k.a ΔR1).
+        // It is so-to-speak, the monetary inflation of the network that fuels the incentives.
+        let incentives = (BigRational::from_integer(1.into()).min(epoch_blocks.clone())
+            * monetary_expansion
+            * BigRational::from_integer(pots.reserves.into()))
+        .floor()
+        .to_integer();
+
+        assert_eq!(incentives, 31333093707160_usize.into(), "ΔR1",);
+
+        // Total rewards available before the treasury tax.
+        let total_rewards = incentives + BigInt::from(pots.fees);
+        assert_eq!(total_rewards, 31349235009257_usize.into(), "r_pot");
+
+        // Treasury tax
+        let rewards_for_treasury = (treasury_tax * &total_rewards).floor().to_integer();
+        assert_eq!(rewards_for_treasury, BigInt::from(6269847001851_usize), "τ");
+
+        // Remaining rewards available to stake pools (and delegators)
+        let remaining_rewards: BigInt = total_rewards - rewards_for_treasury;
+
+        pools.iter_mut().for_each(|(_, pool)| {
+            let rewards_pot = pool.pool_rewards(
+                &remaining_rewards,
+                &BigInt::from(blocks_count),
+                &active_stake,
+                &total_stake,
+                &pool.owner_stake(&accounts_keys),
+            );
+
+            pool.rewards_pot = rewards_pot.clone();
+            pool.leader_rewards =
+                pool.leader_rewards(rewards_pot, pool.owner_stake(&accounts_keys), &total_stake);
+
+            // Reset blocks count. We used the block counts at epoch + 2 for the rewards
+            // calculation, but the snapshot refers to pools at the current epoch. So we need
+            // to replace block counts now that it is no longer needed for rewards calculation.
+            pool.blocks_count = 0;
+        });
 
         db.with_block_issuers(|rows| {
             for (_, row) in rows {
@@ -439,106 +652,120 @@ mod tests {
 
     #[test]
     #[ignore]
+    fn compare_preprod_snapshot_163() {
+        let snapshot = new_preprod_snapshot(163);
+        insta::assert_json_snapshot!(snapshot);
+    }
+
+    #[test]
+    #[ignore]
+    fn compare_preprod_snapshot_164() {
+        let snapshot = new_preprod_snapshot(164);
+        insta::assert_json_snapshot!(snapshot);
+    }
+
+    #[test]
+    #[ignore]
     fn compare_preprod_snapshot_165() {
-        let snapshot = new_preprod_snapshot(165, 31112793878086059);
+        let snapshot = new_preprod_snapshot(165);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_166() {
-        let snapshot = new_preprod_snapshot(166, 31119117576599736);
+        let snapshot = new_preprod_snapshot(166);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_167() {
-        let snapshot = new_preprod_snapshot(167, 31125529153288004);
+        let snapshot = new_preprod_snapshot(167);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_168() {
-        let snapshot = new_preprod_snapshot(168, 31131906732704284);
+        let snapshot = new_preprod_snapshot(168);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_169() {
-        let snapshot = new_preprod_snapshot(169, 31138307137790052);
+        let snapshot = new_preprod_snapshot(169);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_170() {
-        let snapshot = new_preprod_snapshot(170, 31144692895041950);
+        let snapshot = new_preprod_snapshot(170);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_171() {
-        let snapshot = new_preprod_snapshot(171, 31150987758289950);
+        let snapshot = new_preprod_snapshot(171);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_172() {
-        let snapshot = new_preprod_snapshot(172, 31157306038590590);
+        let snapshot = new_preprod_snapshot(172);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_173() {
-        let snapshot = new_preprod_snapshot(173, 31163830817196470);
+        let snapshot = new_preprod_snapshot(173);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_174() {
-        let snapshot = new_preprod_snapshot(174, 31170156774217170);
+        let snapshot = new_preprod_snapshot(174);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_175() {
-        let snapshot = new_preprod_snapshot(175, 31176424921600024);
+        let snapshot = new_preprod_snapshot(175);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_176() {
-        let snapshot = new_preprod_snapshot(176, 31183205224639780);
+        let snapshot = new_preprod_snapshot(176);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_177() {
-        let snapshot = new_preprod_snapshot(177, 31189917429258484);
+        let snapshot = new_preprod_snapshot(177);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_178() {
-        let snapshot = new_preprod_snapshot(178, 31196606373586140);
+        let snapshot = new_preprod_snapshot(178);
         insta::assert_json_snapshot!(snapshot);
     }
 
     #[test]
     #[ignore]
     fn compare_preprod_snapshot_179() {
-        let snapshot = new_preprod_snapshot(179, 31203363503294896);
+        let snapshot = new_preprod_snapshot(179);
         insta::assert_json_snapshot!(snapshot);
     }
 }

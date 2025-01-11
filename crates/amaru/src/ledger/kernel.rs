@@ -61,6 +61,27 @@ pub const STAKE_POOL_DEPOSIT: usize = 500000000;
 /// Value, in Lovelace, that one must deposit when registering a new stake credential
 pub const STAKE_CREDENTIAL_DEPOSIT: usize = 2000000;
 
+/// Numerator of the monetary expansion rate, a.k.a ρ
+pub const MONETARY_EXPANSION_RATE_NUM: usize = 3;
+
+/// Denominator of the monetary expansion rate, a.k.a ρ
+pub const MONETARY_EXPANSION_RATE_DEN: usize = 1000;
+
+/// Numerator of the treasury tax, a.k.a τ
+pub const TREASURY_TAX_NUM: usize = 20;
+
+/// Denominator of the treasury tax, a.k.a τ
+pub const TREASURY_TAX_DEN: usize = 100;
+
+/// Numerator of the pledge influence parameter, a.k.a a0
+pub const PLEDGE_INFLUENCE_NUM: usize = 3;
+
+/// Denominator of the pledge influence parameter, a.k.a a0
+pub const PLEDGE_INFLUENCE_DEN: usize = 10;
+
+/// The optimal number of stake pools target for the incentives, a.k.a k
+pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
+
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
 
