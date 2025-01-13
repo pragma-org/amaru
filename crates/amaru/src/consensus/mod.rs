@@ -18,6 +18,7 @@ pub mod chain_selection;
 pub mod header_validation;
 pub mod nonce;
 pub mod peer;
+pub mod header;
 
 #[derive(Clone)]
 pub enum ValidateHeaderEvent {
