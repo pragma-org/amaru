@@ -61,14 +61,14 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             // (2) Re-applying 2160 (already synchronized) blocks is _fast-enough_ that it can be
             //     done on restart easily. To be measured; if this turns out to be too slow, we
             //     views of the volatile DB on-disk to be able to restore them quickly.
-            volatile: VecDeque::new(),
+            volatile: VolatileDB::new(),
         }
     }
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
     /// applied to the ledger.
     pub fn tip(&'_ self) -> Cow<'_, Point> {
-        if let Some(st) = self.volatile.back() {
+        if let Some(st) = self.volatile.view_back() {
             return Cow::Borrowed(&st.point);
         }
 
@@ -467,12 +467,92 @@ impl FailedTransactions {
 // VolatileDB
 // ----------------------------------------------------------------------------
 
-// NOTE: Once we implement ledger validation, we might want to maintain aggregated version(s) of
-// this sequence of _DiffSet_ at different points, such that one can easily lookup the volatile database
-// before reaching for the stable storage.
+// FIXME: Currently, the cache owns data that are also available in the sequence. We could
+// potentially avoid cloning and re-allocation altogether by sharing an allocator and having them
+// both reference from within that allocator (e.g. an arena allocator like bumpalo)
 //
-// Otherwise, we need to traverse the entire sequence for any query on the volatile state.
-type VolatileDB = VecDeque<VolatileState<Point>>;
+// Ideally, we would just have the struct be self-referenced, but that isn't possible in Rust and
+// we cannot introduce a lifetime to the VolatileDB (which would bubble up to the State).
+//
+// Another option is to have the cache not own data, but indices onto the sequence. This may
+// require to switch the sequence back to a Vec to allow fast random lookups.
+struct VolatileDB {
+    cache: VolatileCache,
+    sequence: VecDeque<VolatileState<Point>>,
+}
+
+impl VolatileDB {
+    pub fn new() -> Self {
+        VolatileDB {
+            cache: VolatileCache::default(),
+            sequence: VecDeque::new(),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        self.sequence.len()
+    }
+
+    pub fn view_back(&self) -> Option<&VolatileState<Point>> {
+        self.sequence.back()
+    }
+
+    pub fn pop_front(&mut self) -> Option<VolatileState<Point>> {
+        self.sequence.pop_front().inspect(|state| {
+            // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we
+            // remove them from the sequence to prevent the cache from growing out of proportion.
+            for k in state.utxo.consumed.iter() {
+                self.cache.utxo.consumed.remove(k);
+            }
+
+            for (k, _) in state.utxo.produced.iter() {
+                self.cache.utxo.produced.remove(k);
+            }
+        })
+    }
+
+    pub fn push_back(&mut self, state: VolatileState<Point>) {
+        // TODO: See NOTE on VolatileDB regarding the .clone()
+        self.cache.merge::<Point>(state.utxo.clone());
+        self.sequence.push_back(state);
+    }
+
+    pub fn rollback_to<E>(&mut self, point: &Point, on_unknown_point: E) -> Result<(), E> {
+        self.cache = VolatileCache::default();
+
+        let mut ix = 0;
+        for diff in self.sequence.iter() {
+            if diff.point.slot_or_default() <= point.slot_or_default() {
+                // TODO: See NOTE on VolatileDB regarding the .clone()
+                self.cache.merge::<Point>(diff.utxo.clone());
+                ix += 1;
+            }
+        }
+
+        if ix >= self.sequence.len() {
+            Err(on_unknown_point)
+        } else {
+            self.sequence.resize_with(ix, || {
+                unreachable!("ix is necessarly strictly smaller than the length")
+            });
+            Ok(())
+        }
+    }
+}
+
+// TODO: At this point, we only need to lookup UTxOs, so the aggregated cache is limited to those.
+// It would be relatively easy to extend to accounts, but it is trickier for pools since
+// DiffEpochReg aren't meant to be mergeable across epochs.
+#[derive(Default)]
+pub struct VolatileCache {
+    pub utxo: DiffSet<TransactionInput, TransactionOutput>,
+}
+
+impl VolatileCache {
+    pub fn merge<T>(&mut self, utxo: DiffSet<TransactionInput, TransactionOutput>) {
+        self.utxo.merge(utxo);
+    }
+}
 
 pub struct VolatileState<T> {
     pub point: T,
