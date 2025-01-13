@@ -56,14 +56,12 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 pub mod rocksdb {
     use super::Row;
     use crate::ledger::store::rocksdb::common::{as_value, PREFIX_LEN};
-    use rocksdb::{self, OptimisticTransactionDB, ThreadMode, Transaction};
+    use rocksdb::{self, Transaction};
 
     /// Name prefixed used for storing protocol pots. UTF-8 encoding for "pots"
     pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x74, 0x73];
 
-    pub fn get<T: ThreadMode>(
-        db: &OptimisticTransactionDB<T>,
-    ) -> Result<super::Row, rocksdb::Error> {
+    pub fn get<DB>(db: &Transaction<'_, DB>) -> Result<super::Row, rocksdb::Error> {
         Ok(super::Row::unsafe_decode(db.get(PREFIX)?.unwrap_or_else(
             || panic!("no protocol pots (treasury, reserves, fees, ...) found"),
         )))

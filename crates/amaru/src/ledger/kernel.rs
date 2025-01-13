@@ -81,6 +81,9 @@ pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
 
+// FIXME: Switch to BigInt or BigUInt eventually. Not doing it _now_ because of laziness, not
+// having to deal with serialisation and deserialisation of those right now; and also because so
+// far it isn't causing any problem.
 pub type Lovelace = u64;
 
 pub type Point = pallas_network::miniprotocols::Point;

@@ -1,9 +1,12 @@
 pub(crate) mod common;
 
 use crate::{
-    iter::{borrow as iter_borrow, borrow::IterBorrow},
+    iter::{
+        borrow as iter_borrow,
+        borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
+    },
     ledger::{
-        kernel::{Epoch, Point, PoolId},
+        kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
         store::{columns::*, Columns, Store},
     },
 };
@@ -15,7 +18,7 @@ use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, info, info_span, warn};
 
 const EVENT_TARGET: &str = "amaru::ledger::store";
 
@@ -176,6 +179,7 @@ impl Store for RocksDB {
             }
             _ => {
                 batch.put(KEY_TIP, as_value(point))?;
+
                 if let Some(issuer) = issuer {
                     slots::rocksdb::put(
                         &batch,
@@ -183,6 +187,7 @@ impl Store for RocksDB {
                         slots::Row::new(*issuer),
                     )?;
                 }
+
                 utxo::rocksdb::add(&batch, add.utxo)?;
                 pools::rocksdb::add(&batch, add.pools)?;
                 accounts::rocksdb::add(&batch, add.accounts)?;
@@ -207,19 +212,63 @@ impl Store for RocksDB {
         if snapshot == epoch {
             let path = self.dir.join(snapshot.to_string());
             checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
+
+            info_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
+                // TODO: If necessary, come up with a more efficient way of dropping a "table".
+                // RocksDB does support batch-removing of key ranges, but somehow, not in a
+                // transactional way. So it isn't as trivial to implement as it may seem.
+                self.with_block_issuers(|iterator| {
+                    for (_, mut row) in iterator {
+                        *row.borrow_mut() = None;
+                    }
+                })
+            })?;
+
+            info_span!(target: EVENT_TARGET, "reset.fees").in_scope(|| {
+                self.with_pots(|mut row| {
+                    row.borrow_mut().fees = 0;
+                })
+            })?;
+
             self.snapshots.push(snapshot);
         } else {
             info!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
         }
+
         Ok(())
     }
 
-    fn pots(&self) -> Result<pots::Row, Self::Error> {
-        pots::rocksdb::get(&self.db)
+    fn with_pots<A>(
+        &self,
+        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<pots::Row> + '_>) -> A,
+    ) -> Result<A, Self::Error> {
+        let db = self.db.transaction();
+
+        let mut err = None;
+        let proxy = Box::new(BorrowableProxy::new(pots::rocksdb::get(&db)?, |pots| {
+            let put = pots::rocksdb::put(&db, pots).and_then(|_| db.commit());
+            if let Err(e) = put {
+                err = Some(e);
+            }
+        }));
+
+        let result = with(proxy);
+
+        match err {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
     }
 
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error> {
         pools::rocksdb::get(&self.db, pool)
+    }
+
+    fn resolve_input(
+        &self,
+        input: &TransactionInput,
+    ) -> Result<Option<TransactionOutput>, Self::Error> {
+        utxo::rocksdb::get(&self.db, input)
     }
 
     fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {

@@ -1,9 +1,9 @@
 pub mod columns;
 pub mod rocksdb;
 
-use super::kernel::{Epoch, Point, PoolId};
+use super::kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
 use columns::*;
-use std::iter;
+use std::{borrow::BorrowMut, iter};
 
 // Store
 // ----------------------------------------------------------------------------
@@ -45,11 +45,20 @@ pub trait Store {
     /// decision entirely to the caller owning the store.
     fn next_snapshot(&mut self, epoch: Epoch) -> Result<(), Self::Error>;
 
-    /// Get details about a specific pool
+    /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error>;
 
+    /// Get details about a specific UTxO
+    fn resolve_input(
+        &self,
+        input: &TransactionInput,
+    ) -> Result<Option<TransactionOutput>, Self::Error>;
+
     /// Get current values of the treasury and reserves accounts.
-    fn pots(&self) -> Result<pots::Row, Self::Error>;
+    fn with_pots<A>(
+        &self,
+        with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>) -> A,
+    ) -> Result<A, Self::Error>;
 
     /// Provide an access to iterate over pools, in a way that enforces:
     ///
