@@ -1,7 +1,7 @@
 use crate::{consensus::ValidateHeaderEvent, ledger::kernel::epoch_from_slot, sync::PullEvent};
 use gasket::framework::*;
+use ouroboros::consensus::BlockValidator;
 use ouroboros::{ledger::LedgerState, validator::Validator};
-use ouroboros_praos::consensus::BlockValidator;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_primitives::conway::Epoch;
