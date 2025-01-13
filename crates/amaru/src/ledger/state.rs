@@ -123,6 +123,21 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                     db.next_snapshot(current_epoch - 1)
                         .map_err(ForwardErr::StorageErr)
                 })?;
+
+                info_span!(target: EVENT_TARGET, parent: span, "reset.blocks_count").in_scope(
+                    || {
+                        // TODO: If necessary, come up with a more efficient way of dropping a "table".
+                        // RocksDB does support batch-removing of key ranges, but somehow, not in a
+                        // transactional way. So it isn't as trivial to implement as it may seem.
+                        db.with_block_issuers(|iterator| {
+                            for (_, mut handle) in iterator {
+                                *handle.borrow_mut() = None;
+                            }
+                        })
+                        .map_err(ForwardErr::StorageErr)
+                    },
+                )?;
+
                 info_span!(target: EVENT_TARGET, parent: span, "tick.pool").in_scope(|| {
                     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
                     // how we tick with the _current epoch_ however, but we take the snapshot before
