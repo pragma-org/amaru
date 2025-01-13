@@ -1,4 +1,7 @@
-use crate::{consensus, ledger};
+use crate::{
+    consensus::{self, peer::PeerSession, Peer},
+    ledger,
+};
 use gasket::runtime::Tether;
 use opentelemetry::metrics::Counter;
 use pallas_crypto::hash::Hash;
@@ -52,8 +55,12 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
     let (mut ledger, tip) = ledger::Stage::new(&config.ledger_dir, config.counter.clone());
 
     let mut pull = pull::Stage::new(client.clone(), vec![tip]);
+    let peer_session = PeerSession {
+        peer: Peer::new(&config.upstream_peer),
+        peer_client: client.clone(),
+    };
     let mut header_validation =
-        consensus::Stage::new(client.clone(), ledger.state.clone(), config.nonces);
+        consensus::Stage::new(peer_session, ledger.state.clone(), config.nonces);
 
     let (to_header_validation, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
