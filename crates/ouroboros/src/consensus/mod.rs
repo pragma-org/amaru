@@ -375,7 +375,7 @@ impl Validator for BlockValidator<'_> {
 mod tests {
     use crate::consensus::BlockValidator;
     use crate::ledger::{MockLedgerState, PoolId, PoolSigma};
-    use crate::validator::Validator;
+    use crate::validator::{ValidationError, Validator};
     use ctor::ctor;
     use mockall::predicate::eq;
     use pallas_crypto::hash::Hash;
@@ -403,7 +403,7 @@ mod tests {
                 "c7937fc47fecbe687891b3decd71e904d1e129598aa3852481d295eea3ea3ada",
                 25626202470912_u64,
                 22586623335121436_u64,
-                true,
+                Ok(()),
             ),
             (
                 "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114",
@@ -411,7 +411,7 @@ mod tests {
                 "c7937fc47fecbe687891b3decd71e904d1e129598aa3852481d295eea3ea3ada",
                 6026202470912_u64,
                 22586623335121436_u64,
-                false,
+                Err(ValidationError::InvalidByteLength("".to_string())),
             ),
         ];
         insta::assert_yaml_snapshot!(test_vector);
@@ -455,16 +455,15 @@ mod tests {
                 .expect_latest_opcert_sequence_number()
                 .returning(|_| None);
 
-            let cbor = babbage_header.raw_cbor();
             let pseudo_header = Header::from(babbage_header.clone());
             let block_validator = BlockValidator::new(
                 &pseudo_header,
-                cbor,
+                test_block,
                 &ledger_state,
                 &epoch_nonce,
                 &active_slots_coeff,
             );
-            assert_eq!(block_validator.validate().is_ok(), expected);
+            assert_eq!(block_validator.validate(), expected);
         }
     }
 }

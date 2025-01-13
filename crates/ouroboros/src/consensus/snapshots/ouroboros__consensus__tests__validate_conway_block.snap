@@ -1,6 +1,6 @@
 ---
 source: crates/ouroboros/src/consensus/mod.rs
-assertion_line: 390
+assertion_line: 395
 expression: test_block_hex
 snapshot_kind: text
 ---

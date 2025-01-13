@@ -1,6 +1,7 @@
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Serialize, Deserialize)]
 pub enum ValidationError {
     // FIXME: This error is very unspecific and relies on textual representation
     // of underlying errors which could come from VRF, KES, or anything else.
