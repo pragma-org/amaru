@@ -15,10 +15,10 @@ pub type RawBlock = Vec<u8>;
 pub type Point = pallas_network::miniprotocols::Point;
 
 pub mod chain_selection;
+pub mod header;
 pub mod header_validation;
 pub mod nonce;
 pub mod peer;
-pub mod header;
 
 pub use peer::*;
 
@@ -92,11 +92,12 @@ impl gasket::framework::Worker<Stage> for Worker {
     async fn execute(&mut self, unit: &PullEvent, stage: &mut Stage) -> Result<(), WorkerError> {
         match unit {
             PullEvent::RollForward(point, raw_header) => {
-                let header : ConwayHeader = minicbor::decode(raw_header)
+                let header: ConwayHeader = minicbor::decode(raw_header)
                     .map_err(|e| miette!(e))
                     .or_panic()?;
 
                 let ledger = stage.ledger.lock().await;
+
                 assert_header(&header, raw_header, &stage.epoch_to_nonce, &*ledger)?;
 
                 // Make sure the Mutex is released as soon as possible

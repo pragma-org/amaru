@@ -15,5 +15,4 @@ snapshot_kind: text
   - c7937fc47fecbe687891b3decd71e904d1e129598aa3852481d295eea3ea3ada
   - 6026202470912
   - 22586623335121436
-  - Err:
-      InvalidByteLength: ""
+  - Err: InsufficientPoolStake
