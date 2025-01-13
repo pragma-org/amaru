@@ -5,6 +5,7 @@ use ouroboros::ledger::{MockLedgerState, PoolId, PoolSigma};
 use ouroboros::validator::Validator;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::FixedDecimal;
+use pallas_primitives::conway::Header;
 use pallas_traverse::MultiEraHeader;
 
 fn validate_conway_block() {
@@ -55,9 +56,10 @@ fn validate_conway_block() {
         ledger_state
             .expect_latest_opcert_sequence_number()
             .returning(|_| None);
-
+        let header = Header::from(babbage_header.clone());
         let block_validator = BlockValidator::new(
-            babbage_header,
+            &header,
+            test_block,
             &ledger_state,
             &epoch_nonce,
             &active_slots_coeff,
