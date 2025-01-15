@@ -27,6 +27,10 @@ jobs:
             target: aarch64-apple-darwin
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            optional: true
+            cross-compile: true
     timeout-minutes: 30
     runs-on: ${{ matrix.environments.runner }}
     steps:
@@ -40,7 +44,12 @@ jobs:
       - name: Run tests
         run: |
           set +e
-          cargo test-amaru --locked --target ${{ matrix.environments.target }}
+          if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
+            cargo install cross --git https://github.com/cross-rs/cross
+            $HOME/.cargo/bin/cross test-amaru --locked --all-features --workspace --target ${{ matrix.environments.target }}
+          else
+            cargo test-amaru --locked --target ${{ matrix.environments.target }}
+          fi
           exitcode="$?"
           if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
             # Propagate failure as a warning
