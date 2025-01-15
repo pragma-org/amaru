@@ -8,6 +8,7 @@ use std::env;
 mod cmd;
 mod config;
 mod exit;
+mod metrics;
 mod panic;
 
 pub const SERVICE_NAME: &str = "amaru";
@@ -39,7 +40,7 @@ async fn main() -> miette::Result<()> {
     let args = Cli::parse();
 
     let result = match args.command {
-        Command::Daemon(args) => cmd::daemon::run(args, counter).await,
+        Command::Daemon(args) => cmd::daemon::run(args, counter, metrics.clone()).await,
         Command::Import(args) => cmd::import::run(args).await,
     };
 
