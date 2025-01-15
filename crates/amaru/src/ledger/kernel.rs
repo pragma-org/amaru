@@ -8,6 +8,7 @@
 use num::{BigInt, BigRational};
 use once_cell::sync::Lazy;
 pub use ouroboros::ledger::PoolSigma;
+use pallas_addresses::*;
 pub use pallas_codec::{
     minicbor as cbor,
     utils::{Nullable, Set},
@@ -290,8 +291,6 @@ pub fn output_lovelace(output: &TransactionOutput) -> Lovelace {
 
 /// FIXME: See 'output_lovelace', same remark applies.
 pub fn output_stake_credential(output: &TransactionOutput) -> Option<StakeCredential> {
-    use pallas_addresses::*;
-
     let address = Address::from_bytes(match output {
         TransactionOutput::Legacy(legacy) => &legacy.address[..],
         TransactionOutput::PostAlonzo(modern) => &modern.address[..],
@@ -306,5 +305,18 @@ pub fn output_stake_credential(output: &TransactionOutput) -> Option<StakeCreden
         },
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
+    }
+}
+
+// This function shouldn't exist and pallas should provide a RewardAccount = (Network,
+// StakeCredential) out of the box instead of row bytes.
+pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<StakeCredential> {
+    if let Ok(Address::Stake(stake_addr)) = Address::from_bytes(&account[..]) {
+        match stake_addr.payload() {
+            StakePayload::Stake(key) => Some(StakeCredential::AddrKeyhash(*key)),
+            StakePayload::Script(script) => Some(StakeCredential::ScriptHash(*script)),
+        }
+    } else {
+        None
     }
 }

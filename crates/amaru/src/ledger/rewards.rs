@@ -312,6 +312,12 @@ impl PoolState {
         (left * right).floor().to_integer()
     }
 
+    /// The total rewards available to a pool, before it is split between the owner and the
+    /// delegators. It is also referred to as the pool rewards pot. Fundamentally, it is the
+    /// product of the pool (apparent) performances with its optimal rewards (the case where it is
+    /// fully saturated).
+    ///
+    /// The amount straight to zero if the pool doesn't meet its pledge.
     pub fn pool_rewards(
         &self,
         blocks_ratio: BigRational,
@@ -330,6 +336,9 @@ impl PoolState {
         }
     }
 
+    /// Portion of the pool rewards that go the owner and increment the pool's registered reward
+    /// account. It corresponds to the fixed cost and margin of the pool. The remainder, if any, is
+    /// shared amongst delegators.
     pub fn leader_rewards(
         &self,
         pool_rewards: BigInt,
@@ -338,14 +347,14 @@ impl PoolState {
     ) -> BigInt {
         let cost: BigInt = self.parameters.cost.into();
 
-        let margin: BigRational = BigRational::new(
-            self.parameters.margin.numerator.into(),
-            self.parameters.margin.denominator.into(),
-        );
-
         if pool_rewards <= cost {
             pool_rewards
         } else {
+            let margin: BigRational = BigRational::new(
+                self.parameters.margin.numerator.into(),
+                self.parameters.margin.denominator.into(),
+            );
+
             let member_rewards: BigInt = pool_rewards - &cost;
 
             let relative_stake = self.relative_stake(&total_stake);
@@ -362,6 +371,44 @@ impl PoolState {
                 &margin + (one - &margin) * &owner_stake_ratio / relative_stake;
 
             cost + (margin_factor * member_rewards).floor().to_integer()
+        }
+    }
+
+    /// Portion of the pool rewards going to a specific member. Note that pool operators receive
+    /// leader rewards and are therefore excluded from the member rewards.
+    pub fn member_rewards(
+        &self,
+        member: &StakeCredential,
+        pool_rewards: &BigInt,
+        member_stake: &BigInt,
+        total_stake: &BigInt,
+    ) -> BigInt {
+        let is_owner = match member {
+            StakeCredential::ScriptHash(..) => false,
+            StakeCredential::AddrKeyhash(key) => self.parameters.owners.contains(key),
+        };
+
+        if is_owner {
+            BigInt::ZERO
+        } else {
+            let cost: BigInt = self.parameters.cost.into();
+
+            if pool_rewards <= &cost {
+                BigInt::ZERO
+            } else {
+                let margin: BigRational = BigRational::new(
+                    self.parameters.margin.numerator.into(),
+                    self.parameters.margin.denominator.into(),
+                );
+
+                let member_relative_stake =
+                    BigRational::new(member_stake.to_owned(), total_stake.to_owned());
+
+                ((BigRational::one() - margin) * (pool_rewards - cost) * member_relative_stake
+                    / self.relative_stake(total_stake))
+                .floor()
+                .to_integer()
+            }
         }
     }
 }
@@ -393,8 +440,8 @@ pub struct Pots {
     pub fees: BigInt,
 }
 
-impl From<pots::Row> for Pots {
-    fn from(pots: pots::Row) -> Pots {
+impl From<&pots::Row> for Pots {
+    fn from(pots: &pots::Row) -> Pots {
         Pots {
             treasury: pots.treasury.into(),
             reserves: pots.reserves.into(),
@@ -440,12 +487,19 @@ pub struct RewardsSummary {
     /// Remaining rewards available to stake pools (and delegators)
     pub available_rewards: BigInt,
 
+    /// Effective amount of rewards _actually given out_. The surplus is "sent back"
+    /// to the reserves.
+    pub effective_rewards: BigInt,
+
     /// Various protocol money pots pertaining to the epoch
     pub pots: Pots,
 
     /// Per-pool rewards determined from their (apparent) performances, available rewards and
     /// relative stake.
     pub pools: BTreeMap<PoolId, PoolRewards>,
+
+    /// Per-account rewards, determined from their relative stake and their delegatee.
+    pub accounts: BTreeMap<StakeCredential, BigInt>,
 }
 
 impl serde::Serialize for RewardsSummary {
@@ -480,11 +534,9 @@ impl serde::Serialize for RewardsSummary {
 impl RewardsSummary {
     pub fn new<E>(
         db: &impl Store<Error = E>,
-        snapshot: &StakeDistributionSnapshot,
+        snapshot: StakeDistributionSnapshot,
     ) -> Result<Self, E> {
-        let epoch = db.most_recent_snapshot() - 2;
-
-        let pots: Pots = db.pots()?.into();
+        let pots = db.with_pots(|entry| Pots::from(entry.borrow()))?;
 
         let mut blocks_count = BigInt::ZERO;
         let mut pools_blocks = BTreeMap::new();
@@ -521,6 +573,8 @@ impl RewardsSummary {
 
         let total_stake: BigInt = MAX_LOVELACE_SUPPLY - &pots.reserves;
 
+        let mut effective_rewards = BigInt::ZERO;
+
         let pools = snapshot
             .pools
             .iter()
@@ -538,14 +592,15 @@ impl RewardsSummary {
                     &owner_stake,
                 );
 
+                let rewards_leader =
+                    pool.leader_rewards(rewards_pot.clone(), owner_stake, total_stake.clone());
+
+                effective_rewards += &rewards_leader;
+
                 pools.insert(
                     *pool_id,
                     PoolRewards {
-                        leader: pool.leader_rewards(
-                            rewards_pot.clone(),
-                            owner_stake,
-                            total_stake.clone(),
-                        ),
+                        leader: rewards_leader,
                         pot: rewards_pot,
                     },
                 );
@@ -553,15 +608,37 @@ impl RewardsSummary {
                 pools
             });
 
+        let mut accounts: BTreeMap<StakeCredential, BigInt> = BTreeMap::new();
+        let mut member_rewards = |credential: StakeCredential, st: AccountState| {
+            if let Some(pool) = snapshot.pools.get(&st.pool) {
+                if let Some(PoolRewards { pot, .. }) = pools.get(&st.pool) {
+                    let member_rewards =
+                        pool.member_rewards(&credential, pot, &st.lovelace, &total_stake);
+                    effective_rewards += &member_rewards;
+                    accounts.insert(credential, member_rewards);
+                }
+            }
+        };
+
+        for (key, st) in snapshot.keys.into_iter() {
+            member_rewards(StakeCredential::AddrKeyhash(key), st)
+        }
+
+        for (script, st) in snapshot.scripts.into_iter() {
+            member_rewards(StakeCredential::ScriptHash(script), st)
+        }
+
         Ok(RewardsSummary {
-            epoch,
+            epoch: snapshot.epoch,
             efficiency,
             incentives,
             total_rewards,
             treasury_tax,
             available_rewards,
+            effective_rewards,
             pots,
             pools,
+            accounts,
         })
     }
 }
@@ -596,16 +673,16 @@ mod tests {
         StakeDistributionSnapshot::new(&db).unwrap()
     }
 
-    fn fixture_rewards_summary(snapshot: &StakeDistributionSnapshot) -> RewardsSummary {
+    fn fixture_rewards_summary(snapshot: StakeDistributionSnapshot) -> RewardsSummary {
         let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), snapshot.epoch + 2).unwrap();
         RewardsSummary::new(&db, snapshot).unwrap()
     }
 
     fn compare_preprod_snapshot(epoch: Epoch) {
         let snapshot = fixture_stake_distribution_snapshot(epoch);
-        insta::assert_json_snapshot!(format!("stake_distribution_{epoch}"), snapshot);
-        let rewards_summary = fixture_rewards_summary(&snapshot);
-        insta::assert_json_snapshot!(format!("rewards_summary_{epoch}"), rewards_summary);
+        insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), snapshot);
+        let rewards_summary = fixture_rewards_summary(snapshot);
+        insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
     }
 
     #[test]
