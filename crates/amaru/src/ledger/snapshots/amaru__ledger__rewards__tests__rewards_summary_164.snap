@@ -10,8 +10,8 @@ expression: rewards_summary
   "treasury_tax": 6224975472889,
   "available_rewards": 24899901891558,
   "pots": {
-    "treasury": null,
-    "reserves": null,
+    "treasury": 1082827652320076,
+    "reserves": 13893619082940470,
     "fees": 16678303880
   },
   "pools": {

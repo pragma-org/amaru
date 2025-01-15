@@ -46,6 +46,9 @@ pub const ACTIVE_SLOT_COEFF_INVERSE: usize = 20;
 pub const SHELLEY_EPOCH_LENGTH: usize =
     ACTIVE_SLOT_COEFF_INVERSE * SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
 
+/// Relative slot from which data of the previous epoch can be considered stable.
+pub const STABILITY_WINDOW: usize = ACTIVE_SLOT_COEFF_INVERSE * CONSENSUS_SECURITY_PARAM * 2;
+
 /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
 pub const BYRON_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
 

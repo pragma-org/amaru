@@ -64,7 +64,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     db.save(&point, None, Default::default(), Default::default())
         .into_diagnostic()?;
 
-    db.next_snapshot(epoch).into_diagnostic()?;
+    db.next_snapshot(epoch, None).into_diagnostic()?;
 
     db.with_pools(|iterator| {
         for (_, pool) in iterator {

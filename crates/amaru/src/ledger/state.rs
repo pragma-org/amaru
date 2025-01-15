@@ -4,10 +4,12 @@ pub mod diff_set;
 
 use crate::ledger::{
     kernel::{
-        block_point, epoch_from_slot, output_lovelace, relative_slot, Certificate, Epoch, Hash,
-        Hasher, Lovelace, MintedBlock, Point, PoolId, PoolParams, PoolSigma, StakeCredential,
-        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STAKE_CREDENTIAL_DEPOSIT,
+        self, block_point, epoch_from_slot, output_lovelace, Certificate, Epoch, Hash, Hasher,
+        Lovelace, MintedBlock, Point, PoolId, PoolParams, PoolSigma, StakeCredential,
+        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
+        STAKE_CREDENTIAL_DEPOSIT,
     },
+    rewards::RewardsSummary,
     store::{self, columns::*, Store},
 };
 use diff_bind::DiffBind;
@@ -44,6 +46,10 @@ where
 
     /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
+
+    /// The computed rewards summary to be applied on the next epoch boundary. This is computed
+    /// once in the epoch, and held until the end where it is reset.
+    rewards_summary: Option<RewardsSummary>,
 }
 
 impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
@@ -62,6 +68,8 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             //     done on restart easily. To be measured; if this turns out to be too slow, we
             //     views of the volatile DB on-disk to be able to restore them quickly.
             volatile: VolatileDB::new(),
+
+            rewards_summary: None,
         }
     }
 
@@ -87,6 +95,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     pub fn forward(&mut self, span: &Span, block: MintedBlock<'_>) -> Result<(), ForwardErr<E>> {
         let point = block_point(&block);
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+        let relative_slot = kernel::relative_slot(point.slot_or_default());
 
         let span_apply_block = info_span!(
             target: EVENT_TARGET,
@@ -123,7 +132,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 // transaction. If we interrupt the application between any of those, we might end
                 // up with a corrupted state.
                 info_span!(target: EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
-                    db.next_snapshot(current_epoch - 1)
+                    db.next_snapshot(current_epoch - 1, self.rewards_summary.take())
                         .map_err(ForwardErr::StorageErr)
                 })?;
 
@@ -151,12 +160,20 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                     })
                     .map_err(ForwardErr::StorageErr)
             })?;
+
+            // Once we reach the stability window,
+            if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
+                self.rewards_summary = Some(
+                    db.rewards_summary(current_epoch - 1)
+                        .map_err(ForwardErr::StorageErr)?,
+                );
+            }
         } else {
             info!(target: EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
         }
 
         span.record("tip.epoch", epoch_from_slot(point.slot_or_default()));
-        span.record("tip.relative_slot", relative_slot(point.slot_or_default()));
+        span.record("tip.relative_slot", relative_slot);
 
         self.volatile.push_back(state.anchor(point, issuer));
 

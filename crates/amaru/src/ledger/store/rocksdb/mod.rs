@@ -7,7 +7,8 @@ use crate::{
     },
     ledger::{
         kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
-        store::{columns::*, Columns, Store},
+        rewards::StakeDistributionSnapshot,
+        store::{columns::*, Columns, RewardsSummary, Store},
     },
 };
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
@@ -207,10 +208,50 @@ impl Store for RocksDB {
             .unwrap_or_else(|| panic!("called 'most_recent_snapshot' on empty database?!"))
     }
 
-    fn next_snapshot(&'_ mut self, epoch: Epoch) -> Result<(), Self::Error> {
+    fn next_snapshot(
+        &'_ mut self,
+        epoch: Epoch,
+        rewards_summary: Option<RewardsSummary>,
+    ) -> Result<(), Self::Error> {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             let path = self.dir.join(snapshot.to_string());
+
+            if let Some(rewards_summary) = rewards_summary {
+                info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
+                    self.with_accounts(|iterator| {
+                        for (account, mut row) in iterator {
+                            if let Some(rewards) = rewards_summary.accounts.get(&account) {
+                                // TODO: We should really store Big(U)Int internally...
+                                if let Some(account) = row.borrow_mut() {
+                                    account.rewards += u64::try_from(rewards).unwrap_or_else(|_| {
+                                        unreachable!("rewards always fit in a u64; otherwise we've exceeded the max Ada supply.")
+                                    });
+                                }
+                            }
+                        }
+                    })
+                })?;
+
+                info_span!(target: EVENT_TARGET, "snapshot.adjusting_pots").in_scope(|| {
+                    self.with_pots(|mut row| {
+                        let pots = row.borrow_mut();
+                        pots.treasury += u64::try_from(&rewards_summary.treasury_tax).unwrap_or_else(|_| {
+                            unreachable!("rewards always fit in a u64; otherwise we've exceeded the max Ada supply.")
+                        });
+                        pots.reserves -= u64::try_from(
+                            &rewards_summary.incentives -
+                            &rewards_summary.available_rewards +
+                            &rewards_summary.effective_rewards
+                        ).unwrap_or_else(|_| {
+                            unreachable!("rewards always fit in a u64; otherwise we've exceeded the max Ada supply.")
+                        });
+                    })
+                })?;
+            } else {
+                warn!(target: EVENT_TARGET, "snapshot.no_rewards");
+            }
+
             checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
 
             info_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
@@ -236,6 +277,27 @@ impl Store for RocksDB {
         }
 
         Ok(())
+    }
+
+    fn rewards_summary(&self, epoch: Epoch) -> Result<RewardsSummary, Self::Error> {
+        let stake_distr = StakeDistributionSnapshot::new(
+            &Self::from_snapshot(&self.dir, epoch - 2).unwrap_or_else(|e| {
+                panic!(
+                    "unable to open database snapshot for epoch {:?}: {:?}",
+                    epoch - 2,
+                    e
+                )
+            }),
+        )?;
+        RewardsSummary::new(
+            &Self::from_snapshot(&self.dir, epoch).unwrap_or_else(|e| {
+                panic!(
+                    "unable to open database snapshot for epoch {:?}: {:?}",
+                    epoch, e
+                )
+            }),
+            stake_distr,
+        )
     }
 
     fn with_pots<A>(
