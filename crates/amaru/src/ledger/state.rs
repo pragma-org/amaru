@@ -69,7 +69,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     /// applied to the ledger.
     pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.view_back() {
-            return Cow::Borrowed(&st.point);
+            return Cow::Borrowed(&st.anchor.0);
         }
 
         Cow::Owned(
@@ -107,7 +107,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 unreachable!("pre-condition: self.volatile.len() >= CONSENSUS_SECURITY_PARAM")
             });
 
-            let current_epoch = epoch_from_slot(now_stable.point.slot_or_default());
+            let current_epoch = epoch_from_slot(now_stable.anchor.0.slot_or_default());
             span.record("stable.epoch", current_epoch);
 
             // Note: the volatile sequence may contain points belonging to two epochs. We diligently
@@ -119,24 +119,13 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
             // we must snapshot the one _just before_.
             if current_epoch > db.most_recent_snapshot() + 1 {
+                // FIXME: All operations below should technically happen in the same database
+                // transaction. If we interrupt the application between any of those, we might end
+                // up with a corrupted state.
                 info_span!(target: EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
                     db.next_snapshot(current_epoch - 1)
                         .map_err(ForwardErr::StorageErr)
                 })?;
-
-                info_span!(target: EVENT_TARGET, parent: span, "reset.blocks_count").in_scope(
-                    || {
-                        // TODO: If necessary, come up with a more efficient way of dropping a "table".
-                        // RocksDB does support batch-removing of key ranges, but somehow, not in a
-                        // transactional way. So it isn't as trivial to implement as it may seem.
-                        db.with_block_issuers(|iterator| {
-                            for (_, mut handle) in iterator {
-                                *handle.borrow_mut() = None;
-                            }
-                        })
-                        .map_err(ForwardErr::StorageErr)
-                    },
-                )?;
 
                 info_span!(target: EVENT_TARGET, parent: span, "tick.pool").in_scope(|| {
                     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
@@ -151,10 +140,10 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 })?;
             }
 
-            let (fees, add, remove) = now_stable.into_store_update();
+            let (stable_point, stable_issuer, fees, add, remove) = now_stable.into_store_update();
 
             info_span!(target: EVENT_TARGET, parent: span, "save").in_scope(|| {
-                db.save(&point, Some(&issuer), Some(fees), add, remove)
+                db.save(&stable_point, Some(&stable_issuer), add, remove)
                     .and_then(|()| {
                         db.with_pots(|mut row| {
                             row.borrow_mut().fees += fees;
@@ -169,7 +158,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         span.record("tip.epoch", epoch_from_slot(point.slot_or_default()));
         span.record("tip.relative_slot", relative_slot(point.slot_or_default()));
 
-        self.volatile.push_back(state.anchor(point));
+        self.volatile.push_back(state.anchor(point, issuer));
 
         Ok(())
     }
@@ -208,13 +197,15 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             let output = ongoing_state
                 .resolve_input(input)
                 .or_else(|| self.volatile.resolve_input(input))
-                .map(|r| Ok(Cow::Borrowed(r)))
-                .transpose()
-                .or_else(|_: E| {
+                .map(|o| Ok(Cow::Borrowed(o)))
+                .unwrap_or_else(|| {
                     let db = self.stable.lock().unwrap();
-                    db.resolve_input(input).map(|opt| opt.map(Cow::Owned))
-                })?
-                .unwrap_or_else(|| panic!("unknown UTxO expected to be known: {input:?}!"));
+                    db.resolve_input(input).map(|opt| {
+                        Cow::Owned(opt.unwrap_or_else(|| {
+                            panic!("unknown UTxO expected to be known: {input:?}!")
+                        }))
+                    })
+                })?;
 
             result.push((input, output));
         }
@@ -530,7 +521,7 @@ impl FailedTransactions {
 // require to switch the sequence back to a Vec to allow fast random lookups.
 struct VolatileDB {
     cache: VolatileCache,
-    sequence: VecDeque<VolatileState<Point>>,
+    sequence: VecDeque<VolatileState<(Point, PoolId)>>,
 }
 
 impl VolatileDB {
@@ -545,7 +536,7 @@ impl VolatileDB {
         self.sequence.len()
     }
 
-    pub fn view_back(&self) -> Option<&VolatileState<Point>> {
+    pub fn view_back(&self) -> Option<&VolatileState<(Point, PoolId)>> {
         self.sequence.back()
     }
 
@@ -556,10 +547,10 @@ impl VolatileDB {
     pub fn iter_pools(&self) -> impl Iterator<Item = (Epoch, &DiffEpochReg<PoolId, PoolParams>)> {
         self.sequence
             .iter()
-            .map(|st| (epoch_from_slot(st.point.slot_or_default()), &st.pools))
+            .map(|st| (epoch_from_slot(st.anchor.0.slot_or_default()), &st.pools))
     }
 
-    pub fn pop_front(&mut self) -> Option<VolatileState<Point>> {
+    pub fn pop_front(&mut self) -> Option<VolatileState<(Point, PoolId)>> {
         self.sequence.pop_front().inspect(|state| {
             // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we
             // remove them from the sequence to prevent the cache from growing out of proportion.
@@ -573,7 +564,7 @@ impl VolatileDB {
         })
     }
 
-    pub fn push_back(&mut self, state: VolatileState<Point>) {
+    pub fn push_back(&mut self, state: VolatileState<(Point, PoolId)>) {
         // TODO: See NOTE on VolatileDB regarding the .clone()
         self.cache.merge::<Point>(state.utxo.clone());
         self.sequence.push_back(state);
@@ -584,7 +575,7 @@ impl VolatileDB {
 
         let mut ix = 0;
         for diff in self.sequence.iter() {
-            if diff.point.slot_or_default() <= point.slot_or_default() {
+            if diff.anchor.0.slot_or_default() <= point.slot_or_default() {
                 // TODO: See NOTE on VolatileDB regarding the .clone()
                 self.cache.merge::<Point>(diff.utxo.clone());
                 ix += 1;
@@ -616,8 +607,8 @@ impl VolatileCache {
     }
 }
 
-pub struct VolatileState<T> {
-    pub point: T,
+pub struct VolatileState<A> {
+    pub anchor: A,
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, Lovelace>,
@@ -627,7 +618,7 @@ pub struct VolatileState<T> {
 impl Default for VolatileState<()> {
     fn default() -> Self {
         Self {
-            point: (),
+            anchor: (),
             utxo: Default::default(),
             pools: Default::default(),
             accounts: Default::default(),
@@ -637,9 +628,9 @@ impl Default for VolatileState<()> {
 }
 
 impl VolatileState<()> {
-    pub fn anchor(self, point: Point) -> VolatileState<Point> {
+    pub fn anchor(self, point: Point, issuer: PoolId) -> VolatileState<(Point, PoolId)> {
         VolatileState {
-            point,
+            anchor: (point, issuer),
             utxo: self.utxo,
             pools: self.pools,
             accounts: self.accounts,
@@ -652,10 +643,12 @@ impl VolatileState<()> {
     }
 }
 
-impl VolatileState<Point> {
+impl VolatileState<(Point, PoolId)> {
     pub fn into_store_update(
         self,
     ) -> (
+        Point,
+        PoolId,
         Lovelace,
         store::Columns<
             impl Iterator<Item = utxo::Add>,
@@ -668,9 +661,11 @@ impl VolatileState<Point> {
             impl Iterator<Item = accounts::Remove>,
         >,
     ) {
-        let epoch = epoch_from_slot(self.point.slot_or_default());
+        let epoch = epoch_from_slot(self.anchor.0.slot_or_default());
 
         (
+            self.anchor.0,
+            self.anchor.1,
             self.fees,
             store::Columns {
                 utxo: self.utxo.produced.into_iter(),
