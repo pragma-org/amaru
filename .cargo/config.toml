@@ -1,6 +1,6 @@
 # Find the full list of available options here: https://doc.rust-lang.org/cargo/reference/config.html
 
 [alias]
-acfmt = "fmt --all -- --check"
-aclippy = "clippy --workspace --all-targets --all-features -- -D warnings"
-atest = "test --workspace --all-targets --all-features "
+fmt-amaru = "fmt --all -- --check"
+clippy-amaru = "clippy --workspace --all-targets --all-features -- -D warnings"
+test-amaru = "test --workspace --all-targets --all-features "

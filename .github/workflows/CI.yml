@@ -34,14 +34,14 @@ jobs:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
       - name: Check format
-        run: cargo acfmt
+        run: cargo fmt-amaru
       - name: Run clippy
-        run: cargo aclippy
+        run: cargo clippy-amaru
       - run: rustup target add ${{ matrix.environments.target }}
       - name: Run tests
         run: |
           set +e
-          cargo atest --locked --target ${{ matrix.environments.target }}
+          cargo test-amaru --locked --target ${{ matrix.environments.target }}
           exitcode="$?"
           if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
             # Propagate failure as a warning
