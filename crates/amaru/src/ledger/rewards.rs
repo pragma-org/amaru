@@ -106,11 +106,11 @@ use std::collections::BTreeMap;
 /// delegated to a registered stake pool.
 #[derive(Debug)]
 pub struct StakeDistributionSnapshot {
-    pub epoch: Epoch,
-    pub active_stake: BigInt,
-    pub keys: BTreeMap<Hash<28>, AccountState>,
-    pub scripts: BTreeMap<Hash<28>, AccountState>,
-    pub pools: BTreeMap<PoolId, PoolState>,
+    epoch: Epoch,
+    active_stake: BigInt,
+    keys: BTreeMap<Hash<28>, AccountState>,
+    scripts: BTreeMap<Hash<28>, AccountState>,
+    pools: BTreeMap<PoolId, PoolState>,
 }
 
 impl StakeDistributionSnapshot {
@@ -479,42 +479,42 @@ impl serde::Serialize for Pots {
 pub struct RewardsSummary {
     /// Epoch number for this summary. Note that the summary is computed during the
     /// following epoch.
-    pub epoch: Epoch,
+    epoch: Epoch,
 
     /// The ratio of total blocks produced in the epoch, over the expected number of blocks
     /// (determined by protocol parameters).
-    pub efficiency: BigRational,
+    efficiency: BigRational,
 
     /// The amount of Ada taken out of the reserves as incentivies at this particular epoch
     /// (a.k.a ΔR1).
     /// It is so-to-speak, the monetary inflation of the network that fuels the incentives.
-    pub incentives: BigInt,
+    incentives: BigInt,
 
     /// Total amount of rewards available before the treasury tax.
     /// In particular, we have:
     ///
     ///   total_rewards = treasury_tax + available_rewards
-    pub total_rewards: BigInt,
+    total_rewards: BigInt,
 
     /// Portion of the rewards going to the treasury (irrespective of unallocated pool rewards).
-    pub treasury_tax: BigInt,
+    treasury_tax: BigInt,
 
     /// Remaining rewards available to stake pools (and delegators)
-    pub available_rewards: BigInt,
+    available_rewards: BigInt,
 
     /// Effective amount of rewards _actually given out_. The surplus is "sent back"
     /// to the reserves.
-    pub effective_rewards: BigInt,
+    effective_rewards: BigInt,
 
     /// Various protocol money pots pertaining to the epoch at the beginning of the rewards calculation.
-    pub pots: Pots,
+    pots: Pots,
 
     /// Per-pool rewards determined from their (apparent) performances, available rewards and
     /// relative stake.
-    pub pools: BTreeMap<PoolId, PoolRewards>,
+    pools: BTreeMap<PoolId, PoolRewards>,
 
     /// Per-account rewards, determined from their relative stake and their delegatee.
-    pub accounts: BTreeMap<StakeCredential, BigInt>,
+    accounts: BTreeMap<StakeCredential, BigInt>,
 }
 
 impl serde::Serialize for RewardsSummary {
@@ -657,14 +657,46 @@ impl RewardsSummary {
         })
     }
 
-    /// Amount to be depleted from the reserves at the end of an epoch.
+    /// Amount to be depleted from the reserves at the epoch boundary.
     pub fn delta_reserves(&self) -> Lovelace {
-        u64::try_from(&self.incentives - &self.available_rewards + &self.effective_rewards)
+        Lovelace::try_from(&self.incentives - &self.available_rewards + &self.effective_rewards)
             .unwrap_or_else(|_| {
-                unreachable!(
-                "delta reserves always fits in a u64; otherwise we've exceeded the max Ada supply."
-            )
+                unreachable!("delta reserves always fits in a u64; otherwise we've exceeded the max Ada supply.")
             })
+    }
+
+    /// Amount to be added to the treasury at the epoch boundary.
+    pub fn delta_treasury(&self) -> Lovelace {
+        Lovelace::try_from(&self.treasury_tax).unwrap_or_else(|_| {
+            unreachable!(
+                "treasury always fit in a u64; otherwise we've exceeded the max Ada supply."
+            )
+        })
+    }
+
+    /// Fetch and remove from the summary rewards pertaining to a given account, if any.
+    pub fn extract_rewards(&mut self, account: &StakeCredential) -> Option<Lovelace> {
+        self.accounts.remove(account).map(|rewards| {
+            Lovelace::try_from(rewards).unwrap_or_else(|_| {
+                unreachable!(
+                    "rewards always fit in a u64; otherwise we've exceeded the max Ada supply."
+                )
+            })
+        })
+    }
+
+    /// Return leftovers rewards that couldn't be allocated to account because they no longer
+    /// exist. This method consumes (i.e. takes ownership) of the item because it is meant to be
+    /// called last.
+    pub fn unclaimed_rewards(self) -> Lovelace {
+        self.accounts.into_iter().fold(0, |total, (_, rewards)| {
+            total
+                + Lovelace::try_from(rewards).unwrap_or_else(|_| {
+                    unreachable!(
+                    "rewards always fits in a u64; otherwise we've exceeded the max Ada supply."
+                )
+                })
+        })
     }
 }
 

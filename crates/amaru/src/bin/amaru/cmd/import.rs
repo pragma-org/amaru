@@ -212,19 +212,21 @@ fn decode_new_epoch_state(
 
         let delta_reserves: i64 = d.decode().into_diagnostic()?;
 
-        let rewards: HashMap<StakeCredential, Set<Reward>> = d.decode().into_diagnostic()?;
+        let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode().into_diagnostic()?;
         let delta_fees: i64 = d.decode().into_diagnostic()?;
 
         // NonMyopic
         d.skip().into_diagnostic()?;
 
-        import_accounts(db, accounts, rewards)?;
+        import_accounts(db, accounts, &mut rewards)?;
 
-        // TODO: Also add the total of unregistered rewards, that is, rewards supposed to go to stake
-        // credentials that are no longer registered going to the treasury instead.
+        let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
+            total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
+        });
+
         import_pots(
             db,
-            (treasury + delta_treasury) as u64,
+            (treasury + delta_treasury) as u64 + unclaimed_rewards,
             (reserves - delta_reserves) as u64,
             (fees - delta_fees) as u64,
         )?;
@@ -379,7 +381,7 @@ fn import_pots(
 fn import_accounts(
     db: &store::rocksdb::RocksDB,
     accounts: HashMap<StakeCredential, Account>,
-    rewards_updates: HashMap<StakeCredential, Set<Reward>>,
+    rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
 ) -> miette::Result<()> {
     db.with_accounts(|iterator| {
         for (_, mut handle) in iterator {
@@ -402,7 +404,7 @@ fn import_accounts(
                 let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
                     .unwrap_or((0, STAKE_CREDENTIAL_DEPOSIT as u64));
 
-                let rewards_update = match rewards_updates.get(&credential) {
+                let rewards_update = match rewards_updates.remove(&credential) {
                     None => 0,
                     Some(set) => set.iter().fold(0, |total, update| total + update.amount),
                 };

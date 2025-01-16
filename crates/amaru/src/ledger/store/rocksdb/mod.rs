@@ -211,34 +211,17 @@ impl Store for RocksDB {
     fn next_snapshot(
         &'_ mut self,
         epoch: Epoch,
-        rewards_summary: Option<RewardsSummary>,
+        mut rewards_summary: Option<RewardsSummary>,
     ) -> Result<(), Self::Error> {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             let path = self.dir.join(snapshot.to_string());
 
-            if let Some(rewards_summary) = rewards_summary {
-                info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
-                    self.with_accounts(|iterator| {
-                        for (account, mut row) in iterator {
-                            if let Some(rewards) = rewards_summary.accounts.get(&account) {
-                                // TODO: We should really store Big(U)Int internally...
-                                if let Some(account) = row.borrow_mut() {
-                                    account.rewards += u64::try_from(rewards).unwrap_or_else(|_| {
-                                        unreachable!("rewards always fit in a u64; otherwise we've exceeded the max Ada supply.")
-                                    });
-                                }
-                            }
-                        }
-                    })
-                })?;
-
+            if let Some(ref rewards_summary) = rewards_summary {
                 info_span!(target: EVENT_TARGET, "snapshot.adjusting_pots").in_scope(|| {
                     self.with_pots(|mut row| {
                         let pots = row.borrow_mut();
-                        pots.treasury += u64::try_from(&rewards_summary.treasury_tax).unwrap_or_else(|_| {
-                            unreachable!("rewards always fit in a u64; otherwise we've exceeded the max Ada supply.")
-                        });
+                        pots.treasury += rewards_summary.delta_treasury();
                         pots.reserves -= rewards_summary.delta_reserves();
                     })
                 })?;
@@ -247,6 +230,32 @@ impl Store for RocksDB {
             }
 
             checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
+
+            if let Some(ref mut rewards_summary) = rewards_summary {
+                info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
+                    self.with_accounts(|iterator| {
+                        for (account, mut row) in iterator {
+                            if let Some(rewards) = rewards_summary.extract_rewards(&account) {
+                                if let Some(account) = row.borrow_mut() {
+                                    account.rewards += rewards;
+                                }
+                            }
+                        }
+                    })
+                })?;
+            }
+
+            let unclaimed_rewards = rewards_summary
+                .map(|summary| summary.unclaimed_rewards())
+                .unwrap_or(0);
+
+            if unclaimed_rewards > 0 {
+                Self::from_snapshot(&self.dir, epoch)
+                    .unwrap()
+                    .with_pots(|mut row| {
+                        row.borrow_mut().treasury += unclaimed_rewards;
+                    })?;
+            }
 
             info_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
                 // TODO: If necessary, come up with a more efficient way of dropping a "table".
