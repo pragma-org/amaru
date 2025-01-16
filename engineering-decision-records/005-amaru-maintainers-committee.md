@@ -21,27 +21,19 @@ In order to manage the decision making on the project and have a compelling prod
 
 Here is the new composition of the Amaru maintainers committee (scope owners of the project):
 
-| Matthias Benkort <br/> [@KtorZ][] | Santiago Carmuega <br/> [@scarmuega][] |Andrew Westberg <br/> [@AndrewWestberg][] |  Arnaud Bailly <br/> [@abailly][] | Chris Gianelloni <br/> [@wolf31o2][] |
-| ---                               | ---                                           | ---                            | ---                            | ---                                                      |
+| Matthias Benkort <br/> <img src="https://github.com/ktorz.png" width=50 height=50 /> <br/> [@KtorZ][] | Santiago Carmuega <br/> <img src="https://github.com/scarmuega.png" width=50 height=50 /> <br/> [@scarmuega][] | Pi Lanningham <br/> <img src="https://github.com/quantumplation.png" width=50 height=50 /> <br/> [@QuantumPlation][] |  Arnaud Bailly <br/> <img src="https://github.com/abailly.png" width=50 height=50 /> <br/> [@abailly][] | Chris Gianelloni <br/> <img src="https://github.com/wolf31o2.png" width=50 height=50 /> <br/> [@wolf31o2][] |
+| --- | --- | --- | --- | --- |
+| Ledger & integration | Networking & UTxO RPC | Mempool & Middleware | Consensus | Ops & UTxO RPC | 
+
 
 [@KtorZ]: https://github.com/ktorz
 [@scarmuega]: https://github.com/scarmuega
-[@AndrewWestberg]: https://github.com/AndrewWestberg
+[@Quantumplation]: https://github.com/Quantumplation
 [@abailly]: https://github.com/abailly
 [@wolf31o2]: https://github.com/wolf31o2
 
+[Matthias Benkort - @KtorZ](https://github.com/KtorZ) provides the ultimate voice in decision-making regarding final integration and architectural designs. Furthermore, Amaru has close relationship with the following projects and their respective owners:
 
-The maintainer committee will be having a close relationship with the following scope owners:
-![2024_11_26_Bounded_Context_v2](https://github.com/user-attachments/assets/78651029-58dc-4983-b683-740968344354)
-- Amaru integration: Amaru Maintainers Committee (with final deciding member: [Matthias Benkort](https://github.com/ktorz))
-- Ledger owner: [Matthias Benkort](https://github.com/ktorz)
-- Consensus owner: [Arnaud Bailly](https://github.com/abailly)
-- Mempool owner: [Andrew Westberg](https://github.com/AndrewWestberg)
-- Peer 2 peer (P2P) owner: [Santiago Carmuega](https://github.com/scarmuega)
-- Testnet facilitator owner: [Chris Gianelloni](https://github.com/wolf31o2)
-- UTxO RPC owner: [Chris Gianelloni](https://github.com/wolf31o2)
-
-The products that we will have a close relationship with also have the equivalent of an owner but since we won't be building anything for them (yet) we will only identify the person that manages that scope:
 - Dolos owner: [Santiago Carmuega](https://github.com/scarmuega)
 - Dingo owner: [Chris Gianelloni](https://github.com/wolf31o2)
 
