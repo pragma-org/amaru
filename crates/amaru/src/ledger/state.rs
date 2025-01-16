@@ -4,10 +4,9 @@ pub mod diff_set;
 
 use crate::ledger::{
     kernel::{
-        self, block_point, epoch_from_slot, output_lovelace, Certificate, Epoch, Hash, Hasher,
-        Lovelace, MintedBlock, Point, PoolId, PoolParams, PoolSigma, StakeCredential,
-        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
-        STAKE_CREDENTIAL_DEPOSIT,
+        self, epoch_from_slot, output_lovelace, Certificate, Epoch, Hash, Hasher, Lovelace,
+        MintedBlock, Point, PoolId, PoolParams, PoolSigma, StakeCredential, TransactionInput,
+        TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW, STAKE_CREDENTIAL_DEPOSIT,
     },
     rewards::RewardsSummary,
     store::{self, columns::*, Store},
@@ -92,8 +91,12 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     /// Roll the ledger forward with the given block by applying transactions one by one, in
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
-    pub fn forward(&mut self, span: &Span, block: MintedBlock<'_>) -> Result<(), ForwardErr<E>> {
-        let point = block_point(&block);
+    pub fn forward(
+        &mut self,
+        span: &Span,
+        point: &Point,
+        block: MintedBlock<'_>,
+    ) -> Result<(), ForwardErr<E>> {
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
         let relative_slot = kernel::relative_slot(point.slot_or_default());
 
@@ -630,9 +633,9 @@ impl Default for VolatileState<()> {
 }
 
 impl VolatileState<()> {
-    pub fn anchor(self, point: Point, issuer: PoolId) -> VolatileState<(Point, PoolId)> {
+    pub fn anchor(self, point: &Point, issuer: PoolId) -> VolatileState<(Point, PoolId)> {
         VolatileState {
-            anchor: (point, issuer),
+            anchor: (point.clone(), issuer),
             utxo: self.utxo,
             pools: self.pools,
             accounts: self.accounts,

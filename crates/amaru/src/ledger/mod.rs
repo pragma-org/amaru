@@ -72,7 +72,7 @@ impl gasket::framework::Worker<Stage> for Worker {
         stage: &mut Stage,
     ) -> Result<(), WorkerError> {
         match unit {
-            ValidateHeaderEvent::Validated(_point, raw_block) => {
+            ValidateHeaderEvent::Validated(point, raw_block) => {
                 let span_forward = info_span!(
                     target: EVENT_TARGET,
                     "forward",
@@ -89,7 +89,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                     target: EVENT_TARGET,
                     parent: &span_forward,
                     "parse_block",
-                    point = _point.slot_or_default(),
+                    point = point.slot_or_default(),
                     block.size = raw_block.len(),
                 )
                 .entered();
@@ -106,7 +106,7 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 let mut state = stage.state.lock().await;
 
-                state.forward(&span_forward, block).map_err(|e| {
+                state.forward(&span_forward, point, block).map_err(|e| {
                     error!(target: EVENT_TARGET, error = ?e, "forward.failed");
                     WorkerError::Panic
                 })?;
