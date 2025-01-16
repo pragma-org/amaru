@@ -22,15 +22,12 @@ cargo build --release
 
 ```console
 cargo run --release -- import \
-    --out ledger.db \
-    --snapshot 69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor
+  --snapshot 69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor
 
 cargo run --release -- import \
-  --out ledger.db \
   --snapshot 69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor
 
 cargo run --release -- import \
-  --out ledger.db \
   --snapshot 70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
 ```
 

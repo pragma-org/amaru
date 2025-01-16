@@ -1,16 +1,11 @@
-use crate::config::NetworkName;
-use crate::metrics::track_system_metrics;
+use crate::{config::NetworkName, metrics::track_system_metrics};
 use amaru::{consensus::nonce, sync::Config};
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::IntoDiagnostic;
 use opentelemetry::metrics::Counter;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-    time::Duration,
-};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error};
@@ -30,9 +25,13 @@ pub struct Args {
     )]
     network: NetworkName,
 
+    /// Path of the ledger on-disk storage.
+    #[arg(long, default_value = super::DEFAULT_LEDGER_DB_DIR)]
+    ledger_dir: PathBuf,
+
     /// Path to the directory containing blockchain data such as epoch nonces.
-    #[arg(long, default_value = "./data")]
-    data_dir: String,
+    #[arg(long, default_value = super::DEFAULT_DATA_DIR)]
+    data_dir: PathBuf,
 }
 
 pub async fn run(
@@ -83,11 +82,12 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
 
 fn parse_args(args: Args, counter: Counter<u64>) -> miette::Result<Config> {
     // TODO: Figure out from ledger + consensus store
-    let root = Path::new(&args.data_dir).join(args.network.to_string());
+    let root = args.data_dir.join(args.network.to_string());
 
     let nonces = read_csv(&root.join("nonces.csv"), nonce::from_csv)?;
 
     Ok(Config {
+        ledger_dir: args.ledger_dir,
         upstream_peer: args.peer_address,
         network_magic: args.network.to_network_magic(),
         nonces,

@@ -22,6 +22,7 @@ pub enum PullEvent {
 }
 
 pub struct Config {
+    pub ledger_dir: PathBuf,
     pub upstream_peer: String,
     pub network_magic: u32,
     pub nonces: HashMap<Epoch, Hash<32>>,
@@ -48,8 +49,7 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 
 pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
     // FIXME: Take from config / command args
-    let ledger_store = PathBuf::from("./ledger.db");
-    let (mut ledger, tip) = ledger::Stage::new(&ledger_store, config.counter.clone());
+    let (mut ledger, tip) = ledger::Stage::new(&config.ledger_dir, config.counter.clone());
 
     let mut pull = pull::Stage::new(client.clone(), vec![tip]);
     let mut header_validation =

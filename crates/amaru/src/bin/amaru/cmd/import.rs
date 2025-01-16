@@ -33,9 +33,9 @@ pub struct Args {
     #[arg(long, verbatim_doc_comment)]
     snapshot: PathBuf,
 
-    /// Path to the ledger database folder.
-    #[arg(long)]
-    out: PathBuf,
+    /// Path of the ledger on-disk storage.
+    #[arg(long, default_value = super::DEFAULT_LEDGER_DB_DIR)]
+    ledger_dir: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
@@ -55,8 +55,8 @@ pub async fn run(args: Args) -> miette::Result<()> {
     )
     .into_diagnostic()?;
 
-    fs::create_dir_all(&args.out).into_diagnostic()?;
-    let mut db = ledger::store::rocksdb::RocksDB::empty(&args.out).into_diagnostic()?;
+    fs::create_dir_all(&args.ledger_dir).into_diagnostic()?;
+    let mut db = ledger::store::rocksdb::RocksDB::empty(&args.ledger_dir).into_diagnostic()?;
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point)?;
