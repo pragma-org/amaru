@@ -23,7 +23,8 @@ use std::{
 };
 use tracing::{debug, info, info_span, Span};
 
-const EVENT_TARGET: &str = "amaru::ledger::state";
+const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
+const TRANSACTION_EVENT_TARGET: &str = "amaru::ledger::state::apply::transaction";
 
 // State
 // ----------------------------------------------------------------------------
@@ -98,7 +99,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         let relative_slot = kernel::relative_slot(point.slot_or_default());
 
         let span_apply_block = info_span!(
-            target: EVENT_TARGET,
+            target: STATE_EVENT_TARGET,
             parent: span,
             "block.body.validate",
             block.transactions.total = tracing::field::Empty,
@@ -131,27 +132,29 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 // FIXME: All operations below should technically happen in the same database
                 // transaction. If we interrupt the application between any of those, we might end
                 // up with a corrupted state.
-                info_span!(target: EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
+                info_span!(target: STATE_EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
                     db.next_snapshot(current_epoch - 1, self.rewards_summary.take())
                         .map_err(ForwardErr::StorageErr)
                 })?;
 
-                info_span!(target: EVENT_TARGET, parent: span, "tick.pool").in_scope(|| {
-                    // Then we, can tick pools to compute their new state at the epoch boundary. Notice
-                    // how we tick with the _current epoch_ however, but we take the snapshot before
-                    // the tick since the actions are only effective once the epoch is crossed.
-                    db.with_pools(|iterator| {
-                        for (_, pool) in iterator {
-                            pools::Row::tick(pool, current_epoch)
-                        }
-                    })
-                    .map_err(ForwardErr::StorageErr)
-                })?;
+                info_span!(target: STATE_EVENT_TARGET, parent: span, "tick.pool").in_scope(
+                    || {
+                        // Then we, can tick pools to compute their new state at the epoch boundary. Notice
+                        // how we tick with the _current epoch_ however, but we take the snapshot before
+                        // the tick since the actions are only effective once the epoch is crossed.
+                        db.with_pools(|iterator| {
+                            for (_, pool) in iterator {
+                                pools::Row::tick(pool, current_epoch)
+                            }
+                        })
+                        .map_err(ForwardErr::StorageErr)
+                    },
+                )?;
             }
 
             let (stable_point, stable_issuer, fees, add, remove) = now_stable.into_store_update();
 
-            info_span!(target: EVENT_TARGET, parent: span, "save").in_scope(|| {
+            info_span!(target: STATE_EVENT_TARGET, parent: span, "save").in_scope(|| {
                 db.save(&stable_point, Some(&stable_issuer), add, remove)
                     .and_then(|()| {
                         db.with_pots(|mut row| {
@@ -169,7 +172,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 );
             }
         } else {
-            info!(target: EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
+            info!(target: STATE_EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
         }
 
         span.record("tip.epoch", epoch_from_slot(point.slot_or_default()));
@@ -306,7 +309,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             };
 
             let span_apply_transaction = info_span!(
-                target: EVENT_TARGET,
+                target: STATE_EVENT_TARGET,
                 parent: span,
                 "apply.transaction",
                 transaction.id = %transaction_id,
@@ -350,15 +353,21 @@ fn apply_transaction<T>(
     certificates: impl Iterator<Item = Certificate>,
     fees: Lovelace,
 ) {
-    const EVENT_TARGET: &str = "amaru::ledger::state::apply::transaction";
-
     // Inputs/Outputs
     {
         let consumed = BTreeSet::from_iter(inputs);
-        let produced = outputs.enumerate().map(|(index, output)| (TransactionInput {
-            transaction_id: *transaction_id,
-            index: index as u64
-        }, output)).collect::<BTreeMap<_, _>>();
+        let produced = outputs
+            .enumerate()
+            .map(|(index, output)| {
+                (
+                    TransactionInput {
+                        transaction_id: *transaction_id,
+                        index: index as u64,
+                    },
+                    output,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
 
         span.record("transaction.inputs", consumed.len());
         span.record("transaction.outputs", produced.len());
@@ -378,7 +387,7 @@ fn apply_transaction<T>(
             count += 1;
             match certificate {
                 Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: span, credential = ?credential);
+                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential);
                     state
                         .accounts
                         .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
@@ -386,14 +395,14 @@ fn apply_transaction<T>(
                 Certificate::StakeDelegation(credential, pool)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: span, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential, pool = %pool);
                     state.accounts.bind(credential, Some(pool));
                 }
                 Certificate::StakeRegDeleg(credential, pool, ..)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: span, credential = ?credential);
-                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: span, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential);
+                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential, pool = %pool);
                     state.accounts.register(
                         credential,
                         STAKE_CREDENTIAL_DEPOSIT as Lovelace,
@@ -402,11 +411,11 @@ fn apply_transaction<T>(
                 }
                 Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, ..) => {
-                    debug!(name: "certificate.stake.deregistration", target: EVENT_TARGET, parent: span, credential = ?credential);
+                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential);
                     state.accounts.unregister(credential);
                 }
                 Certificate::PoolRetirement(id, epoch) => {
-                    debug!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: span, pool = %id, epoch = %epoch);
+                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: span, pool = %id, epoch = %epoch);
                     state.pools.unregister(id, epoch)
                 }
                 Certificate::PoolRegistration {
@@ -433,7 +442,7 @@ fn apply_transaction<T>(
                     };
                     debug!(
                         name: "certificate.pool.registration",
-                        target: EVENT_TARGET,
+                        target: TRANSACTION_EVENT_TARGET,
                         parent: span,
                         pool = %id,
                         params = ?params,
