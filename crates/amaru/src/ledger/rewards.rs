@@ -45,7 +45,7 @@
 //! each epoch (related to different snapshots) since it is a continuous cycle.
 //!
 //!
-//!                                                             Computing rewards using:
+//!                                                             Computing rewards[^1] using:
 //!                                                             │ - snapshot(e + 1) for
 //!                                                             │     - pool performances
 //!                                                             │     - treasury & reserves
@@ -60,6 +60,11 @@
 //!               ╽     ╽            ╽   ╽                  ╽   ╽                 ╽╽
 //! ━━━━━━━━━━━━╸╸╸╋━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━>
 //!    e - 1               e                    e + 1                 e + 2              e + 3
+//!
+//!
+//! [^1]: Technically, we need to wait a few slots for the snapshot (e + 1) to stabilise; otherwise
+//! we risk doing an expensive computation which may be rolled back. In practice, the calculation
+//! only starts after 2*k blocks into (e + 2) though conceptually, it boils down to the same thing.
 //!
 //! The portions in dotted plots materializes the work done by the ledger at an epoch boundary,
 //! whether the work is considered in the previous epoch or the next depends on what side of the
