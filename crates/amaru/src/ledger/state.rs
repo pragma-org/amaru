@@ -18,7 +18,6 @@ use diff_set::DiffSet;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
-    iter,
     sync::{Arc, Mutex},
 };
 use tracing::{debug, info, info_span, Span};
@@ -98,17 +97,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
         let relative_slot = kernel::relative_slot(point.slot_or_default());
 
-        let span_apply_block = info_span!(
-            target: STATE_EVENT_TARGET,
-            parent: span,
-            "block.body.validate",
-            block.transactions.total = tracing::field::Empty,
-            block.transactions.failed = tracing::field::Empty,
-            block.transactions.success = tracing::field::Empty
-        )
-        .entered();
-        let state = self.apply_block(&span_apply_block, block)?;
-        span_apply_block.exit();
+        let state = self.apply_block(span, block)?;
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
             let mut db = self.stable.lock().unwrap();
@@ -226,7 +215,6 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                         }))
                     })
                 })?;
-
             result.push((input, output));
         }
 
@@ -236,16 +224,27 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     /// Process a given block into a series of ledger-state diff (a.k.a events) to apply.
     fn apply_block(
         &self,
-        span: &Span,
+        parent: &Span,
         block: MintedBlock<'_>,
     ) -> Result<VolatileState<()>, ForwardErr<E>> {
         let failed_transactions = FailedTransactions::from_block(&block);
+        let transaction_bodies = block.transaction_bodies.to_vec();
+        let total_count = transaction_bodies.len();
+        let failed_count = failed_transactions.inner.len();
+
+        let span_apply_block = info_span!(
+            target: STATE_EVENT_TARGET,
+            parent: parent,
+            "block.body.validate",
+            block.transactions.total = total_count,
+            block.transactions.failed = failed_count,
+            block.transactions.success = total_count - failed_count
+        )
+        .entered();
 
         let mut state = VolatileState::default();
 
-        let (mut count_total, mut count_failed, mut count_success) = (0, 0, 0);
-        for (ix, transaction_body) in block.transaction_bodies.to_vec().into_iter().enumerate() {
-            count_total += 1;
+        for (ix, transaction_body) in transaction_bodies.into_iter().enumerate() {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
 
             let transaction_body = transaction_body.unwrap();
@@ -255,21 +254,20 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 // - inputs are consumed;
                 // - outputs are produced.
                 false => {
-                    count_success += 1;
-                    let inputs = transaction_body.inputs.to_vec().into_iter();
-                    let outputs = transaction_body.outputs.into_iter().map(|x| x.into());
-                    (
-                        Box::new(inputs) as Box<dyn Iterator<Item = TransactionInput>>,
-                        Box::new(outputs) as Box<dyn Iterator<Item = TransactionOutput>>,
-                        transaction_body.fee,
-                    )
+                    let inputs = transaction_body.inputs.to_vec();
+                    let outputs = transaction_body
+                        .outputs
+                        .into_iter()
+                        .map(|x| x.into())
+                        .collect::<Vec<_>>();
+
+                    (inputs, outputs, transaction_body.fee)
                 }
 
                 // == Failed transaction
                 // - collateral inputs are consumed;
                 // - collateral outputs produced (if any).
                 true => {
-                    count_failed += 1;
                     let inputs = transaction_body
                         .collateral
                         .map(|x| x.to_vec())
@@ -283,16 +281,9 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                         Some(output) => {
                             let output = output.into();
                             let collateral_return = output_lovelace(&output);
-                            (
-                                Box::new([output].into_iter())
-                                    as Box<dyn Iterator<Item = TransactionOutput>>,
-                                collateral_return,
-                            )
+                            (vec![output], collateral_return)
                         }
-                        None => (
-                            Box::new(iter::empty()) as Box<dyn Iterator<Item = TransactionOutput>>,
-                            0,
-                        ),
+                        None => (vec![], 0),
                     };
 
                     let fees = resolved_inputs
@@ -300,45 +291,41 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                         .fold(0, |total, (_, output)| total + output_lovelace(output))
                         - collateral_return;
 
-                    (
-                        Box::new(inputs.into_iter()) as Box<dyn Iterator<Item = TransactionInput>>,
-                        outputs,
-                        fees,
-                    )
+                    (inputs, outputs, fees)
                 }
             };
 
+            // TODO: There should really be an Iterator instance in Pallas
+            // on those certificates...
+            let certificates = transaction_body
+                .certificates
+                .map(|xs| xs.to_vec())
+                .unwrap_or_default();
+
             let span_apply_transaction = info_span!(
                 target: STATE_EVENT_TARGET,
-                parent: span,
+                parent: parent,
                 "apply.transaction",
                 transaction.id = %transaction_id,
-                transaction.inputs = tracing::field::Empty,
-                transaction.outputs = tracing::field::Empty,
-                transaction.certificates = tracing::field::Empty,
+                transaction.inputs = inputs.len(),
+                transaction.outputs = outputs.len(),
+                transaction.certificates = certificates.len(),
             )
             .entered();
+
             apply_transaction(
                 &mut state,
                 &span_apply_transaction,
                 &transaction_id,
                 inputs,
                 outputs,
-                // TODO: There should really be an Iterator instance in Pallas
-                // on those certificates...
-                transaction_body
-                    .certificates
-                    .map(|xs| xs.to_vec())
-                    .unwrap_or_default()
-                    .into_iter(),
+                certificates,
                 fees,
             );
             span_apply_transaction.exit();
         }
 
-        span.record("block.transactions.total", count_total);
-        span.record("block.transactions.failed", count_failed);
-        span.record("block.transactions.success", count_success);
+        span_apply_block.exit();
 
         Ok(state)
     }
@@ -348,15 +335,16 @@ fn apply_transaction<T>(
     state: &mut VolatileState<T>,
     span: &Span,
     transaction_id: &Hash<32>,
-    inputs: impl Iterator<Item = TransactionInput>,
-    outputs: impl Iterator<Item = TransactionOutput>,
-    certificates: impl Iterator<Item = Certificate>,
+    inputs: Vec<TransactionInput>,
+    outputs: Vec<TransactionOutput>,
+    certificates: Vec<Certificate>,
     fees: Lovelace,
 ) {
     // Inputs/Outputs
     {
-        let consumed = BTreeSet::from_iter(inputs);
+        let consumed: BTreeSet<_> = inputs.into_iter().collect();
         let produced = outputs
+            .into_iter()
             .enumerate()
             .map(|(index, output)| {
                 (
@@ -369,9 +357,6 @@ fn apply_transaction<T>(
             })
             .collect::<BTreeMap<_, _>>();
 
-        span.record("transaction.inputs", consumed.len());
-        span.record("transaction.outputs", produced.len());
-
         state.utxo.merge(DiffSet { consumed, produced });
     }
 
@@ -382,9 +367,7 @@ fn apply_transaction<T>(
 
     // Certificates
     {
-        let mut count = 0;
         for certificate in certificates {
-            count += 1;
             match certificate {
                 Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
                     debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential);
@@ -454,7 +437,6 @@ fn apply_transaction<T>(
                 _ => {}
             }
         }
-        span.record("transaction.certificates", count);
     }
 }
 
