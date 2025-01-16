@@ -83,9 +83,10 @@
 
 use crate::ledger::{
     kernel::{
-        encode_bech32, output_lovelace, output_stake_credential, Epoch, Hash, PoolId, PoolParams,
-        StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION,
-        OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
+        encode_bech32, output_lovelace, output_stake_credential, Epoch, Hash, Lovelace, PoolId,
+        PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY,
+        MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH,
+        TREASURY_TAX,
     },
     store::{columns::*, Store},
 };
@@ -388,12 +389,21 @@ impl PoolState {
         member_stake: &BigInt,
         total_stake: &BigInt,
     ) -> BigInt {
+        // NOTE: It may be tempting when seeing the call-site of this function to refactor member
+        // to take a `Hash<28>` instead of a `StakeCredential` directly to make this more uniform.
+        //
+        // BUT, we know that `owners` cannot be scripts, and a script that would have the same hash
+        // as a public key (which is technically near impossible, but still...) would be wrongly
+        // labelled as not earning member rewards.
+        //
+        // So the distinction Script/VerificationKey here *is* useful.
         let is_owner = match member {
             StakeCredential::ScriptHash(..) => false,
             StakeCredential::AddrKeyhash(key) => self.parameters.owners.contains(key),
         };
 
         if is_owner {
+            // Owners don't earn _member rewards_, because they do get _leader rewards_ instead.
             BigInt::ZERO
         } else {
             let cost: BigInt = self.parameters.cost.into();
@@ -496,7 +506,7 @@ pub struct RewardsSummary {
     /// to the reserves.
     pub effective_rewards: BigInt,
 
-    /// Various protocol money pots pertaining to the epoch
+    /// Various protocol money pots pertaining to the epoch at the beginning of the rewards calculation.
     pub pots: Pots,
 
     /// Per-pool rewards determined from their (apparent) performances, available rewards and
@@ -646,6 +656,16 @@ impl RewardsSummary {
             accounts,
         })
     }
+
+    /// Amount to be depleted from the reserves at the end of an epoch.
+    pub fn delta_reserves(&self) -> Lovelace {
+        u64::try_from(&self.incentives - &self.available_rewards + &self.effective_rewards)
+            .unwrap_or_else(|_| {
+                unreachable!(
+                "delta reserves always fits in a u64; otherwise we've exceeded the max Ada supply."
+            )
+            })
+    }
 }
 
 // -------------------------------------------------------------------- Internal
@@ -673,20 +693,18 @@ mod tests {
 
     const LEDGER_DB: &str = "../../ledger.db";
 
-    fn fixture_stake_distribution_snapshot(epoch: Epoch) -> StakeDistributionSnapshot {
-        let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap();
-        StakeDistributionSnapshot::new(&db).unwrap()
-    }
-
-    fn fixture_rewards_summary(snapshot: StakeDistributionSnapshot) -> RewardsSummary {
-        let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), snapshot.epoch + 2).unwrap();
-        RewardsSummary::new(&db, snapshot).unwrap()
-    }
-
     fn compare_preprod_snapshot(epoch: Epoch) {
-        let snapshot = fixture_stake_distribution_snapshot(epoch);
+        let snapshot = StakeDistributionSnapshot::new(
+            &RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap(),
+        )
+        .unwrap();
         insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), snapshot);
-        let rewards_summary = fixture_rewards_summary(snapshot);
+
+        let rewards_summary = RewardsSummary::new(
+            &RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch + 2).unwrap(),
+            snapshot,
+        )
+        .unwrap();
         insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
     }
 

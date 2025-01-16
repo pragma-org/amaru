@@ -239,13 +239,7 @@ impl Store for RocksDB {
                         pots.treasury += u64::try_from(&rewards_summary.treasury_tax).unwrap_or_else(|_| {
                             unreachable!("rewards always fit in a u64; otherwise we've exceeded the max Ada supply.")
                         });
-                        pots.reserves -= u64::try_from(
-                            &rewards_summary.incentives -
-                            &rewards_summary.available_rewards +
-                            &rewards_summary.effective_rewards
-                        ).unwrap_or_else(|_| {
-                            unreachable!("rewards always fit in a u64; otherwise we've exceeded the max Ada supply.")
-                        });
+                        pots.reserves -= rewards_summary.delta_reserves();
                     })
                 })?;
             } else {
