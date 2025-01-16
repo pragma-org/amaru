@@ -354,17 +354,11 @@ fn apply_transaction<T>(
 
     // Inputs/Outputs
     {
-        let mut consumed = BTreeSet::new();
-        consumed.extend(inputs);
-
-        let mut produced = BTreeMap::new();
-        for (ix, output) in outputs.enumerate() {
-            let input = TransactionInput {
-                transaction_id: *transaction_id,
-                index: ix as u64,
-            };
-            produced.insert(input, output);
-        }
+        let consumed = BTreeSet::from_iter(inputs);
+        let produced = outputs.enumerate().map(|(index, output)| (TransactionInput {
+            transaction_id: *transaction_id,
+            index: index as u64
+        }, output)).collect::<BTreeMap<_, _>>();
 
         span.record("transaction.inputs", consumed.len());
         span.record("transaction.outputs", produced.len());
