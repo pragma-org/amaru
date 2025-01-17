@@ -48,7 +48,8 @@ jobs:
           set +e
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
             cargo install cross --git https://github.com/cross-rs/cross
-            $HOME/.cargo/bin/cross test-amaru --locked --all-features --workspace --target ${{ matrix.environments.target }}
+            # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
+            $HOME/.cargo/bin/cross test --locked --all-features --workspace --target ${{ matrix.environments.target }}
           else
             cargo test-amaru --locked --target ${{ matrix.environments.target }}
           fi
