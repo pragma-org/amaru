@@ -6,7 +6,7 @@ use crate::{
         borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
     },
     ledger::{
-        kernel::{Epoch, Lovelace, Point, PoolId, TransactionInput, TransactionOutput},
+        kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
         rewards::StakeDistributionSnapshot,
         store::{columns::*, Columns, RewardsSummary, Store},
     },
@@ -212,27 +212,13 @@ impl Store for RocksDB {
     fn next_snapshot(
         &'_ mut self,
         epoch: Epoch,
-        mut rewards_summary: Option<RewardsSummary>,
+        rewards_summary: Option<RewardsSummary>,
     ) -> Result<(), Self::Error> {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             let path = self.dir.join(snapshot.to_string());
 
-            if let Some(ref rewards_summary) = rewards_summary {
-                info_span!(target: EVENT_TARGET, "snapshot.adjusting_pots").in_scope(|| {
-                    self.with_pots(|mut row| {
-                        let pots = row.borrow_mut();
-                        pots.treasury += rewards_summary.delta_treasury();
-                        pots.reserves -= rewards_summary.delta_reserves();
-                    })
-                })?;
-            } else {
-                warn!(target: EVENT_TARGET, "snapshot.no_rewards");
-            }
-
-            checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
-
-            if let Some(ref mut rewards_summary) = rewards_summary {
+            if let Some(mut rewards_summary) = rewards_summary {
                 info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
                     self.with_accounts(|iterator| {
                         for (account, mut row) in iterator {
@@ -246,22 +232,21 @@ impl Store for RocksDB {
                         }
                     })
                 })?;
+
+                let delta_treasury = rewards_summary.delta_treasury();
+                let delta_reserves = rewards_summary.delta_reserves();
+                let unclaimed_rewards = rewards_summary.unclaimed_rewards();
+
+                info_span!(target: EVENT_TARGET, "snapshot.adjusting_pots", delta_treasury, delta_reserves, unclaimed_rewards).in_scope(|| {
+                    self.with_pots(|mut row| {
+                        let pots = row.borrow_mut();
+                        pots.treasury += delta_treasury + unclaimed_rewards;
+                        pots.reserves -= delta_reserves;
+                    })
+                })?;
             }
 
-            let unclaimed_rewards = rewards_summary
-                .map(|summary| summary.unclaimed_rewards())
-                .unwrap_or(0);
-
-            if unclaimed_rewards > 0 {
-                info!(target: EVENT_TARGET, unclaimed = unclaimed_rewards, "snapshot.rewards");
-                Self::from_snapshot(&self.dir, epoch)
-                    .unwrap()
-                    .with_pots(|mut row| {
-                        row.borrow_mut().treasury += unclaimed_rewards;
-                    })?;
-            } else {
-                info!(target: EVENT_TARGET, unclaimed = None::<Lovelace>, "snapshot.rewards");
-            }
+            checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
 
             info_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
                 // TODO: If necessary, come up with a more efficient way of dropping a "table".
