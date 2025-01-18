@@ -1,98 +1,101 @@
-//! This module implements the formulas and data structures necessary for rewards and incentives
-//! calculations.
-//!
-//! Stakeholders on Cardano can delegate their stake to registered pools, run private pools, or opt
-//! out of the protocol. Non-participation excludes their stake from rewards. Incentives are
-//! primarily monetary, with rewards paid in Ada, aligning financial interests with protocol
-//! adherence to foster a stable, desirable system state.
-//!
-//! Rewards are distributed per epoch, drawn from monetary expansion and transaction fees, with a
-//! delay.
-//!
-//! Rewards are shared among stake pools based on their contributions, with key refinements to
-//! ensure fairness:
-//!
-//! - Rewards are capped for overly large (i.e. saturated) pools to prevent centralization.
-//! - Rewards decrease if pool operators fail to create required blocks as expected.
-//! - Pool operators are compensated via declared costs and margins, with the remainder distributed
-//!   to members.
-//! - Pools with higher owner pledges receive slightly higher rewards, discouraging Sybil attacks
-//!   and stake splitting.
-//!
-//! To mitigate chaotic behavior from short-sighted decisions, the system calculates non-myopic
-//! rewards. Wallets rank pools by these rewards, guiding stakeholders toward long-term optimal
-//! behavior. The system stabilizes in a Nash Equilibrium, ensuring no stakeholder has incentive to
-//! deviate from the optimal strategy.
-//!
-//! Rewards are calculated and distributed automatically after each epoch, but comes with a delay.
-//!
-//! Since Ouroboros is an epoch-based consensus using stake distribution as weight in the (private)
-//! random leader-election procedure, it requires a _stable stake distribution_ to ensure
-//! consistency across leaders. Hence, the stake distribution is considered fixed when an epoch is
-//! over. Changing stake in epoch `e` will only have an effect on the leader schedule in epoch `e + 1`.
-//!
-//! Therefore, stake movements on epoch `e` only earns rewards during the calculation in epoch `e + 2`
-//! (since the rewards calculation requires to evaluate the performances of a pool in the previous
-//! epoch).
-//!
-//! In addition, given the time needed to compute rewards very much exceeds the computing budget
-//! that a node has an epoch boundary, the calculation is typically done incrementally or spread
-//! during the epoch. This implies that rewards are only distributed on _the next epoch boundary_,
-//! and thus available for withdrawal only in `e + 3`.
-//!
-//! Here below is a diagram showing this lifecycle. Note that while step are outline at different
-//! moment from the perspective of the stake movement in epoch `e`, each step is in fact done for
-//! each epoch (related to different snapshots) since it is a continuous cycle.
-//!
-//!
-//!                                                             Computing rewards[^1] using:
-//!                                                             │ - snapshot(e + 1) for
-//!                                                             │     - pool performances
-//!                                                             │     - treasury & reserves
-//!                     Stake is delegated                      │ - snapshot(e) for:
-//!                     │                                       │     - stake distribution
-//!                     │                                       │     - pool parameters
-//!                     │                Using snapshot(e - 1)  │
-//!                     │                for leader schedule    │                 Distributing rewards
-//!                     │                │                      │                 earned from (e)
-//!                     │                │                      │                 │
-//! snapshot(e - 1)     │  snapshot(e)   │    snapshot(e + 1)   │                 │snapshot(e + 2)
-//!               ╽     ╽            ╽   ╽                  ╽   ╽                 ╽╽
-//! ━━━━━━━━━━━━╸╸╸╋━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━>
-//!    e - 1               e                    e + 1                 e + 2              e + 3
-//!
-//!
-//! [^1]: Technically, we need to wait a few slots for the snapshot (e + 1) to stabilise; otherwise
-//! we risk doing an expensive computation which may be rolled back. In practice, the calculation
-//! only starts after 2*k blocks into (e + 2) though conceptually, it boils down to the same thing.
-//!
-//! The portions in dotted plots materializes the work done by the ledger at an epoch boundary,
-//! whether the work is considered in the previous epoch or the next depends on what side of the
-//! timeline it is.
-//!
-//! - When it appears on the left-hand side, we will say that the computation happens _at the end
-//!   of the epoch_ (once every block for that epoch has been processed, and before any blocks for
-//!   the next epoch is).
-//!
-//! - When it appears on the right-hand side, we will say that the computation happens _at the
-//!   beginning of the epoch_ (before any block is ever produced).
-//!
-//! The distinction is useful when thinking in terms of snapshots. A snapshot captures the state of
-//! the system at a certain point in time. We always take snapshots _at the end of epochs_, before
-//! certain mutations are applied to the system.
+/*!
+This module implements the formulas and data structures necessary for rewards and incentives
+calculations.
+
+Stakeholders on Cardano can delegate their stake to registered pools, run private pools, or opt
+out of the protocol. Non-participation excludes their stake from rewards. Incentives are
+primarily monetary, with rewards paid in Ada, aligning financial interests with protocol
+adherence to foster a stable, desirable system state.
+
+Rewards are distributed per epoch, drawn from monetary expansion and transaction fees, with a
+delay.
+
+Rewards are shared among stake pools based on their contributions, with key refinements to
+ensure fairness:
+
+- Rewards are capped for overly large (i.e. saturated) pools to prevent centralization.
+- Rewards decrease if pool operators fail to create required blocks as expected.
+- Pool operators are compensated via declared costs and margins, with the remainder distributed
+  to members.
+- Pools with higher owner pledges receive slightly higher rewards, discouraging Sybil attacks
+  and stake splitting.
+
+To mitigate chaotic behavior from short-sighted decisions, the system calculates non-myopic
+rewards. Wallets rank pools by these rewards, guiding stakeholders toward long-term optimal
+behavior. The system stabilizes in a Nash Equilibrium, ensuring no stakeholder has incentive to
+deviate from the optimal strategy.
+
+Rewards are calculated and distributed automatically after each epoch, but comes with a delay.
+
+Since Ouroboros is an epoch-based consensus using stake distribution as weight in the (private)
+random leader-election procedure, it requires a _stable stake distribution_ to ensure
+consistency across leaders. Hence, the stake distribution is considered fixed when an epoch is
+over. Changing stake in epoch `e` will only have an effect on the leader schedule in epoch `e + 1`.
+
+Therefore, stake movements on epoch `e` only earns rewards during the calculation in epoch `e + 2`
+(since the rewards calculation requires to evaluate the performances of a pool in the previous
+epoch).
+
+In addition, given the time needed to compute rewards very much exceeds the computing budget
+that a node has an epoch boundary, the calculation is typically done incrementally or spread
+during the epoch. This implies that rewards are only distributed on _the next epoch boundary_,
+and thus available for withdrawal only in `e + 3`.
+
+Here below is a diagram showing this lifecycle. Note that while step are outline at different
+moment from the perspective of the stake movement in epoch `e`, each step is in fact done for
+each epoch (related to different snapshots) since it is a continuous cycle.
+
+
+                                                            Computing rewards[^1] using:
+                                                            │ - snapshot(e + 1) for
+                                                            │     - pool performances
+                                                            │     - treasury & reserves
+                    Stake is delegated                      │ - snapshot(e) for:
+                    │                                       │     - stake distribution
+                    │                                       │     - pool parameters
+                    │                Using snapshot(e - 1)  │
+                    │                for leader schedule    │                 Distributing rewards
+                    │                │                      │                 earned from (e)
+                    │                │                      │                 │
+snapshot(e - 1)     │  snapshot(e)   │    snapshot(e + 1)   │                 │snapshot(e + 2)
+              ╽     ╽            ╽   ╽                  ╽   ╽                 ╽╽
+━━━━━━━━━━━━╸╸╸╋━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━>
+   e - 1               e                    e + 1                 e + 2              e + 3
+
+
+[^1]: Technically, we need to wait a few slots for the snapshot (e + 1) to stabilise; otherwise
+we risk doing an expensive computation which may be rolled back. In practice, the calculation
+only starts after 2*k blocks into (e + 2) though conceptually, it boils down to the same thing.
+
+The portions in dotted plots materializes the work done by the ledger at an epoch boundary,
+whether the work is considered in the previous epoch or the next depends on what side of the
+timeline it is.
+
+- When it appears on the left-hand side, we will say that the computation happens _at the end
+  of the epoch_ (once every block for that epoch has been processed, and before any blocks for
+  the next epoch is).
+
+- When it appears on the right-hand side, we will say that the computation happens _at the
+  beginning of the epoch_ (before any block is ever produced).
+
+The distinction is useful when thinking in terms of snapshots. A snapshot captures the state of
+the system at a certain point in time. We always take snapshots _at the end of epochs_, before
+certain mutations are applied to the system.
+*/
 
 use crate::ledger::{
     kernel::{
-        encode_bech32, output_lovelace, output_stake_credential, Epoch, Hash, Lovelace, PoolId,
-        PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY,
-        MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH,
-        TREASURY_TAX,
+        encode_bech32, output_lovelace, output_stake_credential,
+        reward_account_to_stake_credential, Epoch, Hash, Lovelace, PoolId, PoolParams,
+        StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION,
+        OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
     },
     store::{columns::*, Store},
 };
 use num::{
+    rational::Ratio,
     traits::{One, Zero},
-    BigInt, BigRational,
+    BigUint,
 };
 use serde::ser::SerializeStruct;
 use std::collections::BTreeMap;
@@ -107,7 +110,7 @@ use std::collections::BTreeMap;
 #[derive(Debug)]
 pub struct StakeDistributionSnapshot {
     epoch: Epoch,
-    active_stake: BigInt,
+    active_stake: Lovelace,
     keys: BTreeMap<Hash<28>, AccountState>,
     scripts: BTreeMap<Hash<28>, AccountState>,
     pools: BTreeMap<PoolId, PoolState>,
@@ -130,7 +133,7 @@ impl StakeDistributionSnapshot {
                             credential,
                             AccountState {
                                 pool,
-                                lovelace: BigInt::from(account.rewards),
+                                lovelace: account.rewards,
                             },
                         );
                     }
@@ -158,8 +161,14 @@ impl StakeDistributionSnapshot {
                     pools.insert(
                         pool,
                         PoolState {
-                            stake: BigInt::ZERO,
+                            stake: 0,
                             blocks_count: 0,
+                            // NOTE: pre-compute margin here (1 - m), which gets used for all
+                            // member and leader rewards calculation.
+                            margin: safe_ratio(
+                                row.current_params.margin.numerator,
+                                row.current_params.margin.denominator,
+                            ),
                             parameters: row.current_params.clone(),
                         },
                     );
@@ -169,7 +178,7 @@ impl StakeDistributionSnapshot {
 
         let mut scripts = BTreeMap::new();
         let mut keys = BTreeMap::new();
-        let mut active_stake: BigInt = BigInt::ZERO;
+        let mut active_stake: Lovelace = 0;
         for (credential, account) in accounts.into_iter() {
             pools.entry(account.pool).and_modify(|st| {
                 active_stake += &account.lovelace;
@@ -212,7 +221,7 @@ impl serde::Serialize for StakeDistributionSnapshot {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("StakeDistributionSnapshot", 5)?;
         s.serialize_field("epoch", &self.epoch)?;
-        s.serialize_field("active_stake", &serialize_bigint(&self.active_stake))?;
+        s.serialize_field("active_stake", &self.active_stake)?;
         s.serialize_field("keys", &self.keys)?;
         s.serialize_field("scripts", &self.scripts)?;
         let mut pools = self
@@ -231,14 +240,14 @@ impl serde::Serialize for StakeDistributionSnapshot {
 
 #[derive(Debug)]
 pub struct AccountState {
-    pub lovelace: BigInt,
+    pub lovelace: Lovelace,
     pub pool: PoolId,
 }
 
 impl serde::Serialize for AccountState {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("AccountState", 2)?;
-        s.serialize_field("lovelace", &serialize_bigint(&self.lovelace))?;
+        s.serialize_field("lovelace", &self.lovelace)?;
         s.serialize_field("pool", &unsafe_encode_pool_id(&self.pool[..]))?;
         s.end()
     }
@@ -247,7 +256,8 @@ impl serde::Serialize for AccountState {
 #[derive(Debug)]
 pub struct PoolState {
     pub blocks_count: u64,
-    pub stake: BigInt,
+    pub stake: Lovelace,
+    pub margin: SafeRatio,
     pub parameters: PoolParams,
 }
 
@@ -255,36 +265,36 @@ impl serde::Serialize for PoolState {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("PoolState", 3)?;
         s.serialize_field("blocksCount", &self.blocks_count)?;
-        s.serialize_field("stake", &serialize_bigint(&self.stake))?;
+        s.serialize_field("stake", &self.stake)?;
         s.serialize_field("parameters", &self.parameters)?;
         s.end()
     }
 }
 
 impl PoolState {
-    pub fn relative_stake(&self, total_stake: &BigInt) -> BigRational {
-        BigRational::new(self.stake.clone(), total_stake.clone())
+    pub fn relative_stake(&self, total_stake: Lovelace) -> LovelaceRatio {
+        lovelace_ratio(self.stake, total_stake)
     }
 
-    pub fn owner_stake(&self, accounts: &BTreeMap<Hash<28>, AccountState>) -> BigInt {
+    pub fn owner_stake(&self, accounts: &BTreeMap<Hash<28>, AccountState>) -> Lovelace {
         self.parameters
             .owners
             .iter()
-            .fold(BigInt::ZERO, |total, owner| match accounts.get(owner) {
-                Some(account) if account.pool == self.parameters.id => total + &account.lovelace,
+            .fold(0, |total, owner| match accounts.get(owner) {
+                Some(account) if account.pool == self.parameters.id => total + account.lovelace,
                 _ => total,
             })
     }
 
     pub fn apparent_performances(
         &self,
-        blocks_ratio: BigRational,
-        active_stake: &BigInt,
-    ) -> BigRational {
+        blocks_ratio: SafeRatio,
+        active_stake: Lovelace,
+    ) -> SafeRatio {
         if self.stake.is_zero() {
-            BigRational::zero()
+            SafeRatio::zero()
         } else {
-            blocks_ratio * active_stake / &self.stake
+            blocks_ratio * BigUint::from(active_stake) / BigUint::from(self.stake)
         }
     }
 
@@ -293,29 +303,32 @@ impl PoolState {
     ///
     /// The results is then used to calculate the _actual rewards_ based on the pool
     /// performances and its actual saturation level.
-    pub fn optimal_rewards(&self, available_rewards: &BigInt, total_stake: &BigInt) -> BigInt {
-        let one = BigRational::one();
+    pub fn optimal_rewards(&self, available_rewards: Lovelace, total_stake: Lovelace) -> Lovelace {
+        let one = SafeRatio::one();
         let a0 = &*PLEDGE_INFLUENCE;
-        let z0 = BigRational::new(1.into(), OPTIMAL_STAKE_POOLS_COUNT.into());
+        let z0 = safe_ratio(1, OPTIMAL_STAKE_POOLS_COUNT as u64);
 
-        let relative_pledge = BigRational::new(self.parameters.pledge.into(), total_stake.clone());
+        let relative_pledge = lovelace_ratio(self.parameters.pledge, total_stake);
         let relative_stake = self.relative_stake(total_stake);
 
-        let r = BigRational::from_integer(available_rewards.clone());
+        let r = SafeRatio::from_integer(BigUint::from(available_rewards));
         let p = (&z0).min(&relative_pledge);
         let s = (&z0).min(&relative_stake);
 
         // R / (1 + a0)
         let left = r / (one + a0);
 
-        // σ' + p' * a0 * z0_factor
+        // σ' + p' × a0 × (σ' - p' × (z0 - σ') / z0) / z0
+        //               ⎝___________ z0_factor__________⎠
         let right = {
-            // (σ' - p' * (z0 - σ') / z0) / z0
+            // (σ' - p' × (z0 - σ') / z0) / z0
             let z0_factor = (s - p * (&z0 - s) / &z0) / &z0;
             s + p * a0 * z0_factor
         };
 
-        (left * right).floor().to_integer()
+        // ⌊ (R / (1 + a0)) × (σ' + p' × a0 × (σ' - p' × (z0 - σ') / z0) / z0 ⌋
+        //  ⎝____ left ____⎠ ⎝____________________ right ____________________⎠
+        floor_to_lovelace(left * right)
     }
 
     /// The total rewards available to a pool, before it is split between the owner and the
@@ -326,19 +339,19 @@ impl PoolState {
     /// The amount straight to zero if the pool doesn't meet its pledge.
     pub fn pool_rewards(
         &self,
-        blocks_ratio: BigRational,
-        available_rewards: &BigInt,
-        active_stake: &BigInt,
-        total_stake: &BigInt,
-        owner_stake: &BigInt,
-    ) -> BigInt {
-        if &BigInt::from(self.parameters.pledge) <= owner_stake {
-            (self.apparent_performances(blocks_ratio, active_stake)
-                * self.optimal_rewards(available_rewards, total_stake))
-            .floor()
-            .to_integer()
+        blocks_ratio: SafeRatio,
+        available_rewards: Lovelace,
+        active_stake: Lovelace,
+        total_stake: Lovelace,
+        owner_stake: Lovelace,
+    ) -> Lovelace {
+        if self.parameters.pledge <= owner_stake {
+            floor_to_lovelace(
+                self.apparent_performances(blocks_ratio, active_stake)
+                    * BigUint::from(self.optimal_rewards(available_rewards, total_stake)),
+            )
         } else {
-            BigInt::ZERO
+            0
         }
     }
 
@@ -347,36 +360,30 @@ impl PoolState {
     /// shared amongst delegators.
     pub fn leader_rewards(
         &self,
-        pool_rewards: BigInt,
-        owner_stake: BigInt,
-        total_stake: BigInt,
-    ) -> BigInt {
-        let cost: BigInt = self.parameters.cost.into();
+        pool_rewards: Lovelace,
+        owner_stake: Lovelace,
+        total_stake: Lovelace,
+    ) -> Lovelace {
+        let cost: Lovelace = self.parameters.cost;
 
         if pool_rewards <= cost {
             pool_rewards
         } else {
-            let margin: BigRational = BigRational::new(
-                self.parameters.margin.numerator.into(),
-                self.parameters.margin.denominator.into(),
-            );
-
-            let member_rewards: BigInt = pool_rewards - &cost;
-
-            let relative_stake = self.relative_stake(&total_stake);
+            let relative_stake = self.relative_stake(total_stake);
 
             let owner_stake_ratio = if total_stake.is_zero() {
-                BigRational::zero()
+                LovelaceRatio::zero()
             } else {
-                BigRational::new(owner_stake, total_stake)
+                lovelace_ratio(owner_stake, total_stake)
             };
 
-            let one = BigRational::one();
+            // m + (1 - m) × s / σ
+            let margin_factor: SafeRatio = &self.margin
+                + (SafeRatio::one() - &self.margin) * &owner_stake_ratio / relative_stake;
 
-            let margin_factor: BigRational =
-                &margin + (one - &margin) * &owner_stake_ratio / relative_stake;
-
-            cost + (margin_factor * member_rewards).floor().to_integer()
+            // ⌊c + (m + (1 - m) × s / σ) × (R_pool - c)⌋
+            //     ⎝___ margin_factor ___⎠
+            cost + floor_to_lovelace(margin_factor * BigUint::from(pool_rewards - cost))
         }
     }
 
@@ -385,10 +392,10 @@ impl PoolState {
     pub fn member_rewards(
         &self,
         member: &StakeCredential,
-        pool_rewards: &BigInt,
-        member_stake: &BigInt,
-        total_stake: &BigInt,
-    ) -> BigInt {
+        pool_rewards: Lovelace,
+        member_stake: Lovelace,
+        total_stake: Lovelace,
+    ) -> Lovelace {
         // NOTE: It may be tempting when seeing the call-site of this function to refactor member
         // to take a `Hash<28>` instead of a `StakeCredential` directly to make this more uniform.
         //
@@ -404,25 +411,22 @@ impl PoolState {
 
         if is_owner {
             // Owners don't earn _member rewards_, because they do get _leader rewards_ instead.
-            BigInt::ZERO
+            0
         } else {
-            let cost: BigInt = self.parameters.cost.into();
+            let cost: Lovelace = self.parameters.cost;
 
-            if pool_rewards <= &cost {
-                BigInt::ZERO
+            if pool_rewards <= cost {
+                0
             } else {
-                let margin: BigRational = BigRational::new(
-                    self.parameters.margin.numerator.into(),
-                    self.parameters.margin.denominator.into(),
-                );
+                let member_relative_stake = lovelace_ratio(member_stake, total_stake);
 
-                let member_relative_stake =
-                    BigRational::new(member_stake.to_owned(), total_stake.to_owned());
-
-                ((BigRational::one() - margin) * (pool_rewards - cost) * member_relative_stake
-                    / self.relative_stake(total_stake))
-                .floor()
-                .to_integer()
+                // ⌊ (1 - m) × (R_pool - c) × t / σ ⌋
+                floor_to_lovelace(
+                    (SafeRatio::one() - &self.margin)
+                        * BigUint::from(pool_rewards - cost)
+                        * member_relative_stake
+                        / self.relative_stake(total_stake),
+                )
             }
         }
     }
@@ -431,16 +435,16 @@ impl PoolState {
 #[derive(Debug)]
 pub struct PoolRewards {
     /// Total rewards available to the pool
-    pub pot: BigInt,
+    pub pot: Lovelace,
     /// Cut of the rewards going to the pool's leader (operator)
-    pub leader: BigInt,
+    pub leader: Lovelace,
 }
 
 impl serde::Serialize for PoolRewards {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("PoolRewards", 2)?;
-        s.serialize_field("pot", &serialize_bigint(&self.pot))?;
-        s.serialize_field("leader", &serialize_bigint(&self.leader))?;
+        s.serialize_field("pot", &self.pot)?;
+        s.serialize_field("leader", &self.leader)?;
         s.end()
     }
 }
@@ -448,19 +452,19 @@ impl serde::Serialize for PoolRewards {
 #[derive(Debug)]
 pub struct Pots {
     /// Value, in Lovelace, of the treasury at a given epoch.
-    pub treasury: BigInt,
+    pub treasury: Lovelace,
     /// Value, in Lovelace, of the reserves at a given epoch.
-    pub reserves: BigInt,
+    pub reserves: Lovelace,
     /// Values, in Lovelace, generated from fees during an epoch.
-    pub fees: BigInt,
+    pub fees: Lovelace,
 }
 
 impl From<&pots::Row> for Pots {
     fn from(pots: &pots::Row) -> Pots {
         Pots {
-            treasury: pots.treasury.into(),
-            reserves: pots.reserves.into(),
-            fees: pots.fees.into(),
+            treasury: pots.treasury,
+            reserves: pots.reserves,
+            fees: pots.fees,
         }
     }
 }
@@ -468,9 +472,9 @@ impl From<&pots::Row> for Pots {
 impl serde::Serialize for Pots {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("Pots", 3)?;
-        s.serialize_field("treasury", &serialize_bigint(&self.treasury))?;
-        s.serialize_field("reserves", &serialize_bigint(&self.reserves))?;
-        s.serialize_field("fees", &serialize_bigint(&self.fees))?;
+        s.serialize_field("treasury", &self.treasury)?;
+        s.serialize_field("reserves", &self.reserves)?;
+        s.serialize_field("fees", &self.fees)?;
         s.end()
     }
 }
@@ -483,28 +487,28 @@ pub struct RewardsSummary {
 
     /// The ratio of total blocks produced in the epoch, over the expected number of blocks
     /// (determined by protocol parameters).
-    efficiency: BigRational,
+    efficiency: SafeRatio,
 
     /// The amount of Ada taken out of the reserves as incentivies at this particular epoch
     /// (a.k.a ΔR1).
     /// It is so-to-speak, the monetary inflation of the network that fuels the incentives.
-    incentives: BigInt,
+    incentives: Lovelace,
 
     /// Total amount of rewards available before the treasury tax.
     /// In particular, we have:
     ///
     ///   total_rewards = treasury_tax + available_rewards
-    total_rewards: BigInt,
+    total_rewards: Lovelace,
 
     /// Portion of the rewards going to the treasury (irrespective of unallocated pool rewards).
-    treasury_tax: BigInt,
+    treasury_tax: Lovelace,
 
     /// Remaining rewards available to stake pools (and delegators)
-    available_rewards: BigInt,
+    available_rewards: Lovelace,
 
     /// Effective amount of rewards _actually given out_. The surplus is "sent back"
     /// to the reserves.
-    effective_rewards: BigInt,
+    effective_rewards: Lovelace,
 
     /// Various protocol money pots pertaining to the epoch at the beginning of the rewards calculation.
     pots: Pots,
@@ -514,21 +518,18 @@ pub struct RewardsSummary {
     pools: BTreeMap<PoolId, PoolRewards>,
 
     /// Per-account rewards, determined from their relative stake and their delegatee.
-    accounts: BTreeMap<StakeCredential, BigInt>,
+    accounts: BTreeMap<StakeCredential, Lovelace>,
 }
 
 impl serde::Serialize for RewardsSummary {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("RewardsSummary", 8)?;
         s.serialize_field("epoch", &self.epoch)?;
-        s.serialize_field("efficiency", &serialize_ratio(&self.efficiency))?;
-        s.serialize_field("incentives", &serialize_bigint(&self.incentives))?;
-        s.serialize_field("total_rewards", &serialize_bigint(&self.total_rewards))?;
-        s.serialize_field("treasury_tax", &serialize_bigint(&self.treasury_tax))?;
-        s.serialize_field(
-            "available_rewards",
-            &serialize_bigint(&self.available_rewards),
-        )?;
+        s.serialize_field("efficiency", &serialize_safe_ratio(&self.efficiency))?;
+        s.serialize_field("incentives", &self.incentives)?;
+        s.serialize_field("total_rewards", &self.total_rewards)?;
+        s.serialize_field("treasury_tax", &self.treasury_tax)?;
+        s.serialize_field("available_rewards", &self.available_rewards)?;
         s.serialize_field("pots", &self.pots)?;
         let mut pools = self
             .pools
@@ -553,8 +554,8 @@ impl RewardsSummary {
     ) -> Result<Self, E> {
         let pots = db.with_pots(|entry| Pots::from(entry.borrow()))?;
 
-        let mut blocks_count = BigInt::ZERO;
-        let mut pools_blocks = BTreeMap::new();
+        let mut blocks_count: u64 = 0;
+        let mut pools_blocks: BTreeMap<Hash<28>, u64> = BTreeMap::new();
         db.with_block_issuers(|rows| {
             for (_, row) in rows {
                 if let Some(issuer) = row.borrow() {
@@ -562,35 +563,36 @@ impl RewardsSummary {
                     pools_blocks
                         .entry(issuer.slot_leader)
                         .and_modify(|n| *n += 1)
-                        .or_insert(BigInt::one());
+                        .or_insert(1);
                 }
             }
         })?;
 
-        let one = BigRational::one();
-
-        let efficiency = BigRational::new(
-            &blocks_count * ACTIVE_SLOT_COEFF_INVERSE,
-            SHELLEY_EPOCH_LENGTH.into(),
+        let efficiency = safe_ratio(
+            blocks_count * ACTIVE_SLOT_COEFF_INVERSE as u64,
+            SHELLEY_EPOCH_LENGTH as u64,
         );
 
-        blocks_count = blocks_count.max(BigInt::one());
+        blocks_count = blocks_count.max(1);
 
-        let incentives = ((&one).min(&efficiency) * &*MONETARY_EXPANSION * &pots.reserves)
-            .floor()
-            .to_integer();
+        let incentives = floor_to_lovelace(
+            (&SafeRatio::one()).min(&efficiency)
+                * &*MONETARY_EXPANSION
+                * BigUint::from(pots.reserves),
+        );
 
-        let total_rewards: BigInt = &incentives + &pots.fees;
+        let total_rewards: Lovelace = incentives + pots.fees;
 
-        let treasury_tax: BigInt = (&*TREASURY_TAX * &total_rewards).floor().to_integer();
+        let treasury_tax: Lovelace =
+            floor_to_lovelace(&*TREASURY_TAX * &BigUint::from(total_rewards));
 
-        let available_rewards: BigInt = &total_rewards - &treasury_tax;
+        let available_rewards: Lovelace = total_rewards - treasury_tax;
 
-        let total_stake: BigInt = MAX_LOVELACE_SUPPLY - &pots.reserves;
+        let total_stake: Lovelace = MAX_LOVELACE_SUPPLY - pots.reserves;
 
-        let mut effective_rewards = BigInt::ZERO;
+        let mut effective_rewards: Lovelace = 0;
 
-        let mut accounts: BTreeMap<StakeCredential, BigInt> = BTreeMap::new();
+        let mut accounts: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
         let pools = snapshot
             .pools
@@ -599,25 +601,24 @@ impl RewardsSummary {
                 let owner_stake = pool.owner_stake(&snapshot.keys);
 
                 let rewards_pot = pool.pool_rewards(
-                    BigRational::new(
+                    safe_ratio(
                         pools_blocks.remove(pool_id).unwrap_or_default(),
-                        blocks_count.clone(),
+                        blocks_count,
                     ),
-                    &available_rewards,
-                    &snapshot.active_stake,
-                    &total_stake,
-                    &owner_stake,
+                    available_rewards,
+                    snapshot.active_stake,
+                    total_stake,
+                    owner_stake,
                 );
 
-                let rewards_leader =
-                    pool.leader_rewards(rewards_pot.clone(), owner_stake, total_stake.clone());
+                let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
-                effective_rewards += &rewards_leader;
+                effective_rewards += rewards_leader;
 
                 pools.insert(
                     *pool_id,
                     PoolRewards {
-                        leader: rewards_leader.clone(),
+                        leader: rewards_leader,
                         pot: rewards_pot,
                     },
                 );
@@ -640,7 +641,7 @@ impl RewardsSummary {
             if let Some(pool) = snapshot.pools.get(&st.pool) {
                 if let Some(PoolRewards { pot, .. }) = pools.get(&st.pool) {
                     let member_rewards =
-                        pool.member_rewards(&credential, pot, &st.lovelace, &total_stake);
+                        pool.member_rewards(&credential, *pot, st.lovelace, total_stake);
                     if !member_rewards.is_zero() {
                         effective_rewards += &member_rewards;
                         accounts.insert(credential, member_rewards);
@@ -673,60 +674,56 @@ impl RewardsSummary {
 
     /// Amount to be depleted from the reserves at the epoch boundary.
     pub fn delta_reserves(&self) -> Lovelace {
-        Lovelace::try_from(&self.incentives - &self.available_rewards + &self.effective_rewards)
-            .unwrap_or_else(|_| {
-                unreachable!("delta reserves always fits in a u64; otherwise we've exceeded the max Ada supply.")
-            })
+        self.incentives + self.effective_rewards - self.available_rewards
     }
 
     /// Amount to be added to the treasury at the epoch boundary.
     pub fn delta_treasury(&self) -> Lovelace {
-        Lovelace::try_from(&self.treasury_tax).unwrap_or_else(|_| {
-            unreachable!(
-                "treasury always fit in a u64; otherwise we've exceeded the max Ada supply."
-            )
-        })
+        self.treasury_tax
     }
 
     /// Fetch and remove from the summary rewards pertaining to a given account, if any.
     pub fn extract_rewards(&mut self, account: &StakeCredential) -> Option<Lovelace> {
-        self.accounts.remove(account).map(|rewards| {
-            Lovelace::try_from(rewards).unwrap_or_else(|_| {
-                unreachable!(
-                    "rewards always fit in a u64; otherwise we've exceeded the max Ada supply."
-                )
-            })
-        })
+        self.accounts.remove(account)
     }
 
     /// Return leftovers rewards that couldn't be allocated to account because they no longer
     /// exist. This method consumes (i.e. takes ownership) of the item because it is meant to be
     /// called last.
     pub fn unclaimed_rewards(self) -> Lovelace {
-        self.accounts.into_iter().fold(0, |total, (_, rewards)| {
-            total
-                + Lovelace::try_from(rewards).unwrap_or_else(|_| {
-                    unreachable!(
-                    "rewards always fits in a u64; otherwise we've exceeded the max Ada supply."
-                )
-                })
-        })
+        self.accounts
+            .into_iter()
+            .fold(0, |total, (_, rewards)| total + rewards)
     }
 }
 
 // -------------------------------------------------------------------- Internal
 
-fn serialize_ratio(r: &BigRational) -> String {
-    format!("{}/{}", r.numer(), r.denom())
-}
-
-fn serialize_bigint(n: &BigInt) -> i128 {
-    i128::try_from(n).unwrap()
-}
-
 fn unsafe_encode_pool_id(pool_id: &[u8]) -> String {
     encode_bech32("pool", pool_id)
         .unwrap_or_else(|e| panic!("unable to encode pool id ({pool_id:?}) to bech32: {e:?}"))
+}
+
+type SafeRatio = Ratio<BigUint>;
+
+pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
+    SafeRatio::new(BigUint::from(numerator), BigUint::from(denominator))
+}
+
+fn serialize_safe_ratio(r: &SafeRatio) -> String {
+    format!("{}/{}", r.numer(), r.denom())
+}
+
+type LovelaceRatio = SafeRatio;
+
+pub fn floor_to_lovelace(n: LovelaceRatio) -> Lovelace {
+    Lovelace::try_from(n.floor().to_integer()).unwrap_or_else(|_| {
+        unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply.")
+    })
+}
+
+pub fn lovelace_ratio(numerator: Lovelace, denominator: Lovelace) -> LovelaceRatio {
+    LovelaceRatio::new(BigUint::from(numerator), BigUint::from(denominator))
 }
 
 // -------------------------------------------------------------------- Tests

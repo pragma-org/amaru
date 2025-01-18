@@ -5,7 +5,7 @@
 // It's also the right place to put rather general functions or types that ought to be in pallas.
 // While elements are being contributed upstream, they might transiently live in this module.
 
-use num::{BigInt, BigRational};
+use num::{rational::Ratio, BigUint};
 use once_cell::sync::Lazy;
 pub use ouroboros::ledger::PoolSigma;
 use pallas_addresses::*;
@@ -68,16 +68,16 @@ pub const STAKE_POOL_DEPOSIT: usize = 500000000;
 pub const STAKE_CREDENTIAL_DEPOSIT: usize = 2000000;
 
 // The monetary expansion value, a.k.a ρ
-pub static MONETARY_EXPANSION: Lazy<BigRational> =
-    Lazy::new(|| BigRational::new_raw(BigInt::from(3), BigInt::from(1000)));
+pub static MONETARY_EXPANSION: Lazy<Ratio<BigUint>> =
+    Lazy::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)));
 
 /// Treasury tax, a.k.a τ
-pub static TREASURY_TAX: Lazy<BigRational> =
-    Lazy::new(|| BigRational::new_raw(BigInt::from(20), BigInt::from(100)));
+pub static TREASURY_TAX: Lazy<Ratio<BigUint>> =
+    Lazy::new(|| Ratio::new_raw(BigUint::from(20_u64), BigUint::from(100_u64)));
 
 /// Pledge influence parameter, a.k.a a0
-pub static PLEDGE_INFLUENCE: Lazy<BigRational> =
-    Lazy::new(|| BigRational::new_raw(BigInt::from(3), BigInt::from(10)));
+pub static PLEDGE_INFLUENCE: Lazy<Ratio<BigUint>> =
+    Lazy::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(10_u64)));
 
 /// The optimal number of stake pools target for the incentives, a.k.a k
 pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;

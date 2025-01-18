@@ -36,10 +36,11 @@ const DIR_LIVE_DB: &str = "live";
 /// * key                     * value                                          *
 /// * ========================*=============================================== *
 /// * 'tip'                   * Point                                          *
+/// * 'pots'                  * (Lovelace, Lovelace, Lovelace)                 *
 /// * 'utxo:'TransactionInput * TransactionOutput                              *
 /// * 'pool:'PoolId           * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
 /// * 'acct:'StakeCredential  * (Option<PoolId>, Lovelace, Lovelace)           *
-/// * 'slot':slot             * PoolId
+/// * 'slot':slot             * PoolId                                         *
 /// * ========================*=============================================== *
 ///
 /// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
