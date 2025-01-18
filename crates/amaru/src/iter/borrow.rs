@@ -145,7 +145,7 @@ mod tests {
 
         let prefix = "fruit:".as_bytes();
 
-        // Insert some values in a prefixed colletion
+        // Insert some values in a prefixed collection
         db.put(
             as_key(prefix, "apple"),
             to_cbor(Fruit {
@@ -250,7 +250,7 @@ mod tests {
     }
 }
 
-mod borrowable_proxy {
+pub mod borrowable_proxy {
     use std::borrow::{Borrow, BorrowMut};
 
     /// A wrapper around an item that allows to perform a specific action when mutated. This is handy

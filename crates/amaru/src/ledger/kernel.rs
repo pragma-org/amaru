@@ -5,7 +5,10 @@
 // It's also the right place to put rather general functions or types that ought to be in pallas.
 // While elements are being contributed upstream, they might transiently live in this module.
 
+use num::{rational::Ratio, BigUint};
+use once_cell::sync::Lazy;
 pub use ouroboros::ledger::PoolSigma;
+use pallas_addresses::*;
 pub use pallas_codec::{
     minicbor as cbor,
     utils::{Nullable, Set},
@@ -43,6 +46,9 @@ pub const ACTIVE_SLOT_COEFF_INVERSE: usize = 20;
 pub const SHELLEY_EPOCH_LENGTH: usize =
     ACTIVE_SLOT_COEFF_INVERSE * SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
 
+/// Relative slot from which data of the previous epoch can be considered stable.
+pub const STABILITY_WINDOW: usize = ACTIVE_SLOT_COEFF_INVERSE * CONSENSUS_SECURITY_PARAM * 2;
+
 /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
 pub const BYRON_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
 
@@ -61,9 +67,27 @@ pub const STAKE_POOL_DEPOSIT: usize = 500000000;
 /// Value, in Lovelace, that one must deposit when registering a new stake credential
 pub const STAKE_CREDENTIAL_DEPOSIT: usize = 2000000;
 
+// The monetary expansion value, a.k.a ρ
+pub static MONETARY_EXPANSION: Lazy<Ratio<BigUint>> =
+    Lazy::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)));
+
+/// Treasury tax, a.k.a τ
+pub static TREASURY_TAX: Lazy<Ratio<BigUint>> =
+    Lazy::new(|| Ratio::new_raw(BigUint::from(20_u64), BigUint::from(100_u64)));
+
+/// Pledge influence parameter, a.k.a a0
+pub static PLEDGE_INFLUENCE: Lazy<Ratio<BigUint>> =
+    Lazy::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(10_u64)));
+
+/// The optimal number of stake pools target for the incentives, a.k.a k
+pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
+
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
 
+// FIXME: Switch to BigInt or BigUInt eventually. Not doing it _now_ because of laziness, not
+// having to deal with serialisation and deserialisation of those right now; and also because so
+// far it isn't causing any problem.
 pub type Lovelace = u64;
 
 pub type Point = pallas_network::miniprotocols::Point;
@@ -270,8 +294,6 @@ pub fn output_lovelace(output: &TransactionOutput) -> Lovelace {
 
 /// FIXME: See 'output_lovelace', same remark applies.
 pub fn output_stake_credential(output: &TransactionOutput) -> Option<StakeCredential> {
-    use pallas_addresses::*;
-
     let address = Address::from_bytes(match output {
         TransactionOutput::Legacy(legacy) => &legacy.address[..],
         TransactionOutput::PostAlonzo(modern) => &modern.address[..],
@@ -286,5 +308,18 @@ pub fn output_stake_credential(output: &TransactionOutput) -> Option<StakeCreden
         },
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
+    }
+}
+
+// This function shouldn't exist and pallas should provide a RewardAccount = (Network,
+// StakeCredential) out of the box instead of row bytes.
+pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<StakeCredential> {
+    if let Ok(Address::Stake(stake_addr)) = Address::from_bytes(&account[..]) {
+        match stake_addr.payload() {
+            StakePayload::Stake(key) => Some(StakeCredential::AddrKeyhash(*key)),
+            StakePayload::Script(script) => Some(StakeCredential::ScriptHash(*script)),
+        }
+    } else {
+        None
     }
 }

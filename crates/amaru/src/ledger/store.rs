@@ -1,9 +1,10 @@
 pub mod columns;
 pub mod rocksdb;
 
-use super::kernel::{Epoch, Point, PoolId};
+use super::kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use crate::ledger::rewards::RewardsSummary;
 use columns::*;
-use std::iter;
+use std::{borrow::BorrowMut, iter};
 
 // Store
 // ----------------------------------------------------------------------------
@@ -43,13 +44,29 @@ pub trait Store {
     /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
     /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
     /// decision entirely to the caller owning the store.
-    fn next_snapshot(&mut self, epoch: Epoch) -> Result<(), Self::Error>;
+    fn next_snapshot(
+        &mut self,
+        epoch: Epoch,
+        rewards_summary: Option<RewardsSummary>,
+    ) -> Result<(), Self::Error>;
 
-    /// Get details about a specific pool
+    /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error>;
 
+    /// Get details about a specific UTxO
+    fn resolve_input(
+        &self,
+        input: &TransactionInput,
+    ) -> Result<Option<TransactionOutput>, Self::Error>;
+
+    /// Compute rewards using database snapshots.
+    fn rewards_summary(&self, epoch: Epoch) -> Result<RewardsSummary, Self::Error>;
+
     /// Get current values of the treasury and reserves accounts.
-    fn pots(&self) -> Result<pots::Row, Self::Error>;
+    fn with_pots<A>(
+        &self,
+        with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>) -> A,
+    ) -> Result<A, Self::Error>;
 
     /// Provide an access to iterate over pools, in a way that enforces:
     ///

@@ -18,6 +18,7 @@ const EVENT_TARGET: &str = "amaru::ledger";
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 
 pub mod kernel;
+pub mod rewards;
 pub mod state;
 pub mod store;
 

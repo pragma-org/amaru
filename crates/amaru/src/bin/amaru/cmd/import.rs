@@ -64,7 +64,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     db.save(&point, None, Default::default(), Default::default())
         .into_diagnostic()?;
 
-    db.next_snapshot(epoch).into_diagnostic()?;
+    db.next_snapshot(epoch, None).into_diagnostic()?;
 
     db.with_pools(|iterator| {
         for (_, pool) in iterator {
@@ -212,19 +212,21 @@ fn decode_new_epoch_state(
 
         let delta_reserves: i64 = d.decode().into_diagnostic()?;
 
-        let rewards: HashMap<StakeCredential, Set<Reward>> = d.decode().into_diagnostic()?;
+        let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode().into_diagnostic()?;
         let delta_fees: i64 = d.decode().into_diagnostic()?;
 
         // NonMyopic
         d.skip().into_diagnostic()?;
 
-        import_accounts(db, accounts, rewards)?;
+        import_accounts(db, accounts, &mut rewards)?;
 
-        // TODO: Also add the total of unregistered rewards, that is, rewards supposed to go to stake
-        // credentials that are no longer registered going to the treasury instead.
+        let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
+            total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
+        });
+
         import_pots(
             db,
-            (treasury + delta_treasury) as u64,
+            (treasury + delta_treasury) as u64 + unclaimed_rewards,
             (reserves - delta_reserves) as u64,
             (fees - delta_fees) as u64,
         )?;
@@ -238,6 +240,13 @@ fn import_block_issuers(
     blocks: HashMap<PoolId, u64>,
 ) -> miette::Result<()> {
     let batch = db.unsafe_transaction();
+    db.with_block_issuers(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })
+    .into_diagnostic()?;
+
     let mut fake_slot = 0;
     for (pool, mut count) in blocks.into_iter() {
         while count > 0 {
@@ -255,6 +264,20 @@ fn import_utxo(
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
 ) -> miette::Result<()> {
     info!(what = "utxo_entries", size = utxo.len());
+
+    let progress_delete = ProgressBar::no_length().with_style(
+        ProgressStyle::with_template("  Pruning UTxO entries {spinner} {elapsed}").unwrap(),
+    );
+
+    db.with_utxo(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+            progress_delete.tick();
+        }
+    })
+    .into_diagnostic()?;
+
+    progress_delete.finish_and_clear();
 
     let progress = ProgressBar::new(utxo.len() as u64).with_style(
         ProgressStyle::with_template("  UTxO entries {bar:70} {pos:>7}/{len:7}").unwrap(),
@@ -279,7 +302,7 @@ fn import_utxo(
         progress.inc(n as u64);
     }
 
-    progress.finish();
+    progress.finish_and_clear();
 
     Ok(())
 }
@@ -309,6 +332,13 @@ fn import_stake_pools(
         registered = state.registered.len(),
         retiring = state.unregistered.len(),
     );
+
+    db.with_pools(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })
+    .into_diagnostic()?;
 
     db.save(
         &Point::Origin,
@@ -351,8 +381,15 @@ fn import_pots(
 fn import_accounts(
     db: &store::rocksdb::RocksDB,
     accounts: HashMap<StakeCredential, Account>,
-    rewards_updates: HashMap<StakeCredential, Set<Reward>>,
+    rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
 ) -> miette::Result<()> {
+    db.with_accounts(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })
+    .into_diagnostic()?;
+
     let mut credentials = accounts
         .into_iter()
         .map(
@@ -367,7 +404,7 @@ fn import_accounts(
                 let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
                     .unwrap_or((0, STAKE_CREDENTIAL_DEPOSIT as u64));
 
-                let rewards_update = match rewards_updates.get(&credential) {
+                let rewards_update = match rewards_updates.remove(&credential) {
                     None => 0,
                     Some(set) => set.iter().fold(0, |total, update| total + update.amount),
                 };
@@ -406,7 +443,7 @@ fn import_accounts(
         progress.inc(n as u64);
     }
 
-    progress.finish();
+    progress.finish_and_clear();
 
     Ok(())
 }

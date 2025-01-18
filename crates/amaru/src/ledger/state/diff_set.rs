@@ -27,6 +27,13 @@ impl<K: Ord, V> DiffSet<K, V> {
         self.consumed.extend(other.consumed);
         self.produced.extend(other.produced);
     }
+
+    pub fn as_ref(&self) -> DiffSet<&K, &V> {
+        DiffSet {
+            consumed: self.consumed.iter().collect(),
+            produced: self.produced.iter().collect(),
+        }
+    }
 }
 
 #[cfg(test)]

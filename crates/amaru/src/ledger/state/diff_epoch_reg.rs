@@ -10,6 +10,12 @@ use vec1::{vec1, Vec1};
 /// The data-structure can be reduced through a composition relation that ensures two
 /// `DiffEpochReg` collapses into one that is equivalent to applying both `DiffEpochReg` in
 /// sequence.
+///
+/// /!\ Important /!\
+/// In its current state, it is NOT possible to reduce/merge DiffEpochReg *across epochs*. Calls to
+/// `.register` and `.unregister` assumes they are all done from within the same epoch. Merging
+/// across epochs requires some more finesse; which isn't completely out of the picture, but simply
+/// hasn't been implemented yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffEpochReg<K, V> {
     pub registered: BTreeMap<K, Vec1<V>>,

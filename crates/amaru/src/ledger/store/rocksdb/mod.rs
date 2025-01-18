@@ -1,10 +1,14 @@
 pub(crate) mod common;
 
 use crate::{
-    iter::{borrow as iter_borrow, borrow::IterBorrow},
+    iter::{
+        borrow as iter_borrow,
+        borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
+    },
     ledger::{
-        kernel::{Epoch, Point, PoolId},
-        store::{columns::*, Columns, Store},
+        kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
+        rewards::StakeDistributionSnapshot,
+        store::{columns::*, Columns, RewardsSummary, Store},
     },
 };
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
@@ -15,7 +19,7 @@ use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
 };
-use tracing::{debug, info, warn};
+use tracing::{debug, info, info_span, warn};
 
 const EVENT_TARGET: &str = "amaru::ledger::store";
 
@@ -32,10 +36,11 @@ const DIR_LIVE_DB: &str = "live";
 /// * key                     * value                                          *
 /// * ========================*=============================================== *
 /// * 'tip'                   * Point                                          *
+/// * 'pots'                  * (Lovelace, Lovelace, Lovelace)                 *
 /// * 'utxo:'TransactionInput * TransactionOutput                              *
 /// * 'pool:'PoolId           * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
 /// * 'acct:'StakeCredential  * (Option<PoolId>, Lovelace, Lovelace)           *
-/// * 'slot':slot             * PoolId
+/// * 'slot':slot             * PoolId                                         *
 /// * ========================*=============================================== *
 ///
 /// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
@@ -176,6 +181,7 @@ impl Store for RocksDB {
             }
             _ => {
                 batch.put(KEY_TIP, as_value(point))?;
+
                 if let Some(issuer) = issuer {
                     slots::rocksdb::put(
                         &batch,
@@ -183,6 +189,7 @@ impl Store for RocksDB {
                         slots::Row::new(*issuer),
                     )?;
                 }
+
                 utxo::rocksdb::add(&batch, add.utxo)?;
                 pools::rocksdb::add(&batch, add.pools)?;
                 accounts::rocksdb::add(&batch, add.accounts)?;
@@ -202,24 +209,122 @@ impl Store for RocksDB {
             .unwrap_or_else(|| panic!("called 'most_recent_snapshot' on empty database?!"))
     }
 
-    fn next_snapshot(&'_ mut self, epoch: Epoch) -> Result<(), Self::Error> {
+    fn next_snapshot(
+        &'_ mut self,
+        epoch: Epoch,
+        rewards_summary: Option<RewardsSummary>,
+    ) -> Result<(), Self::Error> {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             let path = self.dir.join(snapshot.to_string());
+
+            if let Some(mut rewards_summary) = rewards_summary {
+                info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
+                    self.with_accounts(|iterator| {
+                        for (account, mut row) in iterator {
+                            if let Some(rewards) = rewards_summary.extract_rewards(&account) {
+                                if rewards > 0 {
+                                    if let Some(account) = row.borrow_mut() {
+                                        account.rewards += rewards;
+                                    }
+                                }
+                            }
+                        }
+                    })
+                })?;
+
+                let delta_treasury = rewards_summary.delta_treasury();
+                let delta_reserves = rewards_summary.delta_reserves();
+                let unclaimed_rewards = rewards_summary.unclaimed_rewards();
+
+                info_span!(target: EVENT_TARGET, "snapshot.adjusting_pots", delta_treasury, delta_reserves, unclaimed_rewards).in_scope(|| {
+                    self.with_pots(|mut row| {
+                        let pots = row.borrow_mut();
+                        pots.treasury += delta_treasury + unclaimed_rewards;
+                        pots.reserves -= delta_reserves;
+                    })
+                })?;
+            }
+
             checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
+
+            info_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
+                // TODO: If necessary, come up with a more efficient way of dropping a "table".
+                // RocksDB does support batch-removing of key ranges, but somehow, not in a
+                // transactional way. So it isn't as trivial to implement as it may seem.
+                self.with_block_issuers(|iterator| {
+                    for (_, mut row) in iterator {
+                        *row.borrow_mut() = None;
+                    }
+                })
+            })?;
+
+            info_span!(target: EVENT_TARGET, "reset.fees").in_scope(|| {
+                self.with_pots(|mut row| {
+                    row.borrow_mut().fees = 0;
+                })
+            })?;
+
             self.snapshots.push(snapshot);
         } else {
             info!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
         }
+
         Ok(())
     }
 
-    fn pots(&self) -> Result<pots::Row, Self::Error> {
-        pots::rocksdb::get(&self.db)
+    fn rewards_summary(&self, epoch: Epoch) -> Result<RewardsSummary, Self::Error> {
+        let stake_distr = StakeDistributionSnapshot::new(
+            &Self::from_snapshot(&self.dir, epoch - 2).unwrap_or_else(|e| {
+                panic!(
+                    "unable to open database snapshot for epoch {:?}: {:?}",
+                    epoch - 2,
+                    e
+                )
+            }),
+        )?;
+        RewardsSummary::new(
+            &Self::from_snapshot(&self.dir, epoch).unwrap_or_else(|e| {
+                panic!(
+                    "unable to open database snapshot for epoch {:?}: {:?}",
+                    epoch, e
+                )
+            }),
+            stake_distr,
+        )
+    }
+
+    fn with_pots<A>(
+        &self,
+        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<pots::Row> + '_>) -> A,
+    ) -> Result<A, Self::Error> {
+        let db = self.db.transaction();
+
+        let mut err = None;
+        let proxy = Box::new(BorrowableProxy::new(pots::rocksdb::get(&db)?, |pots| {
+            let put = pots::rocksdb::put(&db, pots).and_then(|_| db.commit());
+            if let Err(e) = put {
+                err = Some(e);
+            }
+        }));
+
+        let result = with(proxy);
+
+        match err {
+            Some(e) => Err(e),
+            None => Ok(result),
+        }
     }
 
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error> {
         pools::rocksdb::get(&self.db, pool)
+    }
+
+    fn resolve_input(
+        &self,
+        input: &TransactionInput,
+    ) -> Result<Option<TransactionOutput>, Self::Error> {
+        utxo::rocksdb::get(&self.db, input)
     }
 
     fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
@@ -272,273 +377,4 @@ fn with_prefix_iterator<
     }
 
     db.commit()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::ledger::kernel::{
-        encode_bech32, output_lovelace, output_stake_credential, Hash, Lovelace, PoolParams,
-        StakeCredential,
-    };
-    use num::BigRational;
-    use serde::ser::SerializeStruct;
-    use std::collections::BTreeMap;
-
-    const LEDGER_DB: &str = "../../ledger.db";
-
-    struct Snapshot {
-        keys: BTreeMap<Hash<28>, AccountState>,
-        scripts: BTreeMap<Hash<28>, AccountState>,
-        pools: BTreeMap<PoolId, PoolState>,
-    }
-
-    impl serde::Serialize for Snapshot {
-        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut s = serializer.serialize_struct("Snapshot", 3)?;
-            s.serialize_field("keys", &self.keys)?;
-            s.serialize_field("scripts", &self.scripts)?;
-            let mut pools = self
-                .pools
-                .iter()
-                .map(|(k, v)| (encode_bech32("pool", &k[..]).unwrap(), v))
-                .collect::<Vec<_>>();
-            pools.sort_by(|a, b| a.0.cmp(&b.0));
-            s.serialize_field(
-                "stakePoolParameters",
-                &pools.into_iter().collect::<BTreeMap<String, &PoolState>>(),
-            )?;
-            s.end()
-        }
-    }
-
-    struct AccountState {
-        lovelace: Lovelace,
-        pool: PoolId,
-    }
-
-    impl serde::Serialize for AccountState {
-        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut s = serializer.serialize_struct("AccountState", 2)?;
-            s.serialize_field("lovelace", &self.lovelace)?;
-            s.serialize_field("pool", &encode_bech32("pool", &self.pool[..]).unwrap())?;
-            s.end()
-        }
-    }
-
-    struct PoolState {
-        blocks_count: u64,
-        relative_stake: BigRational,
-        parameters: PoolParams,
-    }
-
-    impl serde::Serialize for PoolState {
-        fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-            let mut s = serializer.serialize_struct("PoolState", 3)?;
-            s.serialize_field("blocksCount", &self.blocks_count)?;
-            s.serialize_field("relativeStake", &serialize_ratio(&self.relative_stake))?;
-            s.serialize_field("parameters", &self.parameters)?;
-            s.end()
-        }
-    }
-
-    fn serialize_ratio(r: &BigRational) -> String {
-        format!("{}/{}", r.numer(), r.denom())
-    }
-
-    fn new_preprod_snapshot(epoch: Epoch, total_stake: Lovelace) -> Snapshot {
-        let db = RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch).unwrap();
-
-        let mut accounts = BTreeMap::new();
-        db.with_accounts(|rows| {
-            for (credential, row) in rows {
-                if let Some(account) = row.borrow() {
-                    if let Some(pool) = account.delegatee {
-                        accounts.insert(
-                            credential,
-                            AccountState {
-                                pool,
-                                lovelace: account.rewards,
-                            },
-                        );
-                    }
-                }
-            }
-        })
-        .unwrap();
-
-        db.with_utxo(|rows| {
-            for (_, row) in rows {
-                if let Some(output) = row.borrow() {
-                    if let Some(credential) = output_stake_credential(output) {
-                        let value = output_lovelace(output);
-                        accounts
-                            .entry(credential)
-                            .and_modify(|account| account.lovelace += value);
-                    }
-                }
-            }
-        })
-        .unwrap();
-
-        let mut pools: BTreeMap<PoolId, PoolState> = BTreeMap::new();
-        db.with_pools(|rows| {
-            for (pool, row) in rows {
-                if let Some(row) = row.borrow() {
-                    pools.insert(
-                        pool,
-                        PoolState {
-                            relative_stake: BigRational::from_integer(0.into()),
-                            blocks_count: 0,
-                            parameters: row.current_params.clone(),
-                        },
-                    );
-                }
-            }
-        })
-        .unwrap();
-
-        let mut accounts_scripts = BTreeMap::new();
-        let mut accounts_keys = BTreeMap::new();
-        for (credential, account) in accounts.into_iter() {
-            // TODO: Add active stake
-
-            pools.entry(account.pool).and_modify(|st| {
-                st.relative_stake += BigRational::new(account.lovelace.into(), total_stake.into());
-            });
-
-            if pools.contains_key(&account.pool) {
-                match credential {
-                    StakeCredential::ScriptHash(script) => {
-                        accounts_scripts.insert(script, account);
-                    }
-                    StakeCredential::AddrKeyhash(key) => {
-                        accounts_keys.insert(key, account);
-                    }
-                }
-            }
-        }
-
-        db.with_block_issuers(|rows| {
-            for (_, row) in rows {
-                if let Some(issuer) = row.borrow() {
-                    pools
-                        .entry(issuer.slot_leader)
-                        .and_modify(|pool| pool.blocks_count += 1);
-                }
-            }
-        })
-        .unwrap();
-
-        Snapshot {
-            keys: accounts_keys,
-            scripts: accounts_scripts,
-            pools,
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_165() {
-        let snapshot = new_preprod_snapshot(165, 31112793878086059);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_166() {
-        let snapshot = new_preprod_snapshot(166, 31119117576599736);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_167() {
-        let snapshot = new_preprod_snapshot(167, 31125529153288004);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_168() {
-        let snapshot = new_preprod_snapshot(168, 31131906732704284);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_169() {
-        let snapshot = new_preprod_snapshot(169, 31138307137790052);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_170() {
-        let snapshot = new_preprod_snapshot(170, 31144692895041950);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_171() {
-        let snapshot = new_preprod_snapshot(171, 31150987758289950);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_172() {
-        let snapshot = new_preprod_snapshot(172, 31157306038590590);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_173() {
-        let snapshot = new_preprod_snapshot(173, 31163830817196470);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_174() {
-        let snapshot = new_preprod_snapshot(174, 31170156774217170);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_175() {
-        let snapshot = new_preprod_snapshot(175, 31176424921600024);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_176() {
-        let snapshot = new_preprod_snapshot(176, 31183205224639780);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_177() {
-        let snapshot = new_preprod_snapshot(177, 31189917429258484);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_178() {
-        let snapshot = new_preprod_snapshot(178, 31196606373586140);
-        insta::assert_json_snapshot!(snapshot);
-    }
-
-    #[test]
-    #[ignore]
-    fn compare_preprod_snapshot_179() {
-        let snapshot = new_preprod_snapshot(179, 31203363503294896);
-        insta::assert_json_snapshot!(snapshot);
-    }
 }
