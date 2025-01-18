@@ -27,11 +27,17 @@ jobs:
             target: aarch64-apple-darwin
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            optional: true
+            cross-compile: true
     timeout-minutes: 30
     runs-on: ${{ matrix.environments.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ${{ runner.os }}-${{ matrix.environments.target }}
       - name: Check format
         run: cargo fmt-amaru
       - name: Run clippy
@@ -40,7 +46,13 @@ jobs:
       - name: Run tests
         run: |
           set +e
-          cargo test-amaru --locked --target ${{ matrix.environments.target }}
+          if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
+            cargo install cross --git https://github.com/cross-rs/cross
+            # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
+            $HOME/.cargo/bin/cross test --locked --all-features --workspace --target ${{ matrix.environments.target }}
+          else
+            cargo test-amaru --locked --target ${{ matrix.environments.target }}
+          fi
           exitcode="$?"
           if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
             # Propagate failure as a warning
