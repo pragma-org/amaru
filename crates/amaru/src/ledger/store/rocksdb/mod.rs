@@ -6,7 +6,7 @@ use crate::{
         borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
     },
     ledger::{
-        kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
+        kernel::{Epoch, Lovelace, Point, PoolId, TransactionInput, TransactionOutput},
         rewards::StakeDistributionSnapshot,
         store::{columns::*, Columns, RewardsSummary, Store},
     },
@@ -236,8 +236,10 @@ impl Store for RocksDB {
                     self.with_accounts(|iterator| {
                         for (account, mut row) in iterator {
                             if let Some(rewards) = rewards_summary.extract_rewards(&account) {
-                                if let Some(account) = row.borrow_mut() {
-                                    account.rewards += rewards;
+                                if rewards > 0 {
+                                    if let Some(account) = row.borrow_mut() {
+                                        account.rewards += rewards;
+                                    }
                                 }
                             }
                         }
@@ -250,11 +252,14 @@ impl Store for RocksDB {
                 .unwrap_or(0);
 
             if unclaimed_rewards > 0 {
+                info!(target: EVENT_TARGET, unclaimed = unclaimed_rewards, "snapshot.rewards");
                 Self::from_snapshot(&self.dir, epoch)
                     .unwrap()
                     .with_pots(|mut row| {
                         row.borrow_mut().treasury += unclaimed_rewards;
                     })?;
+            } else {
+                info!(target: EVENT_TARGET, unclaimed = None::<Lovelace>, "snapshot.rewards");
             }
 
             info_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {

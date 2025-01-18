@@ -590,6 +590,8 @@ impl RewardsSummary {
 
         let mut effective_rewards = BigInt::ZERO;
 
+        let mut accounts: BTreeMap<StakeCredential, BigInt> = BTreeMap::new();
+
         let pools = snapshot
             .pools
             .iter()
@@ -615,22 +617,34 @@ impl RewardsSummary {
                 pools.insert(
                     *pool_id,
                     PoolRewards {
-                        leader: rewards_leader,
+                        leader: rewards_leader.clone(),
                         pot: rewards_pot,
                     },
+                );
+
+                accounts.insert(
+                    reward_account_to_stake_credential(&pool.parameters.reward_account)
+                        .unwrap_or_else(|| {
+                            panic!(
+                                "unexpected malformed reward account: {:?}",
+                                &pool.parameters.reward_account
+                            )
+                        }),
+                    rewards_leader,
                 );
 
                 pools
             });
 
-        let mut accounts: BTreeMap<StakeCredential, BigInt> = BTreeMap::new();
         let mut member_rewards = |credential: StakeCredential, st: AccountState| {
             if let Some(pool) = snapshot.pools.get(&st.pool) {
                 if let Some(PoolRewards { pot, .. }) = pools.get(&st.pool) {
                     let member_rewards =
                         pool.member_rewards(&credential, pot, &st.lovelace, &total_stake);
-                    effective_rewards += &member_rewards;
-                    accounts.insert(credential, member_rewards);
+                    if !member_rewards.is_zero() {
+                        effective_rewards += &member_rewards;
+                        accounts.insert(credential, member_rewards);
+                    }
                 }
             }
         };
