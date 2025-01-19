@@ -4,10 +4,9 @@ pub mod diff_set;
 
 use crate::ledger::{
     kernel::{
-        self, block_point, epoch_from_slot, output_lovelace, Certificate, Epoch, Hash, Hasher,
-        Lovelace, MintedBlock, Point, PoolId, PoolParams, PoolSigma, StakeCredential,
-        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
-        STAKE_CREDENTIAL_DEPOSIT,
+        self, epoch_from_slot, output_lovelace, Certificate, Epoch, Hash, Hasher, Lovelace,
+        MintedBlock, Point, PoolId, PoolParams, PoolSigma, StakeCredential, TransactionInput,
+        TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW, STAKE_CREDENTIAL_DEPOSIT,
     },
     rewards::RewardsSummary,
     store::{self, columns::*, Store},
@@ -18,12 +17,12 @@ use diff_set::DiffSet;
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
-    iter,
     sync::{Arc, Mutex},
 };
 use tracing::{debug, info, info_span, Span};
 
-const EVENT_TARGET: &str = "amaru::ledger::state";
+const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
+const TRANSACTION_EVENT_TARGET: &str = "amaru::ledger::state::apply::transaction";
 
 // State
 // ----------------------------------------------------------------------------
@@ -92,22 +91,16 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     /// Roll the ledger forward with the given block by applying transactions one by one, in
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
-    pub fn forward(&mut self, span: &Span, block: MintedBlock<'_>) -> Result<(), ForwardErr<E>> {
-        let point = block_point(&block);
+    pub fn forward(
+        &mut self,
+        span: &Span,
+        point: &Point,
+        block: MintedBlock<'_>,
+    ) -> Result<(), ForwardErr<E>> {
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
         let relative_slot = kernel::relative_slot(point.slot_or_default());
 
-        let span_apply_block = info_span!(
-            target: EVENT_TARGET,
-            parent: span,
-            "block.body.validate",
-            block.transactions.total = tracing::field::Empty,
-            block.transactions.failed = tracing::field::Empty,
-            block.transactions.success = tracing::field::Empty
-        )
-        .entered();
-        let state = self.apply_block(&span_apply_block, block)?;
-        span_apply_block.exit();
+        let state = self.apply_block(span, block)?;
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
             let mut db = self.stable.lock().unwrap();
@@ -131,27 +124,35 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 // FIXME: All operations below should technically happen in the same database
                 // transaction. If we interrupt the application between any of those, we might end
                 // up with a corrupted state.
-                info_span!(target: EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
+                info_span!(target: STATE_EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
                     db.next_snapshot(current_epoch - 1, self.rewards_summary.take())
                         .map_err(ForwardErr::StorageErr)
                 })?;
 
-                info_span!(target: EVENT_TARGET, parent: span, "tick.pool").in_scope(|| {
-                    // Then we, can tick pools to compute their new state at the epoch boundary. Notice
-                    // how we tick with the _current epoch_ however, but we take the snapshot before
-                    // the tick since the actions are only effective once the epoch is crossed.
-                    db.with_pools(|iterator| {
-                        for (_, pool) in iterator {
-                            pools::Row::tick(pool, current_epoch)
-                        }
-                    })
-                    .map_err(ForwardErr::StorageErr)
-                })?;
+                info_span!(target: STATE_EVENT_TARGET, parent: span, "tick.pool").in_scope(
+                    || {
+                        // Then we, can tick pools to compute their new state at the epoch boundary. Notice
+                        // how we tick with the _current epoch_ however, but we take the snapshot before
+                        // the tick since the actions are only effective once the epoch is crossed.
+                        db.with_pools(|iterator| {
+                            for (_, pool) in iterator {
+                                pools::Row::tick(pool, current_epoch)
+                            }
+                        })
+                        .map_err(ForwardErr::StorageErr)
+                    },
+                )?;
             }
 
-            let (stable_point, stable_issuer, fees, add, remove) = now_stable.into_store_update();
+            let StoreUpdate {
+                point: stable_point,
+                issuer: stable_issuer,
+                fees,
+                add,
+                remove,
+            } = now_stable.into_store_update();
 
-            info_span!(target: EVENT_TARGET, parent: span, "save").in_scope(|| {
+            info_span!(target: STATE_EVENT_TARGET, parent: span, "save").in_scope(|| {
                 db.save(&stable_point, Some(&stable_issuer), add, remove)
                     .and_then(|()| {
                         db.with_pots(|mut row| {
@@ -169,7 +170,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 );
             }
         } else {
-            info!(target: EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
+            info!(target: STATE_EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
         }
 
         span.record("tip.epoch", epoch_from_slot(point.slot_or_default()));
@@ -223,7 +224,6 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                         }))
                     })
                 })?;
-
             result.push((input, output));
         }
 
@@ -233,16 +233,27 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     /// Process a given block into a series of ledger-state diff (a.k.a events) to apply.
     fn apply_block(
         &self,
-        span: &Span,
+        parent: &Span,
         block: MintedBlock<'_>,
     ) -> Result<VolatileState<()>, ForwardErr<E>> {
         let failed_transactions = FailedTransactions::from_block(&block);
+        let transaction_bodies = block.transaction_bodies.to_vec();
+        let total_count = transaction_bodies.len();
+        let failed_count = failed_transactions.inner.len();
+
+        let span_apply_block = info_span!(
+            target: STATE_EVENT_TARGET,
+            parent: parent,
+            "block.body.validate",
+            block.transactions.total = total_count,
+            block.transactions.failed = failed_count,
+            block.transactions.success = total_count - failed_count
+        )
+        .entered();
 
         let mut state = VolatileState::default();
 
-        let (mut count_total, mut count_failed, mut count_success) = (0, 0, 0);
-        for (ix, transaction_body) in block.transaction_bodies.to_vec().into_iter().enumerate() {
-            count_total += 1;
+        for (ix, transaction_body) in transaction_bodies.into_iter().enumerate() {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
 
             let transaction_body = transaction_body.unwrap();
@@ -252,21 +263,20 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 // - inputs are consumed;
                 // - outputs are produced.
                 false => {
-                    count_success += 1;
-                    let inputs = transaction_body.inputs.to_vec().into_iter();
-                    let outputs = transaction_body.outputs.into_iter().map(|x| x.into());
-                    (
-                        Box::new(inputs) as Box<dyn Iterator<Item = TransactionInput>>,
-                        Box::new(outputs) as Box<dyn Iterator<Item = TransactionOutput>>,
-                        transaction_body.fee,
-                    )
+                    let inputs = transaction_body.inputs.to_vec();
+                    let outputs = transaction_body
+                        .outputs
+                        .into_iter()
+                        .map(|x| x.into())
+                        .collect::<Vec<_>>();
+
+                    (inputs, outputs, transaction_body.fee)
                 }
 
                 // == Failed transaction
                 // - collateral inputs are consumed;
                 // - collateral outputs produced (if any).
                 true => {
-                    count_failed += 1;
                     let inputs = transaction_body
                         .collateral
                         .map(|x| x.to_vec())
@@ -280,16 +290,9 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                         Some(output) => {
                             let output = output.into();
                             let collateral_return = output_lovelace(&output);
-                            (
-                                Box::new([output].into_iter())
-                                    as Box<dyn Iterator<Item = TransactionOutput>>,
-                                collateral_return,
-                            )
+                            (vec![output], collateral_return)
                         }
-                        None => (
-                            Box::new(iter::empty()) as Box<dyn Iterator<Item = TransactionOutput>>,
-                            0,
-                        ),
+                        None => (vec![], 0),
                     };
 
                     let fees = resolved_inputs
@@ -297,45 +300,29 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                         .fold(0, |total, (_, output)| total + output_lovelace(output))
                         - collateral_return;
 
-                    (
-                        Box::new(inputs.into_iter()) as Box<dyn Iterator<Item = TransactionInput>>,
-                        outputs,
-                        fees,
-                    )
+                    (inputs, outputs, fees)
                 }
             };
 
-            let span_apply_transaction = info_span!(
-                target: EVENT_TARGET,
-                parent: span,
-                "apply.transaction",
-                transaction.id = %transaction_id,
-                transaction.inputs = tracing::field::Empty,
-                transaction.outputs = tracing::field::Empty,
-                transaction.certificates = tracing::field::Empty,
-            )
-            .entered();
+            // TODO: There should really be an Iterator instance in Pallas
+            // on those certificates...
+            let certificates = transaction_body
+                .certificates
+                .map(|xs| xs.to_vec())
+                .unwrap_or_default();
+
             apply_transaction(
                 &mut state,
-                &span_apply_transaction,
+                &span_apply_block,
                 &transaction_id,
                 inputs,
                 outputs,
-                // TODO: There should really be an Iterator instance in Pallas
-                // on those certificates...
-                transaction_body
-                    .certificates
-                    .map(|xs| xs.to_vec())
-                    .unwrap_or_default()
-                    .into_iter(),
+                certificates,
                 fees,
             );
-            span_apply_transaction.exit();
         }
 
-        span.record("block.transactions.total", count_total);
-        span.record("block.transactions.failed", count_failed);
-        span.record("block.transactions.success", count_success);
+        span_apply_block.exit();
 
         Ok(state)
     }
@@ -343,31 +330,40 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
 fn apply_transaction<T>(
     state: &mut VolatileState<T>,
-    span: &Span,
+    parent: &Span,
     transaction_id: &Hash<32>,
-    inputs: impl Iterator<Item = TransactionInput>,
-    outputs: impl Iterator<Item = TransactionOutput>,
-    certificates: impl Iterator<Item = Certificate>,
+    inputs: Vec<TransactionInput>,
+    outputs: Vec<TransactionOutput>,
+    certificates: Vec<Certificate>,
     fees: Lovelace,
 ) {
-    const EVENT_TARGET: &str = "amaru::ledger::state::apply::transaction";
+    let span = info_span!(
+        target: STATE_EVENT_TARGET,
+        parent: parent,
+        "apply.transaction",
+        transaction.id = %transaction_id,
+        transaction.inputs = inputs.len(),
+        transaction.outputs = outputs.len(),
+        transaction.certificates = certificates.len(),
+    )
+    .entered();
 
     // Inputs/Outputs
     {
-        let mut consumed = BTreeSet::new();
-        consumed.extend(inputs);
-
-        let mut produced = BTreeMap::new();
-        for (ix, output) in outputs.enumerate() {
-            let input = TransactionInput {
-                transaction_id: *transaction_id,
-                index: ix as u64,
-            };
-            produced.insert(input, output);
-        }
-
-        span.record("transaction.inputs", consumed.len());
-        span.record("transaction.outputs", produced.len());
+        let consumed: BTreeSet<_> = inputs.into_iter().collect();
+        let produced = outputs
+            .into_iter()
+            .enumerate()
+            .map(|(index, output)| {
+                (
+                    TransactionInput {
+                        transaction_id: *transaction_id,
+                        index: index as u64,
+                    },
+                    output,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
 
         state.utxo.merge(DiffSet { consumed, produced });
     }
@@ -379,12 +375,10 @@ fn apply_transaction<T>(
 
     // Certificates
     {
-        let mut count = 0;
         for certificate in certificates {
-            count += 1;
             match certificate {
                 Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: span, credential = ?credential);
+                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
                     state
                         .accounts
                         .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
@@ -392,14 +386,14 @@ fn apply_transaction<T>(
                 Certificate::StakeDelegation(credential, pool)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: span, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential, pool = %pool);
                     state.accounts.bind(credential, Some(pool));
                 }
                 Certificate::StakeRegDeleg(credential, pool, ..)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: span, credential = ?credential);
-                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: span, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
+                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential, pool = %pool);
                     state.accounts.register(
                         credential,
                         STAKE_CREDENTIAL_DEPOSIT as Lovelace,
@@ -408,11 +402,11 @@ fn apply_transaction<T>(
                 }
                 Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, ..) => {
-                    debug!(name: "certificate.stake.deregistration", target: EVENT_TARGET, parent: span, credential = ?credential);
+                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
                     state.accounts.unregister(credential);
                 }
                 Certificate::PoolRetirement(id, epoch) => {
-                    debug!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: span, pool = %id, epoch = %epoch);
+                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: &span, pool = %id, epoch = %epoch);
                     state.pools.unregister(id, epoch)
                 }
                 Certificate::PoolRegistration {
@@ -439,8 +433,8 @@ fn apply_transaction<T>(
                     };
                     debug!(
                         name: "certificate.pool.registration",
-                        target: EVENT_TARGET,
-                        parent: span,
+                        target: TRANSACTION_EVENT_TARGET,
+                        parent: &span,
                         pool = %id,
                         params = ?params,
                     );
@@ -451,8 +445,9 @@ fn apply_transaction<T>(
                 _ => {}
             }
         }
-        span.record("transaction.certificates", count);
     }
+
+    span.exit();
 }
 
 // LedgerState
@@ -645,9 +640,9 @@ impl Default for VolatileState<()> {
 }
 
 impl VolatileState<()> {
-    pub fn anchor(self, point: Point, issuer: PoolId) -> VolatileState<(Point, PoolId)> {
+    pub fn anchor(self, point: &Point, issuer: PoolId) -> VolatileState<(Point, PoolId)> {
         VolatileState {
-            anchor: (point, issuer),
+            anchor: (point.clone(), issuer),
             utxo: self.utxo,
             pools: self.pools,
             accounts: self.accounts,
@@ -660,13 +655,18 @@ impl VolatileState<()> {
     }
 }
 
+struct StoreUpdate<A, R> {
+    point: Point,
+    issuer: PoolId,
+    fees: Lovelace,
+    add: A,
+    remove: R,
+}
+
 impl VolatileState<(Point, PoolId)> {
-    pub fn into_store_update(
+    fn into_store_update(
         self,
-    ) -> (
-        Point,
-        PoolId,
-        Lovelace,
+    ) -> StoreUpdate<
         store::Columns<
             impl Iterator<Item = utxo::Add>,
             impl Iterator<Item = pools::Add>,
@@ -677,14 +677,13 @@ impl VolatileState<(Point, PoolId)> {
             impl Iterator<Item = pools::Remove>,
             impl Iterator<Item = accounts::Remove>,
         >,
-    ) {
+    > {
         let epoch = epoch_from_slot(self.anchor.0.slot_or_default());
-
-        (
-            self.anchor.0,
-            self.anchor.1,
-            self.fees,
-            store::Columns {
+        StoreUpdate {
+            point: self.anchor.0,
+            issuer: self.anchor.1,
+            fees: self.fees,
+            add: store::Columns {
                 utxo: self.utxo.produced.into_iter(),
                 pools: self
                     .pools
@@ -710,12 +709,12 @@ impl VolatileState<(Point, PoolId)> {
                     .into_iter()
                     .map(|(credential, (pool, deposit))| (credential, pool, deposit, 0)),
             },
-            store::Columns {
+            remove: store::Columns {
                 utxo: self.utxo.consumed.into_iter(),
                 pools: self.pools.unregistered.into_iter(),
                 accounts: self.accounts.unregistered.into_iter(),
             },
-        )
+        }
     }
 }
 
