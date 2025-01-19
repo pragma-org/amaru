@@ -160,6 +160,7 @@ pub struct StoreUpdate<A, R> {
 }
 
 impl VolatileState<(Point, PoolId)> {
+    #[allow(clippy::type_complexity)]
     pub fn into_store_update(
         self,
     ) -> StoreUpdate<
