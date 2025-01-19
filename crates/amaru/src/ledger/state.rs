@@ -144,7 +144,13 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 )?;
             }
 
-            let (stable_point, stable_issuer, fees, add, remove) = now_stable.into_store_update();
+            let StoreUpdate {
+                point: stable_point,
+                issuer: stable_issuer,
+                fees,
+                add,
+                remove,
+            } = now_stable.into_store_update();
 
             info_span!(target: STATE_EVENT_TARGET, parent: span, "save").in_scope(|| {
                 db.save(&stable_point, Some(&stable_issuer), add, remove)
@@ -648,13 +654,18 @@ impl VolatileState<()> {
     }
 }
 
+struct StoreUpdate<A, R> {
+    point: Point,
+    issuer: PoolId,
+    fees: Lovelace,
+    add: A,
+    remove: R,
+}
+
 impl VolatileState<(Point, PoolId)> {
-    pub fn into_store_update(
+    fn into_store_update(
         self,
-    ) -> (
-        Point,
-        PoolId,
-        Lovelace,
+    ) -> StoreUpdate<
         store::Columns<
             impl Iterator<Item = utxo::Add>,
             impl Iterator<Item = pools::Add>,
@@ -665,14 +676,13 @@ impl VolatileState<(Point, PoolId)> {
             impl Iterator<Item = pools::Remove>,
             impl Iterator<Item = accounts::Remove>,
         >,
-    ) {
+    > {
         let epoch = epoch_from_slot(self.anchor.0.slot_or_default());
-
-        (
-            self.anchor.0,
-            self.anchor.1,
-            self.fees,
-            store::Columns {
+        StoreUpdate {
+            point: self.anchor.0,
+            issuer: self.anchor.1,
+            fees: self.fees,
+            add: store::Columns {
                 utxo: self.utxo.produced.into_iter(),
                 pools: self
                     .pools
@@ -698,12 +708,12 @@ impl VolatileState<(Point, PoolId)> {
                     .into_iter()
                     .map(|(credential, (pool, deposit))| (credential, pool, deposit, 0)),
             },
-            store::Columns {
+            remove: store::Columns {
                 utxo: self.utxo.consumed.into_iter(),
                 pools: self.pools.unregistered.into_iter(),
                 accounts: self.accounts.unregistered.into_iter(),
             },
-        )
+        }
     }
 }
 
