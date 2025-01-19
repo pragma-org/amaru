@@ -17,7 +17,7 @@ pub fn apply<T>(
     is_failed: bool,
     transaction_id: Hash<32>,
     mut transaction_body: MintedTransactionBody<'_>,
-    resolved_inputs: Vec<TransactionOutput>,
+    resolved_collateral_inputs: Vec<TransactionOutput>,
 ) {
     let span = info_span!(
         target: TRANSACTION_EVENT_TARGET,
@@ -35,7 +35,7 @@ pub fn apply<T>(
             &span,
             transaction_id,
             &mut transaction_body,
-            resolved_inputs,
+            resolved_collateral_inputs,
         )
     } else {
         InputsOutputs::<false>::apply(&span, transaction_id, &mut transaction_body, ())
@@ -135,16 +135,16 @@ impl InputsOutputs<true> for MintedTransactionBody<'_> {
             .collect::<BTreeSet<_>>();
         span.record("transaction.inputs", consumed.len());
 
+        let total_collateral = resolved_inputs
+            .iter()
+            .fold(0, |total, output| total + output_lovelace(output));
+
         match core::mem::take(&mut body.collateral_return) {
             Some(output) => {
                 span.record("transaction.outputs", 1);
                 let output = output.into();
 
                 let collateral_return = output_lovelace(&output);
-
-                let total_collateral = resolved_inputs
-                    .iter()
-                    .fold(0, |total, output| total + output_lovelace(output));
 
                 let fees = total_collateral - collateral_return;
 
@@ -170,7 +170,7 @@ impl InputsOutputs<true> for MintedTransactionBody<'_> {
                         consumed,
                         produced: BTreeMap::default(),
                     },
-                    0,
+                    total_collateral,
                 )
             }
         }

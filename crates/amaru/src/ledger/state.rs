@@ -257,9 +257,12 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
             let transaction_body = transaction_body.unwrap();
 
-            let resolved_inputs = self
-                .resolve_inputs(&state, transaction_body.inputs.iter())
-                .map_err(ForwardErr::StorageErr)?;
+            let resolved_collateral_inputs = match transaction_body.collateral {
+                None => vec![],
+                Some(ref inputs) => self
+                    .resolve_inputs(&state, inputs.iter())
+                    .map_err(ForwardErr::StorageErr)?,
+            };
 
             transaction::apply(
                 &mut state,
@@ -267,7 +270,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 failed_transactions.has(ix as u32),
                 transaction_id,
                 transaction_body,
-                resolved_inputs,
+                resolved_collateral_inputs,
             );
         }
 
