@@ -164,14 +164,14 @@ impl VolatileState<(Point, PoolId)> {
         self,
     ) -> StoreUpdate<
         store::Columns<
-            impl Iterator<Item = utxo::Add>,
-            impl Iterator<Item = pools::Add>,
-            impl Iterator<Item = accounts::Add>,
+            impl Iterator<Item = (utxo::Key, utxo::Value)>,
+            impl Iterator<Item = pools::Value>,
+            impl Iterator<Item = (accounts::Key, accounts::Value)>,
         >,
         store::Columns<
-            impl Iterator<Item = utxo::Remove>,
-            impl Iterator<Item = pools::Remove>,
-            impl Iterator<Item = accounts::Remove>,
+            impl Iterator<Item = utxo::Key>,
+            impl Iterator<Item = (pools::Key, Epoch)>,
+            impl Iterator<Item = accounts::Key>,
         >,
     > {
         let epoch = epoch_from_slot(self.anchor.0.slot_or_default());
@@ -203,7 +203,7 @@ impl VolatileState<(Point, PoolId)> {
                     .accounts
                     .registered
                     .into_iter()
-                    .map(|(credential, (pool, deposit))| (credential, pool, deposit, 0)),
+                    .map(|(credential, (pool, deposit))| (credential, (pool, deposit, 0))),
             },
             remove: store::Columns {
                 utxo: self.utxo.consumed.into_iter(),

@@ -20,16 +20,16 @@ pub trait Store {
     fn save(
         &'_ self,
         point: &'_ Point,
-        issuer: Option<&'_ PoolId>,
+        issuer: Option<&'_ pools::Key>,
         add: Columns<
-            impl Iterator<Item = utxo::Add>,
-            impl Iterator<Item = pools::Add>,
-            impl Iterator<Item = accounts::Add>,
+            impl Iterator<Item = (utxo::Key, utxo::Value)>,
+            impl Iterator<Item = pools::Value>,
+            impl Iterator<Item = (accounts::Key, accounts::Value)>,
         >,
         remove: Columns<
-            impl Iterator<Item = utxo::Remove>,
-            impl Iterator<Item = pools::Remove>,
-            impl Iterator<Item = accounts::Remove>,
+            impl Iterator<Item = utxo::Key>,
+            impl Iterator<Item = (pools::Key, Epoch)>,
+            impl Iterator<Item = accounts::Key>,
         >,
     ) -> Result<(), Self::Error>;
 

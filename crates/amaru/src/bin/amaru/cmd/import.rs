@@ -411,13 +411,15 @@ fn import_accounts(
 
                 (
                     credential,
-                    Option::<PoolId>::from(pool),
-                    Some(deposit),
-                    rewards + rewards_update,
+                    (
+                        Option::<PoolId>::from(pool),
+                        Some(deposit),
+                        rewards + rewards_update,
+                    ),
                 )
             },
         )
-        .collect::<Vec<(StakeCredential, Option<PoolId>, Option<Lovelace>, Lovelace)>>();
+        .collect::<Vec<_>>();
 
     info!(what = "credentials", size = credentials.len());
 

@@ -7,11 +7,11 @@ use pallas_codec::minicbor::{self as cbor};
 const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, StakeCredential, Option<Row>>;
+pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Add = (StakeCredential, Option<PoolId>, Option<Lovelace>, Lovelace);
+pub type Value = (Option<PoolId>, Option<Lovelace>, Lovelace);
 
-pub type Remove = StakeCredential;
+pub type Key = StakeCredential;
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct Row {
@@ -72,9 +72,9 @@ pub mod rocksdb {
     /// Register a new credential, with or without a stake pool.
     pub fn add<DB>(
         db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = super::Add>,
+        rows: impl Iterator<Item = (super::Key, super::Value)>,
     ) -> Result<(), rocksdb::Error> {
-        for (credential, delegatee, deposit, rewards) in rows {
+        for (credential, (delegatee, deposit, rewards)) in rows {
             let key = as_key(&PREFIX, &credential);
 
             // In case where a registration already exists, then we must only update the underlying
@@ -107,7 +107,7 @@ pub mod rocksdb {
     /// Clear a stake credential registration.
     pub fn remove<DB>(
         db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = super::Remove>,
+        rows: impl Iterator<Item = super::Key>,
     ) -> Result<(), rocksdb::Error> {
         for credential in rows {
             db.delete(as_key(&PREFIX, &credential))?;
