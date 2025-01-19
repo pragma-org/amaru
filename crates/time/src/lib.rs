@@ -9,6 +9,7 @@ pub struct Bound {
     pub epoch: u64,
 }
 
+#[allow(dead_code)]
 impl Bound {
     fn genesis() -> Bound {
         Bound {
@@ -40,7 +41,7 @@ impl<'b, C> Decode<'b, C> for Bound {
         let time_ms = d.u64()?;
         let slot = d.u64()?;
         let epoch = d.u64()?;
-        let _ = d.skip()?;
+        d.skip()?;
         Ok(Bound {
             time_ms,
             slot,
@@ -89,7 +90,7 @@ impl<'b, C> Decode<'b, C> for EraParams {
         let _ = d.array()?;
         let epoch_size_slots = d.decode()?;
         let slot_length = d.decode()?;
-        let _ = d.skip()?;
+        d.skip()?;
         Ok(EraParams {
             epoch_size_slots,
             slot_length,
@@ -127,7 +128,7 @@ impl<'b, C> Decode<'b, C> for Summary {
         let start = d.decode()?;
         let end = d.decode()?;
         let params = d.decode()?;
-        let _ = d.skip()?;
+        d.skip()?;
         Ok(Summary { start, end, params })
     }
 }
@@ -192,7 +193,7 @@ impl EraHistory {
                 return Ok(relative_time);
             }
         }
-        return Err(TimeHorizonError::PastTimeHorizon);
+        Err(TimeHorizonError::PastTimeHorizon)
     }
 
     pub fn slot_to_absolute_time(
@@ -215,7 +216,7 @@ impl EraHistory {
                 return Ok(slot);
             }
         }
-        return Err(TimeHorizonError::PastTimeHorizon);
+        Err(TimeHorizonError::PastTimeHorizon)
     }
 
     pub fn slot_to_epoch(&self, slot: u64) -> Result<u64, TimeHorizonError> {
@@ -230,7 +231,7 @@ impl EraHistory {
                 return Ok(epoch_number);
             }
         }
-        return Err(TimeHorizonError::PastTimeHorizon);
+        Err(TimeHorizonError::PastTimeHorizon)
     }
 
     pub fn epoch_bounds(&self, epoch: u64) -> Result<EpochBounds, TimeHorizonError> {
@@ -245,20 +246,16 @@ impl EraHistory {
                 let offset = era.start.slot;
                 let start = offset + era.params.epoch_size_slots * epochs_elapsed;
                 let end = offset + era.params.epoch_size_slots * (epochs_elapsed + 1);
-                return Ok(EpochBounds {
-                    start: start,
-                    end: end,
-                });
+                return Ok(EpochBounds { start, end });
             }
         }
-        return Err(TimeHorizonError::PastTimeHorizon);
+        Err(TimeHorizonError::PastTimeHorizon)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use hex;
     use proptest::prelude::*;
     use std::cmp::{max, min};
 
