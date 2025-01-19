@@ -1,29 +1,26 @@
 pub mod diff_bind;
 pub mod diff_epoch_reg;
 pub mod diff_set;
+pub mod transaction;
+pub mod volatile_db;
 
 use crate::ledger::{
     kernel::{
-        self, epoch_from_slot, output_lovelace, Certificate, Epoch, Hash, Hasher, Lovelace,
-        MintedBlock, MintedTransactionBody, Point, PoolId, PoolParams, PoolSigma, Set,
-        StakeCredential, TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM,
-        STABILITY_WINDOW, STAKE_CREDENTIAL_DEPOSIT,
+        self, epoch_from_slot, Hash, Hasher, MintedBlock, Point, PoolId, PoolParams, PoolSigma,
+        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
     },
     rewards::RewardsSummary,
-    store::{self, columns::*, Store},
+    state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
+    store::{columns::*, Store},
 };
-use diff_bind::DiffBind;
-use diff_epoch_reg::DiffEpochReg;
-use diff_set::DiffSet;
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::BTreeSet,
     sync::{Arc, Mutex},
 };
-use tracing::{debug, info, info_span, Span};
+use tracing::{info, info_span, Span};
 
 const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
-const TRANSACTION_EVENT_TARGET: &str = "amaru::ledger::state::apply::transaction";
 
 // State
 // ----------------------------------------------------------------------------
@@ -67,7 +64,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             // (2) Re-applying 2160 (already synchronized) blocks is _fast-enough_ that it can be
             //     done on restart easily. To be measured; if this turns out to be too slow, we
             //     views of the volatile DB on-disk to be able to restore them quickly.
-            volatile: VolatileDB::new(),
+            volatile: VolatileDB::default(),
 
             rewards_summary: None,
         }
@@ -264,7 +261,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 .resolve_inputs(&state, transaction_body.inputs.iter())
                 .map_err(ForwardErr::StorageErr)?;
 
-            apply_transaction(
+            transaction::apply(
                 &mut state,
                 &span_apply_block,
                 failed_transactions.has(ix as u32),
@@ -277,225 +274,6 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         span_apply_block.exit();
 
         Ok(state)
-    }
-}
-
-fn apply_transaction<T>(
-    state: &mut VolatileState<T>,
-    parent: &Span,
-    is_failed: bool,
-    transaction_id: Hash<32>,
-    mut transaction_body: MintedTransactionBody<'_>,
-    resolved_inputs: Vec<TransactionOutput>,
-) {
-    let span = info_span!(
-        target: STATE_EVENT_TARGET,
-        parent: parent,
-        "apply.transaction",
-        transaction.id = %transaction_id,
-        transaction.inputs = tracing::field::Empty,
-        transaction.outputs = tracing::field::Empty,
-        transaction.certificates = tracing::field::Empty,
-    )
-    .entered();
-
-    let (inputs, outputs, fees) = if is_failed {
-        InputsOutputs::<true>::explode(&mut transaction_body, resolved_inputs)
-    } else {
-        InputsOutputs::<false>::explode(&mut transaction_body, ())
-    };
-
-    // TODO: There should really be an Iterator instance in Pallas
-    // on those certificates...
-    let certificates = transaction_body
-        .certificates
-        .map(|xs| xs.to_vec())
-        .unwrap_or_default();
-
-    span.record("transaction.inputs", inputs.len());
-    span.record("transaction.outputs", outputs.len());
-    span.record("transaction.certificates", certificates.len());
-
-    apply_transaction_inputs_outputs(
-        &mut state.utxo,
-        transaction_id,
-        inputs.into_iter().collect(),
-        outputs,
-    );
-
-    state.fees += fees;
-
-    apply_transaction_certificates(&span, &mut state.pools, &mut state.accounts, certificates);
-
-    span.exit();
-}
-
-/// A trait to extract inputs, outputs and fees from a transaction; based on whether it is a failed
-/// transaction or not. It is meant to provide a unified interface that makes the parallel between
-/// the two cases.
-trait InputsOutputs<const IS_FAILED: bool> {
-    type ResolvedInputs;
-
-    fn explode(
-        body: &mut Self,
-        resolved_inputs: Self::ResolvedInputs,
-    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace);
-}
-
-/// On successful transaction
-///   - inputs are consumed;
-///   - outputs are produced;
-///   - fees are collected;
-impl InputsOutputs<false> for MintedTransactionBody<'_> {
-    type ResolvedInputs = ();
-
-    fn explode(
-        body: &mut Self,
-        _resolved_inputs: Self::ResolvedInputs,
-    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace) {
-        let inputs = core::mem::replace(&mut body.inputs, Set::from(vec![])).to_vec();
-        let outputs = core::mem::take(&mut body.outputs)
-            .into_iter()
-            .map(|x| x.into())
-            .collect::<Vec<_>>();
-
-        (inputs, outputs, body.fee)
-    }
-}
-
-/// On failed transactions:
-///   - collateral inputs are consumed;
-///   - collateral outputs produced (if any);
-///   - the difference between collateral inputs and outputs is collected as fees.
-impl InputsOutputs<true> for MintedTransactionBody<'_> {
-    type ResolvedInputs = Vec<TransactionOutput>;
-
-    fn explode(
-        body: &mut Self,
-        resolved_inputs: Self::ResolvedInputs,
-    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace) {
-        let inputs = core::mem::take(&mut body.collateral)
-            .map(|x| x.to_vec())
-            .unwrap_or_default();
-
-        let (outputs, collateral_return) = match core::mem::take(&mut body.collateral_return) {
-            Some(output) => {
-                let output = output.into();
-                let collateral_return = output_lovelace(&output);
-                (vec![output], collateral_return)
-            }
-            None => (vec![], 0),
-        };
-
-        let collateral_value = resolved_inputs
-            .iter()
-            .fold(0, |total, output| total + output_lovelace(output));
-
-        let fees = collateral_value - collateral_return;
-
-        (inputs, outputs, fees)
-    }
-}
-
-fn apply_transaction_inputs_outputs(
-    utxo: &mut DiffSet<TransactionInput, TransactionOutput>,
-    transaction_id: Hash<32>,
-    inputs: BTreeSet<TransactionInput>,
-    outputs: Vec<TransactionOutput>,
-) {
-    let consumed: BTreeSet<_> = inputs;
-
-    let produced = outputs
-        .into_iter()
-        .enumerate()
-        .map(|(index, output)| {
-            (
-                TransactionInput {
-                    transaction_id,
-                    index: index as u64,
-                },
-                output,
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    utxo.merge(DiffSet { consumed, produced });
-}
-
-fn apply_transaction_certificates(
-    parent: &Span,
-    pools: &mut DiffEpochReg<PoolId, PoolParams>,
-    accounts: &mut DiffBind<StakeCredential, PoolId, Lovelace>,
-    certificates: Vec<Certificate>,
-) {
-    for certificate in certificates {
-        match certificate {
-                Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
-                        accounts
-                        .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
-                }
-                Certificate::StakeDelegation(credential, pool)
-                // FIXME: register DRep delegation
-                | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
-                    accounts.bind(credential, Some(pool));
-                }
-                Certificate::StakeRegDeleg(credential, pool, ..)
-                // FIXME: register DRep delegation
-                | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
-                    accounts.register(
-                        credential,
-                        STAKE_CREDENTIAL_DEPOSIT as Lovelace,
-                        Some(pool),
-                    );
-                }
-                Certificate::StakeDeregistration(credential)
-                | Certificate::UnReg(credential, ..) => {
-                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
-                    accounts.unregister(credential);
-                }
-                Certificate::PoolRetirement(id, epoch) => {
-                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
-                    pools.unregister(id, epoch)
-                }
-                Certificate::PoolRegistration {
-                    operator: id,
-                    vrf_keyhash: vrf,
-                    pledge,
-                    cost,
-                    margin,
-                    reward_account,
-                    pool_owners: owners,
-                    relays,
-                    pool_metadata: metadata,
-                } => {
-                    let params = PoolParams {
-                        id,
-                        vrf,
-                        pledge,
-                        cost,
-                        margin,
-                        reward_account,
-                        owners,
-                        relays,
-                        metadata,
-                    };
-                    debug!(
-                        name: "certificate.pool.registration",
-                        target: TRANSACTION_EVENT_TARGET,
-                        parent: parent,
-                        pool = %id,
-                        params = ?params,
-                    );
-
-                    pools.register(id, params)
-                }
-                // FIXME: Process other types of certificates
-                _ => {}
-            }
     }
 }
 
@@ -565,205 +343,6 @@ impl FailedTransactions {
 
     pub fn has(&self, ix: u32) -> bool {
         self.inner.contains(&ix)
-    }
-}
-
-// VolatileDB
-// ----------------------------------------------------------------------------
-
-// FIXME: Currently, the cache owns data that are also available in the sequence. We could
-// potentially avoid cloning and re-allocation altogether by sharing an allocator and having them
-// both reference from within that allocator (e.g. an arena allocator like bumpalo)
-//
-// Ideally, we would just have the struct be self-referenced, but that isn't possible in Rust and
-// we cannot introduce a lifetime to the VolatileDB (which would bubble up to the State).
-//
-// Another option is to have the cache not own data, but indices onto the sequence. This may
-// require to switch the sequence back to a Vec to allow fast random lookups.
-struct VolatileDB {
-    cache: VolatileCache,
-    sequence: VecDeque<VolatileState<(Point, PoolId)>>,
-}
-
-impl VolatileDB {
-    pub fn new() -> Self {
-        VolatileDB {
-            cache: VolatileCache::default(),
-            sequence: VecDeque::new(),
-        }
-    }
-
-    pub fn len(&self) -> usize {
-        self.sequence.len()
-    }
-
-    pub fn view_back(&self) -> Option<&VolatileState<(Point, PoolId)>> {
-        self.sequence.back()
-    }
-
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
-        self.cache.utxo.produced.get(input)
-    }
-
-    pub fn iter_pools(&self) -> impl Iterator<Item = (Epoch, &DiffEpochReg<PoolId, PoolParams>)> {
-        self.sequence
-            .iter()
-            .map(|st| (epoch_from_slot(st.anchor.0.slot_or_default()), &st.pools))
-    }
-
-    pub fn pop_front(&mut self) -> Option<VolatileState<(Point, PoolId)>> {
-        self.sequence.pop_front().inspect(|state| {
-            // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we
-            // remove them from the sequence to prevent the cache from growing out of proportion.
-            for k in state.utxo.consumed.iter() {
-                self.cache.utxo.consumed.remove(k);
-            }
-
-            for (k, _) in state.utxo.produced.iter() {
-                self.cache.utxo.produced.remove(k);
-            }
-        })
-    }
-
-    pub fn push_back(&mut self, state: VolatileState<(Point, PoolId)>) {
-        // TODO: See NOTE on VolatileDB regarding the .clone()
-        self.cache.merge::<Point>(state.utxo.clone());
-        self.sequence.push_back(state);
-    }
-
-    pub fn rollback_to<E>(&mut self, point: &Point, on_unknown_point: E) -> Result<(), E> {
-        self.cache = VolatileCache::default();
-
-        let mut ix = 0;
-        for diff in self.sequence.iter() {
-            if diff.anchor.0.slot_or_default() <= point.slot_or_default() {
-                // TODO: See NOTE on VolatileDB regarding the .clone()
-                self.cache.merge::<Point>(diff.utxo.clone());
-                ix += 1;
-            }
-        }
-
-        if ix >= self.sequence.len() {
-            Err(on_unknown_point)
-        } else {
-            self.sequence.resize_with(ix, || {
-                unreachable!("ix is necessarly strictly smaller than the length")
-            });
-            Ok(())
-        }
-    }
-}
-
-// TODO: At this point, we only need to lookup UTxOs, so the aggregated cache is limited to those.
-// It would be relatively easy to extend to accounts, but it is trickier for pools since
-// DiffEpochReg aren't meant to be mergeable across epochs.
-#[derive(Default)]
-pub struct VolatileCache {
-    pub utxo: DiffSet<TransactionInput, TransactionOutput>,
-}
-
-impl VolatileCache {
-    pub fn merge<T>(&mut self, utxo: DiffSet<TransactionInput, TransactionOutput>) {
-        self.utxo.merge(utxo);
-    }
-}
-
-pub struct VolatileState<A> {
-    pub anchor: A,
-    pub utxo: DiffSet<TransactionInput, TransactionOutput>,
-    pub pools: DiffEpochReg<PoolId, PoolParams>,
-    pub accounts: DiffBind<StakeCredential, PoolId, Lovelace>,
-    pub fees: Lovelace,
-}
-
-impl Default for VolatileState<()> {
-    fn default() -> Self {
-        Self {
-            anchor: (),
-            utxo: Default::default(),
-            pools: Default::default(),
-            accounts: Default::default(),
-            fees: 0,
-        }
-    }
-}
-
-impl VolatileState<()> {
-    pub fn anchor(self, point: &Point, issuer: PoolId) -> VolatileState<(Point, PoolId)> {
-        VolatileState {
-            anchor: (point.clone(), issuer),
-            utxo: self.utxo,
-            pools: self.pools,
-            accounts: self.accounts,
-            fees: self.fees,
-        }
-    }
-
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
-        self.utxo.produced.get(input)
-    }
-}
-
-struct StoreUpdate<A, R> {
-    point: Point,
-    issuer: PoolId,
-    fees: Lovelace,
-    add: A,
-    remove: R,
-}
-
-impl VolatileState<(Point, PoolId)> {
-    fn into_store_update(
-        self,
-    ) -> StoreUpdate<
-        store::Columns<
-            impl Iterator<Item = utxo::Add>,
-            impl Iterator<Item = pools::Add>,
-            impl Iterator<Item = accounts::Add>,
-        >,
-        store::Columns<
-            impl Iterator<Item = utxo::Remove>,
-            impl Iterator<Item = pools::Remove>,
-            impl Iterator<Item = accounts::Remove>,
-        >,
-    > {
-        let epoch = epoch_from_slot(self.anchor.0.slot_or_default());
-        StoreUpdate {
-            point: self.anchor.0,
-            issuer: self.anchor.1,
-            fees: self.fees,
-            add: store::Columns {
-                utxo: self.utxo.produced.into_iter(),
-                pools: self
-                    .pools
-                    .registered
-                    .into_iter()
-                    .flat_map(move |(_, registrations)| {
-                        registrations
-                            .into_iter()
-                            // NOTE/TODO: Re-registrations (a.k.a pool params updates) are always
-                            // happening on the following epoch. We do not explicitly store epochs
-                            // for registrations in the DiffEpochReg (which may be an arguable
-                            // choice?) so we have to artificially set it here. Note that for
-                            // registrations (when there's no existing entry), the epoch is wrong
-                            // but it is fully ignored. It's slightly ugly, but we cannot know if
-                            // an entry exists without querying the stable store -- and frankly, we
-                            // don't _have to_.
-                            .map(|pool| (pool, epoch + 1))
-                            .collect::<Vec<_>>()
-                    }),
-                accounts: self
-                    .accounts
-                    .registered
-                    .into_iter()
-                    .map(|(credential, (pool, deposit))| (credential, pool, deposit, 0)),
-            },
-            remove: store::Columns {
-                utxo: self.utxo.consumed.into_iter(),
-                pools: self.pools.unregistered.into_iter(),
-                accounts: self.accounts.unregistered.into_iter(),
-            },
-        }
     }
 }
 
