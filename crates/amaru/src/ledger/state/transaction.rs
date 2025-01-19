@@ -30,11 +30,20 @@ pub fn apply<T>(
     )
     .entered();
 
-    let (inputs, outputs, fees) = if is_failed {
-        InputsOutputs::<true>::explode(&mut transaction_body, resolved_inputs)
+    let (utxo, fees) = if is_failed {
+        InputsOutputs::<true>::apply(
+            &span,
+            transaction_id,
+            &mut transaction_body,
+            resolved_inputs,
+        )
     } else {
-        InputsOutputs::<false>::explode(&mut transaction_body, ())
+        InputsOutputs::<false>::apply(&span, transaction_id, &mut transaction_body, ())
     };
+
+    state.utxo.merge(utxo);
+
+    state.fees += fees;
 
     // TODO: There should really be an Iterator instance in Pallas
     // on those certificates...
@@ -43,20 +52,8 @@ pub fn apply<T>(
         .map(|xs| xs.to_vec())
         .unwrap_or_default();
 
-    span.record("transaction.inputs", inputs.len());
-    span.record("transaction.outputs", outputs.len());
     span.record("transaction.certificates", certificates.len());
-
-    apply_transaction_inputs_outputs(
-        &mut state.utxo,
-        transaction_id,
-        inputs.into_iter().collect(),
-        outputs,
-    );
-
-    state.fees += fees;
-
-    apply_transaction_certificates(&span, &mut state.pools, &mut state.accounts, certificates);
+    apply_certificates(&span, &mut state.pools, &mut state.accounts, certificates);
 
     span.exit();
 }
@@ -67,10 +64,12 @@ pub fn apply<T>(
 trait InputsOutputs<const IS_FAILED: bool> {
     type ResolvedInputs;
 
-    fn explode(
+    fn apply(
+        span: &Span,
+        transaction_id: Hash<32>,
         body: &mut Self,
         resolved_inputs: Self::ResolvedInputs,
-    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace);
+    ) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace);
 }
 
 /// On successful transaction
@@ -80,17 +79,39 @@ trait InputsOutputs<const IS_FAILED: bool> {
 impl InputsOutputs<false> for MintedTransactionBody<'_> {
     type ResolvedInputs = ();
 
-    fn explode(
+    fn apply(
+        span: &Span,
+        transaction_id: Hash<32>,
         body: &mut Self,
         _resolved_inputs: Self::ResolvedInputs,
-    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace) {
-        let inputs = core::mem::replace(&mut body.inputs, Set::from(vec![])).to_vec();
+    ) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace) {
+        let consumed = core::mem::replace(&mut body.inputs, Set::from(vec![]))
+            .to_vec()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        span.record("transaction.inputs", consumed.len());
+
         let outputs = core::mem::take(&mut body.outputs)
             .into_iter()
             .map(|x| x.into())
             .collect::<Vec<_>>();
+        span.record("transaction.outputs", outputs.len());
 
-        (inputs, outputs, body.fee)
+        let produced = outputs
+            .into_iter()
+            .enumerate()
+            .map(|(index, output)| {
+                (
+                    TransactionInput {
+                        transaction_id,
+                        index: index as u64,
+                    },
+                    output,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        (DiffSet { consumed, produced }, body.fee)
     }
 }
 
@@ -101,59 +122,62 @@ impl InputsOutputs<false> for MintedTransactionBody<'_> {
 impl InputsOutputs<true> for MintedTransactionBody<'_> {
     type ResolvedInputs = Vec<TransactionOutput>;
 
-    fn explode(
+    fn apply(
+        span: &Span,
+        transaction_id: Hash<32>,
         body: &mut Self,
         resolved_inputs: Self::ResolvedInputs,
-    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace) {
-        let inputs = core::mem::take(&mut body.collateral)
+    ) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace) {
+        let consumed = core::mem::take(&mut body.collateral)
             .map(|x| x.to_vec())
-            .unwrap_or_default();
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+        span.record("transaction.inputs", consumed.len());
 
-        let (outputs, collateral_return) = match core::mem::take(&mut body.collateral_return) {
+        match core::mem::take(&mut body.collateral_return) {
             Some(output) => {
+                span.record("transaction.outputs", 1);
                 let output = output.into();
+
                 let collateral_return = output_lovelace(&output);
-                (vec![output], collateral_return)
+
+                let total_collateral = resolved_inputs
+                    .iter()
+                    .fold(0, |total, output| total + output_lovelace(output));
+
+                let fees = total_collateral - collateral_return;
+
+                let mut produced = BTreeMap::new();
+                produced.insert(
+                    TransactionInput {
+                        transaction_id,
+                        // NOTE: Yes, you read that right. The index associated to collateral
+                        // outputs is the length of non-collateral outputs. So if a transaction has
+                        // two outputs, its (only) collateral output is accessible at index `1`,
+                        // and there's no collateral output at index `0` whatsoever.
+                        index: body.outputs.len() as u64,
+                    },
+                    output,
+                );
+
+                (DiffSet { consumed, produced }, fees)
             }
-            None => (vec![], 0),
-        };
-
-        let collateral_value = resolved_inputs
-            .iter()
-            .fold(0, |total, output| total + output_lovelace(output));
-
-        let fees = collateral_value - collateral_return;
-
-        (inputs, outputs, fees)
+            None => {
+                span.record("transaction.outputs", 0);
+                (
+                    DiffSet {
+                        consumed,
+                        produced: BTreeMap::default(),
+                    },
+                    0,
+                )
+            }
+        }
     }
 }
 
-fn apply_transaction_inputs_outputs(
-    utxo: &mut DiffSet<TransactionInput, TransactionOutput>,
-    transaction_id: Hash<32>,
-    inputs: BTreeSet<TransactionInput>,
-    outputs: Vec<TransactionOutput>,
-) {
-    let consumed: BTreeSet<_> = inputs;
-
-    let produced = outputs
-        .into_iter()
-        .enumerate()
-        .map(|(index, output)| {
-            (
-                TransactionInput {
-                    transaction_id,
-                    index: index as u64,
-                },
-                output,
-            )
-        })
-        .collect::<BTreeMap<_, _>>();
-
-    utxo.merge(DiffSet { consumed, produced });
-}
-
-fn apply_transaction_certificates(
+fn apply_certificates(
     parent: &Span,
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
     accounts: &mut DiffBind<StakeCredential, PoolId, Lovelace>,
