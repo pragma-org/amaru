@@ -17,9 +17,9 @@ pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
     alonzo,
     conway::{
-        AddrKeyhash, Certificate, Coin, DRep, Epoch, MintedBlock, MintedTransactionOutput,
-        PoolMetadata, RationalNumber, Relay, RewardAccount, StakeCredential, TransactionInput,
-        TransactionOutput, UnitInterval, Value, VrfKeyhash,
+        AddrKeyhash, Certificate, Coin, DRep, Epoch, MintedBlock, MintedTransactionBody,
+        MintedTransactionOutput, PoolMetadata, RationalNumber, Relay, RewardAccount,
+        StakeCredential, TransactionInput, TransactionOutput, UnitInterval, Value, VrfKeyhash,
     },
 };
 
@@ -242,14 +242,6 @@ impl serde::Serialize for PoolParams {
 
 // Helpers
 // ----------------------------------------------------------------------------
-
-/// Get a 'Point' correspondin to a particular block
-pub fn block_point(block: &MintedBlock<'_>) -> Point {
-    Point::Specific(
-        block.header.header_body.slot,
-        Hasher::<256>::hash(block.header.raw_cbor()).to_vec(),
-    )
-}
 
 pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, bech32::EncodeError> {
     let hrp = bech32::Hrp::parse(hrp).unwrap_or_else(|e| panic!("invalid HRP: {e:?}"));

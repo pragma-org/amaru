@@ -1,4 +1,4 @@
-/*!
+/*
 This module implements the formulas and data structures necessary for rewards and incentives
 calculations.
 
@@ -61,7 +61,6 @@ snapshot(e - 1)     │  snapshot(e)   │    snapshot(e + 1)   │             
               ╽     ╽            ╽   ╽                  ╽   ╽                 ╽╽
 ━━━━━━━━━━━━╸╸╸╋━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━>
    e - 1               e                    e + 1                 e + 2              e + 3
-
 
 [^1]: Technically, we need to wait a few slots for the snapshot (e + 1) to stabilise; otherwise
 we risk doing an expensive computation which may be rolled back. In practice, the calculation

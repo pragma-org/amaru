@@ -8,11 +8,11 @@ use tracing::debug;
 const EVENT_TARGET: &str = "amaru::ledger::store::pools";
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, PoolId, Option<Row>>;
+pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Add = (PoolParams, Epoch);
+pub type Value = (PoolParams, Epoch);
 
-pub type Remove = (PoolId, Epoch);
+pub type Key = PoolId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
@@ -234,7 +234,7 @@ pub mod rocksdb {
 
     pub fn add<DB>(
         db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = super::Add>,
+        rows: impl Iterator<Item = super::Value>,
     ) -> Result<(), rocksdb::Error> {
         for (params, epoch) in rows {
             let pool = params.id;
@@ -262,7 +262,7 @@ pub mod rocksdb {
 
     pub fn remove<DB>(
         db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = super::Remove>,
+        rows: impl Iterator<Item = (super::Key, super::Epoch)>,
     ) -> Result<(), rocksdb::Error> {
         for (pool, epoch) in rows {
             // We do not delete pool immediately but rather schedule the

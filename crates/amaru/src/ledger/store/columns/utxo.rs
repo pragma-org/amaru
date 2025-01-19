@@ -3,13 +3,12 @@ use crate::{
     ledger::kernel::{TransactionInput, TransactionOutput},
 };
 
-pub type Add = (TransactionInput, TransactionOutput);
+pub type Key = TransactionInput;
 
-pub type Remove = TransactionInput;
+pub type Value = TransactionOutput;
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> =
-    iter_borrow::IterBorrow<'a, 'b, TransactionInput, Option<TransactionOutput>>;
+pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Key, Option<Value>>;
 
 pub mod rocksdb {
     use crate::ledger::{
@@ -38,7 +37,7 @@ pub mod rocksdb {
 
     pub fn add<DB>(
         db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = super::Add>,
+        rows: impl Iterator<Item = (super::Key, super::Value)>,
     ) -> Result<(), rocksdb::Error> {
         for (input, output) in rows {
             db.put(as_key(&PREFIX, input), as_value(output))?;
@@ -49,7 +48,7 @@ pub mod rocksdb {
 
     pub fn remove<DB>(
         db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = super::Remove>,
+        rows: impl Iterator<Item = super::Key>,
     ) -> Result<(), rocksdb::Error> {
         for input in rows {
             db.delete(as_key(&PREFIX, input))?;
