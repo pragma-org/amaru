@@ -1,6 +1,4 @@
-use minicbor::{Encode, Decode, Decoder};
-use quickcheck::{Arbitrary, Gen};
-use std::cmp::{max, min};
+use minicbor::{Decode, Decoder, Encode};
 
 type Slot = u64;
 
@@ -9,6 +7,16 @@ pub struct Bound {
     pub time_ms: u64, // Milliseconds
     pub slot: Slot,
     pub epoch: u64,
+}
+
+impl Bound {
+    fn genesis() -> Bound {
+        Bound {
+            time_ms: 0,
+            slot: 0,
+            epoch: 0,
+        }
+    }
 }
 
 impl<C> Encode<C> for Bound {
@@ -38,16 +46,6 @@ impl<'b, C> Decode<'b, C> for Bound {
             slot,
             epoch,
         })
-    }
-}
-
-impl Arbitrary for Bound {
-    fn arbitrary(g: &mut Gen) -> Self {
-        Bound {
-            time_ms: u64::arbitrary(g),
-            slot: u64::arbitrary(g),
-            epoch: u64::arbitrary(g),
-        }
     }
 }
 
@@ -99,17 +97,6 @@ impl<'b, C> Decode<'b, C> for EraParams {
     }
 }
 
-impl Arbitrary for EraParams {
-    fn arbitrary(g: &mut Gen) -> Self {
-        EraParams {
-            // An epoch can't be zero slots
-            epoch_size_slots: max(1, u16::arbitrary(g) as u64),
-            // A slot can't be zero milliseconds
-            slot_length: max(1, u16::arbitrary(g) as u64),
-        }
-    }
-}
-
 // The start is inclusive and the end is exclusive. In a valid EraHistory, the
 // end of each era will equal the start of the next one.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,37 +128,7 @@ impl<'b, C> Decode<'b, C> for Summary {
         let end = d.decode()?;
         let params = d.decode()?;
         let _ = d.skip()?;
-        Ok(Summary {
-            start,
-            end,
-            params,
-        })
-    }
-}
-
-impl Arbitrary for Summary {
-    fn arbitrary(g: &mut Gen) -> Summary {
-        let b1 = u16::arbitrary(g) as u64;
-        let b2 = u16::arbitrary(g) as u64;
-        let params = EraParams::arbitrary(g);
-        let start = Bound {
-            time_ms: u16::arbitrary(g) as u64,
-            slot: u16::arbitrary(g) as u64,
-            epoch: min(b1, b2),
-        };
-        let epochs_elapsed = max(b1, b2) - min(b1, b2);
-        let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
-        let time_elapsed = slots_elapsed * params.slot_length;
-        let end = Bound {
-            time_ms: start.time_ms + time_elapsed,
-            slot: start.slot + slots_elapsed,
-            epoch: max(b1, b2),
-        };
-        Summary {
-            start,
-            end,
-            params,
-        }
+        Ok(Summary { start, end, params })
     }
 }
 
@@ -203,59 +160,7 @@ impl<'b, C> Decode<'b, C> for EraHistory {
         for era in eras_iter {
             eras.push(era?);
         }
-        Ok(EraHistory {
-            eras,
-        })
-    }
-}
-
-impl Arbitrary for EraHistory {
-    fn arbitrary(g: &mut Gen) -> EraHistory {
-        // Generate a number of boundaries corresponding to the generator size
-        let mut boundaries = vec![];
-        boundaries.push(u16::arbitrary(g) as u64);
-        for i in 0..g.size() {
-            // An era can't be zero-length
-            boundaries.push(boundaries[i] + max(1, u16::arbitrary(g) as u64));
-        }
-        let genesis = Bound {
-            time_ms: 0,
-            slot: 0,
-            epoch: 0,
-        };
-        let genesis_era_params = EraParams::arbitrary(g);
-
-        let mut prev_bound = genesis;
-        let mut prev_era_params = genesis_era_params;
-
-        // For each boundary, compute the time and slot for that epoch based on the era params and
-        // construct a summary from the boundary pair
-        let mut summaries = vec![];
-        for i in 1..g.size() {
-            let boundary = boundaries[i];
-            let epochs_elapsed = boundary - prev_bound.epoch;
-            let slots_elapsed = epochs_elapsed * prev_era_params.epoch_size_slots;
-            let time_elapsed = slots_elapsed * prev_era_params.slot_length;
-            let new_bound = Bound {
-                time_ms: prev_bound.time_ms + time_elapsed,
-                slot: prev_bound.slot + slots_elapsed,
-                epoch: boundary,
-            };
-            let new_era_params = EraParams::arbitrary(g);
-
-            summaries.push(Summary {
-                start: prev_bound,
-                end: new_bound.clone(),
-                params: prev_era_params,
-            });
-
-            prev_era_params = new_era_params;
-            prev_bound = new_bound;
-        }
-
-        EraHistory {
-            eras: summaries,
-        }
+        Ok(EraHistory { eras })
     }
 }
 
@@ -278,56 +183,60 @@ impl EraHistory {
     pub fn slot_to_relative_time(&self, slot: u64) -> Result<u64, TimeHorizonError> {
         for era in &self.eras {
             if era.start.slot > slot {
-                return Err(TimeHorizonError::InvalidEraHistory)
+                return Err(TimeHorizonError::InvalidEraHistory);
             }
             if era.end.slot >= slot {
                 let slots_elapsed = slot - era.start.slot;
                 let time_elapsed = era.params.slot_length * slots_elapsed;
                 let relative_time = era.start.time_ms + time_elapsed;
-                return Ok(relative_time)
+                return Ok(relative_time);
             }
         }
-        return Err(TimeHorizonError::PastTimeHorizon)
+        return Err(TimeHorizonError::PastTimeHorizon);
     }
 
-    pub fn slot_to_absolute_time(&self, slot: u64, system_start: u64) -> Result<u64, TimeHorizonError> {
+    pub fn slot_to_absolute_time(
+        &self,
+        slot: u64,
+        system_start: u64,
+    ) -> Result<u64, TimeHorizonError> {
         self.slot_to_relative_time(slot).map(|t| system_start + t)
     }
 
     pub fn relative_time_to_slot(&self, time: u64) -> Result<u64, TimeHorizonError> {
         for era in &self.eras {
             if era.start.time_ms > time {
-                return Err(TimeHorizonError::InvalidEraHistory)
+                return Err(TimeHorizonError::InvalidEraHistory);
             }
             if era.end.time_ms >= time {
                 let time_elapsed = time - era.start.time_ms;
                 let slots_elapsed = time_elapsed / era.params.slot_length;
                 let slot = era.start.slot + slots_elapsed;
-                return Ok(slot)
+                return Ok(slot);
             }
         }
-        return Err(TimeHorizonError::PastTimeHorizon)
+        return Err(TimeHorizonError::PastTimeHorizon);
     }
 
     pub fn slot_to_epoch(&self, slot: u64) -> Result<u64, TimeHorizonError> {
         for era in &self.eras {
             if era.start.slot > slot {
-                return Err(TimeHorizonError::InvalidEraHistory)
+                return Err(TimeHorizonError::InvalidEraHistory);
             }
             if era.end.slot >= slot {
                 let slots_elapsed = slot - era.start.slot;
                 let epochs_elapsed = slots_elapsed / era.params.epoch_size_slots;
                 let epoch_number = era.start.epoch + epochs_elapsed;
-                return Ok(epoch_number)
+                return Ok(epoch_number);
             }
         }
-        return Err(TimeHorizonError::PastTimeHorizon)
+        return Err(TimeHorizonError::PastTimeHorizon);
     }
 
     pub fn epoch_bounds(&self, epoch: u64) -> Result<EpochBounds, TimeHorizonError> {
         for era in &self.eras {
             if era.start.epoch > epoch {
-                return Err(TimeHorizonError::InvalidEraHistory)
+                return Err(TimeHorizonError::InvalidEraHistory);
             }
             // We can't answer queries about the upper bound epoch of the era because the bound is
             // exclusive.
@@ -339,7 +248,7 @@ impl EraHistory {
                 return Ok(EpochBounds {
                     start: start,
                     end: end,
-                })
+                });
             }
         }
         return Err(TimeHorizonError::PastTimeHorizon);
@@ -350,8 +259,105 @@ impl EraHistory {
 mod tests {
     use super::*;
     use hex;
-    #[macro_use(quickcheck)]
-    use quickcheck_macros::quickcheck;
+    use proptest::prelude::*;
+    use std::cmp::{max, min};
+
+    prop_compose! {
+        fn arbitrary_bound()(time_ms in any::<u64>(), slot in any::<u64>(), epoch in any::<u64>()) -> Bound {
+            Bound {
+                time_ms, slot, epoch
+            }
+        }
+    }
+    prop_compose! {
+        fn arbitrary_bound_for_epoch(epoch: u64)(time_ms in any::<u64>(), slot in any::<u64>()) -> Bound {
+            Bound {
+                time_ms, slot, epoch
+            }
+        }
+    }
+    prop_compose! {
+        fn arbitrary_era_params()(epoch_size_slots in 1u64..65535u64, slot_length in 1u64..65535u64) -> EraParams {
+            EraParams {
+                epoch_size_slots,
+                slot_length,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn arbitrary_summary()(
+            b1 in any::<u16>(),
+            b2 in any::<u16>(),
+            params in arbitrary_era_params(),
+        )(
+            first_epoch in Just(min(b1, b2) as u64),
+            last_epoch in Just(max(b1, b2) as u64),
+            params in Just(params),
+            start in arbitrary_bound_for_epoch(max(b1, b2) as u64),
+        ) -> Summary {
+                let epochs_elapsed = last_epoch - first_epoch;
+                let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
+                let time_elapsed = slots_elapsed * params.slot_length;
+                let end = Bound {
+                    time_ms: start.time_ms + time_elapsed,
+                    slot: start.slot + slots_elapsed,
+                    epoch: last_epoch,
+                };
+                Summary { start, end, params }
+            }
+    }
+
+    prop_compose! {
+        // Generate an arbitrary list of ordered epochs where we might have a new era
+        fn arbitrary_boundaries()(
+            first_epoch in any::<u16>(),
+            era_lengths in prop::collection::vec(1u64.., 1usize..32usize),
+        ) -> Vec<u64> {
+            let mut boundaries = vec![first_epoch as u64];
+            for era_length in era_lengths {
+                boundaries.push(boundaries.last().unwrap() + era_length);
+            }
+            boundaries
+        }
+    }
+
+    prop_compose! {
+        fn arbitrary_era_history()(
+            boundaries in arbitrary_boundaries()
+        )(
+            era_params in prop::collection::vec(arbitrary_era_params(), boundaries.len()),
+            boundaries in Just(boundaries),
+        ) -> EraHistory {
+            let genesis = Bound::genesis();
+
+            let mut prev_bound = genesis;
+
+            // For each boundary, compute the time and slot for that epoch based on the era params and
+            // construct a summary from the boundary pair
+            let mut summaries = vec![];
+            for (boundary, prev_era_params) in boundaries.iter().zip(era_params.iter()) {
+                let epochs_elapsed = boundary - prev_bound.epoch;
+                let slots_elapsed = epochs_elapsed * prev_era_params.epoch_size_slots;
+                let time_elapsed = slots_elapsed * prev_era_params.slot_length;
+                let new_bound = Bound {
+                    time_ms: prev_bound.time_ms + time_elapsed,
+                    slot: prev_bound.slot + slots_elapsed,
+                    epoch: *boundary,
+                };
+
+                summaries.push(Summary {
+                    start: prev_bound,
+                    end: new_bound.clone(),
+                    params: prev_era_params.clone(),
+                });
+
+                prev_bound = new_bound;
+            }
+
+            EraHistory { eras: summaries }
+        }
+    }
 
     fn default_params() -> EraParams {
         EraParams::new(86400, 1000).unwrap()
@@ -359,21 +365,19 @@ mod tests {
 
     fn one_era() -> EraHistory {
         EraHistory {
-            eras: vec![
-                Summary {
-                    start: Bound {
-                        time_ms: 0,
-                        slot: 0,
-                        epoch: 0,
-                    },
-                    end: Bound {
-                        time_ms: 864000000,
-                        slot: 864000,
-                        epoch: 10,
-                    },
-                    params: default_params(),
+            eras: vec![Summary {
+                start: Bound {
+                    time_ms: 0,
+                    slot: 0,
+                    epoch: 0,
                 },
-            ],
+                end: Bound {
+                    time_ms: 864000000,
+                    slot: 864000,
+                    epoch: 10,
+                },
+                params: default_params(),
+            }],
         }
     }
 
@@ -417,6 +421,7 @@ mod tests {
         assert_eq!(t0, Ok(172800000));
     }
 
+    #[test]
     fn slot_to_time_fails_after_time_horizon() {
         let eras = two_eras();
         let t0 = eras.slot_to_relative_time(172801);
@@ -438,7 +443,10 @@ mod tests {
     #[test]
     fn epoch_bounds_fails_after_time_horizon() {
         let eras = one_era();
-        assert_eq!(eras.epoch_bounds(10), Err(TimeHorizonError::PastTimeHorizon));
+        assert_eq!(
+            eras.epoch_bounds(10),
+            Err(TimeHorizonError::PastTimeHorizon)
+        );
     }
 
     #[test]
@@ -479,10 +487,11 @@ mod tests {
         );
     }
 
-    #[quickcheck]
-    fn roundtrip_era_history(eras: EraHistory) {
-        let buffer = minicbor::to_vec(&eras).unwrap();
-        let decoded = minicbor::decode(&buffer).unwrap();
-        assert_eq!(eras, decoded);
+    proptest! {
+        fn roundtrip_era_history(era_history in arbitrary_era_history()) {
+            let buffer = minicbor::to_vec(&era_history).unwrap();
+            let decoded = minicbor::decode(&buffer).unwrap();
+            assert_eq!(era_history, decoded);
+        }
     }
 }
