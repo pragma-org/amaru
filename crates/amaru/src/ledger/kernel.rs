@@ -12,7 +12,7 @@ pub use ouroboros::ledger::PoolSigma;
 use pallas_addresses::*;
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{Nullable, Set},
+    utils::{NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
