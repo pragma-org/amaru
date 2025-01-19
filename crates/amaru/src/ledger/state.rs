@@ -311,27 +311,15 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 .map(|xs| xs.to_vec())
                 .unwrap_or_default();
 
-            let span_apply_transaction = info_span!(
-                target: STATE_EVENT_TARGET,
-                parent: parent,
-                "apply.transaction",
-                transaction.id = %transaction_id,
-                transaction.inputs = inputs.len(),
-                transaction.outputs = outputs.len(),
-                transaction.certificates = certificates.len(),
-            )
-            .entered();
-
             apply_transaction(
                 &mut state,
-                &span_apply_transaction,
+                &span_apply_block,
                 &transaction_id,
                 inputs,
                 outputs,
                 certificates,
                 fees,
             );
-            span_apply_transaction.exit();
         }
 
         span_apply_block.exit();
@@ -342,13 +330,24 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
 fn apply_transaction<T>(
     state: &mut VolatileState<T>,
-    span: &Span,
+    parent: &Span,
     transaction_id: &Hash<32>,
     inputs: Vec<TransactionInput>,
     outputs: Vec<TransactionOutput>,
     certificates: Vec<Certificate>,
     fees: Lovelace,
 ) {
+    let span = info_span!(
+        target: STATE_EVENT_TARGET,
+        parent: parent,
+        "apply.transaction",
+        transaction.id = %transaction_id,
+        transaction.inputs = inputs.len(),
+        transaction.outputs = outputs.len(),
+        transaction.certificates = certificates.len(),
+    )
+    .entered();
+
     // Inputs/Outputs
     {
         let consumed: BTreeSet<_> = inputs.into_iter().collect();
@@ -379,7 +378,7 @@ fn apply_transaction<T>(
         for certificate in certificates {
             match certificate {
                 Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential);
+                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
                     state
                         .accounts
                         .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
@@ -387,14 +386,14 @@ fn apply_transaction<T>(
                 Certificate::StakeDelegation(credential, pool)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential, pool = %pool);
                     state.accounts.bind(credential, Some(pool));
                 }
                 Certificate::StakeRegDeleg(credential, pool, ..)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential);
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
+                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential, pool = %pool);
                     state.accounts.register(
                         credential,
                         STAKE_CREDENTIAL_DEPOSIT as Lovelace,
@@ -403,11 +402,11 @@ fn apply_transaction<T>(
                 }
                 Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, ..) => {
-                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: span, credential = ?credential);
+                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
                     state.accounts.unregister(credential);
                 }
                 Certificate::PoolRetirement(id, epoch) => {
-                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: span, pool = %id, epoch = %epoch);
+                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: &span, pool = %id, epoch = %epoch);
                     state.pools.unregister(id, epoch)
                 }
                 Certificate::PoolRegistration {
@@ -435,7 +434,7 @@ fn apply_transaction<T>(
                     debug!(
                         name: "certificate.pool.registration",
                         target: TRANSACTION_EVENT_TARGET,
-                        parent: span,
+                        parent: &span,
                         pool = %id,
                         params = ?params,
                     );
@@ -447,6 +446,8 @@ fn apply_transaction<T>(
             }
         }
     }
+
+    span.exit();
 }
 
 // LedgerState
