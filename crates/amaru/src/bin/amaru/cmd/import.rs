@@ -61,8 +61,14 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point)?;
 
-    db.save(&point, None, Default::default(), Default::default())
-        .into_diagnostic()?;
+    db.save(
+        &point,
+        None,
+        Default::default(),
+        Default::default(),
+        iter::empty(),
+    )
+    .into_diagnostic()?;
 
     db.next_snapshot(epoch, None).into_diagnostic()?;
 
@@ -296,6 +302,7 @@ fn import_utxo(
                 accounts: iter::empty(),
             },
             Default::default(),
+            iter::empty(),
         )
         .into_diagnostic()?;
 
@@ -361,6 +368,7 @@ fn import_stake_pools(
             utxo: iter::empty(),
             accounts: iter::empty(),
         },
+        iter::empty(),
     )
     .into_diagnostic()
 }
@@ -439,6 +447,7 @@ fn import_accounts(
                 accounts: chunk,
             },
             Default::default(),
+            iter::empty(),
         )
         .into_diagnostic()?;
 

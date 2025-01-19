@@ -148,16 +148,23 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 fees,
                 add,
                 remove,
+                withdrawals,
             } = now_stable.into_store_update();
 
             info_span!(target: STATE_EVENT_TARGET, parent: span, "save").in_scope(|| {
-                db.save(&stable_point, Some(&stable_issuer), add, remove)
-                    .and_then(|()| {
-                        db.with_pots(|mut row| {
-                            row.borrow_mut().fees += fees;
-                        })
+                db.save(
+                    &stable_point,
+                    Some(&stable_issuer),
+                    add,
+                    remove,
+                    withdrawals,
+                )
+                .and_then(|()| {
+                    db.with_pots(|mut row| {
+                        row.borrow_mut().fees += fees;
                     })
-                    .map_err(ForwardErr::StorageErr)
+                })
+                .map_err(ForwardErr::StorageErr)
             })?;
 
             // Once we reach the stability window,

@@ -3,8 +3,9 @@ use super::{
     volatile_db::VolatileState,
 };
 use crate::ledger::kernel::{
-    output_lovelace, Certificate, Hash, Lovelace, MintedTransactionBody, PoolId, PoolParams, Set,
-    StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    output_lovelace, reward_account_to_stake_credential, Certificate, Hash, Lovelace,
+    MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
+    TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::{debug, info_span, Span};
@@ -27,6 +28,7 @@ pub fn apply<T>(
         transaction.inputs = tracing::field::Empty,
         transaction.outputs = tracing::field::Empty,
         transaction.certificates = tracing::field::Empty,
+        transaction.withdrawals = tracing::field::Empty,
     )
     .entered();
 
@@ -40,7 +42,6 @@ pub fn apply<T>(
     } else {
         InputsOutputs::<false>::apply(&span, transaction_id, &mut transaction_body, ())
     };
-
     state.utxo.merge(utxo);
 
     state.fees += fees;
@@ -51,9 +52,20 @@ pub fn apply<T>(
         .certificates
         .map(|xs| xs.to_vec())
         .unwrap_or_default();
-
     span.record("transaction.certificates", certificates.len());
     apply_certificates(&span, &mut state.pools, &mut state.accounts, certificates);
+
+    let withdrawals = transaction_body
+        .withdrawals
+        .unwrap_or_else(|| NonEmptyKeyValuePairs::Def(vec![]));
+    span.record("transaction.withdrawals", withdrawals.len());
+    state
+        .withdrawals
+        .extend(withdrawals.iter().map(|(account, _)| {
+            reward_account_to_stake_credential(account).unwrap_or_else(|| {
+                panic!("invalid reward account found in transaction ({transaction_id}): {account}")
+            })
+        }));
 
     span.exit();
 }
