@@ -681,7 +681,10 @@ impl RewardsSummary {
         if let Some(PoolRewards { pot, .. }) = pools.get(&st.pool) {
             let member_rewards = pool.member_rewards(&credential, *pot, st.lovelace, total_stake);
             if member_rewards > 0 {
-                accounts.insert(credential, member_rewards);
+                accounts
+                    .entry(credential)
+                    .and_modify(|rewards| *rewards += member_rewards)
+                    .or_insert(member_rewards);
             }
             member_rewards
         } else {
@@ -727,17 +730,18 @@ impl RewardsSummary {
             },
         );
 
-        accounts.insert(
-            reward_account_to_stake_credential(&pool.parameters.reward_account).unwrap_or_else(
-                || {
-                    panic!(
-                        "unexpected malformed reward account: {:?}",
-                        &pool.parameters.reward_account
-                    )
-                },
-            ),
-            rewards_leader,
-        );
+        let credential = reward_account_to_stake_credential(&pool.parameters.reward_account)
+            .unwrap_or_else(|| {
+                panic!(
+                    "unexpected malformed reward account: {:?}",
+                    &pool.parameters.reward_account
+                )
+            });
+
+        accounts
+            .entry(credential)
+            .and_modify(|rewards| *rewards += rewards_leader)
+            .or_insert(rewards_leader);
 
         rewards_leader
     }
