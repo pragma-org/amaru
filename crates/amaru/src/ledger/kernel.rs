@@ -17,9 +17,9 @@ pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
     alonzo,
     conway::{
-        AddrKeyhash, Certificate, Coin, DRep, Epoch, MintedBlock, MintedTransactionOutput,
-        PoolMetadata, RationalNumber, Relay, RewardAccount, StakeCredential, TransactionInput,
-        TransactionOutput, UnitInterval, Value, VrfKeyhash,
+        AddrKeyhash, Certificate, Coin, DRep, Epoch, MintedBlock, MintedTransactionBody,
+        MintedTransactionOutput, PoolMetadata, RationalNumber, Relay, RewardAccount,
+        StakeCredential, TransactionInput, TransactionOutput, UnitInterval, Value, VrfKeyhash,
     },
 };
 

@@ -5,8 +5,9 @@ pub mod diff_set;
 use crate::ledger::{
     kernel::{
         self, epoch_from_slot, output_lovelace, Certificate, Epoch, Hash, Hasher, Lovelace,
-        MintedBlock, Point, PoolId, PoolParams, PoolSigma, StakeCredential, TransactionInput,
-        TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW, STAKE_CREDENTIAL_DEPOSIT,
+        MintedBlock, MintedTransactionBody, Point, PoolId, PoolParams, PoolSigma, Set,
+        StakeCredential, TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM,
+        STABILITY_WINDOW, STAKE_CREDENTIAL_DEPOSIT,
     },
     rewards::RewardsSummary,
     store::{self, columns::*, Store},
@@ -208,23 +209,25 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         &'a self,
         ongoing_state: &'a VolatileState<()>,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<(&'a TransactionInput, Cow<'a, TransactionOutput>)>, E> {
+    ) -> Result<Vec<TransactionOutput>, E> {
         let mut result = Vec::new();
 
         for input in inputs {
             let output = ongoing_state
                 .resolve_input(input)
-                .or_else(|| self.volatile.resolve_input(input))
-                .map(|o| Ok(Cow::Borrowed(o)))
+                .cloned()
+                .or_else(|| self.volatile.resolve_input(input).cloned())
+                .map(Ok)
                 .unwrap_or_else(|| {
                     let db = self.stable.lock().unwrap();
                     db.resolve_input(input).map(|opt| {
-                        Cow::Owned(opt.unwrap_or_else(|| {
+                        opt.unwrap_or_else(|| {
                             panic!("unknown UTxO expected to be known: {input:?}!")
-                        }))
+                        })
                     })
                 })?;
-            result.push((input, output));
+
+            result.push(output);
         }
 
         Ok(result)
@@ -255,70 +258,19 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
         for (ix, transaction_body) in transaction_bodies.into_iter().enumerate() {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
-
             let transaction_body = transaction_body.unwrap();
 
-            let (inputs, outputs, fees) = match failed_transactions.has(ix as u32) {
-                // == Successful transaction
-                // - inputs are consumed;
-                // - outputs are produced.
-                false => {
-                    let inputs = transaction_body.inputs.to_vec();
-                    let outputs = transaction_body
-                        .outputs
-                        .into_iter()
-                        .map(|x| x.into())
-                        .collect::<Vec<_>>();
-
-                    (inputs, outputs, transaction_body.fee)
-                }
-
-                // == Failed transaction
-                // - collateral inputs are consumed;
-                // - collateral outputs produced (if any).
-                true => {
-                    let inputs = transaction_body
-                        .collateral
-                        .map(|x| x.to_vec())
-                        .unwrap_or_default();
-
-                    let resolved_inputs = self
-                        .resolve_inputs(&state, inputs.iter())
-                        .map_err(ForwardErr::StorageErr)?;
-
-                    let (outputs, collateral_return) = match transaction_body.collateral_return {
-                        Some(output) => {
-                            let output = output.into();
-                            let collateral_return = output_lovelace(&output);
-                            (vec![output], collateral_return)
-                        }
-                        None => (vec![], 0),
-                    };
-
-                    let fees = resolved_inputs
-                        .iter()
-                        .fold(0, |total, (_, output)| total + output_lovelace(output))
-                        - collateral_return;
-
-                    (inputs, outputs, fees)
-                }
-            };
-
-            // TODO: There should really be an Iterator instance in Pallas
-            // on those certificates...
-            let certificates = transaction_body
-                .certificates
-                .map(|xs| xs.to_vec())
-                .unwrap_or_default();
+            let resolved_inputs = self
+                .resolve_inputs(&state, transaction_body.inputs.iter())
+                .map_err(ForwardErr::StorageErr)?;
 
             apply_transaction(
                 &mut state,
                 &span_apply_block,
-                &transaction_id,
-                inputs,
-                outputs,
-                certificates,
-                fees,
+                failed_transactions.has(ix as u32),
+                transaction_id,
+                transaction_body,
+                resolved_inputs,
             );
         }
 
@@ -331,70 +283,170 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 fn apply_transaction<T>(
     state: &mut VolatileState<T>,
     parent: &Span,
-    transaction_id: &Hash<32>,
-    inputs: Vec<TransactionInput>,
-    outputs: Vec<TransactionOutput>,
-    certificates: Vec<Certificate>,
-    fees: Lovelace,
+    is_failed: bool,
+    transaction_id: Hash<32>,
+    mut transaction_body: MintedTransactionBody<'_>,
+    resolved_inputs: Vec<TransactionOutput>,
 ) {
     let span = info_span!(
         target: STATE_EVENT_TARGET,
         parent: parent,
         "apply.transaction",
         transaction.id = %transaction_id,
-        transaction.inputs = inputs.len(),
-        transaction.outputs = outputs.len(),
-        transaction.certificates = certificates.len(),
+        transaction.inputs = tracing::field::Empty,
+        transaction.outputs = tracing::field::Empty,
+        transaction.certificates = tracing::field::Empty,
     )
     .entered();
 
-    // Inputs/Outputs
-    {
-        let consumed: BTreeSet<_> = inputs.into_iter().collect();
-        let produced = outputs
+    let (inputs, outputs, fees) = if is_failed {
+        InputsOutputs::<true>::explode(&mut transaction_body, resolved_inputs)
+    } else {
+        InputsOutputs::<false>::explode(&mut transaction_body, ())
+    };
+
+    // TODO: There should really be an Iterator instance in Pallas
+    // on those certificates...
+    let certificates = transaction_body
+        .certificates
+        .map(|xs| xs.to_vec())
+        .unwrap_or_default();
+
+    span.record("transaction.inputs", inputs.len());
+    span.record("transaction.outputs", outputs.len());
+    span.record("transaction.certificates", certificates.len());
+
+    apply_transaction_inputs_outputs(
+        &mut state.utxo,
+        transaction_id,
+        inputs.into_iter().collect(),
+        outputs,
+    );
+
+    state.fees += fees;
+
+    apply_transaction_certificates(&span, &mut state.pools, &mut state.accounts, certificates);
+
+    span.exit();
+}
+
+/// A trait to extract inputs, outputs and fees from a transaction; based on whether it is a failed
+/// transaction or not. It is meant to provide a unified interface that makes the parallel between
+/// the two cases.
+trait InputsOutputs<const IS_FAILED: bool> {
+    type ResolvedInputs;
+
+    fn explode(
+        body: &mut Self,
+        resolved_inputs: Self::ResolvedInputs,
+    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace);
+}
+
+/// On successful transaction
+///   - inputs are consumed;
+///   - outputs are produced;
+///   - fees are collected;
+impl InputsOutputs<false> for MintedTransactionBody<'_> {
+    type ResolvedInputs = ();
+
+    fn explode(
+        body: &mut Self,
+        _resolved_inputs: Self::ResolvedInputs,
+    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace) {
+        let inputs = core::mem::replace(&mut body.inputs, Set::from(vec![])).to_vec();
+        let outputs = core::mem::take(&mut body.outputs)
             .into_iter()
-            .enumerate()
-            .map(|(index, output)| {
-                (
-                    TransactionInput {
-                        transaction_id: *transaction_id,
-                        index: index as u64,
-                    },
-                    output,
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
+            .map(|x| x.into())
+            .collect::<Vec<_>>();
 
-        state.utxo.merge(DiffSet { consumed, produced });
+        (inputs, outputs, body.fee)
     }
+}
 
-    // Fees
-    {
-        state.fees += fees;
+/// On failed transactions:
+///   - collateral inputs are consumed;
+///   - collateral outputs produced (if any);
+///   - the difference between collateral inputs and outputs is collected as fees.
+impl InputsOutputs<true> for MintedTransactionBody<'_> {
+    type ResolvedInputs = Vec<TransactionOutput>;
+
+    fn explode(
+        body: &mut Self,
+        resolved_inputs: Self::ResolvedInputs,
+    ) -> (Vec<TransactionInput>, Vec<TransactionOutput>, Lovelace) {
+        let inputs = core::mem::take(&mut body.collateral)
+            .map(|x| x.to_vec())
+            .unwrap_or_default();
+
+        let (outputs, collateral_return) = match core::mem::take(&mut body.collateral_return) {
+            Some(output) => {
+                let output = output.into();
+                let collateral_return = output_lovelace(&output);
+                (vec![output], collateral_return)
+            }
+            None => (vec![], 0),
+        };
+
+        let collateral_value = resolved_inputs
+            .iter()
+            .fold(0, |total, output| total + output_lovelace(output));
+
+        let fees = collateral_value - collateral_return;
+
+        (inputs, outputs, fees)
     }
+}
 
-    // Certificates
-    {
-        for certificate in certificates {
-            match certificate {
+fn apply_transaction_inputs_outputs(
+    utxo: &mut DiffSet<TransactionInput, TransactionOutput>,
+    transaction_id: Hash<32>,
+    inputs: BTreeSet<TransactionInput>,
+    outputs: Vec<TransactionOutput>,
+) {
+    let consumed: BTreeSet<_> = inputs;
+
+    let produced = outputs
+        .into_iter()
+        .enumerate()
+        .map(|(index, output)| {
+            (
+                TransactionInput {
+                    transaction_id,
+                    index: index as u64,
+                },
+                output,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+
+    utxo.merge(DiffSet { consumed, produced });
+}
+
+fn apply_transaction_certificates(
+    parent: &Span,
+    pools: &mut DiffEpochReg<PoolId, PoolParams>,
+    accounts: &mut DiffBind<StakeCredential, PoolId, Lovelace>,
+    certificates: Vec<Certificate>,
+) {
+    for certificate in certificates {
+        match certificate {
                 Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
-                    state
-                        .accounts
+                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
+                        accounts
                         .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
                 }
                 Certificate::StakeDelegation(credential, pool)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential, pool = %pool);
-                    state.accounts.bind(credential, Some(pool));
+                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                    accounts.bind(credential, Some(pool));
                 }
                 Certificate::StakeRegDeleg(credential, pool, ..)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential, pool = %pool);
-                    state.accounts.register(
+                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
+                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                    accounts.register(
                         credential,
                         STAKE_CREDENTIAL_DEPOSIT as Lovelace,
                         Some(pool),
@@ -402,12 +454,12 @@ fn apply_transaction<T>(
                 }
                 Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, ..) => {
-                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: &span, credential = ?credential);
-                    state.accounts.unregister(credential);
+                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
+                    accounts.unregister(credential);
                 }
                 Certificate::PoolRetirement(id, epoch) => {
-                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: &span, pool = %id, epoch = %epoch);
-                    state.pools.unregister(id, epoch)
+                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
+                    pools.unregister(id, epoch)
                 }
                 Certificate::PoolRegistration {
                     operator: id,
@@ -434,20 +486,17 @@ fn apply_transaction<T>(
                     debug!(
                         name: "certificate.pool.registration",
                         target: TRANSACTION_EVENT_TARGET,
-                        parent: &span,
+                        parent: parent,
                         pool = %id,
                         params = ?params,
                     );
 
-                    state.pools.register(id, params)
+                    pools.register(id, params)
                 }
                 // FIXME: Process other types of certificates
                 _ => {}
             }
-        }
     }
-
-    span.exit();
 }
 
 // LedgerState
