@@ -3443,6 +3443,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "time"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "minicbor",
+ "proptest",
+]
+
+[[package]]
 name = "tinystr"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
