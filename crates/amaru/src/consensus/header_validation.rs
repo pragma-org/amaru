@@ -6,7 +6,7 @@ use pallas_crypto::hash::Hash;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_primitives::conway::Epoch;
 use std::collections::HashMap;
-use tracing::warn;
+use tracing::{instrument, warn};
 
 use super::header::ConwayHeader;
 
