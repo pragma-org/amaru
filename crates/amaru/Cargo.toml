@@ -19,7 +19,7 @@ gasket = { version = "0.8.0", features = ["derive"] }
 hex = "0.4.3"
 miette = { version = "7.2.0", features = ["fancy"] }
 indoc = "2.0"
-num = "0.4.3"
+num = { version = "0.4.3", features = ["num-bigint"] }
 ouroboros = { path = "../ouroboros" }
 pallas-addresses = "0.31.0"
 pallas-codec = "0.31.0"
