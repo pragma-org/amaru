@@ -83,9 +83,15 @@ pub struct KesKeyWrapper {
     bytes: Vec<u8>,
 }
 
+pub struct KesKeyWrapperError {
+    pub reason: String,
+}
+
 impl KesKeyWrapper {
-    pub fn get_kes_secret_key(&'_ mut self) -> Result<KesSecretKey<'_>, ()> {
-        KesSecretKey::from_bytes(&mut self.bytes).map_err(|_| ())
+    pub fn get_kes_secret_key(&'_ mut self) -> Result<KesSecretKey<'_>, KesKeyWrapperError> {
+        KesSecretKey::from_bytes(&mut self.bytes).map_err(|err| KesKeyWrapperError {
+            reason: err.to_string(),
+        })
     }
 }
 
@@ -168,6 +174,7 @@ where
 
 #[derive(Debug, Serialize, Deserialize)]
 enum Mutation {
+    #[allow(clippy::enum_variant_names)]
     NoMutation,
     MutateKESKey,
     MutateColdKey,
