@@ -229,6 +229,8 @@ fn init() {
     tracing_subscriber::fmt::init();
 }
 
+const EXPECTED_SLOT_NUMBER: u64 = 9169164218553922239u64;
+
 #[test]
 fn can_read_and_write_json_test_vectors() {
     let file = File::open("tests/data/test-vector.json").unwrap();
@@ -239,7 +241,7 @@ fn can_read_and_write_json_test_vectors() {
     let first_header = vec[0].1.header.get_header().expect("cannot create header");
     let babbage_header = first_header.as_babbage().expect("Infallible");
     // NOTE: this magic number ensures that we read an up-to-date test vector
-    assert_eq!(babbage_header.header_body.slot, 9169164218553922239u64);
+    assert_eq!(babbage_header.header_body.slot, EXPECTED_SLOT_NUMBER);
 }
 
 #[test]

@@ -52,9 +52,12 @@ impl<'b> BlockValidator<'b> {
         let absolute_slot = self.header.header_body.slot;
         let issuer_vkey = &self.header.header_body.issuer_vkey;
         let pool_id: PoolId = issuer_vkey_to_pool_id(issuer_vkey);
-        let vrf_vkey: VrfPublicKeyBytes = (&self.header.header_body.vrf_vkey)
-            .try_into()
-            .map_err(|error| ValidationError::InvalidByteLength(format!("vrf_vkey: {}", error)))?;
+        let vrf_vkey: VrfPublicKeyBytes =
+            (&self.header.header_body.vrf_vkey)
+                .try_into()
+                .map_err(|error| {
+                    ValidationError::GenericValidationError(format!("vrf_vkey: {}", error))
+                })?;
 
         let leader_vrf_output = &self.header.header_body.leader_vrf_output();
         let sigma: FixedDecimal = self.ledger_state.pool_id_to_sigma(&pool_id).map(|sigma| {
@@ -64,12 +67,12 @@ impl<'b> BlockValidator<'b> {
         let block_vrf_proof_hash: VrfProofHashBytes = (&self.header.header_body.vrf_result.0)
             .try_into()
             .map_err(|error| {
-                ValidationError::InvalidByteLength(format!("block_vrf_proof_hash: {}", error))
+                ValidationError::GenericValidationError(format!("block_vrf_proof_hash: {}", error))
             })?;
         let block_vrf_proof: VrfProofBytes = (&self.header.header_body.vrf_result.1)
             .try_into()
             .map_err(|error| {
-                ValidationError::InvalidByteLength(format!("block_vrf_proof: {}", error))
+                ValidationError::GenericValidationError(format!("block_vrf_proof: {}", error))
             })?;
         let kes_signature = self.header.body_signature.as_slice();
 
@@ -124,7 +127,7 @@ impl<'b> BlockValidator<'b> {
                 .operational_cert
                 .operational_cert_hot_vkey,
         )
-        .map_err(|error| ValidationError::InvalidByteLength(format!("kes_pk: {}", error)))?;
+        .map_err(|error| ValidationError::GenericValidationError(format!("kes_pk: {}", error)))?;
 
         // calculate the right KES period to verify the signature
         let slot_kes_period = self.ledger_state.slot_to_kes_period(absolute_slot);
@@ -152,7 +155,7 @@ impl<'b> BlockValidator<'b> {
         // The header_body_cbor was signed by the KES private key. Verify this with the KES public key
         let header_body_cbor = self.header.header_body.raw_cbor();
         let kes_signature = KesSignature::from_bytes(kes_signature).map_err(|error| {
-            ValidationError::InvalidByteLength(format!("kes_signature: {}", error))
+            ValidationError::GenericValidationError(format!("kes_signature: {}", error))
         })?;
 
         kes_signature
@@ -179,10 +182,11 @@ impl<'b> BlockValidator<'b> {
                 .as_slice(),
         )
         .map_err(|error| {
-            ValidationError::InvalidByteLength(format!("opcert_signature: {}", error))
+            ValidationError::GenericValidationError(format!("opcert_signature: {}", error))
         })?;
-        let cold_pk = PublicKey::try_from(issuer_vkey)
-            .map_err(|error| ValidationError::InvalidByteLength(format!("cold_pk: {}", error)))?;
+        let cold_pk = PublicKey::try_from(issuer_vkey).map_err(|error| {
+            ValidationError::GenericValidationError(format!("cold_pk: {}", error))
+        })?;
 
         let opcert_sequence_number = self
             .header

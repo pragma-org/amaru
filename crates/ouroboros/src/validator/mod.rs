@@ -2,8 +2,11 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum ValidationError {
-    #[error("InvalidByteLength: {0}")]
-    InvalidByteLength(String),
+    // FIXME: This error is very unspecific and relies on textual representation
+    // of underlying errors which could come from VRF, KES, or anything else.
+    // It should be replaced with more specific error type.
+    #[error("Validation error: {0}")]
+    GenericValidationError(String),
     #[error(
         "Invalid VRF key for pool: expected: {key_hash_from_ledger}, was: {key_hash_from_block}"
     )]
