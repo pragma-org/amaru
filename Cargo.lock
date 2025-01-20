@@ -67,6 +67,7 @@ dependencies = [
  "pallas-primitives",
  "pallas-traverse",
  "proptest",
+ "rand",
  "rocksdb",
  "serde",
  "serde_json",
