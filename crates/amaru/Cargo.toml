@@ -14,28 +14,28 @@ build = "build.rs"
 [dependencies]
 amaru-ledger = { path = "../ledger" }
 amaru-stores = { path = "../stores" }
-async-trait = "0.1.83"
+async-trait.workspace = true
 clap = { version = "4.5.20", features = ["derive"] }
-gasket = { version = "0.8.0", features = ["derive"] }
-hex = "0.4.3"
-miette = { version = "7.2.0", features = ["fancy"] }
+gasket.workspace = true
+hex.workspace = true
+miette.workspace = true
 indoc = "2.0"
 num = { version = "0.4.3", features = ["num-bigint"] }
 ouroboros = { path = "../ouroboros" }
 pallas-addresses = "0.31.0"
-pallas-codec = "0.31.0"
-pallas-crypto = "0.31.0"
-pallas-primitives = "0.31.0"
-pallas-math = "0.31.0"
-pallas-network = "0.31.0"
-pallas-traverse = "0.31.0"
-thiserror = "2.0.3"
-tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
+pallas-codec.workspace = true
+pallas-crypto.workspace = true
+pallas-primitives.workspace = true
+pallas-math.workspace = true
+pallas-network.workspace = true
+pallas-traverse.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
 tokio-util = "0.7.12"
-tracing = "0.1.40"
+tracing.workspace = true
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }
 indicatif = "0.17.9"
-opentelemetry = { version = "0.27.1" }
+opentelemetry.workspace = true
 opentelemetry_sdk = { version = "0.27.1", features = ["async-std", "rt-tokio"] }
 opentelemetry-otlp = { version = "0.27.0", features = [
     "grpc-tonic",
@@ -48,9 +48,9 @@ tracing-opentelemetry = { version = "0.28.0" }
 sys_metrics = "0.2.7"
 
 [dev-dependencies]
-envpath = { version = "0.0.1-beta.3", features = ["rand"] }
-insta = { version = "1.41.1", features = ["json"] }
-proptest = "1.5.0"
+envpath.workspace = true
+insta.workspace = true
+proptest.workspace = true
 
 [build-dependencies]
 built = { version = "0.7.1", features = ["git2"] }

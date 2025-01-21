@@ -13,6 +13,26 @@ rust-version = "1.81.0"
 members = ["crates/*"]
 resolver = "2"
 
+[workspace.dependencies]
+hex = "0.4.3"
+tracing = "0.1.40"
+thiserror = "2.0.3"
+miette = { version = "7.2.0", features = ["fancy"] }
+pallas-addresses = "0.31.0"
+pallas-codec = "0.31.0"
+pallas-crypto = "0.31.0"
+pallas-math = "0.31.0"
+pallas-network = "0.31.0"
+pallas-primitives = "0.31.0"
+pallas-traverse = "0.31.0"
+async-trait = "0.1.83"
+gasket = { version = "0.8.0", features = ["derive"] }
+tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
+opentelemetry = { version = "0.27.1" }
+# Dev
+proptest = "1.5.0"
+insta = { version = "1.41.1", features = ["json"] }
+envpath = { version = "0.0.1-beta.3", features = ["rand"] }
 
 [profile.dev.package]
 insta.opt-level = 3

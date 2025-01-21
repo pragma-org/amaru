@@ -12,7 +12,7 @@ rust-version.workspace = true
 
 [dependencies]
 minicbor = { version = "0.25.1", features = ["std", "half", "derive"] }
-hex = "0.4.3"
+hex.workspace = true
 
 [dev-dependencies]
-proptest = "1.5.0"
+proptest.workspace = true
