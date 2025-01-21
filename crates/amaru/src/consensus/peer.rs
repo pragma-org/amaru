@@ -18,6 +18,7 @@ impl Peer {
 }
 
 /// A session with a peer, including the peer itself and a client to communicate with it.
+#[derive(Clone)]
 pub struct PeerSession {
     pub peer: Peer,
     pub peer_client: Arc<Mutex<PeerClient>>,

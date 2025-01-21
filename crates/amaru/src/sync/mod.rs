@@ -20,8 +20,8 @@ pub type Point = pallas_network::miniprotocols::Point;
 
 #[derive(Clone)]
 pub enum PullEvent {
-    RollForward(Point, RawHeader),
-    Rollback(Point),
+    RollForward(Peer, Point, RawHeader),
+    Rollback(Peer, Point),
 }
 
 pub struct Config {
@@ -53,12 +53,12 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
     // FIXME: Take from config / command args
     let (mut ledger, tip) = ledger::Stage::new(&config.ledger_dir, config.counter.clone());
-
-    let mut pull = pull::Stage::new(client.clone(), vec![tip.clone()]);
     let peer_session = PeerSession {
         peer: Peer::new(&config.upstream_peer),
         peer_client: client.clone(),
     };
+
+    let mut pull = pull::Stage::new(peer_session.clone(), vec![tip.clone()]);
     let mut header_validation =
         consensus::Stage::new(peer_session, tip, ledger.state.clone(), config.nonces);
 

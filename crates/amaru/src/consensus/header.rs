@@ -1,4 +1,5 @@
 use pallas_crypto::hash::Hash;
+use pallas_network::miniprotocols::Point;
 use pallas_primitives::babbage;
 
 /// Interface to a header for the purpose of chain selection.
@@ -59,5 +60,14 @@ impl Header for ConwayHeader {
 
     fn from_cbor(_bytes: &[u8]) -> Option<ConwayHeader> {
         todo!()
+    }
+}
+
+/// Utility function to retrieve the hash of a `Point`.
+/// By convention, the hash of `Genesis` is all 0s.
+pub fn point_hash(point: &Point) -> Hash<32> {
+    match point {
+        Point::Origin => Hash::from([0; 32]),
+        Point::Specific(_, header_hash) => Hash::from(header_hash.as_ref()),
     }
 }
