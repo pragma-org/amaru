@@ -12,6 +12,7 @@ pallas-codec = "0.31.0"
 pallas-crypto = "0.31.0"
 pallas-math = "0.31.0"
 pallas-primitives = "0.31.0"
+pallas-traverse = "0.31.0"
 serde = { version = "1.0", features = ["derive"] }
 thiserror = "2.0"
 tracing = "0.1"
@@ -27,7 +28,6 @@ kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46
 ctor = "0.2"
 insta = { version = "1.41", features = ["yaml"] }
 mockall = "0.13"
-pallas-traverse = "0.31.0"
 tracing-subscriber = "0.3"
 criterion = "0.5.1"
 rand = "0.8"
