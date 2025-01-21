@@ -1,4 +1,5 @@
-use crate::{consensus::ValidateHeaderEvent, ledger::kernel::epoch_from_slot, sync::PullEvent};
+use crate::{consensus::ValidateHeaderEvent, sync::PullEvent};
+use amaru_ledger::kernel::epoch_from_slot;
 use gasket::framework::*;
 use ouroboros::consensus::BlockValidator;
 use ouroboros::{ledger::LedgerState, validator::Validator};

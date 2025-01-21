@@ -13,6 +13,8 @@ rust-version = "1.81.0"
 build = "build.rs"
 
 [dependencies]
+amaru-ledger = { path = "../ledger" }
+amaru-stores = { path = "../stores" }
 async-trait = "0.1.83"
 clap = { version = "4.5.20", features = ["derive"] }
 gasket = { version = "0.8.0", features = ["derive"] }
@@ -28,17 +30,12 @@ pallas-primitives = "0.31.0"
 pallas-math = "0.31.0"
 pallas-network = "0.31.0"
 pallas-traverse = "0.31.0"
-uplc = "1.1.7"
 thiserror = "2.0.3"
 tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util = "0.7.12"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }
-rocksdb = "0.22.0"
 indicatif = "0.17.9"
-vec1 = "1.12.1"
-serde = "1.0.215"
-bech32 = "0.11.0"
 opentelemetry = { version = "0.27.1" }
 opentelemetry_sdk = { version = "0.27.1", features = ["async-std", "rt-tokio"] }
 opentelemetry-otlp = { version = "0.27.0", features = [
@@ -47,7 +44,6 @@ opentelemetry-otlp = { version = "0.27.0", features = [
     "reqwest-client",
 ] }
 tracing-opentelemetry = { version = "0.28.0" }
-serde_json = { version = "1.0.135", features = ["raw_value"] }
 
 [target.'cfg(not(windows))'.dependencies]
 sys_metrics = "0.2.7"

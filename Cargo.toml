@@ -1,11 +1,14 @@
 [workspace]
-members = ["crates/amaru", "crates/time", "crates/ouroboros"]
+members = [
+  "crates/amaru",
+  "crates/ledger",
+  "crates/ouroboros",
+  "crates/stores",
+  "crates/time"]
 resolver = "2"
 
 [profile.dev.package]
 insta.opt-level = 3
-similar.opt-level = 3
 
 [profile.test.package]
 proptest.opt-level = 3
-rand_chacha.opt-level = 3

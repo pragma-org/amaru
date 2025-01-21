@@ -1,4 +1,5 @@
 use crate::{consensus::header_validation::assert_header, sync::PullEvent};
+use amaru_ledger::ValidateHeaderEvent;
 use gasket::framework::*;
 use miette::miette;
 use ouroboros::ledger::LedgerState;
@@ -11,17 +12,10 @@ use tokio::sync::Mutex;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
-pub type RawBlock = Vec<u8>;
 pub type Point = pallas_network::miniprotocols::Point;
 
 pub mod header_validation;
 pub mod nonce;
-
-#[derive(Clone)]
-pub enum ValidateHeaderEvent {
-    Validated(Point, RawBlock),
-    Rollback(Point),
-}
 
 #[derive(Stage)]
 #[stage(name = "header_validation", unit = "PullEvent", worker = "Worker")]

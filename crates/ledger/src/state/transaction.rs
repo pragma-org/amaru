@@ -2,7 +2,7 @@ use super::{
     diff_bind::DiffBind, diff_epoch_reg::DiffEpochReg, diff_set::DiffSet,
     volatile_db::VolatileState,
 };
-use crate::ledger::kernel::{
+use crate::kernel::{
     output_lovelace, reward_account_to_stake_credential, Certificate, Hash, Lovelace,
     MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
     TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,

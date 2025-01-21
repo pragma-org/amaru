@@ -1,0 +1,28 @@
+[package]
+name = "amaru-ledger"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+async-trait = "0.1.83"
+gasket = { version = "0.8.0", features = ["derive"] }
+hex = "0.4.3"
+num = { version = "0.4.3", features = ["num-bigint"] }
+ouroboros = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
+pallas-addresses = "0.31.0"
+pallas-codec = "0.31.0"
+pallas-crypto = "0.31.0"
+pallas-primitives = "0.31.0"
+pallas-network = "0.31.0"
+tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
+tracing = "0.1.40"
+vec1 = "1.12.1"
+serde = "1.0.215"
+bech32 = "0.11.0"
+opentelemetry = { version = "0.27.1" }
+once_cell = "1.20.2"
+
+[dev-dependencies]
+proptest = "1.5.0"
+envpath = { version = "0.0.1-beta.3", features = ["rand"] }
+insta = { version = "1.41.1", features = ["json"] }
