@@ -36,7 +36,7 @@ const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
 ///   get persisted in the stable storage when they are popped out of the volatile state.
 pub struct State<S, E>
 where
-    S: Store<Error = E> + ?Sized,
+    S: Store<Error = E>,
 {
     /// A handle to the stable store, shared across all ledger instances.
     stable: Arc<Mutex<S>>,

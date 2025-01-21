@@ -9,7 +9,7 @@ use std::{borrow::BorrowMut, iter};
 // ----------------------------------------------------------------------------
 
 pub trait Store {
-    type Error: std::error::Error + Send + Sync + Sized + 'static;
+    type Error: std::error::Error + Send + Sync + 'static;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
     fn tip(&self) -> Result<Point, Self::Error>;
