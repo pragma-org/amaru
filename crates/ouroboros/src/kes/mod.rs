@@ -17,16 +17,10 @@ pub struct KesSecretKey<'a> {
 
 impl KesSecretKey<'_> {
     /// Create a new KES secret key
-    ///
-    /// NOTE: to avoid an accidental copy and leak of `sk_bytes` as we
-    /// extend it to contain the period, we allocate a new buffer with
-    /// enough space ahead of time, copy the contents in, and then
-    /// extend with 0s.
     pub fn from_bytes(sk_bytes: &mut Vec<u8>) -> Result<KesSecretKey, Error> {
-        let mut new_vec = Vec::with_capacity(sk_bytes.len() + 4);
-        let period_0 = [0u8; 4];
-        new_vec.copy_from_slice(&sk_bytes[..]);
-        new_vec.extend(period_0);
+        // TODO: extend() could potentially re-allocate memory to a new location and copy the sk_bytes.
+        // This would leave the original memory containing the secret key without being wiped.
+        sk_bytes.extend([0u8; 4]); // default to period = 0
         let sum_6_kes = Sum6Kes::from_bytes(sk_bytes.as_mut_slice())?;
         Ok(KesSecretKey { sum_6_kes })
     }
