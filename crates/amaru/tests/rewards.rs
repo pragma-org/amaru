@@ -9,13 +9,13 @@ const LEDGER_DB: &str = "../../ledger.db";
 fn compare_preprod_snapshot(epoch: Epoch) {
     let snapshot = StakeDistributionSnapshot::new(
         &RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch)
-            .expect(format!("Failed to open ledger snapshot for epoch {}", epoch).as_str()),
+            .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch)),
     )
     .unwrap();
     insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), snapshot);
     let rewards_summary = RewardsSummary::new(
         &RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch + 2)
-            .expect(format!("Failed to open ledger snapshot for epoch {}", epoch + 2).as_str()),
+            .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch + 2)),
         snapshot,
     )
     .unwrap();
