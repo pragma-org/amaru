@@ -59,5 +59,7 @@ jobs:
             # but do not fail the job
             echo "::warning::Tests failed with exit code $exitcode"
             exit 0
+          else
+            exit "$exitcode"
           fi
         shell: bash
