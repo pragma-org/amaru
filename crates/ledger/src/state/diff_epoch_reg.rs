@@ -1,6 +1,5 @@
 use crate::kernel::Epoch;
 use std::collections::BTreeMap;
-use vec1::{vec1, Vec1};
 
 /// A compact data-structure tracking deferred registration & unregistration changes in a key:value
 /// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
@@ -18,7 +17,7 @@ use vec1::{vec1, Vec1};
 /// hasn't been implemented yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffEpochReg<K, V> {
-    pub registered: BTreeMap<K, Vec1<V>>,
+    pub registered: BTreeMap<K, Vec<V>>,
     pub unregistered: BTreeMap<K, Epoch>,
 }
 
@@ -52,7 +51,7 @@ impl<K: Ord, V> DiffEpochReg<K, V> {
         self.unregistered.remove(&k);
         match self.registered.get_mut(&k) {
             None => {
-                self.registered.insert(k, vec1![v]);
+                self.registered.insert(k, vec![v]);
             }
             Some(vs) => {
                 if vs.len() > 1 {
@@ -110,7 +109,12 @@ impl<'a, V> Fold<'a, V> {
         }
 
         if let Some(registrations) = fold.registered.get(key) {
-            return Fold::Registered(registrations.last());
+            return Fold::Registered(
+                registrations
+                    .last()
+                    .expect("guaranteed to contain 1 element")
+                    .expect("guaranteed to contain 1 element"),
+            );
         }
 
         Fold::Undetermined
@@ -135,10 +139,9 @@ mod tests {
             DiffEpochReg {
                 registered: registered
                     .into_iter()
-                    .filter_map(|(k, mut v)| {
+                    .map(|(k, mut v)| {
                         v.truncate(2);
-                        let v = Vec1::try_from(v).ok()?;
-                        Some((k, v))
+                        (k, v)
                     })
                     .collect::<BTreeMap<_, _>>(),
                 unregistered,
@@ -148,7 +151,7 @@ mod tests {
 
     proptest! {
         // NOTE: We could avoid this test altogether by modelling the type in a different way.
-        // Having a sum One(V) | Two(V, V) instead of a Vec1 would give us this guarantee _by
+        // Having a sum One(V) | Two(V, V) instead of a Vec would give us this guarantee _by
         // construction_.
         #[test]
         fn prop_register(mut st in any_diff(), (k, v) in any::<(u8, u8)>()) {
@@ -156,9 +159,9 @@ mod tests {
             let vs = st.registered.get(&k).expect("we just registered an element");
             assert!(vs.len() <= 2, "registered[{k}] = {:?} has more than 2 elements", vs);
             if vs.len() == 1 {
-                assert_eq!(vs, &vec1![v], "only element is different");
+                assert_eq!(vs, &vec![v], "only element is different");
             } else {
-                assert_eq!(*vs.last(), v, "last element is different");
+                assert_eq!(*vs.last().unwrap(), v, "last element is different");
             }
         }
     }
