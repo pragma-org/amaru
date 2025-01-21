@@ -4,7 +4,7 @@ pub mod diff_set;
 pub mod transaction;
 pub mod volatile_db;
 
-use crate::ledger::{
+use crate::{
     kernel::{
         self, epoch_from_slot, Hash, Hasher, MintedBlock, Point, PoolId, PoolParams, PoolSigma,
         TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
@@ -36,7 +36,7 @@ const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
 ///   get persisted in the stable storage when they are popped out of the volatile state.
 pub struct State<S, E>
 where
-    S: Store<Error = E>,
+    S: Store<Error = E> + ?Sized,
 {
     /// A handle to the stable store, shared across all ledger instances.
     stable: Arc<Mutex<S>>,

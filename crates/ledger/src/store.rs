@@ -1,8 +1,7 @@
 pub mod columns;
-pub mod rocksdb;
 
 use super::kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
-use crate::ledger::rewards::RewardsSummary;
+pub use crate::rewards::RewardsSummary;
 use columns::*;
 use std::{borrow::BorrowMut, iter};
 
@@ -10,7 +9,7 @@ use std::{borrow::BorrowMut, iter};
 // ----------------------------------------------------------------------------
 
 pub trait Store {
-    type Error;
+    type Error: std::error::Error + Send + Sync + Sized + 'static;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
     fn tip(&self) -> Result<Point, Self::Error>;

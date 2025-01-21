@@ -1,5 +1,5 @@
 use super::{diff_bind::DiffBind, diff_epoch_reg::DiffEpochReg, diff_set::DiffSet};
-use crate::ledger::{
+use crate::{
     kernel::{
         epoch_from_slot, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential,
         TransactionInput, TransactionOutput,

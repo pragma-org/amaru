@@ -1,4 +1,5 @@
-use crate::{consensus, ledger};
+use crate::consensus;
+use amaru_stores::rocksdb::RocksDB;
 use gasket::runtime::Tether;
 use opentelemetry::metrics::Counter;
 use pallas_crypto::hash::Hash;
@@ -49,7 +50,9 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 
 pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
     // FIXME: Take from config / command args
-    let (mut ledger, tip) = ledger::Stage::new(&config.ledger_dir, config.counter.clone());
+    let store = RocksDB::new(&config.ledger_dir)
+        .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
+    let (mut ledger, tip) = amaru_ledger::Stage::new(store, config.counter.clone());
 
     let mut pull = pull::Stage::new(client.clone(), vec![tip]);
     let mut header_validation =

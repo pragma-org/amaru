@@ -1,40 +1,60 @@
 use crate::{
-    consensus::ValidateHeaderEvent,
-    ledger::{
-        kernel::{Hash, Hasher, MintedBlock, Point},
-        state::BackwardErr,
-        store::rocksdb::RocksDB,
-    },
+    kernel::{Hash, Hasher, MintedBlock, Point},
+    state::BackwardErr,
 };
 use gasket::framework::*;
 use opentelemetry::metrics::Counter;
 use pallas_codec::minicbor as cbor;
-use std::{path::Path, sync::Arc};
+use std::sync::Arc;
+use store::Store;
 use tokio::sync::Mutex;
 use tracing::{error, info_span, warn};
 
 const EVENT_TARGET: &str = "amaru::ledger";
 
+pub type RawBlock = Vec<u8>;
+
+#[derive(Clone)]
+pub enum ValidateHeaderEvent {
+    Validated(Point, RawBlock),
+    Rollback(Point),
+}
+
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 
+/// Iterators
+///
+/// A set of additional primitives around iterators. Not Amaru-specific so-to-speak.
+pub mod iter;
 pub mod kernel;
 pub mod rewards;
 pub mod state;
 pub mod store;
 
-#[derive(Stage)]
-#[stage(name = "ledger", unit = "ValidateHeaderEvent", worker = "Worker")]
-pub struct Stage {
+pub struct Stage<T>
+where
+    T: Store + Send + Sync,
+{
     pub upstream: UpstreamPort,
-    pub state: Arc<Mutex<state::State<RocksDB, rocksdb::Error>>>,
+    pub state: Arc<Mutex<state::State<T, T::Error>>>,
     pub counter: Counter<u64>,
 }
 
-impl Stage {
-    pub fn new(store: &Path, counter: Counter<u64>) -> (Self, Point) {
-        let store =
-            RocksDB::new(store).unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
+impl<T: Store + Send + Sync> gasket::framework::Stage for Stage<T> {
+    type Unit = ValidateHeaderEvent;
+    type Worker = Worker;
 
+    fn name(&self) -> &str {
+        "ledger"
+    }
+
+    fn metrics(&self) -> gasket::metrics::Registry {
+        gasket::metrics::Registry::default()
+    }
+}
+
+impl<T: Store + Send + Sync + Sized> Stage<T> {
+    pub fn new(store: T, counter: Counter<u64>) -> (Self, Point) {
         let state = state::State::new(Arc::new(std::sync::Mutex::new(store)));
 
         let tip = state.tip().into_owned();
@@ -53,14 +73,14 @@ impl Stage {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl gasket::framework::Worker<Stage> for Worker {
-    async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
+impl<T: Store + Send + Sync> gasket::framework::Worker<Stage<T>> for Worker {
+    async fn bootstrap(_stage: &Stage<T>) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
 
     async fn schedule(
         &mut self,
-        stage: &mut Stage,
+        stage: &mut Stage<T>,
     ) -> Result<WorkSchedule<ValidateHeaderEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
         Ok(WorkSchedule::Unit(unit.payload))
@@ -69,7 +89,7 @@ impl gasket::framework::Worker<Stage> for Worker {
     async fn execute(
         &mut self,
         unit: &ValidateHeaderEvent,
-        stage: &mut Stage,
+        stage: &mut Stage<T>,
     ) -> Result<(), WorkerError> {
         match unit {
             ValidateHeaderEvent::Validated(point, raw_block) => {

@@ -1,14 +1,14 @@
-use amaru::ledger::{
+use amaru_ledger::{
     self,
     kernel::{
         epoch_from_slot, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Set, StakeCredential,
         TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
     },
     store::{
-        columns::{pools, pots, slots},
         Store, {self},
     },
 };
+use amaru_stores::rocksdb::{columns::*, RocksDB};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use miette::{Diagnostic, IntoDiagnostic};
@@ -56,7 +56,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     .into_diagnostic()?;
 
     fs::create_dir_all(&args.ledger_dir).into_diagnostic()?;
-    let mut db = ledger::store::rocksdb::RocksDB::empty(&args.ledger_dir).into_diagnostic()?;
+    let mut db = amaru_stores::rocksdb::RocksDB::empty(&args.ledger_dir).into_diagnostic()?;
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point)?;
@@ -68,7 +68,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
     db.with_pools(|iterator| {
         for (_, pool) in iterator {
-            pools::Row::tick(pool, epoch + 1)
+            amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1)
         }
     })
     .into_diagnostic()?;
@@ -76,11 +76,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     Ok(())
 }
 
-fn decode_new_epoch_state(
-    db: &store::rocksdb::RocksDB,
-    bytes: &[u8],
-    point: &Point,
-) -> miette::Result<Epoch> {
+fn decode_new_epoch_state(db: &RocksDB, bytes: &[u8], point: &Point) -> miette::Result<Epoch> {
     let mut d = cbor::Decoder::new(bytes);
 
     d.array().into_diagnostic()?;
@@ -235,10 +231,7 @@ fn decode_new_epoch_state(
     Ok(epoch)
 }
 
-fn import_block_issuers(
-    db: &store::rocksdb::RocksDB,
-    blocks: HashMap<PoolId, u64>,
-) -> miette::Result<()> {
+fn import_block_issuers(db: &RocksDB, blocks: HashMap<PoolId, u64>) -> miette::Result<()> {
     let batch = db.unsafe_transaction();
     db.with_block_issuers(|iterator| {
         for (_, mut handle) in iterator {
@@ -250,7 +243,12 @@ fn import_block_issuers(
     let mut fake_slot = 0;
     for (pool, mut count) in blocks.into_iter() {
         while count > 0 {
-            slots::rocksdb::put(&batch, &fake_slot, slots::Row::new(pool)).into_diagnostic()?;
+            slots::put(
+                &batch,
+                &fake_slot,
+                amaru_ledger::store::columns::slots::Row::new(pool),
+            )
+            .into_diagnostic()?;
             count -= 1;
             fake_slot += 1;
         }
@@ -260,7 +258,7 @@ fn import_block_issuers(
 }
 
 fn import_utxo(
-    db: &store::rocksdb::RocksDB,
+    db: &impl Store,
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
 ) -> miette::Result<()> {
     info!(what = "utxo_entries", size = utxo.len());
@@ -308,13 +306,13 @@ fn import_utxo(
 }
 
 fn import_stake_pools(
-    db: &store::rocksdb::RocksDB,
+    db: &impl Store,
     epoch: Epoch,
     pools: HashMap<PoolId, PoolParams>,
     updates: HashMap<PoolId, PoolParams>,
     retirements: HashMap<PoolId, Epoch>,
 ) -> miette::Result<()> {
-    let mut state = ledger::state::diff_epoch_reg::DiffEpochReg::default();
+    let mut state = amaru_ledger::state::diff_epoch_reg::DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);
     }
@@ -365,21 +363,20 @@ fn import_stake_pools(
     .into_diagnostic()
 }
 
-fn import_pots(
-    db: &store::rocksdb::RocksDB,
-    treasury: u64,
-    reserves: u64,
-    fees: u64,
-) -> miette::Result<()> {
+fn import_pots(db: &RocksDB, treasury: u64, reserves: u64, fees: u64) -> miette::Result<()> {
     let batch = db.unsafe_transaction();
-    pots::rocksdb::put(&batch, pots::Row::new(treasury, reserves, fees)).into_diagnostic()?;
+    pots::put(
+        &batch,
+        amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees),
+    )
+    .into_diagnostic()?;
     batch.commit().into_diagnostic()?;
     info!(what = "pots", treasury, reserves, fees);
     Ok(())
 }
 
 fn import_accounts(
-    db: &store::rocksdb::RocksDB,
+    db: &impl Store,
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
 ) -> miette::Result<()> {

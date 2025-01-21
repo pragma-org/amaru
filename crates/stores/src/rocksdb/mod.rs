@@ -1,17 +1,15 @@
-pub(crate) mod common;
-
-use crate::{
+use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
+use amaru_ledger::{
     iter::{
         borrow as iter_borrow,
         borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
     },
-    ledger::{
-        kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
-        rewards::StakeDistributionSnapshot,
-        store::{columns::*, Columns, RewardsSummary, Store},
-    },
+    kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
+    rewards::StakeDistributionSnapshot,
+    store::columns as scolumns,
+    store::{Columns, RewardsSummary, Store},
 };
-use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
+use columns::*;
 use common::{as_value, PREFIX_LEN};
 use miette::Diagnostic;
 use pallas_codec::minicbor::{self as cbor};
@@ -20,6 +18,9 @@ use std::{
     path::{Path, PathBuf},
 };
 use tracing::{debug, info, info_span, warn};
+
+pub mod columns;
+pub mod common;
 
 const EVENT_TARGET: &str = "amaru::ledger::store";
 
@@ -152,16 +153,16 @@ impl Store for RocksDB {
     fn save(
         &'_ self,
         point: &'_ Point,
-        issuer: Option<&'_ pools::Key>,
+        issuer: Option<&'_ scolumns::pools::Key>,
         add: Columns<
-            impl Iterator<Item = (utxo::Key, utxo::Value)>,
-            impl Iterator<Item = pools::Value>,
-            impl Iterator<Item = (accounts::Key, accounts::Value)>,
+            impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
+            impl Iterator<Item = scolumns::pools::Value>,
+            impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
         >,
         remove: Columns<
-            impl Iterator<Item = utxo::Key>,
-            impl Iterator<Item = (pools::Key, Epoch)>,
-            impl Iterator<Item = accounts::Key>,
+            impl Iterator<Item = scolumns::utxo::Key>,
+            impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
+            impl Iterator<Item = scolumns::accounts::Key>,
         >,
     ) -> Result<(), Self::Error> {
         let batch = self.db.transaction();
@@ -183,20 +184,20 @@ impl Store for RocksDB {
                 batch.put(KEY_TIP, as_value(point))?;
 
                 if let Some(issuer) = issuer {
-                    slots::rocksdb::put(
+                    slots::put(
                         &batch,
                         &point.slot_or_default(),
-                        slots::Row::new(*issuer),
+                        scolumns::slots::Row::new(*issuer),
                     )?;
                 }
 
-                utxo::rocksdb::add(&batch, add.utxo)?;
-                pools::rocksdb::add(&batch, add.pools)?;
-                accounts::rocksdb::add(&batch, add.accounts)?;
+                utxo::add(&batch, add.utxo)?;
+                pools::add(&batch, add.pools)?;
+                accounts::add(&batch, add.accounts)?;
 
-                utxo::rocksdb::remove(&batch, remove.utxo)?;
-                pools::rocksdb::remove(&batch, remove.pools)?;
-                accounts::rocksdb::remove(&batch, remove.accounts)?;
+                utxo::remove(&batch, remove.utxo)?;
+                pools::remove(&batch, remove.pools)?;
+                accounts::remove(&batch, remove.accounts)?;
             }
         }
 
@@ -301,13 +302,13 @@ impl Store for RocksDB {
 
     fn with_pots<A>(
         &self,
-        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<pots::Row> + '_>) -> A,
+        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>) -> A,
     ) -> Result<A, Self::Error> {
         let db = self.db.transaction();
 
         let mut err = None;
-        let proxy = Box::new(BorrowableProxy::new(pots::rocksdb::get(&db)?, |pots| {
-            let put = pots::rocksdb::put(&db, pots).and_then(|_| db.commit());
+        let proxy = Box::new(BorrowableProxy::new(pots::get(&db)?, |pots| {
+            let put = pots::put(&db, pots).and_then(|_| db.commit());
             if let Err(e) = put {
                 err = Some(e);
             }
@@ -321,37 +322,43 @@ impl Store for RocksDB {
         }
     }
 
-    fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, Self::Error> {
-        pools::rocksdb::get(&self.db, pool)
+    fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, Self::Error> {
+        pools::get(&self.db, pool)
     }
 
     fn resolve_input(
         &self,
         input: &TransactionInput,
     ) -> Result<Option<TransactionOutput>, Self::Error> {
-        utxo::rocksdb::get(&self.db, input)
+        utxo::get(&self.db, input)
     }
 
-    fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
-        with_prefix_iterator(self.db.transaction(), utxo::rocksdb::PREFIX, with)
+    fn with_utxo(
+        &self,
+        with: impl FnMut(scolumns::utxo::Iter<'_, '_>),
+    ) -> Result<(), rocksdb::Error> {
+        with_prefix_iterator(self.db.transaction(), utxo::PREFIX, with)
     }
 
-    fn with_pools(&self, with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), rocksdb::Error> {
-        with_prefix_iterator(self.db.transaction(), pools::rocksdb::PREFIX, with)
+    fn with_pools(
+        &self,
+        with: impl FnMut(scolumns::pools::Iter<'_, '_>),
+    ) -> Result<(), rocksdb::Error> {
+        with_prefix_iterator(self.db.transaction(), pools::PREFIX, with)
     }
 
     fn with_accounts(
         &self,
-        with: impl FnMut(accounts::Iter<'_, '_>),
+        with: impl FnMut(scolumns::accounts::Iter<'_, '_>),
     ) -> Result<(), rocksdb::Error> {
-        with_prefix_iterator(self.db.transaction(), accounts::rocksdb::PREFIX, with)
+        with_prefix_iterator(self.db.transaction(), accounts::PREFIX, with)
     }
 
     fn with_block_issuers(
         &self,
-        with: impl FnMut(slots::Iter<'_, '_>),
+        with: impl FnMut(scolumns::slots::Iter<'_, '_>),
     ) -> Result<(), rocksdb::Error> {
-        with_prefix_iterator(self.db.transaction(), slots::rocksdb::PREFIX, with)
+        with_prefix_iterator(self.db.transaction(), slots::PREFIX, with)
     }
 }
 
