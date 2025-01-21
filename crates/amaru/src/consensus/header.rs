@@ -3,6 +3,9 @@ use pallas_primitives::babbage;
 
 /// Interface to a header for the purpose of chain selection.
 pub trait Header {
+    /// Genesis header.
+    fn genesis() -> Self;
+
     /// Hash of the header
     ///
     /// This is used to identify the header in the chain selection.
@@ -16,6 +19,14 @@ pub trait Header {
 
     /// Block height of the header w.r.t genesis block
     fn block_height(&self) -> u64;
+
+    /// Encode to CBOR
+    fn to_cbor(&self) -> Vec<u8>;
+
+    /// Decode from CBOR
+    fn from_cbor(bytes: &[u8]) -> Option<Self>
+    where
+        Self: Sized;
 }
 
 /// Concrete Conway-era compatible `Header` implementation.
@@ -26,6 +37,10 @@ pub trait Header {
 pub type ConwayHeader = babbage::Header;
 
 impl Header for ConwayHeader {
+    fn genesis() -> Self {
+        todo!()
+    }
+
     fn hash(&self) -> Hash<32> {
         todo!()
     }
@@ -35,6 +50,14 @@ impl Header for ConwayHeader {
     }
 
     fn block_height(&self) -> u64 {
+        todo!()
+    }
+
+    fn to_cbor(&self) -> Vec<u8> {
+        todo!()
+    }
+
+    fn from_cbor(_bytes: &[u8]) -> Option<ConwayHeader> {
         todo!()
     }
 }
