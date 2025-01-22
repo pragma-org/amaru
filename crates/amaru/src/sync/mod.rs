@@ -59,7 +59,6 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 }
 
 pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
-    // FIXME: Take from config / command args
     let (mut ledger, tip) = ledger::Stage::new(&config.ledger_dir, config.counter.clone());
     let peer_session = PeerSession {
         peer: Peer::new(&config.upstream_peer),
