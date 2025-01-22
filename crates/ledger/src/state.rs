@@ -286,9 +286,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 // The 'LedgerState' trait materializes the interface required of the consensus layer in order to
 // validate block headers. It allows to keep the ledger implementation rather abstract to the
 // consensus in order to decouple both components.
-impl<S: Store<Error = E>, E: std::fmt::Debug> ouroboros::ledger::LedgerState
-    for State<S, E>
-{
+impl<S: Store<Error = E>, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<S, E> {
     fn pool_id_to_sigma(&self, _pool_id: &PoolId) -> Result<PoolSigma, ouroboros::ledger::Error> {
         // FIXME: Obtain from ledger's stake distribution
         Err(ouroboros::ledger::Error::PoolIdNotFound)
