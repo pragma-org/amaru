@@ -6,15 +6,15 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1"
 cryptoxide = { version = "0.4.4" }
-hex = "0.4.3"
+hex.workspace = true
 mockall = "0.13"
-pallas-codec = "0.31.0"
-pallas-crypto = "0.31.0"
-pallas-math = "0.31.0"
-pallas-primitives = "0.31.0"
+pallas-codec.workspace = true
+pallas-crypto.workspace = true
+pallas-math.workspace = true
+pallas-primitives.workspace = true
 serde = { version = "1.0", features = ["derive"] }
-thiserror = "2.0"
-tracing = "0.1"
+thiserror.workspace = true
+tracing.workspace = true
 rayon = "1.10"
 zeroize = "1.8.1"
 
