@@ -1,6 +1,8 @@
+use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_network::miniprotocols::Point;
 use pallas_primitives::babbage;
+use pallas_traverse::ComputeHash;
 
 /// Interface to a header for the purpose of chain selection.
 pub trait Header {
@@ -43,23 +45,26 @@ impl Header for ConwayHeader {
     }
 
     fn hash(&self) -> Hash<32> {
-        todo!()
+        Hash::from(self.compute_hash().as_ref())
     }
 
     fn parent(&self) -> Option<Hash<32>> {
-        todo!()
+        self.header_body.prev_hash
     }
 
     fn block_height(&self) -> u64 {
-        todo!()
+        self.header_body.block_number
     }
 
     fn to_cbor(&self) -> Vec<u8> {
-        todo!()
+        let mut buffer = Vec::new();
+        minicbor::encode(self, &mut buffer)
+            .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+        buffer
     }
 
-    fn from_cbor(_bytes: &[u8]) -> Option<ConwayHeader> {
-        todo!()
+    fn from_cbor(bytes: &[u8]) -> Option<ConwayHeader> {
+        minicbor::decode(bytes).ok()
     }
 }
 
