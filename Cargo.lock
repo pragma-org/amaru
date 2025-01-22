@@ -69,7 +69,6 @@ dependencies = [
  "proptest",
  "rocksdb",
  "serde",
- "serde_json",
  "sys_metrics",
  "thiserror 2.0.11",
  "tokio",
@@ -2487,9 +2486,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 name = "ouroboros"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "criterion",
- "cryptoxide",
  "ctor",
  "hex",
  "insta",
@@ -2508,7 +2505,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vrf_dalek",
- "zeroize",
 ]
 
 [[package]]
