@@ -65,14 +65,14 @@ pub async fn run(args: Args) -> miette::Result<()> {
         .into_diagnostic()?;
 
     db.next_snapshot(epoch, None).into_diagnostic()?;
-
+    
     db.with_pools(|iterator| {
         for (_, pool) in iterator {
             pools::Row::tick(pool, epoch + 1)
         }
     })
     .into_diagnostic()?;
-
+    info!("Imported snapshot for epoch {}", epoch);
     Ok(())
 }
 
