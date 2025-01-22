@@ -20,8 +20,7 @@ hex = "0.4.3"
 miette = { version = "7.2.0", features = ["fancy"] }
 indoc = "2.0"
 num = { version = "0.4.3", features = ["num-bigint"] }
-ouroboros = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
-ouroboros-praos = { git = "https://github.com/pragma-org/ouroboros", rev = "ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589" }
+ouroboros = { path = "../ouroboros" }
 pallas-addresses = "0.31.0"
 pallas-codec = "0.31.0"
 pallas-crypto = "0.31.0"

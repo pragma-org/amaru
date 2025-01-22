@@ -1,7 +1,7 @@
 use crate::{consensus::ValidateHeaderEvent, ledger::kernel::epoch_from_slot, sync::PullEvent};
 use gasket::framework::*;
+use ouroboros::consensus::BlockValidator;
 use ouroboros::{ledger::LedgerState, validator::Validator};
-use ouroboros_praos::consensus::BlockValidator;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_primitives::conway::Epoch;
@@ -28,9 +28,10 @@ pub fn assert_header(
                     FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
                 let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
                 let block_validator = BlockValidator::new(minted_header, ledger, epoch_nonce, &c);
-                block_validator
-                    .validate()
-                    .unwrap_or_else(|e| warn!(error = ?e, "block validation failed"));
+                if let Err(e) = block_validator.validate() {
+                    warn!(error = ?e, "block validation failed");
+                    return Err(WorkerError::Recv);
+                }
             }
         }
         MultiEraHeader::ShelleyCompatible(_) => {
