@@ -41,7 +41,7 @@ pub trait Store {
     /// there's no existing snapshot and, to ensure that snapshots are taken in order.
     ///
     /// Idempotent
-    /// 
+    ///
     /// /!\ IMPORTANT /!\
     /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
     /// moment. The store has no notion of when is an epoch boundary, and thus deferred that

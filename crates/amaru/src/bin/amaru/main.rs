@@ -54,7 +54,9 @@ async fn main() -> miette::Result<()> {
     result
 }
 
-pub fn setup_tracing(disable_telemetry_export: bool) -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
+pub fn setup_tracing(
+    disable_telemetry_export: bool,
+) -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
     use opentelemetry::{metrics::MeterProvider, trace::TracerProvider as _, KeyValue};
     use opentelemetry_sdk::{metrics::Temporality, Resource};
     use tracing_subscriber::{prelude::*, *};
@@ -125,17 +127,15 @@ pub fn setup_tracing(disable_telemetry_export: bool) -> (TracerProvider, SdkMete
         .with_filter(filter(AMARU_DEV_LOG));
 
     // Subscriber
-    
+
     if disable_telemetry_export {
-        tracing_subscriber::registry()
-            .with(fmt_layer)
-            .init();
+        tracing_subscriber::registry().with(fmt_layer).init();
     } else {
         let opentelemetry_tracer = opentelemetry_provider.tracer(SERVICE_NAME);
         let opentelemetry_layer = tracing_opentelemetry::layer()
             .with_tracer(opentelemetry_tracer)
             .with_filter(filter(AMARU_LOG));
-        
+
         tracing_subscriber::registry()
             .with(fmt_layer)
             .with(opentelemetry_layer)
