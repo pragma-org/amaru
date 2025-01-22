@@ -513,7 +513,7 @@ mod tests {
             chain_selector.roll_forward(&bob, *header);
         });
 
-        let rollback_point = &chain1[4];
+        let rollback_point = &chain1[3];
         let result = chain_selector.rollback(&alice, rollback_point.hash());
 
         let expected_new_tip = chain2[5];
@@ -521,7 +521,7 @@ mod tests {
     }
 
     #[test]
-    fn rollback_trims_whole_fragment_given_point_not_found() {
+    fn rollback_trims_whole_fragment_given_point_is_not_found() {
         let alice = Peer::new("alice");
         let peers = [alice.clone()];
         let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
