@@ -100,6 +100,12 @@ impl<H: Header + Clone> ChainSelectorBuilder<H> {
     }
 }
 
+impl<H: Header + Clone> Default for ChainSelectorBuilder<H> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<H> ChainSelector<H>
 where
     H: Header + Clone + Debug,
