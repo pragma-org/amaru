@@ -33,14 +33,14 @@ pub mod store;
 
 pub struct Stage<T>
 where
-    T: Store + Send + Sync,
+    T: Store,
 {
     pub upstream: UpstreamPort,
     pub state: Arc<Mutex<state::State<T, T::Error>>>,
     pub counter: Counter<u64>,
 }
 
-impl<T: Store + Send + Sync> gasket::framework::Stage for Stage<T> {
+impl<T: Store> gasket::framework::Stage for Stage<T> {
     type Unit = ValidateHeaderEvent;
     type Worker = Worker;
 
@@ -53,7 +53,7 @@ impl<T: Store + Send + Sync> gasket::framework::Stage for Stage<T> {
     }
 }
 
-impl<T: Store + Send + Sync + Sized> Stage<T> {
+impl<T: Store> Stage<T> {
     pub fn new(store: T, counter: Counter<u64>) -> (Self, Point) {
         let state = state::State::new(Arc::new(std::sync::Mutex::new(store)));
 
@@ -73,7 +73,7 @@ impl<T: Store + Send + Sync + Sized> Stage<T> {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl<T: Store + Send + Sync> gasket::framework::Worker<Stage<T>> for Worker {
+impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
     async fn bootstrap(_stage: &Stage<T>) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
