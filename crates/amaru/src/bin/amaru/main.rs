@@ -45,7 +45,9 @@ async fn main() -> miette::Result<()> {
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
-    teardown_tracing(tracing, metrics)?;
+    if let Err(report) = teardown_tracing(tracing, metrics) {
+        eprintln!("Failed to teardown tracing: {report}");
+    }
 
     result
 }
