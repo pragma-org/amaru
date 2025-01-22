@@ -45,7 +45,7 @@ impl Header for ConwayHeader {
     }
 
     fn hash(&self) -> Hash<32> {
-        Hash::from(self.compute_hash().as_ref())
+        self.compute_hash()
     }
 
     fn parent(&self) -> Option<Hash<32>> {
