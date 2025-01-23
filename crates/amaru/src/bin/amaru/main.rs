@@ -57,6 +57,7 @@ pub fn setup_tracing() -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
 
     const AMARU_LOG: &str = "AMARU_LOG";
     const AMARU_DEV_LOG: &str = "AMARU_DEV_LOG";
+    const AMARU_LOG_FORMAT: &str = "AMARU_LOG_FORMAT";
 
     // Enabling filtering from env var; but disable gasket low-level traces regardless. We use the
     // env directive filtering here instead of the .or() / .and() Rust API provided on EnvFilter so
@@ -91,10 +92,6 @@ pub fn setup_tracing() -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
         )
         .build();
     let opentelemetry_tracer = opentelemetry_provider.tracer(SERVICE_NAME);
-    let opentelemetry_layer = tracing_opentelemetry::layer()
-        .with_tracer(opentelemetry_tracer)
-        .with_filter(filter(AMARU_LOG));
-
     // Metrics
     // NOTE: We use the http exporter here because not every OTLP receivers (in particular Jaeger)
     // support gRPC for metrics.
@@ -120,15 +117,37 @@ pub fn setup_tracing() -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
     // Subscriber
-    tracing_subscriber::registry()
-        .with(
-            fmt::layer()
-                .event_format(fmt::format().with_ansi(true).pretty())
-                .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
-                .with_filter(filter(AMARU_DEV_LOG)),
-        )
-        .with(opentelemetry_layer)
-        .init();
+    // NOTE: This duplication is annoying but I have spent 3 hours playing
+    // type-Tetris to try to factor out the various layers into functions,
+    // but the end result was twice as long.
+    match env::var(AMARU_LOG_FORMAT).as_deref() {
+        Ok("pretty") => tracing_subscriber::registry()
+            .with(
+                fmt::layer()
+                    .event_format(fmt::format().with_ansi(true).pretty())
+                    .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
+                    .with_filter(filter(AMARU_DEV_LOG)),
+            )
+            .with(
+                tracing_opentelemetry::layer()
+                    .with_tracer(opentelemetry_tracer)
+                    .with_filter(filter(AMARU_LOG)),
+            )
+            .init(),
+        _ => tracing_subscriber::registry()
+            .with(
+                fmt::layer()
+                    .event_format(fmt::format().json())
+                    .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
+                    .with_filter(filter(AMARU_DEV_LOG)),
+            )
+            .with(
+                tracing_opentelemetry::layer()
+                    .with_tracer(opentelemetry_tracer)
+                    .with_filter(filter(AMARU_LOG)),
+            )
+            .init(),
+    }
 
     let counter = meter.u64_counter("block.count").build();
 

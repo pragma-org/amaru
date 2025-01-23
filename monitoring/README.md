@@ -7,6 +7,10 @@ We provide example configurations using different compositions of tools:
 - [Jaeger + Prometheus](./jaeger) _(simple)_
 - [Grafana + Tempo + Prometheus](./grafana-tempo) _(more advanced)_
 
+## Formatting traces
+
+Events are by default formatted as Json, one line per event. To format events prettily, set environment variable `AMARU_LOG_FORMAT=pretty`.
+
 ## Filtering traces
 
 Any event (trace, span or metric) can be filtered by target and severity using two environment variables:
