@@ -138,6 +138,7 @@ pub fn setup_tracing() -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
             .with(
                 fmt::layer()
                     .event_format(fmt::format().json())
+                    .fmt_fields(tracing_subscriber::fmt::format::JsonFields::new())
                     .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
                     .with_filter(filter(AMARU_DEV_LOG)),
             )
