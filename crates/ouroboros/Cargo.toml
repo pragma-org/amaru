@@ -4,19 +4,16 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-async-trait = "0.1"
-cryptoxide = { version = "0.4.4" }
 hex.workspace = true
 mockall = "0.13"
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
 pallas-primitives.workspace = true
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 rayon = "1.10"
-zeroize = "1.8.1"
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that
 # are open PRs but not merged yet.

@@ -54,12 +54,10 @@ dependencies = [
  "indoc",
  "insta",
  "miette",
- "num",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "ouroboros 0.1.0",
- "pallas-addresses",
+ "ouroboros",
  "pallas-codec",
  "pallas-crypto",
  "pallas-math",
@@ -89,7 +87,7 @@ dependencies = [
  "num",
  "once_cell",
  "opentelemetry",
- "ouroboros 0.1.0 (git+https://github.com/pragma-org/ouroboros?rev=ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589)",
+ "ouroboros",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
@@ -2337,9 +2335,7 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 name = "ouroboros"
 version = "0.1.0"
 dependencies = [
- "async-trait",
  "criterion",
- "cryptoxide",
  "ctor",
  "hex",
  "insta",
@@ -2358,39 +2354,6 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vrf_dalek",
- "zeroize",
-]
-
-[[package]]
-name = "ouroboros"
-version = "0.1.0"
-source = "git+https://github.com/pragma-org/ouroboros?rev=ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589#ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589"
-dependencies = [
- "async-trait",
- "hex",
- "mockall",
- "ouroboros-crypto",
- "pallas-codec",
- "pallas-crypto",
- "serde",
- "thiserror 2.0.11",
-]
-
-[[package]]
-name = "ouroboros-crypto"
-version = "0.1.0"
-source = "git+https://github.com/pragma-org/ouroboros?rev=ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589#ca1d447a6c106e421e6c2b1c7d9d59abf5ca9589"
-dependencies = [
- "cryptoxide",
- "hex",
- "kes-summed-ed25519",
- "pallas-codec",
- "pallas-crypto",
- "rand_core 0.6.4",
- "serde",
- "thiserror 2.0.11",
- "vrf_dalek",
- "zeroize",
 ]
 
 [[package]]
