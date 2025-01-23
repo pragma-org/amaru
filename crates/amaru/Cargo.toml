@@ -20,9 +20,7 @@ gasket.workspace = true
 hex.workspace = true
 miette.workspace = true
 indoc = "2.0"
-num = { version = "0.4.3", features = ["num-bigint"] }
 ouroboros = { path = "../ouroboros" }
-pallas-addresses = "0.31.0"
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
