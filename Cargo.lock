@@ -54,7 +54,6 @@ dependencies = [
  "insta",
  "miette 7.4.0",
  "num",
- "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
