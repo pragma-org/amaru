@@ -72,7 +72,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
         }
     })
     .into_diagnostic()?;
-
+    info!("Imported snapshot for epoch {}", epoch);
     Ok(())
 }
 

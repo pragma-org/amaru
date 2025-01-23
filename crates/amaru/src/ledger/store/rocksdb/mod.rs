@@ -217,8 +217,6 @@ impl Store for RocksDB {
     ) -> Result<(), Self::Error> {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
-            let path = self.dir.join(snapshot.to_string());
-
             if let Some(mut rewards_summary) = rewards_summary {
                 info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
                     self.with_accounts(|iterator| {
@@ -247,6 +245,12 @@ impl Store for RocksDB {
                 })?;
             }
 
+            let path = self.dir.join(snapshot.to_string());
+            if path.exists() {
+                // RocksDB error can't be created externally, so panic instead
+                // It might be better to come up with a global error type
+                fs::remove_dir_all(&path).expect("Unable to remove existing snapshot directory");
+            }
             checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
 
             info_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {

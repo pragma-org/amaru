@@ -29,15 +29,17 @@ enum Command {
 struct Cli {
     #[command(subcommand)]
     command: Command,
+    #[clap(long, short, action)]
+    disable_telemetry_export: bool,
 }
 
 #[tokio::main]
 async fn main() -> miette::Result<()> {
     panic_handler();
 
-    let (tracing, metrics, counter) = setup_tracing();
-
     let args = Cli::parse();
+
+    let (tracing, metrics, counter) = setup_tracing(args.disable_telemetry_export);
 
     let result = match args.command {
         Command::Daemon(args) => cmd::daemon::run(args, counter, metrics.clone()).await,
@@ -45,12 +47,16 @@ async fn main() -> miette::Result<()> {
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
-    teardown_tracing(tracing, metrics)?;
+    if let Err(report) = teardown_tracing(tracing, metrics) {
+        eprintln!("Failed to teardown tracing: {report}");
+    }
 
     result
 }
 
-pub fn setup_tracing() -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
+pub fn setup_tracing(
+    disable_telemetry_export: bool,
+) -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
     use opentelemetry::{metrics::MeterProvider, trace::TracerProvider as _, KeyValue};
     use opentelemetry_sdk::{metrics::Temporality, Resource};
     use tracing_subscriber::{prelude::*, *};
@@ -90,10 +96,6 @@ pub fn setup_tracing() -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
             opentelemetry_sdk::runtime::Tokio,
         )
         .build();
-    let opentelemetry_tracer = opentelemetry_provider.tracer(SERVICE_NAME);
-    let opentelemetry_layer = tracing_opentelemetry::layer()
-        .with_tracer(opentelemetry_tracer)
-        .with_filter(filter(AMARU_LOG));
 
     // Metrics
     // NOTE: We use the http exporter here because not every OTLP receivers (in particular Jaeger)
@@ -119,16 +121,26 @@ pub fn setup_tracing() -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
 
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
+    let fmt_layer = fmt::layer()
+        .event_format(fmt::format().with_ansi(true).pretty())
+        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
+        .with_filter(filter(AMARU_DEV_LOG));
+
     // Subscriber
-    tracing_subscriber::registry()
-        .with(
-            fmt::layer()
-                .event_format(fmt::format().with_ansi(true).pretty())
-                .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
-                .with_filter(filter(AMARU_DEV_LOG)),
-        )
-        .with(opentelemetry_layer)
-        .init();
+
+    if disable_telemetry_export {
+        tracing_subscriber::registry().with(fmt_layer).init();
+    } else {
+        let opentelemetry_tracer = opentelemetry_provider.tracer(SERVICE_NAME);
+        let opentelemetry_layer = tracing_opentelemetry::layer()
+            .with_tracer(opentelemetry_tracer)
+            .with_filter(filter(AMARU_LOG));
+
+        tracing_subscriber::registry()
+            .with(fmt_layer)
+            .with(opentelemetry_layer)
+            .init();
+    }
 
     let counter = meter.u64_counter("block.count").build();
 
