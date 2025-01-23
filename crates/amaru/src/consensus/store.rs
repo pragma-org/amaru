@@ -4,15 +4,19 @@ use pallas_crypto::hash::Hash;
 use std::{collections::HashMap, fmt::Display, path::PathBuf};
 use thiserror::Error;
 
+pub mod rocksdb;
+
 #[derive(Error, Diagnostic, Debug)]
 pub enum StoreError {
-    WriteError { error: std::io::Error },
+    WriteError { error: String },
+    OpenError { error: String },
 }
 
 impl Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StoreError::WriteError { error } => write!(f, "{}", error),
+            StoreError::WriteError { error } => write!(f, "WriteError: {}", error),
+            StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
         }
     }
 }
@@ -78,7 +82,9 @@ impl<H: Header> ChainStore<H> for SimpleChainStore {
     fn put(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
         let file = self.basedir.join(hex::encode(hash));
         let data = header.to_cbor();
-        std::fs::write(file, data).map_err(|e| StoreError::WriteError { error: e })
+        std::fs::write(file, data).map_err(|e| StoreError::WriteError {
+            error: e.to_string(),
+        })
     }
 }
 
