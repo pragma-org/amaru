@@ -11,8 +11,8 @@ use tracing::{debug, info_span, Span};
 
 const TRANSACTION_EVENT_TARGET: &str = "amaru::ledger::state::transaction";
 
-pub fn apply<T>(
-    state: &mut VolatileState<T>,
+pub fn apply(
+    state: &mut VolatileState,
     parent: &Span,
     is_failed: bool,
     transaction_id: Hash<32>,

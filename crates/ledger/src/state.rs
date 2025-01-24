@@ -219,7 +219,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
     fn resolve_inputs<'a>(
         &'a self,
-        ongoing_state: &'a VolatileState<()>,
+        ongoing_state: &'a VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
     ) -> Result<Vec<TransactionOutput>, E> {
         let mut result = Vec::new();
@@ -250,7 +250,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         &self,
         parent: &Span,
         block: MintedBlock<'_>,
-    ) -> Result<VolatileState<()>, ForwardErr<E>> {
+    ) -> Result<VolatileState, ForwardErr<E>> {
         let failed_transactions = FailedTransactions::from_block(&block);
         let transaction_bodies = block.transaction_bodies.to_vec();
         let total_count = transaction_bodies.len();
