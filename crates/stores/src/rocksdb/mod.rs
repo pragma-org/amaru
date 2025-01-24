@@ -1,20 +1,14 @@
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_ledger::{
-    iter::{
-        borrow as iter_borrow,
-        borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
-    },
+    iter::borrow::{self as iter_borrow, borrowable_proxy::BorrowableProxy, IterBorrow},
     kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
-    rewards::StakeDistributionSnapshot,
-    store::columns as scolumns,
-    store::{Columns, RewardsSummary, Store},
+    store::{columns as scolumns, Columns, OpenError, RewardsSummary, Store},
 };
 use columns::*;
 use common::{as_value, PREFIX_LEN};
-use miette::Diagnostic;
 use pallas_codec::minicbor::{self as cbor};
 use std::{
-    fmt, fs, io,
+    fmt, fs,
     path::{Path, PathBuf},
 };
 use tracing::{debug, info, info_span, warn};
@@ -56,16 +50,6 @@ pub struct RocksDB {
     snapshots: Vec<Epoch>,
 }
 
-#[derive(Debug, thiserror::Error, Diagnostic)]
-pub enum OpenError {
-    #[error(transparent)]
-    RocksDB(rocksdb::Error),
-    #[error(transparent)]
-    IO(io::Error),
-    #[error("no ledger stable snapshot found in ledger.db; at least one is expected")]
-    NoStableSnapshot,
-}
-
 impl RocksDB {
     pub fn new(dir: &Path) -> Result<RocksDB, OpenError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
@@ -103,7 +87,7 @@ impl RocksDB {
             snapshots,
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
-                .map_err(OpenError::RocksDB)?,
+                .map_err(|err: rocksdb::Error| OpenError::Internal(err.into()))?,
         })
     }
 
@@ -115,18 +99,7 @@ impl RocksDB {
             snapshots: vec![],
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
-                .map_err(OpenError::RocksDB)?,
-        })
-    }
-
-    pub fn from_snapshot(dir: &Path, epoch: Epoch) -> Result<RocksDB, OpenError> {
-        let mut opts = Options::default();
-        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
-        Ok(RocksDB {
-            snapshots: vec![epoch],
-            dir: dir.to_path_buf(),
-            db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
-                .map_err(OpenError::RocksDB)?,
+                .map_err(|err: rocksdb::Error| OpenError::Internal(err.into()))?,
         })
     }
 
@@ -137,6 +110,21 @@ impl RocksDB {
 
 impl Store for RocksDB {
     type Error = rocksdb::Error;
+
+    fn for_epoch(&self, epoch: Epoch) -> Result<Box<RocksDB>, OpenError> {
+        let mut opts = Options::default();
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+
+        Ok(Box::new(RocksDB {
+            snapshots: vec![epoch],
+            dir: self.dir.to_path_buf(),
+            db: OptimisticTransactionDB::open(
+                &opts,
+                self.dir.join(PathBuf::from(format!("{epoch:?}"))),
+            )
+            .map_err(|err| OpenError::Internal(err.into()))?,
+        }))
+    }
 
     fn tip(&self) -> Result<Point, Self::Error> {
         Ok(self
@@ -277,27 +265,6 @@ impl Store for RocksDB {
         }
 
         Ok(())
-    }
-
-    fn rewards_summary(&self, epoch: Epoch) -> Result<RewardsSummary, Self::Error> {
-        let stake_distr = StakeDistributionSnapshot::new(
-            &Self::from_snapshot(&self.dir, epoch - 2).unwrap_or_else(|e| {
-                panic!(
-                    "unable to open database snapshot for epoch {:?}: {:?}",
-                    epoch - 2,
-                    e
-                )
-            }),
-        )?;
-        RewardsSummary::new(
-            &Self::from_snapshot(&self.dir, epoch).unwrap_or_else(|e| {
-                panic!(
-                    "unable to open database snapshot for epoch {:?}: {:?}",
-                    epoch, e
-                )
-            }),
-            stake_distr,
-        )
     }
 
     fn with_pots<A>(

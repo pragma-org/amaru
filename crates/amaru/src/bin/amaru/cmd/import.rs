@@ -56,7 +56,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
     .into_diagnostic()?;
 
     fs::create_dir_all(&args.ledger_dir).into_diagnostic()?;
-    let mut db = amaru_stores::rocksdb::RocksDB::empty(&args.ledger_dir).into_diagnostic()?;
+    let mut db = amaru_stores::rocksdb::RocksDB::empty(&args.ledger_dir)?;
     let bytes = fs::read(&args.snapshot).into_diagnostic()?;
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point)?;

@@ -3,13 +3,26 @@ pub mod columns;
 use super::kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
 pub use crate::rewards::RewardsSummary;
 use columns::*;
-use std::{borrow::BorrowMut, iter};
+use miette::Diagnostic;
+use std::{borrow::BorrowMut, io, iter};
+
+#[derive(Debug, thiserror::Error, Diagnostic)]
+pub enum OpenError {
+    #[error(transparent)]
+    Internal(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
+    #[error(transparent)]
+    IO(#[from] io::Error),
+    #[error("no ledger stable snapshot found in ledger.db; at least one is expected")]
+    NoStableSnapshot,
+}
 
 // Store
 // ----------------------------------------------------------------------------
 
 pub trait Store: Send + Sync {
     type Error: std::error::Error + Send + Sync + 'static;
+
+    fn for_epoch(&self, epoch: Epoch) -> Result<Box<Self>, OpenError>;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
     fn tip(&self) -> Result<Point, Self::Error>;
@@ -59,9 +72,6 @@ pub trait Store: Send + Sync {
         &self,
         input: &TransactionInput,
     ) -> Result<Option<TransactionOutput>, Self::Error>;
-
-    /// Compute rewards using database snapshots.
-    fn rewards_summary(&self, epoch: Epoch) -> Result<RewardsSummary, Self::Error>;
 
     /// Get current values of the treasury and reserves accounts.
     fn with_pots<A>(

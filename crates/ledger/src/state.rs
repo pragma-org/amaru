@@ -9,7 +9,7 @@ use crate::{
         self, epoch_from_slot, Hash, Hasher, MintedBlock, Point, PoolId, PoolParams, PoolSigma,
         TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
     },
-    rewards::RewardsSummary,
+    rewards::{RewardsSummary, StakeDistributionSnapshot},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
     store::{columns::*, Store},
 };
@@ -162,10 +162,25 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
             // Once we reach the stability window,
             if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
-                self.rewards_summary = Some(
-                    db.rewards_summary(current_epoch - 1)
-                        .map_err(ForwardErr::StorageErr)?,
-                );
+                let epoch = current_epoch - 1;
+                let db_minus_2 = db.for_epoch(epoch - 2).unwrap_or_else(|e| {
+                    panic!(
+                        "unable to open database snapshot for epoch {:?}: {:?}",
+                        epoch - 2,
+                        e
+                    )
+                });
+                let db = db.for_epoch(epoch).unwrap_or_else(|e| {
+                    panic!(
+                        "unable to open database snapshot for epoch {:?}: {:?}",
+                        epoch, e
+                    )
+                });
+
+                let a =
+                    StakeDistributionSnapshot::new(&*db_minus_2).map_err(ForwardErr::StorageErr)?;
+                self.rewards_summary =
+                    Some(RewardsSummary::new(&*db, a).map_err(ForwardErr::StorageErr)?);
             }
         } else {
             info!(target: STATE_EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
