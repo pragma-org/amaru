@@ -3,7 +3,6 @@ pub mod columns;
 use super::kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
 pub use crate::rewards::RewardsSummary;
 use columns::*;
-use miette::Diagnostic;
 use std::{borrow::BorrowMut, io, iter};
 use thiserror::Error;
 
@@ -16,7 +15,7 @@ pub enum OpenErrorKind {
     NoStableSnapshot,
 }
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
     Internal(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),

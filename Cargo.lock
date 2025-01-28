@@ -84,7 +84,6 @@ dependencies = [
  "gasket",
  "hex",
  "insta",
- "miette",
  "num",
  "once_cell",
  "opentelemetry",
@@ -108,7 +107,6 @@ version = "0.1.0"
 dependencies = [
  "amaru-ledger",
  "hex",
- "miette",
  "pallas-codec",
  "rocksdb",
  "thiserror 2.0.11",

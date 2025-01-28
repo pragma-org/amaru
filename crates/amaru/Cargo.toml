@@ -18,7 +18,7 @@ async-trait.workspace = true
 clap = { version = "4.5.20", features = ["derive"] }
 gasket.workspace = true
 hex.workspace = true
-miette.workspace = true
+miette = { version = "7.2.0", features = ["fancy"] }
 indoc = "2.0"
 ouroboros = { path = "../ouroboros" }
 pallas-codec.workspace = true
