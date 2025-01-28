@@ -72,7 +72,11 @@ impl VolatileDB {
         self.sequence.push_back(state);
     }
 
-    pub fn rollback_to<E>(&mut self, point: &Point, on_unknown_point: E) -> Result<(), E> {
+    pub fn rollback_to<E>(
+        &mut self,
+        point: &Point,
+        on_unknown_point: impl Fn(&Point) -> E,
+    ) -> Result<(), E> {
         self.cache = VolatileCache::default();
 
         let mut ix = 0;
@@ -85,7 +89,7 @@ impl VolatileDB {
         }
 
         if ix >= self.sequence.len() {
-            Err(on_unknown_point)
+            Err(on_unknown_point(point))
         } else {
             self.sequence.resize_with(ix, || {
                 unreachable!("ix is necessarly strictly smaller than the length")
@@ -115,6 +119,7 @@ impl VolatileCache {
 // VolatileState
 // ----------------------------------------------------------------------------
 
+#[derive(Default)]
 pub struct VolatileState {
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
@@ -125,17 +130,6 @@ pub struct VolatileState {
 pub struct AnchoredVolatileState<A> {
     pub anchor: A,
     pub state: VolatileState,
-}
-
-impl Default for VolatileState {
-    fn default() -> Self {
-        Self {
-            utxo: Default::default(),
-            pools: Default::default(),
-            accounts: Default::default(),
-            fees: 0,
-        }
-    }
 }
 
 impl VolatileState {

@@ -1,10 +1,8 @@
-use crate::{
-    kernel::{Hash, Hasher, MintedBlock, Point},
-    state::BackwardErr,
-};
+use crate::kernel::{Hash, Hasher, MintedBlock, Point};
 use gasket::framework::*;
 use opentelemetry::metrics::Counter;
 use pallas_codec::minicbor as cbor;
+use state::BackwardError;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::Mutex;
@@ -36,7 +34,7 @@ where
     T: Store,
 {
     pub upstream: UpstreamPort,
-    pub state: Arc<Mutex<state::State<T, T::Error>>>,
+    pub state: Arc<Mutex<state::State<T>>>,
     pub counter: Counter<u64>,
 }
 
@@ -151,10 +149,10 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
 
                 if let Err(e) = state.backward(point) {
                     match e {
-                        BackwardErr::UnknownRollbackPoint(_) => {
-                            warn!(target: EVENT_TARGET, "rollback.unknown_point")
+                        BackwardError::UnknownRollbackPoint(_) => {
+                            warn!(target:EVENT_TARGET,"rollback.unknown_point")
                         }
-                    }
+                    };
                 }
 
                 span_backward.exit();

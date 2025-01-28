@@ -89,7 +89,7 @@ use crate::{
         StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION,
         OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
     },
-    store::{columns::*, Store},
+    store::{columns::*, Store, StoreError},
 };
 use num::{
     rational::Ratio,
@@ -116,10 +116,10 @@ pub struct StakeDistributionSnapshot {
 }
 
 impl StakeDistributionSnapshot {
-    /// Clompute a new stake distribution snapshot using data available in the `Store`.
+    /// Compute a new stake distribution snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
-    pub fn new<E>(db: &impl Store<Error = E>) -> Result<Self, E> {
+    pub fn new(db: &impl Store) -> Result<Self, StoreError> {
         // TODO: Avoid creating this intermediate map, and directly create the keys/scripts ones.
         // Then, when looking for _active accounts_ delegated to pools, we can prune those not
         // referenced anywhere.
@@ -564,10 +564,7 @@ impl serde::Serialize for RewardsSummary {
 }
 
 impl RewardsSummary {
-    pub fn new<E>(
-        db: &impl Store<Error = E>,
-        snapshot: StakeDistributionSnapshot,
-    ) -> Result<Self, E> {
+    pub fn new(db: &impl Store, snapshot: StakeDistributionSnapshot) -> Result<Self, StoreError> {
         let pots = db.with_pots(|entry| Pots::from(entry.borrow()))?;
 
         let (mut blocks_count, mut blocks_per_pool) = RewardsSummary::count_blocks(db)?;
@@ -651,7 +648,7 @@ impl RewardsSummary {
     }
 
     /// Count blocks produced by pools, returning the total count and map indexed by poolid.
-    fn count_blocks<E>(db: &impl Store<Error = E>) -> Result<(u64, BTreeMap<PoolId, u64>), E> {
+    fn count_blocks(db: &impl Store) -> Result<(u64, BTreeMap<PoolId, u64>), StoreError> {
         let mut total: u64 = 0;
         let mut per_pool: BTreeMap<Hash<28>, u64> = BTreeMap::new();
 
