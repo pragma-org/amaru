@@ -1,5 +1,5 @@
-use super::header::Header;
 use super::peer::Peer;
+use super::{header::Header, Point};
 use pallas_crypto::hash::Hash;
 use std::collections::HashMap;
 use std::fmt::Debug;
@@ -66,7 +66,7 @@ pub enum ChainSelection<H: Header> {
 
     /// The current best chain has switched to given fork starting at
     /// given hash.
-    SwitchToFork(Hash<32>, Vec<H>),
+    SwitchToFork(Point, Vec<H>),
 }
 
 /// Builder pattern for `ChainSelector`.
@@ -190,7 +190,9 @@ where
             ChainSelection::RollbackTo(point)
         } else {
             let fragment = self.peers_chains.get(&best_peer).unwrap();
-            ChainSelection::SwitchToFork(fragment.anchor.hash(), fragment.headers.clone())
+            // TODO: do not always switch to anchor if there's a better intersection
+            // with current chain
+            ChainSelection::SwitchToFork(fragment.anchor.point(), fragment.headers.clone())
         };
 
         self.tip = best_tip.clone();
@@ -412,7 +414,7 @@ mod tests {
         let rollback_point = &chain1[3];
         let result = chain_selector.rollback(&alice, rollback_point.hash());
 
-        assert_eq!(SwitchToFork(TestHeader::Genesis.hash(), chain2), result);
+        assert_eq!(SwitchToFork(Point::Origin, chain2), result);
     }
 
     // #[test]
