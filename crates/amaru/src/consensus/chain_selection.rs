@@ -16,6 +16,11 @@ pub struct Fragment<H: Header> {
     anchor: H,
 }
 
+enum FragmentExtension {
+    Extend,
+    Ignore,
+}
+
 impl<H: Header + Clone> Fragment<H> {
     fn start_from(tip: &H) -> Fragment<H> {
         Fragment {
@@ -25,7 +30,7 @@ impl<H: Header + Clone> Fragment<H> {
     }
 
     fn height(&self) -> u64 {
-        self.headers.len() as u64 + self.anchor.block_height()
+        self.tip().block_height()
     }
 
     fn position_of(&self, point: Hash<32>) -> Option<usize> {
@@ -38,6 +43,15 @@ impl<H: Header + Clone> Fragment<H> {
         match self.headers.last() {
             Some(header) => header.clone(),
             None => self.anchor.clone(),
+        }
+    }
+
+    fn extend_with(&mut self, header: &H) -> FragmentExtension {
+        if header.parent().unwrap() == self.tip().hash() {
+            self.headers.push(header.clone());
+            FragmentExtension::Extend
+        } else {
+            FragmentExtension::Ignore
         }
     }
 }
@@ -124,50 +138,39 @@ impl<H: Header + Clone> Default for ChainSelectorBuilder<H> {
 
 impl<H> ChainSelector<H>
 where
-    H: Header + Clone + Debug,
+    H: Header + Clone + Debug + PartialEq,
 {
     /// Roll forward the chain with a new header from given peer.
     ///
     /// The function returns the result of the chain selection process, which might lead
-    /// to a new tip, no change, or some change in status for the peer.
+    /// to a new tip, a switch to a fork, no change, or some change in status for the peer.
     #[instrument(skip(self, header), fields(slot = header.slot(), hdr = header.hash().to_string()))]
     pub fn roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
-        let parent = header.parent().unwrap();
-        let what_to_do = match fragment.headers.last() {
-            Some(peer_tip) => {
-                if peer_tip.hash() == parent {
-                    ChainSelection::NewTip(header)
-                } else {
-                    ChainSelection::NoChange
-                }
-            }
-            None => {
-                if fragment.anchor.hash() == parent {
-                    ChainSelection::NewTip(header)
-                } else {
-                    ChainSelection::NoChange
-                }
-            }
-        };
-        let result = if let ChainSelection::NewTip(hdr) = what_to_do {
-            // TODO: Avoid all those clones
-            fragment.headers.push(hdr.clone());
-            if fragment.height() > self.tip.block_height() {
-                self.tip = hdr.clone();
-                ChainSelection::NewTip(self.tip.clone())
-            } else {
-                ChainSelection::NoChange
-            }
-        } else {
-            ChainSelection::NoChange
-        };
 
-        if let ChainSelection::NewTip(h) = &result {
-            info!(target: "amaru::consensus::chain_selection::new_tip", hash = ?h.hash().to_string(), slot = ?h.slot())
+        // TODO: raise error if header does not match parent
+        match fragment.extend_with(&header) {
+            FragmentExtension::Extend => {
+                let (best_peer, best_tip) = self.find_best_chain().unwrap();
+
+                let result = if best_tip.parent().unwrap() == self.tip.hash() {
+                    ChainSelection::NewTip(header.clone())
+                } else if best_tip.block_height() > self.tip.block_height() {
+                    let fragment = self.peers_chains.get(&best_peer).unwrap();
+                    ChainSelection::SwitchToFork(fragment.anchor.point(), fragment.headers.clone())
+                } else {
+                    ChainSelection::NoChange
+                };
+
+                if result != ChainSelection::NoChange {
+                    info!(target: "amaru::consensus::chain_selection::new_tip", hash = ?header.hash().to_string(), slot = ?header.slot());
+                    self.tip = header;
+                }
+
+                result
+            }
+            _ => ChainSelection::NoChange,
         }
-
-        result
     }
 
     pub fn best_chain(&self) -> &H {
@@ -223,10 +226,9 @@ where
 #[cfg(test)]
 mod tests {
 
-    use crate::consensus::header::{generate_headers_anchored_at, random_bytes, TestHeader};
-
     use super::ChainSelection::*;
     use super::*;
+    use crate::consensus::header::test::{generate_headers_anchored_at, random_bytes, TestHeader};
 
     #[test]
     fn extends_the_chain_with_single_header_from_peer() {
@@ -310,7 +312,7 @@ mod tests {
             .map(|header| chain_selector.roll_forward(&bob, *header))
             .last();
 
-        assert_eq!(NewTip(*chain2.last().unwrap()), result.unwrap());
+        assert_eq!(SwitchToFork(Point::Origin, chain2), result.unwrap());
     }
 
     #[test]
@@ -416,24 +418,4 @@ mod tests {
 
         assert_eq!(SwitchToFork(Point::Origin, chain2), result);
     }
-
-    // #[test]
-    // fn rollback_trims_whole_fragment_given_point_is_not_found() {
-    //     let alice = Peer::new("alice");
-    //     let mut chain_selector = ChainSelectorBuilder::new()
-    //         .add_peer(&alice)
-    //         .set_tip(&TestHeader::Genesis)
-    //         .build();
-
-    //     let header = TestHeader::TestHeader {
-    //         block_number: 1,
-    //         slot: 0,
-    //         parent: TestHeader::Genesis.hash(),
-    //         body_hash: random_bytes(32).as_slice().into(),
-    //     };
-
-    //     let result = chain_selector.rollback(&alice, header.hash());
-
-    //     assert_eq!(RollbackTo(header.hash()), result);
-    // }
 }

@@ -46,7 +46,7 @@ impl<H: Header> ChainStore<H> for RocksDBStore {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::consensus::header::{random_bytes, Header, TestHeader};
+    use crate::consensus::header::test::{random_bytes, TestHeader};
     use std::fs::create_dir;
 
     #[test]
