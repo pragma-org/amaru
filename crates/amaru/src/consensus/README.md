@@ -1,6 +1,84 @@
 # Amaru Consensus
 
-This component aims at implementing Ouroboros Consensus, in Rust, within the Amaru node. It is also an integration point for more generic code defined in [ouroboros](https://github.com/pragma-org/ouroboros) repository.
+> [!WARNING]
+> This is a work in progress and will be for the forthcoming months.
+> This document will be revised and augmented on a regular basis and aims at
+> providing a good summary of the current state of consensus.
+
+This component aims at implementing Ouroboros Consensus, in Rust, within the Amaru node.
+
+## Consensus design
+
+Like the rest of Amaru, the consensus is structured as as [gasket](https://lib.rs/crates/gasket) stage leveraging Rust's asynchronous programming model and [tokio](https://lib.rs/crates/tokio) reference implementation. Conceptually, a gasket _Stage_ is part of pipeline that acts upon messages from an upstream component and sends messages to a downstream component.
+
+Here is the current structure of pipeline for consensus, illustrated with simple example of a `RollForward` denoting a new header received from a peer:
+
+```mermaid
+
+sequenceDiagram
+   pull ->> consensus : RollForward
+   consensus ->> header_validation : validate header
+   header_validation -->> consensus : ok
+   consensus ->> consensus : chain selection
+   consensus ->> fetch : fetch block
+   fetch -->> consensus : block
+   consensus ->> ledger : forward block
+```
+
+The following diagram represents a simplified version of the various "objects" involved and their interactions:
+
+```mermaid
+
+classDiagram
+   class Consensus
+   link Consensus "https://github.com/pragma-org/amaru/blob/ef2f176e1dadb285a955aac5abb52210232d51d4/crates/amaru/src/consensus/mod.rs#L38" "Link to code"
+   class ChainSelector
+   link ChainSelector "https://github.com/pragma-org/amaru/blob/ef2f176e1dadb285a955aac5abb52210232d51d4/crates/amaru/src/consensus/chain_selection.rs#L56" "Link to code"
+   class HeaderValidation
+   link HeaderValidation "https://github.com/pragma-org/amaru/blob/ef2f176e1dadb285a955aac5abb52210232d51d4/crates/amaru/src/consensus/header_validation.rs#L17" "Link to code"
+   class Ledger
+   class ChainStore {
+     <<interface>>
+   }
+   link ChainStore "https://github.com/pragma-org/amaru/blob/7e67a10e3f547154c4705947762faeb85d445770/crates/amaru/src/consensus/store.rs#L25" "Link to code"
+   class Peer
+   link Peer "https://github.com/pragma-org/amaru/blob/7e67a10e3f547154c4705947762faeb85d445770/crates/amaru/src/consensus/peer.rs#L22" "Link to code"
+   class Fragment {
+      Peer peer
+      Header anchor
+      List[Header] headers
+   }
+   link Fragment "https://github.com/pragma-org/amaru/blob/7e67a10e3f547154c4705947762faeb85d445770/crates/amaru/src/consensus/chain_selection.rs#L14" "Link to code"
+   class Header {
+      <<interface>>
+   }
+   link Header "https://github.com/pragma-org/amaru/blob/7e67a10e3f547154c4705947762faeb85d445770/crates/amaru/src/consensus/header.rs#L10" "Link to code"
+   class PeerSession
+   link PeerSession "https://github.com/pragma-org/amaru/blob/7e67a10e3f547154c4705947762faeb85d445770/crates/amaru/src/consensus/peer.rs#L22" "Link to code"
+
+   Consensus --> PeerSession
+   Consensus --> HeaderValidation
+   HeaderValidation --> Ledger
+   Consensus *-- ChainSelector
+   ChainSelector "1" --> "*" Fragment
+   Fragment --> Peer
+   Fragment --> "*" Header
+   Consensus --> ChainStore
+```
+
+### Limitations (2025-01-24)
+
+There are a lot of limitations and missing features we'll need to address in the short-term. This is non exhaustive and just lists the most glaring ones.
+
+* ChainDB is not part of chain selection logic which it should
+* Node does not expose ChainSync so cannot be followed
+* Chain DB does not store block bodies, which it should if it must serves BlockFetch
+* Node is configured with a single peer, which obviously does not exert any kind of chain selection logic
+* No validation is actually performed on the headers. It requires the nonce and accurate stake distribution we need to pull from the ledger, which we don't have yet.
+* No considerations of security and adversarial behaviour from peers is being taken care of. This will require bi-directional interactions between the network and consensus layers in order to notify the former about misbehaviours and penalise those peers.
+* BlockFetch logic and block validation is wrong
+* Interface with the ledger needs to be revisited in order to minimise interactions: The header validaiton only needs stake distribution and updated nonces once per epoch
+* ...
 
 ## Testing strategy
 

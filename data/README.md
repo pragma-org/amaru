@@ -54,12 +54,11 @@ designates the ledger state dump of the last block of the Conway era (including 
 
 ### Available snapshots
 
-#### PreProd
+See [snapshots.json](snapshots.json). To download all available snapshots, uncompressed, in format suitable for `import`ing in Amaru, one can do:
 
-| Epoch | Download link | Size |
-| :--- | :---           | :---  |
-| 163 | [69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912](https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor.gz) | `204.50 MB` |
-| 164 | [69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7](https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor.gz) | `205.54 MB` |
-| 165 | [70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d](https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor.gz) | `207.71 MB` |
-| 166 | [70502395.fcb6c0dfb6f921eb6001bf3e0ba750287c2a4b816d2131e2bf45083667216242](https://pub-b844360df4774bb092a2bb2043b888e5.r2.dev/70502395.fcb6c0dfb6f921eb6001bf3e0ba750287c2a4b816d2131e2bf45083667216242.cbor.gz) | `209.96 MB` |
-
+```.bash
+jq -rc '.[] | "\(.point)  \(.url)"' data/snapshots.json  \
+ | while read p u ; do  \
+     curl -s -o - $u | gunzip > $p.cbor ; \
+   done
+```
