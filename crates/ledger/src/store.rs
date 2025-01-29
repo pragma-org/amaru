@@ -28,14 +28,6 @@ pub enum StoreError {
 // Store
 // ----------------------------------------------------------------------------
 
-pub trait Stores {
-    fn live(&self) -> Result<impl Store, StoreError>;
-
-    fn for_epoch<const N: u32>(&self, epoch: u32) -> Result<impl StoreForEpoch<N>, StoreError>;
-}
-
-pub trait StoreForEpoch<const N: u32>: Store {}
-
 pub trait Store: Send + Sync {
     fn for_epoch(&self, epoch: Epoch) -> Result<Box<Self>, StoreError>;
 
@@ -45,9 +37,9 @@ pub trait Store: Send + Sync {
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
     fn save(
-        &'_ self,
-        point: &'_ Point,
-        issuer: Option<&'_ pools::Key>,
+        &self,
+        point: &Point,
+        issuer: Option<&pools::Key>,
         add: Columns<
             impl Iterator<Item = (utxo::Key, utxo::Value)>,
             impl Iterator<Item = pools::Value>,

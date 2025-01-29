@@ -141,9 +141,9 @@ impl Store for RocksDB {
     }
 
     fn save(
-        &'_ self,
-        point: &'_ Point,
-        issuer: Option<&'_ scolumns::pools::Key>,
+        &self,
+        point: &Point,
+        issuer: Option<&scolumns::pools::Key>,
         add: Columns<
             impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
             impl Iterator<Item = scolumns::pools::Value>,

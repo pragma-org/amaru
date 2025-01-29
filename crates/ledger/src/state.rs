@@ -218,7 +218,7 @@ impl<S: Store> State<S> {
 
     fn resolve_inputs<'a>(
         &'a self,
-        ongoing_state: &'a VolatileState,
+        ongoing_state: &VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
     ) -> Result<Vec<TransactionOutput>, StoreError> {
         let mut result = Vec::new();
