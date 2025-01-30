@@ -1,24 +1,37 @@
 use std::path::PathBuf;
 
-use amaru_ledger::{rewards::StakeDistributionSnapshot, store::RewardsSummary};
+use amaru_ledger::{
+    rewards::StakeDistributionSnapshot,
+    store::{RewardsSummary, Store},
+};
 use amaru_stores::rocksdb::RocksDB;
 use pallas_primitives::Epoch;
 
 const LEDGER_DB: &str = "../../ledger.db";
 
 fn compare_preprod_snapshot(epoch: Epoch) {
-    let snapshot = StakeDistributionSnapshot::new(
-        &RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch)
-            .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch)),
-    )
-    .unwrap();
+    let db = RocksDB::new(&PathBuf::from(LEDGER_DB))
+        .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch))
+        .for_epoch(epoch)
+        .unwrap_or_else(|e| {
+            panic!(
+                "unable to open database snapshot for epoch {:?}: {:?}",
+                epoch, e
+            )
+        });
+    let snapshot = StakeDistributionSnapshot::new(&*db).unwrap();
     insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), snapshot);
-    let rewards_summary = RewardsSummary::new(
-        &RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch + 2)
-            .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch + 2)),
-        snapshot,
-    )
-    .unwrap();
+    let db2 = RocksDB::new(&PathBuf::from(LEDGER_DB))
+        .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch + 2))
+        .for_epoch(epoch)
+        .unwrap_or_else(|e| {
+            panic!(
+                "unable to open database snapshot for epoch {:?}: {:?}",
+                epoch + 2,
+                e
+            )
+        });
+    let rewards_summary = RewardsSummary::new(&*db2, snapshot).unwrap();
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
 }
 
