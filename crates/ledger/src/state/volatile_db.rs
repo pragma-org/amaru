@@ -23,7 +23,7 @@ use std::collections::VecDeque;
 #[derive(Default)]
 pub struct VolatileDB {
     cache: VolatileCache,
-    sequence: VecDeque<AnchoredVolatileState<(Point, PoolId)>>,
+    sequence: VecDeque<AnchoredVolatileState>,
 }
 
 impl VolatileDB {
@@ -35,7 +35,7 @@ impl VolatileDB {
         self.sequence.len()
     }
 
-    pub fn view_back(&self) -> Option<&AnchoredVolatileState<(Point, PoolId)>> {
+    pub fn view_back(&self) -> Option<&AnchoredVolatileState> {
         self.sequence.back()
     }
 
@@ -52,7 +52,7 @@ impl VolatileDB {
         })
     }
 
-    pub fn pop_front(&mut self) -> Option<AnchoredVolatileState<(Point, PoolId)>> {
+    pub fn pop_front(&mut self) -> Option<AnchoredVolatileState> {
         self.sequence.pop_front().inspect(|state| {
             // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we
             // remove them from the sequence to prevent the cache from growing out of proportion.
@@ -66,7 +66,7 @@ impl VolatileDB {
         })
     }
 
-    pub fn push_back(&mut self, state: AnchoredVolatileState<(Point, PoolId)>) {
+    pub fn push_back(&mut self, state: AnchoredVolatileState) {
         // TODO: See NOTE on VolatileDB regarding the .clone()
         self.cache.merge(state.state.utxo.clone());
         self.sequence.push_back(state);
@@ -127,13 +127,13 @@ pub struct VolatileState {
     pub fees: Lovelace,
 }
 
-pub struct AnchoredVolatileState<A> {
-    pub anchor: A,
+pub struct AnchoredVolatileState {
+    pub anchor: (Point, PoolId),
     pub state: VolatileState,
 }
 
 impl VolatileState {
-    pub fn anchor(self, point: &Point, issuer: PoolId) -> AnchoredVolatileState<(Point, PoolId)> {
+    pub fn anchor(self, point: &Point, issuer: PoolId) -> AnchoredVolatileState {
         AnchoredVolatileState {
             anchor: (point.clone(), issuer),
             state: self,
@@ -156,7 +156,7 @@ pub struct StoreUpdate<A, R> {
     pub remove: R,
 }
 
-impl AnchoredVolatileState<(Point, PoolId)> {
+impl AnchoredVolatileState {
     #[allow(clippy::type_complexity)]
     pub fn into_store_update(
         self,
