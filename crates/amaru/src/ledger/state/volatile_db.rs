@@ -11,7 +11,7 @@ use std::collections::{BTreeSet, VecDeque};
 // VolatileDB
 // ----------------------------------------------------------------------------
 
-// FIXME: Currently, the cache owns data that are also available in the sequence. We could
+// TODO: Currently, the cache owns data that are also available in the sequence. We could
 // potentially avoid cloning and re-allocation altogether by sharing an allocator and having them
 // both reference from within that allocator (e.g. an arena allocator like bumpalo)
 //
