@@ -3,13 +3,14 @@ use super::{
     volatile_db::VolatileState,
 };
 use crate::ledger::kernel::{
-    output_lovelace, Certificate, Hash, Lovelace, MintedTransactionBody, PoolId, PoolParams, Set,
-    StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    output_lovelace, reward_account_to_stake_credential, Certificate, Hash, Lovelace,
+    MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
+    TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::{debug, info_span, Span};
 
-const TRANSACTION_EVENT_TARGET: &str = "amaru::ledger::state::transaction";
+const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
 
 pub fn apply<T>(
     state: &mut VolatileState<T>,
@@ -20,13 +21,14 @@ pub fn apply<T>(
     resolved_collateral_inputs: Vec<TransactionOutput>,
 ) {
     let span = info_span!(
-        target: TRANSACTION_EVENT_TARGET,
+        target: EVENT_TARGET,
         parent: parent,
         "apply.transaction",
         transaction.id = %transaction_id,
         transaction.inputs = tracing::field::Empty,
         transaction.outputs = tracing::field::Empty,
         transaction.certificates = tracing::field::Empty,
+        transaction.withdrawals = tracing::field::Empty,
     )
     .entered();
 
@@ -40,7 +42,6 @@ pub fn apply<T>(
     } else {
         InputsOutputs::<false>::apply(&span, transaction_id, &mut transaction_body, ())
     };
-
     state.utxo.merge(utxo);
 
     state.fees += fees;
@@ -51,9 +52,20 @@ pub fn apply<T>(
         .certificates
         .map(|xs| xs.to_vec())
         .unwrap_or_default();
-
     span.record("transaction.certificates", certificates.len());
     apply_certificates(&span, &mut state.pools, &mut state.accounts, certificates);
+
+    let withdrawals = transaction_body
+        .withdrawals
+        .unwrap_or_else(|| NonEmptyKeyValuePairs::Def(vec![]));
+    span.record("transaction.withdrawals", withdrawals.len());
+    state
+        .withdrawals
+        .extend(withdrawals.iter().map(|(account, _)| {
+            reward_account_to_stake_credential(account).unwrap_or_else(|| {
+                panic!("invalid reward account found in transaction ({transaction_id}): {account}")
+            })
+        }));
 
     span.exit();
 }
@@ -186,21 +198,21 @@ fn apply_certificates(
     for certificate in certificates {
         match certificate {
                 Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
+                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
                         accounts
                         .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
                 }
                 Certificate::StakeDelegation(credential, pool)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
                     accounts.bind(credential, Some(pool));
                 }
                 Certificate::StakeRegDeleg(credential, pool, ..)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
                     accounts.register(
                         credential,
                         STAKE_CREDENTIAL_DEPOSIT as Lovelace,
@@ -209,11 +221,11 @@ fn apply_certificates(
                 }
                 Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, ..) => {
-                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
+                    debug!(name: "certificate.stake.deregistration", target: EVENT_TARGET, parent: parent, credential = ?credential);
                     accounts.unregister(credential);
                 }
                 Certificate::PoolRetirement(id, epoch) => {
-                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
+                    debug!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
                     pools.unregister(id, epoch)
                 }
                 Certificate::PoolRegistration {
@@ -240,7 +252,7 @@ fn apply_certificates(
                     };
                     debug!(
                         name: "certificate.pool.registration",
-                        target: TRANSACTION_EVENT_TARGET,
+                        target: EVENT_TARGET,
                         parent: parent,
                         pool = %id,
                         params = ?params,

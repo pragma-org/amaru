@@ -104,6 +104,29 @@ pub mod rocksdb {
         Ok(())
     }
 
+    /// Reset rewards counter of many accounts.
+    pub fn reset<DB>(
+        db: &Transaction<'_, DB>,
+        rows: impl Iterator<Item = super::Key>,
+    ) -> Result<(), rocksdb::Error> {
+        for credential in rows {
+            let key = as_key(&PREFIX, &credential);
+
+            if let Some(mut row) = db.get(&key)?.map(Row::unsafe_decode) {
+                row.rewards = 0;
+                db.put(key, as_value(row))?;
+            } else {
+                error!(
+                    target: EVENT_TARGET,
+                    ?credential,
+                    "reset.no_account",
+                )
+            }
+        }
+
+        Ok(())
+    }
+
     /// Clear a stake credential registration.
     pub fn remove<DB>(
         db: &Transaction<'_, DB>,

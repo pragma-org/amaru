@@ -122,6 +122,47 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `epoch` | The epoch being snapshot, typically the immediately previous epoch |
 </details>
 
+### target: `amaru::ledger::state::rewards`
+
+#### Spans
+
+ø
+
+#### Traces
+
+| name                          | severity | description                                                              |
+| ---                           | ---      | ---                                                                      |
+| `stake_distribution.snapshot` | `info`   | A new stake distribution snapshot has been computed and is now available |
+| `rewards.summary`             | `info`   | Rewards have been computed and are now available                         |
+
+<details><summary>trace: `stake_distribution.snapshot`</summary>
+
+| field          | description                                                                |
+| ---            | ---                                                                        |
+| `active_stake` | Total stake, in Lovelace, delegated to registered pools                    |
+| `accounts`     | Total number of *active* (i.e. delegated to active pools) staking accounts |
+| `pools`        | Total number of active pools                                               |
+</details>
+
+<details><summary>trace: `rewards.summary`</summary>
+
+| field               | description                                                                                                                         |
+| ---                 | ---                                                                                                                                 |
+| `efficiency`        | The ratio of total blocks produced in the epoch, over the expected number of blocks (determined by protocol parameters).            |
+| `incentives`        | The amount of Ada taken out of the reserves as incentivies at this particular epoch (a.k.a ΔR1).                                    |
+| `treasury_tax`      | Portion of the rewards going to the treasury (irrespective of unallocated pool rewards).                                            |
+| `total_rewards`     | Total amount of rewards available before the treasury tax. In particular, we have: total_rewards = treasury_tax + available_rewards |
+| `available_rewards` | Remaining rewards available to stake pools (and delegators)                                                                         |
+| `effective_rewards` | Effective amount of rewards _actually given out_. The surplus is "sent back" to the reserves.                                       |
+| `pots.reserves`     | Value, in Lovelace, of the reserves after rewards distribution.                                                                     |
+| `pots.treasury`     | Value, in Lovelace, of the treasury after rewards distribution.                                                                     |  |
+| `pots.fees`         | Values, in Lovelace, generated from fees during an epoch.                                                                           |
+</details>
+
+### target: `amaru::ledger::state::transaction`
+
+#### Spans
+
 <details><summary>span: `apply.transaction`</summary>
 
 | field                      | description                                               |
@@ -130,13 +171,8 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `transaction.certificates` | The number of certificates within the transaction         |
 | `transaction.inputs`       | The number of (collateral) inputs within the transaction  |
 | `transaction.outputs`      | The number of (collateral) outputs within the transaction |
+| `transaction.withdrawals`  | The number of withdrawals within the transaction          |
 </details>
-
-### target: `amaru::ledger::state::apply::transaction`
-
-#### Spans
-
-ø
 
 #### Traces
 

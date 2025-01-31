@@ -84,10 +84,10 @@ certain mutations are applied to the system.
 
 use crate::ledger::{
     kernel::{
-        encode_bech32, output_lovelace, output_stake_credential,
-        reward_account_to_stake_credential, Epoch, Hash, Lovelace, PoolId, PoolParams,
-        StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION,
-        OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
+        encode_bech32, expect_stake_credential, output_lovelace, output_stake_credential, Epoch,
+        Hash, Lovelace, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
+        MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
+        SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
     },
     store::{columns::*, Store},
 };
@@ -98,6 +98,9 @@ use num::{
 };
 use serde::ser::SerializeStruct;
 use std::{collections::BTreeMap, iter};
+use tracing::info;
+
+const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 
 /// A stake distribution snapshot useful for:
 ///
@@ -108,10 +111,25 @@ use std::{collections::BTreeMap, iter};
 /// delegated to a registered stake pool.
 #[derive(Debug)]
 pub struct StakeDistributionSnapshot {
+    /// Epoch number for this snapshot (taken at the end of the epoch)
     epoch: Epoch,
+
+    /// Total stake, in Lovelace, delegated to registered pools
     active_stake: Lovelace,
+
+    /// Mapping of key hash digests to a delegatee (pool) and a rewards amount.
+    ///
+    /// NOTE:
+    /// accounts that have stake but aren't delegated to any pools aren't present in the map.
     keys: BTreeMap<Hash<28>, AccountState>,
+
+    /// Mapping of script hash digests to a delegatee (pool) and a rewards amount.
+    ///
+    /// NOTE:
+    /// accounts that have stake but aren't delegated to any pools aren't present in the map.
     scripts: BTreeMap<Hash<28>, AccountState>,
+
+    /// Mapping of pools to their relative stake & parameters
     pools: BTreeMap<PoolId, PoolState>,
 }
 
@@ -120,9 +138,6 @@ impl StakeDistributionSnapshot {
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new<E>(db: &impl Store<Error = E>) -> Result<Self, E> {
-        // TODO: Avoid creating this intermediate map, and directly create the keys/scripts ones.
-        // Then, when looking for _active accounts_ delegated to pools, we can prune those not
-        // referenced anywhere.
         let mut accounts = BTreeMap::new();
         db.with_accounts(|rows| {
             for (credential, row) in rows {
@@ -206,8 +221,19 @@ impl StakeDistributionSnapshot {
             }
         })?;
 
+        let epoch = db.most_recent_snapshot();
+
+        info!(
+            name: "stake_distribution.snapshot",
+            target: EVENT_TARGET,
+            epoch = ?epoch,
+            active_stake = ?active_stake,
+            accounts = ?(keys.len() + scripts.len()),
+            pools = ?pools.len(),
+        );
+
         Ok(StakeDistributionSnapshot {
-            epoch: db.most_recent_snapshot(),
+            epoch,
             active_stake,
             keys,
             scripts,
@@ -602,18 +628,22 @@ impl RewardsSummary {
             snapshot
                 .pools
                 .iter()
-                .fold(0, |effective_rewards, (_, pool)| {
-                    effective_rewards
-                        + RewardsSummary::apply_leader_rewards(
-                            &mut accounts,
-                            &mut pools,
-                            &mut blocks_per_pool,
-                            blocks_count,
-                            available_rewards,
-                            total_stake,
-                            &snapshot,
-                            pool,
-                        )
+                .fold(0, |effective_rewards, (pool_id, pool)| {
+                    let pool_rewards = RewardsSummary::apply_leader_rewards(
+                        &mut accounts,
+                        &mut blocks_per_pool,
+                        blocks_count,
+                        available_rewards,
+                        total_stake,
+                        &snapshot,
+                        pool,
+                    );
+
+                    let rewards = effective_rewards + pool_rewards.leader;
+
+                    pools.insert(*pool_id, pool_rewards);
+
+                    rewards
                 });
 
         let members = iter::empty()
@@ -621,20 +651,36 @@ impl RewardsSummary {
             .chain(AccountState::from_scripts_credentials(snapshot.scripts));
 
         effective_rewards += members.fold(0, |effective_rewards, (credential, account)| {
-            effective_rewards
-                + if let Some(pool) = snapshot.pools.get(&account.pool) {
-                    RewardsSummary::apply_member_rewards(
-                        &mut accounts,
-                        pool,
-                        &pools,
-                        total_stake,
-                        credential,
-                        account,
-                    )
-                } else {
-                    0
-                }
+            let member_rewards = if let Some(pool) = snapshot.pools.get(&account.pool) {
+                RewardsSummary::apply_member_rewards(
+                    &mut accounts,
+                    pool,
+                    pools.get(&pool.parameters.id),
+                    total_stake,
+                    credential,
+                    account,
+                )
+            } else {
+                0
+            };
+
+            effective_rewards + member_rewards
         });
+
+        info!(
+            name: "rewards.summary",
+            target: EVENT_TARGET,
+            epoch = ?snapshot.epoch,
+            ?efficiency,
+            ?incentives,
+            ?treasury_tax,
+            ?total_rewards,
+            ?available_rewards,
+            ?effective_rewards,
+            pots.reserves = ?pots.reserves,
+            pots.treasury = ?pots.treasury,
+            pots.fees = ?pots.fees,
+        );
 
         Ok(RewardsSummary {
             epoch: snapshot.epoch,
@@ -673,15 +719,18 @@ impl RewardsSummary {
     fn apply_member_rewards(
         accounts: &mut BTreeMap<StakeCredential, Lovelace>,
         pool: &PoolState,
-        pools: &BTreeMap<PoolId, PoolRewards>,
+        pool_rewards: Option<&PoolRewards>,
         total_stake: Lovelace,
         credential: StakeCredential,
         st: AccountState,
     ) -> Lovelace {
-        if let Some(PoolRewards { pot, .. }) = pools.get(&st.pool) {
+        if let Some(PoolRewards { pot, .. }) = pool_rewards {
             let member_rewards = pool.member_rewards(&credential, *pot, st.lovelace, total_stake);
             if member_rewards > 0 {
-                accounts.insert(credential, member_rewards);
+                accounts
+                    .entry(credential)
+                    .and_modify(|rewards| *rewards += member_rewards)
+                    .or_insert(member_rewards);
             }
             member_rewards
         } else {
@@ -692,14 +741,13 @@ impl RewardsSummary {
     #[allow(clippy::too_many_arguments)]
     fn apply_leader_rewards(
         accounts: &mut BTreeMap<StakeCredential, Lovelace>,
-        pools: &mut BTreeMap<PoolId, PoolRewards>,
         blocks_per_pool: &mut BTreeMap<PoolId, u64>,
         blocks_count: u64,
         available_rewards: Lovelace,
         total_stake: Lovelace,
         snapshot: &StakeDistributionSnapshot,
         pool: &PoolState,
-    ) -> Lovelace {
+    ) -> PoolRewards {
         let owner_stake = pool.owner_stake(&snapshot.keys);
 
         let rewards_pot = pool.pool_rewards(
@@ -717,29 +765,15 @@ impl RewardsSummary {
 
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
-        // TODO: This is unnecessary for the rewards calculation, we only compute it for comparing
-        // with test snapshots.
-        pools.insert(
-            pool.parameters.id,
-            PoolRewards {
-                leader: rewards_leader,
-                pot: rewards_pot,
-            },
-        );
+        accounts
+            .entry(expect_stake_credential(&pool.parameters.reward_account))
+            .and_modify(|rewards| *rewards += rewards_leader)
+            .or_insert(rewards_leader);
 
-        accounts.insert(
-            reward_account_to_stake_credential(&pool.parameters.reward_account).unwrap_or_else(
-                || {
-                    panic!(
-                        "unexpected malformed reward account: {:?}",
-                        &pool.parameters.reward_account
-                    )
-                },
-            ),
-            rewards_leader,
-        );
-
-        rewards_leader
+        PoolRewards {
+            leader: rewards_leader,
+            pot: rewards_pot,
+        }
     }
 
     /// Amount to be depleted from the reserves at the epoch boundary.

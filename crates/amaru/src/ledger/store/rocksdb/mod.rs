@@ -163,6 +163,7 @@ impl Store for RocksDB {
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
         >,
+        withdrawals: impl Iterator<Item = accounts::Key>,
     ) -> Result<(), Self::Error> {
         let batch = self.db.transaction();
 
@@ -197,6 +198,8 @@ impl Store for RocksDB {
                 utxo::rocksdb::remove(&batch, remove.utxo)?;
                 pools::rocksdb::remove(&batch, remove.pools)?;
                 accounts::rocksdb::remove(&batch, remove.accounts)?;
+
+                accounts::rocksdb::reset(&batch, withdrawals)?;
             }
         }
 

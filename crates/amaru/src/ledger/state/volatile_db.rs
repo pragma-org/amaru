@@ -6,12 +6,12 @@ use crate::ledger::{
     },
     store::{self, columns::*},
 };
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 
 // VolatileDB
 // ----------------------------------------------------------------------------
 
-// FIXME: Currently, the cache owns data that are also available in the sequence. We could
+// TODO: Currently, the cache owns data that are also available in the sequence. We could
 // potentially avoid cloning and re-allocation altogether by sharing an allocator and having them
 // both reference from within that allocator (e.g. an arena allocator like bumpalo)
 //
@@ -117,6 +117,7 @@ pub struct VolatileState<A> {
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, Lovelace>,
+    pub withdrawals: BTreeSet<StakeCredential>,
     pub fees: Lovelace,
 }
 
@@ -127,6 +128,7 @@ impl Default for VolatileState<()> {
             utxo: Default::default(),
             pools: Default::default(),
             accounts: Default::default(),
+            withdrawals: Default::default(),
             fees: 0,
         }
     }
@@ -139,6 +141,7 @@ impl VolatileState<()> {
             utxo: self.utxo,
             pools: self.pools,
             accounts: self.accounts,
+            withdrawals: self.withdrawals,
             fees: self.fees,
         }
     }
@@ -151,10 +154,11 @@ impl VolatileState<()> {
 // StoreUpdate
 // ----------------------------------------------------------------------------
 
-pub struct StoreUpdate<A, R> {
+pub struct StoreUpdate<W, A, R> {
     pub point: Point,
     pub issuer: PoolId,
     pub fees: Lovelace,
+    pub withdrawals: W,
     pub add: A,
     pub remove: R,
 }
@@ -164,6 +168,7 @@ impl VolatileState<(Point, PoolId)> {
     pub fn into_store_update(
         self,
     ) -> StoreUpdate<
+        impl Iterator<Item = accounts::Key>,
         store::Columns<
             impl Iterator<Item = (utxo::Key, utxo::Value)>,
             impl Iterator<Item = pools::Value>,
@@ -180,6 +185,7 @@ impl VolatileState<(Point, PoolId)> {
             point: self.anchor.0,
             issuer: self.anchor.1,
             fees: self.fees,
+            withdrawals: self.withdrawals.into_iter(),
             add: store::Columns {
                 utxo: self.utxo.produced.into_iter(),
                 pools: self

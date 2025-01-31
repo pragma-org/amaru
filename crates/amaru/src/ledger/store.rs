@@ -31,6 +31,7 @@ pub trait Store {
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
         >,
+        withdrawals: impl Iterator<Item = accounts::Key>,
     ) -> Result<(), Self::Error>;
 
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a

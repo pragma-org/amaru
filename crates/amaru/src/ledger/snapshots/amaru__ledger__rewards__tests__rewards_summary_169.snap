@@ -11,7 +11,7 @@ expression: rewards_summary
   "available_rewards": 24797475166304,
   "pots": {
     "treasury": 1113836489073602,
-    "reserves": 13861692862209948,
+    "reserves": 13861692862209947,
     "fees": 10184705481
   },
   "pools": {
