@@ -117,9 +117,9 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 
 <details><summary>span: `snapshot`</summary>
 
-| field   | description                                                        |
-| ---     | ---                                                                |
-| `epoch` | The epoch being snapshot, typically the immediately previous epoch |
+| field   | description                                                                    |
+| ---     | ---                                                                            |
+| `epoch` | The epoch being captured as snapshot, typically the immediately previous epoch |
 </details>
 
 ### target: `amaru::ledger::state::rewards`
@@ -146,17 +146,17 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 
 <details><summary>trace: `rewards.summary`</summary>
 
-| field               | description                                                                                                                         |
-| ---                 | ---                                                                                                                                 |
-| `efficiency`        | The ratio of total blocks produced in the epoch, over the expected number of blocks (determined by protocol parameters).            |
-| `incentives`        | The amount of Ada taken out of the reserves as incentivies at this particular epoch (a.k.a ΔR1).                                    |
-| `treasury_tax`      | Portion of the rewards going to the treasury (irrespective of unallocated pool rewards).                                            |
-| `total_rewards`     | Total amount of rewards available before the treasury tax. In particular, we have: total_rewards = treasury_tax + available_rewards |
-| `available_rewards` | Remaining rewards available to stake pools (and delegators)                                                                         |
-| `effective_rewards` | Effective amount of rewards _actually given out_. The surplus is "sent back" to the reserves.                                       |
-| `pots.reserves`     | Value, in Lovelace, of the reserves after rewards distribution.                                                                     |
-| `pots.treasury`     | Value, in Lovelace, of the treasury after rewards distribution.                                                                     |  |
-| `pots.fees`         | Values, in Lovelace, generated from fees during an epoch.                                                                           |
+ | field               | description                                                                                                               |
+ | ---                 | ---                                                                                                                       |
+ | `efficiency`        | The ratio of total blocks produced in the epoch, over the expected number of blocks (determined by protocol parameters).  |
+ | `incentives`        | The total amount taken out of the reserves as incentivies at this particular epoch (a.k.a. ΔR1).                          |
+ | `treasury_tax`      | Portion of the rewards going to the treasury (irrespective of unallocated pool rewards).                                  |
+ | `total_rewards`     | Total rewards available before the treasury tax. In particular, we have: total_rewards = treasury_tax + available_rewards |
+ | `available_rewards` | Remaining rewards available to stake pools (and delegators)                                                               |
+ | `effective_rewards` | Effective rewards _actually given out_. The surplus is "sent back" to the reserves.                                       |
+ | `pots.reserves`     | Value, in Lovelace, of the reserves after rewards distribution.                                                           |
+ | `pots.treasury`     | Value, in Lovelace, of the treasury after rewards distribution.                                                           |
+ | `pots.fees`         | Values, in Lovelace, generated from fees during an epoch.                                                                 |
 </details>
 
 ### target: `amaru::ledger::state::transaction`
