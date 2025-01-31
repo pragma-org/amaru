@@ -10,7 +10,7 @@ use crate::ledger::kernel::{
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::{debug, info_span, Span};
 
-const TRANSACTION_EVENT_TARGET: &str = "amaru::ledger::state::transaction";
+const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
 
 pub fn apply<T>(
     state: &mut VolatileState<T>,
@@ -21,7 +21,7 @@ pub fn apply<T>(
     resolved_collateral_inputs: Vec<TransactionOutput>,
 ) {
     let span = info_span!(
-        target: TRANSACTION_EVENT_TARGET,
+        target: EVENT_TARGET,
         parent: parent,
         "apply.transaction",
         transaction.id = %transaction_id,
@@ -198,21 +198,21 @@ fn apply_certificates(
     for certificate in certificates {
         match certificate {
                 Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
+                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
                         accounts
                         .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
                 }
                 Certificate::StakeDelegation(credential, pool)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
                     accounts.bind(credential, Some(pool));
                 }
                 Certificate::StakeRegDeleg(credential, pool, ..)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.registration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
-                    debug!(name: "certificate.stake.delegation", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
                     accounts.register(
                         credential,
                         STAKE_CREDENTIAL_DEPOSIT as Lovelace,
@@ -221,11 +221,11 @@ fn apply_certificates(
                 }
                 Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, ..) => {
-                    debug!(name: "certificate.stake.deregistration", target: TRANSACTION_EVENT_TARGET, parent: parent, credential = ?credential);
+                    debug!(name: "certificate.stake.deregistration", target: EVENT_TARGET, parent: parent, credential = ?credential);
                     accounts.unregister(credential);
                 }
                 Certificate::PoolRetirement(id, epoch) => {
-                    debug!(name: "certificate.pool.retirement", target: TRANSACTION_EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
+                    debug!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
                     pools.unregister(id, epoch)
                 }
                 Certificate::PoolRegistration {
@@ -252,7 +252,7 @@ fn apply_certificates(
                     };
                     debug!(
                         name: "certificate.pool.registration",
-                        target: TRANSACTION_EVENT_TARGET,
+                        target: EVENT_TARGET,
                         parent: parent,
                         pool = %id,
                         params = ?params,

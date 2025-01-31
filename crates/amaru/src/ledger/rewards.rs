@@ -98,6 +98,9 @@ use num::{
 };
 use serde::ser::SerializeStruct;
 use std::{collections::BTreeMap, iter};
+use tracing::info;
+
+const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 
 /// A stake distribution snapshot useful for:
 ///
@@ -108,10 +111,25 @@ use std::{collections::BTreeMap, iter};
 /// delegated to a registered stake pool.
 #[derive(Debug)]
 pub struct StakeDistributionSnapshot {
+    /// Epoch number for this snapshot (taken at the end of the epoch)
     epoch: Epoch,
+
+    /// Total stake, in Lovelace, delegated to registered pools
     active_stake: Lovelace,
+
+    /// Mapping of key hash digests to a delegatee (pool) and a rewards amount.
+    ///
+    /// NOTE:
+    /// accounts that have stake but aren't delegated to any pools aren't present in the map.
     keys: BTreeMap<Hash<28>, AccountState>,
+
+    /// Mapping of script hash digests to a delegatee (pool) and a rewards amount.
+    ///
+    /// NOTE:
+    /// accounts that have stake but aren't delegated to any pools aren't present in the map.
     scripts: BTreeMap<Hash<28>, AccountState>,
+
+    /// Mapping of pools to their relative stake & parameters
     pools: BTreeMap<PoolId, PoolState>,
 }
 
@@ -206,8 +224,19 @@ impl StakeDistributionSnapshot {
             }
         })?;
 
+        let epoch = db.most_recent_snapshot();
+
+        info!(
+            name: "stake_distribution.snapshot",
+            target: EVENT_TARGET,
+            epoch = ?epoch,
+            active_stake = ?active_stake,
+            accounts = ?(keys.len() + scripts.len()),
+            pools = ?pools.len(),
+        );
+
         Ok(StakeDistributionSnapshot {
-            epoch: db.most_recent_snapshot(),
+            epoch,
             active_stake,
             keys,
             scripts,
@@ -635,6 +664,21 @@ impl RewardsSummary {
                     0
                 }
         });
+
+        info!(
+            name: "rewards.summary",
+            target: EVENT_TARGET,
+            epoch = ?snapshot.epoch,
+            ?efficiency,
+            ?incentives,
+            ?treasury_tax,
+            ?total_rewards,
+            ?available_rewards,
+            ?effective_rewards,
+            pots.reserves = ?pots.reserves,
+            pots.treasury = ?pots.treasury,
+            pots.fees = ?pots.fees,
+        );
 
         Ok(RewardsSummary {
             epoch: snapshot.epoch,
