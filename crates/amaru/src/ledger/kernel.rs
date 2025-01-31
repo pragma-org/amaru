@@ -315,3 +315,10 @@ pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<Sta
         None
     }
 }
+
+/// An 'unsafe' version of `reward_account_to_stake_credential` that panics when the given
+/// RewardAccount isn't a `StakeCredential`.
+pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
+    reward_account_to_stake_credential(account)
+        .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
+}
