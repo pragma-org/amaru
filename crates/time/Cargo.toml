@@ -11,8 +11,8 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-minicbor = { version = "0.25.1", features = ["std", "half", "derive"] }
 hex.workspace = true
+minicbor = { workspace = true, features = ["std", "half", "derive"] }
 
 [dev-dependencies]
 proptest.workspace = true

@@ -12,43 +12,40 @@ rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
-amaru-ledger = { path = "../ledger" }
-amaru-stores = { path = "../stores" }
 async-trait.workspace = true
-clap = { version = "4.5.20", features = ["derive"] }
-gasket.workspace = true
+clap = { workspace = true, features = ["derive"] }
+gasket = { workspace = true, features = ["derive"] }
 hex.workspace = true
-miette.workspace = true
-indoc = "2.0"
-ouroboros = { path = "../ouroboros" }
+indicatif.workspace = true
+indoc.workspace = true
+miette = { workspace = true, features = ["fancy"] }
+opentelemetry-otlp = { workspace = true, features = [ "grpc-tonic", "http-proto", "reqwest-client" ] }
+opentelemetry.workspace = true
+opentelemetry_sdk = { workspace = true, features = ["async-std", "rt-tokio"] }
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
-pallas-primitives.workspace = true
 pallas-math.workspace = true
 pallas-network.workspace = true
+pallas-primitives.workspace = true
 pallas-traverse.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
-tokio-util = "0.7.12"
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
+tokio-util.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "std"] }
 tracing.workspace = true
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }
-indicatif = "0.17.9"
-opentelemetry.workspace = true
-opentelemetry_sdk = { version = "0.27.1", features = ["async-std", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.27.0", features = [
-    "grpc-tonic",
-    "http-proto",
-    "reqwest-client",
-] }
-tracing-opentelemetry = { version = "0.28.0" }
+
+ouroboros = { path = "../ouroboros" }
+amaru-ledger = { path = "../ledger" }
+amaru-stores = { path = "../stores" }
 
 [target.'cfg(not(windows))'.dependencies]
-sys_metrics = "0.2.7"
+sys_metrics.workspace = true
 
 [dev-dependencies]
-envpath.workspace = true
-insta.workspace = true
+envpath = { workspace = true, features = ["rand"] }
+insta = { workspace = true, features = ["json"] }
 proptest.workspace = true
 
 [build-dependencies]
-built = { version = "0.7.1", features = ["git2"] }
+built = { workspace = true, features = ["git2"] }

@@ -11,25 +11,24 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-ouroboros = { path = "../ouroboros" }
 async-trait.workspace = true
+bech32.workspace = true
 gasket.workspace = true
 hex.workspace = true
-num = { version = "0.4.3", features = ["num-bigint"] }
+num = { workspace = true, features = ["num-bigint"] }
+once_cell.workspace = true
+opentelemetry.workspace = true
 pallas-addresses.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
-pallas-primitives.workspace = true
 pallas-network.workspace = true
+pallas-primitives.workspace = true
+serde = { workspace = true, features = ["derive"] }
 tokio.workspace = true
 tracing.workspace = true
-vec1 = "1.12.1"
-serde.workspace = true
-bech32 = "0.11.0"
-opentelemetry.workspace = true
-once_cell = "1.20.2"
+vec1.workspace = true
+
+ouroboros = { path = "../ouroboros" }
 
 [dev-dependencies]
 proptest.workspace = true
-envpath.workspace = true
-insta.workspace = true
