@@ -40,7 +40,7 @@ docker-compose -f monitoring/jaeger/docker-compose.yml up
 3. Run the node:
 
 ```console
-AMARU_DEV_LOG=error cargo run --release -- daemon \
+AMARU_DEV_LOG=warn cargo run --release -- daemon \
   --peer-address=127.0.0.1:3000 \
   --network=preprod
 ```

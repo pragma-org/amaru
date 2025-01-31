@@ -29,10 +29,7 @@ pub fn assert_header(
                     FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
                 let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
                 let block_validator = BlockValidator::new(minted_header, ledger, epoch_nonce, &c);
-                if let Err(e) = block_validator.validate() {
-                    warn!(error = ?e, "block validation failed");
-                    return Err(WorkerError::Recv);
-                }
+                block_validator.validate().or_panic()?;
             }
         }
         MultiEraHeader::ShelleyCompatible(_) => {
