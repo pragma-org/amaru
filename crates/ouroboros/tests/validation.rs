@@ -2,12 +2,13 @@ use std::{collections::HashMap, fs::File, io::BufReader};
 
 use ctor::ctor;
 use mockall::predicate::eq;
-use ouroboros::consensus::BlockValidator;
-use ouroboros::kes::KesSecretKey;
-use ouroboros::ledger::{MockLedgerState, PoolSigma};
-use ouroboros::validator::Validator;
-use pallas_crypto::hash::Hash;
-use pallas_crypto::key::ed25519::SecretKey;
+use ouroboros::{
+    consensus::BlockValidator,
+    kes::KesSecretKey,
+    ledger::{MockLedgerState, PoolSigma},
+    validator::Validator,
+};
+use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
 use pallas_traverse::{ComputeHash, MultiEraHeader};
 use serde::{Deserialize, Deserializer, Serialize};
@@ -53,7 +54,7 @@ struct GeneratorContext {
 }
 
 impl GeneratorContext {
-    fn active_slot_coeff_fraction(&self) -> pallas_math::math_malachite::Decimal {
+    fn active_slot_coeff_fraction(&self) -> pallas_math::math_dashu::Decimal {
         FixedDecimal::from((self.active_slot_coeff * 100.0) as u64) / FixedDecimal::from(100u64)
     }
 }

@@ -26,7 +26,6 @@ pallas-primitives.workspace = true
 serde = { workspace = true, features = ["derive"] }
 tokio.workspace = true
 tracing.workspace = true
-vec1.workspace = true
 
 ouroboros = { path = "../ouroboros" }
 

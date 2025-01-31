@@ -1,6 +1,5 @@
 use crate::kernel::Epoch;
 use std::collections::BTreeMap;
-use vec1::{vec1, Vec1};
 
 /// A compact data-structure tracking deferred registration & unregistration changes in a key:value
 /// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
@@ -18,7 +17,7 @@ use vec1::{vec1, Vec1};
 /// hasn't been implemented yet.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffEpochReg<K, V> {
-    pub registered: BTreeMap<K, Vec1<V>>,
+    pub registered: BTreeMap<K, Registrations<V>>,
     pub unregistered: BTreeMap<K, Epoch>,
 }
 
@@ -27,6 +26,36 @@ impl<K, V> Default for DiffEpochReg<K, V> {
         Self {
             registered: Default::default(),
             unregistered: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Registrations<V>((V, Option<V>));
+
+impl<V> Registrations<V> {
+    pub fn new(v: V) -> Self {
+        Self((v, None))
+    }
+
+    pub fn next(&mut self, v: V) {
+        let inner = &mut self.0;
+        inner.1 = Some(v);
+    }
+
+    pub fn last(&self) -> &V {
+        let inner = &self.0;
+        inner.1.as_ref().unwrap_or(&inner.0)
+    }
+}
+
+impl<V> IntoIterator for Registrations<V> {
+    type Item = V;
+    type IntoIter = <std::vec::Vec<V> as IntoIterator>::IntoIter;
+    fn into_iter(self) -> Self::IntoIter {
+        match self.0 {
+            (current, None) => vec![current].into_iter(),
+            (current, Some(next)) => vec![current, next].into_iter(),
         }
     }
 }
@@ -52,15 +81,9 @@ impl<K: Ord, V> DiffEpochReg<K, V> {
         self.unregistered.remove(&k);
         match self.registered.get_mut(&k) {
             None => {
-                self.registered.insert(k, vec1![v]);
+                self.registered.insert(k, Registrations::new(v));
             }
-            Some(vs) => {
-                if vs.len() > 1 {
-                    vs[1] = v;
-                } else {
-                    vs.push(v);
-                }
-            }
+            Some(registration) => registration.next(v),
         }
     }
 
@@ -128,19 +151,21 @@ mod tests {
     prop_compose! {
         fn any_diff()(
             registered in
-                any::<BTreeMap<u8, Vec<u8>>>(),
+                any::<BTreeMap<u8, (u8, Option<u8>)>>(),
             unregistered in
                 any::<BTreeMap<u8, Epoch>>()
         ) -> DiffEpochReg<u8, u8> {
             DiffEpochReg {
                 registered: registered
                     .into_iter()
-                    .filter_map(|(k, mut v)| {
-                        v.truncate(2);
-                        let v = Vec1::try_from(v).ok()?;
-                        Some((k, v))
+                    .map(|(k, (current, next))| {
+                        let mut registrations = Registrations::new(current);
+                        if let Some(next) = next {
+                            registrations.next(next);
+                        }
+                        (k, registrations)
                     })
-                    .collect::<BTreeMap<_, _>>(),
+                    .collect(),
                 unregistered,
             }
         }
@@ -148,18 +173,13 @@ mod tests {
 
     proptest! {
         // NOTE: We could avoid this test altogether by modelling the type in a different way.
-        // Having a sum One(V) | Two(V, V) instead of a Vec1 would give us this guarantee _by
+        // Having a sum One(V) | Two(V, V) instead of a Vec would give us this guarantee _by
         // construction_.
         #[test]
         fn prop_register(mut st in any_diff(), (k, v) in any::<(u8, u8)>()) {
             st.register(k, v);
-            let vs = st.registered.get(&k).expect("we just registered an element");
-            assert!(vs.len() <= 2, "registered[{k}] = {:?} has more than 2 elements", vs);
-            if vs.len() == 1 {
-                assert_eq!(vs, &vec1![v], "only element is different");
-            } else {
-                assert_eq!(*vs.last(), v, "last element is different");
-            }
+            let registrations = st.registered.get(&k).expect("we just registered an element");
+            assert_eq!(registrations.last(), &v, "last element is different");
         }
     }
 
