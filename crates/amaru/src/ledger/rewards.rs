@@ -84,10 +84,10 @@ certain mutations are applied to the system.
 
 use crate::ledger::{
     kernel::{
-        encode_bech32, output_lovelace, output_stake_credential,
-        reward_account_to_stake_credential, Epoch, Hash, Lovelace, PoolId, PoolParams,
-        StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION,
-        OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
+        encode_bech32, expect_stake_credential, output_lovelace, output_stake_credential, Epoch,
+        Hash, Lovelace, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
+        MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
+        SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
     },
     store::{columns::*, Store},
 };
@@ -765,16 +765,8 @@ impl RewardsSummary {
 
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
 
-        let credential = reward_account_to_stake_credential(&pool.parameters.reward_account)
-            .unwrap_or_else(|| {
-                panic!(
-                    "unexpected malformed reward account: {:?}",
-                    &pool.parameters.reward_account
-                )
-            });
-
         accounts
-            .entry(credential)
+            .entry(expect_stake_credential(&pool.parameters.reward_account))
             .and_modify(|rewards| *rewards += rewards_leader)
             .or_insert(rewards_leader);
 
