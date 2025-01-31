@@ -86,9 +86,6 @@ pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
 
-// FIXME: Switch to BigInt or BigUInt eventually. Not doing it _now_ because of laziness, not
-// having to deal with serialisation and deserialisation of those right now; and also because so
-// far it isn't causing any problem.
 pub type Lovelace = u64;
 
 pub type Point = pallas_network::miniprotocols::Point;
@@ -250,25 +247,25 @@ pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, bech32::Encode
 }
 
 /// Calculate the epoch number corresponding to a given slot on the PreProd network.
-// FIXME: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
+// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
 pub fn epoch_from_slot(slot: u64) -> u64 {
     let shelley_slots = slot - BYRON_TOTAL_SLOTS as u64;
     (shelley_slots / SHELLEY_EPOCH_LENGTH as u64) + PREPROD_SHELLEY_TRANSITION_EPOCH as u64
 }
 
 /// Obtain the slot number relative to the epoch.
-// FIXME: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
+// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
 pub fn relative_slot(slot: u64) -> u64 {
     let shelley_previous_slots = (epoch_from_slot(slot) - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
         * SHELLEY_EPOCH_LENGTH as u64;
     slot - shelley_previous_slots - BYRON_TOTAL_SLOTS as u64
 }
 
-/// FIXME: Ideally, we should either:
+/// TODO: Ideally, we should either:
 ///
 /// - Have pallas_traverse or a similar API works directly from base objects instead of KeepRaw
 ///   objects (i.e. MintedTransactionOutput)
-/// - Ensure that our database iterator yields MintedTransactionOutput and not TransactionOutput, o
+/// - Ensure that our database iterator yields MintedTransactionOutput and not TransactionOutput, so
 ///   we can use pallas_traverse out of the box.
 ///
 /// Doing the latter properly is a lifetime hell I am not willing to explore right now.
@@ -285,7 +282,7 @@ pub fn output_lovelace(output: &TransactionOutput) -> Lovelace {
     }
 }
 
-/// FIXME: See 'output_lovelace', same remark applies.
+/// TODO: See 'output_lovelace', same remark applies.
 pub fn output_stake_credential(output: &TransactionOutput) -> Option<StakeCredential> {
     let address = Address::from_bytes(match output {
         TransactionOutput::Legacy(legacy) => &legacy.address[..],
