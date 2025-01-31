@@ -1,11 +1,11 @@
 use crate::{
     iter::borrow as iter_borrow,
-    ledger::kernel::{Epoch, PoolId, PoolParams},
+    kernel::{Epoch, PoolId, PoolParams},
 };
 use pallas_codec::minicbor::{self as cbor};
 use tracing::debug;
 
-const EVENT_TARGET: &str = "amaru::ledger::store::pools";
+pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Key, Option<Row>>;
@@ -163,7 +163,7 @@ impl Row {
         [bytes, tail].concat()
     }
 
-    fn unsafe_decode(bytes: Vec<u8>) -> Self {
+    pub fn unsafe_decode(bytes: Vec<u8>) -> Self {
         cbor::decode(&bytes).unwrap_or_else(|e| {
             panic!(
                 "unable to decode pool from CBOR ({}): {e:?}",
@@ -211,82 +211,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     }
 }
 
-pub mod rocksdb {
-    use super::EVENT_TARGET;
-    use crate::ledger::{
-        kernel::PoolId,
-        store::rocksdb::common::{as_key, as_value, PREFIX_LEN},
-    };
-    use rocksdb::{self, OptimisticTransactionDB, ThreadMode, Transaction};
-    use tracing::error;
-
-    /// Name prefixed used for storing Pool entries. UTF-8 encoding for "pool"
-    pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x6f, 0x6c];
-
-    pub fn get<T: ThreadMode>(
-        db: &OptimisticTransactionDB<T>,
-        pool: &PoolId,
-    ) -> Result<Option<super::Row>, rocksdb::Error> {
-        Ok(db
-            .get(as_key(&PREFIX, pool))?
-            .map(super::Row::unsafe_decode))
-    }
-
-    pub fn add<DB>(
-        db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = super::Value>,
-    ) -> Result<(), rocksdb::Error> {
-        for (params, epoch) in rows {
-            let pool = params.id;
-
-            // Pool parameters are stored in an epoch-aware fashion.
-            //
-            // - If no parameters exist for the pool, we can immediately create a new
-            //   entry.
-            //
-            // - If one already exists, then the parameters are stashed until the next
-            //   epoch boundary.
-            //
-            // TODO: We might want to define a MERGE OPERATOR to speed this up if
-            // necessary.
-            let params = match db.get(as_key(&PREFIX, pool))? {
-                None => as_value(super::Row::new(params)),
-                Some(existing_params) => super::Row::extend(existing_params, (Some(params), epoch)),
-            };
-
-            db.put(as_key(&PREFIX, pool), params)?;
-        }
-
-        Ok(())
-    }
-
-    pub fn remove<DB>(
-        db: &Transaction<'_, DB>,
-        rows: impl Iterator<Item = (super::Key, super::Epoch)>,
-    ) -> Result<(), rocksdb::Error> {
-        for (pool, epoch) in rows {
-            // We do not delete pool immediately but rather schedule the
-            // removal as an empty parameter update. The 'pool reaping' happens on
-            // every epoch boundary.
-            match db.get(as_key(&PREFIX, pool))? {
-                None => {
-                    error!(target: EVENT_TARGET, ?pool, "remove.unknown")
-                }
-                Some(existing_params) => db.put(
-                    as_key(&PREFIX, pool),
-                    super::Row::extend(existing_params, (None, epoch)),
-                )?,
-            };
-        }
-
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ledger::kernel::{Hash, Nullable, RationalNumber};
+    use crate::kernel::{Hash, Nullable, RationalNumber};
     use proptest::prelude::*;
 
     prop_compose! {

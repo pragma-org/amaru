@@ -1,0 +1,34 @@
+[package]
+name = "amaru-ledger"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+bech32.workspace = true
+gasket.workspace = true
+hex.workspace = true
+num = { workspace = true, features = ["num-bigint"] }
+once_cell.workspace = true
+opentelemetry.workspace = true
+pallas-addresses.workspace = true
+pallas-codec.workspace = true
+pallas-crypto.workspace = true
+pallas-network.workspace = true
+pallas-primitives.workspace = true
+serde = { workspace = true, features = ["derive"] }
+tokio.workspace = true
+tracing.workspace = true
+vec1.workspace = true
+
+ouroboros = { path = "../ouroboros" }
+
+[dev-dependencies]
+proptest.workspace = true

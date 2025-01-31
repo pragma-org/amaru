@@ -1,4 +1,4 @@
-use crate::ledger::kernel::Epoch;
+use crate::kernel::Epoch;
 use std::collections::BTreeMap;
 use vec1::{vec1, Vec1};
 

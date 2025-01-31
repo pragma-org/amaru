@@ -1,11 +1,73 @@
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+description = "A Cardano blockchain node implementation"
+license = "Apache-2.0"
+authors = ["Amaru Maintainers <amaru@pragma.builders>"]
+repository = "https://github.com/pragma-org/amaru"
+homepage = "https://github.com/pragma-org/amaru"
+documentation = "https://docs.rs/amaru"
+rust-version = "1.81.0"
+
 [workspace]
-members = ["crates/amaru", "crates/time", "crates/ouroboros"]
+members = ["crates/*"]
 resolver = "2"
+
+[workspace.dependencies]
+async-trait = "0.1.83"
+bech32 = "0.11.0"
+clap = "4.5.20"
+ctor = "0.2"
+gasket = "0.8.0"
+hex = "0.4.3"
+indicatif = "0.17.9"
+indoc = "2.0"
+miette = "7.2.0"
+minicbor = "0.25.1"
+mockall = "0.13"
+num = "0.4.3"
+once_cell = "1.20.2"
+opentelemetry = "0.27.1"
+opentelemetry-otlp = "0.27.0"
+opentelemetry_sdk = "0.27.1"
+pallas-addresses = "0.31.0"
+pallas-codec = "0.31.0"
+pallas-crypto = "0.31.0"
+pallas-math = "0.31.0"
+pallas-network = "0.31.0"
+pallas-primitives = "0.31.0"
+pallas-traverse = "0.31.0"
+rand = "0.8"
+rayon = "1.10"
+rocksdb = "0.22.0"
+serde = "1.0"
+serde_json = "1.0.128"
+thiserror = "2.0.3"
+tokio = "1.40.0"
+tokio-util = "0.7.12"
+tracing = "0.1.40"
+tracing-opentelemetry = "0.28.0"
+tracing-subscriber = "0.3.18"
+vec1 = "1.12.1"
+
+# The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
+vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }
+kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
+
+# not(windows)
+sys_metrics = "0.2.7"
+
+# dev-dependencies
+proptest = "1.5.0"
+insta = "1.41.1"
+envpath = "0.0.1-beta.3"
+criterion = "0.5.1"
+
+# build-dependencies
+built = "0.7.1"
 
 [profile.dev.package]
 insta.opt-level = 3
-similar.opt-level = 3
 
 [profile.test.package]
 proptest.opt-level = 3
-rand_chacha.opt-level = 3

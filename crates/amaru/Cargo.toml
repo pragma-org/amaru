@@ -1,61 +1,51 @@
 [package]
 name = "amaru"
-version = "0.1.0"
-edition = "2021"
-description = "A Cardano blockchain node implementation"
-license = "Apache-2.0"
-authors = ["Amaru Maintainers <amaru@pragma.builders>"]
-repository = "https://github.com/pragma-org/amaru"
-homepage = "https://github.com/pragma-org/amaru"
-documentation = "https://docs.rs/amaru"
-readme = "README.md"
-rust-version = "1.81.0"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
-async-trait = "0.1.83"
-clap = { version = "4.5.20", features = ["derive"] }
-gasket = { version = "0.8.0", features = ["derive"] }
-hex = "0.4.3"
-miette = { version = "7.2.0", features = ["fancy"] }
-indoc = "2.0"
-num = { version = "0.4.3", features = ["num-bigint"] }
+async-trait.workspace = true
+clap = { workspace = true, features = ["derive"] }
+gasket = { workspace = true, features = ["derive"] }
+hex.workspace = true
+indicatif.workspace = true
+indoc.workspace = true
+miette = { workspace = true, features = ["fancy"] }
+opentelemetry-otlp = { workspace = true, features = [ "grpc-tonic", "http-proto", "reqwest-client" ] }
+opentelemetry.workspace = true
+opentelemetry_sdk = { workspace = true, features = ["async-std", "rt-tokio"] }
+pallas-codec.workspace = true
+pallas-crypto.workspace = true
+pallas-math.workspace = true
+pallas-network.workspace = true
+pallas-primitives.workspace = true
+pallas-traverse.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
+tokio-util.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "std"] }
+tracing.workspace = true
+
 ouroboros = { path = "../ouroboros" }
-pallas-addresses = "0.31.0"
-pallas-codec = "0.31.0"
-pallas-crypto = "0.31.0"
-pallas-primitives = "0.31.0"
-pallas-math = "0.31.0"
-pallas-network = "0.31.0"
-pallas-traverse = "0.31.0"
-uplc = "1.1.7"
-thiserror = "2.0.3"
-tokio = { version = "1.40.0", features = ["rt", "rt-multi-thread", "signal"] }
-tokio-util = "0.7.12"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std"] }
-rocksdb = "0.22.0"
-indicatif = "0.17.9"
-vec1 = "1.12.1"
-serde = "1.0.215"
-bech32 = "0.11.0"
-opentelemetry = { version = "0.27.1" }
-opentelemetry_sdk = { version = "0.27.1", features = ["async-std", "rt-tokio"] }
-opentelemetry-otlp = { version = "0.27.0", features = [
-    "grpc-tonic",
-    "http-proto",
-    "reqwest-client",
-] }
-tracing-opentelemetry = { version = "0.28.0" }
-serde_json = { version = "1.0.135", features = ["raw_value"] }
+amaru-ledger = { path = "../ledger" }
+amaru-stores = { path = "../stores" }
 
 [target.'cfg(not(windows))'.dependencies]
-sys_metrics = "0.2.7"
+sys_metrics.workspace = true
 
 [dev-dependencies]
-envpath = { version = "0.0.1-beta.3", features = ["rand"] }
-insta = { version = "1.41.1", features = ["json"] }
-proptest = "1.5.0"
+envpath = { workspace = true, features = ["rand"] }
+insta = { workspace = true, features = ["json"] }
+proptest.workspace = true
 
 [build-dependencies]
-built = { version = "0.7.1", features = ["git2"] }
+built = { workspace = true, features = ["git2"] }
