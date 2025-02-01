@@ -1,10 +1,8 @@
 use pallas_codec::minicbor;
-use pallas_codec::minicbor as cbor;
-use pallas_crypto::hash::{Hash, Hasher};
+use pallas_crypto::hash::Hash;
 use pallas_network::miniprotocols::Point;
 use pallas_primitives::babbage;
 use pallas_traverse::ComputeHash;
-use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 /// Interface to a header for the purpose of chain selection.
 pub trait Header {
@@ -77,7 +75,7 @@ impl Header for ConwayHeader {
     }
 
     fn point(&self) -> Point {
-        Point::Specific(self.slot().into(), self.hash().to_vec())
+        Point::Specific(self.slot(), self.hash().to_vec())
     }
 }
 
@@ -90,180 +88,211 @@ pub fn point_hash(point: &Point) -> Hash<32> {
     }
 }
 
-/// Basic `Header` implementation for testing purposes.
-#[derive(Debug, PartialEq, Clone, Copy)]
-pub enum TestHeader {
-    TestHeader {
-        block_number: u64,
-        slot: u64,
-        parent: Hash<32>,
-        body_hash: Hash<32>,
-    },
-    Genesis,
-}
+#[cfg(test)]
+pub mod test {
+    use super::*;
+    use pallas_codec::minicbor as cbor;
+    use pallas_crypto::hash::Hasher;
+    use proptest::prelude::*;
+    use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use std::fmt::{self, Display, Formatter};
 
-impl Header for TestHeader {
-    fn hash(&self) -> pallas_crypto::hash::Hash<32> {
-        self.hash()
+    /// Basic `Header` implementation for testing purposes.
+    #[derive(Debug, PartialEq, Clone, Copy)]
+    pub enum TestHeader {
+        TestHeader {
+            block_number: u64,
+            slot: u64,
+            parent: Hash<32>,
+            body_hash: Hash<32>,
+        },
+        Genesis,
     }
 
-    fn parent(&self) -> Option<pallas_crypto::hash::Hash<32>> {
-        match self {
-            TestHeader::TestHeader { parent, .. } => Some(*parent),
-            TestHeader::Genesis => None,
+    impl Header for TestHeader {
+        fn hash(&self) -> pallas_crypto::hash::Hash<32> {
+            self.hash()
+        }
+
+        fn parent(&self) -> Option<pallas_crypto::hash::Hash<32>> {
+            match self {
+                TestHeader::TestHeader { parent, .. } => Some(*parent),
+                TestHeader::Genesis => None,
+            }
+        }
+
+        fn block_height(&self) -> u64 {
+            match self {
+                TestHeader::TestHeader { block_number, .. } => *block_number,
+                TestHeader::Genesis => 0,
+            }
+        }
+
+        fn to_cbor(&self) -> Vec<u8> {
+            let mut buffer = Vec::new();
+            cbor::encode(self, &mut buffer)
+                .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+            buffer
+        }
+
+        fn from_cbor(bytes: &[u8]) -> Option<Self>
+        where
+            Self: Sized,
+        {
+            cbor::decode(bytes)
+                .map_err(|e| panic!("unable to encode value to CBOR: {e:?}"))
+                .ok()
+        }
+
+        fn slot(&self) -> u64 {
+            match self {
+                TestHeader::TestHeader { slot, .. } => *slot,
+                TestHeader::Genesis => 0,
+            }
+        }
+
+        fn point(&self) -> Point {
+            match self {
+                TestHeader::Genesis => Point::Origin,
+                _ => Point::Specific(self.slot().into(), self.hash().to_vec()),
+            }
         }
     }
 
-    fn block_height(&self) -> u64 {
-        match self {
-            TestHeader::TestHeader { block_number, .. } => *block_number,
-            TestHeader::Genesis => 0,
-        }
-    }
-
-    fn to_cbor(&self) -> Vec<u8> {
-        let mut buffer = Vec::new();
-        cbor::encode(self, &mut buffer)
-            .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
-        buffer
-    }
-
-    fn from_cbor(bytes: &[u8]) -> Option<Self>
-    where
-        Self: Sized,
-    {
-        cbor::decode(bytes)
-            .map_err(|e| panic!("unable to encode value to CBOR: {e:?}"))
-            .ok()
-    }
-
-    fn slot(&self) -> u64 {
-        match self {
-            TestHeader::TestHeader { slot, .. } => *slot,
-            TestHeader::Genesis => 0,
-        }
-    }
-
-    fn point(&self) -> Point {
-        match self {
-            TestHeader::Genesis => Point::Origin,
-            _ => Point::Specific(self.slot().into(), self.hash().to_vec()),
-        }
-    }
-}
-
-impl<C> cbor::encode::Encode<C> for TestHeader {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        match self {
-            TestHeader::TestHeader {
-                block_number,
-                slot,
-                parent,
-                body_hash,
-            } => e
-                .encode(0)?
-                .array(4)?
-                .encode_with(block_number, ctx)?
-                .encode_with(slot, ctx)?
-                .encode_with(parent, ctx)?
-                .encode_with(body_hash, ctx)?
-                .end()?
-                .ok(),
-            TestHeader::Genesis => e.encode(1)?.ok(),
-        }
-    }
-}
-
-impl<'b, C> cbor::decode::Decode<'b, C> for TestHeader {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let tag = d.u8()?;
-        match tag {
-            0 => {
-                d.array()?;
-                let block_number = d.decode_with(ctx)?;
-                let slot = d.decode_with(ctx)?;
-                let parent = d.decode_with(ctx)?;
-                let body_hash = d.decode_with(ctx)?;
-                Ok(TestHeader::TestHeader {
+    impl Display for TestHeader {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            match self {
+                TestHeader::TestHeader {
                     block_number,
                     slot,
                     parent,
                     body_hash,
-                })
+                } => {
+                    write!(
+                f,
+                "TestHeader {{ hash: {}, block_number: {}, slot: {}, parent: {}, body_hash: {} }}",
+                self.hash(), block_number, slot, parent, body_hash
+            )
+                }
+                TestHeader::Genesis => write!(f, "Genesis"),
             }
-            1 => Ok(TestHeader::Genesis),
-            _ => Err(cbor::decode::Error::message(format!("unknown tag {}", tag))),
-        }
-    }
-}
-
-impl TestHeader {
-    fn hash(&self) -> Hash<32> {
-        Hasher::<256>::hash(self.to_cbor().as_slice())
-    }
-
-    #[allow(dead_code)]
-    fn point(&self) -> Point {
-        match self {
-            TestHeader::Genesis => Point::Origin,
-            _ => Point::Specific(self.slot().into(), self.hash().to_vec()),
         }
     }
 
-    fn block_height(&self) -> u32 {
-        match self {
-            TestHeader::TestHeader { block_number, .. } => *block_number as u32,
-            TestHeader::Genesis => 0,
+    impl<C> cbor::encode::Encode<C> for TestHeader {
+        fn encode<W: cbor::encode::Write>(
+            &self,
+            e: &mut cbor::Encoder<W>,
+            ctx: &mut C,
+        ) -> Result<(), cbor::encode::Error<W::Error>> {
+            match self {
+                TestHeader::TestHeader {
+                    block_number,
+                    slot,
+                    parent,
+                    body_hash,
+                } => e
+                    .encode(0)?
+                    .array(4)?
+                    .encode_with(block_number, ctx)?
+                    .encode_with(slot, ctx)?
+                    .encode_with(parent, ctx)?
+                    .encode_with(body_hash, ctx)?
+                    .end()?
+                    .ok(),
+                TestHeader::Genesis => e.encode(1)?.ok(),
+            }
         }
     }
 
-    fn slot(&self) -> u32 {
-        match self {
-            TestHeader::TestHeader { slot, .. } => *slot as u32,
-            TestHeader::Genesis => 0,
+    impl<'b, C> cbor::decode::Decode<'b, C> for TestHeader {
+        fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+            let tag = d.u8()?;
+            match tag {
+                0 => {
+                    d.array()?;
+                    let block_number = d.decode_with(ctx)?;
+                    let slot = d.decode_with(ctx)?;
+                    let parent = d.decode_with(ctx)?;
+                    let body_hash = d.decode_with(ctx)?;
+                    Ok(TestHeader::TestHeader {
+                        block_number,
+                        slot,
+                        parent,
+                        body_hash,
+                    })
+                }
+                1 => Ok(TestHeader::Genesis),
+                _ => Err(cbor::decode::Error::message(format!("unknown tag {}", tag))),
+            }
         }
     }
-}
 
-/// Generate a chain of headers anchored at a given header.
-///
-/// The chain is generated by creating headers with random body hash, and linking
-/// them to the previous header in the chain until the desired length is reached.
-pub fn generate_headers_anchored_at(anchor: TestHeader, length: u32) -> Vec<TestHeader> {
-    let mut headers: Vec<TestHeader> = Vec::new();
-    for i in 0..length {
-        let parent = if i == 0 {
-            anchor.hash()
-        } else {
-            headers[i as usize - 1].hash()
-        };
-        let header = TestHeader::TestHeader {
-            block_number: (i + anchor.block_height() + 1) as u64,
-            slot: (i + anchor.slot() + 1) as u64,
-            parent,
-            body_hash: random_bytes(32).as_slice().into(),
-        };
-        headers.push(header);
+    impl TestHeader {
+        fn hash(&self) -> Hash<32> {
+            Hasher::<256>::hash(self.to_cbor().as_slice())
+        }
+
+        #[allow(dead_code)]
+        fn point(&self) -> Point {
+            match self {
+                TestHeader::Genesis => Point::Origin,
+                _ => Point::Specific(self.slot().into(), self.hash().to_vec()),
+            }
+        }
+
+        fn block_height(&self) -> u32 {
+            match self {
+                TestHeader::TestHeader { block_number, .. } => *block_number as u32,
+                TestHeader::Genesis => 0,
+            }
+        }
+
+        fn slot(&self) -> u32 {
+            match self {
+                TestHeader::TestHeader { slot, .. } => *slot as u32,
+                TestHeader::Genesis => 0,
+            }
+        }
+
+        pub(crate) fn child_from(parent: &TestHeader) -> Self {
+            let header = TestHeader::TestHeader {
+                block_number: (parent.block_height() + 1) as u64,
+                slot: (parent.slot() + 1) as u64,
+                parent: parent.hash(),
+                body_hash: random_bytes(32).as_slice().into(),
+            };
+            header
+        }
     }
-    headers
-}
 
-/// Very simple function to generate random sequence of bytes of given length.
-pub fn random_bytes(arg: u32) -> Vec<u8> {
-    let mut rng = StdRng::from_entropy();
-    let mut buffer = vec![0; arg as usize];
-    rng.fill_bytes(&mut buffer);
-    buffer
-}
+    /// Generate a chain of headers anchored at a given header.
+    ///
+    /// The chain is generated by creating headers with random body hash, and linking
+    /// them to the previous header in the chain until the desired length is reached.
+    pub fn generate_headers_anchored_at(anchor: TestHeader, length: u32) -> Vec<TestHeader> {
+        let mut headers: Vec<TestHeader> = Vec::new();
+        let mut parent = anchor;
+        for i in 0..length {
+            let header = TestHeader::TestHeader {
+                block_number: (i + anchor.block_height() + 1) as u64,
+                slot: (i + anchor.slot() + 1) as u64,
+                parent: parent.hash(),
+                body_hash: random_bytes(32).as_slice().into(),
+            };
+            headers.push(header);
+            parent = header;
+        }
+        headers
+    }
 
-#[cfg(test)]
-mod test {
-    use super::*;
-    use proptest::prelude::*;
+    /// Very simple function to generate random sequence of bytes of given length.
+    pub fn random_bytes(arg: u32) -> Vec<u8> {
+        let mut rng = StdRng::from_entropy();
+        let mut buffer = vec![0; arg as usize];
+        rng.fill_bytes(&mut buffer);
+        buffer
+    }
 
     prop_compose! {
         fn any_test_header()(
