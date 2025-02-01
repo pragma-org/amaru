@@ -13,19 +13,56 @@
 // limitations under the License.
 
 use pallas_crypto::hash::Hash;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
-use vrf_dalek::vrf03::{PublicKey03, SecretKey03, VrfProof03};
+use vrf_dalek::{
+    errors::VrfError,
+    vrf03::{PublicKey03, SecretKey03, VrfProof03},
+};
 
 /// error that can be returned if the verification of a [`VrfProof`] fails
 /// see [`VrfProof::verify`]
 ///
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Deserialize, Serialize)]
 #[error("VRF Proof Verification failed.")]
 pub struct VerificationError(
     #[from]
     #[source]
-    vrf_dalek::errors::VrfError,
+    #[serde(
+        serialize_with = "serialize_verification_error",
+        deserialize_with = "deserialize_verification_error"
+    )]
+    VrfError,
 );
+
+fn serialize_verification_error<S>(error: &VrfError, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    match error {
+        VrfError::VerificationFailed => serializer.serialize_str("VerificationFailed"),
+        VrfError::DecompressionFailed => serializer.serialize_str("DecompressionFailed"),
+        VrfError::PkSmallOrder => serializer.serialize_str("PkSmallOrder"),
+        VrfError::VrfOutputInvalid => serializer.serialize_str("VrfOutputInvalid"),
+    }
+}
+
+fn deserialize_verification_error<'de, D>(deserializer: D) -> Result<VrfError, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let string = <String>::deserialize(deserializer)?;
+    match string.as_str() {
+        "VerificationFailed" => Ok(VrfError::VerificationFailed),
+        "DecompressionFailed" => Ok(VrfError::DecompressionFailed),
+        "PkSmallOrder" => Ok(VrfError::PkSmallOrder),
+        "VrfOutputInvalid" => Ok(VrfError::VrfOutputInvalid),
+        _ => Err(serde::de::Error::custom(format!(
+            "Unexpected VrfError {}",
+            string
+        ))),
+    }
+}
 
 pub const VRF_SEED_SIZE: usize = 32;
 pub const VRF_PROOF_SIZE: usize = 80;
