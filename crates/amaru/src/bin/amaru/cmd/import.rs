@@ -76,7 +76,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
         import_all(&snapshots, &args.ledger_dir).await
     } else {
         Err(miette::miette!(
-            "You must provide either a single snapshot or a directory containing multiple snapshots"
+            "You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)"
         ))
     }
 }
