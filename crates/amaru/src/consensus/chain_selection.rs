@@ -3,7 +3,7 @@ use super::peer::Peer;
 use pallas_crypto::hash::Hash;
 use std::collections::HashMap;
 use std::fmt::Debug;
-use tracing::instrument;
+use tracing::{info, instrument};
 
 /// A fragment of the chain, represented by a list of headers
 /// and an anchor.
@@ -140,15 +140,24 @@ where
                 }
             }
         };
-        if let ChainSelection::NewTip(hdr) = what_to_do {
+        let result = if let ChainSelection::NewTip(hdr) = what_to_do {
             // TODO: Avoid all those clones
             fragment.headers.push(hdr.clone());
             if fragment.height() > self.tip.block_height() {
                 self.tip = hdr.clone();
-                return ChainSelection::NewTip(self.tip.clone());
+                ChainSelection::NewTip(self.tip.clone())
+            } else {
+                ChainSelection::NoChange
             }
+        } else {
+            ChainSelection::NoChange
+        };
+
+        if let ChainSelection::NewTip(h) = &result {
+            info!(target: "amaru::consensus::chain_selection::new_tip", hash = ?h.hash().to_string(), slot = ?h.slot())
         }
-        ChainSelection::NoChange
+
+        result
     }
 
     pub fn best_chain(&self) -> &H {
