@@ -1,6 +1,9 @@
 use miette::IntoDiagnostic;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::TracerProvider};
-use std::env;
+use std::{
+    env,
+    io::{self},
+};
 use tracing_subscriber::{
     filter::Filtered,
     fmt::{
@@ -22,6 +25,10 @@ const DEFAULT_AMARU_LOG_FILTER: &str = "amaru=info";
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
 const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=debug";
+
+// -----------------------------------------------------------------------------
+// TracingSubscriber
+// -----------------------------------------------------------------------------
 
 type OpenTelemetryLayer<S> = Layered<OpenTelemetryFilter<S>, S>;
 
@@ -77,18 +84,55 @@ impl TracingSubscriber<Registry> {
     }
 
     pub fn init(self) {
+        let log_format = || tracing_subscriber::fmt::format().with_ansi(true).pretty();
+        let log_writer = || io::stderr as fn() -> io::Stderr;
+        let log_events = || FmtSpan::ENTER;
+        let log_filter = || default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
+
         match self {
             TracingSubscriber::Empty => unreachable!(),
-            TracingSubscriber::Registry(registry) => registry.init(),
-            TracingSubscriber::WithOpenTelemetry(layered) => layered.init(),
-            TracingSubscriber::WithJson(layered) => layered.init(),
-            TracingSubscriber::WithBoth(layered) => layered.init(),
+            TracingSubscriber::Registry(registry) => registry
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(log_writer())
+                        .event_format(log_format())
+                        .with_span_events(log_events())
+                        .with_filter(log_filter()),
+                )
+                .init(),
+            TracingSubscriber::WithOpenTelemetry(layered) => layered
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(log_writer())
+                        .event_format(log_format())
+                        .with_span_events(log_events())
+                        .with_filter(log_filter()),
+                )
+                .init(),
+            TracingSubscriber::WithJson(layered) => layered
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(log_writer())
+                        .event_format(log_format())
+                        .with_span_events(log_events())
+                        .with_filter(log_filter()),
+                )
+                .init(),
+            TracingSubscriber::WithBoth(layered) => layered
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_writer(log_writer())
+                        .event_format(log_format())
+                        .with_span_events(log_events())
+                        .with_filter(log_filter()),
+                )
+                .init(),
         }
     }
 }
 
 // -----------------------------------------------------------------------------
-// JSON
+// JSON TRACES
 // -----------------------------------------------------------------------------
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {

@@ -21,7 +21,7 @@ use pallas_codec::minicbor as cbor;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::Mutex;
-use tracing::{error, info_span, warn};
+use tracing::{debug_span, error, warn};
 
 const EVENT_TARGET: &str = "amaru::ledger";
 
@@ -104,7 +104,7 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             ValidateHeaderEvent::Validated(point, raw_block) => {
-                let span_forward = info_span!(
+                let span_forward = debug_span!(
                     target: EVENT_TARGET,
                     "forward",
                     header.height = tracing::field::Empty,
@@ -116,7 +116,7 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
                 )
                 .entered();
 
-                let span_parse_block = info_span!(
+                let span_parse_block = debug_span!(
                     target: EVENT_TARGET,
                     parent: &span_forward,
                     "parse_block",
@@ -144,7 +144,7 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
             }
 
             ValidateHeaderEvent::Rollback(point) => {
-                let span_backward = info_span!(
+                let span_backward = debug_span!(
                     target: EVENT_TARGET,
                     "backward",
                     point.slot = point.slot_or_default(),

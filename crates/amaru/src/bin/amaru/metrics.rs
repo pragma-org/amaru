@@ -48,8 +48,8 @@ pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
 
 #[cfg(windows)]
 pub fn track_system_metrics(_metrics: SdkMeterProvider) -> JoinHandle<()> {
-    use tracing::info;
-    info!("System metrics currently not supported on Windows");
+    use tracing::warn;
+    warn!("System metrics currently not supported on Windows");
     tokio::spawn(async {})
 }
 
