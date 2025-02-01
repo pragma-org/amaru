@@ -281,7 +281,7 @@ fn validation_conforms_to_test_vectors() {
                     let ledger_state = mock_ledger_state(context);
                     let epoch_nonce = context.nonce;
                     let active_slot_coeff = context.active_slot_coeff_fraction();
-                    let cbor = babbage_header.raw_cbor();
+                    let cbor = hdr.cbor();
                     let pseudo_header = Header::from(babbage_header.clone());
                     let block_validator =
                         BlockValidator::new(&pseudo_header,
