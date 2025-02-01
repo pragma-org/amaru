@@ -69,13 +69,13 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
         .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
     let (mut ledger, tip) = amaru_ledger::Stage::new(store, config.counter.clone());
 
-    let mut pull = pull::Stage::new(client.clone(), vec![tip]);
+    let mut pull = pull::Stage::new(client.clone(), vec![tip.clone()]);
     let peer_session = PeerSession {
         peer: Peer::new(&config.upstream_peer),
         peer_client: client.clone(),
     };
     let mut header_validation =
-        consensus::Stage::new(peer_session, ledger.state.clone(), config.nonces);
+        consensus::Stage::new(peer_session, tip, ledger.state.clone(), config.nonces);
 
     let (to_header_validation, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);

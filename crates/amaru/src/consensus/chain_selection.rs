@@ -63,6 +63,26 @@ impl<H> ChainSelector<H>
 where
     H: Header + Clone + Debug,
 {
+    /// Creates a new empty chain selector.
+    ///
+    /// This chain selector will have no peers and use the given header's genesis
+    /// block as the tip.
+    pub fn empty() -> ChainSelector<H> {
+        let tip = H::genesis();
+        ChainSelector {
+            tip,
+            peers_chains: HashMap::new(),
+        }
+    }
+
+    pub fn set_tip(&mut self, new_tip: &H) {
+        self.tip = new_tip.clone();
+    }
+
+    /// Creates a new selector with some `tip` and following some `peers`.
+    ///
+    /// All the peers' fragments are anchored at the `tip` and initially
+    /// empty.
     pub fn new(tip: H, peers: &[Peer]) -> ChainSelector<H> {
         let peers_chains: HashMap<Peer, Fragment<H>> = peers
             .iter()
@@ -174,6 +194,10 @@ mod tests {
     }
 
     impl Header for TestHeader {
+        fn genesis() -> Self {
+            TestHeader::Genesis
+        }
+
         fn hash(&self) -> pallas_crypto::hash::Hash<32> {
             self.hash()
         }
@@ -190,6 +214,20 @@ mod tests {
                 TestHeader::TestHeader { block_number, .. } => *block_number,
                 TestHeader::Genesis => 0,
             }
+        }
+
+        fn to_cbor(&self) -> Vec<u8> {
+            let mut buffer = Vec::new();
+            cbor::encode(self, &mut buffer)
+                .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+            buffer
+        }
+
+        fn from_cbor(bytes: &[u8]) -> Option<Self>
+        where
+            Self: Sized,
+        {
+            cbor::decode(bytes).ok()
         }
     }
 
@@ -242,14 +280,7 @@ mod tests {
 
     impl TestHeader {
         fn hash(&self) -> Hash<32> {
-            Hasher::<256>::hash(self.cbor().as_slice())
-        }
-
-        fn cbor(&self) -> Vec<u8> {
-            let mut buffer = Vec::new();
-            cbor::encode(self, &mut buffer)
-                .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
-            buffer
+            Hasher::<256>::hash(self.to_cbor().as_slice())
         }
 
         fn block_height(&self) -> u32 {
@@ -454,5 +485,12 @@ mod tests {
 
         let expected_new_tip = chain2[5];
         assert_eq!(NewTip(expected_new_tip), result);
+    }
+
+    #[test]
+    fn empty_chain_selector_starts_at_genesis() {
+        let selector: ChainSelector<TestHeader> = ChainSelector::empty();
+
+        assert_eq!(selector.tip, TestHeader::Genesis);
     }
 }
