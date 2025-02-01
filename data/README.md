@@ -57,8 +57,12 @@ designates the ledger state dump of the last block of the Conway era (including 
 See [snapshots.json](snapshots.json). To download all available snapshots, uncompressed, in format suitable for `import`ing in Amaru, one can do:
 
 ```.bash
-curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" | jq -r '.[] | "\(.point)  \(.url)"' | while read p u ; do  \
-     echo "Fetching $p.cbor"; \
-     curl --progress-bar -o - $u | gunzip > $p.cbor ; \
-   done
+mkdir -p snapshots;
+curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" \
+  | jq -r '.[] | "\(.point)  \(.url)"' \
+  | while read p u ; do  \
+      echo "Fetching $p.cbor"; \
+      curl --progress-bar -o - $u \
+        | gunzip > snapshots/$p.cbor ; \
+    done
 ```
