@@ -67,7 +67,6 @@ impl<H: Header> ChainStore<H> for SimpleChainStore {
         let hash_hex = hex::encode(hash);
         let path = self.basedir.join(hash_hex);
         if path.exists() {
-            println!("getting path {:?}", path);
             let data = std::fs::read(path).ok()?;
             let header = H::from_cbor(&data)?;
             Some(header)
@@ -79,7 +78,6 @@ impl<H: Header> ChainStore<H> for SimpleChainStore {
     fn put(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
         let file = self.basedir.join(hex::encode(hash));
         let data = header.to_cbor();
-        println!("data: {:?}", data);
         std::fs::write(file, data).map_err(|e| StoreError::WriteError { error: e })
     }
 }

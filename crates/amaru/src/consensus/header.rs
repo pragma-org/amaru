@@ -25,6 +25,9 @@ pub trait Header {
     /// Block height of the header w.r.t genesis block
     fn block_height(&self) -> u64;
 
+    /// Slot number of the header
+    fn slot(&self) -> u64;
+
     /// Encode to CBOR
     fn to_cbor(&self) -> Vec<u8>;
 
@@ -71,6 +74,10 @@ impl Header for ConwayHeader {
                 panic!("unable to decode value from CBOR: {e:?}");
             })
             .ok()
+    }
+
+    fn slot(&self) -> u64 {
+        self.header_body.slot
     }
 }
 
@@ -132,6 +139,13 @@ impl Header for TestHeader {
         cbor::decode(bytes)
             .map_err(|e| panic!("unable to encode value to CBOR: {e:?}"))
             .ok()
+    }
+
+    fn slot(&self) -> u64 {
+        match self {
+            TestHeader::TestHeader { slot, .. } => *slot,
+            TestHeader::Genesis => 0,
+        }
     }
 }
 

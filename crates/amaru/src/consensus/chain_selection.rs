@@ -120,7 +120,7 @@ where
     ///
     /// The function returns the result of the chain selection process, which might lead
     /// to a new tip, no change, or some change in status for the peer.
-    #[instrument(skip(self, header), fields(hdr = header.hash().to_string()))]
+    #[instrument(skip(self, header), fields(slot = header.slot(), hdr = header.hash().to_string()))]
     pub fn roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let parent = header.parent().unwrap();
