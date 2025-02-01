@@ -1,3 +1,5 @@
+use std::{collections::HashMap, iter::Map};
+
 use pallas_crypto::hash::Hash;
 
 /// Interface to a header for the purpose of chain selection.
@@ -14,6 +16,40 @@ pub trait Header {
     fn parent(&self) -> Option<Hash<32>>;
 }
 
+/// A single peer in the network, uniquely identified.
+#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+pub struct Peer {
+    name: String,
+}
+
+impl Peer {
+    pub fn new(name: &str) -> Peer {
+        Peer {
+            name: name.to_string(),
+        }
+    }
+}
+
+/// A fragment of the chain, represented by a list of headers
+/// and an anchor.
+/// The list of headers /must/ be a sequence of headers such that
+/// each element has the next one as parent. The anchor is the
+/// parent of the last element of the sqeuence.
+#[derive(Debug, PartialEq)]
+pub struct Fragment<H: Header> {
+    headers: Vec<H>,
+    anchor: H,
+}
+
+impl<H: Header + Clone> Fragment<H> {
+    fn start_from(tip: &H) -> Fragment<H> {
+        Fragment {
+            headers: vec![],
+            anchor: tip.clone(),
+        }
+    }
+}
+
 /// Current state of chain selection process
 ///
 /// Chain selection is parameterised by the header type `H`, in
@@ -21,6 +57,7 @@ pub trait Header {
 /// the selection logic
 pub struct ChainSelector<H: Header> {
     tip: H,
+    peers_chains: HashMap<Peer, Fragment<H>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -30,11 +67,16 @@ pub enum ChainSelection<H: Header> {
 }
 
 impl<H: Header + Clone> ChainSelector<H> {
-    pub fn new(tip: H) -> ChainSelector<H> {
-        ChainSelector { tip }
+    pub fn new(tip: H, peers: &[Peer]) -> ChainSelector<H> {
+        let peers_chains: HashMap<Peer, Fragment<H>> = peers
+            .iter()
+            .map(|peer| (peer.clone(), Fragment::start_from(&tip)))
+            .collect();
+
+        ChainSelector { tip, peers_chains }
     }
 
-    pub fn roll_forward(&mut self, header: H) -> ChainSelection<H> {
+    pub fn roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
         match header.parent() {
             Some(parent) if parent != self.tip.hash() => ChainSelection::NoChange,
             None => panic!("genesis block is not expected to be rolled forward"),
@@ -185,8 +227,10 @@ mod tests {
     }
 
     #[test]
-    fn extends_the_chain_with_single_header_from_genesis() {
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
+    fn extends_the_chain_with_single_header_from_peer() {
+        let alice = Peer::new("alice");
+        let peers = [alice.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
         let header = TestHeader::TestHeader {
             block_number: 1,
             slot: 0,
@@ -194,14 +238,16 @@ mod tests {
             body_hash: random_bytes(32).as_slice().into(),
         };
 
-        let result = chain_selector.roll_forward(header);
+        let result = chain_selector.roll_forward(&alice, header);
 
         assert_eq!(NewTip(header), result);
     }
 
     #[test]
     fn do_not_extend_the_chain_given_parent_does_not_match_tip() {
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
+        let alice = Peer::new("alice");
+        let peers = [alice.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
         let header = TestHeader::TestHeader {
             block_number: 1,
             slot: 0,
@@ -215,8 +261,8 @@ mod tests {
             body_hash: random_bytes(32).as_slice().into(),
         };
 
-        chain_selector.roll_forward(header);
-        let result = chain_selector.roll_forward(new_header);
+        chain_selector.roll_forward(&alice, header);
+        let result = chain_selector.roll_forward(&alice, new_header);
 
         assert_eq!(NoChange, result);
     }
@@ -224,24 +270,29 @@ mod tests {
     #[test]
     #[should_panic]
     fn panic_when_forward_with_genesis_block() {
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
+        let alice = Peer::new("alice");
+        let peers = [alice.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
 
-        chain_selector.roll_forward(TestHeader::Genesis);
+        chain_selector.roll_forward(&alice, TestHeader::Genesis);
     }
 
     #[test]
     fn switch_to_fork_given_extension_is_longer_than_current_chain() {
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let peers = [alice.clone(), bob.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
 
         chain1.iter().for_each(|header| {
-            chain_selector.roll_forward(*header);
+            chain_selector.roll_forward(&alice, *header);
         });
 
         let result = chain2
             .iter()
-            .map(|header| chain_selector.roll_forward(*header))
+            .map(|header| chain_selector.roll_forward(&bob, *header))
             .last();
 
         assert_eq!(NewTip(*chain2.last().unwrap()), result.unwrap());
