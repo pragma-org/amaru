@@ -27,6 +27,12 @@ pub(crate) const DEFAULT_CHAIN_DATABASE_PATH: &str = "./chain.db";
 /// Default path to pre-computed on-chain data needed for block header validation.
 pub(crate) const DEFAULT_DATA_DIR: &str = "./data";
 
+/// Utility function to parse a point from a string.
+///
+/// Expects the input to be of the form '<point>.<hash>', where `<point>` is a number and `<hash>`
+/// is a hex-encoded 32 bytes hash.
+/// The first argument is the string to parse, the `bail` function is user to
+/// produce the error type `E` in case of failure to parse.
 pub(crate) fn parse_point<'a, F, E>(raw_str: &str, bail: F) -> Result<Point, E>
 where
     F: Fn(&'a str) -> E + 'a,
@@ -49,4 +55,36 @@ where
         })?;
 
     Ok(Point::Specific(slot, block_header_hash))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_parse_point() {
+        let point = parse_point("42.0123456789abcdef", |s| s).unwrap();
+        match point {
+            Point::Specific(slot, hash) => {
+                assert_eq!(42, slot);
+                assert_eq!(vec![1, 35, 69, 103, 137, 171, 205, 239], hash);
+            }
+            _ => panic!("expected a specific point"),
+        }
+    }
+
+    #[test]
+    fn test_parse_real_point() {
+        let point = parse_point(
+            "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
+            |s| s,
+        )
+        .unwrap();
+        match point {
+            Point::Specific(slot, _hash) => {
+                assert_eq!(70070379, slot);
+            }
+            _ => panic!("expected a specific point"),
+        }
+    }
 }
