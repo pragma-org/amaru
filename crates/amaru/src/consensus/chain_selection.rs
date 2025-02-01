@@ -179,21 +179,23 @@ where
         result
     }
 
+    #[instrument(skip(self))]
     fn find_best_chain(&self) -> Option<(Peer, H)> {
         let mut best: Option<(Peer, H)> = None;
         for (peer, fragment) in self.peers_chains.iter() {
             let best_height = best.as_ref().map_or(0, |(_, tip)| tip.block_height());
-            if fragment.height() > best_height {
+            if fragment.height() >= best_height {
                 best = Some((peer.clone(), fragment.tip()));
             }
         }
         best
     }
 
+    #[instrument(skip(self))]
     fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
-        let rollback_point = fragment.position_of(point).unwrap();
-        fragment.headers.truncate(rollback_point + 1);
+        let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);
+        fragment.headers.truncate(rollback_point);
     }
 }
 
@@ -513,9 +515,20 @@ mod tests {
     }
 
     #[test]
-    fn empty_chain_selector_starts_at_genesis() {
-        let selector: ChainSelector<TestHeader> = ChainSelector::empty();
+    fn rollback_trims_whole_fragment_given_point_not_found() {
+        let alice = Peer::new("alice");
+        let peers = [alice.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
 
-        assert_eq!(selector.tip, TestHeader::Genesis);
+        let header = TestHeader::TestHeader {
+            block_number: 1,
+            slot: 0,
+            parent: TestHeader::Genesis.hash(),
+            body_hash: random_bytes(32).as_slice().into(),
+        };
+
+        let result = chain_selector.rollback(&alice, header.hash());
+
+        assert_eq!(RollbackTo(header.hash()), result);
     }
 }
