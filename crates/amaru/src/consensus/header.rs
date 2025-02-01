@@ -231,8 +231,8 @@ pub fn generate_headers_anchored_at(anchor: TestHeader, length: u32) -> Vec<Test
             headers[i as usize - 1].hash()
         };
         let header = TestHeader::TestHeader {
-            block_number: (i + anchor.block_height()) as u64,
-            slot: (i + anchor.slot()) as u64,
+            block_number: (i + anchor.block_height() + 1) as u64,
+            slot: (i + anchor.slot() + 1) as u64,
             parent,
             body_hash: random_bytes(32).as_slice().into(),
         };

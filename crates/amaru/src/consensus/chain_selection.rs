@@ -192,7 +192,7 @@ where
         let mut best: Option<(Peer, H)> = None;
         for (peer, fragment) in self.peers_chains.iter() {
             let best_height = best.as_ref().map_or(0, |(_, tip)| tip.block_height());
-            if fragment.height() >= best_height {
+            if fragment.height() > best_height {
                 best = Some((peer.clone(), fragment.tip()));
             }
         }
