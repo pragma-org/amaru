@@ -13,7 +13,7 @@ use pallas_network::{
     facades::PeerClient,
     miniprotocols::chainsync::{self, HeaderContent, NextResponse},
 };
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration, usize};
 use tokio::{sync::Mutex, time::timeout};
 use tracing::info;
 
@@ -52,9 +52,9 @@ pub struct Args {
 
     /// Number of headers to import.
     /// Maximum number of headers to import from the `peer`.
-    /// If 0, then all available headers are retrieved, eg. until we reach the tip.
-    #[arg(long, verbatim_doc_comment, default_value = "0")]
-    count: u64,
+    /// By default, it will retrieve all headers until it reaches the tip of the peer's chain.
+    #[arg(long, verbatim_doc_comment, default_value_t = usize::MAX)]
+    count: usize,
 }
 
 #[derive(Debug, thiserror::Error, Diagnostic)]
@@ -62,6 +62,13 @@ enum Error<'a> {
     #[error("malformed point: {}", .0)]
     MalformedPoint(&'a str),
 }
+
+enum What {
+    Continue(usize, f64),
+    Stop,
+}
+
+use What::*;
 
 pub async fn run(args: Args) -> miette::Result<()> {
     let mut db = RocksDBStore::new(args.chain_database_dir)?;
@@ -79,44 +86,70 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
     let point = parse_point(args.starting_point.as_str(), Error::MalformedPoint).unwrap();
 
-    let mut pull = Stage::new(peer_session.clone(), vec![point]);
+    let mut pull = Stage::new(peer_session.clone(), vec![point.clone()]);
 
     pull.find_intersection().await.into_diagnostic()?;
 
     let mut peer_client = pull.peer_session.lock().await;
+    let mut count = 0;
+    let max = args.count;
+    let start = point.slot_or_default();
+
     let client = (*peer_client).chainsync();
 
-    if client.has_agency() {
-        request_next_block(client, &mut db)
-            .await
-            .into_diagnostic()?;
-    } else {
-        await_for_next_block(client, &mut db)
-            .await
-            .into_diagnostic()?;
+    // TODO: implement a proper pipelined client because this one is super slow
+    // Pipelining in Haskell is single threaded which implies the code handles
+    // scheduling between sending burst of MsgRequest and collecting responses.
+    // Here we can do better thanks to gasket's workers: just spawn 2 workers,
+    // one for sending requests and the other for handling responses, along
+    // with a shared counter.
+    // Pipelining stops when we reach the tip of the peer's chain.
+    loop {
+        let what = if client.has_agency() {
+            request_next_block(client, &mut db, &mut count, max, start)
+                .await
+                .into_diagnostic()?
+        } else {
+            await_for_next_block(client, &mut db, &mut count, max, start)
+                .await
+                .into_diagnostic()?
+        };
+        match what {
+            Continue(count, progress) => {
+                if count % 100 == 0 {
+                    info!(count = ?count, progress = progress * 100.0);
+                }
+                continue;
+            }
+            Stop => break,
+        }
     }
-
+    info!("header imported total: {}", count);
     Ok(())
 }
 
 async fn request_next_block(
     client: &mut chainsync::Client<HeaderContent>,
     db: &mut RocksDBStore,
-) -> Result<(), WorkerError> {
+    count: &mut usize,
+    max: usize,
+    start: u64,
+) -> Result<What, WorkerError> {
     let next = client.request_next().await.or_restart()?;
-    handle_response(next, db)?;
-
-    Ok(())
+    handle_response(next, db, count, max, start)
 }
 
 async fn await_for_next_block(
     client: &mut chainsync::Client<HeaderContent>,
     db: &mut RocksDBStore,
-) -> Result<(), WorkerError> {
+    count: &mut usize,
+    max: usize,
+    start: u64,
+) -> Result<What, WorkerError> {
     match timeout(Duration::from_secs(1), client.recv_while_must_reply()).await {
         Ok(result) => result
             .map_err(|_| WorkerError::Recv)
-            .and_then(|next| handle_response(next, db)),
+            .and_then(|next| handle_response(next, db, count, max, start)),
         Err(_) => Err(WorkerError::Retry)?,
     }
 }
@@ -124,18 +157,33 @@ async fn await_for_next_block(
 fn handle_response(
     next: NextResponse<HeaderContent>,
     db: &mut RocksDBStore,
-) -> Result<(), WorkerError> {
+    count: &mut usize,
+    max: usize,
+    start: u64,
+) -> Result<What, WorkerError> {
     match next {
-        NextResponse::RollForward(content, _tip) => {
+        NextResponse::RollForward(content, tip) => {
             let header = ConwayHeader::from_cbor(&content.cbor).unwrap();
             let hash = header.hash();
 
-            db.put(&hash, &header).map_err(|_| WorkerError::Panic)?
+            db.put(&hash, &header).map_err(|_| WorkerError::Panic)?;
+            *count += 1;
+            let slot = header.slot();
+            let tip_slot = tip.0.slot_or_default();
+            let progress = (slot - start) as f64 / (tip_slot - start) as f64;
+            if *count >= max || slot == tip_slot {
+                Ok(Stop)
+            } else {
+                Ok(Continue(*count, progress))
+            }
         }
         NextResponse::RollBackward(point, tip) => {
-            info!("rollback received {:?}/{:?}", point, tip)
+            info!("rollback received {:?}/{:?}", point, tip);
+            let slot = point.slot_or_default();
+            let tip_slot = tip.0.slot_or_default();
+            let progress = (slot - start) as f64 / (tip_slot - start) as f64;
+            Ok(Continue(*count, progress))
         }
-        NextResponse::Await => {}
-    };
-    Ok(())
+        NextResponse::Await => Ok(Continue(*count, 0.0)),
+    }
 }
