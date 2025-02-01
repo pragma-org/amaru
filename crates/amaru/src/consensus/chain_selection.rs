@@ -389,4 +389,30 @@ mod tests {
         assert_eq!(rollback_point, chain_selector.best_chain());
         assert_eq!(RollbackTo(hash), result);
     }
+
+    #[test]
+    fn roll_forward_after_a_rollback() {
+        let alice = Peer::new("alice");
+        let peers = [alice.clone()];
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
+
+        chain1.iter().for_each(|header| {
+            chain_selector.roll_forward(&alice, *header);
+        });
+
+        let rollback_point = &chain1[2];
+        let hash = rollback_point.hash();
+        let new_header = TestHeader::TestHeader {
+            block_number: (rollback_point.block_height() + 1) as u64,
+            slot: 3,
+            parent: rollback_point.hash(),
+            body_hash: random_bytes(32).as_slice().into(),
+        };
+
+        chain_selector.rollback(&alice, hash);
+        let result = chain_selector.roll_forward(&alice, new_header);
+
+        assert_eq!(NewTip(new_header), result);
+    }
 }
