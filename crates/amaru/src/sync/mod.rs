@@ -33,8 +33,8 @@ pub type Point = pallas_network::miniprotocols::Point;
 
 #[derive(Clone)]
 pub enum PullEvent {
-    RollForward(Point, RawHeader),
-    Rollback(Point),
+    RollForward(Peer, Point, RawHeader),
+    Rollback(Peer, Point),
 }
 
 pub struct Config {
@@ -69,11 +69,12 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
         .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
     let (mut ledger, tip) = amaru_ledger::Stage::new(store, config.counter.clone());
 
-    let mut pull = pull::Stage::new(client.clone(), vec![tip.clone()]);
     let peer_session = PeerSession {
         peer: Peer::new(&config.upstream_peer),
         peer_client: client.clone(),
     };
+
+    let mut pull = pull::Stage::new(peer_session.clone(), vec![tip.clone()]);
     let mut header_validation =
         consensus::Stage::new(peer_session, tip, ledger.state.clone(), config.nonces);
 

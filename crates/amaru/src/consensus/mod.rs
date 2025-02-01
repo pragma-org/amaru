@@ -16,12 +16,11 @@ use crate::{consensus::header_validation::assert_header, sync::PullEvent};
 use amaru_ledger::ValidateHeaderEvent;
 use chain_selection::ChainSelector;
 use gasket::framework::*;
-use header::ConwayHeader;
+use header::{point_hash, ConwayHeader};
 use miette::miette;
 use ouroboros::ledger::LedgerState;
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
-use pallas_network::miniprotocols::Point::*;
 use pallas_primitives::conway::Epoch;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use store::{ChainStore, SimpleChainStore};
@@ -99,15 +98,9 @@ impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
         // initialise chain selector with the current tip
         let mut chain_selector = stage.chain_selector.lock().await;
-        match &stage.tip {
-            Origin => todo!(),
-            Specific(_, header_hash) => {
-                let slice = header_hash.as_slice();
-                match stage.store.get(&Hash::from(slice)) {
-                    None => todo!(),
-                    Some(header) => chain_selector.set_tip(&header),
-                }
-            }
+        match stage.store.get(&point_hash(&stage.tip)) {
+            None => todo!(),
+            Some(header) => chain_selector.set_tip(&header),
         };
 
         // initialise chain selector with peer(s)
@@ -128,7 +121,7 @@ impl gasket::framework::Worker<Stage> for Worker {
 
     async fn execute(&mut self, unit: &PullEvent, stage: &mut Stage) -> Result<(), WorkerError> {
         match unit {
-            PullEvent::RollForward(point, raw_header) => {
+            PullEvent::RollForward(peer, point, raw_header) => {
                 let header: ConwayHeader = minicbor::decode(raw_header)
                     .map_err(|e| miette!(e))
                     .or_panic()?;
@@ -136,6 +129,8 @@ impl gasket::framework::Worker<Stage> for Worker {
                 let ledger = stage.ledger.lock().await;
 
                 assert_header(&header, raw_header, &stage.epoch_to_nonce, &*ledger)?;
+
+                stage.chain_selector.lock().await.roll_forward(peer, header);
 
                 // Make sure the Mutex is released as soon as possible
                 drop(ledger);
@@ -155,12 +150,18 @@ impl gasket::framework::Worker<Stage> for Worker {
                 stage.block_count.inc(1);
                 stage.track_validation_tip(point);
             }
-            PullEvent::Rollback(rollback) => {
+            PullEvent::Rollback(peer, rollback) => {
                 stage
                     .downstream
                     .send(ValidateHeaderEvent::Rollback(rollback.clone()).into())
                     .await
                     .or_panic()?;
+
+                stage
+                    .chain_selector
+                    .lock()
+                    .await
+                    .rollback(peer, point_hash(rollback));
 
                 stage.rollback_count.inc(1);
                 stage.track_validation_tip(rollback);

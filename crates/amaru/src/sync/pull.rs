@@ -14,17 +14,16 @@
 
 use gasket::framework::*;
 use miette::miette;
-use pallas_network::{
-    facades::PeerClient,
-    miniprotocols::{
-        chainsync::{HeaderContent, NextResponse, Tip},
-        Point,
-    },
+use pallas_network::miniprotocols::{
+    chainsync::{HeaderContent, NextResponse, Tip},
+    Point,
 };
 use pallas_traverse::MultiEraHeader;
-use std::{sync::Arc, time::Duration};
-use tokio::{sync::Mutex, time::timeout};
+use std::time::Duration;
+use tokio::time::timeout;
 use tracing::info_span;
+
+use crate::consensus::PeerSession;
 
 use super::{PullEvent, RawHeader};
 
@@ -49,7 +48,7 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
-    peer_session: Arc<Mutex<PeerClient>>,
+    peer_session: PeerSession,
     intersection: Vec<Point>,
 
     pub downstream: DownstreamPort,
@@ -59,7 +58,7 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub fn new(peer_session: Arc<Mutex<PeerClient>>, intersection: Vec<Point>) -> Self {
+    pub fn new(peer_session: PeerSession, intersection: Vec<Point>) -> Self {
         Self {
             peer_session,
             intersection,
@@ -78,8 +77,8 @@ pub struct Worker {}
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let mut peer_session = stage.peer_session.lock().await;
-        let client = (*peer_session).chainsync();
+        let mut peer_client = stage.peer_session.peer_client.lock().await;
+        let client = (*peer_client).chainsync();
 
         let span_intersect =
             info_span!(target: EVENT_TARGET, "intersect", point = ?stage.intersection).entered();
@@ -99,8 +98,8 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        let mut peer_session = stage.peer_session.lock().await;
-        let client = (*peer_session).chainsync();
+        let mut peer_client = stage.peer_session.lock().await;
+        let client = (*peer_client).chainsync();
 
         if client.has_agency() {
             // should request next block
@@ -113,8 +112,8 @@ impl gasket::framework::Worker<Stage> for Worker {
 
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
         let next = {
-            let mut peer_session = stage.peer_session.lock().await;
-            let client = (*peer_session).chainsync();
+            let mut peer_client = stage.peer_session.lock().await;
+            let client = (*peer_client).chainsync();
 
             match unit {
                 WorkUnit::Pull => client.request_next().await.or_restart()?,
@@ -130,6 +129,8 @@ impl gasket::framework::Worker<Stage> for Worker {
             }
         };
 
+        let peer = &stage.peer_session.peer;
+
         match next {
             NextResponse::RollForward(header, tip) => {
                 let header = to_traverse(&header).or_panic()?;
@@ -139,7 +140,7 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 stage
                     .downstream
-                    .send(PullEvent::RollForward(point, raw_header).into())
+                    .send(PullEvent::RollForward(peer.clone(), point, raw_header).into())
                     .await
                     .or_panic()?;
 
@@ -148,7 +149,7 @@ impl gasket::framework::Worker<Stage> for Worker {
             NextResponse::RollBackward(point, tip) => {
                 stage
                     .downstream
-                    .send(PullEvent::Rollback(point).into())
+                    .send(PullEvent::Rollback(peer.clone(), point).into())
                     .await
                     .or_panic()?;
 
