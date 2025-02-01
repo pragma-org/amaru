@@ -27,14 +27,14 @@ We will use the [opentelemetry-rust](https://github.com/open-telemetry/opentelem
 
 We will make judicious use of [Spans](https://opentelemetry.io/docs/concepts/observability-primer/#spans) to expose the structured nature of the workload the Amaru node performs.
 
-Each top level module or crate will (optionally) define its own Metrics module, which exposes a `{CrateName}Metrics` struct, with a `new(..)` method and deriving `Clone`. At the time of this decision record, this would be the Amaru binary, Conesnsus, the Ledger, and the Sync module.
+Each top level module or crate will (optionally) define its own Metrics module, which exposes a `{CrateName}Metrics` struct, with a `new(..)` method and deriving `Clone`. At the time of this decision record, this would be the Amaru binary, Consensus, the Ledger, and the Sync module.
 
 Each module or crate will, if applicable, accept an argument of type `{CrateName}Metrics` during initialization, and store an owned instance of this struct.
 
 Each metrics struct will expose a number of top-level [Counters, Gauges, or Histograms](https://docs.rs/opentelemetry/latest/opentelemetry/metrics/index.html) relevant to its workload, and in the course of performing its work, will update these accordingly. The `new(..)` method will accept an [`SdkMeterProvider`](https://docs.rs/opentelemetry_sdk/latest/opentelemetry_sdk/metrics/struct.SdkMeterProvider.html) and initialize each of the relevant objects with names, descriptions, and units as appropriate.
 
 - [Counters](https://opentelemetry.io/docs/specs/otel/metrics/api/#counter) are used to count discrete or measurable events or quantities that can be accumulated over time, such as number of blocks processed, number of bytes read, etc.
-- [Guages](https://opentelemetry.io/docs/specs/otel/metrics/api/#gauge) are used to track measurements that only make sense at a point in time, and shouldn't be added, such as current Memory or CPU usage, temperature, etc.
+- [Gauges](https://opentelemetry.io/docs/specs/otel/metrics/api/#gauge) are used to track measurements that only make sense at a point in time, and shouldn't be added, such as current Memory or CPU usage, temperature, etc.
 - [Histograms](https://opentelemetry.io/docs/specs/otel/metrics/api/#histogram) are used to track values where the statistical distributions are important, such as response latencies, where you want to query the 90th percentile, etc.
 
 Such metrics should follow the [Open Telemetry Metrics Semantics conventions](https://opentelemetry.io/docs/specs/semconv/general/metrics/).
