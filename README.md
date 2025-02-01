@@ -18,17 +18,23 @@ cargo build --release
 
 ### Running (demo)
 
-1. Import the first three [ledger snapshots](./data/README.md#cardano-ledger-snapshots):
+1. Download at lest three [ledger snapshots](./data/README.md#cardano-ledger-snapshots):
+```bash
+mkdir -p snapshots;
+curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" | jq -r '.[] | "\(.point)  \(.url)"' | while read p u ; do  \
+     echo "Fetching $p.cbor"; \
+     curl --progress-bar -o - $u | gunzip > snapshots/$p.cbor ; \
+   done
+```
+
+1. Import the snapshots you downloaded, either individually or a full directory
 
 ```console
 cargo run --release -- import \
-  --snapshot 69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor
+  --snapshot snapshots/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor
 
 cargo run --release -- import \
-  --snapshot 69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor
-
-cargo run --release -- import \
-  --snapshot 70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
+  --snapshot-dir snapshots
 ```
 
 2. Setup observability backends:

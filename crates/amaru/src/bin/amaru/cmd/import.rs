@@ -45,7 +45,11 @@ pub struct Args {
     ///
     ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
     #[arg(long, verbatim_doc_comment)]
-    snapshot: PathBuf,
+    snapshot: Option<PathBuf>,
+
+    /// Path to a directory containing multiple CBOR snapshots to import.
+    #[arg(long)]
+    snapshot_dir: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
     #[arg(long, default_value = super::DEFAULT_LEDGER_DB_DIR)]
@@ -59,8 +63,34 @@ enum Error<'a> {
 }
 
 pub async fn run(args: Args) -> miette::Result<()> {
+    if let Some(snapshot) = args.snapshot {
+        import_one(&snapshot, &args.ledger_dir).await
+    } else if let Some(snapshot_dir) = args.snapshot_dir {
+        let mut snapshots = fs::read_dir(snapshot_dir)
+            .into_diagnostic()?
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("cbor"))
+            .collect::<Vec<_>>();
+        snapshots.sort();
+
+        import_all(&snapshots, &args.ledger_dir).await
+    } else {
+        Err(miette::miette!(
+            "You must provide either a single snapshot or a directory containing multiple snapshots"
+        ))
+    }
+}
+
+async fn import_all(snapshots: &Vec<PathBuf>, ledger_dir: &PathBuf) -> miette::Result<()> {
+    for snapshot in snapshots {
+        import_one(snapshot, ledger_dir).await?;
+    }
+    Ok(())
+}
+
+async fn import_one(snapshot: &PathBuf, ledger_dir: &PathBuf) -> miette::Result<()> {
     let point = super::parse_point(
-        args.snapshot
+        snapshot
             .as_path()
             .file_stem()
             .and_then(|s| s.to_str())
@@ -69,9 +99,9 @@ pub async fn run(args: Args) -> miette::Result<()> {
     )
     .into_diagnostic()?;
 
-    fs::create_dir_all(&args.ledger_dir).into_diagnostic()?;
-    let mut db = amaru_stores::rocksdb::RocksDB::empty(&args.ledger_dir).into_diagnostic()?;
-    let bytes = fs::read(&args.snapshot).into_diagnostic()?;
+    fs::create_dir_all(ledger_dir).into_diagnostic()?;
+    let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir).into_diagnostic()?;
+    let bytes = fs::read(snapshot).into_diagnostic()?;
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point)?;
 
