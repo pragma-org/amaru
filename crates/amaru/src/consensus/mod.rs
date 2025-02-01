@@ -16,7 +16,7 @@ use crate::{consensus::header_validation::assert_header, sync::PullEvent};
 use amaru_ledger::{RawBlock, ValidateHeaderEvent};
 use chain_selection::ChainSelector;
 use gasket::framework::*;
-use header::{point_hash, ConwayHeader};
+use header::{point_hash, ConwayHeader, Header};
 use miette::miette;
 use ouroboros::ledger::LedgerState;
 use pallas_codec::minicbor;
@@ -89,6 +89,37 @@ impl Stage {
         self.validation_tip.set(tip.slot_or_default() as i64);
     }
 
+    async fn forward_block(&mut self, header: &dyn Header) -> Result<(), WorkerError> {
+        let point = header.point();
+        let block = {
+            let mut peer_session = self.peer_session.lock().await;
+            let client = (*peer_session).blockfetch();
+            client.fetch_single(point.clone()).await.or_restart()?
+        };
+
+        self.downstream
+            .send(ValidateHeaderEvent::Validated(point, block).into())
+            .await
+            .or_panic()
+    }
+
+    async fn switch_to_fork(
+        &mut self,
+        rollback_point: &Point,
+        fork: Vec<ConwayHeader>,
+    ) -> Result<(), WorkerError> {
+        self.downstream
+            .send(ValidateHeaderEvent::Rollback(rollback_point.clone()).into())
+            .await
+            .or_panic()?;
+
+        for header in fork {
+            self.forward_block(&header).await?;
+        }
+
+        Ok(())
+    }
+
     #[instrument(skip(self, raw_header))]
     async fn handle_roll_forward(
         &mut self,
@@ -123,23 +154,17 @@ impl Stage {
         drop(ledger);
 
         match result {
-            chain_selection::ChainSelection::NewTip(_) => {
-                let block = {
-                    let mut peer_session = self.peer_session.lock().await;
-                    let client = (*peer_session).blockfetch();
-                    client.fetch_single(point.clone()).await.or_restart()?
-                };
-
-                self.downstream
-                    .send(ValidateHeaderEvent::Validated(point.clone(), block).into())
-                    .await
-                    .or_panic()?;
+            chain_selection::ChainSelection::NewTip(hdr) => {
+                self.forward_block(&hdr).await?;
 
                 self.block_count.inc(1);
                 self.track_validation_tip(point);
             }
             chain_selection::ChainSelection::RollbackTo(_) => {
                 panic!("RollbackTo should never happen on a RollForward")
+            }
+            chain_selection::ChainSelection::SwitchToFork(rollback_point, fork) => {
+                self.switch_to_fork(&rollback_point, fork).await?;
             }
             chain_selection::ChainSelection::NoChange => (),
         }
@@ -155,7 +180,9 @@ impl Stage {
             .rollback(peer, point_hash(rollback));
 
         match result {
-            chain_selection::ChainSelection::NewTip(_) => todo!(), // FIXME: implement correctly by having rollback and roll forward return a proper sequence of events
+            chain_selection::ChainSelection::NewTip(_) => {
+                panic!("cannot have a new tip on a rollback")
+            } // FIXME: implement correctly by having rollback and roll forward return a proper sequence of events
             chain_selection::ChainSelection::RollbackTo(_) => {
                 self.downstream
                     .send(ValidateHeaderEvent::Rollback(rollback.clone()).into())
@@ -165,6 +192,9 @@ impl Stage {
                 self.track_validation_tip(rollback);
             }
             chain_selection::ChainSelection::NoChange => (),
+            chain_selection::ChainSelection::SwitchToFork(rollback_point, fork) => {
+                self.switch_to_fork(&rollback_point, fork).await?
+            }
         }
 
         Ok(())
