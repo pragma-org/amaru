@@ -79,6 +79,11 @@ where
         self.tip = new_tip.clone();
     }
 
+    pub fn add_peer(&mut self, peer: &Peer) {
+        self.peers_chains
+            .insert(peer.clone(), Fragment::start_from(&self.tip));
+    }
+
     /// Creates a new selector with some `tip` and following some `peers`.
     ///
     /// All the peers' fragments are anchored at the `tip` and initially

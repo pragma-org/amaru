@@ -97,7 +97,7 @@ pub struct Worker {}
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        // initialise chain selector with the current tip and peer(s)
+        // initialise chain selector with the current tip
         let mut chain_selector = stage.chain_selector.lock().await;
         match &stage.tip {
             Origin => todo!(),
@@ -109,6 +109,10 @@ impl gasket::framework::Worker<Stage> for Worker {
                 }
             }
         };
+
+        // initialise chain selector with peer(s)
+        let peer = &stage.peer_session.peer;
+        chain_selector.add_peer(peer);
 
         Ok(Self {})
     }
