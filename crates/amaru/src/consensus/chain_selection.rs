@@ -19,22 +19,30 @@ pub trait Header {
 /// Chain selection is parameterised by the header type `H`, in
 /// order to better decouple the internals of what's a header from
 /// the selection logic
-pub struct ChainSelection<H: Header> {
+pub struct ChainSelector<H: Header> {
     tip: H,
 }
 
-impl<H: Header> ChainSelection<H> {
-    pub fn new(tip: H) -> ChainSelection<H> {
-        ChainSelection { tip }
+#[derive(Debug, PartialEq)]
+pub enum ChainSelection<H: Header> {
+    NewTip(H),
+    NoChange,
+}
+
+impl<H: Header + Clone> ChainSelector<H> {
+    pub fn new(tip: H) -> ChainSelector<H> {
+        ChainSelector { tip }
     }
 
-    pub fn roll_forward(&mut self, header: H) {
+    pub fn roll_forward(&mut self, header: H) -> ChainSelection<H> {
         match header.parent() {
-            Some(parent) if parent != self.tip.hash() => return,
-            None => return,
-            _ => {}
+            Some(parent) if parent != self.tip.hash() => ChainSelection::NoChange,
+            None => panic!("genesis block is not expected to be rolled forward"),
+            _ => {
+                self.tip = header;
+                ChainSelection::NewTip(self.tip.clone())
+            }
         }
-        self.tip = header;
     }
 
     pub fn best_chain(&self) -> &H {
@@ -45,11 +53,13 @@ impl<H: Header> ChainSelection<H> {
 #[cfg(test)]
 mod tests {
 
+    use super::ChainSelection::*;
     use super::*;
+
     use pallas_codec::minicbor as cbor;
     use pallas_crypto::hash::{Hash, Hasher};
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Clone, Copy)]
     enum TestHeader {
         TestHeader {
             block_number: u64,
@@ -130,23 +140,21 @@ mod tests {
 
     #[test]
     fn extends_the_chain_with_single_header_from_genesis() {
-        let mut chain_selector = ChainSelection::new(TestHeader::Genesis);
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
         let header = TestHeader::TestHeader {
             block_number: 1,
             slot: 0,
             parent: TestHeader::Genesis.hash(),
         };
-        let h = header.hash();
 
-        chain_selector.roll_forward(header);
-        let new_tip = chain_selector.best_chain();
+        let result = chain_selector.roll_forward(header);
 
-        assert_eq!(h, new_tip.hash());
+        assert_eq!(NewTip(header), result);
     }
 
     #[test]
-    fn do_not_extend_the_chain_given_parent_does_not_match() {
-        let mut chain_selector = ChainSelection::new(TestHeader::Genesis);
+    fn do_not_extend_the_chain_given_parent_does_not_match_tip() {
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
         let header = TestHeader::TestHeader {
             block_number: 1,
             slot: 0,
@@ -157,13 +165,18 @@ mod tests {
             slot: 1,
             parent: TestHeader::Genesis.hash(),
         };
-        let h = header.hash();
 
         chain_selector.roll_forward(header);
-        chain_selector.roll_forward(new_header);
+        let result = chain_selector.roll_forward(new_header);
 
-        let new_tip = chain_selector.best_chain();
+        assert_eq!(NoChange, result);
+    }
 
-        assert_eq!(h, new_tip.hash());
+    #[test]
+    #[should_panic]
+    fn panic_when_forward_with_genesis_block() {
+        let mut chain_selector = ChainSelector::new(TestHeader::Genesis);
+
+        chain_selector.roll_forward(TestHeader::Genesis);
     }
 }
