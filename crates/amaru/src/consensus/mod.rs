@@ -42,7 +42,7 @@ pub mod store;
 pub use peer::*;
 
 #[derive(Stage)]
-#[stage(name = "header_validation", unit = "PullEvent", worker = "Worker")]
+#[stage(name = "consensus", unit = "PullEvent", worker = "Worker")]
 pub struct Stage {
     peer_session: PeerSession,
     chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
