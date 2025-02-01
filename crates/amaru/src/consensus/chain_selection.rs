@@ -59,7 +59,11 @@ pub enum ChainSelection<H: Header> {
     NoChange,
 }
 
-pub struct ChainSelectorBuilder<H> {
+/// Builder pattern for `ChainSelector`.
+///
+/// Allows incrementally adding information to build a
+/// fully functional `ChainSelector`.
+pub struct ChainSelectorBuilder<H: Header> {
     tip: Option<H>,
     peers: Vec<Peer>,
 }
@@ -72,12 +76,14 @@ impl<H: Header + Clone> ChainSelectorBuilder<H> {
         }
     }
 
-    pub fn set_tip(&mut self, new_tip: &H) {
+    pub fn set_tip(&mut self, new_tip: &H) -> &mut Self {
         self.tip = Some(new_tip.clone());
+        self
     }
 
-    pub fn add_peer(&mut self, peer: &Peer) {
+    pub fn add_peer(&mut self, peer: &Peer) -> &mut Self {
         self.peers.push(peer.clone());
+        self
     }
 
     pub fn build(&self) -> ChainSelector<H> {
@@ -110,19 +116,6 @@ impl<H> ChainSelector<H>
 where
     H: Header + Clone + Debug,
 {
-    /// Creates a new selector with some `tip` and following some `peers`.
-    ///
-    /// All the peers' fragments are anchored at the `tip` and initially
-    /// empty.
-    pub fn new(tip: H, peers: &[Peer]) -> ChainSelector<H> {
-        let peers_chains: HashMap<Peer, Fragment<H>> = peers
-            .iter()
-            .map(|peer| (peer.clone(), Fragment::start_from(&tip)))
-            .collect();
-
-        ChainSelector { tip, peers_chains }
-    }
-
     /// Roll forward the chain with a new header from given peer.
     ///
     /// The function returns the result of the chain selection process, which might lead
@@ -207,6 +200,8 @@ where
 
 #[cfg(test)]
 mod tests {
+
+    use crate::consensus::store::StoreError;
 
     use super::ChainSelection::*;
     use super::*;
@@ -360,8 +355,11 @@ mod tests {
     #[test]
     fn extends_the_chain_with_single_header_from_peer() {
         let alice = Peer::new("alice");
-        let peers = [alice.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .set_tip(&TestHeader::Genesis)
+            .build();
+
         let header = TestHeader::TestHeader {
             block_number: 1,
             slot: 0,
@@ -377,8 +375,11 @@ mod tests {
     #[test]
     fn do_not_extend_the_chain_given_parent_does_not_match_tip() {
         let alice = Peer::new("alice");
-        let peers = [alice.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .set_tip(&TestHeader::Genesis)
+            .build();
+
         let header = TestHeader::TestHeader {
             block_number: 1,
             slot: 0,
@@ -402,8 +403,10 @@ mod tests {
     #[should_panic]
     fn panic_when_forward_with_genesis_block() {
         let alice = Peer::new("alice");
-        let peers = [alice.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .set_tip(&TestHeader::Genesis)
+            .build();
 
         chain_selector.roll_forward(&alice, TestHeader::Genesis);
     }
@@ -412,8 +415,13 @@ mod tests {
     fn switch_to_fork_given_extension_is_longer_than_current_chain() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
-        let peers = [alice.clone(), bob.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .add_peer(&bob)
+            .set_tip(&TestHeader::Genesis)
+            .build();
+
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
 
@@ -433,8 +441,12 @@ mod tests {
     fn dont_switch_to_fork_given_extension_is_not_longer_than_current_chain() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
-        let peers = [alice.clone(), bob.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .add_peer(&bob)
+            .set_tip(&TestHeader::Genesis)
+            .build();
+
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
 
@@ -453,8 +465,11 @@ mod tests {
     #[test]
     fn rollback_to_point_given_chain_is_still_longest() {
         let alice = Peer::new("alice");
-        let peers = [alice.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .set_tip(&TestHeader::Genesis)
+            .build();
+
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
 
         chain1.iter().for_each(|header| {
@@ -473,8 +488,11 @@ mod tests {
     #[test]
     fn roll_forward_after_a_rollback() {
         let alice = Peer::new("alice");
-        let peers = [alice.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .set_tip(&TestHeader::Genesis)
+            .build();
+
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
 
         chain1.iter().for_each(|header| {
@@ -500,8 +518,12 @@ mod tests {
     fn rollback_can_switch_chain_given_other_chain_is_longer() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
-        let peers = [alice.clone(), bob.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .add_peer(&bob)
+            .set_tip(&TestHeader::Genesis)
+            .build();
+
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 6);
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
 
@@ -523,8 +545,10 @@ mod tests {
     #[test]
     fn rollback_trims_whole_fragment_given_point_is_not_found() {
         let alice = Peer::new("alice");
-        let peers = [alice.clone()];
-        let mut chain_selector = ChainSelector::new(TestHeader::Genesis, &peers);
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .set_tip(&TestHeader::Genesis)
+            .build();
 
         let header = TestHeader::TestHeader {
             block_number: 1,
