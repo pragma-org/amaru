@@ -26,6 +26,7 @@ use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use store::ChainStore;
 use tokio::sync::Mutex;
+use tracing::instrument;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
@@ -87,6 +88,87 @@ impl Stage {
     fn track_validation_tip(&self, tip: &Point) {
         self.validation_tip.set(tip.slot_or_default() as i64);
     }
+
+    #[instrument(skip(self, raw_header))]
+    async fn handle_roll_forward(
+        &mut self,
+        peer: &Peer,
+        point: &Point,
+        raw_header: &RawBlock,
+    ) -> Result<(), WorkerError> {
+        let header: ConwayHeader = minicbor::decode(raw_header)
+            .map_err(|e| miette!(e))
+            .or_panic()?;
+
+        // first make sure we store the header
+        self.store
+            .lock()
+            .await
+            .put(&header.compute_hash(), &header)
+            .map_err(|e| miette!(e))
+            .or_panic()?;
+
+        let ledger = self.ledger.lock().await;
+
+        // FIXME: move into chain_selector
+        assert_header(&header, raw_header, &self.epoch_to_nonce, &*ledger)?;
+
+        let result = self
+            .chain_selector
+            .lock()
+            .await
+            .roll_forward(peer, header.clone());
+
+        // Make sure the Mutex is released as soon as possible
+        drop(ledger);
+
+        match result {
+            chain_selection::ChainSelection::NewTip(_) => {
+                let block = {
+                    let mut peer_session = self.peer_session.lock().await;
+                    let client = (*peer_session).blockfetch();
+                    client.fetch_single(point.clone()).await.or_restart()?
+                };
+
+                self.downstream
+                    .send(ValidateHeaderEvent::Validated(point.clone(), block).into())
+                    .await
+                    .or_panic()?;
+
+                self.block_count.inc(1);
+                self.track_validation_tip(point);
+            }
+            chain_selection::ChainSelection::RollbackTo(_) => {
+                panic!("RollbackTo should never happen on a RollForward")
+            }
+            chain_selection::ChainSelection::NoChange => (),
+        }
+        Ok(())
+    }
+
+    #[instrument(skip(self))]
+    async fn handle_roll_back(&mut self, peer: &Peer, rollback: &Point) -> Result<(), WorkerError> {
+        let result = self
+            .chain_selector
+            .lock()
+            .await
+            .rollback(peer, point_hash(rollback));
+
+        match result {
+            chain_selection::ChainSelection::NewTip(_) => todo!(), // FIXME: implement correctly by having rollback and roll forward return a proper sequence of events
+            chain_selection::ChainSelection::RollbackTo(_) => {
+                self.downstream
+                    .send(ValidateHeaderEvent::Rollback(rollback.clone()).into())
+                    .await
+                    .or_panic()?;
+                self.rollback_count.inc(1);
+                self.track_validation_tip(rollback);
+            }
+            chain_selection::ChainSelection::NoChange => (),
+        }
+
+        Ok(())
+    }
 }
 
 pub struct Worker {}
@@ -109,64 +191,9 @@ impl gasket::framework::Worker<Stage> for Worker {
     async fn execute(&mut self, unit: &PullEvent, stage: &mut Stage) -> Result<(), WorkerError> {
         match unit {
             PullEvent::RollForward(peer, point, raw_header) => {
-                let header: ConwayHeader = minicbor::decode(raw_header)
-                    .map_err(|e| miette!(e))
-                    .or_panic()?;
-
-                let ledger = stage.ledger.lock().await;
-
-                assert_header(&header, raw_header, &stage.epoch_to_nonce, &*ledger)?;
-
-                stage
-                    .chain_selector
-                    .lock()
-                    .await
-                    .roll_forward(peer, header.clone());
-
-                stage
-                    .store
-                    .lock()
-                    .await
-                    .put(&header.compute_hash(), &header)
-                    .map_err(|e| miette!(e))
-                    .or_panic()?;
-
-                // Make sure the Mutex is released as soon as possible
-                drop(ledger);
-
-                let block = {
-                    let mut peer_session = stage.peer_session.lock().await;
-                    let client = (*peer_session).blockfetch();
-                    client.fetch_single(point.clone()).await.or_restart()?
-                };
-
-                stage
-                    .downstream
-                    .send(ValidateHeaderEvent::Validated(point.clone(), block).into())
-                    .await
-                    .or_panic()?;
-
-                stage.block_count.inc(1);
-                stage.track_validation_tip(point);
+                stage.handle_roll_forward(peer, point, raw_header).await
             }
-            PullEvent::Rollback(peer, rollback) => {
-                stage
-                    .downstream
-                    .send(ValidateHeaderEvent::Rollback(rollback.clone()).into())
-                    .await
-                    .or_panic()?;
-
-                stage
-                    .chain_selector
-                    .lock()
-                    .await
-                    .rollback(peer, point_hash(rollback));
-
-                stage.rollback_count.inc(1);
-                stage.track_validation_tip(rollback);
-            }
+            PullEvent::Rollback(peer, rollback) => stage.handle_roll_back(peer, rollback).await,
         }
-
-        Ok(())
     }
 }
