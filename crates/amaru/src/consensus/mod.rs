@@ -28,6 +28,7 @@ pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 pub type Point = pallas_network::miniprotocols::Point;
 
+pub mod chain_selection;
 pub mod header_validation;
 pub mod nonce;
 
