@@ -22,3 +22,9 @@ pub struct PeerSession {
     pub peer: Peer,
     pub peer_client: Arc<Mutex<PeerClient>>,
 }
+
+impl PeerSession {
+    pub async fn lock(&mut self) -> tokio::sync::MutexGuard<'_, PeerClient> {
+        self.peer_client.lock().await
+    }
+}

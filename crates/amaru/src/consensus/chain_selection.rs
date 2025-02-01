@@ -1,8 +1,8 @@
 use super::header::Header;
 use super::peer::Peer;
 use pallas_crypto::hash::Hash;
+use std::collections::HashMap;
 use std::fmt::Debug;
-use std::{collections::HashMap, iter::Map};
 use tracing::instrument;
 
 /// A fragment of the chain, represented by a list of headers
@@ -154,8 +154,6 @@ where
 
 #[cfg(test)]
 mod tests {
-
-    use crate::consensus::chain_selection;
 
     use super::ChainSelection::*;
     use super::*;

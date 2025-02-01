@@ -18,7 +18,6 @@ use gasket::framework::*;
 use miette::miette;
 use ouroboros::ledger::LedgerState;
 use pallas_crypto::hash::Hash;
-use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
 use pallas_traverse::MultiEraHeader;
 use std::{collections::HashMap, sync::Arc};
@@ -29,15 +28,23 @@ pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 pub type Point = pallas_network::miniprotocols::Point;
 
 pub mod chain_selection;
+pub mod header;
 pub mod header_validation;
 pub mod nonce;
 pub mod peer;
-pub mod header;
+
+pub use peer::*;
+
+#[derive(Clone)]
+pub enum ValidateHeaderEvent {
+    Validated(Point, RawBlock),
+    Rollback(Point),
+}
 
 #[derive(Stage)]
 #[stage(name = "header_validation", unit = "PullEvent", worker = "Worker")]
 pub struct Stage {
-    peer_session: Arc<Mutex<PeerClient>>,
+    peer_session: PeerSession,
 
     ledger: Arc<Mutex<dyn LedgerState>>,
     epoch_to_nonce: HashMap<Epoch, Hash<32>>,
@@ -57,7 +64,7 @@ pub struct Stage {
 
 impl Stage {
     pub fn new(
-        peer_session: Arc<Mutex<PeerClient>>,
+        peer_session: PeerSession,
         ledger: Arc<Mutex<dyn LedgerState>>,
         epoch_to_nonce: HashMap<Epoch, Hash<32>>,
     ) -> Self {
