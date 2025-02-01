@@ -121,13 +121,23 @@ impl<H: Header + Clone> ChainSelector<H> {
         &self.tip
     }
 
-    pub fn rollback(&self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
+    pub fn rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
+        let fragment = self.peers_chains.get_mut(peer).unwrap();
+        let rollback_point = fragment
+            .headers
+            .iter()
+            .position(|header| header.hash() == point)
+            .unwrap();
+        fragment.headers.truncate(rollback_point + 1);
+        self.tip = fragment.headers[rollback_point].clone();
         ChainSelection::RollbackTo(point)
     }
 }
 
 #[cfg(test)]
 mod tests {
+
+    use crate::consensus::chain_selection;
 
     use super::ChainSelection::*;
     use super::*;
@@ -371,10 +381,12 @@ mod tests {
             chain_selector.roll_forward(&alice, *header);
         });
 
-        let hash = chain1[3].hash();
+        let rollback_point = &chain1[3];
+        let hash = rollback_point.hash();
 
         let result = chain_selector.rollback(&alice, hash);
 
+        assert_eq!(rollback_point, chain_selector.best_chain());
         assert_eq!(RollbackTo(hash), result);
     }
 }
