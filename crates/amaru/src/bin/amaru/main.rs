@@ -17,7 +17,17 @@ use miette::IntoDiagnostic;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::TracerProvider};
 use panic::panic_handler;
 use std::env;
-use tracing_subscriber::EnvFilter;
+use tracing_subscriber::{
+    filter::Filtered,
+    fmt::{
+        format::{FmtSpan, Format, Json, JsonFields},
+        Layer,
+    },
+    layer::{Layered, SubscriberExt},
+    prelude::*,
+    util::SubscriberInitExt,
+    EnvFilter, Registry,
+};
 
 mod cmd;
 mod config;
@@ -27,7 +37,13 @@ mod panic;
 
 pub const SERVICE_NAME: &str = "amaru";
 
-pub const AMARU_LOG: &str = "AMARU_LOG";
+pub const AMARU_LOG_VAR: &str = "AMARU_LOG";
+
+pub const DEFAULT_AMARU_LOG_FILTER: &str = "amaru=info";
+
+pub const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
+
+pub const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=debug";
 
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -48,8 +64,74 @@ enum Command {
 struct Cli {
     #[command(subcommand)]
     command: Command,
-    #[clap(long, short, action)]
-    disable_telemetry_export: bool,
+    #[clap(long, action)]
+    with_open_telemetry: bool,
+    #[clap(long, action)]
+    with_json_traces: bool,
+}
+
+#[allow(clippy::large_enum_variant)]
+#[derive(Default)]
+enum TracingSubscriber<S> {
+    #[default]
+    Empty,
+    Registry(Registry),
+    WithOpenTelemetry(OpenTelemetryLayer<S>),
+    WithJson(JsonLayer<S>),
+    WithBoth(JsonLayer<OpenTelemetryLayer<S>>),
+}
+
+type OpenTelemetryLayer<S> = Layered<OpenTelemetryFilter<S>, S>;
+
+type OpenTelemetryFilter<S> = Filtered<
+    tracing_opentelemetry::OpenTelemetryLayer<S, opentelemetry_sdk::trace::Tracer>,
+    EnvFilter,
+    S,
+>;
+
+type JsonLayer<S> = Layered<JsonFilter<S>, S>;
+
+type JsonFilter<S> = Filtered<Layer<S, JsonFields, Format<Json>>, EnvFilter, S>;
+
+impl TracingSubscriber<Registry> {
+    fn new() -> Self {
+        Self::Registry(tracing_subscriber::registry())
+    }
+
+    fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>) {
+        match std::mem::take(self) {
+            Self::Registry(registry) => {
+                *self = TracingSubscriber::WithOpenTelemetry(registry.with(layer));
+            }
+            _ => panic!("'with_open_telemetry' called after 'with_json'"),
+        }
+    }
+
+    fn with_json<F, G>(&mut self, layer_json: F, layer_both: G)
+    where
+        F: FnOnce() -> JsonFilter<Registry>,
+        G: FnOnce() -> JsonFilter<OpenTelemetryLayer<Registry>>,
+    {
+        match std::mem::take(self) {
+            Self::Registry(registry) => {
+                *self = TracingSubscriber::WithJson(registry.with(layer_json()));
+            }
+            Self::WithOpenTelemetry(layered) => {
+                *self = TracingSubscriber::WithBoth(layered.with(layer_both()));
+            }
+            _ => panic!("'with_open_telemetry' called after 'with_json'"),
+        }
+    }
+
+    fn init(self) {
+        match self {
+            TracingSubscriber::Empty => unreachable!(),
+            TracingSubscriber::Registry(registry) => registry.init(),
+            TracingSubscriber::WithOpenTelemetry(layered) => layered.init(),
+            TracingSubscriber::WithJson(layered) => layered.init(),
+            TracingSubscriber::WithBoth(layered) => layered.init(),
+        }
+    }
 }
 
 #[tokio::main]
@@ -58,8 +140,10 @@ async fn main() -> miette::Result<()> {
 
     let args = Cli::parse();
 
-    let (metrics, teardown) = if !args.disable_telemetry_export {
-        let (otl, metrics) = setup_open_telemetry();
+    let mut subscriber = TracingSubscriber::new();
+
+    let (metrics, teardown) = if args.with_open_telemetry {
+        let (otl, metrics) = setup_open_telemetry(&mut subscriber);
         (
             Some(metrics.clone()),
             Box::new(|| teardown_open_telemetry(otl, metrics))
@@ -71,6 +155,12 @@ async fn main() -> miette::Result<()> {
             Box::new(|| Ok(())) as Box<dyn FnOnce() -> miette::Result<()>>,
         )
     };
+
+    if args.with_json_traces {
+        setup_json_traces(&mut subscriber);
+    }
+
+    subscriber.init();
 
     let result = match args.command {
         Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
@@ -86,10 +176,34 @@ async fn main() -> miette::Result<()> {
     result
 }
 
-pub fn setup_open_telemetry() -> (TracerProvider, SdkMeterProvider) {
+fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {
+    let format = || tracing_subscriber::fmt::format().json();
+    let events = || FmtSpan::ENTER | FmtSpan::EXIT;
+    let filter = || default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER);
+
+    subscriber.with_json(
+        || {
+            tracing_subscriber::fmt::layer()
+                .event_format(format())
+                .fmt_fields(JsonFields::new())
+                .with_span_events(events())
+                .with_filter(filter())
+        },
+        || {
+            tracing_subscriber::fmt::layer()
+                .event_format(format())
+                .fmt_fields(JsonFields::new())
+                .with_span_events(events())
+                .with_filter(filter())
+        },
+    )
+}
+
+fn setup_open_telemetry(
+    subscriber: &mut TracingSubscriber<Registry>,
+) -> (TracerProvider, SdkMeterProvider) {
     use opentelemetry::{trace::TracerProvider as _, KeyValue};
     use opentelemetry_sdk::{metrics::Temporality, Resource};
-    use tracing_subscriber::prelude::*;
 
     let resource = Resource::new(vec![KeyValue::new("service.name", SERVICE_NAME)]);
 
@@ -131,16 +245,14 @@ pub fn setup_open_telemetry() -> (TracerProvider, SdkMeterProvider) {
     let opentelemetry_tracer = opentelemetry_provider.tracer(SERVICE_NAME);
     let opentelemetry_layer = tracing_opentelemetry::layer()
         .with_tracer(opentelemetry_tracer)
-        .with_filter(default_trace_filter());
+        .with_filter(default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER));
 
-    tracing_subscriber::registry()
-        .with(opentelemetry_layer)
-        .init();
+    subscriber.with_open_telemetry(opentelemetry_layer);
 
     (opentelemetry_provider, metrics_provider)
 }
 
-pub fn teardown_open_telemetry(
+fn teardown_open_telemetry(
     tracing: TracerProvider,
     metrics: SdkMeterProvider,
 ) -> miette::Result<()> {
@@ -161,17 +273,13 @@ pub fn teardown_open_telemetry(
     Ok(())
 }
 
-fn default_trace_filter() -> EnvFilter {
+fn default_filter(var: &str, default: &str) -> EnvFilter {
     // NOTE: We filter all logs using 'none' to avoid dependencies polluting our traces & logs,
     // which is a not so nice side-effects of the tracing library.
     EnvFilter::builder()
         .parse(format!(
             "none,{}",
-            env::var(AMARU_LOG).ok().as_deref().unwrap_or("amaru=debug")
+            env::var(var).ok().as_deref().unwrap_or(default)
         ))
-        .unwrap_or_else(|e| panic!("invalid log/trace filters: {e}"))
-}
-
-fn default_log_filter() -> EnvFilter {
-    EnvFilter::builder().parse("none,amaru=info").unwrap()
+        .unwrap_or_else(|e| panic!("invalid {var} filters: {e}"))
 }
