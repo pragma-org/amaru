@@ -29,8 +29,8 @@ use pallas_primitives::conway::Epoch;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
-mod fetch;
-mod pull;
+pub mod fetch;
+pub mod pull;
 
 pub type Slot = u64;
 pub type BlockHash = pallas_crypto::hash::Hash<32>;

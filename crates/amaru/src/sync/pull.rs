@@ -21,15 +21,13 @@ use pallas_network::miniprotocols::{
 use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::info_span;
+use tracing::instrument;
 
 use crate::consensus::PeerSession;
 
 use super::{PullEvent, RawHeader};
 
-const EVENT_TARGET: &str = "amaru::sync";
-
-fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
+pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {
         Some((subtag, _)) => MultiEraHeader::decode(header.variant, Some(subtag), &header.cbor),
         None => MultiEraHeader::decode(header.variant, None, &header.cbor),
@@ -48,7 +46,7 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
-    peer_session: PeerSession,
+    pub peer_session: PeerSession,
     intersection: Vec<Point>,
 
     pub downstream: DownstreamPort,
@@ -70,6 +68,20 @@ impl Stage {
     fn track_tip(&self, tip: &Tip) {
         self.chain_tip.set(tip.0.slot_or_default() as i64);
     }
+
+    #[instrument(skip(self), fields(intersection = self.intersection.last().unwrap().slot_or_default()))]
+    pub async fn find_intersection(&self) -> Result<(), WorkerError> {
+        let mut peer_client = self.peer_session.peer_client.lock().await;
+        let client = (*peer_client).chainsync();
+
+        let (point, _) = client
+            .find_intersect(self.intersection.clone())
+            .await
+            .or_restart()?;
+
+        let _intersection = point.ok_or(miette!("couldn't find intersect")).or_panic()?;
+        Ok(())
+    }
 }
 
 pub struct Worker {}
@@ -77,20 +89,7 @@ pub struct Worker {}
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        let mut peer_client = stage.peer_session.peer_client.lock().await;
-        let client = (*peer_client).chainsync();
-
-        let span_intersect =
-            info_span!(target: EVENT_TARGET, "intersect", point = ?stage.intersection).entered();
-
-        let (point, _) = client
-            .find_intersect(stage.intersection.clone())
-            .await
-            .or_restart()?;
-
-        span_intersect.exit();
-
-        let _intersection = point.ok_or(miette!("couldn't find intersect")).or_panic()?;
+        stage.find_intersection().await?;
 
         let worker = Self {};
 
