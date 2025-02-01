@@ -31,6 +31,7 @@ pub type Point = pallas_network::miniprotocols::Point;
 pub mod chain_selection;
 pub mod header_validation;
 pub mod nonce;
+pub mod peer;
 
 #[derive(Stage)]
 #[stage(name = "header_validation", unit = "PullEvent", worker = "Worker")]
