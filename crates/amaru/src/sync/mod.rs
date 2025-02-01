@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    consensus::{self, peer::PeerSession, Peer},
-    ledger,
-};
+use crate::consensus::{self, peer::PeerSession, Peer};
 
+use amaru_stores::rocksdb::RocksDB;
 use gasket::runtime::Tether;
 use opentelemetry::metrics::Counter;
 use pallas_crypto::hash::Hash;

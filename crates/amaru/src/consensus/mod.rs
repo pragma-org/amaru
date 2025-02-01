@@ -15,11 +15,12 @@
 use crate::{consensus::header_validation::assert_header, sync::PullEvent};
 use amaru_ledger::ValidateHeaderEvent;
 use gasket::framework::*;
+use header::ConwayHeader;
 use miette::miette;
 use ouroboros::ledger::LedgerState;
+use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_primitives::conway::Epoch;
-use pallas_traverse::MultiEraHeader;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -34,12 +35,6 @@ pub mod nonce;
 pub mod peer;
 
 pub use peer::*;
-
-#[derive(Clone)]
-pub enum ValidateHeaderEvent {
-    Validated(Point, RawBlock),
-    Rollback(Point),
-}
 
 #[derive(Stage)]
 #[stage(name = "header_validation", unit = "PullEvent", worker = "Worker")]
@@ -105,12 +100,12 @@ impl gasket::framework::Worker<Stage> for Worker {
     async fn execute(&mut self, unit: &PullEvent, stage: &mut Stage) -> Result<(), WorkerError> {
         match unit {
             PullEvent::RollForward(point, raw_header) => {
-                let header = MultiEraHeader::decode(6, None, raw_header)
+                let header: ConwayHeader = minicbor::decode(raw_header)
                     .map_err(|e| miette!(e))
                     .or_panic()?;
 
                 let ledger = stage.ledger.lock().await;
-                assert_header(&header, &stage.epoch_to_nonce, &*ledger)?;
+                assert_header(&header, raw_header, &stage.epoch_to_nonce, &*ledger)?;
 
                 // Make sure the Mutex is released as soon as possible
                 drop(ledger);

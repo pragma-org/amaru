@@ -28,6 +28,8 @@ pallas-math.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true
 pallas-traverse.workspace = true
+rand.workspace = true
+rocksdb.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util.workspace = true

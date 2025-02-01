@@ -24,6 +24,7 @@ use ouroboros::{
 };
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
+use pallas_primitives::conway::Header;
 use pallas_traverse::{ComputeHash, MultiEraHeader};
 use serde::{Deserialize, Deserializer, Serialize};
 
@@ -280,8 +281,14 @@ fn validation_conforms_to_test_vectors() {
                     let ledger_state = mock_ledger_state(context);
                     let epoch_nonce = context.nonce;
                     let active_slot_coeff = context.active_slot_coeff_fraction();
+                    let cbor = babbage_header.raw_cbor();
+                    let pseudo_header = Header::from(babbage_header.clone());
                     let block_validator =
-                        BlockValidator::new(babbage_header, &ledger_state, &epoch_nonce, &active_slot_coeff);
+                        BlockValidator::new(&pseudo_header,
+                                            cbor,
+                                            &ledger_state,
+                                            &epoch_nonce,
+                                            &active_slot_coeff);
                     let valid_result = block_validator.validate();
 
                     match (expected, valid_result) {

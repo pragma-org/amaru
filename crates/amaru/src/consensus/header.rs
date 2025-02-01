@@ -23,7 +23,7 @@ pub trait Header {
 /// There's no difference in headers' structure between Babbage
 /// and Conway era. The idea is that we only keep concrete the header from
 /// the latest era, and convert other headers on the fly when needed.
-pub type ConwayHeader = babbage::HeaderBody;
+pub type ConwayHeader = babbage::Header;
 
 impl Header for ConwayHeader {
     fn hash(&self) -> Hash<32> {

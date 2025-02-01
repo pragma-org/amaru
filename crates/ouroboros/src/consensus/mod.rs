@@ -42,7 +42,8 @@ static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
 
 /// Validator for a block using praos consensus.
 pub struct BlockValidator<'b> {
-    header: &'b babbage::MintedHeader<'b>,
+    header: &'b babbage::Header,
+    cbor: &'b [u8],
     ledger_state: &'b dyn LedgerState,
     epoch_nonce: &'b Hash<32>,
     active_slots_coeff: &'b FixedDecimal,
@@ -50,13 +51,15 @@ pub struct BlockValidator<'b> {
 
 impl<'b> BlockValidator<'b> {
     pub fn new(
-        header: &'b babbage::MintedHeader,
+        header: &'b babbage::Header,
+        cbor: &'b [u8],
         ledger_state: &'b dyn LedgerState,
         epoch_nonce: &'b Hash<32>,
         active_slots_coeff: &'b FixedDecimal,
     ) -> Self {
         Self {
             header,
+            cbor,
             ledger_state,
             epoch_nonce,
             active_slots_coeff,
@@ -172,7 +175,7 @@ impl<'b> BlockValidator<'b> {
         trace!("kes_period: {}", kes_period);
 
         // The header_body_cbor was signed by the KES private key. Verify this with the KES public key
-        let header_body_cbor = self.header.header_body.raw_cbor();
+        let header_body_cbor = self.cbor;
         let kes_signature = KesSignature::from_bytes(kes_signature).map_err(|error| {
             ValidationError::GenericValidationError(format!("kes_signature: {}", error))
         })?;
@@ -398,6 +401,7 @@ mod tests {
     use mockall::predicate::eq;
     use pallas_crypto::hash::Hash;
     use pallas_math::math::FixedDecimal;
+    use pallas_primitives::conway::Header;
     use pallas_traverse::MultiEraHeader;
 
     #[ctor]
@@ -472,8 +476,11 @@ mod tests {
                 .expect_latest_opcert_sequence_number()
                 .returning(|_| None);
 
+            let cbor = babbage_header.raw_cbor();
+            let pseudo_header = Header::from(babbage_header.clone());
             let block_validator = BlockValidator::new(
-                babbage_header,
+                &pseudo_header,
+                cbor,
                 &ledger_state,
                 &epoch_nonce,
                 &active_slots_coeff,
