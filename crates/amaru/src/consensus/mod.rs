@@ -105,6 +105,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                     .or_panic()?;
 
                 let ledger = stage.ledger.lock().await;
+
                 assert_header(&header, raw_header, &stage.epoch_to_nonce, &*ledger)?;
 
                 // Make sure the Mutex is released as soon as possible

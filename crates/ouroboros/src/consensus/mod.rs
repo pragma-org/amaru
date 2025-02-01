@@ -430,7 +430,7 @@ mod tests {
                 "c7937fc47fecbe687891b3decd71e904d1e129598aa3852481d295eea3ea3ada",
                 6026202470912_u64,
                 22586623335121436_u64,
-                Err(ValidationError::InvalidByteLength("".to_string())),
+                Err(ValidationError::InsufficientPoolStake),
             ),
         ];
         insta::assert_yaml_snapshot!(test_vector);
@@ -475,9 +475,10 @@ mod tests {
                 .returning(|_| None);
 
             let pseudo_header = Header::from(babbage_header.clone());
+            let cbor = babbage_header.header_body.raw_cbor();
             let block_validator = BlockValidator::new(
                 &pseudo_header,
-                test_block,
+                cbor,
                 &ledger_state,
                 &epoch_nonce,
                 &active_slots_coeff,
