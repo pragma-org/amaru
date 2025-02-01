@@ -21,10 +21,13 @@ cargo build --release
 1. Download at lest three [ledger snapshots](./data/README.md#cardano-ledger-snapshots):
 ```bash
 mkdir -p snapshots;
-curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" | jq -r '.[] | "\(.point)  \(.url)"' | while read p u ; do  \
-     echo "Fetching $p.cbor"; \
-     curl --progress-bar -o - $u | gunzip > snapshots/$p.cbor ; \
-   done
+curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" \
+  | jq -r '.[] | "\(.point)  \(.url)"' \
+  | while read p u ; do  \
+      echo "Fetching $p.cbor"; \
+      curl --progress-bar -o - $u \
+        | gunzip > snapshots/$p.cbor ; \
+    done
 ```
 
 1. Import the snapshots you downloaded, either individually or a full directory
