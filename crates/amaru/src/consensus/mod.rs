@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{consensus::header_validation::assert_header, sync::PullEvent};
-use amaru_ledger::ValidateHeaderEvent;
+use amaru_ledger::{RawBlock, ValidateHeaderEvent};
 use chain_selection::ChainSelector;
 use gasket::framework::*;
 use header::{point_hash, ConwayHeader};

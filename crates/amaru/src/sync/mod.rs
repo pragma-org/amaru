@@ -12,12 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::store::rocksdb::RocksDBStore;
 use crate::consensus::{self, peer::PeerSession, Peer};
 
 use crate::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     header::{point_hash, ConwayHeader},
-    store::{ChainStore, SimpleChainStore},
+    store::ChainStore,
 };
 use amaru_stores::rocksdb::RocksDB;
 use gasket::runtime::Tether;
@@ -81,12 +82,12 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
     };
 
     let mut pull = pull::Stage::new(peer_session.clone(), vec![tip.clone()]);
-    let chain_store = SimpleChainStore::new(config.chain_database_path.clone());
+    let chain_store = RocksDBStore::new(config.chain_database_path.clone())?;
     let chain_selector = make_chain_selector(tip, &chain_store, &[&peer_session]);
     let mut consensus = consensus::Stage::new(
         peer_session,
         ledger.state.clone(),
-        Arc::new(Mutex::new(chain_store.clone())),
+        Arc::new(Mutex::new(chain_store)),
         chain_selector,
         config.nonces,
     );
@@ -110,7 +111,7 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
 
 fn make_chain_selector(
     tip: Point,
-    chain_store: &SimpleChainStore,
+    chain_store: &impl ChainStore<ConwayHeader>,
     peers: &[&PeerSession],
 ) -> Arc<Mutex<ChainSelector<ConwayHeader>>> {
     let mut builder = ChainSelectorBuilder::new();
