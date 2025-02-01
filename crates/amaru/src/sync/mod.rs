@@ -115,7 +115,7 @@ fn make_chain_selector(
     let mut builder = ChainSelectorBuilder::new();
 
     match chain_store.get(&point_hash(&tip)) {
-        None => todo!(),
+        None => panic!("Tip {:?} not found in chain store", tip),
         Some(header) => builder.set_tip(&header),
     };
 
