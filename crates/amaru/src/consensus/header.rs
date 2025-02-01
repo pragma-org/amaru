@@ -254,16 +254,6 @@ pub mod test {
                 TestHeader::Genesis => 0,
             }
         }
-
-        pub(crate) fn child_from(parent: &TestHeader) -> Self {
-            let header = TestHeader::TestHeader {
-                block_number: (parent.block_height() + 1) as u64,
-                slot: (parent.slot() + 1) as u64,
-                parent: parent.hash(),
-                body_hash: random_bytes(32).as_slice().into(),
-            };
-            header
-        }
     }
 
     /// Generate a chain of headers anchored at a given header.

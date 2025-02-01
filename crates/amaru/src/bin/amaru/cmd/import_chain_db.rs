@@ -13,7 +13,7 @@ use pallas_network::{
     facades::PeerClient,
     miniprotocols::chainsync::{self, HeaderContent, NextResponse},
 };
-use std::{path::PathBuf, sync::Arc, time::Duration, usize};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::timeout};
 use tracing::info;
 
