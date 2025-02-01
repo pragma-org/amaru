@@ -22,7 +22,9 @@ use ouroboros::ledger::LedgerState;
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_primitives::conway::Epoch;
+use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
+use store::ChainStore;
 use tokio::sync::Mutex;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
@@ -44,6 +46,7 @@ pub struct Stage {
     peer_session: PeerSession,
     chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
     ledger: Arc<Mutex<dyn LedgerState>>,
+    store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
     epoch_to_nonce: HashMap<Epoch, Hash<32>>,
 
     pub upstream: UpstreamPort,
@@ -63,6 +66,7 @@ impl Stage {
     pub fn new(
         peer_session: PeerSession,
         ledger: Arc<Mutex<dyn LedgerState>>,
+        store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
         chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
         epoch_to_nonce: HashMap<Epoch, Hash<32>>,
     ) -> Self {
@@ -70,6 +74,7 @@ impl Stage {
             peer_session,
             chain_selector,
             ledger,
+            store,
             epoch_to_nonce,
             upstream: Default::default(),
             downstream: Default::default(),
@@ -112,7 +117,19 @@ impl gasket::framework::Worker<Stage> for Worker {
 
                 assert_header(&header, raw_header, &stage.epoch_to_nonce, &*ledger)?;
 
-                stage.chain_selector.lock().await.roll_forward(peer, header);
+                stage
+                    .chain_selector
+                    .lock()
+                    .await
+                    .roll_forward(peer, header.clone());
+
+                stage
+                    .store
+                    .lock()
+                    .await
+                    .put(&header.compute_hash(), &header)
+                    .map_err(|e| miette!(e))
+                    .or_panic()?;
 
                 // Make sure the Mutex is released as soon as possible
                 drop(ledger);

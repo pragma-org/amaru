@@ -56,6 +56,7 @@ dependencies = [
  "rand",
  "rocksdb",
  "sys_metrics",
+ "tempfile",
  "thiserror 2.0.11",
  "tokio",
  "tokio-util",

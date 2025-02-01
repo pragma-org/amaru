@@ -48,6 +48,8 @@ sys_metrics.workspace = true
 envpath = { workspace = true, features = ["rand"] }
 insta = { workspace = true, features = ["json"] }
 proptest.workspace = true
+rand.workspace = true
+tempfile.workspace = true
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
