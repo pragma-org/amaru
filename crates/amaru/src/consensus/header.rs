@@ -8,9 +8,6 @@ use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 /// Interface to a header for the purpose of chain selection.
 pub trait Header {
-    /// Genesis header.
-    fn genesis() -> Self;
-
     /// Hash of the header
     ///
     /// This is used to identify the header in the chain selection.
@@ -27,6 +24,9 @@ pub trait Header {
 
     /// Slot number of the header
     fn slot(&self) -> u64;
+
+    /// Point to this header
+    fn point(&self) -> Point;
 
     /// Encode to CBOR
     fn to_cbor(&self) -> Vec<u8>;
@@ -45,10 +45,6 @@ pub trait Header {
 pub type ConwayHeader = babbage::Header;
 
 impl Header for ConwayHeader {
-    fn genesis() -> Self {
-        todo!()
-    }
-
     fn hash(&self) -> Hash<32> {
         self.compute_hash()
     }
@@ -79,6 +75,10 @@ impl Header for ConwayHeader {
     fn slot(&self) -> u64 {
         self.header_body.slot
     }
+
+    fn point(&self) -> Point {
+        Point::Specific(self.slot().into(), self.hash().to_vec())
+    }
 }
 
 /// Utility function to retrieve the hash of a `Point`.
@@ -103,10 +103,6 @@ pub enum TestHeader {
 }
 
 impl Header for TestHeader {
-    fn genesis() -> Self {
-        TestHeader::Genesis
-    }
-
     fn hash(&self) -> pallas_crypto::hash::Hash<32> {
         self.hash()
     }
@@ -145,6 +141,13 @@ impl Header for TestHeader {
         match self {
             TestHeader::TestHeader { slot, .. } => *slot,
             TestHeader::Genesis => 0,
+        }
+    }
+
+    fn point(&self) -> Point {
+        match self {
+            TestHeader::Genesis => Point::Origin,
+            _ => Point::Specific(self.slot().into(), self.hash().to_vec()),
         }
     }
 }
@@ -201,6 +204,14 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TestHeader {
 impl TestHeader {
     fn hash(&self) -> Hash<32> {
         Hasher::<256>::hash(self.to_cbor().as_slice())
+    }
+
+    #[allow(dead_code)]
+    fn point(&self) -> Point {
+        match self {
+            TestHeader::Genesis => Point::Origin,
+            _ => Point::Specific(self.slot().into(), self.hash().to_vec()),
+        }
     }
 
     fn block_height(&self) -> u32 {
