@@ -16,6 +16,7 @@ use amaru::sync::Point;
 
 pub(crate) mod daemon;
 pub(crate) mod import;
+pub(crate) mod import_chain_db;
 
 /// Default path to the on-disk ledger storage.
 pub(crate) const DEFAULT_LEDGER_DB_DIR: &str = "./ledger.db";
