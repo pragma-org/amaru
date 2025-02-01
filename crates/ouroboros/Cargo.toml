@@ -11,6 +11,7 @@ pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
 pallas-primitives.workspace = true
+pallas-traverse.workspace = true
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true

@@ -14,6 +14,11 @@
 
 use crate::consensus::{self, peer::PeerSession, Peer};
 
+use crate::consensus::{
+    chain_selection::{ChainSelector, ChainSelectorBuilder},
+    header::{point_hash, ConwayHeader},
+    store::{ChainStore, SimpleChainStore},
+};
 use amaru_stores::rocksdb::RocksDB;
 use gasket::runtime::Tether;
 use opentelemetry::metrics::Counter;
@@ -39,6 +44,7 @@ pub enum PullEvent {
 
 pub struct Config {
     pub ledger_dir: PathBuf,
+    pub chain_database_path: PathBuf,
     pub upstream_peer: String,
     pub network_magic: u32,
     pub nonces: HashMap<Epoch, Hash<32>>,
@@ -75,22 +81,47 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
     };
 
     let mut pull = pull::Stage::new(peer_session.clone(), vec![tip.clone()]);
-    let mut header_validation =
-        consensus::Stage::new(peer_session, tip, ledger.state.clone(), config.nonces);
+    let chain_store = SimpleChainStore::new(config.chain_database_path.clone());
+    let chain_selector = make_chain_selector(tip, chain_store, &[&peer_session]);
+    let mut consensus = consensus::Stage::new(
+        peer_session,
+        ledger.state.clone(),
+        chain_selector,
+        config.nonces,
+    );
 
     let (to_header_validation, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
 
     pull.downstream.connect(to_header_validation);
-    header_validation.upstream.connect(from_pull);
-    header_validation.downstream.connect(to_ledger);
+    consensus.upstream.connect(from_pull);
+    consensus.downstream.connect(to_ledger);
     ledger.upstream.connect(from_header_validation);
 
     let policy = define_gasket_policy();
 
     let pull = gasket::runtime::spawn_stage(pull, policy.clone());
-    let header_validation = gasket::runtime::spawn_stage(header_validation, policy.clone());
+    let header_validation = gasket::runtime::spawn_stage(consensus, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
 
     Ok(vec![pull, header_validation, ledger])
+}
+
+fn make_chain_selector(
+    tip: Point,
+    chain_store: SimpleChainStore,
+    peers: &[&PeerSession],
+) -> Arc<Mutex<ChainSelector<ConwayHeader>>> {
+    let mut builder = ChainSelectorBuilder::new();
+
+    match chain_store.get(&point_hash(&tip)) {
+        None => todo!(),
+        Some(header) => builder.set_tip(&header),
+    };
+
+    for peer in peers {
+        builder.add_peer(&peer.peer);
+    }
+
+    Arc::new(Mutex::new(builder.build()))
 }

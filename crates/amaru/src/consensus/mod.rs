@@ -22,8 +22,7 @@ use ouroboros::ledger::LedgerState;
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_primitives::conway::Epoch;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
-use store::{ChainStore, SimpleChainStore};
+use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
@@ -43,11 +42,9 @@ pub use peer::*;
 #[stage(name = "header_validation", unit = "PullEvent", worker = "Worker")]
 pub struct Stage {
     peer_session: PeerSession,
-    tip: Point,
     chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
     ledger: Arc<Mutex<dyn LedgerState>>,
     epoch_to_nonce: HashMap<Epoch, Hash<32>>,
-    store: SimpleChainStore,
 
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
@@ -65,19 +62,15 @@ pub struct Stage {
 impl Stage {
     pub fn new(
         peer_session: PeerSession,
-        tip: Point,
         ledger: Arc<Mutex<dyn LedgerState>>,
+        chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
         epoch_to_nonce: HashMap<Epoch, Hash<32>>,
     ) -> Self {
-        let store = SimpleChainStore::new(PathBuf::from("."));
-        let chain_selector = Arc::new(Mutex::new(ChainSelector::empty()));
         Self {
             peer_session,
-            tip,
             chain_selector,
             ledger,
             epoch_to_nonce,
-            store,
             upstream: Default::default(),
             downstream: Default::default(),
             block_count: Default::default(),
@@ -95,18 +88,7 @@ pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
-    async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        // initialise chain selector with the current tip
-        let mut chain_selector = stage.chain_selector.lock().await;
-        match stage.store.get(&point_hash(&stage.tip)) {
-            None => todo!(),
-            Some(header) => chain_selector.set_tip(&header),
-        };
-
-        // initialise chain selector with peer(s)
-        let peer = &stage.peer_session.peer;
-        chain_selector.add_peer(peer);
-
+    async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
 

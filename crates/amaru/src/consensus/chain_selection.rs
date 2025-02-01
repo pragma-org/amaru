@@ -59,31 +59,51 @@ pub enum ChainSelection<H: Header> {
     NoChange,
 }
 
-impl<H> ChainSelector<H>
-where
-    H: Header + Clone + Debug,
-{
-    /// Creates a new empty chain selector.
-    ///
-    /// This chain selector will have no peers and use the given header's genesis
-    /// block as the tip.
-    pub fn empty() -> ChainSelector<H> {
-        let tip = H::genesis();
-        ChainSelector {
-            tip,
-            peers_chains: HashMap::new(),
+pub struct ChainSelectorBuilder<H> {
+    tip: Option<H>,
+    peers: Vec<Peer>,
+}
+
+impl<H: Header + Clone> ChainSelectorBuilder<H> {
+    pub fn new() -> ChainSelectorBuilder<H> {
+        ChainSelectorBuilder {
+            tip: None,
+            peers: Vec::new(),
         }
     }
 
     pub fn set_tip(&mut self, new_tip: &H) {
-        self.tip = new_tip.clone();
+        self.tip = Some(new_tip.clone());
     }
 
     pub fn add_peer(&mut self, peer: &Peer) {
-        self.peers_chains
-            .insert(peer.clone(), Fragment::start_from(&self.tip));
+        self.peers.push(peer.clone());
     }
 
+    pub fn build(&self) -> ChainSelector<H> {
+        ChainSelector {
+            tip: self
+                .tip
+                .clone()
+                .expect("cannot build a chain selector without a tip"),
+            peers_chains: self
+                .peers
+                .iter()
+                .map(|peer| {
+                    (
+                        peer.clone(),
+                        Fragment::start_from(self.tip.as_ref().unwrap()),
+                    )
+                })
+                .collect(),
+        }
+    }
+}
+
+impl<H> ChainSelector<H>
+where
+    H: Header + Clone + Debug,
+{
     /// Creates a new selector with some `tip` and following some `peers`.
     ///
     /// All the peers' fragments are anchored at the `tip` and initially
