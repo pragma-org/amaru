@@ -1,15 +1,34 @@
-use crate::kes::{KesPublicKey, KesSignature};
-use crate::ledger::{issuer_vkey_to_pool_id, LedgerState, PoolId};
-use crate::validator::{ValidationError, Validator};
-use crate::vrf::{VrfProof, VrfProofBytes, VrfProofHashBytes, VrfPublicKey, VrfPublicKeyBytes};
-use pallas_crypto::hash::{Hash, Hasher};
-use pallas_crypto::key::ed25519::{PublicKey, Signature};
+// Copyright 2024 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::{
+    kes::{KesPublicKey, KesSignature},
+    ledger::{issuer_vkey_to_pool_id, LedgerState, PoolId},
+    validator::{ValidationError, Validator},
+    vrf::{VrfProof, VrfProofBytes, VrfProofHashBytes, VrfPublicKey, VrfPublicKeyBytes},
+};
+use pallas_crypto::{
+    hash::{Hash, Hasher},
+    key::ed25519::{PublicKey, Signature},
+};
 use pallas_math::math::{ExpOrdering, FixedDecimal, FixedPrecision};
-use pallas_primitives::babbage;
-use pallas_primitives::babbage::{derive_tagged_vrf_output, VrfDerivation};
+use pallas_primitives::{
+    babbage,
+    babbage::{derive_tagged_vrf_output, VrfDerivation},
+};
 use rayon::prelude::*;
-use std::ops::Deref;
-use std::sync::LazyLock;
+use std::{ops::Deref, sync::LazyLock};
 use tracing::{span, trace};
 
 /// The certified natural max value represents 2^256 in praos consensus
@@ -370,9 +389,11 @@ impl Validator for BlockValidator<'_> {
 
 #[cfg(test)]
 mod tests {
-    use crate::consensus::BlockValidator;
-    use crate::ledger::{MockLedgerState, PoolId, PoolSigma};
-    use crate::validator::Validator;
+    use crate::{
+        consensus::BlockValidator,
+        ledger::{MockLedgerState, PoolId, PoolSigma},
+        validator::Validator,
+    };
     use ctor::ctor;
     use mockall::predicate::eq;
     use pallas_crypto::hash::Hash;
