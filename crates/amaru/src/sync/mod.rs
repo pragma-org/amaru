@@ -24,7 +24,6 @@ use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
 use amaru_ouroboros::protocol::Point;
 use amaru_stores::rocksdb::RocksDB;
 use gasket::runtime::Tether;
-use opentelemetry::metrics::Counter;
 use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
@@ -43,7 +42,6 @@ pub struct Config {
     pub upstream_peer: String,
     pub network_magic: u32,
     pub nonces: HashMap<Epoch, Hash<32>>,
-    pub counter: Counter<u64>,
 }
 
 fn define_gasket_policy() -> gasket::runtime::Policy {
@@ -68,7 +66,7 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
     // FIXME: Take from config / command args
     let store = RocksDB::new(&config.ledger_dir)
         .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
-    let (mut ledger, tip) = amaru_ledger::Stage::new(store, config.counter.clone());
+    let (mut ledger, tip) = amaru_ledger::Stage::new(store);
 
     let peer_session = PeerSession {
         peer: Peer::new(&config.upstream_peer),

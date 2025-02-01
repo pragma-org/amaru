@@ -14,10 +14,10 @@
 
 use clap::{Parser, Subcommand};
 use miette::IntoDiagnostic;
-use opentelemetry::metrics::Counter;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::TracerProvider};
 use panic::panic_handler;
 use std::env;
+use tracing_subscriber::EnvFilter;
 
 mod cmd;
 mod config;
@@ -26,6 +26,8 @@ mod metrics;
 mod panic;
 
 pub const SERVICE_NAME: &str = "amaru";
+
+pub const AMARU_LOG: &str = "AMARU_LOG";
 
 #[derive(Debug, Subcommand)]
 enum Command {
@@ -56,50 +58,38 @@ async fn main() -> miette::Result<()> {
 
     let args = Cli::parse();
 
-    let (tracing, metrics, counter) = setup_tracing(args.disable_telemetry_export);
+    let (metrics, teardown) = if !args.disable_telemetry_export {
+        let (otl, metrics) = setup_open_telemetry();
+        (
+            Some(metrics.clone()),
+            Box::new(|| teardown_open_telemetry(otl, metrics))
+                as Box<dyn FnOnce() -> miette::Result<()>>,
+        )
+    } else {
+        (
+            None::<SdkMeterProvider>,
+            Box::new(|| Ok(())) as Box<dyn FnOnce() -> miette::Result<()>>,
+        )
+    };
 
     let result = match args.command {
-        Command::Daemon(args) => cmd::daemon::run(args, counter, metrics.clone()).await,
+        Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
         Command::Import(args) => cmd::import::run(args).await,
         Command::ImportChainDB(args) => cmd::import_chain_db::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
-    if let Err(report) = teardown_tracing(tracing, metrics) {
+    if let Err(report) = teardown() {
         eprintln!("Failed to teardown tracing: {report}");
     }
 
     result
 }
 
-pub fn setup_tracing(
-    disable_telemetry_export: bool,
-) -> (TracerProvider, SdkMeterProvider, Counter<u64>) {
-    use opentelemetry::{metrics::MeterProvider, trace::TracerProvider as _, KeyValue};
+pub fn setup_open_telemetry() -> (TracerProvider, SdkMeterProvider) {
+    use opentelemetry::{trace::TracerProvider as _, KeyValue};
     use opentelemetry_sdk::{metrics::Temporality, Resource};
-    use tracing_subscriber::{prelude::*, *};
-
-    const AMARU_LOG: &str = "AMARU_LOG";
-    const AMARU_DEV_LOG: &str = "AMARU_DEV_LOG";
-
-    // Enabling filtering from env var; but disable gasket low-level traces regardless. We use the
-    // env directive filtering here instead of the .or() / .and() Rust API provided on EnvFilter so
-    // that we allow users to override those settings should they ever want to.
-    let filter = |env: &str| {
-        EnvFilter::builder()
-            .parse(format!(
-                "info,gasket=error,{}",
-                if env == AMARU_DEV_LOG {
-                    env::var(env)
-                        .or_else(|_| env::var(AMARU_LOG))
-                        .ok()
-                        .unwrap_or_default()
-                } else {
-                    env::var(env).ok().unwrap_or_default()
-                }
-            ))
-            .unwrap_or_else(|e| panic!("invalid log/trace filters: {e}"))
-    };
+    use tracing_subscriber::prelude::*;
 
     let resource = Resource::new(vec![KeyValue::new("service.name", SERVICE_NAME)]);
 
@@ -135,37 +125,25 @@ pub fn setup_tracing(
         .with_resource(resource)
         .build();
 
-    let meter = metrics_provider.meter("amaru");
-
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
-    let fmt_layer = fmt::layer()
-        .event_format(fmt::format().with_ansi(true).pretty())
-        .with_span_events(fmt::format::FmtSpan::ENTER | fmt::format::FmtSpan::EXIT)
-        .with_filter(filter(AMARU_DEV_LOG));
-
     // Subscriber
+    let opentelemetry_tracer = opentelemetry_provider.tracer(SERVICE_NAME);
+    let opentelemetry_layer = tracing_opentelemetry::layer()
+        .with_tracer(opentelemetry_tracer)
+        .with_filter(default_trace_filter());
 
-    if disable_telemetry_export {
-        tracing_subscriber::registry().with(fmt_layer).init();
-    } else {
-        let opentelemetry_tracer = opentelemetry_provider.tracer(SERVICE_NAME);
-        let opentelemetry_layer = tracing_opentelemetry::layer()
-            .with_tracer(opentelemetry_tracer)
-            .with_filter(filter(AMARU_LOG));
+    tracing_subscriber::registry()
+        .with(opentelemetry_layer)
+        .init();
 
-        tracing_subscriber::registry()
-            .with(fmt_layer)
-            .with(opentelemetry_layer)
-            .init();
-    }
-
-    let counter = meter.u64_counter("block.count").build();
-
-    (opentelemetry_provider, metrics_provider, counter)
+    (opentelemetry_provider, metrics_provider)
 }
 
-pub fn teardown_tracing(tracing: TracerProvider, metrics: SdkMeterProvider) -> miette::Result<()> {
+pub fn teardown_open_telemetry(
+    tracing: TracerProvider,
+    metrics: SdkMeterProvider,
+) -> miette::Result<()> {
     // Shut down the providers so that it flushes any remaining spans
     // TODO: we might also want to wrap this in a timeout, so we don't hold the process open forever?
     tracing.shutdown().into_diagnostic()?;
@@ -181,4 +159,19 @@ pub fn teardown_tracing(tracing: TracerProvider, metrics: SdkMeterProvider) -> m
     opentelemetry::global::shutdown_tracer_provider();
 
     Ok(())
+}
+
+fn default_trace_filter() -> EnvFilter {
+    // NOTE: We filter all logs using 'none' to avoid dependencies polluting our traces & logs,
+    // which is a not so nice side-effects of the tracing library.
+    EnvFilter::builder()
+        .parse(format!(
+            "none,{}",
+            env::var(AMARU_LOG).ok().as_deref().unwrap_or("amaru=debug")
+        ))
+        .unwrap_or_else(|e| panic!("invalid log/trace filters: {e}"))
+}
+
+fn default_log_filter() -> EnvFilter {
+    EnvFilter::builder().parse("none,amaru=info").unwrap()
 }
