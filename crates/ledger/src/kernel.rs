@@ -1,9 +1,25 @@
-// This module acts as an anti-corruption layer between the amaru codebase and pallas. Said
-// differently, it mostly re-exports primitives and types from pallas, in a way that prevent pallas
-// imports from spreading across the rest of the ledger sub-component.
+// Copyright 2024 PRAGMA
 //
-// It's also the right place to put rather general functions or types that ought to be in pallas.
-// While elements are being contributed upstream, they might transiently live in this module.
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+/*
+This module acts as an anti-corruption layer between the amaru codebase and pallas. Said
+differently, it mostly re-exports primitives and types from pallas, in a way that prevent pallas
+imports from spreading across the rest of the ledger sub-component.
+
+It's also the right place to put rather general functions or types that ought to be in pallas.
+While elements are being contributed upstream, they might transiently live in this module.
+*/
 
 use std::sync::LazyLock;
 
