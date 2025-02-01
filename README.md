@@ -33,6 +33,8 @@ curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main
 cargo run --release -- import \
   --snapshot snapshots/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor
 
+# OR
+
 cargo run --release -- import \
   --snapshot-dir snapshots
 ```
