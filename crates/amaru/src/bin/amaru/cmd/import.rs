@@ -44,8 +44,10 @@ pub struct Args {
     /// For example:
     ///
     ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
-    #[arg(long, verbatim_doc_comment)]
-    snapshot: Option<PathBuf>,
+    ///
+    /// Can be repeated multiple times for multiple snapshots.
+    #[arg(long, verbatim_doc_comment, num_args(0..))]
+    snapshot: Vec<PathBuf>,
 
     /// Path to a directory containing multiple CBOR snapshots to import.
     #[arg(long)]
@@ -63,8 +65,8 @@ enum Error<'a> {
 }
 
 pub async fn run(args: Args) -> miette::Result<()> {
-    if let Some(snapshot) = args.snapshot {
-        import_one(&snapshot, &args.ledger_dir).await
+    if !args.snapshot.is_empty() {
+        import_all(&args.snapshot, &args.ledger_dir).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
         let mut snapshots = fs::read_dir(snapshot_dir)
             .into_diagnostic()?
@@ -82,6 +84,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 }
 
 async fn import_all(snapshots: &Vec<PathBuf>, ledger_dir: &PathBuf) -> miette::Result<()> {
+    info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
         import_one(snapshot, ledger_dir).await?;
     }
@@ -89,6 +92,7 @@ async fn import_all(snapshots: &Vec<PathBuf>, ledger_dir: &PathBuf) -> miette::R
 }
 
 async fn import_one(snapshot: &PathBuf, ledger_dir: &PathBuf) -> miette::Result<()> {
+    info!("Importing snapshot {}", snapshot.display());
     let point = super::parse_point(
         snapshot
             .as_path()

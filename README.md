@@ -37,9 +37,13 @@ cargo run --release -- import \
   --snapshot snapshots/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor
 
 # OR
-
 cargo run --release -- import \
-  --snapshot-dir snapshots
+  --snapshot snapshots/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor \
+  --snapshot snapshots/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
+
+# OR
+
+cargo run --release -- import --snapshot-dir snapshots
 ```
 
 2. Setup observability backends:
