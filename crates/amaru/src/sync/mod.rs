@@ -14,15 +14,16 @@
 
 use amaru_consensus::consensus;
 use amaru_consensus::consensus::store::rocksdb::RocksDBStore;
-
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     header::{point_hash, ConwayHeader},
     store::ChainStore,
 };
 use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
-use amaru_ouroboros::protocol::Point;
+use amaru_ouroboros::protocol::{Point, PullEvent};
 use amaru_stores::rocksdb::RocksDB;
+use gasket::messaging::tokio::funnel_ports;
+use gasket::messaging::OutputPort;
 use gasket::runtime::Tether;
 use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
@@ -39,7 +40,7 @@ pub type BlockHash = pallas_crypto::hash::Hash<32>;
 pub struct Config {
     pub ledger_dir: PathBuf,
     pub chain_dir: PathBuf,
-    pub upstream_peer: String,
+    pub upstream_peers: Vec<String>,
     pub network_magic: u32,
     pub nonces: HashMap<Epoch, Hash<32>>,
 }
@@ -62,49 +63,67 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
     }
 }
 
-pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Result<Vec<Tether>> {
+pub fn bootstrap(
+    config: Config,
+    clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
+) -> miette::Result<Vec<Tether>> {
     // FIXME: Take from config / command args
     let store = RocksDB::new(&config.ledger_dir)
         .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
     let (mut ledger, tip) = amaru_ledger::Stage::new(store);
 
-    let peer_session = PeerSession {
-        peer: Peer::new(&config.upstream_peer),
-        peer_client: client.clone(),
-    };
+    let peer_sessions: Vec<PeerSession> = clients
+        .iter()
+        .map(|(peer_name, client)| PeerSession {
+            peer: Peer::new(peer_name),
+            peer_client: client.clone(),
+        })
+        .collect();
 
-    let mut pull = pull::Stage::new(peer_session.clone(), vec![tip.clone()]);
+    let mut pulls = peer_sessions
+        .iter()
+        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
+        .collect::<Vec<_>>();
     let chain_store = RocksDBStore::new(config.chain_dir.clone())?;
-    let chain_selector = make_chain_selector(tip, &chain_store, &[&peer_session]);
+    let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions);
     let mut consensus = consensus::Stage::new(
-        peer_session,
+        peer_sessions,
         ledger.state.clone(),
         Arc::new(Mutex::new(chain_store)),
         chain_selector,
         config.nonces,
     );
 
-    let (to_header_validation, from_pull) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
 
-    pull.downstream.connect(to_header_validation);
-    consensus.upstream.connect(from_pull);
+    let outputs: Vec<&mut OutputPort<PullEvent>> = pulls
+        .iter_mut()
+        .map(|p| &mut p.downstream)
+        .collect::<Vec<_>>();
+    funnel_ports(outputs, &mut consensus.upstream, 50);
     consensus.downstream.connect(to_ledger);
     ledger.upstream.connect(from_header_validation);
 
     let policy = define_gasket_policy();
 
-    let pull = gasket::runtime::spawn_stage(pull, policy.clone());
+    let mut pulls = pulls
+        .into_iter()
+        .map(|p| gasket::runtime::spawn_stage(p, policy.clone()))
+        .collect::<Vec<_>>();
+
     let header_validation = gasket::runtime::spawn_stage(consensus, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
 
-    Ok(vec![pull, header_validation, ledger])
+    pulls.push(header_validation);
+    pulls.push(ledger);
+
+    Ok(pulls)
 }
 
 fn make_chain_selector(
     tip: Point,
     chain_store: &impl ChainStore<ConwayHeader>,
-    peers: &[&PeerSession],
+    peers: &Vec<PeerSession>,
 ) -> Arc<Mutex<ChainSelector<ConwayHeader>>> {
     let mut builder = ChainSelectorBuilder::new();
 

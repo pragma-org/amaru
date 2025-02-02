@@ -53,7 +53,7 @@ cargo run --release -- import --snapshot-dir snapshots
 
 ```console
 cargo run --release -- import-chain-db \
-  --peer 127.0.0.1:3000 --starting-point 69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7
+  --peer-address 127.0.0.1:3000 --starting-point 69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7
 ```
 
 > [!WARNING]
@@ -75,7 +75,7 @@ AMARU_DEV_LOG=warn cargo run --release -- daemon \
 
 > [!TIP]
 > Replace `--peer-address` with your Cardano node peer address. It can be either
-> a local or remote node (i.e. any existing node relay).
+> a local or remote node (i.e. any existing node relay), and you can even add multiple peers.
 
 ### Monitoring
 

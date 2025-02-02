@@ -20,7 +20,7 @@ use tokio::sync::Mutex;
 /// A single peer in the network, with a unique identifier.
 #[derive(Debug, PartialEq, Eq, Hash, Clone)]
 pub struct Peer {
-    name: String,
+    pub name: String,
 }
 
 impl Peer {

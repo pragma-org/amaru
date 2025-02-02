@@ -66,7 +66,7 @@ impl Stage {
         self.chain_tip.set(tip.0.slot_or_default() as i64);
     }
 
-    #[instrument(level = Level::DEBUG, skip(self), fields(intersection = self.intersection.last().unwrap().slot_or_default()))]
+    #[instrument(level = Level::DEBUG, skip(self), fields(peer = ?self.peer_session.peer.name, intersection = self.intersection.last().unwrap().slot_or_default()))]
     pub async fn find_intersection(&self) -> Result<(), WorkerError> {
         let mut peer_client = self.peer_session.peer_client.lock().await;
         let client = (*peer_client).chainsync();

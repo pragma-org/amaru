@@ -94,8 +94,12 @@ pub enum ChainSelection<H: Header> {
     NoChange,
 
     /// The current best chain has switched to given fork starting at
-    /// given hash.
-    SwitchToFork(Point, Vec<H>),
+    /// given hash, from given Peer.
+    ///
+    /// FIXME: The peer should not be needed here, as the fork should be
+    /// comprised of known blocks. It is only needed to download the blocks
+    /// we don't currently store.
+    SwitchToFork(Peer, Point, Vec<H>),
 }
 
 /// Builder pattern for `ChainSelector`.
@@ -169,16 +173,22 @@ where
                 let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
                 let result = if best_tip.parent().unwrap() == self.tip.hash() {
+                    info!(target: "amaru::consensus::chain_selection::new_tip", hash = ?header.hash().to_string(), slot = ?header.slot());
                     ChainSelection::NewTip(header.clone())
                 } else if best_tip.block_height() > self.tip.block_height() {
                     let fragment = self.peers_chains.get(&best_peer).unwrap();
-                    ChainSelection::SwitchToFork(fragment.anchor.point(), fragment.headers.clone())
+                    info!(target: "amaru::consensus::chain_selection::switch_to_fork", peer = ?best_peer,
+                          hash = ?best_tip.hash().to_string(), slot = ?best_tip.slot());
+                    ChainSelection::SwitchToFork(
+                        best_peer,
+                        fragment.anchor.point(),
+                        fragment.headers.clone(),
+                    )
                 } else {
                     ChainSelection::NoChange
                 };
 
                 if result != ChainSelection::NoChange {
-                    info!(target: "amaru::consensus::chain_selection::new_tip", hash = ?header.hash().to_string(), slot = ?header.slot());
                     self.tip = header;
                 }
 
@@ -210,7 +220,11 @@ where
             let fragment = self.peers_chains.get(&best_peer).unwrap();
             // TODO: do not always switch to anchor if there's a better intersection
             // with current chain
-            ChainSelection::SwitchToFork(fragment.anchor.point(), fragment.headers.clone())
+            ChainSelection::SwitchToFork(
+                best_peer,
+                fragment.anchor.point(),
+                fragment.headers.clone(),
+            )
         };
 
         self.tip = best_tip.clone();
@@ -328,7 +342,7 @@ mod tests {
             .map(|header| chain_selector.roll_forward(&bob, *header))
             .last();
 
-        assert_eq!(SwitchToFork(Point::Origin, chain2), result.unwrap());
+        assert_eq!(SwitchToFork(bob, Point::Origin, chain2), result.unwrap());
     }
 
     #[test]
@@ -432,6 +446,6 @@ mod tests {
         let rollback_point = &chain1[3];
         let result = chain_selector.rollback(&alice, rollback_point.hash());
 
-        assert_eq!(SwitchToFork(Point::Origin, chain2), result);
+        assert_eq!(SwitchToFork(bob, Point::Origin, chain2), result);
     }
 }
