@@ -170,7 +170,11 @@ fn handle_response(
             *count += 1;
             let slot = header.slot();
             let tip_slot = tip.0.slot_or_default();
-            let progress = (slot - start) as f64 / (tip_slot - start) as f64;
+            let progress = if tip_slot > start {
+                (slot - start) as f64 / (tip_slot - start) as f64
+            } else {
+                0.0
+            };
             if *count >= max || slot == tip_slot {
                 Ok(Stop)
             } else {
