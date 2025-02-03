@@ -34,6 +34,9 @@ enum Command {
 
     /// Import the ledger state from a CBOR export produced by the Haskell node.
     Import(cmd::import::Args),
+
+    /// Import the chain DB from another node
+    ImportChainDB(cmd::import_chain_db::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -58,6 +61,7 @@ async fn main() -> miette::Result<()> {
     let result = match args.command {
         Command::Daemon(args) => cmd::daemon::run(args, counter, metrics.clone()).await,
         Command::Import(args) => cmd::import::run(args).await,
+        Command::ImportChainDB(args) => cmd::import_chain_db::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
