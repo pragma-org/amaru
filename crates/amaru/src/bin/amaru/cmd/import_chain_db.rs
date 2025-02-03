@@ -3,10 +3,10 @@ use amaru_consensus::consensus::{
     header::{ConwayHeader, Header},
     store::{rocksdb::RocksDBStore, ChainStore},
 };
+use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
 use clap::Parser;
 use gasket::framework::*;
 use miette::{Diagnostic, IntoDiagnostic};
-use ouroboros::protocol::peer::{Peer, PeerSession};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::chainsync::{self, HeaderContent, NextResponse},

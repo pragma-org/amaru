@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_ledger::kernel::epoch_from_slot;
+use amaru_ouroboros::{consensus::BlockValidator, ledger::LedgerState, validator::Validator};
 use gasket::framework::*;
-use ouroboros::{consensus::BlockValidator, ledger::LedgerState, validator::Validator};
 use pallas_crypto::hash::Hash;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_primitives::conway::Epoch;

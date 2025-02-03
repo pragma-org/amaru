@@ -23,8 +23,8 @@ While elements are being contributed upstream, they might transiently live in th
 
 use std::sync::LazyLock;
 
+pub use amaru_ouroboros::ledger::PoolSigma;
 use num::{rational::Ratio, BigUint};
-pub use ouroboros::ledger::PoolSigma;
 use pallas_addresses::*;
 pub use pallas_codec::{
     minicbor as cbor,

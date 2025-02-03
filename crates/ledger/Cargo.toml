@@ -27,7 +27,7 @@ serde = { workspace = true, features = ["derive"] }
 tokio.workspace = true
 tracing.workspace = true
 
-ouroboros = { path = "../ouroboros" }
+amaru-ouroboros = { path = "../ouroboros" }
 
 [dev-dependencies]
 proptest.workspace = true

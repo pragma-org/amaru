@@ -11,7 +11,7 @@ fn validate_conway_block() {
     )];
 
     for (pool_id_str, vrf_vkey_hash_str, epoch_nonce_str, numerator, denominator) in test_vector {
-        let _ = ouroboros::consensus::test::validate_conway_block(
+        let _ = amaru_ouroboros::consensus::test::validate_conway_block(
             pool_id_str,
             vrf_vkey_hash_str,
             epoch_nonce_str,

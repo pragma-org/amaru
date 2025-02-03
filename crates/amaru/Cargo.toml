@@ -37,9 +37,9 @@ tracing-opentelemetry.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "std"] }
 tracing.workspace = true
 
-ouroboros = { path = "../ouroboros" }
 amaru-consensus = { path = "../consensus" }
 amaru-ledger = { path = "../ledger" }
+amaru-ouroboros = { path = "../ouroboros" }
 amaru-stores = { path = "../stores" }
 
 [target.'cfg(not(windows))'.dependencies]
