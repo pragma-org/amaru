@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::ValidateHeaderEvent, sync::PullEvent};
 use amaru_ledger::kernel::epoch_from_slot;
 use gasket::framework::*;
 use ouroboros::{consensus::BlockValidator, ledger::LedgerState, validator::Validator};
@@ -23,9 +22,6 @@ use std::collections::HashMap;
 use tracing::{instrument, warn};
 
 use super::header::ConwayHeader;
-
-pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
-pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 
 #[instrument(skip_all)]
 pub fn assert_header<'a>(

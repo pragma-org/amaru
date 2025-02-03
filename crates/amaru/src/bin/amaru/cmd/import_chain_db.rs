@@ -1,14 +1,12 @@
-use amaru::{
-    consensus::{
-        header::{ConwayHeader, Header},
-        store::{rocksdb::RocksDBStore, ChainStore},
-        Peer, PeerSession,
-    },
-    sync::pull::Stage,
+use amaru::sync;
+use amaru_consensus::consensus::{
+    header::{ConwayHeader, Header},
+    store::{rocksdb::RocksDBStore, ChainStore},
 };
 use clap::Parser;
 use gasket::framework::*;
 use miette::{Diagnostic, IntoDiagnostic};
+use ouroboros::protocol::peer::{Peer, PeerSession};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::chainsync::{self, HeaderContent, NextResponse},
@@ -86,7 +84,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
     let point = parse_point(args.starting_point.as_str(), Error::MalformedPoint).unwrap();
 
-    let mut pull = Stage::new(peer_session.clone(), vec![point.clone()]);
+    let mut pull = sync::pull::Stage::new(peer_session.clone(), vec![point.clone()]);
 
     pull.find_intersection().await.into_diagnostic()?;
 

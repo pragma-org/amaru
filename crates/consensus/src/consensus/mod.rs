@@ -12,13 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::header_validation::assert_header, sync::PullEvent};
+use crate::consensus::header_validation::assert_header;
 use amaru_ledger::{RawBlock, ValidateHeaderEvent};
 use chain_selection::ChainSelector;
 use gasket::framework::*;
 use header::{point_hash, ConwayHeader, Header};
 use miette::miette;
-use ouroboros::ledger::LedgerState;
+use ouroboros::protocol::{peer::*, Point, PullEvent};
+use ouroboros::{ledger::LedgerState, protocol::peer};
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_primitives::conway::Epoch;
@@ -30,16 +31,12 @@ use tracing::instrument;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
-pub type Point = pallas_network::miniprotocols::Point;
 
 pub mod chain_selection;
 pub mod header;
 pub mod header_validation;
 pub mod nonce;
-pub mod peer;
 pub mod store;
-
-pub use peer::*;
 
 #[derive(Stage)]
 #[stage(name = "consensus", unit = "PullEvent", worker = "Worker")]

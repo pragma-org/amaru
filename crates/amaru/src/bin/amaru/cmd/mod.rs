@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::sync::Point;
+use ouroboros::protocol::Point;
 
 pub(crate) mod daemon;
 pub(crate) mod import;

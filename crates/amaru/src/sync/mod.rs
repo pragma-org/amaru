@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::store::rocksdb::RocksDBStore;
-use crate::consensus::{self, peer::PeerSession, Peer};
+use amaru_consensus::consensus;
+use amaru_consensus::consensus::store::rocksdb::RocksDBStore;
 
-use crate::consensus::{
+use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     header::{point_hash, ConwayHeader},
     store::ChainStore,
@@ -23,6 +23,8 @@ use crate::consensus::{
 use amaru_stores::rocksdb::RocksDB;
 use gasket::runtime::Tether;
 use opentelemetry::metrics::Counter;
+use ouroboros::protocol::peer::{Peer, PeerSession};
+use ouroboros::protocol::Point;
 use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
@@ -34,14 +36,6 @@ pub mod pull;
 
 pub type Slot = u64;
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
-pub type RawHeader = Vec<u8>;
-pub type Point = pallas_network::miniprotocols::Point;
-
-#[derive(Clone)]
-pub enum PullEvent {
-    RollForward(Peer, Point, RawHeader),
-    Rollback(Peer, Point),
-}
 
 pub struct Config {
     pub ledger_dir: PathBuf,

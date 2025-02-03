@@ -12,9 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod consensus;
-pub mod kes;
-pub mod ledger;
-pub mod protocol;
-pub mod validator;
-pub mod vrf;
+use peer::Peer;
+
+pub mod peer;
+
+pub type RawHeader = Vec<u8>;
+pub type Point = pallas_network::miniprotocols::Point;
+
+#[derive(Clone)]
+pub enum PullEvent {
+    RollForward(Peer, Point, RawHeader),
+    Rollback(Peer, Point),
+}

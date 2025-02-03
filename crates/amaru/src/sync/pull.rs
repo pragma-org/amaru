@@ -14,6 +14,7 @@
 
 use gasket::framework::*;
 use miette::miette;
+use ouroboros::protocol::{peer::PeerSession, PullEvent, RawHeader};
 use pallas_network::miniprotocols::{
     chainsync::{HeaderContent, NextResponse, Tip},
     Point,
@@ -22,10 +23,6 @@ use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::instrument;
-
-use crate::consensus::PeerSession;
-
-use super::{PullEvent, RawHeader};
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {

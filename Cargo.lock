@@ -30,6 +30,7 @@ dependencies = [
 name = "amaru"
 version = "0.1.0"
 dependencies = [
+ "amaru-consensus",
  "amaru-ledger",
  "amaru-stores",
  "async-trait",
@@ -63,6 +64,35 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "amaru-consensus"
+version = "0.1.0"
+dependencies = [
+ "amaru-ledger",
+ "async-trait",
+ "envpath",
+ "gasket",
+ "hex",
+ "indicatif",
+ "indoc",
+ "insta",
+ "miette",
+ "ouroboros",
+ "pallas-codec",
+ "pallas-crypto",
+ "pallas-math",
+ "pallas-network",
+ "pallas-primitives",
+ "pallas-traverse",
+ "proptest",
+ "rand",
+ "rocksdb",
+ "tempfile",
+ "thiserror 2.0.11",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -2311,6 +2341,7 @@ dependencies = [
  "pallas-codec",
  "pallas-crypto",
  "pallas-math",
+ "pallas-network",
  "pallas-primitives",
  "pallas-traverse",
  "rand",
@@ -2318,6 +2349,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.11",
+ "tokio",
  "tracing",
  "tracing-subscriber",
  "vrf_dalek",

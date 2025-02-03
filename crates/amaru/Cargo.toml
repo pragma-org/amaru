@@ -38,6 +38,7 @@ tracing-subscriber = { workspace = true, features = ["env-filter", "std"] }
 tracing.workspace = true
 
 ouroboros = { path = "../ouroboros" }
+amaru-consensus = { path = "../consensus" }
 amaru-ledger = { path = "../ledger" }
 amaru-stores = { path = "../stores" }
 

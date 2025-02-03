@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::{config::NetworkName, metrics::track_system_metrics};
-use amaru::{consensus::nonce, sync::Config};
+use amaru::sync::Config;
+use amaru_consensus::consensus::nonce;
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::IntoDiagnostic;
 use opentelemetry::metrics::Counter;
