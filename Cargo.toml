@@ -40,7 +40,7 @@ rand = "0.8"
 rayon = "1.10"
 rocksdb = "0.22.0"
 serde = "1.0"
-serde_json = "1.0.128"
+serde_json = { version = "1.0.128", default-features = false }
 tempfile = "3.15.0"
 thiserror = "2.0.3"
 tokio = "1.40.0"
