@@ -61,12 +61,13 @@ impl<H: Header + Clone> Fragment<H> {
     }
 
     fn extend_with(&mut self, header: &H) -> FragmentExtension {
-        if header.parent().unwrap() == self.tip().hash() {
-            self.headers.push(header.clone());
-            FragmentExtension::Extend
-        } else {
-            FragmentExtension::Ignore
+        if let Some(parent) = header.parent() {
+            if parent == self.tip().hash() {
+                self.headers.push(header.clone());
+                return FragmentExtension::Extend;
+            }
         }
+        FragmentExtension::Ignore
     }
 }
 
@@ -292,15 +293,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn panic_when_forward_with_genesis_block() {
+    fn dont_change_when_forward_with_genesis_block() {
         let alice = Peer::new("alice");
         let mut chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
             .set_tip(&TestHeader::Genesis)
             .build();
 
-        chain_selector.roll_forward(&alice, TestHeader::Genesis);
+        let result = chain_selector.roll_forward(&alice, TestHeader::Genesis);
+
+        assert_eq!(NoChange, result);
     }
 
     #[test]
