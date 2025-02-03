@@ -182,7 +182,7 @@ impl Stage {
         match result {
             chain_selection::ChainSelection::NewTip(_) => {
                 panic!("cannot have a new tip on a rollback")
-            } // FIXME: implement correctly by having rollback and roll forward return a proper sequence of events
+            }
             chain_selection::ChainSelection::RollbackTo(_) => {
                 self.downstream
                     .send(ValidateHeaderEvent::Rollback(rollback.clone()).into())
