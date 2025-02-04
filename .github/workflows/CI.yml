@@ -17,8 +17,21 @@ env:
   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
 
 jobs:
+  sanity:
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ${{ runner.os }}
+      - name: Check format
+        run: cargo fmt-amaru
+      - name: Run clippy
+        run: cargo clippy-amaru
   build:
     name: Build on ${{ matrix.environments.runner }} with target ${{ matrix.environments.target }}
+    needs: sanity
     strategy:
       fail-fast: false
       matrix:
@@ -43,10 +56,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ runner.os }}-${{ matrix.environments.target }}
-      - name: Check format
-        run: cargo fmt-amaru
-      - name: Run clippy
-        run: cargo clippy-amaru
       - run: rustup target add ${{ matrix.environments.target }}
       - name: Run tests
         run: |
