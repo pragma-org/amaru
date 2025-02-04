@@ -17,7 +17,7 @@ Finally, we want to avoid overly onerous process obsession, so use of the logboo
 ## Decision
 
 - We will create a "Logbook" directory intended to capture these kinds of informal notes.
-- It will have a `team.md` file with a series of entries headings with the date in descending order.
+- It will have a `log.md` file with a series of entries headings with the date in descending order.
 - Any developer is encouraged to add an entry to the team logbook tracking their progress, thoughts, experiments, successes, failures, etc.
 - Meetings among the core maintainers should also result in an entry added to the logbook if anything of substance is discussed.
 - Additionally, the logbook can become an unofficial interconnected knowledge base; If you'd like to save some useful command, benchmarking result, musings on some experimental approach, etc. you may create a dedicated markdown file for it in the logbook directory.
