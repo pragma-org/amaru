@@ -91,7 +91,6 @@ impl RocksDB {
                 .unwrap_or_default()
                 .parse::<Epoch>()
             {
-                info!(target: EVENT_TARGET, epoch, "new.found_snapshot");
                 snapshots.push(epoch);
             } else if entry.file_name() != DIR_LIVE_DB {
                 warn!(
@@ -103,6 +102,8 @@ impl RocksDB {
         }
 
         snapshots.sort();
+
+        info!(target: EVENT_TARGET, snapshots = ?snapshots, "new.known_snapshots");
 
         let mut opts = Options::default();
         opts.create_if_missing(true);
