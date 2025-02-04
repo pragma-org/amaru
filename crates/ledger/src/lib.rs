@@ -17,12 +17,11 @@ use crate::{
     state::BackwardErr,
 };
 use gasket::framework::*;
-use opentelemetry::metrics::Counter;
 use pallas_codec::minicbor as cbor;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::Mutex;
-use tracing::{error, info_span, warn};
+use tracing::{debug_span, error, warn};
 
 const EVENT_TARGET: &str = "amaru::ledger";
 
@@ -51,7 +50,6 @@ where
 {
     pub upstream: UpstreamPort,
     pub state: Arc<Mutex<state::State<T, T::Error>>>,
-    pub counter: Counter<u64>,
 }
 
 impl<T: Store> gasket::framework::Stage for Stage<T> {
@@ -68,7 +66,7 @@ impl<T: Store> gasket::framework::Stage for Stage<T> {
 }
 
 impl<T: Store> Stage<T> {
-    pub fn new(store: T, counter: Counter<u64>) -> (Self, Point) {
+    pub fn new(store: T) -> (Self, Point) {
         let state = state::State::new(Arc::new(std::sync::Mutex::new(store)));
 
         let tip = state.tip().into_owned();
@@ -77,7 +75,6 @@ impl<T: Store> Stage<T> {
             Self {
                 upstream: Default::default(),
                 state: Arc::new(Mutex::new(state)),
-                counter,
             },
             tip,
         )
@@ -107,7 +104,7 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             ValidateHeaderEvent::Validated(point, raw_block) => {
-                let span_forward = info_span!(
+                let span_forward = debug_span!(
                     target: EVENT_TARGET,
                     "forward",
                     header.height = tracing::field::Empty,
@@ -119,7 +116,7 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
                 )
                 .entered();
 
-                let span_parse_block = info_span!(
+                let span_parse_block = debug_span!(
                     target: EVENT_TARGET,
                     parent: &span_forward,
                     "parse_block",
@@ -136,8 +133,6 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
                 span_forward.record("header.slot", block.header.header_body.slot);
                 span_forward.record("header.hash", hex::encode(block_header_hash));
 
-                stage.counter.add(1, &[]);
-
                 let mut state = stage.state.lock().await;
 
                 state.forward(&span_forward, point, block).map_err(|e| {
@@ -149,7 +144,7 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
             }
 
             ValidateHeaderEvent::Rollback(point) => {
-                let span_backward = info_span!(
+                let span_backward = debug_span!(
                     target: EVENT_TARGET,
                     "backward",
                     point.slot = point.slot_or_default(),

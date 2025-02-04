@@ -22,7 +22,7 @@ use crate::kernel::{
     TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use tracing::{debug, info_span, Span};
+use tracing::{debug, debug_span, Span};
 
 const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
 
@@ -34,7 +34,7 @@ pub fn apply<T>(
     mut transaction_body: MintedTransactionBody<'_>,
     resolved_collateral_inputs: Vec<TransactionOutput>,
 ) {
-    let span = info_span!(
+    let span = debug_span!(
         target: EVENT_TARGET,
         parent: parent,
         "apply.transaction",

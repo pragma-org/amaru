@@ -32,7 +32,7 @@ use std::{
     collections::BTreeSet,
     sync::{Arc, Mutex},
 };
-use tracing::{info, info_span, Span};
+use tracing::{debug, debug_span, info_span, Span};
 
 const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
 
@@ -141,7 +141,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                         .map_err(ForwardErr::StorageErr)
                 })?;
 
-                info_span!(target: STATE_EVENT_TARGET, parent: span, "tick.pool").in_scope(
+                debug_span!(target: STATE_EVENT_TARGET, parent: span, "tick.pool").in_scope(
                     || {
                         // Then we, can tick pools to compute their new state at the epoch boundary. Notice
                         // how we tick with the _current epoch_ however, but we take the snapshot before
@@ -165,7 +165,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 withdrawals,
             } = now_stable.into_store_update();
 
-            info_span!(target: STATE_EVENT_TARGET, parent: span, "save").in_scope(|| {
+            debug_span!(target: STATE_EVENT_TARGET, parent: span, "save").in_scope(|| {
                 db.save(
                     &stable_point,
                     Some(&stable_issuer),
@@ -189,7 +189,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 );
             }
         } else {
-            info!(target: STATE_EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
+            debug!(target: STATE_EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
         }
 
         span.record("tip.epoch", epoch_from_slot(point.slot_or_default()));
@@ -262,7 +262,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         let total_count = transaction_bodies.len();
         let failed_count = failed_transactions.inner.len();
 
-        let span_apply_block = info_span!(
+        let span_apply_block = debug_span!(
             target: STATE_EVENT_TARGET,
             parent: parent,
             "block.body.validate",

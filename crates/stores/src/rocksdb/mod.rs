@@ -30,7 +30,7 @@ use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
 };
-use tracing::{debug, info, info_span, warn};
+use tracing::{debug, debug_span, info, warn};
 
 pub mod columns;
 pub mod common;
@@ -91,7 +91,7 @@ impl RocksDB {
                 .unwrap_or_default()
                 .parse::<Epoch>()
             {
-                debug!(target: EVENT_TARGET, epoch, "new.found_snapshot");
+                info!(target: EVENT_TARGET, epoch, "new.found_snapshot");
                 snapshots.push(epoch);
             } else if entry.file_name() != DIR_LIVE_DB {
                 warn!(
@@ -192,7 +192,7 @@ impl Store for RocksDB {
 
         match (point, tip) {
             (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
-                info!(target: EVENT_TARGET, ?point, "save.point_already_known");
+                debug!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
                 batch.put(KEY_TIP, as_value(point))?;
@@ -235,7 +235,7 @@ impl Store for RocksDB {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             if let Some(mut rewards_summary) = rewards_summary {
-                info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
+                debug_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
                     self.with_accounts(|iterator| {
                         for (account, mut row) in iterator {
                             if let Some(rewards) = rewards_summary.extract_rewards(&account) {
@@ -253,7 +253,7 @@ impl Store for RocksDB {
                 let delta_reserves = rewards_summary.delta_reserves();
                 let unclaimed_rewards = rewards_summary.unclaimed_rewards();
 
-                info_span!(target: EVENT_TARGET, "snapshot.adjusting_pots", delta_treasury, delta_reserves, unclaimed_rewards).in_scope(|| {
+                debug_span!(target: EVENT_TARGET, "snapshot.adjusting_pots", delta_treasury, delta_reserves, unclaimed_rewards).in_scope(|| {
                     self.with_pots(|mut row| {
                         let pots = row.borrow_mut();
                         pots.treasury += delta_treasury + unclaimed_rewards;
@@ -270,7 +270,7 @@ impl Store for RocksDB {
             }
             checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
 
-            info_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
+            debug_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
                 // TODO: If necessary, come up with a more efficient way of dropping a "table".
                 // RocksDB does support batch-removing of key ranges, but somehow, not in a
                 // transactional way. So it isn't as trivial to implement as it may seem.
@@ -281,7 +281,7 @@ impl Store for RocksDB {
                 })
             })?;
 
-            info_span!(target: EVENT_TARGET, "reset.fees").in_scope(|| {
+            debug_span!(target: EVENT_TARGET, "reset.fees").in_scope(|| {
                 self.with_pots(|mut row| {
                     row.borrow_mut().fees = 0;
                 })
@@ -289,7 +289,7 @@ impl Store for RocksDB {
 
             self.snapshots.push(snapshot);
         } else {
-            info!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
+            debug!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
         }
 
         Ok(())

@@ -17,7 +17,6 @@ use amaru::sync::Config;
 use amaru_consensus::consensus::nonce;
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::IntoDiagnostic;
-use opentelemetry::metrics::Counter;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -53,14 +52,10 @@ pub struct Args {
     data_dir: PathBuf,
 }
 
-pub async fn run(
-    args: Args,
-    counter: Counter<u64>,
-    metrics: SdkMeterProvider,
-) -> miette::Result<()> {
-    let config = parse_args(args, counter)?;
+pub async fn run(args: Args, metrics: Option<SdkMeterProvider>) -> miette::Result<()> {
+    let config = parse_args(args)?;
 
-    let metrics = track_system_metrics(metrics);
+    let metrics = metrics.map(track_system_metrics);
 
     let client = Arc::new(Mutex::new(
         PeerClient::connect(config.upstream_peer.clone(), config.network_magic as u64)
@@ -74,7 +69,9 @@ pub async fn run(
 
     run_pipeline(gasket::daemon::Daemon::new(sync), exit.clone()).await;
 
-    metrics.abort();
+    if let Some(handle) = metrics {
+        handle.abort();
+    }
 
     Ok(())
 }
@@ -99,7 +96,7 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
     pipeline.teardown();
 }
 
-fn parse_args(args: Args, counter: Counter<u64>) -> miette::Result<Config> {
+fn parse_args(args: Args) -> miette::Result<Config> {
     // TODO: Figure out from ledger + consensus store
     let root = args.data_dir.join(args.network.to_string());
 
@@ -111,7 +108,6 @@ fn parse_args(args: Args, counter: Counter<u64>) -> miette::Result<Config> {
         upstream_peer: args.peer_address,
         network_magic: args.network.to_network_magic(),
         nonces,
-        counter,
     })
 }
 

@@ -34,7 +34,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter", "std"] }
+tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
 tracing.workspace = true
 
 amaru-consensus = { path = "../consensus" }
