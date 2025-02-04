@@ -104,7 +104,6 @@ dependencies = [
  "gasket",
  "hex",
  "num",
- "once_cell",
  "opentelemetry",
  "ouroboros",
  "pallas-addresses",
