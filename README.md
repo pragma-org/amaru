@@ -18,7 +18,11 @@ cargo build --release
 
 ### Running (demo)
 
-1. Download at lest three [ledger snapshots](./data/README.md#cardano-ledger-snapshots):
+> [!IMPORTANT]
+> These instructions assume one starts from scratch, and has access to a running [cardano-node](https://github.com/IntersectMBO/cardano-node/)
+on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network.
+
+1. Download at least three [ledger snapshots](./data/README.md#cardano-ledger-snapshots):
 ```bash
 mkdir -p snapshots;
 curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" \
@@ -30,7 +34,7 @@ curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main
     done
 ```
 
-1. Import the snapshots you downloaded, either individually or a full directory
+2. Import the snapshots just downloaded, either individually or a full directory
 
 ```console
 cargo run --release -- import \
@@ -42,17 +46,26 @@ cargo run --release -- import \
   --snapshot snapshots/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
 
 # OR
-
 cargo run --release -- import --snapshot-dir snapshots
 ```
 
-2. Setup observability backends:
+3. Import chain data from remote peer
+
+```console
+cargo run --release -- import-chain-db \
+  --peer 127.0.0.1:3000 --starting-point 69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7
+```
+
+> [!WARNING]
+> This can take a while as the code is currently non-optimised.
+
+3. Setup observability backends:
 
 ```console
 docker-compose -f monitoring/jaeger/docker-compose.yml up
 ```
 
-3. Run the node:
+4. Run the node:
 
 ```console
 AMARU_DEV_LOG=warn cargo run --release -- daemon \

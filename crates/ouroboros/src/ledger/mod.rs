@@ -15,9 +15,10 @@
 use mockall::automock;
 use pallas_codec::utils::Bytes;
 use pallas_crypto::hash::{Hash, Hasher};
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Error {
     #[error("PoolId not found")]
     PoolIdNotFound,

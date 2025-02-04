@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::{config::NetworkName, metrics::track_system_metrics};
-use amaru::{consensus::nonce, sync::Config};
+use amaru::sync::Config;
+use amaru_consensus::consensus::nonce;
 use clap::{builder::TypedValueParser as _, Parser};
 use miette::IntoDiagnostic;
 use opentelemetry::metrics::Counter;
@@ -42,6 +43,10 @@ pub struct Args {
     /// Path of the ledger on-disk storage.
     #[arg(long, default_value = super::DEFAULT_LEDGER_DB_DIR)]
     ledger_dir: PathBuf,
+
+    /// Path of the chain on-disk storage.
+    #[arg(long, default_value = super::DEFAULT_CHAIN_DATABASE_PATH)]
+    chain_database_path: PathBuf,
 
     /// Path to the directory containing blockchain data such as epoch nonces.
     #[arg(long, default_value = super::DEFAULT_DATA_DIR)]
@@ -102,6 +107,7 @@ fn parse_args(args: Args, counter: Counter<u64>) -> miette::Result<Config> {
 
     Ok(Config {
         ledger_dir: args.ledger_dir,
+        chain_database_path: args.chain_database_path,
         upstream_peer: args.peer_address,
         network_magic: args.network.to_network_magic(),
         nonces,
