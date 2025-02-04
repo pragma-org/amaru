@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_ouroboros::protocol::{peer::PeerSession, PullEvent, RawHeader};
 use gasket::framework::*;
 use miette::miette;
-use ouroboros::protocol::{peer::PeerSession, PullEvent, RawHeader};
 use pallas_network::miniprotocols::{
     chainsync::{HeaderContent, NextResponse, Tip},
     Point,

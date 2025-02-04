@@ -20,11 +20,11 @@ use amaru_consensus::consensus::{
     header::{point_hash, ConwayHeader},
     store::ChainStore,
 };
+use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
+use amaru_ouroboros::protocol::Point;
 use amaru_stores::rocksdb::RocksDB;
 use gasket::runtime::Tether;
 use opentelemetry::metrics::Counter;
-use ouroboros::protocol::peer::{Peer, PeerSession};
-use ouroboros::protocol::Point;
 use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;

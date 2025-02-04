@@ -1,5 +1,5 @@
 [package]
-name = "time"
+name = "amaru-time"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

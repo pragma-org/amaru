@@ -307,19 +307,22 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 // The 'LedgerState' trait materializes the interface required of the consensus layer in order to
 // validate block headers. It allows to keep the ledger implementation rather abstract to the
 // consensus in order to decouple both components.
-impl<S: Store<Error = E>, E: std::fmt::Debug> ouroboros::ledger::LedgerState for State<S, E> {
-    fn pool_id_to_sigma(&self, _pool_id: &PoolId) -> Result<PoolSigma, ouroboros::ledger::Error> {
+impl<S: Store<Error = E>, E: std::fmt::Debug> amaru_ouroboros::ledger::LedgerState for State<S, E> {
+    fn pool_id_to_sigma(
+        &self,
+        _pool_id: &PoolId,
+    ) -> Result<PoolSigma, amaru_ouroboros::ledger::Error> {
         // FIXME: Obtain from ledger's stake distribution
-        Err(ouroboros::ledger::Error::PoolIdNotFound)
+        Err(amaru_ouroboros::ledger::Error::PoolIdNotFound)
     }
 
     // FIXME: This method most probably needs pool from the mark or set snapshots (so one or two
     // epochs in the past), and not from the live view.
-    fn vrf_vkey_hash(&self, pool_id: &PoolId) -> Result<Hash<32>, ouroboros::ledger::Error> {
+    fn vrf_vkey_hash(&self, pool_id: &PoolId) -> Result<Hash<32>, amaru_ouroboros::ledger::Error> {
         self.get_pool(pool_id)
             .unwrap_or_else(|e| panic!("unable to fetch pool from database: {e:?}"))
             .map(|params| params.vrf)
-            .ok_or(ouroboros::ledger::Error::PoolIdNotFound)
+            .ok_or(amaru_ouroboros::ledger::Error::PoolIdNotFound)
     }
 
     fn slot_to_kes_period(&self, slot: u64) -> u64 {

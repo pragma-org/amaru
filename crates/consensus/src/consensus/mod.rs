@@ -14,12 +14,12 @@
 
 use crate::consensus::header_validation::assert_header;
 use amaru_ledger::{RawBlock, ValidateHeaderEvent};
+use amaru_ouroboros::protocol::{peer::*, Point, PullEvent};
+use amaru_ouroboros::{ledger::LedgerState, protocol::peer};
 use chain_selection::ChainSelector;
 use gasket::framework::*;
 use header::{point_hash, ConwayHeader, Header};
 use miette::miette;
-use ouroboros::protocol::{peer::*, Point, PullEvent};
-use ouroboros::{ledger::LedgerState, protocol::peer};
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_primitives::conway::Epoch;

@@ -14,14 +14,14 @@
 
 use std::{collections::HashMap, fs::File, io::BufReader};
 
-use ctor::ctor;
-use mockall::predicate::eq;
-use ouroboros::{
+use amaru_ouroboros::{
     consensus::BlockValidator,
     kes::KesSecretKey,
     ledger::{MockLedgerState, PoolSigma},
     validator::Validator,
 };
+use ctor::ctor;
+use mockall::predicate::eq;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
 use pallas_primitives::conway::Header;

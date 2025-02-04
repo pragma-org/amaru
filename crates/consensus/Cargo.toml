@@ -28,7 +28,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-ouroboros = { path = "../ouroboros" }
+amaru-ouroboros = { path = "../ouroboros" }
 amaru-ledger = { path = "../ledger" }
 
 [dev-dependencies]

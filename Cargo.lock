@@ -32,6 +32,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-consensus",
  "amaru-ledger",
+ "amaru-ouroboros",
  "amaru-stores",
  "async-trait",
  "built",
@@ -46,7 +47,6 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "ouroboros",
  "pallas-codec",
  "pallas-crypto",
  "pallas-math",
@@ -71,6 +71,7 @@ name = "amaru-consensus"
 version = "0.1.0"
 dependencies = [
  "amaru-ledger",
+ "amaru-ouroboros",
  "async-trait",
  "envpath",
  "gasket",
@@ -79,7 +80,6 @@ dependencies = [
  "indoc",
  "insta",
  "miette",
- "ouroboros",
  "pallas-codec",
  "pallas-crypto",
  "pallas-math",
@@ -99,13 +99,13 @@ dependencies = [
 name = "amaru-ledger"
 version = "0.1.0"
 dependencies = [
+ "amaru-ouroboros",
  "async-trait",
  "bech32 0.11.0",
  "gasket",
  "hex",
  "num",
  "opentelemetry",
- "ouroboros",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
@@ -115,6 +115,33 @@ dependencies = [
  "serde",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "amaru-ouroboros"
+version = "0.1.0"
+dependencies = [
+ "criterion",
+ "ctor",
+ "hex",
+ "insta",
+ "kes-summed-ed25519",
+ "mockall",
+ "pallas-codec",
+ "pallas-crypto",
+ "pallas-math",
+ "pallas-network",
+ "pallas-primitives",
+ "pallas-traverse",
+ "rand",
+ "rayon",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.11",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+ "vrf_dalek",
 ]
 
 [[package]]
@@ -128,6 +155,15 @@ dependencies = [
  "rocksdb",
  "thiserror 2.0.11",
  "tracing",
+]
+
+[[package]]
+name = "amaru-time"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "minicbor",
+ "proptest",
 ]
 
 [[package]]
@@ -2328,33 +2364,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
-name = "ouroboros"
-version = "0.1.0"
-dependencies = [
- "criterion",
- "ctor",
- "hex",
- "insta",
- "kes-summed-ed25519",
- "mockall",
- "pallas-codec",
- "pallas-crypto",
- "pallas-math",
- "pallas-network",
- "pallas-primitives",
- "pallas-traverse",
- "rand",
- "rayon",
- "serde",
- "serde_json",
- "thiserror 2.0.11",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "vrf_dalek",
-]
-
-[[package]]
 name = "overload"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3274,15 +3283,6 @@ checksum = "8b9ef9bad013ada3808854ceac7b46812a6465ba368859a37e2100283d2d719c"
 dependencies = [
  "cfg-if",
  "once_cell",
-]
-
-[[package]]
-name = "time"
-version = "0.1.0"
-dependencies = [
- "hex",
- "minicbor",
- "proptest",
 ]
 
 [[package]]
