@@ -41,6 +41,10 @@ jobs:
             target: aarch64-apple-darwin
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
+          - runner: ubuntu-latest
+            target: wasm32-unknown-unknown
+            packages: -p amaru-ledger
+            optional: true
           # Disabled for now
           #- runner: ubuntu-latest
           #  target: aarch64-unknown-linux-musl
@@ -56,37 +60,14 @@ jobs:
       - name: Run tests
         run: |
           set +e
+          SCOPE="${{ matrix.environments.packages || '--workspace' }}"
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
             cargo install cross --git https://github.com/cross-rs/cross
             # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
-            $HOME/.cargo/bin/cross test --locked --all-features --workspace --target ${{ matrix.environments.target }}
+            $HOME/.cargo/bin/cross test --locked --all-features $SCOPE --target ${{ matrix.environments.target }}
           else
-            cargo test-amaru --locked --target ${{ matrix.environments.target }}
+            cargo test $SCOPE --locked --target ${{ matrix.environments.target }}
           fi
-        shell: bash
-  build-crates:
-    name: Build crates on ${{ matrix.environments.runner }} with target ${{ matrix.environments.target }}
-    needs: sanity
-    strategy:
-      fail-fast: false
-      matrix:
-        environments:
-          - runner: ubuntu-latest
-            target: wasm32-unknown-unknown
-            package: amaru-ledger
-            optional: true
-    timeout-minutes: 30
-    runs-on: ${{ matrix.environments.runner }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ${{ runner.os }}-${{ matrix.environments.target }}
-      - run: rustup target add ${{ matrix.environments.target }}
-      - name: Run tests
-        run: |
-          set +e
-          cargo test --locked --all-features -p ${{ matrix.environments.package }} --target ${{ matrix.environments.target }}
           exitcode="$?"
           if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
             # Propagate failure as a warning
