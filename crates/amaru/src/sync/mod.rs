@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus;
 use amaru_consensus::consensus::store::rocksdb::RocksDBStore;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     header::{point_hash, ConwayHeader},
     store::ChainStore,
 };
+use amaru_consensus::{chain_forward, consensus};
 use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
 use amaru_ouroboros::protocol::{Point, PullEvent};
 use amaru_stores::rocksdb::RocksDB;
@@ -86,15 +86,19 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
     let chain_store = RocksDBStore::new(config.chain_dir.clone())?;
     let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions);
-    let mut consensus = consensus::Stage::new(
+    let chain_ref = Arc::new(Mutex::new(chain_store));
+    let mut consensus = consensus::HeaderStage::new(
         peer_sessions,
         ledger.state.clone(),
-        Arc::new(Mutex::new(chain_store)),
+        chain_ref.clone(),
         chain_selector,
         config.nonces,
     );
 
+    let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
+
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
     let outputs: Vec<&mut OutputPort<PullEvent>> = pulls
         .iter_mut()
@@ -103,6 +107,8 @@ pub fn bootstrap(
     funnel_ports(outputs, &mut consensus.upstream, 50);
     consensus.downstream.connect(to_ledger);
     ledger.upstream.connect(from_header_validation);
+    ledger.downstream.connect(to_block_forward);
+    block_forward.upstream.connect(from_ledger);
 
     let policy = define_gasket_policy();
 
@@ -113,10 +119,11 @@ pub fn bootstrap(
 
     let header_validation = gasket::runtime::spawn_stage(consensus, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
+    let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());
 
     pulls.push(header_validation);
     pulls.push(ledger);
-
+    pulls.push(block_forward);
     Ok(pulls)
 }
 

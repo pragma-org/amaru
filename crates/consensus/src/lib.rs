@@ -16,3 +16,6 @@
 ///
 /// The consensus interface is responsible for validating block headers.
 pub mod consensus;
+
+/// Chain forward stage
+pub mod chain_forward;

@@ -21,19 +21,28 @@ use pallas_codec::minicbor as cbor;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::Mutex;
-use tracing::{debug_span, error, warn};
+use tracing::{debug_span, instrument, warn};
 
 const EVENT_TARGET: &str = "amaru::ledger";
 
 pub type RawBlock = Vec<u8>;
 
 #[derive(Clone)]
-pub enum ValidateHeaderEvent {
+pub enum ValidateBlockEvent {
     Validated(Point, RawBlock),
     Rollback(Point),
 }
 
-pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
+#[derive(Clone)]
+pub enum BlockValidationResult {
+    BlockValidated(Point),
+    BlockForwardStorageFailed(Point),
+    InvalidRollbackPoint(Point),
+    RolledBackTo(Point),
+}
+
+pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
 
 /// Iterators
 ///
@@ -49,11 +58,12 @@ where
     T: Store,
 {
     pub upstream: UpstreamPort,
+    pub downstream: DownstreamPort,
     pub state: Arc<Mutex<state::State<T, T::Error>>>,
 }
 
 impl<T: Store> gasket::framework::Stage for Stage<T> {
-    type Unit = ValidateHeaderEvent;
+    type Unit = ValidateBlockEvent;
     type Worker = Worker;
 
     fn name(&self) -> &str {
@@ -74,10 +84,73 @@ impl<T: Store> Stage<T> {
         (
             Self {
                 upstream: Default::default(),
+                downstream: Default::default(),
                 state: Arc::new(Mutex::new(state)),
             },
             tip,
         )
+    }
+
+    pub async fn validate_block(
+        &mut self,
+        point: Point,
+        raw_block: RawBlock,
+    ) -> BlockValidationResult {
+        // TODO: use instrument macro
+        let span_forward = debug_span!(
+            target: EVENT_TARGET,
+            "forward",
+            header.height = tracing::field::Empty,
+            header.slot = tracing::field::Empty,
+            header.hash = tracing::field::Empty,
+            stable.epoch = tracing::field::Empty,
+            tip.epoch = tracing::field::Empty,
+            tip.relative_slot = tracing::field::Empty,
+        )
+        .entered();
+
+        let (block_header_hash, block) = parse_block(&raw_block[..]);
+
+        span_forward.record("header.height", block.header.header_body.block_number);
+        span_forward.record("header.slot", block.header.header_body.slot);
+        span_forward.record("header.hash", hex::encode(block_header_hash));
+
+        let mut state = self.state.lock().await;
+
+        let result = match state.forward(&span_forward, &point, block) {
+            Ok(_) => BlockValidationResult::BlockValidated(point),
+            Err(_) => BlockValidationResult::BlockForwardStorageFailed(point),
+        };
+
+        span_forward.exit();
+        result
+    }
+
+    pub async fn rollback_to(&mut self, point: Point) -> BlockValidationResult {
+        let span_backward = debug_span!(
+            target: EVENT_TARGET,
+            "backward",
+            point.slot = point.slot_or_default(),
+            point.hash = tracing::field::Empty,
+        )
+        .entered();
+
+        if let Point::Specific(_, header_hash) = &point {
+            span_backward.record("point.hash", hex::encode(header_hash));
+        }
+
+        let mut state = self.state.lock().await;
+
+        let result = match state.backward(&point) {
+            Ok(_) => BlockValidationResult::RolledBackTo(point),
+            Err(BackwardErr::UnknownRollbackPoint(_)) => {
+                BlockValidationResult::InvalidRollbackPoint(point)
+            }
+        };
+
+        span_backward.exit();
+
+        result
     }
 }
 
@@ -92,88 +165,31 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
     async fn schedule(
         &mut self,
         stage: &mut Stage<T>,
-    ) -> Result<WorkSchedule<ValidateHeaderEvent>, WorkerError> {
+    ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
         Ok(WorkSchedule::Unit(unit.payload))
     }
 
     async fn execute(
         &mut self,
-        unit: &ValidateHeaderEvent,
+        unit: &ValidateBlockEvent,
         stage: &mut Stage<T>,
     ) -> Result<(), WorkerError> {
-        match unit {
-            ValidateHeaderEvent::Validated(point, raw_block) => {
-                let span_forward = debug_span!(
-                    target: EVENT_TARGET,
-                    "forward",
-                    header.height = tracing::field::Empty,
-                    header.slot = tracing::field::Empty,
-                    header.hash = tracing::field::Empty,
-                    stable.epoch = tracing::field::Empty,
-                    tip.epoch = tracing::field::Empty,
-                    tip.relative_slot = tracing::field::Empty,
-                )
-                .entered();
-
-                let span_parse_block = debug_span!(
-                    target: EVENT_TARGET,
-                    parent: &span_forward,
-                    "parse_block",
-                    point = point.slot_or_default(),
-                    block.size = raw_block.len(),
-                )
-                .entered();
-
-                let (block_header_hash, block) = parse_block(&raw_block[..]);
-
-                span_parse_block.exit();
-
-                span_forward.record("header.height", block.header.header_body.block_number);
-                span_forward.record("header.slot", block.header.header_body.slot);
-                span_forward.record("header.hash", hex::encode(block_header_hash));
-
-                let mut state = stage.state.lock().await;
-
-                state.forward(&span_forward, point, block).map_err(|e| {
-                    error!(target: EVENT_TARGET, error = ?e, "forward.failed");
-                    WorkerError::Panic
-                })?;
-
-                span_forward.exit();
+        let result = match unit {
+            ValidateBlockEvent::Validated(point, raw_block) => {
+                stage
+                    .validate_block(point.clone(), raw_block.to_vec())
+                    .await
             }
 
-            ValidateHeaderEvent::Rollback(point) => {
-                let span_backward = debug_span!(
-                    target: EVENT_TARGET,
-                    "backward",
-                    point.slot = point.slot_or_default(),
-                    point.hash = tracing::field::Empty,
-                )
-                .entered();
+            ValidateBlockEvent::Rollback(point) => stage.rollback_to(point.clone()).await,
+        };
 
-                if let Point::Specific(_, header_hash) = point {
-                    span_backward.record("point.hash", hex::encode(header_hash));
-                }
-
-                let mut state = stage.state.lock().await;
-
-                if let Err(e) = state.backward(point) {
-                    match e {
-                        BackwardErr::UnknownRollbackPoint(_) => {
-                            warn!(target: EVENT_TARGET, "rollback.unknown_point")
-                        }
-                    }
-                }
-
-                span_backward.exit();
-            }
-        }
-
-        Ok(())
+        Ok(stage.downstream.send(result.into()).await.or_panic()?)
     }
 }
 
+#[instrument(skip(bytes), fields(block.size = bytes.len()))]
 fn parse_block(bytes: &[u8]) -> (Hash<32>, MintedBlock<'_>) {
     let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)
         .unwrap_or_else(|_| panic!("failed to decode Conway block: {:?}", hex::encode(bytes)));
