@@ -33,7 +33,7 @@ pub struct Args {
     /// The target network to choose from.
     #[arg(
         long,
-        default_value_t = NetworkName::Mainnet,
+        default_value_t = NetworkName::Preprod,
         value_parser = clap::builder::PossibleValuesParser::new(NetworkName::possible_values())
             .map(|s| s.parse::<NetworkName>().unwrap()),
     )]
@@ -45,7 +45,7 @@ pub struct Args {
 
     /// Path of the chain on-disk storage.
     #[arg(long, default_value = super::DEFAULT_CHAIN_DATABASE_PATH)]
-    chain_database_path: PathBuf,
+    chain_dir: PathBuf,
 
     /// Path to the directory containing blockchain data such as epoch nonces.
     #[arg(long, default_value = super::DEFAULT_DATA_DIR)]
@@ -104,7 +104,7 @@ fn parse_args(args: Args) -> miette::Result<Config> {
 
     Ok(Config {
         ledger_dir: args.ledger_dir,
-        chain_database_path: args.chain_database_path,
+        chain_dir: args.chain_dir,
         upstream_peer: args.peer_address,
         network_magic: args.network.to_network_magic(),
         nonces,

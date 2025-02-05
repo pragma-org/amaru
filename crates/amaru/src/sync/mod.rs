@@ -38,7 +38,7 @@ pub type BlockHash = pallas_crypto::hash::Hash<32>;
 
 pub struct Config {
     pub ledger_dir: PathBuf,
-    pub chain_database_path: PathBuf,
+    pub chain_dir: PathBuf,
     pub upstream_peer: String,
     pub network_magic: u32,
     pub nonces: HashMap<Epoch, Hash<32>>,
@@ -74,7 +74,7 @@ pub fn bootstrap(config: Config, client: &Arc<Mutex<PeerClient>>) -> miette::Res
     };
 
     let mut pull = pull::Stage::new(peer_session.clone(), vec![tip.clone()]);
-    let chain_store = RocksDBStore::new(config.chain_database_path.clone())?;
+    let chain_store = RocksDBStore::new(config.chain_dir.clone())?;
     let chain_selector = make_chain_selector(tip, &chain_store, &[&peer_session]);
     let mut consensus = consensus::Stage::new(
         peer_session,

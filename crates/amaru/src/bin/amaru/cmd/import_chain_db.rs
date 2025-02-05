@@ -1,10 +1,11 @@
+use crate::config::NetworkName;
 use amaru::sync;
 use amaru_consensus::consensus::{
     header::{ConwayHeader, Header},
     store::{rocksdb::RocksDBStore, ChainStore},
 };
 use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
-use clap::Parser;
+use clap::{builder::TypedValueParser as _, Parser};
 use gasket::framework::*;
 use miette::{Diagnostic, IntoDiagnostic};
 use pallas_network::{
@@ -26,20 +27,23 @@ pub struct Args {
     ///
     /// Addressis given in the usual `host:port` format, for example: "1.2.3.4:3000".
     #[arg(long, verbatim_doc_comment)]
-    peer: String,
+    peer_address: String,
 
-    /// Network magic to use for the connection.
-    ///
-    /// Should be 1 for preprod, 2 for preview.
-    #[arg(long, verbatim_doc_comment, default_value = "1")]
-    network_magic: u32,
+    /// Network to use for the connection.
+    #[arg(
+        long,
+        default_value_t = NetworkName::Preprod,
+        value_parser = clap::builder::PossibleValuesParser::new(NetworkName::possible_values())
+            .map(|s| s.parse::<NetworkName>().unwrap()),
+    )]
+    network: NetworkName,
 
     /// Path of the on-disk storage.
     ///
     /// This is the directory where data will be stored. The directory and any intermediate
     /// paths will be created if they do not exist.
     #[arg(long, verbatim_doc_comment, default_value = super::DEFAULT_CHAIN_DATABASE_PATH)]
-    chain_database_dir: PathBuf,
+    chain_dir: PathBuf,
 
     /// Starting point of import.
     ///
@@ -69,16 +73,19 @@ enum What {
 use What::*;
 
 pub async fn run(args: Args) -> miette::Result<()> {
-    let mut db = RocksDBStore::new(args.chain_database_dir)?;
+    let mut db = RocksDBStore::new(args.chain_dir)?;
 
     let peer_client = Arc::new(Mutex::new(
-        PeerClient::connect(args.peer.clone(), args.network_magic as u64)
-            .await
-            .into_diagnostic()?,
+        PeerClient::connect(
+            args.peer_address.clone(),
+            args.network.to_network_magic() as u64,
+        )
+        .await
+        .into_diagnostic()?,
     ));
 
     let peer_session = PeerSession {
-        peer: Peer::new(&args.peer),
+        peer: Peer::new(&args.peer_address),
         peer_client,
     };
 
