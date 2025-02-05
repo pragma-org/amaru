@@ -7,6 +7,7 @@ use amaru_consensus::consensus::{
 use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
 use clap::{builder::TypedValueParser as _, Parser};
 use gasket::framework::*;
+use indicatif::{ProgressBar, ProgressStyle};
 use miette::{Diagnostic, IntoDiagnostic};
 use pallas_network::{
     facades::PeerClient,
@@ -66,7 +67,7 @@ enum Error<'a> {
 }
 
 enum What {
-    Continue(usize, f64),
+    Continue,
     Stop,
 }
 
@@ -102,6 +103,8 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
     let client = (*peer_client).chainsync();
 
+    let mut progress: Option<ProgressBar> = None;
+
     // TODO: implement a proper pipelined client because this one is super slow
     // Pipelining in Haskell is single threaded which implies the code handles
     // scheduling between sending burst of MsgRequest and collecting responses.
@@ -111,25 +114,25 @@ pub async fn run(args: Args) -> miette::Result<()> {
     // Pipelining stops when we reach the tip of the peer's chain.
     loop {
         let what = if client.has_agency() {
-            request_next_block(client, &mut db, &mut count, max, start)
+            request_next_block(client, &mut db, &mut count, &mut progress, max, start)
                 .await
                 .into_diagnostic()?
         } else {
-            await_for_next_block(client, &mut db, &mut count, max, start)
+            await_for_next_block(client, &mut db, &mut count, &mut progress, max, start)
                 .await
                 .into_diagnostic()?
         };
         match what {
-            Continue(count, progress) => {
-                if count % 100 == 0 {
-                    info!(count = ?count, progress = progress * 100.0);
+            Continue => continue,
+            Stop => {
+                if let Some(progress) = progress {
+                    progress.finish_and_clear()
                 }
-                continue;
+                break;
             }
-            Stop => break,
         }
     }
-    info!("header imported total: {}", count);
+    info!(total = count, "header_imported");
     Ok(())
 }
 
@@ -137,24 +140,26 @@ async fn request_next_block(
     client: &mut chainsync::Client<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
+    progress: &mut Option<ProgressBar>,
     max: usize,
     start: u64,
 ) -> Result<What, WorkerError> {
     let next = client.request_next().await.or_restart()?;
-    handle_response(next, db, count, max, start)
+    handle_response(next, db, count, progress, max, start)
 }
 
 async fn await_for_next_block(
     client: &mut chainsync::Client<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
+    progress: &mut Option<ProgressBar>,
     max: usize,
     start: u64,
 ) -> Result<What, WorkerError> {
     match timeout(Duration::from_secs(1), client.recv_while_must_reply()).await {
         Ok(result) => result
             .map_err(|_| WorkerError::Recv)
-            .and_then(|next| handle_response(next, db, count, max, start)),
+            .and_then(|next| handle_response(next, db, count, progress, max, start)),
         Err(_) => Err(WorkerError::Retry)?,
     }
 }
@@ -163,6 +168,7 @@ fn handle_response(
     next: NextResponse<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
+    progress: &mut Option<ProgressBar>,
     max: usize,
     start: u64,
 ) -> Result<What, WorkerError> {
@@ -172,27 +178,40 @@ fn handle_response(
             let hash = header.hash();
 
             db.put(&hash, &header).map_err(|_| WorkerError::Panic)?;
+
             *count += 1;
+
             let slot = header.slot();
             let tip_slot = tip.0.slot_or_default();
-            let progress = if tip_slot > start {
-                (slot - start) as f64 / (tip_slot - start) as f64
-            } else {
-                0.0
-            };
+
+            if let Some(progress) = progress {
+                progress.set_position(slot - start);
+            }
+
             if *count >= max || slot == tip_slot {
                 Ok(Stop)
             } else {
-                Ok(Continue(*count, progress))
+                Ok(Continue)
             }
         }
         NextResponse::RollBackward(point, tip) => {
-            info!("rollback received {:?}/{:?}", point, tip);
-            let slot = point.slot_or_default();
+            info!(?point, ?tip, "roll_backward");
             let tip_slot = tip.0.slot_or_default();
-            let progress = (slot - start) as f64 / (tip_slot - start) as f64;
-            Ok(Continue(*count, progress))
+            if progress.is_none() {
+                *progress = Some(
+                    ProgressBar::new(tip_slot - start).with_style(
+                        ProgressStyle::with_template(
+                            " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)",
+                        )
+                        .unwrap(),
+                    ),
+                );
+                if let Some(progress) = progress {
+                    progress.tick();
+                }
+            }
+            Ok(Continue)
         }
-        NextResponse::Await => Ok(Continue(*count, 0.0)),
+        NextResponse::Await => Ok(Continue),
     }
 }

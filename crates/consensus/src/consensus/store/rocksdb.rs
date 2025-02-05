@@ -3,7 +3,7 @@ use crate::consensus::header::Header;
 use pallas_crypto::hash::Hash;
 use rocksdb::{OptimisticTransactionDB, Options};
 use std::path::PathBuf;
-use tracing::instrument;
+use tracing::{instrument, Level};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -33,7 +33,7 @@ impl<H: Header> ChainStore<H> for RocksDBStore {
             .and_then(|bytes| H::from_cbor(bytes?.as_ref()))
     }
 
-    #[instrument(skip(self, header, hash), fields(hash = hash.to_string()))]
+    #[instrument(level = Level::DEBUG, skip(self, header, hash), fields(hash = hash.to_string()))]
     fn put(&mut self, hash: &Hash<32>, header: &H) -> Result<(), super::StoreError> {
         self.db
             .put(hash, header.to_cbor())
