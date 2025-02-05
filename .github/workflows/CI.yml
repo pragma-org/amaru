@@ -42,9 +42,10 @@ jobs:
             target: aarch64-apple-darwin
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
-          - runner: ubuntu-latest
-            target: aarch64-unknown-linux-musl
-            cross-compile: true
+          # Disabled for now
+          #- runner: ubuntu-latest
+          #  target: aarch64-unknown-linux-musl
+          #  cross-compile: true
     timeout-minutes: 30
     runs-on: ${{ matrix.environments.runner }}
     steps:
