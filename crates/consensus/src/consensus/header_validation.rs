@@ -19,11 +19,11 @@ use pallas_crypto::hash::Hash;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_primitives::conway::Epoch;
 use std::collections::HashMap;
-use tracing::{instrument, warn};
+use tracing::{instrument, warn, Level};
 
 use super::header::{ConwayHeader, Header};
 
-#[instrument(skip_all)]
+#[instrument(level = Level::DEBUG, skip_all)]
 pub fn assert_header<'a>(
     header: &ConwayHeader,
     cbor: &'a [u8],

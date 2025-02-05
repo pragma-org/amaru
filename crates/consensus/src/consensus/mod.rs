@@ -14,8 +14,10 @@
 
 use crate::consensus::header_validation::assert_header;
 use amaru_ledger::{RawBlock, ValidateHeaderEvent};
-use amaru_ouroboros::protocol::{peer::*, Point, PullEvent};
-use amaru_ouroboros::{ledger::LedgerState, protocol::peer};
+use amaru_ouroboros::{
+    ledger::LedgerState,
+    protocol::{peer, peer::*, Point, PullEvent},
+};
 use chain_selection::ChainSelector;
 use gasket::framework::*;
 use header::{point_hash, ConwayHeader, Header};
@@ -27,7 +29,7 @@ use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use store::ChainStore;
 use tokio::sync::Mutex;
-use tracing::instrument;
+use tracing::{instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
@@ -127,7 +129,7 @@ impl Stage {
         Ok(())
     }
 
-    #[instrument(skip(self, raw_header))]
+    #[instrument(level = Level::DEBUG, skip(self, raw_header))]
     async fn handle_roll_forward(
         &mut self,
         peer: &Peer,
@@ -178,7 +180,7 @@ impl Stage {
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self))]
     async fn handle_roll_back(&mut self, peer: &Peer, rollback: &Point) -> Result<(), WorkerError> {
         let result = self
             .chain_selector
