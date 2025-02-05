@@ -42,6 +42,7 @@ mod internals {
     pub struct SystemCounters {
         total_memory: Gauge<u64>,
         free_memory: Gauge<u64>,
+        #[cfg(not(windows))]
         cpu_load: Gauge<f64>,
         cpu_usage: Counter<f64>,
     }
@@ -61,6 +62,7 @@ mod internals {
             .with_unit("MB")
             .build();
 
+        #[cfg(not(windows))]
         let cpu_load = meter
             .f64_gauge("cpu.utilization")
             .with_description("the 1m average load, measured once per second")
@@ -75,6 +77,7 @@ mod internals {
         SystemCounters {
             total_memory,
             free_memory,
+            #[cfg(not(windows))]
             cpu_load,
             cpu_usage,
         }
