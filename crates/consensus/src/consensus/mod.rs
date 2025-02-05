@@ -14,8 +14,10 @@
 
 use crate::consensus::header_validation::assert_header;
 use amaru_ledger::{RawBlock, ValidateHeaderEvent};
-use amaru_ouroboros::protocol::{peer::*, Point, PullEvent};
-use amaru_ouroboros::{ledger::LedgerState, protocol::peer};
+use amaru_ouroboros::{
+    ledger::LedgerState,
+    protocol::{peer, peer::*, Point, PullEvent},
+};
 use chain_selection::ChainSelector;
 use gasket::framework::*;
 use header::{point_hash, ConwayHeader, Header};
@@ -27,7 +29,7 @@ use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use store::ChainStore;
 use tokio::sync::Mutex;
-use tracing::instrument;
+use tracing::{instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
@@ -41,7 +43,7 @@ pub mod store;
 #[derive(Stage)]
 #[stage(name = "consensus", unit = "PullEvent", worker = "Worker")]
 pub struct Stage {
-    peer_session: PeerSession,
+    peer_sessions: HashMap<Peer, PeerSession>,
     chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
     ledger: Arc<Mutex<dyn LedgerState>>,
     store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
@@ -62,14 +64,18 @@ pub struct Stage {
 
 impl Stage {
     pub fn new(
-        peer_session: PeerSession,
+        peer_sessions: Vec<PeerSession>,
         ledger: Arc<Mutex<dyn LedgerState>>,
         store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
         chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
         epoch_to_nonce: HashMap<Epoch, Hash<32>>,
     ) -> Self {
+        let peer_sessions = peer_sessions
+            .into_iter()
+            .map(|p| (p.peer.clone(), p))
+            .collect::<HashMap<_, _>>();
         Self {
-            peer_session,
+            peer_sessions,
             chain_selector,
             ledger,
             store,
@@ -86,11 +92,16 @@ impl Stage {
         self.validation_tip.set(tip.slot_or_default() as i64);
     }
 
-    async fn forward_block(&mut self, header: &dyn Header) -> Result<(), WorkerError> {
+    async fn forward_block(&mut self, peer: &Peer, header: &dyn Header) -> Result<(), WorkerError> {
         let point = header.point();
         let block = {
-            let mut peer_session = self.peer_session.lock().await;
-            let client = (*peer_session).blockfetch();
+            // FIXME: should not crash if the peer is not found
+            let peer_session = self
+                .peer_sessions
+                .get(peer)
+                .expect("Unknown peer, bailing out");
+            let mut session = peer_session.peer_client.lock().await;
+            let client = (*session).blockfetch();
             client.fetch_single(point.clone()).await.or_restart()?
         };
 
@@ -102,6 +113,7 @@ impl Stage {
 
     async fn switch_to_fork(
         &mut self,
+        peer: &Peer,
         rollback_point: &Point,
         fork: Vec<ConwayHeader>,
     ) -> Result<(), WorkerError> {
@@ -111,13 +123,13 @@ impl Stage {
             .or_panic()?;
 
         for header in fork {
-            self.forward_block(&header).await?;
+            self.forward_block(peer, &header).await?;
         }
 
         Ok(())
     }
 
-    #[instrument(skip(self, raw_header))]
+    #[instrument(level = Level::DEBUG, skip(self, raw_header))]
     async fn handle_roll_forward(
         &mut self,
         peer: &Peer,
@@ -152,7 +164,7 @@ impl Stage {
 
         match result {
             chain_selection::ChainSelection::NewTip(hdr) => {
-                self.forward_block(&hdr).await?;
+                self.forward_block(peer, &hdr).await?;
 
                 self.block_count.inc(1);
                 self.track_validation_tip(point);
@@ -160,15 +172,15 @@ impl Stage {
             chain_selection::ChainSelection::RollbackTo(_) => {
                 panic!("RollbackTo should never happen on a RollForward")
             }
-            chain_selection::ChainSelection::SwitchToFork(rollback_point, fork) => {
-                self.switch_to_fork(&rollback_point, fork).await?;
+            chain_selection::ChainSelection::SwitchToFork(peer, rollback_point, fork) => {
+                self.switch_to_fork(&peer, &rollback_point, fork).await?;
             }
             chain_selection::ChainSelection::NoChange => (),
         }
         Ok(())
     }
 
-    #[instrument(skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self))]
     async fn handle_roll_back(&mut self, peer: &Peer, rollback: &Point) -> Result<(), WorkerError> {
         let result = self
             .chain_selector
@@ -189,8 +201,8 @@ impl Stage {
                 self.track_validation_tip(rollback);
             }
             chain_selection::ChainSelection::NoChange => (),
-            chain_selection::ChainSelection::SwitchToFork(rollback_point, fork) => {
-                self.switch_to_fork(&rollback_point, fork).await?
+            chain_selection::ChainSelection::SwitchToFork(peer, rollback_point, fork) => {
+                self.switch_to_fork(&peer, &rollback_point, fork).await?
             }
         }
 

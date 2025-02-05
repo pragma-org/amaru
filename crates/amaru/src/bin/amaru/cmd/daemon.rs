@@ -15,7 +15,7 @@
 use crate::{config::NetworkName, metrics::track_system_metrics};
 use amaru::sync::Config;
 use amaru_consensus::consensus::nonce;
-use clap::{builder::TypedValueParser as _, Parser};
+use clap::{builder::TypedValueParser as _, ArgAction, Parser};
 use miette::IntoDiagnostic;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
@@ -26,9 +26,12 @@ use tracing::{debug, error};
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Upstream peer address to synchronize from.
-    #[arg(long)]
-    peer_address: String,
+    /// Upstream peer addresses to synchronize from.
+    ///
+    /// This option can be specified multiple times to connect to multiple peers.
+    /// At least one peer address must be specified.
+    #[arg(long, action = ArgAction::Append, required = true)]
+    peer_address: Vec<String>,
 
     /// The target network to choose from.
     #[arg(
@@ -57,13 +60,15 @@ pub async fn run(args: Args, metrics: Option<SdkMeterProvider>) -> miette::Resul
 
     let metrics = metrics.map(track_system_metrics);
 
-    let client = Arc::new(Mutex::new(
-        PeerClient::connect(config.upstream_peer.clone(), config.network_magic as u64)
+    let mut clients: Vec<(String, Arc<Mutex<PeerClient>>)> = vec![];
+    for peer in &config.upstream_peers {
+        let client = PeerClient::connect(peer.clone(), config.network_magic as u64)
             .await
-            .into_diagnostic()?,
-    ));
+            .into_diagnostic()?;
+        clients.push((peer.clone(), Arc::new(Mutex::new(client))));
+    }
 
-    let sync = amaru::sync::bootstrap(config, &client)?;
+    let sync = amaru::sync::bootstrap(config, clients)?;
 
     let exit = crate::exit::hook_exit_token();
 
@@ -105,7 +110,7 @@ fn parse_args(args: Args) -> miette::Result<Config> {
     Ok(Config {
         ledger_dir: args.ledger_dir,
         chain_dir: args.chain_dir,
-        upstream_peer: args.peer_address,
+        upstream_peers: args.peer_address,
         network_magic: args.network.to_network_magic(),
         nonces,
     })

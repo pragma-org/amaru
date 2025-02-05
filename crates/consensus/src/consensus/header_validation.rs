@@ -19,11 +19,11 @@ use pallas_crypto::hash::Hash;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
 use pallas_primitives::conway::Epoch;
 use std::collections::HashMap;
-use tracing::{instrument, warn};
+use tracing::{instrument, warn, Level};
 
-use super::header::ConwayHeader;
+use super::header::{ConwayHeader, Header};
 
-#[instrument(skip_all)]
+#[instrument(level = Level::DEBUG, skip_all)]
 pub fn assert_header<'a>(
     header: &ConwayHeader,
     cbor: &'a [u8],
@@ -38,8 +38,13 @@ pub fn assert_header<'a>(
             FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
         let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
         let block_validator = BlockValidator::new(header, cbor, ledger, epoch_nonce, &c);
-        block_validator.validate().or_panic()?;
+        block_validator
+            .validate()
+            .map_err(|e| {
+                warn!("fail to validate header {}: {:?}", header.hash(), e);
+            })
+            .or(Ok(())) // FIXME: Remove this once we have a proper error handling
+    } else {
+        Ok(())
     }
-
-    Ok(())
 }

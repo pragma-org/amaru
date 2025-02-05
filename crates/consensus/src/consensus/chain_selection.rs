@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::peer::Peer;
-use super::{header::Header, Point};
+use super::{header::Header, peer::Peer, Point};
 use pallas_crypto::hash::Hash;
-use std::collections::HashMap;
-use std::fmt::Debug;
-use tracing::{info, instrument};
+use std::{collections::HashMap, fmt::Debug};
+use tracing::{debug, instrument, Level};
+
+const EVENT_TARGET: &str = "amaru::consensus::chain_selection";
 
 /// A fragment of the chain, represented by a list of headers
 /// and an anchor.
@@ -94,8 +94,12 @@ pub enum ChainSelection<H: Header> {
     NoChange,
 
     /// The current best chain has switched to given fork starting at
-    /// given hash.
-    SwitchToFork(Point, Vec<H>),
+    /// given hash, from given Peer.
+    ///
+    /// FIXME: The peer should not be needed here, as the fork should be
+    /// comprised of known blocks. It is only needed to download the blocks
+    /// we don't currently store.
+    SwitchToFork(Peer, Point, Vec<H>),
 }
 
 /// Builder pattern for `ChainSelector`.
@@ -159,7 +163,7 @@ where
     ///
     /// The function returns the result of the chain selection process, which might lead
     /// to a new tip, a switch to a fork, no change, or some change in status for the peer.
-    #[instrument(skip(self, header), fields(slot = header.slot(), hdr = header.hash().to_string()))]
+    #[instrument(level = Level::DEBUG, skip(self, header), fields(header.slot = header.slot(), header.hash = header.hash().to_string()))]
     pub fn roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
 
@@ -169,16 +173,21 @@ where
                 let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
                 let result = if best_tip.parent().unwrap() == self.tip.hash() {
+                    debug!(target: EVENT_TARGET, "new_tip");
                     ChainSelection::NewTip(header.clone())
                 } else if best_tip.block_height() > self.tip.block_height() {
                     let fragment = self.peers_chains.get(&best_peer).unwrap();
-                    ChainSelection::SwitchToFork(fragment.anchor.point(), fragment.headers.clone())
+                    debug!(target: EVENT_TARGET, peer = ?best_peer, tip.hash = ?best_tip.hash().to_string(), tip.slot = ?best_tip.slot(), "switch_to_fork");
+                    ChainSelection::SwitchToFork(
+                        best_peer,
+                        fragment.anchor.point(),
+                        fragment.headers.clone(),
+                    )
                 } else {
                     ChainSelection::NoChange
                 };
 
                 if result != ChainSelection::NoChange {
-                    info!(target: "amaru::consensus::chain_selection::new_tip", hash = ?header.hash().to_string(), slot = ?header.slot());
                     self.tip = header;
                 }
 
@@ -198,7 +207,7 @@ where
     /// If the chain of the peer is still the longest, the function will return a
     /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
     /// tip of the chain.
-    #[instrument(skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self))]
     pub fn rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
         self.rollback_fragment(peer, point);
 
@@ -210,7 +219,11 @@ where
             let fragment = self.peers_chains.get(&best_peer).unwrap();
             // TODO: do not always switch to anchor if there's a better intersection
             // with current chain
-            ChainSelection::SwitchToFork(fragment.anchor.point(), fragment.headers.clone())
+            ChainSelection::SwitchToFork(
+                best_peer,
+                fragment.anchor.point(),
+                fragment.headers.clone(),
+            )
         };
 
         self.tip = best_tip.clone();
@@ -218,7 +231,7 @@ where
         result
     }
 
-    #[instrument(skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self))]
     fn find_best_chain(&self) -> Option<(Peer, H)> {
         let mut best: Option<(Peer, H)> = None;
         for (peer, fragment) in self.peers_chains.iter() {
@@ -230,7 +243,7 @@ where
         best
     }
 
-    #[instrument(skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self))]
     fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);
@@ -241,8 +254,7 @@ where
 #[cfg(test)]
 mod tests {
 
-    use super::ChainSelection::*;
-    use super::*;
+    use super::{ChainSelection::*, *};
     use crate::consensus::header::test::{generate_headers_anchored_at, random_bytes, TestHeader};
 
     #[test]
@@ -328,7 +340,7 @@ mod tests {
             .map(|header| chain_selector.roll_forward(&bob, *header))
             .last();
 
-        assert_eq!(SwitchToFork(Point::Origin, chain2), result.unwrap());
+        assert_eq!(SwitchToFork(bob, Point::Origin, chain2), result.unwrap());
     }
 
     #[test]
@@ -432,6 +444,6 @@ mod tests {
         let rollback_point = &chain1[3];
         let result = chain_selector.rollback(&alice, rollback_point.hash());
 
-        assert_eq!(SwitchToFork(Point::Origin, chain2), result);
+        assert_eq!(SwitchToFork(bob, Point::Origin, chain2), result);
     }
 }
