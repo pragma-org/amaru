@@ -31,7 +31,6 @@ jobs:
         run: cargo clippy-amaru
   build:
     name: Build on ${{ matrix.environments.runner }} with target ${{ matrix.environments.target }}
-    needs: sanity
     strategy:
       fail-fast: false
       matrix:
