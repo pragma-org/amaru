@@ -59,7 +59,7 @@ cargo run --release -- import-chain-db \
 > [!WARNING]
 > This can take a while as the code is currently non-optimised.
 
-3. Setup observability backends:
+3. _(Optional)_ Setup observability backends:
 
 ```console
 docker-compose -f monitoring/jaeger/docker-compose.yml up
@@ -76,6 +76,15 @@ AMARU_DEV_LOG=warn cargo run --release -- daemon \
 > [!TIP]
 > Replace `--peer-address` with your Cardano node peer address. It can be either
 > a local or remote node (i.e. any existing node relay).
+
+> [!TIP]
+> To ensure logs are forwarded to telemetry backend, pass `--with-open-telemetry` or `--with-otlp` as an option _before_ the `daemon` sub-command, eg.
+>
+> ```console
+> cargo run --release -- --with-otlp daemon \
+>  --peer-address=127.0.0.1:3000 \
+>  --network=preprod
+> ```
 
 ### Monitoring
 
