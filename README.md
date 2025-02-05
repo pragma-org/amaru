@@ -78,10 +78,10 @@ AMARU_DEV_LOG=warn cargo run --release -- daemon \
 > a local or remote node (i.e. any existing node relay).
 
 > [!TIP]
-> To ensure logs are forwarded to telemetry backend, pass `--with-open-telemetry` or `--with-otlp` as an option _before_ the `daemon` sub-command, eg.
+> To ensure logs are forwarded to telemetry backend, pass `--with-open-telemetry` as an option _before_ the `daemon` sub-command, eg.
 >
 > ```console
-> cargo run --release -- --with-otlp daemon \
+> cargo run --release -- --with-open-telemetry daemon \
 >  --peer-address=127.0.0.1:3000 \
 >  --network=preprod
 > ```
