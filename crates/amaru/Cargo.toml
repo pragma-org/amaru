@@ -27,6 +27,7 @@ pallas-crypto.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true
 pallas-traverse.workspace = true
+sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util.workspace = true
@@ -38,9 +39,6 @@ amaru-consensus = { path = "../consensus" }
 amaru-ledger = { path = "../ledger" }
 amaru-ouroboros = { path = "../ouroboros" }
 amaru-stores = { path = "../stores" }
-
-[target.'cfg(not(windows))'.dependencies]
-sys_metrics.workspace = true
 
 [dev-dependencies]
 envpath = { workspace = true, features = ["rand"] }

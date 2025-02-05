@@ -41,6 +41,7 @@ rayon = "1.10"
 rocksdb = { version = "0.23.0", default-features = false, features = ["bindgen-runtime", "snappy"] }
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0.128", default-features = false }
+sysinfo = "0.33.1"
 tempfile = "3.15.0"
 thiserror = "2.0.3"
 tokio = "1.40.0"
@@ -52,9 +53,6 @@ tracing-subscriber = "0.3.18"
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }
 kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
-
-# not(windows)
-sys_metrics = "0.2.7"
 
 # dev-dependencies
 proptest = "1.5.0"
