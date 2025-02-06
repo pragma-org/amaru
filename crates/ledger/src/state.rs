@@ -240,6 +240,12 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     }
 
     pub fn backward<'b>(&mut self, to: &'b Point) -> Result<(), BackwardErr<'b>> {
+        // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
+        // rollback to the last known point, which ought to be the tip of the database.
+        if self.volatile.is_empty() && self.tip().as_ref() == to {
+            return Ok(());
+        }
+
         self.volatile
             .rollback_to(to, BackwardErr::UnknownRollbackPoint(to))
     }
