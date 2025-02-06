@@ -152,22 +152,13 @@ impl StakeDistribution {
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
-        // TODO: Avoid creating this intermediate map, and directly create the keys/scripts ones.
-        // Then, when looking for _active accounts_ delegated to pools, we can prune those not
-        // referenced anywhere.
         let mut accounts = db
             .iter_accounts()?
             .filter_map(|(credential, account)| {
-                account.delegatee.map(|pool| (pool, credential, account))
-            })
-            .map(|(pool, credential, account)| {
-                (
-                    credential,
-                    AccountState {
-                        pool,
-                        lovelace: account.rewards,
-                    },
-                )
+                account.delegatee.map(|pool| (credential, AccountState {
+                    pool,
+                    lovelace: account.rewards,
+                }))
             })
             .collect::<BTreeMap<StakeCredential, AccountState>>();
 
