@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::header_validation::assert_header;
-use amaru_ledger::{RawBlock, ValidateHeaderEvent};
+use amaru_ledger::{RawBlock, ValidateBlockEvent};
 use amaru_ouroboros::{
     ledger::LedgerState,
     protocol::{peer, peer::*, Point, PullEvent},
@@ -32,7 +32,7 @@ use tokio::sync::Mutex;
 use tracing::{instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
-pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 
 pub mod chain_selection;
 pub mod header;
@@ -41,8 +41,8 @@ pub mod nonce;
 pub mod store;
 
 #[derive(Stage)]
-#[stage(name = "consensus", unit = "PullEvent", worker = "Worker")]
-pub struct Stage {
+#[stage(name = "consensus.header", unit = "PullEvent", worker = "Worker")]
+pub struct HeaderStage {
     peer_sessions: HashMap<Peer, PeerSession>,
     chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
     ledger: Arc<Mutex<dyn LedgerState>>,
@@ -62,7 +62,7 @@ pub struct Stage {
     validation_tip: gasket::metrics::Gauge,
 }
 
-impl Stage {
+impl HeaderStage {
     pub fn new(
         peer_sessions: Vec<PeerSession>,
         ledger: Arc<Mutex<dyn LedgerState>>,
@@ -106,7 +106,7 @@ impl Stage {
         };
 
         self.downstream
-            .send(ValidateHeaderEvent::Validated(point, block).into())
+            .send(ValidateBlockEvent::Validated(point, block).into())
             .await
             .or_panic()
     }
@@ -119,7 +119,7 @@ impl Stage {
         fork: Vec<ConwayHeader>,
     ) -> Result<(), WorkerError> {
         self.downstream
-            .send(ValidateHeaderEvent::Rollback(rollback_point.clone()).into())
+            .send(ValidateBlockEvent::Rollback(rollback_point.clone()).into())
             .await
             .or_panic()?;
 
@@ -130,7 +130,10 @@ impl Stage {
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, raw_header))]
+    #[instrument(level = Level::DEBUG, skip_all,
+                 fields(peer = peer.name,
+                        slot = &point.slot_or_default(),
+                        hash = point_hash(point).to_string()))]
     async fn handle_roll_forward(
         &mut self,
         peer: &Peer,
@@ -195,7 +198,7 @@ impl Stage {
             }
             chain_selection::ChainSelection::RollbackTo(_) => {
                 self.downstream
-                    .send(ValidateHeaderEvent::Rollback(rollback.clone()).into())
+                    .send(ValidateBlockEvent::Rollback(rollback.clone()).into())
                     .await
                     .or_panic()?;
                 self.rollback_count.inc(1);
@@ -214,21 +217,25 @@ impl Stage {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl gasket::framework::Worker<Stage> for Worker {
-    async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
+impl gasket::framework::Worker<HeaderStage> for Worker {
+    async fn bootstrap(_stage: &HeaderStage) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
 
     async fn schedule(
         &mut self,
-        stage: &mut Stage,
+        stage: &mut HeaderStage,
     ) -> Result<WorkSchedule<PullEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
 
         Ok(WorkSchedule::Unit(unit.payload))
     }
 
-    async fn execute(&mut self, unit: &PullEvent, stage: &mut Stage) -> Result<(), WorkerError> {
+    async fn execute(
+        &mut self,
+        unit: &PullEvent,
+        stage: &mut HeaderStage,
+    ) -> Result<(), WorkerError> {
         match unit {
             PullEvent::RollForward(peer, point, raw_header) => {
                 stage.handle_roll_forward(peer, point, raw_header).await
