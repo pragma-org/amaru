@@ -434,6 +434,10 @@ impl Store for RocksDB {
         }
     }
 
+    fn with_utxo(&self, with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> Result<(), StoreError> {
+        with_prefix_iterator(self.db.transaction(), utxo::PREFIX, with)
+    }
+
     fn with_pools(
         &self,
         with: impl FnMut(scolumns::pools::Iter<'_, '_>),

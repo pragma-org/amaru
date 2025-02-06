@@ -140,6 +140,9 @@ pub trait Store: Snapshot + Send + Sync {
     /// stored as a bounded FIFO, so it only make sense to use this function at the end of an epoch
     /// (or at the beginning, before any block is applied, depending on your perspective).
     fn with_block_issuers(&self, with: impl FnMut(slots::Iter<'_, '_>)) -> Result<(), StoreError>;
+
+    /// Provide an access to iterate over utxo, similar to 'with_pools'.
+    fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), StoreError>;
 }
 
 // Columns

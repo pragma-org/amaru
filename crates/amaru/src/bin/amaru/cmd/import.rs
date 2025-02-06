@@ -317,6 +317,20 @@ fn import_utxo(
 ) -> miette::Result<()> {
     info!(what = "utxo_entries", size = utxo.len());
 
+    let progress_delete = ProgressBar::no_length().with_style(
+        ProgressStyle::with_template("  Pruning UTxO entries {spinner} {elapsed}").unwrap(),
+    );
+
+    db.with_utxo(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+            progress_delete.tick();
+        }
+    })
+    .into_diagnostic()?;
+
+    progress_delete.finish_and_clear();
+
     let progress = ProgressBar::new(utxo.len() as u64).with_style(
         ProgressStyle::with_template("  UTxO entries {bar:70} {pos:>7}/{len:7}").unwrap(),
     );
