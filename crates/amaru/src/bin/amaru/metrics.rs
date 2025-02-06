@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use opentelemetry_sdk::metrics::SdkMeterProvider;
+use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
 use tokio::task::JoinHandle;
 
 pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
@@ -23,10 +24,16 @@ pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
         let counters = make_system_counters(metrics);
         // TODO(pi): configurable parameter?
         let delay = Duration::from_secs(1);
+        let mut sys = System::new_with_specifics(
+            RefreshKind::nothing()
+                .with_cpu(CpuRefreshKind::everything().without_frequency())
+                .with_memory(MemoryRefreshKind::everything().without_swap()),
+        );
         loop {
             tokio::time::sleep(delay).await;
 
-            record_system_metrics(&counters);
+            sys.refresh_cpu_all();
+            record_system_metrics(&sys, &counters);
         }
     })
 }
@@ -37,7 +44,7 @@ mod internals {
         KeyValue,
     };
     use opentelemetry_sdk::metrics::SdkMeterProvider;
-    use sysinfo::{CpuRefreshKind, MemoryRefreshKind, RefreshKind, System};
+    use sysinfo::System;
 
     pub struct SystemCounters {
         total_memory: Gauge<u64>,
@@ -73,13 +80,7 @@ mod internals {
         }
     }
 
-    pub fn record_system_metrics(counters: &SystemCounters) {
-        let sys = System::new_with_specifics(
-            RefreshKind::nothing()
-                .with_cpu(CpuRefreshKind::everything().with_frequency())
-                .with_memory(MemoryRefreshKind::everything().without_swap()),
-        );
-
+    pub fn record_system_metrics(sys: &System, counters: &SystemCounters) {
         counters.total_memory.record(sys.total_memory(), &[]);
         counters.free_memory.record(sys.free_memory(), &[]);
         let usages = sys
