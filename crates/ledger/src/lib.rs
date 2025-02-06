@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    kernel::{Hash, Hasher, MintedBlock, Point},
-    state::BackwardErr,
-};
+use crate::kernel::{Hash, Hasher, MintedBlock, Point};
 use gasket::framework::*;
 use pallas_codec::minicbor as cbor;
+use state::BackwardError;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::Mutex;
@@ -53,16 +51,16 @@ pub mod rewards;
 pub mod state;
 pub mod store;
 
-pub struct Stage<T>
+pub struct Stage<S>
 where
-    T: Store,
+    S: Store,
 {
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
-    pub state: Arc<Mutex<state::State<T, T::Error>>>,
+    pub state: Arc<Mutex<state::State<S>>>,
 }
 
-impl<T: Store> gasket::framework::Stage for Stage<T> {
+impl<S: Store> gasket::framework::Stage for Stage<S> {
     type Unit = ValidateBlockEvent;
     type Worker = Worker;
 
@@ -75,8 +73,8 @@ impl<T: Store> gasket::framework::Stage for Stage<T> {
     }
 }
 
-impl<T: Store> Stage<T> {
-    pub fn new(store: T) -> (Self, Point) {
+impl<S: Store> Stage<S> {
+    pub fn new(store: S) -> (Self, Point) {
         let state = state::State::new(Arc::new(std::sync::Mutex::new(store)));
 
         let tip = state.tip().into_owned();
@@ -143,7 +141,7 @@ impl<T: Store> Stage<T> {
 
         let result = match state.backward(&point) {
             Ok(_) => BlockValidationResult::RolledBackTo(point),
-            Err(BackwardErr::UnknownRollbackPoint(_)) => {
+            Err(BackwardError::UnknownRollbackPoint(_)) => {
                 BlockValidationResult::InvalidRollbackPoint(point)
             }
         };
@@ -157,14 +155,14 @@ impl<T: Store> Stage<T> {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
-    async fn bootstrap(_stage: &Stage<T>) -> Result<Self, WorkerError> {
+impl<S: Store> gasket::framework::Worker<Stage<S>> for Worker {
+    async fn bootstrap(_stage: &Stage<S>) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
 
     async fn schedule(
         &mut self,
-        stage: &mut Stage<T>,
+        stage: &mut Stage<S>,
     ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
         Ok(WorkSchedule::Unit(unit.payload))
@@ -173,7 +171,7 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
     async fn execute(
         &mut self,
         unit: &ValidateBlockEvent,
-        stage: &mut Stage<T>,
+        stage: &mut Stage<S>,
     ) -> Result<(), WorkerError> {
         let result = match unit {
             ValidateBlockEvent::Validated(point, raw_block) => {

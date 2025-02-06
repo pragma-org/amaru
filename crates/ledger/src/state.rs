@@ -25,13 +25,14 @@ use crate::{
     },
     rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
-    store::{columns::*, Store},
+    store::{columns::*, Store, StoreError},
 };
 use std::{
     borrow::Cow,
     collections::{BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
+use thiserror::Error;
 use tracing::{debug, debug_span, info_span, Span};
 
 const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
@@ -48,9 +49,9 @@ const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
-pub struct State<S, E>
+pub struct State<S>
 where
-    S: Store<Error = E>,
+    S: Store,
 {
     /// A handle to the stable store, shared across all ledger instances.
     stable: Arc<Mutex<S>>,
@@ -67,7 +68,7 @@ where
     stake_distributions: VecDeque<StakeDistribution>,
 }
 
-impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
+impl<S: Store> State<S> {
     pub fn new(stable: Arc<Mutex<S>>) -> Self {
         let db = stable.lock().unwrap();
 
@@ -138,11 +139,11 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         span: &Span,
         point: &Point,
         block: MintedBlock<'_>,
-    ) -> Result<(), ForwardErr<E>> {
+    ) -> Result<(), StateError> {
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
         let relative_slot = kernel::relative_slot(point.slot_or_default());
 
-        let state = self.apply_block(span, block)?;
+        let state = self.apply_block(span, block).map_err(StateError::Storage)?;
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
             let mut db = self.stable.lock().unwrap();
@@ -168,7 +169,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 // up with a corrupted state.
                 info_span!(target: STATE_EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
                     db.next_snapshot(current_epoch - 1, self.rewards_summary.take())
-                        .map_err(ForwardErr::StorageErr)
+                        .map_err(StateError::Storage)
                 })?;
 
                 debug_span!(target: STATE_EVENT_TARGET, parent: span, "tick.pool").in_scope(
@@ -181,7 +182,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                                 pools::Row::tick(pool, current_epoch)
                             }
                         })
-                        .map_err(ForwardErr::StorageErr)
+                        .map_err(StateError::Storage)
                     },
                 )?;
             }
@@ -208,7 +209,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                         row.borrow_mut().fees += fees;
                     })
                 })
-                .map_err(ForwardErr::StorageErr)
+                .map_err(StateError::Storage)
             })?;
 
             // Once we reach the stability window,
@@ -219,12 +220,12 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                             .pop_back()
                             .unwrap_or_else(|| panic!("no readily available stake distribution?")),
                     )
-                    .map_err(ForwardErr::StorageErr)?,
+                    .map_err(StateError::Storage)?,
                 );
 
                 self.stake_distributions.push_front(
                     db.stake_distribution(current_epoch - 1)
-                        .map_err(ForwardErr::StorageErr)?,
+                        .map_err(StateError::Storage)?,
                 );
             }
         } else {
@@ -239,19 +240,20 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         Ok(())
     }
 
-    pub fn backward<'b>(&mut self, to: &'b Point) -> Result<(), BackwardErr<'b>> {
+    pub fn backward(&mut self, to: &Point) -> Result<(), BackwardError> {
         // NOTE: This happens typically on start-up; The consensus layer will typically ask us to
         // rollback to the last known point, which ought to be the tip of the database.
         if self.volatile.is_empty() && self.tip().as_ref() == to {
             return Ok(());
         }
 
-        self.volatile
-            .rollback_to(to, BackwardErr::UnknownRollbackPoint(to))
+        self.volatile.rollback_to(to, |point| {
+            BackwardError::UnknownRollbackPoint(point.clone())
+        })
     }
 
     /// Fetch stake pool details from the current live view of the ledger.
-    pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, QueryErr<E>> {
+    pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, StateError> {
         let current_epoch = epoch_from_slot(self.tip().slot_or_default());
 
         let volatile_view = self.volatile.iter_pools();
@@ -261,7 +263,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             diff_epoch_reg::Fold::Unregistered => Ok(None),
             diff_epoch_reg::Fold::Undetermined => {
                 let db = self.stable.lock().unwrap();
-                let mut row = db.pool(pool).map_err(QueryErr::StorageErr)?;
+                let mut row = db.pool(pool).map_err(StateError::Query)?;
                 pools::Row::tick(Box::new(&mut row), current_epoch);
                 Ok(row.map(|row| row.current_params))
             }
@@ -270,9 +272,9 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
     fn resolve_inputs<'a>(
         &'a self,
-        ongoing_state: &'a VolatileState<()>,
+        ongoing_state: &VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<TransactionOutput>, E> {
+    ) -> Result<Vec<TransactionOutput>, StoreError> {
         let mut result = Vec::new();
 
         for input in inputs {
@@ -283,7 +285,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
                 .map(Ok)
                 .unwrap_or_else(|| {
                     let db = self.stable.lock().unwrap();
-                    db.resolve_input(input).map(|opt| {
+                    db.utxo(input).map(|opt| {
                         opt.unwrap_or_else(|| {
                             panic!("unknown UTxO expected to be known: {input:?}!")
                         })
@@ -301,7 +303,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
         &self,
         parent: &Span,
         block: MintedBlock<'_>,
-    ) -> Result<VolatileState<()>, ForwardErr<E>> {
+    ) -> Result<VolatileState, StoreError> {
         let failed_transactions = FailedTransactions::from_block(&block);
         let transaction_bodies = block.transaction_bodies.to_vec();
         let total_count = transaction_bodies.len();
@@ -325,9 +327,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 
             let resolved_collateral_inputs = match transaction_body.collateral {
                 None => vec![],
-                Some(ref inputs) => self
-                    .resolve_inputs(&state, inputs.iter())
-                    .map_err(ForwardErr::StorageErr)?,
+                Some(ref inputs) => self.resolve_inputs(&state, inputs.iter())?,
             };
 
             transaction::apply(
@@ -352,7 +352,7 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
 // The 'LedgerState' trait materializes the interface required of the consensus layer in order to
 // validate block headers. It allows to keep the ledger implementation rather abstract to the
 // consensus in order to decouple both components.
-impl<S: Store<Error = E>, E: std::fmt::Debug> amaru_ouroboros::ledger::LedgerState for State<S, E> {
+impl<S: Store> amaru_ouroboros::ledger::LedgerState for State<S> {
     fn pool_id_to_sigma(
         &self,
         _pool_id: &PoolId,
@@ -419,19 +419,20 @@ impl FailedTransactions {
 // Errors
 // ----------------------------------------------------------------------------
 
-#[derive(Debug)]
-pub enum QueryErr<E> {
-    StorageErr(E),
-}
-
-#[derive(Debug)]
-pub enum ForwardErr<E> {
-    StorageErr(E),
-}
-
-#[derive(Debug)]
-pub enum BackwardErr<'a> {
+#[derive(Debug, Error)]
+pub enum BackwardError {
     /// The ledger has been instructed to rollback to an unknown point. This should be impossible
     /// if chain-sync messages (roll-forward and roll-backward) are all passed to the ledger.
-    UnknownRollbackPoint(&'a Point),
+    #[error("error rolling back to unknown {0:?}")]
+    UnknownRollbackPoint(Point),
+}
+
+#[derive(Debug, Error)]
+pub enum StateError {
+    #[error("error processing query")]
+    Query(#[source] StoreError),
+    #[error("unable to open database snapshot for epoch {1}: {0}")]
+    EpochAccess(u64, #[source] StoreError),
+    #[error("error accessing storage")]
+    Storage(#[source] StoreError),
 }

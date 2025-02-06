@@ -104,6 +104,7 @@ dependencies = [
  "bech32 0.11.0",
  "gasket",
  "hex",
+ "miette",
  "num",
  "opentelemetry",
  "pallas-addresses",
@@ -113,6 +114,7 @@ dependencies = [
  "pallas-primitives",
  "proptest",
  "serde",
+ "thiserror 2.0.11",
  "tokio",
  "tracing",
 ]
@@ -150,7 +152,6 @@ version = "0.1.0"
 dependencies = [
  "amaru-ledger",
  "hex",
- "miette",
  "pallas-codec",
  "rocksdb",
  "thiserror 2.0.11",

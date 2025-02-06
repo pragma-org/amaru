@@ -14,20 +14,18 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_ledger::{
-    iter::{
-        borrow as iter_borrow,
-        borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
-    },
+    iter::borrow::{self as iter_borrow, borrowable_proxy::BorrowableProxy, IterBorrow},
     kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
-    rewards::StakeDistribution,
-    store::{columns as scolumns, Columns, RewardsSummary, Store},
+    rewards::{Pots, StakeDistribution},
+    store::{
+        columns as scolumns, Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError,
+    },
 };
 use columns::*;
 use common::{as_value, PREFIX_LEN};
-use miette::Diagnostic;
 use pallas_codec::minicbor::{self as cbor};
 use std::{
-    fmt, fs, io,
+    fmt, fs,
     path::{Path, PathBuf},
 };
 use tracing::{debug, debug_span, info, info_span, warn};
@@ -69,21 +67,14 @@ pub struct RocksDB {
     snapshots: Vec<Epoch>,
 }
 
-#[derive(Debug, thiserror::Error, Diagnostic)]
-pub enum OpenError {
-    #[error(transparent)]
-    RocksDB(rocksdb::Error),
-    #[error(transparent)]
-    IO(io::Error),
-    #[error("no ledger stable snapshot found in ledger.db; at least one is expected")]
-    NoStableSnapshot,
-}
-
 impl RocksDB {
-    pub fn new(dir: &Path) -> Result<RocksDB, OpenError> {
+    pub fn new(dir: &Path) -> Result<RocksDB, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
-        for entry in fs::read_dir(dir).map_err(OpenError::IO)?.by_ref() {
-            let entry = entry.map_err(OpenError::IO)?;
+        for entry in fs::read_dir(dir)
+            .map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?
+            .by_ref()
+        {
+            let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
 
             if let Ok(epoch) = entry
                 .file_name()
@@ -110,18 +101,18 @@ impl RocksDB {
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
 
         if snapshots.is_empty() {
-            return Err(OpenError::NoStableSnapshot);
+            return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
         }
 
         Ok(RocksDB {
             snapshots,
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
-                .map_err(OpenError::RocksDB)?,
+                .map_err(|err| StoreError::Internal(err.into()))?,
         })
     }
 
-    pub fn empty(dir: &Path) -> Result<RocksDB, OpenError> {
+    pub fn empty(dir: &Path) -> Result<RocksDB, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
@@ -129,18 +120,7 @@ impl RocksDB {
             snapshots: vec![],
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
-                .map_err(OpenError::RocksDB)?,
-        })
-    }
-
-    pub fn from_snapshot(dir: &Path, epoch: Epoch) -> Result<RocksDB, OpenError> {
-        let mut opts = Options::default();
-        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
-        Ok(RocksDB {
-            snapshots: vec![epoch],
-            dir: dir.to_path_buf(),
-            db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
-                .map_err(OpenError::RocksDB)?,
+                .map_err(|err| StoreError::Internal(err.into()))?,
         })
     }
 
@@ -149,13 +129,120 @@ impl RocksDB {
     }
 }
 
-impl Store for RocksDB {
-    type Error = rocksdb::Error;
+fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::Decode<'d, ()>>(
+    db: &OptimisticTransactionDB,
+    prefix: [u8; PREFIX_LEN],
+) -> Result<impl Iterator<Item = (K, V)> + use<'_, K, V>, StoreError> {
+    let a = db.prefix_iterator(prefix);
+    Ok(a.map(|e| {
+        let (key, value) = e.unwrap();
+        (
+            cbor::decode(&key).expect("unable to decode key"),
+            cbor::decode(&value).expect("unable to decode value"),
+        )
+    }))
+}
 
-    fn tip(&self) -> Result<Point, Self::Error> {
+impl Snapshot for RocksDB {
+    fn most_recent_snapshot(&'_ self) -> Epoch {
+        self.snapshots
+            .last()
+            .cloned()
+            .unwrap_or_else(|| panic!("called 'most_recent_snapshot' on empty database?!"))
+    }
+
+    fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
+        pools::get(&self.db, pool)
+    }
+
+    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
+        utxo::get(&self.db, input)
+    }
+
+    fn iter_utxos(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
+    {
+        iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
+    }
+
+    fn pots(&self) -> Result<amaru_ledger::rewards::Pots, StoreError> {
+        pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
+    }
+
+    fn iter_accounts(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
+    {
+        iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX)
+    }
+
+    fn iter_block_issuers(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
+    {
+        iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX)
+    }
+
+    fn iter_pools(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
+    {
+        iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
+    }
+}
+
+/// An generic column iterator, provided that rows from the column are (de)serialisable.
+fn with_prefix_iterator<
+    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    DB,
+>(
+    db: rocksdb::Transaction<'_, DB>,
+    prefix: [u8; PREFIX_LEN],
+    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
+) -> Result<(), StoreError> {
+    let mut iterator =
+        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
+            // FIXME: clarify what kind of errors can come from the database at this point.
+            // We are merely iterating over a collection.
+            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+        }));
+
+    with(iterator.as_iter_borrow());
+
+    for (k, v) in iterator.into_iter_updates() {
+        match v {
+            Some(v) => db.put(k, as_value(v)),
+            None => db.delete(k),
+        }
+        .map_err(|err| StoreError::Internal(err.into()))?;
+    }
+
+    db.commit().map_err(|err| StoreError::Internal(err.into()))
+}
+
+impl Store for RocksDB {
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
+        let mut opts = Options::default();
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+
+        Ok(RocksDB {
+            snapshots: vec![epoch],
+            dir: self.dir.to_path_buf(),
+            db: OptimisticTransactionDB::open(
+                &opts,
+                self.dir.join(PathBuf::from(format!("{epoch:?}"))),
+            )
+            .map_err(|err| StoreError::Internal(err.into()))?,
+        })
+    }
+
+    fn tip(&self) -> Result<Point, StoreError> {
         Ok(self
             .db
-            .get(KEY_TIP)?
+            .get(KEY_TIP)
+            .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| cbor::decode(&bytes))
             .transpose()
             .expect("unable to decode database's tip")
@@ -165,9 +252,9 @@ impl Store for RocksDB {
     }
 
     fn save(
-        &'_ self,
-        point: &'_ Point,
-        issuer: Option<&'_ scolumns::pools::Key>,
+        &self,
+        point: &Point,
+        issuer: Option<&scolumns::pools::Key>,
         add: Columns<
             impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
             impl Iterator<Item = scolumns::pools::Value>,
@@ -179,24 +266,29 @@ impl Store for RocksDB {
             impl Iterator<Item = scolumns::accounts::Key>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), StoreError> {
         let batch = self.db.transaction();
 
-        let tip: Option<Point> = batch.get(KEY_TIP)?.map(|bytes| {
-            cbor::decode(&bytes).unwrap_or_else(|e| {
-                panic!(
-                    "unable to decode database tip ({}): {e:?}",
-                    hex::encode(&bytes)
-                )
-            })
-        });
+        let tip: Option<Point> = batch
+            .get(KEY_TIP)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .map(|bytes| {
+                cbor::decode(&bytes).unwrap_or_else(|e| {
+                    panic!(
+                        "unable to decode database tip ({}): {e:?}",
+                        hex::encode(&bytes)
+                    )
+                })
+            });
 
         match (point, tip) {
             (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
                 debug!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
-                batch.put(KEY_TIP, as_value(point))?;
+                batch
+                    .put(KEY_TIP, as_value(point))
+                    .map_err(|err| StoreError::Internal(err.into()))?;
 
                 if let Some(issuer) = issuer {
                     slots::put(
@@ -218,21 +310,16 @@ impl Store for RocksDB {
             }
         }
 
-        batch.commit()
-    }
-
-    fn most_recent_snapshot(&'_ self) -> Epoch {
-        self.snapshots
-            .last()
-            .cloned()
-            .unwrap_or_else(|| panic!("called 'most_recent_snapshot' on empty database?!"))
+        batch
+            .commit()
+            .map_err(|err| StoreError::Internal(err.into()))
     }
 
     fn next_snapshot(
         &'_ mut self,
         epoch: Epoch,
         rewards_summary: Option<RewardsSummary>,
-    ) -> Result<(), Self::Error> {
+    ) -> Result<(), StoreError> {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             if let Some(mut rewards_summary) = rewards_summary {
@@ -269,7 +356,10 @@ impl Store for RocksDB {
                 // It might be better to come up with a global error type
                 fs::remove_dir_all(&path).expect("Unable to remove existing snapshot directory");
             }
-            checkpoint::Checkpoint::new(&self.db)?.create_checkpoint(path)?;
+            checkpoint::Checkpoint::new(&self.db)
+                .map_err(|err| StoreError::Internal(err.into()))?
+                .create_checkpoint(path)
+                .map_err(|err| StoreError::Internal(err.into()))?;
 
             debug_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
                 // TODO: If necessary, come up with a more efficient way of dropping a "table".
@@ -296,8 +386,8 @@ impl Store for RocksDB {
         Ok(())
     }
 
-    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, Self::Error> {
-        StakeDistribution::new(&Self::from_snapshot(&self.dir, epoch).unwrap_or_else(|e| {
+    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, StoreError> {
+        StakeDistribution::new(&Self::for_epoch(self, epoch).unwrap_or_else(|e| {
             panic!(
                 "unable to open database snapshot for epoch {:?}: {:?}",
                 epoch, e
@@ -308,9 +398,9 @@ impl Store for RocksDB {
     fn rewards_summary(
         &self,
         stake_distr: StakeDistribution,
-    ) -> Result<RewardsSummary, Self::Error> {
+    ) -> Result<RewardsSummary, StoreError> {
         RewardsSummary::new(
-            &Self::from_snapshot(&self.dir, stake_distr.epoch + 2).unwrap_or_else(|e| {
+            &Self::for_epoch(self, stake_distr.epoch + 2).unwrap_or_else(|e| {
                 panic!(
                     "unable to open database snapshot for epoch {:?}: {:?}",
                     stake_distr.epoch + 2,
@@ -324,12 +414,13 @@ impl Store for RocksDB {
     fn with_pots<A>(
         &self,
         mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>) -> A,
-    ) -> Result<A, Self::Error> {
+    ) -> Result<A, StoreError> {
         let db = self.db.transaction();
 
         let mut err = None;
         let proxy = Box::new(BorrowableProxy::new(pots::get(&db)?, |pots| {
-            let put = pots::put(&db, pots).and_then(|_| db.commit());
+            let put = pots::put(&db, pots)
+                .and_then(|_| db.commit().map_err(|err| StoreError::Internal(err.into())));
             if let Err(e) = put {
                 err = Some(e);
             }
@@ -343,71 +434,28 @@ impl Store for RocksDB {
         }
     }
 
-    fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, Self::Error> {
-        pools::get(&self.db, pool)
-    }
-
-    fn resolve_input(
-        &self,
-        input: &TransactionInput,
-    ) -> Result<Option<TransactionOutput>, Self::Error> {
-        utxo::get(&self.db, input)
-    }
-
-    fn with_utxo(
-        &self,
-        with: impl FnMut(scolumns::utxo::Iter<'_, '_>),
-    ) -> Result<(), rocksdb::Error> {
+    fn with_utxo(&self, with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> Result<(), StoreError> {
         with_prefix_iterator(self.db.transaction(), utxo::PREFIX, with)
     }
 
     fn with_pools(
         &self,
         with: impl FnMut(scolumns::pools::Iter<'_, '_>),
-    ) -> Result<(), rocksdb::Error> {
+    ) -> Result<(), StoreError> {
         with_prefix_iterator(self.db.transaction(), pools::PREFIX, with)
     }
 
     fn with_accounts(
         &self,
         with: impl FnMut(scolumns::accounts::Iter<'_, '_>),
-    ) -> Result<(), rocksdb::Error> {
+    ) -> Result<(), StoreError> {
         with_prefix_iterator(self.db.transaction(), accounts::PREFIX, with)
     }
 
     fn with_block_issuers(
         &self,
         with: impl FnMut(scolumns::slots::Iter<'_, '_>),
-    ) -> Result<(), rocksdb::Error> {
+    ) -> Result<(), StoreError> {
         with_prefix_iterator(self.db.transaction(), slots::PREFIX, with)
     }
-}
-
-/// An generic column iterator, provided that rows from the column are (de)serialisable.
-fn with_prefix_iterator<
-    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
-    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
-    DB,
->(
-    db: rocksdb::Transaction<'_, DB>,
-    prefix: [u8; PREFIX_LEN],
-    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
-) -> Result<(), rocksdb::Error> {
-    let mut iterator =
-        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-            // FIXME: clarify what kind of errors can come from the database at this point.
-            // We are merely iterating over a collection.
-            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-        }));
-
-    with(iterator.as_iter_borrow());
-
-    for (k, v) in iterator.into_iter_updates() {
-        match v {
-            Some(v) => db.put(k, as_value(v)),
-            None => db.delete(k),
-        }?;
-    }
-
-    db.commit()
 }
