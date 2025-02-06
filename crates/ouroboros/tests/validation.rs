@@ -12,20 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_ouroboros::consensus::test::MockLedgerState;
 use std::{collections::HashMap, fs::File, io::BufReader};
 
-use amaru_ouroboros::{
-    consensus::BlockValidator,
-    kes::KesSecretKey,
-    ledger::{MockLedgerState, PoolSigma},
-    validator::Validator,
-};
+use amaru_ouroboros::{consensus::BlockValidator, kes::KesSecretKey, validator::Validator};
 use ctor::ctor;
-use mockall::predicate::eq;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
 use pallas_primitives::conway::Header;
-use pallas_traverse::{ComputeHash, MultiEraHeader};
+use pallas_traverse::MultiEraHeader;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Context from which a header has been generated.
@@ -201,42 +196,14 @@ enum Mutation {
 }
 
 fn mock_ledger_state(context: &GeneratorContext) -> MockLedgerState {
-    let mut ledger_state = MockLedgerState::new();
-    let pool_id = context.cold_secret_key.public_key().compute_hash();
-    let vrf_vkey_hash = context.vrf_vkey_hash;
-    let praos_slots_per_kes_period = context.praos_slots_per_kes_period;
-    let praos_max_kes_evolution = context.praos_max_kes_evolution;
-    let opcert_counter = context
-        .operational_certificate_counters
-        .get(&pool_id)
-        .copied()
-        .or(None);
-
-    ledger_state
-        .expect_pool_id_to_sigma()
-        .with(eq(pool_id))
-        .returning(move |_| {
-            // FIXME: add stake share to context
-            Ok(PoolSigma {
-                denominator: 1,
-                numerator: 1,
-            })
-        });
-    ledger_state
-        .expect_vrf_vkey_hash()
-        .with(eq(pool_id))
-        .returning(move |_| Ok(vrf_vkey_hash));
-    ledger_state
-        .expect_slot_to_kes_period()
-        .returning(move |slot| slot / praos_slots_per_kes_period);
-    ledger_state
-        .expect_max_kes_evolutions()
-        .returning(move || praos_max_kes_evolution);
-    ledger_state
-        .expect_latest_opcert_sequence_number()
-        .with(eq(pool_id))
-        .returning(move |_| opcert_counter);
-    ledger_state
+    MockLedgerState {
+        vrf_vkey_hash: context.vrf_vkey_hash,
+        stake: 1,
+        active_stake: 1,
+        op_certs: context.operational_certificate_counters.clone(),
+        slots_per_kes_period: context.praos_slots_per_kes_period,
+        max_kes_evolutions: context.praos_max_kes_evolution,
+    }
 }
 
 #[ctor]

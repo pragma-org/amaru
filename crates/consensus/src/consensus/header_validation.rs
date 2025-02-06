@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru_ledger::kernel::epoch_from_slot;
-use amaru_ouroboros::{consensus::BlockValidator, ledger::LedgerState, validator::Validator};
+use amaru_ouroboros::{
+    consensus::BlockValidator, traits::HasStakeDistribution, validator::Validator,
+};
 use gasket::framework::*;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::{FixedDecimal, FixedPrecision};
@@ -28,7 +30,7 @@ pub fn assert_header<'a>(
     header: &ConwayHeader,
     cbor: &'a [u8],
     epoch_to_nonce: &HashMap<Epoch, Hash<32>>,
-    ledger: &dyn LedgerState,
+    ledger: &dyn HasStakeDistribution,
 ) -> Result<(), WorkerError> {
     let epoch = epoch_from_slot(header.header_body.slot);
 

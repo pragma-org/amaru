@@ -1,15 +1,22 @@
-use crate::kes::{KesPublicKey, KesSignature};
-use crate::ledger::{issuer_vkey_to_pool_id, LedgerState, PoolId};
-use crate::validator::{ValidationError, Validator};
-use crate::vrf::{VrfProof, VrfProofBytes, VrfProofHashBytes, VrfPublicKey, VrfPublicKeyBytes};
-use pallas_crypto::hash::{Hash, Hasher};
-use pallas_crypto::key::ed25519::{PublicKey, Signature};
+use crate::{
+    issuer_vkey_to_pool_id,
+    kes::{KesPublicKey, KesSignature},
+    traits::HasStakeDistribution,
+    validator::{ValidationError, Validator},
+    vrf::{VrfProof, VrfProofBytes, VrfProofHashBytes, VrfPublicKey, VrfPublicKeyBytes},
+    PoolId, VrfKeyhash,
+};
+use pallas_crypto::{
+    hash::{Hash, Hasher},
+    key::ed25519::{PublicKey, Signature},
+};
 use pallas_math::math::{ExpOrdering, FixedDecimal, FixedPrecision};
-use pallas_primitives::babbage;
-use pallas_primitives::babbage::{derive_tagged_vrf_output, VrfDerivation};
+use pallas_primitives::{
+    babbage,
+    babbage::{derive_tagged_vrf_output, VrfDerivation},
+};
 use rayon::prelude::*;
-use std::ops::Deref;
-use std::sync::LazyLock;
+use std::{ops::Deref, sync::LazyLock};
 use tracing::{span, trace};
 
 /// The certified natural max value represents 2^256 in praos consensus
@@ -25,7 +32,7 @@ static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
 pub struct BlockValidator<'b> {
     header: &'b babbage::Header,
     cbor: &'b [u8],
-    ledger_state: &'b dyn LedgerState,
+    ledger_state: &'b dyn HasStakeDistribution,
     epoch_nonce: &'b Hash<32>,
     active_slots_coeff: &'b FixedDecimal,
 }
@@ -34,7 +41,7 @@ impl<'b> BlockValidator<'b> {
     pub fn new(
         header: &'b babbage::Header,
         cbor: &'b [u8],
-        ledger_state: &'b dyn LedgerState,
+        ledger_state: &'b dyn HasStakeDistribution,
         epoch_nonce: &'b Hash<32>,
         active_slots_coeff: &'b FixedDecimal,
     ) -> Self {
@@ -63,9 +70,17 @@ impl<'b> BlockValidator<'b> {
                 })?;
 
         let leader_vrf_output = &self.header.header_body.leader_vrf_output();
-        let sigma: FixedDecimal = self.ledger_state.pool_id_to_sigma(&pool_id).map(|sigma| {
-            FixedDecimal::from(sigma.numerator) / FixedDecimal::from(sigma.denominator)
-        })?;
+
+        let (ledger_vrf_vkey_hash, sigma): (VrfKeyhash, FixedDecimal) = self
+            .ledger_state
+            .get_pool(absolute_slot, &pool_id)
+            .map(|pool| {
+                (
+                    pool.vrf,
+                    FixedDecimal::from(pool.stake) / FixedDecimal::from(pool.active_stake),
+                )
+            })
+            .ok_or(ValidationError::UnknownPool(pool_id))?;
 
         let block_vrf_proof_hash: VrfProofHashBytes = (&self.header.header_body.vrf_result.0)
             .try_into()
@@ -95,7 +110,9 @@ impl<'b> BlockValidator<'b> {
         trace!("kes_signature: {}", hex::encode(kes_signature));
 
         let validation_checks: Vec<Box<dyn Fn() -> Result<(), ValidationError> + Send + Sync>> = vec![
-            Box::new(|| self.validate_ledger_matches_block_vrf_key_hash(&pool_id, &vrf_vkey)),
+            Box::new(|| {
+                self.validate_ledger_matches_block_vrf_key_hash(&ledger_vrf_vkey_hash, &vrf_vkey)
+            }),
             Box::new(|| {
                 self.validate_block_vrf(
                     absolute_slot,
@@ -341,13 +358,12 @@ impl<'b> BlockValidator<'b> {
     /// Validate that the VRF key hash in the block matches the VRF key hash in the ledger
     fn validate_ledger_matches_block_vrf_key_hash(
         &self,
-        pool_id: &PoolId,
+        ledger_vrf_vkey_hash: &VrfKeyhash,
         vrf_vkey: &VrfPublicKeyBytes,
     ) -> Result<(), ValidationError> {
         let vrf_vkey_hash: Hash<32> = Hasher::<256>::hash(vrf_vkey);
         trace!("block vrf_vkey_hash: {}", hex::encode(vrf_vkey_hash));
-        let ledger_vrf_vkey_hash = self.ledger_state.vrf_vkey_hash(pool_id)?;
-        if vrf_vkey_hash != ledger_vrf_vkey_hash {
+        if &vrf_vkey_hash != ledger_vrf_vkey_hash {
             return Err(ValidationError::InvalidVrfKeyForPool {
                 key_hash_from_ledger: hex::encode(ledger_vrf_vkey_hash),
                 key_hash_from_block: hex::encode(vrf_vkey),

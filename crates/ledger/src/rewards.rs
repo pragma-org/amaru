@@ -129,22 +129,22 @@ pub struct StakeDistribution {
     pub epoch: Epoch,
 
     /// Total stake, in Lovelace, delegated to registered pools
-    active_stake: Lovelace,
+    pub active_stake: Lovelace,
 
     /// Mapping of key hash digests to a delegatee (pool) and a rewards amount.
     ///
     /// NOTE:
     /// accounts that have stake but aren't delegated to any pools aren't present in the map.
-    keys: BTreeMap<Hash<28>, AccountState>,
+    pub keys: BTreeMap<Hash<28>, AccountState>,
 
     /// Mapping of script hash digests to a delegatee (pool) and a rewards amount.
     ///
     /// NOTE:
     /// accounts that have stake but aren't delegated to any pools aren't present in the map.
-    scripts: BTreeMap<Hash<28>, AccountState>,
+    pub scripts: BTreeMap<Hash<28>, AccountState>,
 
     /// Mapping of pools to their relative stake & parameters
-    pools: BTreeMap<PoolId, PoolState>,
+    pub pools: BTreeMap<PoolId, PoolState>,
 }
 
 impl StakeDistribution {

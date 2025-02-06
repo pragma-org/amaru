@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::PoolId;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
@@ -31,8 +32,8 @@ pub enum ValidationError {
     },
     #[error("Invalid block hash, expected: {0}, was: {1}")]
     InvalidBlockHash(String, String),
-    #[error("Ledger error: {0}")]
-    LedgerError(#[from] crate::ledger::Error),
+    #[error("Pool not found: {0:?}")]
+    UnknownPool(PoolId),
     #[error("VrfVerificationError: {0}")]
     VrfVerificationError(#[from] crate::vrf::VerificationError),
     #[error("InvalidVrfProofHash, expected: {0}, was: {1}")]
