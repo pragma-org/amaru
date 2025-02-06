@@ -189,7 +189,7 @@ impl<T: Store> gasket::framework::Worker<Stage<T>> for Worker {
     }
 }
 
-#[instrument(skip(bytes), fields(block.size = bytes.len()))]
+#[instrument(level = Level::DEBUG, skip(bytes), fields(block.size = bytes.len()))]
 fn parse_block(bytes: &[u8]) -> (Hash<32>, MintedBlock<'_>) {
     let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)
         .unwrap_or_else(|_| panic!("failed to decode Conway block: {:?}", hex::encode(bytes)));
