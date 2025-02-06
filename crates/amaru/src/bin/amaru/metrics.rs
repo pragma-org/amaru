@@ -33,7 +33,7 @@ pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
 
 mod internals {
     use opentelemetry::{
-        metrics::{Counter, Gauge, MeterProvider},
+        metrics::{Gauge, MeterProvider},
         KeyValue,
     };
     use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -42,7 +42,7 @@ mod internals {
     pub struct SystemCounters {
         total_memory: Gauge<u64>,
         free_memory: Gauge<u64>,
-        cpu_usage: Counter<f64>,
+        cpu_usage: Gauge<f64>,
     }
 
     pub fn make_system_counters(metrics: SdkMeterProvider) -> SystemCounters {
@@ -61,9 +61,9 @@ mod internals {
             .build();
 
         let cpu_usage = meter
-            .f64_counter("cpu.percent")
+            .f64_gauge("cpu.percent")
             .with_description("the cpu usage in percent, measured once per second")
-            .with_unit("ms")
+            .with_unit("%")
             .build();
 
         SystemCounters {
@@ -90,7 +90,7 @@ mod internals {
         for cpu in usages {
             counters
                 .cpu_usage
-                .add(cpu.1 as f64, &[KeyValue::new("cpu_name", cpu.0)]);
+                .record(cpu.1 as f64, &[KeyValue::new("cpu_name", cpu.0)]);
         }
     }
 }
