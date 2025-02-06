@@ -40,6 +40,6 @@ pub trait ChainStore<H>: Send + Sync
 where
     H: Header,
 {
-    fn get(&self, hash: &Hash<32>) -> Option<H>;
-    fn put(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
+    fn load_header(&self, hash: &Hash<32>) -> Option<H>;
+    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
 }

@@ -177,7 +177,8 @@ fn handle_response(
             let header = ConwayHeader::from_cbor(&content.cbor).unwrap();
             let hash = header.hash();
 
-            db.put(&hash, &header).map_err(|_| WorkerError::Panic)?;
+            db.store_header(&hash, &header)
+                .map_err(|_| WorkerError::Panic)?;
 
             *count += 1;
 

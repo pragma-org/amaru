@@ -134,7 +134,7 @@ fn make_chain_selector(
 ) -> Arc<Mutex<ChainSelector<ConwayHeader>>> {
     let mut builder = ChainSelectorBuilder::new();
 
-    match chain_store.get(&point_hash(&tip)) {
+    match chain_store.load_header(&point_hash(&tip)) {
         None => panic!("Tip {:?} not found in chain store", tip),
         Some(header) => builder.set_tip(&header),
     };
