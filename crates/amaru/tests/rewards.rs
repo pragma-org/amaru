@@ -19,6 +19,7 @@ use amaru_ledger::{
 use amaru_stores::rocksdb::RocksDB;
 use pallas_primitives::Epoch;
 use std::{path::PathBuf, sync::LazyLock};
+use test_case::test_case;
 
 pub static LEDGER_DB: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("../../ledger.db"));
 
@@ -27,6 +28,24 @@ fn open_db(epoch: Epoch) -> RocksDB {
         .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch))
 }
 
+#[test_case(163)]
+#[test_case(164)]
+#[test_case(165)]
+#[test_case(166)]
+#[test_case(167)]
+#[test_case(168)]
+#[test_case(169)]
+#[test_case(170)]
+#[test_case(171)]
+#[test_case(172)]
+#[test_case(173)]
+#[test_case(174)]
+#[test_case(175)]
+#[test_case(176)]
+#[test_case(177)]
+#[test_case(178)]
+#[test_case(179)]
+#[ignore]
 fn compare_preprod_snapshot(epoch: Epoch) {
     let db = open_db(epoch);
 
@@ -35,106 +54,4 @@ fn compare_preprod_snapshot(epoch: Epoch) {
 
     let rewards_summary = RewardsSummary::new(&db.for_epoch(epoch + 2).unwrap(), snapshot).unwrap();
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_163() {
-    compare_preprod_snapshot(163)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_164() {
-    compare_preprod_snapshot(164)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_165() {
-    compare_preprod_snapshot(165)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_166() {
-    compare_preprod_snapshot(166)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_167() {
-    compare_preprod_snapshot(167)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_168() {
-    compare_preprod_snapshot(168)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_169() {
-    compare_preprod_snapshot(169)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_170() {
-    compare_preprod_snapshot(170)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_171() {
-    compare_preprod_snapshot(171)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_172() {
-    compare_preprod_snapshot(172)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_173() {
-    compare_preprod_snapshot(173)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_174() {
-    compare_preprod_snapshot(174)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_175() {
-    compare_preprod_snapshot(175)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_176() {
-    compare_preprod_snapshot(176)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_177() {
-    compare_preprod_snapshot(177)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_178() {
-    compare_preprod_snapshot(178)
-}
-
-#[test]
-#[ignore]
-fn compare_preprod_snapshot_179() {
-    compare_preprod_snapshot(179)
 }
