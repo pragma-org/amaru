@@ -25,6 +25,9 @@ chain.db
 # A directory to store snapshots without committing them
 snapshots/
 
+# Default databse location for the chain store
+chain.db
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore

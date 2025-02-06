@@ -34,9 +34,10 @@ pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
     alonzo,
     conway::{
-        AddrKeyhash, Certificate, Coin, DRep, Epoch, MintedBlock, MintedTransactionBody,
-        MintedTransactionOutput, PoolMetadata, RationalNumber, Relay, RewardAccount,
-        StakeCredential, TransactionInput, TransactionOutput, UnitInterval, Value, VrfKeyhash,
+        AddrKeyhash, Block, Certificate, Coin, DRep, Epoch, ExUnits, MintedBlock,
+        MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, PoolMetadata,
+        RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential, TransactionInput,
+        TransactionOutput, UnitInterval, Value, VrfKeyhash, WitnessSet,
     },
 };
 
@@ -388,4 +389,31 @@ pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<Sta
 pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
+}
+
+// Calculate the total ex units in a witness set
+pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
+    match witness_set.redeemer {
+        Some(redeemers) => match redeemers {
+            Redeemers::List(redeemers) => redeemers
+                .iter()
+                .fold(ExUnits { mem: 0, steps: 0 }, |acc, redeemer| {
+                    sum_ex_units(acc, redeemer.ex_units)
+                }),
+            Redeemers::Map(redeemers_map) => redeemers_map
+                .into_iter()
+                .fold(ExUnits { mem: 0, steps: 0 }, |acc, (_, redeemer)| {
+                    sum_ex_units(acc, redeemer.ex_units)
+                }),
+        },
+        None => ExUnits { mem: 0, steps: 0 },
+    }
+}
+
+// Create a new `ExUnits` that is the sum of two `ExUnits`
+pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
+    ExUnits {
+        mem: left.mem + right.mem,
+        steps: left.steps + right.steps,
+    }
 }
