@@ -12,13 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::header::{point_hash, ConwayHeader};
-use crate::consensus::store::ChainStore;
+use crate::consensus::{
+    header::{point_hash, ConwayHeader},
+    store::ChainStore,
+};
 use amaru_ledger::BlockValidationResult;
 use gasket::framework::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
@@ -74,7 +76,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             BlockValidationResult::BlockValidated(point) => {
-                info!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(), "block_validated");
+                debug!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(), "block_validated");
                 Ok(())
             }
             BlockValidationResult::BlockForwardStorageFailed(point) => {
