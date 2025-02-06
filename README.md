@@ -97,7 +97,6 @@ Amaru is the integration point of several other projects / repositories. Amongst
 | Repository                                                      | Purpose                                                                                                                                               |
 | ---                                                             | ---                                                                                                                                                   |
 | [txpipe/pallas](https://github.com/txpipe/pallas)               | Hosts many Rust primitives and building blocks for the node already powering tools like Dolos. In particular, the networking and serialization logic. |
-| [pragma-org/ouroboros](https://github.com/pragma-org/ouroboros) | Rust libraries/building blocks to implement an Ouroboros (Praos & Genesis) consensus.                                                                 |
 | [pragma-org/uplc](https://github.com/pragma-org/uplc)           | A highly performant UPLC parser and CEK machine.                                                                                                      |
 
 <hr/>
