@@ -12,18 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::header::{ConwayHeader, Header};
 use amaru_ledger::kernel::epoch_from_slot;
 use amaru_ouroboros::{
     consensus::BlockValidator, traits::HasStakeDistribution, validator::Validator,
 };
 use gasket::framework::*;
 use pallas_crypto::hash::Hash;
-use pallas_math::math::{FixedDecimal, FixedPrecision};
+use pallas_math::math::FixedDecimal;
 use pallas_primitives::conway::Epoch;
 use std::collections::HashMap;
 use tracing::{instrument, warn, Level};
-
-use super::header::{ConwayHeader, Header};
 
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn assert_header<'a>(
@@ -38,8 +37,10 @@ pub fn assert_header<'a>(
         // TODO: Take this parameter from an input context, rather than hard-coding it.
         let active_slots_coeff: FixedDecimal =
             FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
-        let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
-        let block_validator = BlockValidator::new(header, cbor, ledger, epoch_nonce, &c);
+
+        let block_validator =
+            BlockValidator::new(header, cbor, ledger, epoch_nonce, &active_slots_coeff);
+
         block_validator
             .validate()
             .map_err(|e| {
