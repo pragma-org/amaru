@@ -209,8 +209,7 @@ where
     /// If the chain of the peer is still the longest, the function will return a
     /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
     /// tip of the chain.
-    #[instrument(level = Level::DEBUG, skip(self),
-                 fields(peer = peer.name, point = point.to_string()))]
+    #[instrument(level = Level::DEBUG, skip(self), fields(peer = peer.name, %point))]
     pub fn rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
         self.rollback_fragment(peer, point);
 
@@ -247,7 +246,7 @@ where
         best
     }
 
-    #[instrument(level = Level::DEBUG, skip(self), fields(peer = peer.name, point = point.to_string()))]
+    #[instrument(level = Level::DEBUG, skip(self), fields(peer = peer.name, %point))]
     fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);

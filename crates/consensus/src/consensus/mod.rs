@@ -113,7 +113,7 @@ impl HeaderStage {
             .or_panic()
     }
 
-    #[instrument(level = Level::DEBUG, skip_all,
+    #[instrument(level = Level::INFO, skip_all,
                  fields(peer = peer.name,
                         rollback_point = rollback_point.slot_or_default(),
                         fork_length = fork.len()))]
