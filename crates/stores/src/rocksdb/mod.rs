@@ -30,7 +30,7 @@ use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
 };
-use tracing::{debug, debug_span, info, warn};
+use tracing::{debug, debug_span, info, info_span, warn};
 
 pub mod columns;
 pub mod common;
@@ -236,7 +236,7 @@ impl Store for RocksDB {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             if let Some(mut rewards_summary) = rewards_summary {
-                debug_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
+                info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
                     self.with_accounts(|iterator| {
                         for (account, mut row) in iterator {
                             if let Some(rewards) = rewards_summary.extract_rewards(&account) {
