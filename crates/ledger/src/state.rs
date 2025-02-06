@@ -23,7 +23,7 @@ use crate::{
         self, epoch_from_slot, Hash, Hasher, MintedBlock, Point, PoolId, PoolParams, PoolSigma,
         TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
     },
-    rewards::RewardsSummary,
+    rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
     store::{columns::*, Store},
 };

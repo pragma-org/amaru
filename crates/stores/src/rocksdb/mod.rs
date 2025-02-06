@@ -19,7 +19,7 @@ use amaru_ledger::{
         borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
     },
     kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
-    rewards::StakeDistributionSnapshot,
+    rewards::StakeDistribution,
     store::{columns as scolumns, Columns, RewardsSummary, Store},
 };
 use columns::*;
