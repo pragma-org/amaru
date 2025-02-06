@@ -12,36 +12,28 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
-
 use amaru_ledger::{
     rewards::StakeDistribution,
     store::{RewardsSummary, Store},
 };
 use amaru_stores::rocksdb::RocksDB;
 use pallas_primitives::Epoch;
+use std::{path::PathBuf, sync::LazyLock};
 
-const LEDGER_DB: &str = "../../ledger.db";
+pub static LEDGER_DB: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("../../ledger.db"));
+
+fn open_db(epoch: Epoch) -> RocksDB {
+    RocksDB::new(&LEDGER_DB)
+        .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch))
+}
 
 fn compare_preprod_snapshot(epoch: Epoch) {
-    let snapshot = StakeDistribution::new(
-        &RocksDB::new(&PathBuf::from(LEDGER_DB))
-            .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch))
-            .for_epoch(epoch)
-            .unwrap(),
-    )
-    .unwrap();
+    let db = open_db(epoch);
+
+    let snapshot = StakeDistribution::new(&db.for_epoch(epoch).unwrap()).unwrap();
     insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), snapshot);
-    let binding = RocksDB::new(&PathBuf::from(LEDGER_DB))
-        .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch + 2));
-    let db2 = binding.for_epoch(epoch).unwrap_or_else(|e| {
-        panic!(
-            "unable to open database snapshot for epoch {:?}: {:?}",
-            epoch + 2,
-            e
-        )
-    });
-    let rewards_summary = RewardsSummary::new(&db2, snapshot).unwrap();
+
+    let rewards_summary = RewardsSummary::new(&db.for_epoch(epoch + 2).unwrap(), snapshot).unwrap();
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
 }
 
