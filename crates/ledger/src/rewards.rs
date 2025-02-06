@@ -61,20 +61,20 @@ each epoch (related to different snapshots) since it is a continuous cycle.
 
 
                                                             Computing rewards[^1] using:
-                                                            │ - snapshot(e + 1) for
+                                                            │ - snapshot(e + 2) for
                                                             │     - pool performances
                                                             │     - treasury & reserves
-                    Stake is delegated                      │ - snapshot(e) for:
-                    │                                       │     - stake distribution
-                    │                                       │     - pool parameters
-                    │                Using snapshot(e - 1)  │
-                    │                for leader schedule    │                 Distributing rewards
-                    │                │                      │                 earned from (e)
-                    │                │                      │                 │
-snapshot(e - 1)     │  snapshot(e)   │    snapshot(e + 1)   │                 │snapshot(e + 2)
-              ╽     ╽            ╽   ╽                  ╽   ╽                 ╽╽
+                   Stake is delegated                       │ - snapshot(e) for:
+                   │                                        │     - stake distribution
+                   │                                        │     - pool parameters
+                   │                 Using snapshot(e)      │
+                   │                 for leader schedule    │                 Distributing rewards
+                   │                 │                      │                 earned from (e)
+                   │                 │                      │                 │
+    snapshot(e)    │ snapshot(e+1)   │    snapshot(e + 2)   │                 │snapshot(e + 3)
+              ╽    ╽             ╽   ╽                  ╽   ╽                 ╽╽
 ━━━━━━━━━━━━╸╸╸╋━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━>
-   e - 1               e                    e + 1                 e + 2              e + 3
+     e                e + 1                 e + 2                 e + 3              e + 4
 
 [^1]: Technically, we need to wait a few slots for the snapshot (e + 1) to stabilise; otherwise
 we risk doing an expensive computation which may be rolled back. In practice, the calculation
@@ -238,12 +238,12 @@ impl StakeDistribution {
         let epoch = db.most_recent_snapshot();
 
         info!(
-            name: "stake_distribution.snapshot",
             target: EVENT_TARGET,
             epoch = ?epoch,
             active_stake = ?active_stake,
             accounts = ?(keys.len() + scripts.len()),
             pools = ?pools.len(),
+            "stake_distribution.snapshot",
         );
 
         Ok(StakeDistribution {
@@ -679,7 +679,6 @@ impl RewardsSummary {
         });
 
         info!(
-            name: "rewards.summary",
             target: EVENT_TARGET,
             epoch = ?snapshot.epoch,
             ?efficiency,
@@ -691,6 +690,7 @@ impl RewardsSummary {
             pots.reserves = ?pots.reserves,
             pots.treasury = ?pots.treasury,
             pots.fees = ?pots.fees,
+            "rewards.summary",
         );
 
         Ok(RewardsSummary {
