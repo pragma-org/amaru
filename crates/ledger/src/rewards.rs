@@ -103,7 +103,7 @@ use crate::{
         MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
         SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
     },
-    store::{columns::*, Store},
+    store::{columns::*, Snapshot, StoreError},
 };
 use num::{
     rational::Ratio,
@@ -151,58 +151,50 @@ impl StakeDistribution {
     /// Clompute a new stake distribution snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
-    pub fn new<E>(db: &impl Store<Error = E>) -> Result<Self, E> {
-        let mut accounts = BTreeMap::new();
-        db.with_accounts(|rows| {
-            for (credential, row) in rows {
-                if let Some(account) = row.borrow() {
-                    if let Some(pool) = account.delegatee {
-                        accounts.insert(
-                            credential,
-                            AccountState {
-                                pool,
-                                lovelace: account.rewards,
-                            },
-                        );
-                    }
-                }
-            }
-        })?;
-
-        db.with_utxo(|rows| {
-            for (_, row) in rows {
-                if let Some(output) = row.borrow() {
-                    if let Some(credential) = output_stake_credential(output) {
-                        let value = output_lovelace(output);
-                        accounts
-                            .entry(credential)
-                            .and_modify(|account| account.lovelace += value);
-                    }
-                }
-            }
-        })?;
-
-        let mut pools: BTreeMap<PoolId, PoolState> = BTreeMap::new();
-        db.with_pools(|rows| {
-            for (pool, row) in rows {
-                if let Some(row) = row.borrow() {
-                    pools.insert(
-                        pool,
-                        PoolState {
-                            stake: 0,
-                            blocks_count: 0,
-                            // NOTE: pre-compute margin here (1 - m), which gets used for all
-                            // member and leader rewards calculation.
-                            margin: safe_ratio(
-                                row.current_params.margin.numerator,
-                                row.current_params.margin.denominator,
-                            ),
-                            parameters: row.current_params.clone(),
+    pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
+        let mut accounts = db
+            .iter_accounts()?
+            .filter_map(|(credential, account)| {
+                account.delegatee.map(|pool| {
+                    (
+                        credential,
+                        AccountState {
+                            pool,
+                            lovelace: account.rewards,
                         },
-                    );
-                }
+                    )
+                })
+            })
+            .collect::<BTreeMap<StakeCredential, AccountState>>();
+
+        db.iter_utxos()?.for_each(|(_, output)| {
+            if let Some(credential) = output_stake_credential(&output) {
+                let value = output_lovelace(&output);
+                accounts
+                    .entry(credential)
+                    .and_modify(|account| account.lovelace += value);
             }
-        })?;
+        });
+
+        let mut pools = db
+            .iter_pools()?
+            .map(|(pool, row)| {
+                (
+                    pool,
+                    PoolState {
+                        stake: 0,
+                        blocks_count: 0,
+                        // NOTE: pre-compute margin here (1 - m), which gets used for all
+                        // member and leader rewards calculation.
+                        margin: safe_ratio(
+                            row.current_params.margin.numerator,
+                            row.current_params.margin.denominator,
+                        ),
+                        parameters: row.current_params.clone(),
+                    },
+                )
+            })
+            .collect::<BTreeMap<Hash<28>, PoolState>>();
 
         let mut scripts = BTreeMap::new();
         let mut keys = BTreeMap::new();
@@ -225,15 +217,12 @@ impl StakeDistribution {
             }
         }
 
-        db.with_block_issuers(|rows| {
-            for (_, row) in rows {
-                if let Some(issuer) = row.borrow() {
-                    pools
-                        .entry(issuer.slot_leader)
-                        .and_modify(|pool| pool.blocks_count += 1);
-                }
-            }
-        })?;
+        let block_issuers = db.iter_block_issuers()?;
+        block_issuers.for_each(|(_, issuer)| {
+            pools
+                .entry(issuer.slot_leader)
+                .and_modify(|pool| pool.blocks_count += 1);
+        });
 
         let epoch = db.most_recent_snapshot();
 
@@ -604,8 +593,8 @@ impl serde::Serialize for RewardsSummary {
 }
 
 impl RewardsSummary {
-    pub fn new<E>(db: &impl Store<Error = E>, snapshot: StakeDistribution) -> Result<Self, E> {
-        let pots = db.with_pots(|entry| Pots::from(entry.borrow()))?;
+    pub fn new(db: &impl Snapshot, snapshot: StakeDistribution) -> Result<Self, StoreError> {
+        let pots = db.pots()?;
 
         let (mut blocks_count, mut blocks_per_pool) = RewardsSummary::count_blocks(db)?;
 
@@ -708,21 +697,18 @@ impl RewardsSummary {
     }
 
     /// Count blocks produced by pools, returning the total count and map indexed by poolid.
-    fn count_blocks<E>(db: &impl Store<Error = E>) -> Result<(u64, BTreeMap<PoolId, u64>), E> {
+    fn count_blocks(db: &impl Snapshot) -> Result<(u64, BTreeMap<PoolId, u64>), StoreError> {
         let mut total: u64 = 0;
         let mut per_pool: BTreeMap<Hash<28>, u64> = BTreeMap::new();
 
-        db.with_block_issuers(|rows| {
-            for (_, row) in rows {
-                if let Some(issuer) = row.borrow() {
-                    total += 1;
-                    per_pool
-                        .entry(issuer.slot_leader)
-                        .and_modify(|n| *n += 1)
-                        .or_insert(1);
-                }
-            }
-        })?;
+        let block_issuers = db.iter_block_issuers()?.map(|(_, issuer)| issuer);
+        block_issuers.for_each(|issuer| {
+            total += 1;
+            per_pool
+                .entry(issuer.slot_leader)
+                .and_modify(|n| *n += 1)
+                .or_insert(1);
+        });
 
         Ok((total, per_pool))
     }

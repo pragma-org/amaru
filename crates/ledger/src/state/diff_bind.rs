@@ -32,7 +32,7 @@ impl<K: Ord, J, V> Default for DiffBind<K, J, V> {
     }
 }
 
-impl<K: Ord + std::fmt::Debug, J: Clone + std::fmt::Debug, V> DiffBind<K, J, V> {
+impl<K: Ord, J: Clone, V> DiffBind<K, J, V> {
     pub fn register(&mut self, k: K, v: V, j: Option<J>) {
         self.unregistered.remove(&k);
         self.registered.insert(k, (j, Some(v)));

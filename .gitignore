@@ -16,6 +16,9 @@ target/
 # Default database location for the ledger
 ledger.db
 
+# Default database location for the consensus
+chain.db
+
 # Insta not-yet reviewed snapshots
 *.snap.new
 

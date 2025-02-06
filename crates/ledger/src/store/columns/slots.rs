@@ -19,8 +19,12 @@ use crate::{
 };
 use pallas_codec::minicbor::{self as cbor};
 
+pub type Key = Slot;
+
+pub type Value = Row;
+
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Slot, Option<Row>>;
+pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Key, Option<Value>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {

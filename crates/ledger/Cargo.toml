@@ -22,9 +22,11 @@ pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true
-serde = { workspace = true, features = ["derive"] }
+serde.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+miette.workspace = true
+thiserror.workspace = true
 
 amaru-ouroboros = { path = "../ouroboros" }
 
