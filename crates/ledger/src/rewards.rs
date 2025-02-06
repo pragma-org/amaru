@@ -171,14 +171,13 @@ impl StakeDistribution {
             })
             .collect::<BTreeMap<StakeCredential, AccountState>>();
 
-        let credentials = db.iter_utxos()?.filter_map(|(_, out)| {
-            output_stake_credential(&out).map(|credential| (out, credential))
-        });
-        credentials.for_each(|(output, credential)| {
-            let value = output_lovelace(&output);
-            accounts
-                .entry(credential)
-                .and_modify(|account| account.lovelace += value);
+        db.iter_utxos()?.for_each(|(_, output)| {
+            if let Some(credential) = output_stake_credential(&output) {
+                let value = output_lovelace(&output);
+                accounts
+                    .entry(credential)
+                    .and_modify(|account| account.lovelace += value);
+            }
         });
 
         let mut pools = db
