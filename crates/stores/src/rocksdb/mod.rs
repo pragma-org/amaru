@@ -210,11 +210,11 @@ impl Store for RocksDB {
                 pools::add(&batch, add.pools)?;
                 accounts::add(&batch, add.accounts)?;
 
+                accounts::reset(&batch, withdrawals)?;
+
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
                 accounts::remove(&batch, remove.accounts)?;
-
-                accounts::reset(&batch, withdrawals)?;
             }
         }
 
