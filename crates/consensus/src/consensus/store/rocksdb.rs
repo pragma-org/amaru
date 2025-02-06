@@ -26,7 +26,7 @@ impl RocksDBStore {
 }
 
 impl<H: Header> ChainStore<H> for RocksDBStore {
-    fn get(&self, hash: &Hash<32>) -> Option<H> {
+    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.db
             .get_pinned(hash)
             .ok()
@@ -34,7 +34,7 @@ impl<H: Header> ChainStore<H> for RocksDBStore {
     }
 
     #[instrument(level = Level::DEBUG, skip(self, header, hash), fields(hash = hash.to_string()))]
-    fn put(&mut self, hash: &Hash<32>, header: &H) -> Result<(), super::StoreError> {
+    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), super::StoreError> {
         self.db
             .put(hash, header.to_cbor())
             .map_err(|e| StoreError::WriteError {
@@ -63,8 +63,8 @@ mod test {
             body_hash: random_bytes(32).as_slice().into(),
         };
 
-        store.put(&header.hash(), &header).unwrap();
-        let header2 = store.get(&header.hash()).unwrap();
+        store.store_header(&header.hash(), &header).unwrap();
+        let header2 = store.load_header(&header.hash()).unwrap();
         assert_eq!(header, header2);
     }
 }

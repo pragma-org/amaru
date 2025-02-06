@@ -148,7 +148,7 @@ impl HeaderStage {
         self.store
             .lock()
             .await
-            .put(&header.compute_hash(), &header)
+            .store_header(&header.compute_hash(), &header)
             .map_err(|e| miette!(e))
             .or_panic()?;
 
