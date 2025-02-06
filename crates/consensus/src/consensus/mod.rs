@@ -130,7 +130,10 @@ impl HeaderStage {
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG, skip(self, raw_header))]
+    #[instrument(level = Level::DEBUG, skip_all,
+                 fields(peer = peer.name,
+                        slot = &point.slot_or_default(),
+                        hash = point_hash(point).to_string()))]
     async fn handle_roll_forward(
         &mut self,
         peer: &Peer,

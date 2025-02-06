@@ -21,7 +21,7 @@ use pallas_codec::minicbor as cbor;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::Mutex;
-use tracing::{debug_span, instrument, warn};
+use tracing::{debug_span, instrument, warn, Level};
 
 const EVENT_TARGET: &str = "amaru::ledger";
 

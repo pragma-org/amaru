@@ -22,6 +22,8 @@ use tracing::{error, info, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
+pub const EVENT_TARGET: &str = "amaru::consensus::chain_forward";
+
 /// Forwarding stage of the consensus where blocks are stored and made
 /// available to downstream peers.
 ///
@@ -72,19 +74,19 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             BlockValidationResult::BlockValidated(point) => {
-                info!(name: "block_validated", target: "amaru::consensus::chain_forward", slot = ?point.slot_or_default(), hash = ?point_hash(point).to_string());
+                info!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(), "block_validated");
                 Ok(())
             }
             BlockValidationResult::BlockForwardStorageFailed(point) => {
-                error!(name: "storage_failed", target: "amaru::consensus::chain_forward", slot = ?point.slot_or_default(), hash = ?point_hash(point).to_string());
+                error!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(), "storage_failed");
                 Err(WorkerError::Panic)
             }
             BlockValidationResult::InvalidRollbackPoint(point) => {
-                warn!(name: "invalid_rollback_point", target: "amaru::consensus::chain_forward", slot = ?point.slot_or_default(), hash = ?point_hash(point).to_string());
+                warn!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(), "invalid_rollback_point");
                 Ok(())
             }
             BlockValidationResult::RolledBackTo(point) => {
-                info!(name:  "rolled_back_to", target: "amaru::consensus::chain_forward", slot = ?point.slot_or_default(), hash = ?point_hash(point).to_string());
+                info!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(),  "rolled_back_to");
                 Ok(())
             }
         }
