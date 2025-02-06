@@ -19,7 +19,7 @@ use amaru_ledger::{
         borrow::{borrowable_proxy::BorrowableProxy, IterBorrow},
     },
     kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
-    rewards::StakeDistributionSnapshot,
+    rewards::StakeDistribution,
     store::{columns as scolumns, Columns, RewardsSummary, Store},
 };
 use columns::*;
@@ -30,7 +30,7 @@ use std::{
     fmt, fs, io,
     path::{Path, PathBuf},
 };
-use tracing::{debug, debug_span, info, warn};
+use tracing::{debug, debug_span, info, info_span, warn};
 
 pub mod columns;
 pub mod common;
@@ -91,7 +91,6 @@ impl RocksDB {
                 .unwrap_or_default()
                 .parse::<Epoch>()
             {
-                info!(target: EVENT_TARGET, epoch, "new.found_snapshot");
                 snapshots.push(epoch);
             } else if entry.file_name() != DIR_LIVE_DB {
                 warn!(
@@ -103,6 +102,8 @@ impl RocksDB {
         }
 
         snapshots.sort();
+
+        info!(target: EVENT_TARGET, snapshots = ?snapshots, "new.known_snapshots");
 
         let mut opts = Options::default();
         opts.create_if_missing(true);
@@ -209,11 +210,11 @@ impl Store for RocksDB {
                 pools::add(&batch, add.pools)?;
                 accounts::add(&batch, add.accounts)?;
 
+                accounts::reset(&batch, withdrawals)?;
+
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
                 accounts::remove(&batch, remove.accounts)?;
-
-                accounts::reset(&batch, withdrawals)?;
             }
         }
 
@@ -235,7 +236,7 @@ impl Store for RocksDB {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             if let Some(mut rewards_summary) = rewards_summary {
-                debug_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
+                info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
                     self.with_accounts(|iterator| {
                         for (account, mut row) in iterator {
                             if let Some(rewards) = rewards_summary.extract_rewards(&account) {
@@ -295,21 +296,25 @@ impl Store for RocksDB {
         Ok(())
     }
 
-    fn rewards_summary(&self, epoch: Epoch) -> Result<RewardsSummary, Self::Error> {
-        let stake_distr = StakeDistributionSnapshot::new(
-            &Self::from_snapshot(&self.dir, epoch - 2).unwrap_or_else(|e| {
-                panic!(
-                    "unable to open database snapshot for epoch {:?}: {:?}",
-                    epoch - 2,
-                    e
-                )
-            }),
-        )?;
+    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, Self::Error> {
+        StakeDistribution::new(&Self::from_snapshot(&self.dir, epoch).unwrap_or_else(|e| {
+            panic!(
+                "unable to open database snapshot for epoch {:?}: {:?}",
+                epoch, e
+            )
+        }))
+    }
+
+    fn rewards_summary(
+        &self,
+        stake_distr: StakeDistribution,
+    ) -> Result<RewardsSummary, Self::Error> {
         RewardsSummary::new(
-            &Self::from_snapshot(&self.dir, epoch).unwrap_or_else(|e| {
+            &Self::from_snapshot(&self.dir, stake_distr.epoch + 2).unwrap_or_else(|e| {
                 panic!(
                     "unable to open database snapshot for epoch {:?}: {:?}",
-                    epoch, e
+                    stake_distr.epoch + 2,
+                    e
                 )
             }),
             stake_distr,

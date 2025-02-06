@@ -111,6 +111,7 @@ impl Stage {
             .or_panic()
     }
 
+    #[instrument(level = Level::INFO, skip(self))]
     async fn switch_to_fork(
         &mut self,
         peer: &Peer,

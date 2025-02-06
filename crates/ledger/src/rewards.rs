@@ -61,20 +61,20 @@ each epoch (related to different snapshots) since it is a continuous cycle.
 
 
                                                             Computing rewards[^1] using:
-                                                            │ - snapshot(e + 1) for
+                                                            │ - snapshot(e + 2) for
                                                             │     - pool performances
                                                             │     - treasury & reserves
-                    Stake is delegated                      │ - snapshot(e) for:
-                    │                                       │     - stake distribution
-                    │                                       │     - pool parameters
-                    │                Using snapshot(e - 1)  │
-                    │                for leader schedule    │                 Distributing rewards
-                    │                │                      │                 earned from (e)
-                    │                │                      │                 │
-snapshot(e - 1)     │  snapshot(e)   │    snapshot(e + 1)   │                 │snapshot(e + 2)
-              ╽     ╽            ╽   ╽                  ╽   ╽                 ╽╽
+                   Stake is delegated                       │ - snapshot(e) for:
+                   │                                        │     - stake distribution
+                   │                                        │     - pool parameters
+                   │                 Using snapshot(e)      │
+                   │                 for leader schedule    │                 Distributing rewards
+                   │                 │                      │                 earned from (e)
+                   │                 │                      │                 │
+    snapshot(e)    │ snapshot(e+1)   │    snapshot(e + 2)   │                 │snapshot(e + 3)
+              ╽    ╽             ╽   ╽                  ╽   ╽                 ╽╽
 ━━━━━━━━━━━━╸╸╸╋━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━>
-   e - 1               e                    e + 1                 e + 2              e + 3
+     e                e + 1                 e + 2                 e + 3              e + 4
 
 [^1]: Technically, we need to wait a few slots for the snapshot (e + 1) to stabilise; otherwise
 we risk doing an expensive computation which may be rolled back. In practice, the calculation
@@ -124,9 +124,9 @@ const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 /// Note that the `keys` and `scripts `field only contains _active_ accounts; that is, accounts
 /// delegated to a registered stake pool.
 #[derive(Debug)]
-pub struct StakeDistributionSnapshot {
+pub struct StakeDistribution {
     /// Epoch number for this snapshot (taken at the end of the epoch)
-    epoch: Epoch,
+    pub epoch: Epoch,
 
     /// Total stake, in Lovelace, delegated to registered pools
     active_stake: Lovelace,
@@ -147,7 +147,7 @@ pub struct StakeDistributionSnapshot {
     pools: BTreeMap<PoolId, PoolState>,
 }
 
-impl StakeDistributionSnapshot {
+impl StakeDistribution {
     /// Clompute a new stake distribution snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
@@ -238,15 +238,15 @@ impl StakeDistributionSnapshot {
         let epoch = db.most_recent_snapshot();
 
         info!(
-            name: "stake_distribution.snapshot",
             target: EVENT_TARGET,
             epoch = ?epoch,
             active_stake = ?active_stake,
             accounts = ?(keys.len() + scripts.len()),
             pools = ?pools.len(),
+            "stake_distribution.snapshot",
         );
 
-        Ok(StakeDistributionSnapshot {
+        Ok(StakeDistribution {
             epoch,
             active_stake,
             keys,
@@ -256,9 +256,9 @@ impl StakeDistributionSnapshot {
     }
 }
 
-impl serde::Serialize for StakeDistributionSnapshot {
+impl serde::Serialize for StakeDistribution {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("StakeDistributionSnapshot", 5)?;
+        let mut s = serializer.serialize_struct("StakeDistribution", 5)?;
         s.serialize_field("epoch", &self.epoch)?;
         s.serialize_field("active_stake", &self.active_stake)?;
         s.serialize_field("keys", &self.keys)?;
@@ -604,10 +604,7 @@ impl serde::Serialize for RewardsSummary {
 }
 
 impl RewardsSummary {
-    pub fn new<E>(
-        db: &impl Store<Error = E>,
-        snapshot: StakeDistributionSnapshot,
-    ) -> Result<Self, E> {
+    pub fn new<E>(db: &impl Store<Error = E>, snapshot: StakeDistribution) -> Result<Self, E> {
         let pots = db.with_pots(|entry| Pots::from(entry.borrow()))?;
 
         let (mut blocks_count, mut blocks_per_pool) = RewardsSummary::count_blocks(db)?;
@@ -682,7 +679,6 @@ impl RewardsSummary {
         });
 
         info!(
-            name: "rewards.summary",
             target: EVENT_TARGET,
             epoch = ?snapshot.epoch,
             ?efficiency,
@@ -694,6 +690,7 @@ impl RewardsSummary {
             pots.reserves = ?pots.reserves,
             pots.treasury = ?pots.treasury,
             pots.fees = ?pots.fees,
+            "rewards.summary",
         );
 
         Ok(RewardsSummary {
@@ -759,7 +756,7 @@ impl RewardsSummary {
         blocks_count: u64,
         available_rewards: Lovelace,
         total_stake: Lovelace,
-        snapshot: &StakeDistributionSnapshot,
+        snapshot: &StakeDistribution,
         pool: &PoolState,
     ) -> PoolRewards {
         let owner_stake = pool.owner_stake(&snapshot.keys);

@@ -14,14 +14,14 @@
 
 use std::path::PathBuf;
 
-use amaru_ledger::{rewards::StakeDistributionSnapshot, store::RewardsSummary};
+use amaru_ledger::{rewards::StakeDistribution, store::RewardsSummary};
 use amaru_stores::rocksdb::RocksDB;
 use pallas_primitives::Epoch;
 
 const LEDGER_DB: &str = "../../ledger.db";
 
 fn compare_preprod_snapshot(epoch: Epoch) {
-    let snapshot = StakeDistributionSnapshot::new(
+    let snapshot = StakeDistribution::new(
         &RocksDB::from_snapshot(&PathBuf::from(LEDGER_DB), epoch)
             .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch)),
     )

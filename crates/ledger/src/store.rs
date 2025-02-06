@@ -15,7 +15,7 @@
 pub mod columns;
 
 use super::kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
-pub use crate::rewards::RewardsSummary;
+pub use crate::rewards::{RewardsSummary, StakeDistribution};
 use columns::*;
 use std::{borrow::BorrowMut, iter};
 
@@ -75,8 +75,14 @@ pub trait Store: Send + Sync {
         input: &TransactionInput,
     ) -> Result<Option<TransactionOutput>, Self::Error>;
 
-    /// Compute rewards using database snapshots.
-    fn rewards_summary(&self, epoch: Epoch) -> Result<RewardsSummary, Self::Error>;
+    /// Compute stake distribution using database snapshots.
+    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, Self::Error>;
+
+    /// Compute rewards using database snapshots and a previously computed stake distribution.
+    fn rewards_summary(
+        &self,
+        stake_distribution: StakeDistribution,
+    ) -> Result<RewardsSummary, Self::Error>;
 
     /// Get current values of the treasury and reserves accounts.
     fn with_pots<A>(
