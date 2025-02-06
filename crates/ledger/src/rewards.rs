@@ -126,7 +126,7 @@ const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 #[derive(Debug)]
 pub struct StakeDistribution {
     /// Epoch number for this snapshot (taken at the end of the epoch)
-    epoch: Epoch,
+    pub epoch: Epoch,
 
     /// Total stake, in Lovelace, delegated to registered pools
     active_stake: Lovelace,

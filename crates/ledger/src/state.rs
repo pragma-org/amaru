@@ -29,7 +29,7 @@ use crate::{
 };
 use std::{
     borrow::Cow,
-    collections::BTreeSet,
+    collections::{BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use tracing::{debug, debug_span, info_span, Span};
@@ -61,10 +61,38 @@ where
     /// The computed rewards summary to be applied on the next epoch boundary. This is computed
     /// once in the epoch, and held until the end where it is reset.
     rewards_summary: Option<RewardsSummary>,
+
+    /// The latest stake distributions, used to determine the leader-schedule for the ongoing epoch
+    /// and as well as the rewards.
+    stake_distributions: VecDeque<StakeDistribution>,
 }
 
 impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
     pub fn new(stable: Arc<Mutex<S>>) -> Self {
+        let db = stable.lock().unwrap();
+
+        // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
+        // consensus layer to validate the leader schedule, while the one before that will be
+        // consumed for the rewards calculation.
+        //
+        // We store them as a bounded queue, such that we always ever have 2 stake distributions
+        // available. Once we consume the oldest one, we immediately insert a new one for the epoch
+        // that just passed, pushing the other forward.
+        //
+        // Note that a possible memory optimization could be to discard all accounts from the most
+        // recent ones, since we only truly need the stake pool distribution for the leader
+        // schedule whereas accounts can be quite numerous.
+        let latest_epoch = db.most_recent_snapshot();
+        let mut stake_distributions = VecDeque::new();
+        for epoch in latest_epoch - 2..=latest_epoch - 1 {
+            stake_distributions.push_front(
+                db.stake_distribution(epoch)
+                    .unwrap_or_else(|e| panic!("unable to get current stake distribution: {e:?}")),
+            );
+        }
+
+        drop(db);
+
         Self {
             stable,
 
@@ -81,6 +109,8 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             volatile: VolatileDB::default(),
 
             rewards_summary: None,
+
+            stake_distributions,
         }
     }
 
@@ -184,7 +214,16 @@ impl<S: Store<Error = E>, E: std::fmt::Debug> State<S, E> {
             // Once we reach the stability window,
             if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
                 self.rewards_summary = Some(
-                    db.rewards_summary(current_epoch - 1)
+                    db.rewards_summary(
+                        self.stake_distributions
+                            .pop_back()
+                            .unwrap_or_else(|| panic!("no readily available stake distribution?")),
+                    )
+                    .map_err(ForwardErr::StorageErr)?,
+                );
+
+                self.stake_distributions.push_front(
+                    db.stake_distribution(current_epoch - 1)
                         .map_err(ForwardErr::StorageErr)?,
                 );
             }

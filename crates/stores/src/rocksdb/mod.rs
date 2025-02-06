@@ -296,21 +296,25 @@ impl Store for RocksDB {
         Ok(())
     }
 
-    fn rewards_summary(&self, epoch: Epoch) -> Result<RewardsSummary, Self::Error> {
-        let stake_distr = StakeDistributionSnapshot::new(
-            &Self::from_snapshot(&self.dir, epoch - 2).unwrap_or_else(|e| {
-                panic!(
-                    "unable to open database snapshot for epoch {:?}: {:?}",
-                    epoch - 2,
-                    e
-                )
-            }),
-        )?;
+    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, Self::Error> {
+        StakeDistribution::new(&Self::from_snapshot(&self.dir, epoch).unwrap_or_else(|e| {
+            panic!(
+                "unable to open database snapshot for epoch {:?}: {:?}",
+                epoch, e
+            )
+        }))
+    }
+
+    fn rewards_summary(
+        &self,
+        stake_distr: StakeDistribution,
+    ) -> Result<RewardsSummary, Self::Error> {
         RewardsSummary::new(
-            &Self::from_snapshot(&self.dir, epoch).unwrap_or_else(|e| {
+            &Self::from_snapshot(&self.dir, stake_distr.epoch + 2).unwrap_or_else(|e| {
                 panic!(
                     "unable to open database snapshot for epoch {:?}: {:?}",
-                    epoch, e
+                    stake_distr.epoch + 2,
+                    e
                 )
             }),
             stake_distr,
