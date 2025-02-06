@@ -133,13 +133,13 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
     db: &OptimisticTransactionDB,
     prefix: [u8; PREFIX_LEN],
 ) -> Result<impl Iterator<Item = (K, V)> + use<'_, K, V>, StoreError> {
-    let a = db.prefix_iterator(prefix);
-    Ok(a.map(|e| {
+    Ok(db.prefix_iterator(prefix).map(|e| {
         let (key, value) = e.unwrap();
-        (
-            cbor::decode(&key).expect("unable to decode key"),
-            cbor::decode(&value).expect("unable to decode value"),
-        )
+        let key = cbor::decode(&key[PREFIX_LEN..])
+            .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&key)));
+        let value = cbor::decode(&value)
+            .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&value)));
+        (key, value)
     }))
 }
 
