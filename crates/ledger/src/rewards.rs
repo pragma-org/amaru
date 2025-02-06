@@ -155,10 +155,15 @@ impl StakeDistribution {
         let mut accounts = db
             .iter_accounts()?
             .filter_map(|(credential, account)| {
-                account.delegatee.map(|pool| (credential, AccountState {
-                    pool,
-                    lovelace: account.rewards,
-                }))
+                account.delegatee.map(|pool| {
+                    (
+                        credential,
+                        AccountState {
+                            pool,
+                            lovelace: account.rewards,
+                        },
+                    )
+                })
             })
             .collect::<BTreeMap<StakeCredential, AccountState>>();
 
