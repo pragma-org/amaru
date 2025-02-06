@@ -15,9 +15,7 @@
 use super::{header::Header, peer::Peer, Point};
 use pallas_crypto::hash::Hash;
 use std::{collections::HashMap, fmt::Debug};
-use tracing::{debug, instrument, Level};
-
-const EVENT_TARGET: &str = "amaru::consensus::chain_selection";
+use tracing::{instrument, Level};
 
 /// A fragment of the chain, represented by a list of headers
 /// and an anchor.
@@ -99,7 +97,12 @@ pub enum ChainSelection<H: Header> {
     /// FIXME: The peer should not be needed here, as the fork should be
     /// comprised of known blocks. It is only needed to download the blocks
     /// we don't currently store.
-    SwitchToFork(Peer, Point, Vec<H>),
+    SwitchToFork {
+        peer: Peer,
+        rollback_point: Point,
+        tip: H,
+        fork: Vec<H>,
+    },
 }
 
 /// Builder pattern for `ChainSelector`.
@@ -173,16 +176,15 @@ where
                 let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
                 let result = if best_tip.parent().unwrap() == self.tip.hash() {
-                    debug!(target: EVENT_TARGET, "new_tip");
                     ChainSelection::NewTip(header.clone())
                 } else if best_tip.block_height() > self.tip.block_height() {
                     let fragment = self.peers_chains.get(&best_peer).unwrap();
-                    debug!(target: EVENT_TARGET, peer = ?best_peer, tip.hash = ?best_tip.hash().to_string(), tip.slot = ?best_tip.slot(), "switch_to_fork");
-                    ChainSelection::SwitchToFork(
-                        best_peer,
-                        fragment.anchor.point(),
-                        fragment.headers.clone(),
-                    )
+                    ChainSelection::SwitchToFork {
+                        peer: best_peer,
+                        rollback_point: fragment.anchor.point(),
+                        tip: best_tip,
+                        fork: fragment.headers.clone(),
+                    }
                 } else {
                     ChainSelection::NoChange
                 };
@@ -207,7 +209,8 @@ where
     /// If the chain of the peer is still the longest, the function will return a
     /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
     /// tip of the chain.
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self),
+                 fields(peer = peer.name, point = point.to_string()))]
     pub fn rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
         self.rollback_fragment(peer, point);
 
@@ -219,14 +222,15 @@ where
             let fragment = self.peers_chains.get(&best_peer).unwrap();
             // TODO: do not always switch to anchor if there's a better intersection
             // with current chain
-            ChainSelection::SwitchToFork(
-                best_peer,
-                fragment.anchor.point(),
-                fragment.headers.clone(),
-            )
+            ChainSelection::SwitchToFork {
+                peer: best_peer,
+                rollback_point: fragment.anchor.point(),
+                tip: best_tip.clone(),
+                fork: fragment.headers.clone(),
+            }
         };
 
-        self.tip = best_tip.clone();
+        self.tip = best_tip;
 
         result
     }
@@ -243,7 +247,7 @@ where
         best
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::DEBUG, skip(self), fields(peer = peer.name, point = point.to_string()))]
     fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);
@@ -340,7 +344,15 @@ mod tests {
             .map(|header| chain_selector.roll_forward(&bob, *header))
             .last();
 
-        assert_eq!(SwitchToFork(bob, Point::Origin, chain2), result.unwrap());
+        assert_eq!(
+            SwitchToFork {
+                peer: bob,
+                rollback_point: Point::Origin,
+                tip: chain2[5],
+                fork: chain2
+            },
+            result.unwrap()
+        );
     }
 
     #[test]
@@ -444,6 +456,14 @@ mod tests {
         let rollback_point = &chain1[3];
         let result = chain_selector.rollback(&alice, rollback_point.hash());
 
-        assert_eq!(SwitchToFork(bob, Point::Origin, chain2), result);
+        assert_eq!(
+            SwitchToFork {
+                peer: bob,
+                rollback_point: Point::Origin,
+                tip: chain2[5],
+                fork: chain2
+            },
+            result
+        );
     }
 }
