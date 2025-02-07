@@ -29,7 +29,7 @@ use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use store::ChainStore;
 use tokio::sync::Mutex;
-use tracing::{instrument, trace, Level};
+use tracing::{instrument, trace, trace_span, Level, Span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -94,7 +94,12 @@ impl HeaderStage {
         self.validation_tip.set(tip.slot_or_default() as i64);
     }
 
-    async fn forward_block(&mut self, peer: &Peer, header: &dyn Header) -> Result<(), WorkerError> {
+    async fn forward_block(
+        &mut self,
+        peer: &Peer,
+        header: &dyn Header,
+        parent_span: &Span,
+    ) -> Result<(), WorkerError> {
         let point = header.point();
         let block = {
             // FIXME: should not crash if the peer is not found
@@ -108,7 +113,7 @@ impl HeaderStage {
         };
 
         self.downstream
-            .send(ValidateBlockEvent::Validated(point, block).into())
+            .send(ValidateBlockEvent::Validated(point, block, parent_span.clone()).into())
             .await
             .or_panic()
     }
@@ -127,6 +132,7 @@ impl HeaderStage {
         peer: &Peer,
         rollback_point: &Point,
         fork: Vec<ConwayHeader>,
+        parent_span: &Span,
     ) -> Result<(), WorkerError> {
         self.downstream
             .send(ValidateBlockEvent::Rollback(rollback_point.clone()).into())
@@ -134,7 +140,7 @@ impl HeaderStage {
             .or_panic()?;
 
         for header in fork {
-            self.forward_block(peer, &header).await?;
+            self.forward_block(peer, &header, parent_span).await?;
         }
 
         Ok(())
@@ -154,7 +160,16 @@ impl HeaderStage {
         peer: &Peer,
         point: &Point,
         raw_header: &[u8],
+        parent_span: &Span,
     ) -> Result<(), WorkerError> {
+        let span = trace_span!(
+          target: EVENT_TARGET,
+          parent: parent_span,
+          "handle_roll_forward",
+          slot = ?point.slot_or_default(),
+          hash = point_hash(point).to_string())
+        .entered();
+
         let header: babbage::MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|e| miette!(e))
             .or_panic()?;
@@ -176,12 +191,12 @@ impl HeaderStage {
             .chain_selector
             .lock()
             .await
-            .roll_forward(peer, header.clone());
+            .select_roll_forward(peer, header.clone());
 
         match result {
             chain_selection::ChainSelection::NewTip(hdr) => {
                 trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
-                self.forward_block(peer, &hdr).await?;
+                self.forward_block(peer, &hdr, parent_span).await?;
 
                 self.block_count.inc(1);
                 self.track_validation_tip(point);
@@ -195,22 +210,31 @@ impl HeaderStage {
                 tip: _,
                 fork,
             } => {
-                self.switch_to_fork(&peer, &rollback_point, fork).await?;
+                self.switch_to_fork(&peer, &rollback_point, fork, parent_span)
+                    .await?;
             }
             chain_selection::ChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, hash = %header.hash(), "no_change");
             }
         }
+
+        span.exit();
+
         Ok(())
     }
 
-    #[instrument(level = Level::TRACE, skip(self))]
-    async fn handle_roll_back(&mut self, peer: &Peer, rollback: &Point) -> Result<(), WorkerError> {
+    #[instrument(level = Level::TRACE, skip(self, parent_span))]
+    async fn handle_roll_back(
+        &mut self,
+        peer: &Peer,
+        rollback: &Point,
+        parent_span: &Span,
+    ) -> Result<(), WorkerError> {
         let result = self
             .chain_selector
             .lock()
             .await
-            .rollback(peer, point_hash(rollback));
+            .select_rollback(peer, point_hash(rollback));
 
         match result {
             chain_selection::ChainSelection::NewTip(_) => {
@@ -233,7 +257,10 @@ impl HeaderStage {
                 rollback_point,
                 fork,
                 tip: _,
-            } => self.switch_to_fork(&peer, &rollback_point, fork).await?,
+            } => {
+                self.switch_to_fork(&peer, &rollback_point, fork, parent_span)
+                    .await?
+            }
         }
 
         Ok(())
@@ -263,10 +290,14 @@ impl gasket::framework::Worker<HeaderStage> for Worker {
         stage: &mut HeaderStage,
     ) -> Result<(), WorkerError> {
         match unit {
-            PullEvent::RollForward(peer, point, raw_header) => {
-                stage.handle_roll_forward(peer, point, raw_header).await
+            PullEvent::RollForward(peer, point, raw_header, span) => {
+                stage
+                    .handle_roll_forward(peer, point, raw_header, span)
+                    .await
             }
-            PullEvent::Rollback(peer, rollback) => stage.handle_roll_back(peer, rollback).await,
+            PullEvent::Rollback(peer, rollback, span) => {
+                stage.handle_roll_back(peer, rollback, span).await
+            }
         }
     }
 }

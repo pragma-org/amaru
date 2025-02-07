@@ -20,7 +20,7 @@ use amaru_ledger::BlockValidationResult;
 use gasket::framework::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{error, info, trace, warn};
+use tracing::{error_span, info, trace_span, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
@@ -75,12 +75,29 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
         _stage: &mut ForwardStage,
     ) -> Result<(), WorkerError> {
         match unit {
-            BlockValidationResult::BlockValidated(point) => {
-                trace!(target: EVENT_TARGET, slot = point.slot_or_default(), hash = %point_hash(point), "block_validated");
+            BlockValidationResult::BlockValidated(point, span) => {
+                // FIXME: this span is just a placeholder to hold a link to t
+                // the parent, it will be filled once we had the storage and
+                // forwarding logic.
+                let _span = trace_span!(
+                    target: EVENT_TARGET,
+                    parent: span,
+                    "forward.block_validated",
+                    slot = ?point.slot_or_default(),
+                    hash = point_hash(point).to_string()
+                );
+
                 Ok(())
             }
-            BlockValidationResult::BlockForwardStorageFailed(point) => {
-                error!(target: EVENT_TARGET, slot = point.slot_or_default(), hash = %point_hash(point), "storage_failed");
+            BlockValidationResult::BlockForwardStorageFailed(point, span) => {
+                let _span = error_span!(
+                    target: EVENT_TARGET,
+                    parent: span,
+                    "forward.storage_failed",
+                    slot = ?point.slot_or_default(),
+                    hash = %point_hash(point)
+                );
+
                 Err(WorkerError::Panic)
             }
             BlockValidationResult::InvalidRollbackPoint(point) => {

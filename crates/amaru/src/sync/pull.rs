@@ -22,7 +22,7 @@ use pallas_network::miniprotocols::{
 use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::{instrument, Level};
+use tracing::{instrument, trace_span, Level};
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {
@@ -34,6 +34,8 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerE
 }
 
 pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
+
+const EVENT_TARGET: &str = "amaru::sync";
 
 pub enum WorkUnit {
     Pull,
@@ -86,6 +88,45 @@ impl Stage {
         let _intersection = point.ok_or(miette!("couldn't find intersect")).or_panic()?;
         Ok(())
     }
+
+    pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
+        let span_forward = trace_span!(
+            target: EVENT_TARGET,
+            "pull.roll_forward",
+            header.slot = tracing::field::Empty,
+            header.hash = tracing::field::Empty,
+            peer = self.peer_session.peer.name
+        );
+
+        let peer = &self.peer_session.peer;
+        let header = to_traverse(header).or_panic()?;
+        let point = Point::Specific(header.slot(), header.hash().to_vec());
+
+        let raw_header: RawHeader = header.cbor().to_vec();
+
+        self.downstream
+            .send(PullEvent::RollForward(peer.clone(), point, raw_header, span_forward).into())
+            .await
+            .or_panic()
+    }
+
+    pub async fn roll_back(&mut self, point: Point, tip: Tip) -> Result<(), WorkerError> {
+        let span_backward = trace_span!(
+            target: EVENT_TARGET,
+            "pull.roll_back",
+            point = tracing::field::Empty,
+            tip = tracing::field::Empty,
+            peer = self.peer_session.peer.name
+        );
+
+        self.track_tip(&tip);
+
+        let peer = &self.peer_session.peer;
+        self.downstream
+            .send(PullEvent::Rollback(peer.clone(), point, span_backward).into())
+            .await
+            .or_panic()
+    }
 }
 
 pub struct Worker {}
@@ -132,31 +173,12 @@ impl gasket::framework::Worker<Stage> for Worker {
             }
         };
 
-        let peer = &stage.peer_session.peer;
-
         match next {
-            NextResponse::RollForward(header, tip) => {
-                let header = to_traverse(&header).or_panic()?;
-                let point = Point::Specific(header.slot(), header.hash().to_vec());
-
-                let raw_header: RawHeader = header.cbor().to_vec();
-
-                stage
-                    .downstream
-                    .send(PullEvent::RollForward(peer.clone(), point, raw_header).into())
-                    .await
-                    .or_panic()?;
-
-                stage.track_tip(&tip);
+            NextResponse::RollForward(header, _tip) => {
+                stage.roll_forward(&header).await?;
             }
             NextResponse::RollBackward(point, tip) => {
-                stage
-                    .downstream
-                    .send(PullEvent::Rollback(peer.clone(), point).into())
-                    .await
-                    .or_panic()?;
-
-                stage.track_tip(&tip);
+                stage.roll_back(point, tip).await?;
             }
             NextResponse::Await => {}
         };

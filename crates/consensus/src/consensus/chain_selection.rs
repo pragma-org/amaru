@@ -166,15 +166,11 @@ where
     ///
     /// The function returns the result of the chain selection process, which might lead
     /// to a new tip, a switch to a fork, no change, or some change in status for the peer.
-    #[instrument(
-        level = Level::TRACE,
-        skip(self, header),
-        fields(
-            header.slot = header.slot(),
-            header.hash = %header.hash(),
-        ),
-    )]
-    pub fn roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
+    #[instrument(level = Level::TRACE, skip_all,
+                 fields(peer = peer.name,
+                        header.slot = header.slot(),
+                        header.hash = %header.hash()))]
+    pub fn select_roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
 
         // TODO: raise error if header does not match parent
@@ -216,8 +212,8 @@ where
     /// If the chain of the peer is still the longest, the function will return a
     /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
     /// tip of the chain.
-    #[instrument(level = Level::TRACE, skip(self), fields(peer = peer.name, point.hash = %point))]
-    pub fn rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
+    #[instrument(level = Level::TRACE, skip(self), fields(peer = peer.name, %point))]
+    pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
         self.rollback_fragment(peer, point);
 
         let (best_peer, best_tip) = self.find_best_chain().unwrap();
@@ -253,7 +249,6 @@ where
         best
     }
 
-    #[instrument(level = Level::TRACE, skip(self), fields(peer = peer.name, point.hash = %point))]
     fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);
@@ -282,7 +277,7 @@ mod tests {
             body_hash: random_bytes(32).as_slice().into(),
         };
 
-        let result = chain_selector.roll_forward(&alice, header);
+        let result = chain_selector.select_roll_forward(&alice, header);
 
         assert_eq!(NewTip(header), result);
     }
@@ -308,8 +303,8 @@ mod tests {
             body_hash: random_bytes(32).as_slice().into(),
         };
 
-        chain_selector.roll_forward(&alice, header);
-        let result = chain_selector.roll_forward(&alice, new_header);
+        chain_selector.select_roll_forward(&alice, header);
+        let result = chain_selector.select_roll_forward(&alice, new_header);
 
         assert_eq!(NoChange, result);
     }
@@ -322,7 +317,7 @@ mod tests {
             .set_tip(&TestHeader::Genesis)
             .build();
 
-        let result = chain_selector.roll_forward(&alice, TestHeader::Genesis);
+        let result = chain_selector.select_roll_forward(&alice, TestHeader::Genesis);
 
         assert_eq!(NoChange, result);
     }
@@ -342,12 +337,12 @@ mod tests {
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
 
         chain1.iter().for_each(|header| {
-            chain_selector.roll_forward(&alice, *header);
+            chain_selector.select_roll_forward(&alice, *header);
         });
 
         let result = chain2
             .iter()
-            .map(|header| chain_selector.roll_forward(&bob, *header))
+            .map(|header| chain_selector.select_roll_forward(&bob, *header))
             .last();
 
         assert_eq!(
@@ -375,12 +370,12 @@ mod tests {
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
 
         chain2.iter().for_each(|header| {
-            chain_selector.roll_forward(&bob, *header);
+            chain_selector.select_roll_forward(&bob, *header);
         });
 
         let result = chain1
             .iter()
-            .map(|header| chain_selector.roll_forward(&alice, *header))
+            .map(|header| chain_selector.select_roll_forward(&alice, *header))
             .last();
 
         assert_eq!(NoChange, result.unwrap());
@@ -397,13 +392,13 @@ mod tests {
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
 
         chain1.iter().for_each(|header| {
-            chain_selector.roll_forward(&alice, *header);
+            chain_selector.select_roll_forward(&alice, *header);
         });
 
         let rollback_point = &chain1[3];
         let hash = rollback_point.hash();
 
-        let result = chain_selector.rollback(&alice, hash);
+        let result = chain_selector.select_rollback(&alice, hash);
 
         assert_eq!(rollback_point, chain_selector.best_chain());
         assert_eq!(RollbackTo(hash), result);
@@ -420,7 +415,7 @@ mod tests {
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
 
         chain1.iter().for_each(|header| {
-            chain_selector.roll_forward(&alice, *header);
+            chain_selector.select_roll_forward(&alice, *header);
         });
 
         let rollback_point = &chain1[2];
@@ -432,8 +427,8 @@ mod tests {
             body_hash: random_bytes(32).as_slice().into(),
         };
 
-        chain_selector.rollback(&alice, hash);
-        let result = chain_selector.roll_forward(&alice, new_header);
+        chain_selector.select_rollback(&alice, hash);
+        let result = chain_selector.select_roll_forward(&alice, new_header);
 
         assert_eq!(NewTip(new_header), result);
     }
@@ -452,15 +447,15 @@ mod tests {
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
 
         chain1.iter().for_each(|header| {
-            chain_selector.roll_forward(&alice, *header);
+            chain_selector.select_roll_forward(&alice, *header);
         });
 
         chain2.iter().for_each(|header| {
-            chain_selector.roll_forward(&bob, *header);
+            chain_selector.select_roll_forward(&bob, *header);
         });
 
         let rollback_point = &chain1[3];
-        let result = chain_selector.rollback(&alice, rollback_point.hash());
+        let result = chain_selector.select_rollback(&alice, rollback_point.hash());
 
         assert_eq!(
             SwitchToFork {
