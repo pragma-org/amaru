@@ -1,0 +1,24 @@
+name: Security audit
+on:
+  push:
+    paths: 
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - "crates/**/Cargo.toml"
+      - "crates/**/Cargo.lock"
+jobs:
+  security_audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check unused dependencies
+        run: |
+            cargo install cargo-machete
+            cargo machete
+      - name: Check licenses
+        run: |
+            cargo install --locked cargo-deny
+            cargo deny check licenses
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}

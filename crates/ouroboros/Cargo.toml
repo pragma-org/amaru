@@ -1,7 +1,14 @@
 [package]
 name = "amaru-ouroboros"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 hex.workspace = true
@@ -12,7 +19,6 @@ pallas-crypto.workspace = true
 pallas-math.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true
-pallas-traverse.workspace = true
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
@@ -23,7 +29,6 @@ vrf_dalek.workspace = true
 [dev-dependencies]
 ctor.workspace = true
 insta = { workspace = true, features = ["yaml"] }
-mockall.workspace = true
 pallas-traverse.workspace = true
 tracing-subscriber.workspace = true
 criterion.workspace = true

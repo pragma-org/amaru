@@ -22,7 +22,6 @@ pallas-crypto.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true
 serde.workspace = true
-tokio.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 
