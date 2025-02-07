@@ -20,13 +20,15 @@ pub mod volatile_db;
 
 use crate::{
     kernel::{
-        self, epoch_from_slot, Hash, Hasher, MintedBlock, Point, PoolId, PoolParams, PoolSigma,
-        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
+        self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot,
+        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
+        SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
     },
     rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
     store::{columns::*, Store, StoreError},
 };
+use amaru_ouroboros::traits::{HasStakeDistribution, PoolSummary};
 use std::{
     borrow::Cow,
     collections::{BTreeSet, VecDeque},
@@ -61,11 +63,25 @@ where
 
     /// The computed rewards summary to be applied on the next epoch boundary. This is computed
     /// once in the epoch, and held until the end where it is reset.
+    ///
+    /// It also contains the latest stake distribution computed from the previous epoch, which we
+    /// hold onto the epoch boundary. In the epoch boundary, the stake distribution becomes
+    /// available for the leader schedule verification, whereas the stake distribution previously
+    /// used for leader schedule is moved as rewards stake.
     rewards_summary: Option<RewardsSummary>,
 
-    /// The latest stake distributions, used to determine the leader-schedule for the ongoing epoch
-    /// and as well as the rewards.
-    stake_distributions: VecDeque<StakeDistribution>,
+    /// A (shared) collection of the latest stake distributions. Those are used both during rewards
+    /// calculations, and for leader schedule verification.
+    ///
+    /// TODO: StakeDistribution are relatively large objects that typically present a lot of
+    /// duplications. We won't usually store more than 3 of them at the same time, since we get rid
+    /// of them when no longer needed (after rewards calculations).
+    ///
+    /// Yet, we could imagine a more compact representation where keys for pool and accounts
+    /// wouldn't be so much duplicated between snapshots. Instead, we could use an array of values
+    /// for each key. On a distribution of 1M+ stake credentials, that's ~26MB of memory per
+    /// duplicate.
+    stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
 }
 
 impl<S: Store> State<S> {
@@ -76,20 +92,18 @@ impl<S: Store> State<S> {
         // consensus layer to validate the leader schedule, while the one before that will be
         // consumed for the rewards calculation.
         //
-        // We store them as a bounded queue, such that we always ever have 2 stake distributions
-        // available. Once we consume the oldest one, we immediately insert a new one for the epoch
-        // that just passed, pushing the other forward.
+        // We always hold on two stake distributions:
         //
-        // Note that a possible memory optimization could be to discard all accounts from the most
-        // recent ones, since we only truly need the stake pool distribution for the leader
-        // schedule whereas accounts can be quite numerous.
+        // - The one from an epoch `e - 1` which is used for the ongoing leader schedule at epoch `e + 1`
+        // - The one from an epoch `e - 2` which is used for the rewards calculations at epoch `e + 1`
+        //
+        // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
+        // the ongoing epoch, not yet finished (and so, not available as snapshot).
         let latest_epoch = db.most_recent_snapshot();
+
         let mut stake_distributions = VecDeque::new();
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
-            stake_distributions.push_front(
-                db.stake_distribution(epoch)
-                    .unwrap_or_else(|e| panic!("unable to get current stake distribution: {e:?}")),
-            );
+            stake_distributions.push_front(recover_stake_distribution(&db, epoch));
         }
 
         drop(db);
@@ -111,7 +125,15 @@ impl<S: Store> State<S> {
 
             rewards_summary: None,
 
-            stake_distributions,
+            stake_distributions: Arc::new(Mutex::new(stake_distributions)),
+        }
+    }
+
+    /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
+    /// components that require access to it.
+    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution {
+        StakeDistributionView {
+            view: self.stake_distributions.clone(),
         }
     }
 
@@ -212,16 +234,18 @@ impl<S: Store> State<S> {
 
             // Once we reach the stability window,
             if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
+                let mut stake_distributions = self.stake_distributions.lock().unwrap();
+
                 self.rewards_summary = Some(
                     db.rewards_summary(
-                        self.stake_distributions
+                        stake_distributions
                             .pop_back()
-                            .unwrap_or_else(|| panic!("no readily available stake distribution?")),
+                            .ok_or(StateError::StakeDistributionNotAvailableForRewards)?,
                     )
                     .map_err(StateError::Storage)?,
                 );
 
-                self.stake_distributions.push_front(
+                stake_distributions.push_front(
                     db.stake_distribution(current_epoch - 1)
                         .map_err(StateError::Storage)?,
                 );
@@ -248,24 +272,6 @@ impl<S: Store> State<S> {
         self.volatile.rollback_to(to, |point| {
             BackwardError::UnknownRollbackPoint(point.clone())
         })
-    }
-
-    /// Fetch stake pool details from the current live view of the ledger.
-    pub fn get_pool(&self, pool: &PoolId) -> Result<Option<PoolParams>, StateError> {
-        let current_epoch = epoch_from_slot(self.tip().slot_or_default());
-
-        let volatile_view = self.volatile.iter_pools();
-
-        match diff_epoch_reg::Fold::for_epoch(current_epoch, pool, volatile_view) {
-            diff_epoch_reg::Fold::Registered(pool) => Ok(Some(pool.clone())),
-            diff_epoch_reg::Fold::Unregistered => Ok(None),
-            diff_epoch_reg::Fold::Undetermined => {
-                let db = self.stable.lock().unwrap();
-                let mut row = db.pool(pool).map_err(StateError::Query)?;
-                pools::Row::tick(Box::new(&mut row), current_epoch);
-                Ok(row.map(|row| row.current_params))
-            }
-        }
     }
 
     fn resolve_inputs<'a>(
@@ -344,43 +350,51 @@ impl<S: Store> State<S> {
     }
 }
 
-// LedgerState
+fn recover_stake_distribution<S: Store>(
+    db: &std::sync::MutexGuard<'_, S>,
+    epoch: Epoch,
+) -> StakeDistribution {
+    db.stake_distribution(epoch).unwrap_or_else(|e| {
+        panic!(
+            "unable to get stake distribution for (epoch={:?}): {e:?}",
+            epoch
+        )
+    })
+}
+
+// HasStakeDistribution
 // ----------------------------------------------------------------------------
 
 // The 'LedgerState' trait materializes the interface required of the consensus layer in order to
 // validate block headers. It allows to keep the ledger implementation rather abstract to the
 // consensus in order to decouple both components.
-impl<S: Store> amaru_ouroboros::ledger::LedgerState for State<S> {
-    fn pool_id_to_sigma(
-        &self,
-        _pool_id: &PoolId,
-    ) -> Result<PoolSigma, amaru_ouroboros::ledger::Error> {
-        // FIXME: Obtain from ledger's stake distribution
-        Err(amaru_ouroboros::ledger::Error::PoolIdNotFound)
-    }
+pub struct StakeDistributionView {
+    view: Arc<Mutex<VecDeque<StakeDistribution>>>,
+}
 
-    // FIXME: This method most probably needs pool from the mark or set snapshots (so one or two
-    // epochs in the past), and not from the live view.
-    fn vrf_vkey_hash(&self, pool_id: &PoolId) -> Result<Hash<32>, amaru_ouroboros::ledger::Error> {
-        self.get_pool(pool_id)
-            .unwrap_or_else(|e| panic!("unable to fetch pool from database: {e:?}"))
-            .map(|params| params.vrf)
-            .ok_or(amaru_ouroboros::ledger::Error::PoolIdNotFound)
+impl HasStakeDistribution for StakeDistributionView {
+    fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
+        let view = self.view.lock().unwrap();
+        let epoch = epoch_from_slot(slot) - 2;
+        view.iter().find(|s| s.epoch == epoch).and_then(|s| {
+            s.pools.get(pool).map(|st| PoolSummary {
+                vrf: st.parameters.vrf,
+                stake: st.stake,
+                active_stake: s.active_stake,
+            })
+        })
     }
 
     fn slot_to_kes_period(&self, slot: u64) -> u64 {
-        // FIXME: Extract from genesis configuration.
-        let slots_per_kes_period: u64 = 129600;
-        slot / slots_per_kes_period
+        slot / SLOTS_PER_KES_PERIOD
     }
 
     fn max_kes_evolutions(&self) -> u64 {
-        // FIXME: Extract from genesis configuration.
-        62
+        MAX_KES_EVOLUTION as u64
     }
 
     fn latest_opcert_sequence_number(&self, _issuer_vkey: &Hash<28>) -> Option<u64> {
-        // FIXME: Obtain from protocol's state
+        // FIXME: Move this responsibility to the consensus layer
         None
     }
 }
@@ -433,4 +447,6 @@ pub enum StateError {
     EpochAccess(u64, #[source] StoreError),
     #[error("error accessing storage")]
     Storage(#[source] StoreError),
+    #[error("no stake distribution available for rewards calculation.")]
+    StakeDistributionNotAvailableForRewards,
 }

@@ -12,19 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::store::rocksdb::RocksDBStore;
-use amaru_consensus::consensus::{
-    chain_selection::{ChainSelector, ChainSelectorBuilder},
-    header::{point_hash, ConwayHeader},
-    store::ChainStore,
+use amaru_consensus::{
+    chain_forward, consensus,
+    consensus::{
+        chain_selection::{ChainSelector, ChainSelectorBuilder},
+        header::{point_hash, ConwayHeader},
+        store::{rocksdb::RocksDBStore, ChainStore},
+    },
 };
-use amaru_consensus::{chain_forward, consensus};
-use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
-use amaru_ouroboros::protocol::{Point, PullEvent};
+use amaru_ouroboros::protocol::{
+    peer::{Peer, PeerSession},
+    Point, PullEvent,
+};
 use amaru_stores::rocksdb::RocksDB;
-use gasket::messaging::tokio::funnel_ports;
-use gasket::messaging::OutputPort;
-use gasket::runtime::Tether;
+use gasket::{
+    messaging::{tokio::funnel_ports, OutputPort},
+    runtime::Tether,
+};
 use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
@@ -89,7 +93,7 @@ pub fn bootstrap(
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = consensus::HeaderStage::new(
         peer_sessions,
-        ledger.state.clone(),
+        Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
         chain_selector,
         config.nonces,

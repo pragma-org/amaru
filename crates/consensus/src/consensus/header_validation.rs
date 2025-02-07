@@ -13,22 +13,21 @@
 // limitations under the License.
 
 use amaru_ledger::kernel::epoch_from_slot;
-use amaru_ouroboros::{consensus::BlockValidator, ledger::LedgerState, validator::Validator};
+use amaru_ouroboros::{
+    consensus::BlockValidator, traits::HasStakeDistribution, validator::Validator,
+};
 use gasket::framework::*;
 use pallas_crypto::hash::Hash;
-use pallas_math::math::{FixedDecimal, FixedPrecision};
-use pallas_primitives::conway::Epoch;
+use pallas_math::math::FixedDecimal;
+use pallas_primitives::{babbage, conway::Epoch};
 use std::collections::HashMap;
 use tracing::{instrument, warn, Level};
 
-use super::header::{ConwayHeader, Header};
-
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn assert_header<'a>(
-    header: &ConwayHeader,
-    cbor: &'a [u8],
+    header: &'a babbage::MintedHeader<'a>,
     epoch_to_nonce: &HashMap<Epoch, Hash<32>>,
-    ledger: &dyn LedgerState,
+    ledger: &dyn HasStakeDistribution,
 ) -> Result<(), WorkerError> {
     let epoch = epoch_from_slot(header.header_body.slot);
 
@@ -36,14 +35,10 @@ pub fn assert_header<'a>(
         // TODO: Take this parameter from an input context, rather than hard-coding it.
         let active_slots_coeff: FixedDecimal =
             FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
-        let c = (FixedDecimal::from(1u64) - active_slots_coeff).ln();
-        let block_validator = BlockValidator::new(header, cbor, ledger, epoch_nonce, &c);
-        block_validator
-            .validate()
-            .map_err(|e| {
-                warn!("fail to validate header {}: {:?}", header.hash(), e);
-            })
-            .or(Ok(())) // FIXME: Remove this once we have a proper error handling
+
+        let block_validator = BlockValidator::new(header, ledger, epoch_nonce, &active_slots_coeff);
+
+        block_validator.validate().or_panic()
     } else {
         Ok(())
     }

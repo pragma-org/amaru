@@ -18,7 +18,6 @@ use pallas_codec::minicbor as cbor;
 use state::BackwardError;
 use std::sync::Arc;
 use store::Store;
-use tokio::sync::Mutex;
 use tracing::{instrument, trace_span, warn, Level};
 
 const EVENT_TARGET: &str = "amaru::ledger";
@@ -57,7 +56,7 @@ where
 {
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
-    pub state: Arc<Mutex<state::State<S>>>,
+    pub state: state::State<S>,
 }
 
 impl<S: Store> gasket::framework::Stage for Stage<S> {
@@ -83,13 +82,13 @@ impl<S: Store> Stage<S> {
             Self {
                 upstream: Default::default(),
                 downstream: Default::default(),
-                state: Arc::new(Mutex::new(state)),
+                state,
             },
             tip,
         )
     }
 
-    pub async fn validate_block(
+    pub async fn roll_forward(
         &mut self,
         point: Point,
         raw_block: RawBlock,
@@ -113,9 +112,7 @@ impl<S: Store> Stage<S> {
         span_forward.record("header.slot", block.header.header_body.slot);
         span_forward.record("header.hash", hex::encode(block_header_hash));
 
-        let mut state = self.state.lock().await;
-
-        let result = match state.forward(&span_forward, &point, block) {
+        let result = match self.state.forward(&span_forward, &point, block) {
             Ok(_) => BlockValidationResult::BlockValidated(point),
             Err(_) => BlockValidationResult::BlockForwardStorageFailed(point),
         };
@@ -137,9 +134,7 @@ impl<S: Store> Stage<S> {
             span_backward.record("point.hash", hex::encode(header_hash));
         }
 
-        let mut state = self.state.lock().await;
-
-        let result = match state.backward(&point) {
+        let result = match self.state.backward(&point) {
             Ok(_) => BlockValidationResult::RolledBackTo(point),
             Err(BackwardError::UnknownRollbackPoint(_)) => {
                 BlockValidationResult::InvalidRollbackPoint(point)
@@ -175,9 +170,7 @@ impl<S: Store> gasket::framework::Worker<Stage<S>> for Worker {
     ) -> Result<(), WorkerError> {
         let result = match unit {
             ValidateBlockEvent::Validated(point, raw_block) => {
-                stage
-                    .validate_block(point.clone(), raw_block.to_vec())
-                    .await
+                stage.roll_forward(point.clone(), raw_block.to_vec()).await
             }
 
             ValidateBlockEvent::Rollback(point) => stage.rollback_to(point.clone()).await,

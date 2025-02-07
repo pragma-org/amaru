@@ -1,65 +1,78 @@
 /// A module to expose functions for testing purpose
 use crate::consensus::validator::BlockValidator;
-use crate::ledger::{MockLedgerState, PoolSigma};
-use crate::validator::Validator;
-use crate::{ledger::PoolId, validator::ValidationError};
-use mockall::predicate::eq;
+use crate::{
+    traits::{HasStakeDistribution, PoolSummary},
+    validator::{ValidationError, Validator},
+    Lovelace, PoolId, Slot, VrfKeyhash,
+};
+use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::FixedDecimal;
-use pallas_primitives::conway::Header;
-use pallas_traverse::MultiEraHeader;
+use pallas_primitives::babbage;
+use std::collections::HashMap;
 
 pub fn validate_conway_block(
-    pool_id_str: &str,
-    vrf_vkey_hash_str: &str,
+    mock_ledger_state: impl HasStakeDistribution,
     epoch_nonce_str: &str,
-    numerator: u64,
-    denominator: u64,
     test_block: &[u8],
 ) -> Result<(), ValidationError> {
-    let pool_id: PoolId = pool_id_str.parse().unwrap();
-    let vrf_vkey_hash: Hash<32> = vrf_vkey_hash_str.parse().unwrap();
     let epoch_nonce: Hash<32> = epoch_nonce_str.parse().unwrap();
 
     let active_slots_coeff: FixedDecimal = FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
-    let conway_block_tag: u8 = 6;
-    let multi_era_header = MultiEraHeader::decode(conway_block_tag, None, test_block).unwrap();
-    let babbage_header = multi_era_header.as_babbage().expect("Infallible");
 
-    let mut ledger_state = MockLedgerState::new();
-    ledger_state
-        .expect_pool_id_to_sigma()
-        .with(eq(pool_id))
-        .returning(move |_| {
-            Ok(PoolSigma {
-                numerator,
-                denominator,
-            })
-        });
-    ledger_state
-        .expect_vrf_vkey_hash()
-        .with(eq(pool_id))
-        .returning(move |_| Ok(vrf_vkey_hash));
-    ledger_state.expect_slot_to_kes_period().returning(|slot| {
-        // hardcode some values from shelley-genesis.json for the mock implementation
-        let slots_per_kes_period: u64 = 129600; // from shelley-genesis.json (1.5 days in seconds)
-        slot / slots_per_kes_period
-    });
-    ledger_state.expect_max_kes_evolutions().returning(|| 62);
-    ledger_state
-        .expect_latest_opcert_sequence_number()
-        .returning(|_| None);
+    let header: babbage::MintedHeader<'_> = minicbor::decode(test_block).unwrap();
 
-    let pseudo_header = Header::from(babbage_header.clone());
-    let cbor = babbage_header.header_body.raw_cbor();
     let block_validator = BlockValidator::new(
-        &pseudo_header,
-        cbor,
-        &ledger_state,
+        &header,
+        &mock_ledger_state,
         &epoch_nonce,
         &active_slots_coeff,
     );
     block_validator.validate()
+}
+
+pub struct MockLedgerState {
+    pub vrf_vkey_hash: VrfKeyhash,
+    pub stake: Lovelace,
+    pub active_stake: Lovelace,
+    pub op_certs: HashMap<PoolId, u64>,
+    pub slots_per_kes_period: u64,
+    pub max_kes_evolutions: u64,
+}
+
+impl MockLedgerState {
+    pub fn new(vrf_vkey_hash: &str, stake: Lovelace, active_stake: Lovelace) -> Self {
+        Self {
+            vrf_vkey_hash: vrf_vkey_hash.parse().unwrap(),
+            stake,
+            active_stake,
+            op_certs: Default::default(),
+            slots_per_kes_period: 129600, // from shelley-genesis.json (1.5 days in seconds)
+            max_kes_evolutions: 62,
+        }
+    }
+}
+
+impl HasStakeDistribution for MockLedgerState {
+    fn get_pool(&self, _slot: Slot, _pool: &PoolId) -> Option<PoolSummary> {
+        Some(PoolSummary {
+            vrf: self.vrf_vkey_hash,
+            stake: self.stake,
+            active_stake: self.active_stake,
+        })
+    }
+
+    fn slot_to_kes_period(&self, slot: u64) -> u64 {
+        slot / self.slots_per_kes_period
+    }
+
+    fn max_kes_evolutions(&self) -> u64 {
+        self.max_kes_evolutions
+    }
+
+    fn latest_opcert_sequence_number(&self, pool: &PoolId) -> Option<u64> {
+        self.op_certs.get(pool).copied()
+    }
 }
 
 #[cfg(test)]
@@ -117,7 +130,7 @@ pub mod tests {
         insta::assert_yaml_snapshot!(test_vector);
 
         for TestSample {
-            pool_id_str,
+            pool_id_str: _,
             vrf_vkey_hash_str,
             epoch_nonce_str,
             numerator,
@@ -125,15 +138,10 @@ pub mod tests {
             expected,
         } in test_vector
         {
+            let mock = super::MockLedgerState::new(vrf_vkey_hash_str, numerator, denominator);
+
             assert_eq!(
-                validate_conway_block(
-                    pool_id_str,
-                    vrf_vkey_hash_str,
-                    epoch_nonce_str,
-                    numerator,
-                    denominator,
-                    TEST_BLOCK,
-                ),
+                validate_conway_block(mock, epoch_nonce_str, TEST_BLOCK,),
                 expected
             );
         }

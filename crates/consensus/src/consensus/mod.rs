@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::consensus::header_validation::assert_header;
-use amaru_ledger::{RawBlock, ValidateBlockEvent};
+use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::{
-    ledger::LedgerState,
     protocol::{peer, peer::*, Point, PullEvent},
+    traits::HasStakeDistribution,
 };
 use chain_selection::ChainSelector;
 use gasket::framework::*;
@@ -24,7 +24,7 @@ use header::{point_hash, ConwayHeader, Header};
 use miette::miette;
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
-use pallas_primitives::conway::Epoch;
+use pallas_primitives::{babbage, conway::Epoch};
 use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use store::ChainStore;
@@ -47,7 +47,7 @@ pub mod store;
 pub struct HeaderStage {
     peer_sessions: HashMap<Peer, PeerSession>,
     chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
-    ledger: Arc<Mutex<dyn LedgerState>>,
+    ledger: Box<dyn HasStakeDistribution>,
     store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
     epoch_to_nonce: HashMap<Epoch, Hash<32>>,
 
@@ -67,7 +67,7 @@ pub struct HeaderStage {
 impl HeaderStage {
     pub fn new(
         peer_sessions: Vec<PeerSession>,
-        ledger: Arc<Mutex<dyn LedgerState>>,
+        ledger: Box<dyn HasStakeDistribution>,
         store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
         chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
         epoch_to_nonce: HashMap<Epoch, Hash<32>>,
@@ -153,11 +153,16 @@ impl HeaderStage {
         &mut self,
         peer: &Peer,
         point: &Point,
-        raw_header: &RawBlock,
+        raw_header: &[u8],
     ) -> Result<(), WorkerError> {
-        let header: ConwayHeader = minicbor::decode(raw_header)
+        let header: babbage::MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|e| miette!(e))
             .or_panic()?;
+
+        // FIXME: move into chain_selector
+        assert_header(&header, &self.epoch_to_nonce, self.ledger.as_ref())?;
+
+        let header: ConwayHeader = ConwayHeader::from(header);
 
         // first make sure we store the header
         self.store
@@ -167,19 +172,11 @@ impl HeaderStage {
             .map_err(|e| miette!(e))
             .or_panic()?;
 
-        let ledger = self.ledger.lock().await;
-
-        // FIXME: move into chain_selector
-        assert_header(&header, raw_header, &self.epoch_to_nonce, &*ledger)?;
-
         let result = self
             .chain_selector
             .lock()
             .await
             .roll_forward(peer, header.clone());
-
-        // Make sure the Mutex is released as soon as possible
-        drop(ledger);
 
         match result {
             chain_selection::ChainSelection::NewTip(hdr) => {

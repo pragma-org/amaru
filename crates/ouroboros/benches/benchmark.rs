@@ -10,13 +10,16 @@ fn validate_conway_block() {
         22586623335121436_u64,
     )];
 
-    for (pool_id_str, vrf_vkey_hash_str, epoch_nonce_str, numerator, denominator) in test_vector {
-        let _ = amaru_ouroboros::consensus::test::validate_conway_block(
-            pool_id_str,
+    for (_pool_id_str, vrf_vkey_hash_str, epoch_nonce_str, numerator, denominator) in test_vector {
+        let mock = amaru_ouroboros::consensus::test::MockLedgerState::new(
             vrf_vkey_hash_str,
-            epoch_nonce_str,
             numerator,
             denominator,
+        );
+
+        let _ = amaru_ouroboros::consensus::test::validate_conway_block(
+            mock,
+            epoch_nonce_str,
             test_block,
         );
     }
