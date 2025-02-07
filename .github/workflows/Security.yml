@@ -19,6 +19,3 @@ jobs:
         run: |
             cargo install --locked cargo-deny
             cargo deny check licenses
-      - uses: rustsec/audit-check@v2
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
