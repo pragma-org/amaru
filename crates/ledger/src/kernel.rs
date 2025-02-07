@@ -83,6 +83,13 @@ pub const STAKE_POOL_DEPOSIT: usize = 500000000;
 /// Value, in Lovelace, that one must deposit when registering a new stake credential
 pub const STAKE_CREDENTIAL_DEPOSIT: usize = 2000000;
 
+/// Number of slots for a single KES validity period.
+pub const SLOTS_PER_KES_PERIOD: u64 = 129600;
+
+/// Maximum number of KES key evolution. Combined with SLOTS_PER_KES_PERIOD, these values
+/// indicates the validity period of a KES key before a new one is required.
+pub const MAX_KES_EVOLUTION: u8 = 62;
+
 // The monetary expansion value, a.k.a ρ
 pub static MONETARY_EXPANSION: LazyLock<Ratio<BigUint>> =
     LazyLock::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)));

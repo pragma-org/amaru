@@ -21,7 +21,8 @@ pub mod volatile_db;
 use crate::{
     kernel::{
         self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot,
-        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, STABILITY_WINDOW,
+        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
+        SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
     },
     rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
@@ -385,14 +386,11 @@ impl HasStakeDistribution for StakeDistributionView {
     }
 
     fn slot_to_kes_period(&self, slot: u64) -> u64 {
-        // FIXME: Extract from genesis configuration.
-        let slots_per_kes_period: u64 = 129600;
-        slot / slots_per_kes_period
+        slot / SLOTS_PER_KES_PERIOD
     }
 
     fn max_kes_evolutions(&self) -> u64 {
-        // FIXME: Extract from genesis configuration.
-        62
+        MAX_KES_EVOLUTION as u64
     }
 
     fn latest_opcert_sequence_number(&self, _issuer_vkey: &Hash<28>) -> Option<u64> {
