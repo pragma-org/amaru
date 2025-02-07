@@ -41,9 +41,9 @@ enum Command {
 struct Cli {
     #[command(subcommand)]
     command: Command,
-    #[clap(long, action)]
+    #[clap(long, action, env("AMARU_WITH_OPEN_TELEMETRY"))]
     with_open_telemetry: bool,
-    #[clap(long, action)]
+    #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
 }
 
