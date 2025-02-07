@@ -17,3 +17,6 @@ tracing.workspace = true
 pallas-codec.workspace = true
 thiserror.workspace = true
 hex.workspace = true
+
+#[target.aarch64-unknown-linux-musl.dependencies]
+#rocksdb = { workspace = true, features = ["bindgen-static", "snappy"] }

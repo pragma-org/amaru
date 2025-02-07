@@ -45,10 +45,13 @@ jobs:
             target: wasm32-unknown-unknown
             packages: -p amaru-ledger
             optional: true
-          # Disabled for now
-          #- runner: ubuntu-latest
-          #  target: aarch64-unknown-linux-musl
-          #  cross-compile: true
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            cross-compile: true
+          - runner: macos-latest
+            target: aarch64-unknown-linux-musl
     timeout-minutes: 30
     runs-on: ${{ matrix.environments.runner }}
     steps:
@@ -62,10 +65,11 @@ jobs:
           set +e
           SCOPE="${{ matrix.environments.packages || '--workspace' }}"
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
-            cargo install cross --git https://github.com/cross-rs/cross
-            # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
-            $HOME/.cargo/bin/cross test --locked --all-features $SCOPE --target ${{ matrix.environments.target }}
+            sudo snap install zig --classic --beta
+            cargo install --locked cargo-zigbuild
+            cargo zigbuild --target ${{ matrix.environments.target }}
           else
+            export CC=aarch64-linux-gnu-gcc 
             cargo test $SCOPE --locked --target ${{ matrix.environments.target }}
           fi
           exitcode="$?"
