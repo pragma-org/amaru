@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::header_validation::assert_header;
-use amaru_ledger::{RawBlock, ValidateBlockEvent};
+use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::{
     protocol::{peer, peer::*, Point, PullEvent},
     traits::HasStakeDistribution,
@@ -24,7 +24,7 @@ use header::{point_hash, ConwayHeader, Header};
 use miette::miette;
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
-use pallas_primitives::conway::Epoch;
+use pallas_primitives::{babbage, conway::Epoch};
 use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use store::ChainStore;
@@ -153,11 +153,16 @@ impl HeaderStage {
         &mut self,
         peer: &Peer,
         point: &Point,
-        raw_header: &RawBlock,
+        raw_header: &[u8],
     ) -> Result<(), WorkerError> {
-        let header: ConwayHeader = minicbor::decode(raw_header)
+        let header: babbage::MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|e| miette!(e))
             .or_panic()?;
+
+        // FIXME: move into chain_selector
+        assert_header(&header, &self.epoch_to_nonce, self.ledger.as_ref())?;
+
+        let header: ConwayHeader = ConwayHeader::from(header);
 
         // first make sure we store the header
         self.store
@@ -166,14 +171,6 @@ impl HeaderStage {
             .store_header(&header.compute_hash(), &header)
             .map_err(|e| miette!(e))
             .or_panic()?;
-
-        // FIXME: move into chain_selector
-        assert_header(
-            &header,
-            raw_header,
-            &self.epoch_to_nonce,
-            self.ledger.as_ref(),
-        )?;
 
         let result = self
             .chain_selector

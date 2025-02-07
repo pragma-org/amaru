@@ -5,10 +5,10 @@ use crate::{
     validator::{ValidationError, Validator},
     Lovelace, PoolId, Slot, VrfKeyhash,
 };
+use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::FixedDecimal;
-use pallas_primitives::conway::Header;
-use pallas_traverse::MultiEraHeader;
+use pallas_primitives::babbage;
 use std::collections::HashMap;
 
 pub fn validate_conway_block(
@@ -19,15 +19,11 @@ pub fn validate_conway_block(
     let epoch_nonce: Hash<32> = epoch_nonce_str.parse().unwrap();
 
     let active_slots_coeff: FixedDecimal = FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
-    let conway_block_tag: u8 = 6;
-    let multi_era_header = MultiEraHeader::decode(conway_block_tag, None, test_block).unwrap();
-    let babbage_header = multi_era_header.as_babbage().expect("Infallible");
 
-    let pseudo_header = Header::from(babbage_header.clone());
-    let cbor = babbage_header.header_body.raw_cbor();
+    let header: babbage::MintedHeader<'_> = minicbor::decode(test_block).unwrap();
+
     let block_validator = BlockValidator::new(
-        &pseudo_header,
-        cbor,
+        &header,
         &mock_ledger_state,
         &epoch_nonce,
         &active_slots_coeff,

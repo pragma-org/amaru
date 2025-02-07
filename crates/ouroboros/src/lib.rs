@@ -46,7 +46,6 @@ mod tests {
             "cad3c900ca6baee9e65bf61073d900bfbca458eeca6d0b9f9931f5b1017a8cd6",
             "00beef0a9be2f6d897ed24a613cf547bb20cd282a04edfc53d477114",
         )];
-        insta::assert_yaml_snapshot!(test_vector);
 
         for (issuer_vkey_str, expected_pool_id_str) in test_vector {
             let issuer_vkey: Bytes = issuer_vkey_str.parse().unwrap();

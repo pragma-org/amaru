@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::header::{ConwayHeader, Header};
 use amaru_ledger::kernel::epoch_from_slot;
 use amaru_ouroboros::{
     consensus::BlockValidator, traits::HasStakeDistribution, validator::Validator,
@@ -20,14 +19,13 @@ use amaru_ouroboros::{
 use gasket::framework::*;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::FixedDecimal;
-use pallas_primitives::conway::Epoch;
+use pallas_primitives::{babbage, conway::Epoch};
 use std::collections::HashMap;
 use tracing::{instrument, warn, Level};
 
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn assert_header<'a>(
-    header: &ConwayHeader,
-    cbor: &'a [u8],
+    header: &'a babbage::MintedHeader<'a>,
     epoch_to_nonce: &HashMap<Epoch, Hash<32>>,
     ledger: &dyn HasStakeDistribution,
 ) -> Result<(), WorkerError> {
@@ -38,15 +36,9 @@ pub fn assert_header<'a>(
         let active_slots_coeff: FixedDecimal =
             FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
 
-        let block_validator =
-            BlockValidator::new(header, cbor, ledger, epoch_nonce, &active_slots_coeff);
+        let block_validator = BlockValidator::new(header, ledger, epoch_nonce, &active_slots_coeff);
 
-        block_validator
-            .validate()
-            .map_err(|e| {
-                warn!("fail to validate header {}: {:?}", header.hash(), e);
-            })
-            .or(Ok(())) // FIXME: Remove this once we have a proper error handling
+        block_validator.validate().or_panic()
     } else {
         Ok(())
     }

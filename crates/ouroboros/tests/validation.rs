@@ -13,14 +13,14 @@
 // limitations under the License.
 
 use amaru_ouroboros::consensus::test::MockLedgerState;
+use pallas_codec::minicbor;
+use pallas_primitives::babbage;
 use std::{collections::HashMap, fs::File, io::BufReader};
 
 use amaru_ouroboros::{consensus::BlockValidator, kes::KesSecretKey, validator::Validator};
 use ctor::ctor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
-use pallas_primitives::conway::Header;
-use pallas_traverse::MultiEraHeader;
 use serde::{Deserialize, Deserializer, Serialize};
 
 /// Context from which a header has been generated.
@@ -168,9 +168,8 @@ struct HeaderWrapper {
 }
 
 impl HeaderWrapper {
-    fn get_header(&mut self) -> Result<MultiEraHeader<'_>, ()> {
-        let conway_block_tag: u8 = 6;
-        MultiEraHeader::decode(conway_block_tag, None, self.bytes.as_slice()).map_err(|_| ())
+    fn get_header(&mut self) -> Result<babbage::MintedHeader<'_>, ()> {
+        minicbor::decode(self.bytes.as_slice()).map_err(|_| ())
     }
 }
 
@@ -221,10 +220,9 @@ fn can_read_and_write_json_test_vectors() {
         serde_json::from_reader(BufReader::new(file));
     assert!(result.is_ok());
     let mut vec = result.unwrap();
-    let first_header = vec[0].1.header.get_header().expect("cannot create header");
-    let babbage_header = first_header.as_babbage().expect("Infallible");
+    let header = vec[0].1.header.get_header().expect("cannot create header");
     // NOTE: this magic number ensures that we read an up-to-date test vector
-    assert_eq!(babbage_header.header_body.slot, EXPECTED_SLOT_NUMBER);
+    assert_eq!(header.header_body.slot, EXPECTED_SLOT_NUMBER);
 }
 
 #[test]
@@ -241,18 +239,13 @@ fn validation_conforms_to_test_vectors() {
             test.1
                 .header
                 .get_header()
-                .map(|hdr| {
-                    let babbage_header =
-                        hdr.as_babbage().expect("cannot convert to babbage header");
+                .map(|header| {
                     let expected = &test.1.mutation;
                     let ledger_state = mock_ledger_state(context);
                     let epoch_nonce = context.nonce;
                     let active_slot_coeff = context.active_slot_coeff_fraction();
-                    let cbor = babbage_header.header_body.raw_cbor();
-                    let pseudo_header = Header::from(babbage_header.clone());
                     let block_validator =
-                        BlockValidator::new(&pseudo_header,
-                                            cbor,
+                        BlockValidator::new(&header,
                                             &ledger_state,
                                             &epoch_nonce,
                                             &active_slot_coeff);
@@ -263,13 +256,13 @@ fn validation_conforms_to_test_vectors() {
                         (Mutation::NoMutation, Err(e)) => {
                             panic!(
                                 "[{}] expected validation to succeed, failed with error {:?}\n header: {:?}\n context: {:?}",
-                                header_index, e, babbage_header, context
+                                header_index, e, header, context
                             )
                         }
                         (_, Ok(_)) => {
                             panic!(
                                 "[{}] expected validation to fail ({:?}), but it succeeded\n header: {:?}\n context: {:?}",
-                                header_index, expected, babbage_header, context
+                                header_index, expected, header, context
                             )
                         }
                         (_, Err(_)) => (),

@@ -17,7 +17,9 @@ use pallas_primitives::{
 };
 use rayon::prelude::*;
 use std::{ops::Deref, sync::LazyLock};
-use tracing::{span, trace};
+use tracing::{trace, trace_span};
+
+pub const EVENT_TARGET: &str = "amaru::ouroboros::header_validation";
 
 /// The certified natural max value represents 2^256 in praos consensus
 static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
@@ -30,8 +32,7 @@ static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
 
 /// Validator for a block using praos consensus.
 pub struct BlockValidator<'b> {
-    header: &'b babbage::Header,
-    cbor: &'b [u8],
+    header: &'b babbage::MintedHeader<'b>,
     ledger_state: &'b dyn HasStakeDistribution,
     epoch_nonce: &'b Hash<32>,
     active_slots_coeff: &'b FixedDecimal,
@@ -39,24 +40,27 @@ pub struct BlockValidator<'b> {
 
 impl<'b> BlockValidator<'b> {
     pub fn new(
-        header: &'b babbage::Header,
-        cbor: &'b [u8],
+        header: &'b babbage::MintedHeader<'b>,
         ledger_state: &'b dyn HasStakeDistribution,
         epoch_nonce: &'b Hash<32>,
         active_slots_coeff: &'b FixedDecimal,
     ) -> Self {
         Self {
             header,
-            cbor,
             ledger_state,
             epoch_nonce,
             active_slots_coeff,
         }
     }
 
-    fn validate_babbage_compatible(&self) -> Result<(), ValidationError> {
-        let span = span!(tracing::Level::TRACE, "validate_babbage_compatible");
-        let _enter = span.enter();
+    fn validate_praos(&self) -> Result<(), ValidationError> {
+        let header_hash = Hasher::<256>::hash(self.header.raw_cbor());
+        let span = trace_span!(
+            target: EVENT_TARGET,
+            "validate.praos",
+            header.hash = %header_hash
+        )
+        .entered();
 
         // Grab all the values we need to validate the block
         let absolute_slot = self.header.header_body.slot;
@@ -124,16 +128,14 @@ impl<'b> BlockValidator<'b> {
                 )
             }),
             Box::new(|| self.validate_operational_certificate(issuer_vkey.as_slice(), &pool_id)),
-            // FIXME:
-            // This verification doesn't pass at the moment, for some reasons. Which is strange
-            // because it is supposed to be fully 'static', and depends only on informations
-            // present in the ledger (modulo the kes_period).
-            // Box::new(|| self.validate_kes_signature(absolute_slot, kes_signature)),
+            Box::new(|| self.validate_kes_signature(absolute_slot, kes_signature)),
         ];
 
         validation_checks
             .into_par_iter()
             .try_for_each(|check| check())?;
+
+        span.exit();
 
         Ok(())
     }
@@ -178,13 +180,12 @@ impl<'b> BlockValidator<'b> {
         trace!("kes_period: {}", kes_period);
 
         // The header_body_cbor was signed by the KES private key. Verify this with the KES public key
-        let header_body_cbor = self.cbor;
         let kes_signature = KesSignature::from_bytes(kes_signature).map_err(|error| {
             ValidationError::GenericValidationError(format!("kes_signature: {}", error))
         })?;
 
         kes_signature
-            .verify(kes_period, &kes_pk, header_body_cbor)
+            .verify(kes_period, &kes_pk, self.header.header_body.raw_cbor())
             .map_err(|error| {
                 ValidationError::KesVerificationError(format!(
                     "KES signature verification failed: {}",
@@ -390,6 +391,6 @@ impl<'b> BlockValidator<'b> {
 
 impl Validator for BlockValidator<'_> {
     fn validate(&self) -> Result<(), ValidationError> {
-        self.validate_babbage_compatible()
+        self.validate_praos()
     }
 }
