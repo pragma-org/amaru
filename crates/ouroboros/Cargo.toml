@@ -19,7 +19,6 @@ pallas-crypto.workspace = true
 pallas-math.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true
-pallas-traverse.workspace = true
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
@@ -30,7 +29,6 @@ vrf_dalek.workspace = true
 [dev-dependencies]
 ctor.workspace = true
 insta = { workspace = true, features = ["yaml"] }
-mockall.workspace = true
 pallas-traverse.workspace = true
 tracing-subscriber.workspace = true
 criterion.workspace = true
