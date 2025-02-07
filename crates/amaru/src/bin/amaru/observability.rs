@@ -84,7 +84,7 @@ impl TracingSubscriber<Registry> {
     }
 
     pub fn init(self) {
-        let log_format = || tracing_subscriber::fmt::format().with_ansi(true).pretty();
+        let log_format = || tracing_subscriber::fmt::format().with_ansi(true).compact();
         let log_writer = || io::stderr as fn() -> io::Stderr;
         let log_events = || FmtSpan::ENTER;
         let log_filter = || default_filter(AMARU_LOG_VAR, DEFAULT_AMARU_LOG_FILTER);
