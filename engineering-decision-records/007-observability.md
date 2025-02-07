@@ -37,8 +37,8 @@ We would like the codebase to organize the metrics it tracks in a simple, consis
   - We will make judicious use of [Spans](https://opentelemetry.io/docs/concepts/observability-primer/#spans) to expose the structured nature of the workload the Amaru node performs.
 
 - We define the frontier between logs and traces by following a simple rule:
-  - Any event at the INFO level is considered a log
-  - Any event at the DEBUG level is considered a trace
+  - Any event at the DEBUG level or above is considered a log
+  - Any event at the TRACE level is considered a trace
 
 ### Metrics
 

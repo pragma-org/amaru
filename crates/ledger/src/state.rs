@@ -33,9 +33,9 @@ use std::{
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
-use tracing::{debug, debug_span, info_span, Span};
+use tracing::{info_span, trace, trace_span, Span};
 
-const STATE_EVENT_TARGET: &str = "amaru::ledger::state";
+const EVENT_TARGET: &str = "amaru::ledger::state";
 
 // State
 // ----------------------------------------------------------------------------
@@ -167,24 +167,22 @@ impl<S: Store> State<S> {
                 // FIXME: All operations below should technically happen in the same database
                 // transaction. If we interrupt the application between any of those, we might end
                 // up with a corrupted state.
-                info_span!(target: STATE_EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
+                info_span!(target: EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
                     db.next_snapshot(current_epoch - 1, self.rewards_summary.take())
                         .map_err(StateError::Storage)
                 })?;
 
-                debug_span!(target: STATE_EVENT_TARGET, parent: span, "tick.pool").in_scope(
-                    || {
-                        // Then we, can tick pools to compute their new state at the epoch boundary. Notice
-                        // how we tick with the _current epoch_ however, but we take the snapshot before
-                        // the tick since the actions are only effective once the epoch is crossed.
-                        db.with_pools(|iterator| {
-                            for (_, pool) in iterator {
-                                pools::Row::tick(pool, current_epoch)
-                            }
-                        })
-                        .map_err(StateError::Storage)
-                    },
-                )?;
+                trace_span!(target: EVENT_TARGET, parent: span, "tick.pool").in_scope(|| {
+                    // Then we, can tick pools to compute their new state at the epoch boundary. Notice
+                    // how we tick with the _current epoch_ however, but we take the snapshot before
+                    // the tick since the actions are only effective once the epoch is crossed.
+                    db.with_pools(|iterator| {
+                        for (_, pool) in iterator {
+                            pools::Row::tick(pool, current_epoch)
+                        }
+                    })
+                    .map_err(StateError::Storage)
+                })?;
             }
 
             let StoreUpdate {
@@ -196,7 +194,7 @@ impl<S: Store> State<S> {
                 withdrawals,
             } = now_stable.into_store_update();
 
-            debug_span!(target: STATE_EVENT_TARGET, parent: span, "save").in_scope(|| {
+            trace_span!(target: EVENT_TARGET, parent: span, "save").in_scope(|| {
                 db.save(
                     &stable_point,
                     Some(&stable_issuer),
@@ -229,7 +227,7 @@ impl<S: Store> State<S> {
                 );
             }
         } else {
-            debug!(target: STATE_EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
+            trace!(target: EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
         }
 
         span.record("tip.epoch", epoch_from_slot(point.slot_or_default()));
@@ -309,8 +307,8 @@ impl<S: Store> State<S> {
         let total_count = transaction_bodies.len();
         let failed_count = failed_transactions.inner.len();
 
-        let span_apply_block = debug_span!(
-            target: STATE_EVENT_TARGET,
+        let span_apply_block = trace_span!(
+            target: EVENT_TARGET,
             parent: parent,
             "block.body.validate",
             block.transactions.total = total_count,

@@ -20,11 +20,11 @@ const SERVICE_NAME: &str = "amaru";
 
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
-const DEFAULT_AMARU_LOG_FILTER: &str = "amaru=info";
+const DEFAULT_AMARU_LOG_FILTER: &str = "amaru=debug";
 
 const AMARU_TRACE_VAR: &str = "AMARU_TRACE";
 
-const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=debug";
+const DEFAULT_AMARU_TRACE_FILTER: &str = "amaru=trace";
 
 // -----------------------------------------------------------------------------
 // TracingSubscriber

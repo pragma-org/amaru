@@ -23,7 +23,7 @@ use tracing::{instrument, warn, Level};
 
 use super::header::{ConwayHeader, Header};
 
-#[instrument(level = Level::DEBUG, skip_all)]
+#[instrument(level = Level::TRACE, skip_all)]
 pub fn assert_header<'a>(
     header: &ConwayHeader,
     cbor: &'a [u8],

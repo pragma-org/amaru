@@ -20,7 +20,7 @@ use amaru_ledger::BlockValidationResult;
 use gasket::framework::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{debug, error, info, warn};
+use tracing::{error, info, trace, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
@@ -76,19 +76,19 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             BlockValidationResult::BlockValidated(point) => {
-                debug!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(), "block_validated");
+                trace!(target: EVENT_TARGET, slot = point.slot_or_default(), hash = %point_hash(point), "block_validated");
                 Ok(())
             }
             BlockValidationResult::BlockForwardStorageFailed(point) => {
-                error!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(), "storage_failed");
+                error!(target: EVENT_TARGET, slot = point.slot_or_default(), hash = %point_hash(point), "storage_failed");
                 Err(WorkerError::Panic)
             }
             BlockValidationResult::InvalidRollbackPoint(point) => {
-                warn!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(), "invalid_rollback_point");
+                warn!(target: EVENT_TARGET, slot = point.slot_or_default(), hash = %point_hash(point), "invalid_rollback_point");
                 Ok(())
             }
             BlockValidationResult::RolledBackTo(point) => {
-                info!(target: EVENT_TARGET, slot = ?point.slot_or_default(), hash = point_hash(point).to_string(),  "rolled_back_to");
+                info!(target: EVENT_TARGET, slot = point.slot_or_default(), hash = %point_hash(point),  "rolled_back_to");
                 Ok(())
             }
         }
