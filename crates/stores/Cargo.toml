@@ -15,5 +15,4 @@ amaru-ledger = { path = "../ledger" }
 rocksdb.workspace = true
 tracing.workspace = true
 pallas-codec.workspace = true
-thiserror.workspace = true
 hex.workspace = true

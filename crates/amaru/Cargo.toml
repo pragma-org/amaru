@@ -24,11 +24,9 @@ opentelemetry.workspace = true
 opentelemetry_sdk = { workspace = true, features = ["async-std", "rt-tokio"] }
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
-pallas-math.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true
 pallas-traverse.workspace = true
-rand.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util.workspace = true
