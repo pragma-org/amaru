@@ -29,7 +29,7 @@ use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use store::ChainStore;
 use tokio::sync::Mutex;
-use tracing::{instrument, trace, Level, Span};
+use tracing::{instrument, trace, trace_span, Level, Span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -162,6 +162,14 @@ impl HeaderStage {
         raw_header: &[u8],
         parent_span: &Span,
     ) -> Result<(), WorkerError> {
+        let span = trace_span!(
+          target: EVENT_TARGET,
+          parent: parent_span,
+          "handle_roll_forward",
+          slot = ?point.slot_or_default(),
+          hash = point_hash(point).to_string())
+        .entered();
+
         let header: babbage::MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|e| miette!(e))
             .or_panic()?;
@@ -183,7 +191,7 @@ impl HeaderStage {
             .chain_selector
             .lock()
             .await
-            .roll_forward(peer, header.clone());
+            .select_roll_forward(peer, header.clone());
 
         match result {
             chain_selection::ChainSelection::NewTip(hdr) => {
@@ -210,6 +218,8 @@ impl HeaderStage {
             }
         }
 
+        span.exit();
+
         Ok(())
     }
 
@@ -224,7 +234,7 @@ impl HeaderStage {
             .chain_selector
             .lock()
             .await
-            .rollback(peer, point_hash(rollback));
+            .select_rollback(peer, point_hash(rollback));
 
         match result {
             chain_selection::ChainSelection::NewTip(_) => {

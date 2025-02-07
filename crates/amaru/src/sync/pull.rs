@@ -22,7 +22,7 @@ use pallas_network::miniprotocols::{
 use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::{debug_span, instrument, Level};
+use tracing::{instrument, trace_span, Level};
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {
@@ -90,7 +90,7 @@ impl Stage {
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let span_forward = debug_span!(
+        let span_forward = trace_span!(
             target: EVENT_TARGET,
             "pull.roll_forward",
             header.slot = tracing::field::Empty,
@@ -111,7 +111,7 @@ impl Stage {
     }
 
     pub async fn roll_back(&mut self, point: Point, tip: Tip) -> Result<(), WorkerError> {
-        let span_backward = debug_span!(
+        let span_backward = trace_span!(
             target: EVENT_TARGET,
             "pull.roll_back",
             point = tracing::field::Empty,

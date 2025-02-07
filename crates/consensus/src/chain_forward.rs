@@ -95,7 +95,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                     parent: span,
                     "forward.storage_failed",
                     slot = ?point.slot_or_default(),
-                    hash = point_hash(point).to_string()
+                    hash = %point_hash(point)
                 );
 
                 Err(WorkerError::Panic)
