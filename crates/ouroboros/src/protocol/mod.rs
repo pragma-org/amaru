@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use peer::Peer;
+use tracing::span::Span;
 
 pub mod peer;
 
@@ -21,6 +22,6 @@ pub type Point = pallas_network::miniprotocols::Point;
 
 #[derive(Clone)]
 pub enum PullEvent {
-    RollForward(Peer, Point, RawHeader),
-    Rollback(Peer, Point),
+    RollForward(Peer, Point, RawHeader, Span),
+    Rollback(Peer, Point, Span),
 }

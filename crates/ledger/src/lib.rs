@@ -18,7 +18,7 @@ use pallas_codec::minicbor as cbor;
 use state::BackwardError;
 use std::sync::Arc;
 use store::Store;
-use tracing::{instrument, trace_span, warn, Level};
+use tracing::{instrument, trace_span, warn, Level, Span};
 
 const EVENT_TARGET: &str = "amaru::ledger";
 
@@ -26,14 +26,14 @@ pub type RawBlock = Vec<u8>;
 
 #[derive(Clone)]
 pub enum ValidateBlockEvent {
-    Validated(Point, RawBlock),
+    Validated(Point, RawBlock, Span),
     Rollback(Point),
 }
 
 #[derive(Clone)]
 pub enum BlockValidationResult {
-    BlockValidated(Point),
-    BlockForwardStorageFailed(Point),
+    BlockValidated(Point, Span),
+    BlockForwardStorageFailed(Point, Span),
     InvalidRollbackPoint(Point),
     RolledBackTo(Point),
 }
@@ -92,10 +92,12 @@ impl<S: Store> Stage<S> {
         &mut self,
         point: Point,
         raw_block: RawBlock,
+        parent: &Span,
     ) -> BlockValidationResult {
         // TODO: use instrument macro
         let span_forward = trace_span!(
             target: EVENT_TARGET,
+            parent: parent,
             "forward",
             header.height = tracing::field::Empty,
             header.slot = tracing::field::Empty,
@@ -113,8 +115,8 @@ impl<S: Store> Stage<S> {
         span_forward.record("header.hash", hex::encode(block_header_hash));
 
         let result = match self.state.forward(&span_forward, &point, block) {
-            Ok(_) => BlockValidationResult::BlockValidated(point),
-            Err(_) => BlockValidationResult::BlockForwardStorageFailed(point),
+            Ok(_) => BlockValidationResult::BlockValidated(point, parent.clone()),
+            Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, parent.clone()),
         };
 
         span_forward.exit();
@@ -127,23 +129,18 @@ impl<S: Store> Stage<S> {
             "backward",
             point.slot = point.slot_or_default(),
             point.hash = tracing::field::Empty,
-        )
-        .entered();
+        );
 
         if let Point::Specific(_, header_hash) = &point {
             span_backward.record("point.hash", hex::encode(header_hash));
         }
 
-        let result = match self.state.backward(&point) {
+        match self.state.backward(&point) {
             Ok(_) => BlockValidationResult::RolledBackTo(point),
             Err(BackwardError::UnknownRollbackPoint(_)) => {
                 BlockValidationResult::InvalidRollbackPoint(point)
             }
-        };
-
-        span_backward.exit();
-
-        result
+        }
     }
 }
 
@@ -169,8 +166,10 @@ impl<S: Store> gasket::framework::Worker<Stage<S>> for Worker {
         stage: &mut Stage<S>,
     ) -> Result<(), WorkerError> {
         let result = match unit {
-            ValidateBlockEvent::Validated(point, raw_block) => {
-                stage.roll_forward(point.clone(), raw_block.to_vec()).await
+            ValidateBlockEvent::Validated(point, raw_block, parent_span) => {
+                stage
+                    .roll_forward(point.clone(), raw_block.to_vec(), parent_span)
+                    .await
             }
 
             ValidateBlockEvent::Rollback(point) => stage.rollback_to(point.clone()).await,
