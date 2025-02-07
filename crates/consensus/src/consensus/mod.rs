@@ -29,7 +29,7 @@ use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use store::ChainStore;
 use tokio::sync::Mutex;
-use tracing::{debug, instrument, Level};
+use tracing::{instrument, trace, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -113,10 +113,15 @@ impl HeaderStage {
             .or_panic()
     }
 
-    #[instrument(level = Level::INFO, skip_all,
-                 fields(peer = peer.name,
-                        rollback_point = rollback_point.slot_or_default(),
-                        fork_length = fork.len()))]
+    #[instrument(
+        level = Level::INFO,
+        skip_all,
+        fields(
+            peer = peer.name,
+            rollback_point.slot = rollback_point.slot_or_default(),
+            fork.length = fork.len(),
+        ),
+    )]
     async fn switch_to_fork(
         &mut self,
         peer: &Peer,
@@ -135,10 +140,15 @@ impl HeaderStage {
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG, skip_all,
-                 fields(peer = peer.name,
-                        slot = &point.slot_or_default(),
-                        hash = point_hash(point).to_string()))]
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        fields(
+            peer = peer.name,
+            point.slot = &point.slot_or_default(),
+            point.hash = %point_hash(point),
+        ),
+    )]
     async fn handle_roll_forward(
         &mut self,
         peer: &Peer,
@@ -173,7 +183,7 @@ impl HeaderStage {
 
         match result {
             chain_selection::ChainSelection::NewTip(hdr) => {
-                debug!(target: EVENT_TARGET, hash = hdr.hash().to_string(), "new_tip");
+                trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
                 self.forward_block(peer, &hdr).await?;
 
                 self.block_count.inc(1);
@@ -191,13 +201,13 @@ impl HeaderStage {
                 self.switch_to_fork(&peer, &rollback_point, fork).await?;
             }
             chain_selection::ChainSelection::NoChange => {
-                debug!(target: EVENT_TARGET, hash = header.hash().to_string(), "no_change");
+                trace!(target: EVENT_TARGET, hash = %header.hash(), "no_change");
             }
         }
         Ok(())
     }
 
-    #[instrument(level = Level::DEBUG, skip(self))]
+    #[instrument(level = Level::TRACE, skip(self))]
     async fn handle_roll_back(&mut self, peer: &Peer, rollback: &Point) -> Result<(), WorkerError> {
         let result = self
             .chain_selector
@@ -210,7 +220,7 @@ impl HeaderStage {
                 panic!("cannot have a new tip on a rollback")
             }
             chain_selection::ChainSelection::RollbackTo(hash) => {
-                debug!(target: EVENT_TARGET, hash = hash.to_string(), "rollback");
+                trace!(target: EVENT_TARGET, %hash, "rollback");
                 self.downstream
                     .send(ValidateBlockEvent::Rollback(rollback.clone()).into())
                     .await
@@ -219,7 +229,7 @@ impl HeaderStage {
                 self.track_validation_tip(rollback);
             }
             chain_selection::ChainSelection::NoChange => {
-                debug!(target: EVENT_TARGET, hash = point_hash(rollback).to_string(), "no_change");
+                trace!(target: EVENT_TARGET, hash = %point_hash(rollback), "no_change");
             }
             chain_selection::ChainSelection::SwitchToFork {
                 peer,

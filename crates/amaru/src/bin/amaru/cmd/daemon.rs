@@ -22,7 +22,7 @@ use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{error, trace};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -90,13 +90,13 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
                 }
             }
             _ = exit.cancelled() => {
-                debug!("exit requested");
+                trace!("exit requested");
                 break;
             }
         }
     }
 
-    debug!("shutting down pipeline");
+    trace!("shutting down pipeline");
 
     pipeline.teardown();
 }

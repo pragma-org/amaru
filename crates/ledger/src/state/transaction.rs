@@ -22,7 +22,7 @@ use crate::kernel::{
     TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use tracing::{debug, debug_span, Span};
+use tracing::{trace, trace_span, Span};
 
 const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
 
@@ -34,7 +34,7 @@ pub fn apply(
     mut transaction_body: MintedTransactionBody<'_>,
     resolved_collateral_inputs: Vec<TransactionOutput>,
 ) {
-    let span = debug_span!(
+    let span = trace_span!(
         target: EVENT_TARGET,
         parent: parent,
         "apply.transaction",
@@ -212,21 +212,20 @@ fn apply_certificates(
     for certificate in certificates {
         match certificate {
                 Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
-                        accounts
-                        .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
+                    trace!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                    accounts.register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
                 }
                 Certificate::StakeDelegation(credential, pool)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                    trace!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
                     accounts.bind(credential, Some(pool));
                 }
                 Certificate::StakeRegDeleg(credential, pool, ..)
                 // FIXME: register DRep delegation
                 | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    debug!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
-                    debug!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                    trace!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                    trace!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
                     accounts.register(
                         credential,
                         STAKE_CREDENTIAL_DEPOSIT as Lovelace,
@@ -235,11 +234,11 @@ fn apply_certificates(
                 }
                 Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, ..) => {
-                    debug!(name: "certificate.stake.deregistration", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                    trace!(name: "certificate.stake.deregistration", target: EVENT_TARGET, parent: parent, credential = ?credential);
                     accounts.unregister(credential);
                 }
                 Certificate::PoolRetirement(id, epoch) => {
-                    debug!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
+                    trace!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
                     pools.unregister(id, epoch)
                 }
                 Certificate::PoolRegistration {
@@ -264,7 +263,7 @@ fn apply_certificates(
                         relays,
                         metadata,
                     };
-                    debug!(
+                    trace!(
                         name: "certificate.pool.registration",
                         target: EVENT_TARGET,
                         parent: parent,

@@ -28,7 +28,7 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
-use tracing::{debug, debug_span, info, info_span, warn};
+use tracing::{info, info_span, trace, trace_span, warn};
 
 pub mod columns;
 pub mod common;
@@ -283,7 +283,7 @@ impl Store for RocksDB {
 
         match (point, tip) {
             (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
-                debug!(target: EVENT_TARGET, ?point, "save.point_already_known");
+                trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
                 batch
@@ -341,7 +341,7 @@ impl Store for RocksDB {
                 let delta_reserves = rewards_summary.delta_reserves();
                 let unclaimed_rewards = rewards_summary.unclaimed_rewards();
 
-                debug_span!(target: EVENT_TARGET, "snapshot.adjusting_pots", delta_treasury, delta_reserves, unclaimed_rewards).in_scope(|| {
+                trace_span!(target: EVENT_TARGET, "snapshot.adjusting_pots", delta_treasury, delta_reserves, unclaimed_rewards).in_scope(|| {
                     self.with_pots(|mut row| {
                         let pots = row.borrow_mut();
                         pots.treasury += delta_treasury + unclaimed_rewards;
@@ -361,7 +361,7 @@ impl Store for RocksDB {
                 .create_checkpoint(path)
                 .map_err(|err| StoreError::Internal(err.into()))?;
 
-            debug_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
+            trace_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
                 // TODO: If necessary, come up with a more efficient way of dropping a "table".
                 // RocksDB does support batch-removing of key ranges, but somehow, not in a
                 // transactional way. So it isn't as trivial to implement as it may seem.
@@ -372,7 +372,7 @@ impl Store for RocksDB {
                 })
             })?;
 
-            debug_span!(target: EVENT_TARGET, "reset.fees").in_scope(|| {
+            trace_span!(target: EVENT_TARGET, "reset.fees").in_scope(|| {
                 self.with_pots(|mut row| {
                     row.borrow_mut().fees = 0;
                 })
@@ -380,7 +380,7 @@ impl Store for RocksDB {
 
             self.snapshots.push(snapshot);
         } else {
-            debug!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
+            trace!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
         }
 
         Ok(())

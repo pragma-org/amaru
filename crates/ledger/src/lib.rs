@@ -19,7 +19,7 @@ use state::BackwardError;
 use std::sync::Arc;
 use store::Store;
 use tokio::sync::Mutex;
-use tracing::{debug_span, instrument, warn, Level};
+use tracing::{instrument, trace_span, warn, Level};
 
 const EVENT_TARGET: &str = "amaru::ledger";
 
@@ -95,7 +95,7 @@ impl<S: Store> Stage<S> {
         raw_block: RawBlock,
     ) -> BlockValidationResult {
         // TODO: use instrument macro
-        let span_forward = debug_span!(
+        let span_forward = trace_span!(
             target: EVENT_TARGET,
             "forward",
             header.height = tracing::field::Empty,
@@ -125,7 +125,7 @@ impl<S: Store> Stage<S> {
     }
 
     pub async fn rollback_to(&mut self, point: Point) -> BlockValidationResult {
-        let span_backward = debug_span!(
+        let span_backward = trace_span!(
             target: EVENT_TARGET,
             "backward",
             point.slot = point.slot_or_default(),
@@ -187,7 +187,7 @@ impl<S: Store> gasket::framework::Worker<Stage<S>> for Worker {
     }
 }
 
-#[instrument(level = Level::DEBUG, skip(bytes), fields(block.size = bytes.len()))]
+#[instrument(level = Level::TRACE, skip(bytes), fields(block.size = bytes.len()))]
 fn parse_block(bytes: &[u8]) -> (Hash<32>, MintedBlock<'_>) {
     let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)
         .unwrap_or_else(|_| panic!("failed to decode Conway block: {:?}", hex::encode(bytes)));

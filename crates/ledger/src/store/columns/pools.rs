@@ -17,7 +17,7 @@ use crate::{
     kernel::{Epoch, PoolId, PoolParams},
 };
 use pallas_codec::minicbor::{self as cbor};
-use tracing::debug;
+use tracing::trace;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
 
@@ -76,7 +76,7 @@ impl Row {
             // which is taken care of in the fold above (returning 'None').
             if let Some(epoch) = retirement {
                 if epoch <= current_epoch {
-                    debug!(
+                    trace!(
                         target: EVENT_TARGET,
                         pool = %pool
                             .as_ref()
@@ -123,7 +123,7 @@ impl Row {
                 .unwrap_or_else(|| unreachable!("pre-condition: needs_update"));
 
             if let Some(new_params) = update {
-                debug!(
+                trace!(
                     target: EVENT_TARGET,
                     pool = %pool.current_params.id,
                     ?new_params,

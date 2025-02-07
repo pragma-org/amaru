@@ -14,9 +14,9 @@
 
 use tokio_util::sync::CancellationToken;
 #[cfg(windows)]
-use tracing::debug;
+use tracing::trace;
 #[cfg(unix)]
-use tracing::{debug, warn};
+use tracing::{trace, warn};
 
 #[inline]
 #[cfg(unix)]
@@ -46,7 +46,7 @@ pub fn hook_exit_token() -> CancellationToken {
     let cancel2 = cancel.clone();
     tokio::spawn(async move {
         wait_for_exit_signal().await;
-        debug!("notifying exit");
+        trace!("notifying exit");
         cancel2.cancel();
     });
 
