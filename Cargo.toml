@@ -38,7 +38,7 @@ pallas-primitives = "0.32.0"
 pallas-traverse = "0.32.0"
 rand = "0.8"
 rayon = "1.10"
-rocksdb = "0.22.0"
+rocksdb = { version = "0.23.0", default-features = false, features = ["bindgen-runtime", "snappy"] }
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0.128", default-features = false }
 tempfile = "3.15.0"
