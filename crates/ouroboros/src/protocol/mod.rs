@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::Point;
 use peer::Peer;
 use tracing::span::Span;
 
 pub mod peer;
 
 pub type RawHeader = Vec<u8>;
-pub type Point = pallas_network::miniprotocols::Point;
 
 #[derive(Clone)]
 pub enum PullEvent {

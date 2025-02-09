@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
+use amaru_kernel::{
+    cbor,
     iter::borrow as iter_borrow,
-    kernel::{Lovelace, PoolId, StakeCredential},
+    {Lovelace, PoolId, StakeCredential},
 };
-use pallas_codec::minicbor::{self as cbor};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 

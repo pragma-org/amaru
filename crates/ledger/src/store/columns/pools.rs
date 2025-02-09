@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
+use amaru_kernel::{
+    cbor,
     iter::borrow as iter_borrow,
-    kernel::{Epoch, PoolId, PoolParams},
+    {Epoch, PoolId, PoolParams},
 };
-use pallas_codec::minicbor::{self as cbor};
 use tracing::trace;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
@@ -228,7 +228,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::kernel::{Hash, Nullable, RationalNumber};
+    use amaru_kernel::{Hash, Nullable, RationalNumber};
     use proptest::prelude::*;
 
     prop_compose! {

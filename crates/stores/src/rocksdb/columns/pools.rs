@@ -14,7 +14,8 @@
 
 use super::super::common::{as_key, as_value, PREFIX_LEN};
 use crate::rocksdb::scolumns::pools::{Key, Row, Value, EVENT_TARGET};
-use amaru_ledger::{kernel::Epoch, store::StoreError};
+use amaru_kernel::Epoch;
+use amaru_ledger::store::StoreError;
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
 use tracing::error;
 

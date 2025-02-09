@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::kernel::Epoch;
+use amaru_kernel::Epoch;
 use std::collections::BTreeMap;
 
 /// A compact data-structure tracking deferred registration & unregistration changes in a key:value

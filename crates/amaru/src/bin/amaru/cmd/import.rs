@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::{
+    epoch_from_slot, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Set, StakeCredential,
+    TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+};
 use amaru_ledger::{
     self,
-    kernel::{
-        epoch_from_slot, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Set, StakeCredential,
-        TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
-    },
     store::{
         Store, {self},
     },

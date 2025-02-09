@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod pipeline;
+
 /// Sync pipeline
 ///
 /// The sync pipeline is responsible for fetching blocks from the upstream node and

@@ -18,7 +18,6 @@ use pallas_crypto::hash::{Hash, Hasher};
 pub mod consensus;
 pub mod kes;
 pub mod protocol;
-pub mod traits;
 pub mod validator;
 pub mod vrf;
 

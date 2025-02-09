@@ -13,13 +13,14 @@
 // limitations under the License.
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
-use amaru_ledger::{
+use amaru_kernel::{
     iter::borrow::{self as iter_borrow, borrowable_proxy::BorrowableProxy, IterBorrow},
-    kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
-    rewards::{Pots, StakeDistribution},
-    store::{
-        columns as scolumns, Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError,
-    },
+    {Epoch, Point, PoolId, TransactionInput, TransactionOutput},
+};
+use amaru_ledger::store::{Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError};
+use amaru_ledger::{
+    rewards::Pots,
+    store::{columns as scolumns, StakeDistribution},
 };
 use columns::*;
 use common::{as_value, PREFIX_LEN};
@@ -166,7 +167,7 @@ impl Snapshot for RocksDB {
         iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
     }
 
-    fn pots(&self) -> Result<amaru_ledger::rewards::Pots, StoreError> {
+    fn pots(&self) -> Result<Pots, StoreError> {
         pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
     }
 

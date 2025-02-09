@@ -19,16 +19,16 @@ pub mod transaction;
 pub mod volatile_db;
 
 use crate::{
-    kernel::{
-        self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot,
-        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
-        SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
-    },
     rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
     store::{columns::*, Store, StoreError},
 };
-use amaru_ouroboros::traits::{HasStakeDistribution, PoolSummary};
+use amaru_kernel::{
+    self, epoch_from_slot,
+    traits::{HasStakeDistribution, PoolSummary},
+    Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, TransactionInput, TransactionOutput,
+    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+};
 use std::{
     borrow::Cow,
     collections::{BTreeSet, VecDeque},
@@ -163,7 +163,7 @@ impl<S: Store> State<S> {
         block: MintedBlock<'_>,
     ) -> Result<(), StateError> {
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-        let relative_slot = kernel::relative_slot(point.slot_or_default());
+        let relative_slot = amaru_kernel::relative_slot(point.slot_or_default());
 
         let state = self.apply_block(span, block).map_err(StateError::Storage)?;
 

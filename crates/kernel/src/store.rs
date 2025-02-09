@@ -12,12 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod columns;
-
+use crate::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
 use crate::rewards::Pots;
+use crate::columns::*;
 pub use crate::rewards::{RewardsSummary, StakeDistribution};
-use amaru_kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
-use columns::*;
 use std::{borrow::BorrowMut, io, iter};
 use thiserror::Error;
 

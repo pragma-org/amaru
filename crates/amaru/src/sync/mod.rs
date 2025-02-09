@@ -20,9 +20,10 @@ use amaru_consensus::{
         store::{rocksdb::RocksDBStore, ChainStore},
     },
 };
+use amaru_kernel::Point;
 use amaru_ouroboros::protocol::{
     peer::{Peer, PeerSession},
-    Point, PullEvent,
+    PullEvent,
 };
 use amaru_stores::rocksdb::RocksDB;
 use gasket::{
@@ -34,6 +35,8 @@ use pallas_network::facades::PeerClient;
 use pallas_primitives::conway::Epoch;
 use std::{collections::HashMap, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
+
+use crate::pipeline::Stage;
 
 pub mod fetch;
 pub mod pull;
@@ -74,7 +77,7 @@ pub fn bootstrap(
     // FIXME: Take from config / command args
     let store = RocksDB::new(&config.ledger_dir)
         .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
-    let (mut ledger, tip) = amaru_ledger::Stage::new(store);
+    let (mut ledger, tip) = Stage::new(store);
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()

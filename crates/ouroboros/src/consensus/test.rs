@@ -1,10 +1,10 @@
 /// A module to expose functions for testing purpose
 use crate::consensus::validator::BlockValidator;
 use crate::{
-    traits::{HasStakeDistribution, PoolSummary},
     validator::{ValidationError, Validator},
     Lovelace, PoolId, Slot, VrfKeyhash,
 };
+use amaru_kernel::traits::{HasStakeDistribution, PoolSummary};
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::FixedDecimal;

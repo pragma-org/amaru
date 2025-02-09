@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::Point;
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
-use pallas_network::miniprotocols::Point;
 use pallas_primitives::babbage;
 use pallas_traverse::ComputeHash;
 

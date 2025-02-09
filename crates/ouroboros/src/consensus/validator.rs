@@ -1,11 +1,11 @@
 use crate::{
     issuer_vkey_to_pool_id,
     kes::{KesPublicKey, KesSignature},
-    traits::HasStakeDistribution,
     validator::{ValidationError, Validator},
     vrf::{VrfProof, VrfProofBytes, VrfProofHashBytes, VrfPublicKey, VrfPublicKeyBytes},
     PoolId, VrfKeyhash,
 };
+use amaru_kernel::traits::HasStakeDistribution;
 use pallas_crypto::{
     hash::{Hash, Hasher},
     key::ed25519::{PublicKey, Signature},

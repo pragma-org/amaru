@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ledger::kernel::epoch_from_slot;
-use amaru_ouroboros::{
-    consensus::BlockValidator, traits::HasStakeDistribution, validator::Validator,
-};
+use amaru_kernel::{epoch_from_slot, traits::HasStakeDistribution};
+use amaru_ouroboros::{consensus::BlockValidator, validator::Validator};
 use gasket::framework::*;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::FixedDecimal;

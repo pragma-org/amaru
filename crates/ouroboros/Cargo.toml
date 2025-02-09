@@ -13,7 +13,6 @@ rust-version.workspace = true
 [dependencies]
 hex.workspace = true
 kes-summed-ed25519.workspace = true
-mockall.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
@@ -25,6 +24,8 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 vrf_dalek.workspace = true
+
+amaru-kernel = { path = "../kernel" }
 
 [dev-dependencies]
 ctor.workspace = true
