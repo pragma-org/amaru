@@ -10,26 +10,20 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["maelstrom-node"]
+
 [dependencies]
 async-trait.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
 gasket = { workspace = true, features = ["derive"] }
 hex.workspace = true
-indicatif.workspace = true
-indoc.workspace = true
 miette = { workspace = true, features = ["fancy"] }
-opentelemetry-otlp = { workspace = true, features = [ "grpc-tonic", "http-proto", "reqwest-client" ] }
-opentelemetry.workspace = true
-opentelemetry_sdk = { workspace = true, features = ["async-std", "rt-tokio"] }
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
-pallas-traverse.workspace = true
-sysinfo.workspace = true
-thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util.workspace = true
-tracing-opentelemetry.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
 tracing.workspace = true
 serde.workspace = true
