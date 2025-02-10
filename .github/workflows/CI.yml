@@ -74,7 +74,7 @@ jobs:
           SCOPE="${{ matrix.environments.packages || '--workspace' }}"
           COMMAND="${{ matrix.environments.command  || 'test' }}"
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
-            echo "Running setup command: ${{ matrix.environments.command.setup }}"
+            echo "Running setup command: ${{ matrix.environments.setup }}"
             ${{ matrix.environments.setup }}
           fi
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
