@@ -18,5 +18,7 @@ pub unsafe extern "C" fn ledger() -> () {
         block.header.header_body.slot,
         Hasher::<256>::hash(block.header.raw_cbor()).to_vec(),
     );
-    state.forward(&trace_span!("ledger"), &point, block).unwrap()
+    state
+        .forward(&trace_span!("ledger"), &point, block)
+        .unwrap()
 }
