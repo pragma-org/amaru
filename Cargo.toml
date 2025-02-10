@@ -10,7 +10,7 @@ documentation = "https://docs.rs/amaru"
 rust-version = "1.83.0"
 
 [workspace]
-members = ["crates/*"]
+members = ["crates/*", "examples/ledger-in-browser"]
 resolver = "2"
 
 [workspace.dependencies]
