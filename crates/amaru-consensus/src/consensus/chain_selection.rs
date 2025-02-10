@@ -21,7 +21,7 @@ use tracing::{instrument, Level};
 /// and an anchor.
 /// The list of headers /must/ be a sequence of headers such that
 /// each element has the next one as parent. The anchor is the
-/// parent of the last element of the sqeuence.
+/// parent of the last element of the sequence.
 #[derive(Debug, PartialEq)]
 pub struct Fragment<H: Header> {
     headers: Vec<H>,

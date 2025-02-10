@@ -17,7 +17,6 @@ use panic::panic_handler;
 
 mod cmd;
 mod config;
-mod exit;
 mod metrics;
 mod observability;
 mod panic;

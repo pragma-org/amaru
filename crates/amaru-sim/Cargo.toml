@@ -1,0 +1,54 @@
+[package]
+name = "amaru-sim"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+clap = { workspace = true, features = ["derive", "env"] }
+gasket = { workspace = true, features = ["derive"] }
+hex.workspace = true
+indicatif.workspace = true
+indoc.workspace = true
+miette = { workspace = true, features = ["fancy"] }
+opentelemetry-otlp = { workspace = true, features = [ "grpc-tonic", "http-proto", "reqwest-client" ] }
+opentelemetry.workspace = true
+opentelemetry_sdk = { workspace = true, features = ["async-std", "rt-tokio"] }
+pallas-codec.workspace = true
+pallas-crypto.workspace = true
+pallas-primitives.workspace = true
+pallas-traverse.workspace = true
+sysinfo.workspace = true
+thiserror.workspace = true
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
+tokio-util.workspace = true
+tracing-opentelemetry.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+maelstrom-node = "0.1.6"
+
+amaru = { path = "../amaru" }
+amaru-kernel = { path = "../amaru-kernel" }
+amaru-consensus = { path = "../amaru-consensus" }
+amaru-ouroboros = { path = "../ouroboros" }
+amaru-stores = { path = "../amaru-stores" }
+
+[dev-dependencies]
+envpath = { workspace = true, features = ["rand"] }
+insta = { workspace = true, features = ["json"] }
+proptest.workspace = true
+rand.workspace = true
+tempfile.workspace = true
+test-case.workspace = true
+
+[build-dependencies]
+built = { workspace = true, features = ["git2"] }
