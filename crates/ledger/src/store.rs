@@ -57,14 +57,18 @@ pub trait Snapshot {
     /// Get current values of the treasury and reserves accounts.
     fn pots(&self) -> Result<Pots, StoreError>;
 
+    /// Get details about all utxos
     fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value)>, StoreError>;
 
+    /// Get details about all slot leaders
     fn iter_block_issuers(
         &self,
     ) -> Result<impl Iterator<Item = (slots::Key, slots::Value)>, StoreError>;
 
+    /// Get details about all Pools
     fn iter_pools(&self) -> Result<impl Iterator<Item = (pools::Key, pools::Row)>, StoreError>;
 
+    /// Get details about all accounts
     fn iter_accounts(
         &self,
     ) -> Result<impl Iterator<Item = (accounts::Key, accounts::Row)>, StoreError>;
