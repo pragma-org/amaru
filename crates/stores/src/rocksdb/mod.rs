@@ -384,10 +384,10 @@ impl Store for RocksDB {
         Ok(())
     }
 
-    fn with_pots<A>(
+    fn with_pots(
         &self,
-        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>) -> A,
-    ) -> Result<A, StoreError> {
+        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>),
+    ) -> Result<(), StoreError> {
         let db = self.db.transaction();
 
         let mut err = None;

@@ -115,10 +115,10 @@ pub trait Store: Snapshot + Send + Sync {
     ) -> Result<(), StoreError>;
 
     /// Get current values of the treasury and reserves accounts.
-    fn with_pots<A>(
+    fn with_pots(
         &self,
-        with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>) -> A,
-    ) -> Result<A, StoreError>;
+        with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>),
+    ) -> Result<(), StoreError>;
 
     /// Provide an access to iterate over pools, in a way that enforces:
     ///
