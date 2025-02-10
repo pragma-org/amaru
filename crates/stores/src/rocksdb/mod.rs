@@ -399,11 +399,11 @@ impl Store for RocksDB {
             }
         }));
 
-        let result = with(proxy);
+        with(proxy);
 
         match err {
             Some(e) => Err(e),
-            None => Ok(result),
+            None => Ok(()),
         }
     }
 

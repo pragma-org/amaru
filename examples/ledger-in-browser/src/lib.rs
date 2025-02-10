@@ -9,7 +9,8 @@ mod store;
 type BlockWrapper<'b> = (u16, MintedBlock<'b>);
 
 #[no_mangle]
-pub unsafe extern "C" fn ledger() -> () {
+#[allow(clippy::missing_safety_doc)]
+pub unsafe extern "C" fn ledger() {
     let raw_block = include_str!("../../assets/conway1.block");
     let bytes = hex::decode(raw_block).unwrap();
     let (_, block): BlockWrapper = cbor::decode(&bytes).unwrap();
