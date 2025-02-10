@@ -110,15 +110,6 @@ pub trait Store: Snapshot + Send + Sync {
         rewards_summary: Option<RewardsSummary>,
     ) -> Result<(), StoreError>;
 
-    /// Compute stake distribution using database snapshots.
-    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, StoreError>;
-
-    /// Compute rewards using database snapshots and a previously computed stake distribution.
-    fn rewards_summary(
-        &self,
-        stake_distribution: StakeDistribution,
-    ) -> Result<RewardsSummary, StoreError>;
-
     /// Get current values of the treasury and reserves accounts.
     fn with_pots<A>(
         &self,

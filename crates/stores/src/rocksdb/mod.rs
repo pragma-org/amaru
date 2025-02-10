@@ -18,10 +18,7 @@ use amaru_kernel::{
     {Epoch, Point, PoolId, TransactionInput, TransactionOutput},
 };
 use amaru_ledger::store::{Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError};
-use amaru_ledger::{
-    rewards::Pots,
-    store::{columns as scolumns, StakeDistribution},
-};
+use amaru_ledger::{rewards::Pots, store::columns as scolumns};
 use columns::*;
 use common::{as_value, PREFIX_LEN};
 use pallas_codec::minicbor::{self as cbor};
@@ -385,31 +382,6 @@ impl Store for RocksDB {
         }
 
         Ok(())
-    }
-
-    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, StoreError> {
-        StakeDistribution::new(&Self::for_epoch(self, epoch).unwrap_or_else(|e| {
-            panic!(
-                "unable to open database snapshot for epoch {:?}: {:?}",
-                epoch, e
-            )
-        }))
-    }
-
-    fn rewards_summary(
-        &self,
-        stake_distr: StakeDistribution,
-    ) -> Result<RewardsSummary, StoreError> {
-        RewardsSummary::new(
-            &Self::for_epoch(self, stake_distr.epoch + 2).unwrap_or_else(|e| {
-                panic!(
-                    "unable to open database snapshot for epoch {:?}: {:?}",
-                    stake_distr.epoch + 2,
-                    e
-                )
-            }),
-            stake_distr,
-        )
     }
 
     fn with_pots<A>(
