@@ -17,6 +17,7 @@ use std::process::exit;
 use clap::Parser;
 use simulator::Args;
 
+mod bytes;
 mod simulator;
 mod sync;
 

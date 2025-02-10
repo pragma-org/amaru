@@ -2,9 +2,11 @@ use amaru_kernel::Point;
 use amaru_ouroboros::protocol::{peer::Peer, PullEvent};
 use gasket::framework::*;
 use maelstrom::protocol::Message;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use serde::{Deserialize, Serialize};
 use std::io;
 use tracing::{error, trace_span, Span};
+
+use crate::bytes::Bytes;
 
 pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
 
@@ -71,43 +73,14 @@ impl gasket::framework::Worker<Stage> for Worker {
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct Fwd {
     slot: u64,
-    #[serde(
-        serialize_with = "serialize_bytes",
-        deserialize_with = "deserialize_bytes"
-    )]
-    hash: Vec<u8>,
-    #[serde(
-        serialize_with = "serialize_bytes",
-        deserialize_with = "deserialize_bytes"
-    )]
-    header: Vec<u8>,
+    hash: Bytes,
+    header: Bytes,
 }
 
 #[derive(Debug, PartialEq, Deserialize, Serialize)]
 pub struct Bck {
     slot: u64,
-    #[serde(
-        serialize_with = "serialize_bytes",
-        deserialize_with = "deserialize_bytes"
-    )]
-    hash: Vec<u8>,
-}
-
-fn serialize_bytes<S>(bytes: &Vec<u8>, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    let buf = hex::encode(bytes);
-    serializer.serialize_str(&buf)
-}
-
-fn deserialize_bytes<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let buf = <String>::deserialize(deserializer)?;
-    let bytes = hex::decode(buf).map_err(serde::de::Error::custom)?;
-    Ok(bytes)
+    hash: Bytes,
 }
 
 fn mk_message(v: Message, span: Span) -> Result<PullEvent, WorkerError> {
@@ -119,14 +92,18 @@ fn mk_message(v: Message, span: Span) -> Result<PullEvent, WorkerError> {
                 serde_json::from_value::<Fwd>(v.body.raw()).or_panic()?;
             Ok(PullEvent::RollForward(
                 peer,
-                Point::Specific(slot, hash),
-                header,
+                Point::Specific(slot, hash.into()),
+                header.into(),
                 span,
             ))
         }
         "rollback" => {
             let Bck { slot, hash } = serde_json::from_value::<Bck>(v.body.raw()).or_panic()?;
-            Ok(PullEvent::Rollback(peer, Point::Specific(slot, hash), span))
+            Ok(PullEvent::Rollback(
+                peer,
+                Point::Specific(slot, hash.into()),
+                span,
+            ))
         }
         _ => Err(WorkerError::Recv),
     }
@@ -153,8 +130,8 @@ mod test {
         let header_hash = Hasher::<256>::hash(header.raw_cbor());
         Fwd {
             slot: 1234,
-            hash: header_hash.to_vec(),
-            header: header_bytes,
+            hash: header_hash.to_vec().into(),
+            header: header_bytes.into(),
         }
     }
 
@@ -169,7 +146,7 @@ mod test {
     proptest! {
         #[test]
         fn can_deserialize_serialized_rollback(slot in any::<u64>(), hash in any::<[u8 ; 32]>()) {
-            let rollback = Bck { slot, hash: hash.to_vec() };
+            let rollback = Bck { slot, hash: hash.to_vec().into() };
             let input = serde_json::to_string(&rollback).unwrap();
 
             println!("input: {}", input);
