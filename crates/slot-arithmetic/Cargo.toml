@@ -1,5 +1,5 @@
 [package]
-name = "amaru-ouroboros-traits"
+name = "slot-arithmetic"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -11,4 +11,8 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-amaru-kernel = { path = "../amaru-kernel" }
+hex.workspace = true
+minicbor = { workspace = true, features = ["std", "half", "derive"] }
+
+[dev-dependencies]
+proptest.workspace = true

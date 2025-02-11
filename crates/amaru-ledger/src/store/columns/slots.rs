@@ -14,17 +14,16 @@
 
 /// This modules captures blocks made by slot leaders throughout epochs.
 use amaru_kernel::{
-    cbor,
-    iter::borrow as iter_borrow,
-    {PoolId, Slot},
+    cbor, {PoolId, Slot},
 };
+use iter_borrow::IterBorrow;
 
 pub type Key = Slot;
 
 pub type Value = Row;
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Key, Option<Value>>;
+pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {

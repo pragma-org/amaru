@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use borrowable_proxy::BorrowableProxy;
-use pallas_codec::minicbor as cbor;
+use minicbor as cbor;
 use std::{borrow::BorrowMut, cell::RefCell, marker::PhantomData, rc::Rc};
 
 /// An iterator over borrowable items. This allows to define a Rust-idiomatic API for accessing

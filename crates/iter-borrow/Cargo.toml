@@ -1,5 +1,5 @@
 [package]
-name = "amaru-stores"
+name = "iter-borrow"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -11,13 +11,5 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+minicbor.workspace = true
 hex.workspace = true
-pallas-codec.workspace = true
-rocksdb.workspace = true
-tracing.workspace = true
-
-amaru-kernel = { path = "../kernel" }
-amaru-ledger = { path = "../ledger" }
-
-[dev-dependencies]
-proptest.workspace = true
