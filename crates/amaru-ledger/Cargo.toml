@@ -1,5 +1,5 @@
 [package]
-name = "amaru-stores"
+name = "amaru-ledger"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -12,13 +12,17 @@ rust-version.workspace = true
 
 [dependencies]
 hex.workspace = true
-pallas-codec.workspace = true
-rocksdb.workspace = true
+num.workspace = true
+serde.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
 
 iter-borrow = { path = "../iter-borrow" }
-amaru-kernel = { path = "../kernel" }
-amaru-ledger = { path = "../ledger" }
+amaru-kernel = { path = "../amaru-kernel" }
+amaru-ouroboros-traits = { path = "../ouroboros-traits" }
 
 [dev-dependencies]
 proptest.workspace = true
+
+[target.'cfg(not(std))'.dependencies]
+num = { version = "0.4.3", default-features = false, features = ["alloc", "libm"] }

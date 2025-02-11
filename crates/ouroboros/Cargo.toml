@@ -25,7 +25,7 @@ tokio.workspace = true
 tracing.workspace = true
 vrf_dalek.workspace = true
 
-amaru-kernel = { path = "../kernel" }
+amaru-kernel = { path = "../amaru-kernel" }
 amaru-ouroboros-traits = { path = "../ouroboros-traits" }
 
 [dev-dependencies]

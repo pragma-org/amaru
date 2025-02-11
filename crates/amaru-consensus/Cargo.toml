@@ -26,8 +26,8 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-amaru-kernel = { path = "../kernel" }
-amaru-ledger = { path = "../ledger" }
+amaru-kernel = { path = "../amaru-kernel" }
+amaru-ledger = { path = "../amaru-ledger" }
 amaru-ouroboros = { path = "../ouroboros" }
 amaru-ouroboros-traits = { path = "../ouroboros-traits" }
 
