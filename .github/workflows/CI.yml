@@ -104,13 +104,12 @@ jobs:
           - path: ledger-in-nodejs
             commands: |
               rustup target add wasm32-unknown-unknown
-              make build
-              make run
+              make
           - path: proof-of-ledger
             commands: |
               curl -L https://risczero.com/install | bash
               /home/runner/.risc0/bin/rzup install
-              make run
+              make
     defaults:
       run:
         working-directory: examples/${{ matrix.projects.path }}
