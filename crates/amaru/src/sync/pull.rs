@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::point::{from_network_point, to_network_point};
 use amaru_kernel::Point;
 use amaru_ouroboros::protocol::{peer::PeerSession, PullEvent, RawHeader};
 use gasket::framework::*;
@@ -77,16 +78,14 @@ impl Stage {
     pub async fn find_intersection(&self) -> Result<(), WorkerError> {
         let mut peer_client = self.peer_session.peer_client.lock().await;
         let client = (*peer_client).chainsync();
-        fn new_point(point: &Point) -> pallas_network::miniprotocols::Point {
-            match point.clone() {
-                Point::Origin => pallas_network::miniprotocols::Point::Origin,
-                Point::Specific(slot, hash) => {
-                    pallas_network::miniprotocols::Point::Specific(slot, hash)
-                }
-            }
-        }
         let (point, _) = client
-            .find_intersect(self.intersection.iter().map(new_point).collect())
+            .find_intersect(
+                self.intersection
+                    .iter()
+                    .cloned()
+                    .map(to_network_point)
+                    .collect(),
+            )
             .await
             .or_restart()?;
 
@@ -183,15 +182,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                 stage.roll_forward(&header).await?;
             }
             NextResponse::RollBackward(point, tip) => {
-                fn new_point(point: pallas_network::miniprotocols::Point) -> Point {
-                    match point.clone() {
-                        pallas_network::miniprotocols::Point::Origin => Point::Origin,
-                        pallas_network::miniprotocols::Point::Specific(slot, hash) => {
-                            Point::Specific(slot, hash)
-                        }
-                    }
-                }
-                stage.roll_back(new_point(point), tip).await?;
+                stage.roll_back(from_network_point(point), tip).await?;
             }
             NextResponse::Await => {}
         };

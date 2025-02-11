@@ -13,6 +13,7 @@
 // limitations under the License.
 
 mod pipeline;
+mod point;
 
 /// Sync pipeline
 ///
