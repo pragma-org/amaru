@@ -17,6 +17,7 @@ serde.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 
+iter-borrow = { path = "../iter-borrow" }
 amaru-kernel = { path = "../kernel" }
 amaru-ouroboros-traits = { path = "../ouroboros-traits" }
 

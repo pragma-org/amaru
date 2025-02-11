@@ -12,17 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    cbor,
-    iter::borrow as iter_borrow,
-    {Epoch, PoolId, PoolParams},
-};
+use amaru_kernel::{cbor, Epoch, PoolId, PoolParams};
+use iter_borrow::IterBorrow;
 use tracing::trace;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = iter_borrow::IterBorrow<'a, 'b, Key, Option<Row>>;
+pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = (PoolParams, Epoch);
 

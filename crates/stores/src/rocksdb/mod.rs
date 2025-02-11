@@ -13,14 +13,16 @@
 // limitations under the License.
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
-use amaru_kernel::{
-    iter::borrow::{self as iter_borrow, borrowable_proxy::BorrowableProxy, IterBorrow},
-    {Epoch, Point, PoolId, TransactionInput, TransactionOutput},
+use amaru_kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use amaru_ledger::{
+    rewards::Pots,
+    store::{
+        columns as scolumns, Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError,
+    },
 };
-use amaru_ledger::store::{Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError};
-use amaru_ledger::{rewards::Pots, store::columns as scolumns};
 use columns::*;
 use common::{as_value, PREFIX_LEN};
+use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
 use std::{
     fmt, fs,
