@@ -1,0 +1,18 @@
+[package]
+name = "amaru-example-ledger-in-nodejs"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+publish = false
+
+[dependencies]
+amaru-examples-shared = { path = "../shared" }
+
+[lib]
+crate-type = ["cdylib"]

@@ -13,8 +13,7 @@
 // limitations under the License.
 
 /// This modules captures protocol-wide value pots such as treasury and reserves accounts.
-use crate::kernel::Lovelace;
-use pallas_codec::minicbor::{self as cbor};
+use amaru_kernel::{cbor, Lovelace};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {

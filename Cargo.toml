@@ -7,7 +7,7 @@ authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
-rust-version = "1.83.0"
+rust-version = "1.81.0"
 
 [workspace]
 members = ["crates/*"]
@@ -25,7 +25,7 @@ indoc = "2.0"
 miette = "7.2.0"
 minicbor = "0.25.1"
 mockall = "0.13"
-num = "0.4.3"
+num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.27.1"
 opentelemetry-otlp = "0.27.0"
 opentelemetry_sdk = "0.27.1"
@@ -55,7 +55,7 @@ vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c24
 kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
 
 # dev-dependencies
-proptest = "1.5.0"
+proptest = { version = "1.5.0", default-features = false, features = ["alloc"] }
 insta = "1.41.1"
 envpath = "0.0.1-beta.3"
 criterion = "0.5.1"

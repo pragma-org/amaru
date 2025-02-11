@@ -1,0 +1,19 @@
+[package]
+name = "amaru-examples-shared"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+publish = false
+
+[dependencies]
+amaru-kernel = { path = "../../crates/kernel" }
+amaru-ledger = { path = "../../crates/ledger" }
+
+hex.workspace = true
+tracing.workspace = true

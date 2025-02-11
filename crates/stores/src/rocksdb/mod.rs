@@ -13,14 +13,12 @@
 // limitations under the License.
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
-use amaru_ledger::{
+use amaru_kernel::{
     iter::borrow::{self as iter_borrow, borrowable_proxy::BorrowableProxy, IterBorrow},
-    kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput},
-    rewards::{Pots, StakeDistribution},
-    store::{
-        columns as scolumns, Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError,
-    },
+    {Epoch, Point, PoolId, TransactionInput, TransactionOutput},
 };
+use amaru_ledger::store::{Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError};
+use amaru_ledger::{rewards::Pots, store::columns as scolumns};
 use columns::*;
 use common::{as_value, PREFIX_LEN};
 use pallas_codec::minicbor::{self as cbor};
@@ -166,7 +164,7 @@ impl Snapshot for RocksDB {
         iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
     }
 
-    fn pots(&self) -> Result<amaru_ledger::rewards::Pots, StoreError> {
+    fn pots(&self) -> Result<Pots, StoreError> {
         pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
     }
 
@@ -386,35 +384,10 @@ impl Store for RocksDB {
         Ok(())
     }
 
-    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, StoreError> {
-        StakeDistribution::new(&Self::for_epoch(self, epoch).unwrap_or_else(|e| {
-            panic!(
-                "unable to open database snapshot for epoch {:?}: {:?}",
-                epoch, e
-            )
-        }))
-    }
-
-    fn rewards_summary(
+    fn with_pots(
         &self,
-        stake_distr: StakeDistribution,
-    ) -> Result<RewardsSummary, StoreError> {
-        RewardsSummary::new(
-            &Self::for_epoch(self, stake_distr.epoch + 2).unwrap_or_else(|e| {
-                panic!(
-                    "unable to open database snapshot for epoch {:?}: {:?}",
-                    stake_distr.epoch + 2,
-                    e
-                )
-            }),
-            stake_distr,
-        )
-    }
-
-    fn with_pots<A>(
-        &self,
-        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>) -> A,
-    ) -> Result<A, StoreError> {
+        mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>),
+    ) -> Result<(), StoreError> {
         let db = self.db.transaction();
 
         let mut err = None;
@@ -426,11 +399,11 @@ impl Store for RocksDB {
             }
         }));
 
-        let result = with(proxy);
+        with(proxy);
 
         match err {
             Some(e) => Err(e),
-            None => Ok(result),
+            None => Ok(()),
         }
     }
 

@@ -13,11 +13,11 @@
 // limitations under the License.
 
 /// This modules captures blocks made by slot leaders throughout epochs.
-use crate::{
+use amaru_kernel::{
+    cbor,
     iter::borrow as iter_borrow,
-    kernel::{PoolId, Slot},
+    {PoolId, Slot},
 };
-use pallas_codec::minicbor::{self as cbor};
 
 pub type Key = Slot;
 

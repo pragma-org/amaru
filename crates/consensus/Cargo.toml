@@ -26,8 +26,10 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-amaru-ouroboros = { path = "../ouroboros" }
+amaru-kernel = { path = "../kernel" }
 amaru-ledger = { path = "../ledger" }
+amaru-ouroboros = { path = "../ouroboros" }
+amaru-ouroboros-traits = { path = "../ouroboros-traits" }
 
 [dev-dependencies]
 envpath.workspace = true

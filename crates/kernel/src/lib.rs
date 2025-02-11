@@ -25,6 +25,7 @@ use std::sync::LazyLock;
 
 use num::{rational::Ratio, BigUint};
 use pallas_addresses::*;
+use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
     minicbor as cbor,
     utils::{NonEmptyKeyValuePairs, Nullable, Set},
@@ -38,6 +39,8 @@ pub use pallas_primitives::{
         StakeCredential, TransactionInput, TransactionOutput, UnitInterval, Value, VrfKeyhash,
     },
 };
+
+pub mod iter;
 
 // Constants
 // ----------------------------------------------------------------------------
@@ -110,7 +113,53 @@ pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
 
 pub type Lovelace = u64;
 
-pub type Point = pallas_network::miniprotocols::Point;
+#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+pub enum Point {
+    Origin,
+    Specific(u64, Vec<u8>),
+}
+
+impl Point {
+    pub fn slot_or_default(&self) -> u64 {
+        match self {
+            Point::Origin => 0,
+            Point::Specific(slot, _) => *slot,
+        }
+    }
+}
+
+impl Encode<()> for Point {
+    fn encode<W: encode::Write>(
+        &self,
+        e: &mut Encoder<W>,
+        _ctx: &mut (),
+    ) -> Result<(), encode::Error<W::Error>> {
+        match self {
+            Point::Origin => e.array(0)?,
+            Point::Specific(slot, hash) => e.array(2)?.u64(*slot)?.bytes(hash)?,
+        };
+
+        Ok(())
+    }
+}
+
+impl<'b> Decode<'b, ()> for Point {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
+        let size = d.array()?;
+
+        match size {
+            Some(0) => Ok(Point::Origin),
+            Some(2) => {
+                let slot = d.u64()?;
+                let hash = d.bytes()?;
+                Ok(Point::Specific(slot, Vec::from(hash)))
+            }
+            _ => Err(decode::Error::message(
+                "can't decode Point from array of size",
+            )),
+        }
+    }
+}
 
 pub type PoolId = Hash<28>;
 

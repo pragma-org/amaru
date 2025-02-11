@@ -18,6 +18,7 @@ env:
 
 jobs:
   sanity:
+    name: Sanity
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
@@ -44,7 +45,18 @@ jobs:
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
             packages: -p amaru-ledger
-            optional: true
+            command: build
+            setup: rustup target add wasm32-unknown-unknown
+          - runner: ubuntu-latest
+            target: riscv32im-risc0-zkvm-elf
+            packages: -p amaru-ledger
+            extra-args: +nightly -Zbuild-std=std,panic_abort
+            command: build
+            setup: |
+              curl -L https://risczero.com/install | bash
+              /home/runner/.risc0/bin/rzup install
+              rustup toolchain add nightly-x86_64-unknown-linux-gnu
+              rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
           # Disabled for now
           #- runner: ubuntu-latest
           #  target: aarch64-unknown-linux-musl
@@ -56,17 +68,22 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ runner.os }}-${{ matrix.environments.target }}
-      - run: rustup target add ${{ matrix.environments.target }}
       - name: Run tests
         run: |
           set +e
+          EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
           SCOPE="${{ matrix.environments.packages || '--workspace' }}"
+          COMMAND="${{ matrix.environments.command  || 'test' }}"
+          if [[ -n "${{ matrix.environments.setup }}" ]]; then
+            echo "Running setup command: ${{ matrix.environments.setup }}"
+            ${{ matrix.environments.setup }}
+          fi
           if [[ "${{ matrix.environments.cross-compile }}" == "true" ]] ; then
             cargo install cross --git https://github.com/cross-rs/cross
             # cross doesn't load .cargo/config.toml, see https://github.com/cross-rs/cross/issues/562
-            $HOME/.cargo/bin/cross test --locked --all-features $SCOPE --target ${{ matrix.environments.target }}
+            $HOME/.cargo/bin/cross $COMMAND --locked --all-features $SCOPE --target ${{ matrix.environments.target }}
           else
-            cargo test $SCOPE --locked --target ${{ matrix.environments.target }}
+            cargo $EXTRA_ARGS $COMMAND $SCOPE --locked --target ${{ matrix.environments.target }}
           fi
           exitcode="$?"
           if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
@@ -78,3 +95,30 @@ jobs:
             exit "$exitcode"
           fi
         shell: bash
+  examples:
+    name: Examples
+    strategy:
+      fail-fast: false
+      matrix:
+        projects:
+          - path: ledger-in-nodejs
+            commands: |
+              rustup target add wasm32-unknown-unknown
+              make
+          - path: proof-of-ledger
+            commands: |
+              curl -L https://risczero.com/install | bash
+              /home/runner/.risc0/bin/rzup install
+              make
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.projects.path }}
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ${{ matrix.projects.path }}
+      - name: Run commands
+        run: ${{ matrix.projects.commands }}

@@ -1,0 +1,24 @@
+[package]
+name = "amaru-kernel"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+bech32.workspace = true
+hex.workspace = true
+num.workspace = true
+pallas-addresses.workspace = true
+pallas-codec.workspace = true
+pallas-crypto.workspace = true
+pallas-primitives.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

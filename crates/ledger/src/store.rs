@@ -14,9 +14,9 @@
 
 pub mod columns;
 
-use super::kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
 use crate::rewards::Pots;
 pub use crate::rewards::{RewardsSummary, StakeDistribution};
+use amaru_kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
 use columns::*;
 use std::{borrow::BorrowMut, io, iter};
 use thiserror::Error;
@@ -57,14 +57,18 @@ pub trait Snapshot {
     /// Get current values of the treasury and reserves accounts.
     fn pots(&self) -> Result<Pots, StoreError>;
 
+    /// Get details about all utxos
     fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value)>, StoreError>;
 
+    /// Get details about all slot leaders
     fn iter_block_issuers(
         &self,
     ) -> Result<impl Iterator<Item = (slots::Key, slots::Value)>, StoreError>;
 
+    /// Get details about all Pools
     fn iter_pools(&self) -> Result<impl Iterator<Item = (pools::Key, pools::Row)>, StoreError>;
 
+    /// Get details about all accounts
     fn iter_accounts(
         &self,
     ) -> Result<impl Iterator<Item = (accounts::Key, accounts::Row)>, StoreError>;
@@ -110,20 +114,11 @@ pub trait Store: Snapshot + Send + Sync {
         rewards_summary: Option<RewardsSummary>,
     ) -> Result<(), StoreError>;
 
-    /// Compute stake distribution using database snapshots.
-    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistribution, StoreError>;
-
-    /// Compute rewards using database snapshots and a previously computed stake distribution.
-    fn rewards_summary(
-        &self,
-        stake_distribution: StakeDistribution,
-    ) -> Result<RewardsSummary, StoreError>;
-
     /// Get current values of the treasury and reserves accounts.
-    fn with_pots<A>(
+    fn with_pots(
         &self,
-        with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>) -> A,
-    ) -> Result<A, StoreError>;
+        with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>),
+    ) -> Result<(), StoreError>;
 
     /// Provide an access to iterate over pools, in a way that enforces:
     ///

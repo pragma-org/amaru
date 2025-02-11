@@ -1,0 +1,17 @@
+[package]
+name = "methods"
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+
+publish = false
+
+[build-dependencies]
+risc0-build = { version = "1.2.3" }
+
+[package.metadata.risc0]
+methods = ["guest"]

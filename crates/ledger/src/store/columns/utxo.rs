@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
+use amaru_kernel::{
     iter::borrow as iter_borrow,
-    kernel::{TransactionInput, TransactionOutput},
+    {TransactionInput, TransactionOutput},
 };
 
 pub type Key = TransactionInput;

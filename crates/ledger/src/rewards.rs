@@ -96,14 +96,12 @@ the system at a certain point in time. We always take snapshots _at the end of e
 certain mutations are applied to the system.
 */
 
-use crate::{
-    kernel::{
-        encode_bech32, expect_stake_credential, output_lovelace, output_stake_credential, Epoch,
-        Hash, Lovelace, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
-        MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
-        SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
-    },
-    store::{columns::*, Snapshot, StoreError},
+use crate::store::{columns::*, Snapshot, StoreError};
+use amaru_kernel::{
+    encode_bech32, expect_stake_credential, output_lovelace, output_stake_credential, Epoch, Hash,
+    Lovelace, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY,
+    MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH,
+    TREASURY_TAX,
 };
 use num::{
     rational::Ratio,

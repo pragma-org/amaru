@@ -19,16 +19,16 @@ pub mod transaction;
 pub mod volatile_db;
 
 use crate::{
-    kernel::{
-        self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot,
-        TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
-        SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
-    },
     rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
     store::{columns::*, Store, StoreError},
 };
-use amaru_ouroboros::traits::{HasStakeDistribution, PoolSummary};
+use amaru_kernel::{
+    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, TransactionInput,
+    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
+    STABILITY_WINDOW,
+};
+use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
     borrow::Cow,
     collections::{BTreeSet, VecDeque},
@@ -103,7 +103,14 @@ impl<S: Store> State<S> {
 
         let mut stake_distributions = VecDeque::new();
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
-            stake_distributions.push_front(recover_stake_distribution(&db, epoch));
+            stake_distributions.push_front(recover_stake_distribution(&*db, epoch).unwrap_or_else(
+                |e| {
+                    panic!(
+                        "unable to get stake distribution for (epoch={:?}): {e:?}",
+                        epoch
+                    )
+                },
+            ));
         }
 
         drop(db);
@@ -163,7 +170,7 @@ impl<S: Store> State<S> {
         block: MintedBlock<'_>,
     ) -> Result<(), StateError> {
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-        let relative_slot = kernel::relative_slot(point.slot_or_default());
+        let relative_slot = amaru_kernel::relative_slot(point.slot_or_default());
 
         let state = self.apply_block(span, block).map_err(StateError::Storage)?;
 
@@ -235,18 +242,25 @@ impl<S: Store> State<S> {
             // Once we reach the stability window,
             if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
                 let mut stake_distributions = self.stake_distributions.lock().unwrap();
-
+                let stake_distribution = stake_distributions
+                    .pop_back()
+                    .ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
+                let epoch = stake_distribution.epoch + 2;
                 self.rewards_summary = Some(
-                    db.rewards_summary(
-                        stake_distributions
-                            .pop_back()
-                            .ok_or(StateError::StakeDistributionNotAvailableForRewards)?,
+                    RewardsSummary::new(
+                        &db.for_epoch(epoch).unwrap_or_else(|e| {
+                            panic!(
+                                "unable to open database snapshot for epoch {:?}: {:?}",
+                                epoch, e
+                            )
+                        }),
+                        stake_distribution,
                     )
                     .map_err(StateError::Storage)?,
                 );
 
                 stake_distributions.push_front(
-                    db.stake_distribution(current_epoch - 1)
+                    recover_stake_distribution(&*db, current_epoch - 1)
                         .map_err(StateError::Storage)?,
                 );
             }
@@ -350,16 +364,17 @@ impl<S: Store> State<S> {
     }
 }
 
-fn recover_stake_distribution<S: Store>(
-    db: &std::sync::MutexGuard<'_, S>,
+fn recover_stake_distribution(
+    db: &impl Store,
     epoch: Epoch,
-) -> StakeDistribution {
-    db.stake_distribution(epoch).unwrap_or_else(|e| {
+) -> Result<StakeDistribution, StoreError> {
+    let snapshot = db.for_epoch(epoch).unwrap_or_else(|e| {
         panic!(
-            "unable to get stake distribution for (epoch={:?}): {e:?}",
-            epoch
+            "unable to open database snapshot for epoch {:?}: {:?}",
+            epoch, e
         )
-    })
+    });
+    StakeDistribution::new(&snapshot)
 }
 
 // HasStakeDistribution

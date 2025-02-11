@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use crate::consensus::header_validation::assert_header;
+use amaru_kernel::Point;
 use amaru_ledger::ValidateBlockEvent;
-use amaru_ouroboros::{
-    protocol::{peer, peer::*, Point, PullEvent},
-    traits::HasStakeDistribution,
-};
+use amaru_ouroboros::protocol::{peer, peer::*, PullEvent};
+use amaru_ouroboros_traits::HasStakeDistribution;
 use chain_selection::ChainSelector;
 use gasket::framework::*;
 use header::{point_hash, ConwayHeader, Header};
@@ -109,7 +108,13 @@ impl HeaderStage {
                 .expect("Unknown peer, bailing out");
             let mut session = peer_session.peer_client.lock().await;
             let client = (*session).blockfetch();
-            client.fetch_single(point.clone()).await.or_restart()?
+            let new_point: pallas_network::miniprotocols::Point = match point.clone() {
+                Point::Origin => pallas_network::miniprotocols::Point::Origin,
+                Point::Specific(slot, hash) => {
+                    pallas_network::miniprotocols::Point::Specific(slot, hash)
+                }
+            };
+            client.fetch_single(new_point).await.or_restart()?
         };
 
         self.downstream

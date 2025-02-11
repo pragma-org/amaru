@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Lovelace, PoolId, Slot, VrfKeyhash};
+use amaru_kernel::{Lovelace, PoolId, Slot, VrfKeyhash};
 
 #[derive(Debug)]
 pub struct PoolSummary {

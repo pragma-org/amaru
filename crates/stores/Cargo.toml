@@ -11,8 +11,13 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-amaru-ledger = { path = "../ledger" }
+hex.workspace = true
+pallas-codec.workspace = true
 rocksdb.workspace = true
 tracing.workspace = true
-pallas-codec.workspace = true
-hex.workspace = true
+
+amaru-kernel = { path = "../kernel" }
+amaru-ledger = { path = "../ledger" }
+
+[dev-dependencies]
+proptest.workspace = true
