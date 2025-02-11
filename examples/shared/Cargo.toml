@@ -12,8 +12,8 @@ documentation.workspace = true
 publish = false
 
 [dependencies]
-amaru-kernel = { path = "../../crates/kernel" }
-amaru-ledger = { path = "../../crates/ledger" }
+amaru-kernel = { path = "../../crates/amaru-kernel" }
+amaru-ledger = { path = "../../crates/amaru-ledger" }
 
 hex.workspace = true
 tracing.workspace = true
