@@ -41,7 +41,6 @@ pub use pallas_primitives::{
 };
 
 pub mod iter;
-pub mod traits;
 
 // Constants
 // ----------------------------------------------------------------------------

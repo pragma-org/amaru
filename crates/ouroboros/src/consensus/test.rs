@@ -4,7 +4,7 @@ use crate::{
     validator::{ValidationError, Validator},
     Lovelace, PoolId, Slot, VrfKeyhash,
 };
-use amaru_kernel::traits::{HasStakeDistribution, PoolSummary};
+use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::FixedDecimal;

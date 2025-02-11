@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use crate::consensus::header_validation::assert_header;
-use amaru_kernel::{traits::HasStakeDistribution, Point};
+use amaru_kernel::Point;
 use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::protocol::{peer, peer::*, PullEvent};
+use amaru_ouroboros_traits::HasStakeDistribution;
 use chain_selection::ChainSelector;
 use gasket::framework::*;
 use header::{point_hash, ConwayHeader, Header};

@@ -24,11 +24,11 @@ use crate::{
     store::{columns::*, Store, StoreError},
 };
 use amaru_kernel::{
-    self, epoch_from_slot,
-    traits::{HasStakeDistribution, PoolSummary},
-    Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, TransactionInput, TransactionOutput,
-    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, TransactionInput,
+    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
+    STABILITY_WINDOW,
 };
+use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
     borrow::Cow,
     collections::{BTreeSet, VecDeque},

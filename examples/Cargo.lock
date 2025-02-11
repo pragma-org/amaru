@@ -74,11 +74,19 @@ name = "amaru-ledger"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-ouroboros-traits",
  "hex",
  "num",
  "serde",
  "thiserror 2.0.11",
  "tracing",
+]
+
+[[package]]
+name = "amaru-ouroboros-traits"
+version = "0.1.0"
+dependencies = [
+ "amaru-kernel",
 ]
 
 [[package]]

@@ -18,6 +18,7 @@ tracing.workspace = true
 thiserror.workspace = true
 
 amaru-kernel = { path = "../kernel" }
+amaru-ouroboros-traits = { path = "../ouroboros-traits" }
 
 [dev-dependencies]
 proptest.workspace = true

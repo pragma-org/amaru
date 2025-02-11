@@ -73,6 +73,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-ledger",
  "amaru-ouroboros",
+ "amaru-ouroboros-traits",
  "async-trait",
  "envpath",
  "gasket",
@@ -114,6 +115,7 @@ name = "amaru-ledger"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-ouroboros-traits",
  "hex",
  "num",
  "proptest",
@@ -127,6 +129,7 @@ name = "amaru-ouroboros"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-ouroboros-traits",
  "criterion",
  "ctor",
  "hex",
@@ -147,6 +150,13 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "vrf_dalek",
+]
+
+[[package]]
+name = "amaru-ouroboros-traits"
+version = "0.1.0"
+dependencies = [
+ "amaru-kernel",
 ]
 
 [[package]]
