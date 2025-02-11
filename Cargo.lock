@@ -146,7 +146,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "amaru-ledger-in-browser"
+name = "amaru-ledger-in-nodejs"
 version = "0.1.0"
 dependencies = [
  "amaru-examples-shared",

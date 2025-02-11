@@ -2,6 +2,6 @@ A simple example of `amaru-ledger` crate compiled into WASM and loaded via nodej
 
 ```console
 cargo build --release --artifact-dir assets
-wasm-strip assets/amaru_ledger_in_browser.wasm 
+wasm-strip assets/amaru_ledger_in_nodejs.wasm 
 node index.mjs
 ```

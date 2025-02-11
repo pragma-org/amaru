@@ -101,7 +101,7 @@ jobs:
       fail-fast: false
       matrix:
         projects:
-          - path: ledger-in-browser
+          - path: ledger-in-nodejs
             commands: |
               cargo build --release --artifact-dir assets
               node index.mjs

@@ -1,5 +1,5 @@
 [package]
-name = "amaru-ledger-in-browser"
+name = "amaru-ledger-in-nodejs"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
