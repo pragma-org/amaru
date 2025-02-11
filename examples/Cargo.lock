@@ -43,8 +43,6 @@ name = "amaru-example-ledger-in-nodejs"
 version = "0.1.0"
 dependencies = [
  "amaru-examples-shared",
- "hex",
- "tracing",
 ]
 
 [[package]]
@@ -69,7 +67,6 @@ dependencies = [
  "pallas-crypto",
  "pallas-primitives",
  "serde",
- "thiserror 2.0.11",
 ]
 
 [[package]]
@@ -869,7 +866,6 @@ dependencies = [
  "amaru-examples-shared",
  "methods",
  "risc0-zkvm",
- "serde",
  "tracing-subscriber 0.3.19",
 ]
 

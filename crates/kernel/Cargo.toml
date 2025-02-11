@@ -19,7 +19,6 @@ pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 serde.workspace = true
-thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

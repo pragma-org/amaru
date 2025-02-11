@@ -14,8 +14,5 @@ publish = false
 [dependencies]
 amaru-examples-shared = { path = "../shared" }
 
-hex.workspace = true
-tracing.workspace = true
-
 [lib]
 crate-type = ["cdylib"]

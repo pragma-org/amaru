@@ -16,4 +16,3 @@ methods = { path = "methods" }
 risc0-zkvm = { version = "1.2.3" }
 amaru-examples-shared = { path = "../shared" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-serde = "1.0"

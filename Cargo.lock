@@ -107,7 +107,6 @@ dependencies = [
  "pallas-primitives",
  "proptest",
  "serde",
- "thiserror 2.0.11",
 ]
 
 [[package]]
