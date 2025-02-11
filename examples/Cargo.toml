@@ -1,0 +1,20 @@
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+description = "A set of amaru examples"
+license = "Apache-2.0"
+authors = ["Amaru Maintainers <amaru@pragma.builders>"]
+repository = "https://github.com/pragma-org/amaru"
+homepage = "https://github.com/pragma-org/amaru"
+documentation = "https://docs.rs/amaru"
+
+[workspace]
+members = [
+  "ledger-in-nodejs",
+  "proof-of-ledger"
+]
+resolver = "2"
+
+[workspace.dependencies]
+hex = "0.4.3"
+tracing = "0.1.40"

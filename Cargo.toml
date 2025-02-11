@@ -10,7 +10,7 @@ documentation = "https://docs.rs/amaru"
 rust-version = "1.81.0"
 
 [workspace]
-members = ["crates/*", "examples/*"]
+members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
