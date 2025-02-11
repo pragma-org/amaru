@@ -103,11 +103,11 @@ jobs:
         projects:
           - path: ledger-in-nodejs
             commands: |
-              cargo build --release --artifact-dir assets
-              node index.mjs
+              make build
+              make run
           - path: proof-of-ledger
             commands: |
-              RUST_LOG="[executor]=info" RISC0_DEV_MODE=1 cargo run
+              make run
     defaults:
       run:
         working-directory: examples/${{ matrix.projects.path }}
