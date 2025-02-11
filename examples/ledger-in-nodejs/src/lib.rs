@@ -1,4 +1,4 @@
-use amaru_examples_shared::{RAW_BLOCK_CONWAY_1, forward_ledger};
+use amaru_examples_shared::{forward_ledger, RAW_BLOCK_CONWAY_1};
 
 #[no_mangle]
 #[allow(clippy::missing_safety_doc)]

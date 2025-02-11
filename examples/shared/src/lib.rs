@@ -1,6 +1,6 @@
-use std::sync::{Arc, Mutex};
 use amaru_kernel::{cbor, Hasher, MintedBlock, Point};
 use amaru_ledger::state::State;
+use std::sync::{Arc, Mutex};
 use store::MemoryStore;
 use tracing::trace_span;
 
