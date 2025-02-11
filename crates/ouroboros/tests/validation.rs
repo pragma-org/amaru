@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros::consensus::test::MockLedgerState;
+use amaru_ouroboros_traits::mock::MockLedgerState;
 use pallas_codec::minicbor;
 use pallas_primitives::babbage;
 use std::{collections::HashMap, fs::File, io::BufReader};
