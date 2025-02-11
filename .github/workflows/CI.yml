@@ -18,6 +18,7 @@ env:
 
 jobs:
   sanity:
+    name: Sanity
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
@@ -94,3 +95,28 @@ jobs:
             exit "$exitcode"
           fi
         shell: bash
+  examples:
+    name: Examples
+    strategy:
+      fail-fast: false
+      matrix:
+        projects:
+          - path: ledger-in-browser
+            commands: |
+              cargo build --release --artifact-dir assets
+              node index.mjs
+          - path: proof-of-ledger
+            commands: |
+              RUST_LOG="[executor]=info" RISC0_DEV_MODE=1 cargo run
+    defaults:
+      run:
+        working-directory: examples/${{ matrix.projects.path }}
+    timeout-minutes: 30
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ${{ matrix.projects.path }}
+      - name: Run commands
+        run: ${{ matrix.projects.commands }}

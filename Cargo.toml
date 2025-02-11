@@ -7,10 +7,10 @@ authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
-rust-version = "1.83.0"
+rust-version = "1.81.0"
 
 [workspace]
-members = ["crates/*", "examples/ledger-in-browser"]
+members = ["crates/*", "examples/*"]
 resolver = "2"
 
 [workspace.dependencies]

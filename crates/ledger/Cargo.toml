@@ -22,8 +22,5 @@ amaru-kernel = { path = "../kernel" }
 [dev-dependencies]
 proptest.workspace = true
 
-[lib]
-crate-type = ["cdylib", "rlib"]
-
 [target.'cfg(not(std))'.dependencies]
 num = { version = "0.4.3", default-features = false, features = ["alloc", "libm"] }

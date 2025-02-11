@@ -1,5 +1,5 @@
 [package]
-name = "amaru-ledger-in-browser"
+name = "amaru-examples-shared"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -13,10 +13,8 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-amaru-examples-shared = { path = "../shared" }
+amaru-kernel = { path = "../../crates/kernel" }
+amaru-ledger = { path = "../../crates/ledger" }
 
 hex.workspace = true
 tracing.workspace = true
-
-[lib]
-crate-type = ["cdylib"]
