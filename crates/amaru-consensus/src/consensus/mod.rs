@@ -20,7 +20,6 @@ use amaru_ouroboros_traits::HasStakeDistribution;
 use chain_selection::ChainSelector;
 use gasket::framework::*;
 use header::{point_hash, ConwayHeader, Header};
-use miette::miette;
 use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_primitives::{babbage, conway::Epoch};
@@ -175,9 +174,7 @@ impl HeaderStage {
           hash = point_hash(point).to_string())
         .entered();
 
-        let header: babbage::MintedHeader<'_> = minicbor::decode(raw_header)
-            .map_err(|e| miette!(e))
-            .or_panic()?;
+        let header: babbage::MintedHeader<'_> = minicbor::decode(raw_header).or_panic()?;
 
         // FIXME: move into chain_selector
         assert_header(&header, &self.epoch_to_nonce, self.ledger.as_ref())?;
@@ -189,7 +186,6 @@ impl HeaderStage {
             .lock()
             .await
             .store_header(&header.compute_hash(), &header)
-            .map_err(|e| miette!(e))
             .or_panic()?;
 
         let result = self

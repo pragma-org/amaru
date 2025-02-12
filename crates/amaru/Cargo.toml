@@ -18,7 +18,6 @@ gasket = { workspace = true, features = ["derive"] }
 hex.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
-miette = { workspace = true, features = ["fancy"] }
 opentelemetry-otlp = { workspace = true, features = [ "grpc-tonic", "http-proto", "reqwest-client" ] }
 opentelemetry.workspace = true
 opentelemetry_sdk = { workspace = true, features = ["async-std", "rt-tokio"] }
@@ -34,6 +33,7 @@ tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
 tracing.workspace = true
+anyhow.workspace = true
 
 amaru-consensus = { path = "../amaru-consensus" }
 amaru-kernel = { path = "../amaru-kernel" }

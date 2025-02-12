@@ -48,7 +48,7 @@ struct Cli {
 }
 
 #[tokio::main]
-async fn main() -> miette::Result<()> {
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
 
     let args = Cli::parse();

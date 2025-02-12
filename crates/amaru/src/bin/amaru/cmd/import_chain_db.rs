@@ -8,7 +8,6 @@ use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
 use clap::{builder::TypedValueParser as _, Parser};
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
-use miette::{Diagnostic, IntoDiagnostic};
 use pallas_network::{
     facades::PeerClient,
     miniprotocols::chainsync::{self, HeaderContent, NextResponse},
@@ -60,7 +59,7 @@ pub struct Args {
     count: usize,
 }
 
-#[derive(Debug, thiserror::Error, Diagnostic)]
+#[derive(Debug, thiserror::Error)]
 enum Error<'a> {
     #[error("malformed point: {}", .0)]
     MalformedPoint(&'a str),
@@ -73,7 +72,7 @@ enum What {
 
 use What::*;
 
-pub async fn run(args: Args) -> miette::Result<()> {
+pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let mut db = RocksDBStore::new(args.chain_dir)?;
 
     let peer_client = Arc::new(Mutex::new(
@@ -81,8 +80,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
             args.peer_address.clone(),
             args.network.to_network_magic() as u64,
         )
-        .await
-        .into_diagnostic()?,
+        .await?,
     ));
 
     let peer_session = PeerSession {
@@ -94,7 +92,7 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
     let mut pull = sync::pull::Stage::new(peer_session.clone(), vec![point.clone()]);
 
-    pull.find_intersection().await.into_diagnostic()?;
+    pull.find_intersection().await?;
 
     let mut peer_client = pull.peer_session.lock().await;
     let mut count = 0;
@@ -114,13 +112,9 @@ pub async fn run(args: Args) -> miette::Result<()> {
     // Pipelining stops when we reach the tip of the peer's chain.
     loop {
         let what = if client.has_agency() {
-            request_next_block(client, &mut db, &mut count, &mut progress, max, start)
-                .await
-                .into_diagnostic()?
+            request_next_block(client, &mut db, &mut count, &mut progress, max, start).await?
         } else {
-            await_for_next_block(client, &mut db, &mut count, &mut progress, max, start)
-                .await
-                .into_diagnostic()?
+            await_for_next_block(client, &mut db, &mut count, &mut progress, max, start).await?
         };
         match what {
             Continue => continue,

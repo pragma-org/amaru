@@ -13,14 +13,13 @@
 // limitations under the License.
 
 use super::header::Header;
-use miette::Diagnostic;
 use pallas_crypto::hash::Hash;
 use std::fmt::Display;
 use thiserror::Error;
 
 pub mod rocksdb;
 
-#[derive(Error, Diagnostic, Debug)]
+#[derive(Error, Debug)]
 pub enum StoreError {
     WriteError { error: String },
     OpenError { error: String },

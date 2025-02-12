@@ -25,7 +25,6 @@ use amaru_ledger::{
 use amaru_stores::rocksdb::{columns::*, RocksDB};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use miette::{Diagnostic, IntoDiagnostic};
 use pallas_codec::minicbor as cbor;
 use std::{collections::HashMap, fs, iter, path::PathBuf};
 use tracing::info;
@@ -58,18 +57,19 @@ pub struct Args {
     ledger_dir: PathBuf,
 }
 
-#[derive(Debug, thiserror::Error, Diagnostic)]
+#[derive(Debug, thiserror::Error)]
 enum Error<'a> {
     #[error("malformed date: {}", .0)]
     MalformedDate(&'a str),
+    #[error("You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)")]
+    IncorrectUsage,
 }
 
-pub async fn run(args: Args) -> miette::Result<()> {
+pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     if !args.snapshot.is_empty() {
         import_all(&args.snapshot, &args.ledger_dir).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
-        let mut snapshots = fs::read_dir(snapshot_dir)
-            .into_diagnostic()?
+        let mut snapshots = fs::read_dir(snapshot_dir)?
             .filter_map(|entry| entry.ok().map(|e| e.path()))
             .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("cbor"))
             .collect::<Vec<_>>();
@@ -77,13 +77,14 @@ pub async fn run(args: Args) -> miette::Result<()> {
 
         import_all(&snapshots, &args.ledger_dir).await
     } else {
-        Err(miette::miette!(
-            "You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)"
-        ))
+        Err(Error::IncorrectUsage.into())
     }
 }
 
-async fn import_all(snapshots: &Vec<PathBuf>, ledger_dir: &PathBuf) -> miette::Result<()> {
+async fn import_all(
+    snapshots: &Vec<PathBuf>,
+    ledger_dir: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
         import_one(snapshot, ledger_dir).await?;
@@ -91,7 +92,10 @@ async fn import_all(snapshots: &Vec<PathBuf>, ledger_dir: &PathBuf) -> miette::R
     Ok(())
 }
 
-async fn import_one(snapshot: &PathBuf, ledger_dir: &PathBuf) -> miette::Result<()> {
+async fn import_one(
+    snapshot: &PathBuf,
+    ledger_dir: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing snapshot {}", snapshot.display());
     let point = super::parse_point(
         snapshot
@@ -100,12 +104,11 @@ async fn import_one(snapshot: &PathBuf, ledger_dir: &PathBuf) -> miette::Result<
             .and_then(|s| s.to_str())
             .unwrap(),
         Error::MalformedDate,
-    )
-    .into_diagnostic()?;
+    )?;
 
-    fs::create_dir_all(ledger_dir).into_diagnostic()?;
-    let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir).into_diagnostic()?;
-    let bytes = fs::read(snapshot).into_diagnostic()?;
+    fs::create_dir_all(ledger_dir)?;
+    let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir)?;
+    let bytes = fs::read(snapshot)?;
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point)?;
 
@@ -115,40 +118,42 @@ async fn import_one(snapshot: &PathBuf, ledger_dir: &PathBuf) -> miette::Result<
         Default::default(),
         Default::default(),
         iter::empty(),
-    )
-    .into_diagnostic()?;
+    )?;
 
-    db.next_snapshot(epoch, None).into_diagnostic()?;
+    db.next_snapshot(epoch, None)?;
 
     db.with_pools(|iterator| {
         for (_, pool) in iterator {
             amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1)
         }
-    })
-    .into_diagnostic()?;
+    })?;
     info!("Imported snapshot for epoch {}", epoch);
     Ok(())
 }
 
-fn decode_new_epoch_state(db: &RocksDB, bytes: &[u8], point: &Point) -> miette::Result<Epoch> {
+fn decode_new_epoch_state(
+    db: &RocksDB,
+    bytes: &[u8],
+    point: &Point,
+) -> Result<u64, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
 
-    d.array().into_diagnostic()?;
+    d.array()?;
 
     // EpochNo
-    let epoch = d.u64().into_diagnostic()?;
+    let epoch = d.u64()?;
     assert_eq!(epoch, epoch_from_slot(point.slot_or_default()));
     info!(epoch, "importing_snapshot");
 
     // Previous blocks made
-    d.skip().into_diagnostic()?;
+    d.skip()?;
 
     // Current blocks made
     // NOTE: We use the current blocks made here as we assume that users are providing snapshots of
     // the last block of the epoch. We have no intrinsic ways to check that this is the case since
     // we do not know what the last block of an epoch is, and we can't reliably look at the number
     // of blocks either.
-    import_block_issuers(db, d.decode().into_diagnostic()?)?;
+    import_block_issuers(db, d.decode()?)?;
 
     let accounts: HashMap<StakeCredential, Account>;
     let fees: i64;
@@ -157,116 +162,111 @@ fn decode_new_epoch_state(db: &RocksDB, bytes: &[u8], point: &Point) -> miette::
 
     // Epoch State
     {
-        d.array().into_diagnostic()?;
+        d.array()?;
 
         // Epoch State / Account State
-        d.array().into_diagnostic()?;
-        treasury = d.decode().into_diagnostic()?;
-        reserves = d.decode().into_diagnostic()?;
+        d.array()?;
+        treasury = d.decode()?;
+        reserves = d.decode()?;
 
         // Epoch State / Ledger State
-        d.array().into_diagnostic()?;
+        d.array()?;
 
         // Epoch State / Ledger State / Cert State
         {
-            d.array().into_diagnostic()?;
+            d.array()?;
 
             // Epoch State / Ledger State / Cert State / Voting State
-            d.skip().into_diagnostic()?;
+            d.skip()?;
 
             // Epoch State / Ledger State / Cert State / Pool State
             {
-                d.array().into_diagnostic()?;
+                d.array()?;
                 import_stake_pools(
                     db,
                     epoch,
                     // Pools
-                    d.decode().into_diagnostic()?,
+                    d.decode()?,
                     // Updates
-                    d.decode().into_diagnostic()?,
+                    d.decode()?,
                     // Retirements
-                    d.decode().into_diagnostic()?,
+                    d.decode()?,
                 )?;
                 // Deposits
-                d.skip().into_diagnostic()?;
+                d.skip()?;
             }
 
             // Epoch State / Ledger State / Cert State / Delegation state
             {
-                d.array().into_diagnostic()?;
+                d.array()?;
 
                 // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
                 {
-                    d.array().into_diagnostic()?;
+                    d.array()?;
                     // credentials
-                    accounts = d.decode().into_diagnostic()?;
+                    accounts = d.decode()?;
                     // pointers
-                    d.skip().into_diagnostic()?;
+                    d.skip()?;
                 }
 
                 // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
-                d.skip().into_diagnostic()?;
+                d.skip()?;
 
                 // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
-                d.skip().into_diagnostic()?;
+                d.skip()?;
 
                 // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
-                d.skip().into_diagnostic()?;
+                d.skip()?;
             }
 
             // Epoch State / Ledger State / UTxO State
             {
-                d.array().into_diagnostic()?;
+                d.array()?;
 
                 import_utxo(
                     db,
-                    d.decode::<HashMap<TransactionInput, TransactionOutput>>()
-                        .into_diagnostic()?
+                    d.decode::<HashMap<TransactionInput, TransactionOutput>>()?
                         .into_iter()
                         .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
                 )?;
 
-                let _deposited: u64 = d.decode().into_diagnostic()?;
+                let _deposited: u64 = d.decode()?;
 
-                fees = d.decode().into_diagnostic()?;
+                fees = d.decode()?;
 
                 // Epoch State / Ledger State / UTxO State / utxosGovState
-                d.skip().into_diagnostic()?;
+                d.skip()?;
 
                 // Epoch State / Ledger State / UTxO State / utxosStakeDistr
-                d.skip().into_diagnostic()?;
+                d.skip()?;
 
                 // Epoch State / Ledger State / UTxO State / utxosDonation
-                d.skip().into_diagnostic()?;
+                d.skip()?;
             }
         }
 
         // Epoch State / Snapshots
-        d.skip().into_diagnostic()?;
+        d.skip()?;
         // Epoch State / NonMyopic
-        d.skip().into_diagnostic()?;
+        d.skip()?;
     }
 
     // Rewards Update
     {
-        d.array().into_diagnostic()?;
-        d.array().into_diagnostic()?;
-        assert_eq!(
-            d.u32().into_diagnostic()?,
-            1,
-            "expected complete pulsing reward state"
-        );
-        d.array().into_diagnostic()?;
+        d.array()?;
+        d.array()?;
+        assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
+        d.array()?;
 
-        let delta_treasury: i64 = d.decode().into_diagnostic()?;
+        let delta_treasury: i64 = d.decode()?;
 
-        let delta_reserves: i64 = d.decode().into_diagnostic()?;
+        let delta_reserves: i64 = d.decode()?;
 
-        let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode().into_diagnostic()?;
-        let delta_fees: i64 = d.decode().into_diagnostic()?;
+        let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode()?;
+        let delta_fees: i64 = d.decode()?;
 
         // NonMyopic
-        d.skip().into_diagnostic()?;
+        d.skip()?;
 
         import_accounts(db, accounts, &mut rewards)?;
 
@@ -285,14 +285,16 @@ fn decode_new_epoch_state(db: &RocksDB, bytes: &[u8], point: &Point) -> miette::
     Ok(epoch)
 }
 
-fn import_block_issuers(db: &RocksDB, blocks: HashMap<PoolId, u64>) -> miette::Result<()> {
+fn import_block_issuers(
+    db: &RocksDB,
+    blocks: HashMap<PoolId, u64>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let batch = db.unsafe_transaction();
     db.with_block_issuers(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
-    })
-    .into_diagnostic()?;
+    })?;
 
     let mut fake_slot = 0;
     for (pool, mut count) in blocks.into_iter() {
@@ -301,20 +303,19 @@ fn import_block_issuers(db: &RocksDB, blocks: HashMap<PoolId, u64>) -> miette::R
                 &batch,
                 &fake_slot,
                 amaru_ledger::store::columns::slots::Row::new(pool),
-            )
-            .into_diagnostic()?;
+            )?;
             count -= 1;
             fake_slot += 1;
         }
     }
     info!(what = "block_issuers", count = fake_slot);
-    batch.commit().into_diagnostic()
+    batch.commit().map_err(Into::into)
 }
 
 fn import_utxo(
     db: &impl Store,
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
-) -> miette::Result<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     info!(what = "utxo_entries", size = utxo.len());
 
     let progress_delete = ProgressBar::no_length().with_style(
@@ -326,8 +327,7 @@ fn import_utxo(
             *handle.borrow_mut() = None;
             progress_delete.tick();
         }
-    })
-    .into_diagnostic()?;
+    })?;
 
     progress_delete.finish_and_clear();
 
@@ -349,8 +349,7 @@ fn import_utxo(
             },
             Default::default(),
             iter::empty(),
-        )
-        .into_diagnostic()?;
+        )?;
 
         progress.inc(n as u64);
     }
@@ -366,7 +365,7 @@ fn import_stake_pools(
     pools: HashMap<PoolId, PoolParams>,
     updates: HashMap<PoolId, PoolParams>,
     retirements: HashMap<PoolId, Epoch>,
-) -> miette::Result<()> {
+) -> Result<(), impl std::error::Error> {
     let mut state = amaru_ledger::state::diff_epoch_reg::DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);
@@ -390,8 +389,7 @@ fn import_stake_pools(
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
-    })
-    .into_diagnostic()?;
+    })?;
 
     db.save(
         &Point::Origin,
@@ -416,17 +414,20 @@ fn import_stake_pools(
         },
         iter::empty(),
     )
-    .into_diagnostic()
 }
 
-fn import_pots(db: &RocksDB, treasury: u64, reserves: u64, fees: u64) -> miette::Result<()> {
+fn import_pots(
+    db: &RocksDB,
+    treasury: u64,
+    reserves: u64,
+    fees: u64,
+) -> Result<(), Box<dyn std::error::Error>> {
     let batch = db.unsafe_transaction();
     pots::put(
         &batch,
         amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees),
-    )
-    .into_diagnostic()?;
-    batch.commit().into_diagnostic()?;
+    )?;
+    batch.commit()?;
     info!(what = "pots", treasury, reserves, fees);
     Ok(())
 }
@@ -435,13 +436,12 @@ fn import_accounts(
     db: &impl Store,
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
-) -> miette::Result<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     db.with_accounts(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
-    })
-    .into_diagnostic()?;
+    })?;
 
     let mut credentials = accounts
         .into_iter()
@@ -493,8 +493,7 @@ fn import_accounts(
             },
             Default::default(),
             iter::empty(),
-        )
-        .into_diagnostic()?;
+        )?;
 
         progress.inc(n as u64);
     }

@@ -73,7 +73,7 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 pub fn bootstrap(
     config: Config,
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
-) -> miette::Result<Vec<Tether>> {
+) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     // FIXME: Take from config / command args
     let store = RocksDB::new(&config.ledger_dir)
         .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));

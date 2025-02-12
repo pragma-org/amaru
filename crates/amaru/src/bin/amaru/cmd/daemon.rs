@@ -16,7 +16,6 @@ use crate::{config::NetworkName, metrics::track_system_metrics};
 use amaru::sync::Config;
 use amaru_consensus::consensus::nonce;
 use clap::{builder::TypedValueParser as _, ArgAction, Parser};
-use miette::IntoDiagnostic;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -55,16 +54,17 @@ pub struct Args {
     data_dir: PathBuf,
 }
 
-pub async fn run(args: Args, metrics: Option<SdkMeterProvider>) -> miette::Result<()> {
+pub async fn run(
+    args: Args,
+    metrics: Option<SdkMeterProvider>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_args(args)?;
 
     let metrics = metrics.map(track_system_metrics);
 
     let mut clients: Vec<(String, Arc<Mutex<PeerClient>>)> = vec![];
     for peer in &config.upstream_peers {
-        let client = PeerClient::connect(peer.clone(), config.network_magic as u64)
-            .await
-            .into_diagnostic()?;
+        let client = PeerClient::connect(peer.clone(), config.network_magic as u64).await?;
         clients.push((peer.clone(), Arc::new(Mutex::new(client))));
     }
 
@@ -101,7 +101,7 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
     pipeline.teardown();
 }
 
-fn parse_args(args: Args) -> miette::Result<Config> {
+fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     // TODO: Figure out from ledger + consensus store
     let root = args.data_dir.join(args.network.to_string());
 
@@ -116,22 +116,18 @@ fn parse_args(args: Args) -> miette::Result<Config> {
     })
 }
 
-fn read_csv<F, T>(filepath: &PathBuf, with: F) -> miette::Result<T>
+fn read_csv<F, T>(filepath: &PathBuf, with: F) -> Result<T, Box<dyn std::error::Error>>
 where
     F: FnOnce(&str) -> T,
 {
-    Ok(with(
-        std::str::from_utf8(
-            std::fs::read(filepath)
-                .inspect_err(|e| {
-                    error!(
-                        "failed to read csv data file at {}: {e}",
-                        filepath.as_path().to_str().unwrap_or_default(),
-                    );
-                })
-                .into_diagnostic()?
-                .as_slice(),
-        )
-        .into_diagnostic()?,
-    ))
+    Ok(with(std::str::from_utf8(
+        std::fs::read(filepath)
+            .inspect_err(|e| {
+                error!(
+                    "failed to read csv data file at {}: {e}",
+                    filepath.as_path().to_str().unwrap_or_default(),
+                );
+            })?
+            .as_slice(),
+    )?))
 }
