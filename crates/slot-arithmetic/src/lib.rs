@@ -171,7 +171,7 @@ impl<C> Encode<C> for EraHistory {
 impl<'b, C> Decode<'b, C> for EraHistory {
     fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
         let mut eras = vec![];
-        let eras_iter: minicbor::decode::ArrayIter<Summary> = d.array_iter()?;
+        let eras_iter: minicbor::decode::ArrayIter<'_, '_, Summary> = d.array_iter()?;
         for era in eras_iter {
             eras.push(era?);
         }
