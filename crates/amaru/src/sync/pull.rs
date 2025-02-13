@@ -15,8 +15,8 @@
 use crate::point::{from_network_point, to_network_point};
 use amaru_kernel::Point;
 use amaru_ouroboros::protocol::{peer::PeerSession, PullEvent, RawHeader};
+use anyhow::anyhow;
 use gasket::framework::*;
-use miette::miette;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
@@ -89,7 +89,7 @@ impl Stage {
             .await
             .or_restart()?;
 
-        let _intersection = point.ok_or(miette!("couldn't find intersect")).or_panic()?;
+        let _intersection = point.ok_or(anyhow!("couldn't find intersect")).or_panic()?;
         Ok(())
     }
 

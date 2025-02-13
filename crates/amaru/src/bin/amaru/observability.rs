@@ -1,4 +1,3 @@
-use miette::IntoDiagnostic;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::TracerProvider};
 use std::{
     env,
@@ -164,14 +163,15 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {
 
 pub struct OpenTelemetryHandle {
     pub metrics: Option<SdkMeterProvider>,
-    pub teardown: Box<dyn FnOnce() -> miette::Result<()>>,
+    pub teardown: Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
 }
 
 impl Default for OpenTelemetryHandle {
     fn default() -> Self {
         OpenTelemetryHandle {
             metrics: None::<SdkMeterProvider>,
-            teardown: Box::new(|| Ok(())) as Box<dyn FnOnce() -> miette::Result<()>>,
+            teardown: Box::new(|| Ok(()))
+                as Box<dyn FnOnce() -> Result<(), Box<dyn std::error::Error>>>,
         }
     }
 }
@@ -226,19 +226,18 @@ pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> Ope
 
     OpenTelemetryHandle {
         metrics: Some(metrics_provider.clone()),
-        teardown: Box::new(|| teardown_open_telemetry(opentelemetry_provider, metrics_provider))
-            as Box<dyn FnOnce() -> miette::Result<()>>,
+        teardown: Box::new(|| teardown_open_telemetry(opentelemetry_provider, metrics_provider)),
     }
 }
 
 fn teardown_open_telemetry(
     tracing: TracerProvider,
     metrics: SdkMeterProvider,
-) -> miette::Result<()> {
+) -> Result<(), Box<dyn std::error::Error>> {
     // Shut down the providers so that it flushes any remaining spans
     // TODO: we might also want to wrap this in a timeout, so we don't hold the process open forever?
-    tracing.shutdown().into_diagnostic()?;
-    metrics.shutdown().into_diagnostic()?;
+    tracing.shutdown()?;
+    metrics.shutdown()?;
 
     // This appears to be a deprecated method that will be removed soon
     // and just *releases* a reference to it, but doesn't actually call shutdown
