@@ -39,7 +39,7 @@ pub fn validate_block(
 
     block_header_size_valid(minted_block.header.raw_cbor(), &protocol_params)
         .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
-    block_body_size_valid(&minted_block, &protocol_params)
+    block_body_size_valid(&block.header.header_body, &protocol_params)
         .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
 
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
