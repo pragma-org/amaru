@@ -1,14 +1,16 @@
 mod block;
 
-use amaru_kernel::{alonzo::MaybeIndefArray, cbor, Block, Hash, Hasher, MintedBlock, Redeemers};
+use amaru_kernel::{
+    alonzo::MaybeIndefArray, cbor, protocol_parameters::ProtocolParameters, Block, Hash, Hasher,
+    MintedBlock, Redeemers,
+};
 
 use block::{
     body_size::{block_body_size_valid, BlockBodySizeTooBig},
     ex_units::*,
     header_size::{block_header_size_valid, BlockHeaderSizeTooBig},
 };
-
-use crate::protocol_parameters::ProtocolParameters;
+use tracing::{instrument, Level};
 
 pub enum RuleViolation {
     BlockBodySizeTooBig(BlockBodySizeTooBig),
@@ -22,14 +24,9 @@ pub enum BlockValidationError {
     Composite(RuleViolation, Box<BlockValidationError>),
 }
 
-impl Into<BlockValidationError> for Vec<Option<RuleViolation>> {
-    fn into(self) -> BlockValidationError {
-        BlockValidationError::RuleViolations(
-            self.into_iter()
-                .filter(|r| r.is_some())
-                .map(|r| r.unwrap().into())
-                .collect(),
-        )
+impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
+    fn from(violations: Vec<Option<RuleViolation>>) -> Self {
+        BlockValidationError::RuleViolations(violations.into_iter().flatten().collect())
     }
 }
 
@@ -45,6 +42,7 @@ pub fn validate_block(
     block_body_size_valid(&minted_block, &protocol_params)
         .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
 
+    // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
     let ex_units = match block.transaction_witness_sets {
         MaybeIndefArray::Def(vec) => vec,
         MaybeIndefArray::Indef(vec) => vec,
@@ -65,58 +63,10 @@ pub fn validate_block(
     block_ex_units_valid(ex_units, &protocol_params)
         .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
 
-    // let transaction_bodies = block.transaction_bodies.to_vec();
-    // let transaction_witness_sets = block.transaction_witness_sets.to_vec();
-    // let invalid_transaction_indexes = block
-    //     .invalid_transactions
-    //     .map(|x| x.to_vec())
-    //     .unwrap_or(vec![]);
-    // for (i, body) in transaction_bodies.iter().enumerate() {
-    //     let is_valid = invalid_transaction_indexes.get(i).is_none();
-    //     let witness_set = transaction_witness_sets
-    //         .get(i)
-    //         .ok_or_else(|| BlockValidationError::SerializationError)?;
-
-    //     let state = validate_transaction(
-    //         body,
-    //         witness_set,
-    //         is_valid,
-    //         ledger_state,
-    //         protocol_params,
-    //         fast_fail,
-    //     )?;
-    // }
-
     Ok((block_header_hash, minted_block))
 }
 
-// fn validate_transaction(
-//     body: &MintedTransactionBody,
-//     witness: &MintedWitnessSet,
-//     is_valid: bool,
-//     ledger_state: &Vec<usize>,
-//     protocol_params: &ProtocolParameters,
-//     fast_fail: bool,
-// ) -> Result<Vec<usize>, BlockValidationError> {
-//     // This was all scaffolding just as a PoC. Will implement real logic here
-//     // let utxos_exist = bad_inputs(10, &ledger_state);
-//     // let transaction_balanced = transaction_balanced(10, vec![10]);
-//     // let collateral_sufficient = collateral_sufficient(10, protocol_params, &ledger_state);
-
-//     // if let Err(error) = utxos_exist {
-//     //     if fast_fail {
-//     //         return Err(BlockValidationError::RuleViolations(vec![error.into()]));
-//     //     } else {
-//     //         return Err(BlockValidationError::Composite(
-//     //             error.into(),
-//     //             Box::new(vec![].into()),
-//     //         ));
-//     //     }
-//     // };
-
-//     todo!()
-// }
-
+#[instrument(level = Level::TRACE, skip(bytes), fields(block.size = bytes.len()))]
 fn parse_block(bytes: &[u8]) -> Result<(Hash<32>, MintedBlock<'_>), BlockValidationError> {
     let (_, block): (u16, MintedBlock<'_>) =
         cbor::decode(bytes).map_err(|_| BlockValidationError::SerializationError)?;

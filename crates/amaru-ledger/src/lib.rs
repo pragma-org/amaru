@@ -31,7 +31,6 @@ pub enum BlockValidationResult {
     RolledBackTo(Point),
 }
 
-pub mod protocol_parameters;
 /// Iterators
 ///
 /// A set of additional primitives around iterators. Not Amaru-specific so-to-speak.

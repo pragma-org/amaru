@@ -1,6 +1,6 @@
-use amaru_kernel::{sum_ex_units, ExUnits};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
 
-use crate::{protocol_parameters::ProtocolParameters, rules::RuleViolation};
+use crate::rules::RuleViolation;
 
 pub struct TooManyExUnits {
     pub provided: ExUnits,

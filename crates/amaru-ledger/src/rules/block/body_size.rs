@@ -1,6 +1,5 @@
-use crate::protocol_parameters::ProtocolParameters;
 use crate::rules::RuleViolation;
-use amaru_kernel::{cbor, MintedBlock};
+use amaru_kernel::{cbor, protocol_parameters::ProtocolParameters, MintedBlock};
 pub struct BlockBodySizeTooBig {
     pub supplied: usize,
     pub max: usize,
@@ -12,6 +11,8 @@ impl From<BlockBodySizeTooBig> for RuleViolation {
     }
 }
 
+//FIXME: We are re-serializing here, which is dangerous and should not be done.
+// We should instead work with the raw CBOR and esnure the calculations are the same as the Haskell implementation
 pub fn block_body_size_valid(
     block: &MintedBlock<'_>,
     protocol_params: &ProtocolParameters,

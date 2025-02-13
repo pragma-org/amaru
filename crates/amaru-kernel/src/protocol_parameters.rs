@@ -1,4 +1,4 @@
-use amaru_kernel::{Coin, Epoch, ExUnits, RationalNumber};
+use crate::{Coin, Epoch, ExUnits, RationalNumber};
 
 #[derive(Clone)]
 pub struct ProtocolParameters {
@@ -23,10 +23,10 @@ pub struct ProtocolParameters {
     pub ref_script_cost_multiplier: RationalNumber,
 
     pub max_epoch: Epoch,
-    pub a_0: RationalNumber,
-    pub n_opt: u32,
-    pub tau: RationalNumber,
-    pub rho: RationalNumber,
+    pub pool_influence: RationalNumber,
+    pub desired_pool_count: u32,
+    pub treasury_expansion_rate: RationalNumber,
+    pub monetary_expansion_rate: RationalNumber,
     pub collateral_percentage: u32,
     pub cost_models: CostModels,
 
@@ -55,25 +55,45 @@ pub struct CostModels {
 
 #[derive(Debug, Clone)]
 pub struct PoolThresholds {
-    pub q1: RationalNumber,
-    pub q2a: RationalNumber,
-    pub q2b: RationalNumber,
-    pub q4: RationalNumber,
-    pub q5e: RationalNumber,
+    // named `q1` in the spec
+    pub no_confidence: RationalNumber,
+    // named `q2a` in the spec
+    pub committee: RationalNumber,
+    // named `q2b` in the spec
+    pub committee_under_no_confidence: RationalNumber,
+    // named `q4` in the spec
+    pub hard_fork: RationalNumber,
+    // named `q5e` in the spec
+    pub security_group: RationalNumber,
 }
 
 #[derive(Debug, Clone)]
 pub struct DrepThresholds {
-    pub p1: RationalNumber,
-    pub p2a: RationalNumber,
-    pub p2b: RationalNumber,
-    pub p3: RationalNumber,
-    pub p4: RationalNumber,
-    pub p5a: RationalNumber,
-    pub p5b: RationalNumber,
-    pub p5c: RationalNumber,
-    pub p5d: RationalNumber,
-    pub p6: RationalNumber,
+    // named `p1` in the spec
+    pub no_confidence: RationalNumber,
+    // named `p2` in the spec
+    pub committee: RationalNumber,
+    // named `p2b` in the spec
+    pub committee_under_no_confidence: RationalNumber,
+    // named `p3` in the spec
+    pub constitution: RationalNumber,
+    // named `p4` in the spec
+    pub hard_fork: RationalNumber,
+    pub protocol_parameters: ProtocolParametersThresholds,
+    // named `p6` in the spec
+    pub treasury_withdrawal: RationalNumber,
+}
+
+#[derive(Debug, Clone)]
+pub struct ProtocolParametersThresholds {
+    // named `p5a` in the spec
+    pub network_group: RationalNumber,
+    // named `p5b` in the spec
+    pub economic_group: RationalNumber,
+    // named `p5c` in the spec
+    pub technical_group: RationalNumber,
+    // named `p5d` in the spec
+    pub governance_group: RationalNumber,
 }
 
 impl Default for ProtocolParameters {
@@ -120,16 +140,16 @@ impl Default for ProtocolParameters {
                 denominator: 10,
             }, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85)
             max_epoch: 18,
-            a_0: RationalNumber {
+            pool_influence: RationalNumber {
                 numerator: 3,
                 denominator: 10,
             },
-            n_opt: 500,
-            tau: RationalNumber {
+            desired_pool_count: 500,
+            treasury_expansion_rate: RationalNumber {
                 numerator: 2,
                 denominator: 10,
             },
-            rho: RationalNumber {
+            monetary_expansion_rate: RationalNumber {
                 numerator: 3,
                 denominator: 1000,
             },
@@ -188,65 +208,67 @@ impl Default for ProtocolParameters {
                 ],
             },
             pool_thresholds: PoolThresholds {
-                q1: RationalNumber {
+                no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                q2a: RationalNumber {
+                committee: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                q2b: RationalNumber {
+                committee_under_no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                q4: RationalNumber {
+                hard_fork: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                q5e: RationalNumber {
+                security_group: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
             },
             drep_thresholds: DrepThresholds {
-                p1: RationalNumber {
+                no_confidence: RationalNumber {
                     numerator: 51,
                     denominator: 100,
                 },
-                p2a: RationalNumber {
+                committee: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
-                p2b: RationalNumber {
+                committee_under_no_confidence: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },
-                p3: RationalNumber {
+                constitution: RationalNumber {
                     numerator: 6,
                     denominator: 10,
                 },
-                p4: RationalNumber {
+                hard_fork: RationalNumber {
                     numerator: 75,
                     denominator: 100,
                 },
-                p5a: RationalNumber {
-                    numerator: 6,
-                    denominator: 10,
+                protocol_parameters: ProtocolParametersThresholds {
+                    network_group: RationalNumber {
+                        numerator: 6,
+                        denominator: 10,
+                    },
+                    economic_group: RationalNumber {
+                        numerator: 67,
+                        denominator: 100,
+                    },
+                    technical_group: RationalNumber {
+                        numerator: 67,
+                        denominator: 100,
+                    },
+                    governance_group: RationalNumber {
+                        numerator: 75,
+                        denominator: 100,
+                    },
                 },
-                p5b: RationalNumber {
-                    numerator: 67,
-                    denominator: 100,
-                },
-                p5c: RationalNumber {
-                    numerator: 67,
-                    denominator: 100,
-                },
-                p5d: RationalNumber {
-                    numerator: 75,
-                    denominator: 100,
-                },
-                p6: RationalNumber {
+                treasury_withdrawal: RationalNumber {
                     numerator: 67,
                     denominator: 100,
                 },

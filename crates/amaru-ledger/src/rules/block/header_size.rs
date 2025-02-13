@@ -1,5 +1,5 @@
-use crate::protocol_parameters::ProtocolParameters;
 use crate::rules::RuleViolation;
+use amaru_kernel::protocol_parameters::ProtocolParameters;
 pub struct BlockHeaderSizeTooBig {
     pub supplied: usize,
     pub max: usize,

@@ -41,6 +41,8 @@ pub use pallas_primitives::{
     },
 };
 
+pub mod protocol_parameters;
+
 // Constants
 // ----------------------------------------------------------------------------
 

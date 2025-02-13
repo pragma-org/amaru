@@ -1,11 +1,10 @@
 use std::sync::Arc;
 
-use amaru_kernel::Point;
+use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
 use tracing::{trace_span, Span};
 
 use amaru_ledger::{
-    protocol_parameters::ProtocolParameters,
     rules,
     state::{self, BackwardError},
     store::Store,
