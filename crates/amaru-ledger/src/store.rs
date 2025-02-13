@@ -33,7 +33,7 @@ pub enum OpenErrorKind {
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
-    Internal(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
+    Internal(#[from] Box<dyn std::error::Error>),
     #[error("error sending work unit through output port")]
     Send,
     #[error("error opening the store")]
