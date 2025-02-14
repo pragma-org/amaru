@@ -13,12 +13,14 @@
 // limitations under the License.
 
 use amaru_consensus::{
-    chain_forward, consensus,
+    chain_forward,
     consensus::{
+        self,
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         header::{point_hash, ConwayHeader},
         store::{rocksdb::RocksDBStore, ChainStore},
     },
+    ConsensusError,
 };
 use amaru_kernel::Point;
 use amaru_ouroboros::protocol::{
@@ -92,7 +94,7 @@ pub fn bootstrap(
         .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
         .collect::<Vec<_>>();
     let chain_store = RocksDBStore::new(config.chain_dir.clone())?;
-    let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions);
+    let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions)?;
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = consensus::HeaderStage::new(
         peer_sessions,
@@ -138,7 +140,7 @@ fn make_chain_selector(
     tip: Point,
     chain_store: &impl ChainStore<ConwayHeader>,
     peers: &Vec<PeerSession>,
-) -> Arc<Mutex<ChainSelector<ConwayHeader>>> {
+) -> Result<Arc<Mutex<ChainSelector<ConwayHeader>>>, ConsensusError> {
     let mut builder = ChainSelectorBuilder::new();
 
     match chain_store.load_header(&point_hash(&tip)) {
@@ -150,5 +152,5 @@ fn make_chain_selector(
         builder.add_peer(&peer.peer);
     }
 
-    Arc::new(Mutex::new(builder.build()))
+    Ok(Arc::new(Mutex::new(builder.build()?)))
 }

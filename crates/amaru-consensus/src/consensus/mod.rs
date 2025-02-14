@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::header_validation::assert_header;
+use crate::{consensus::header_validation::assert_header, ConsensusError};
 use amaru_kernel::Point;
 use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::protocol::{peer, peer::*, PullEvent};
@@ -104,7 +104,8 @@ impl HeaderStage {
             let peer_session = self
                 .peer_sessions
                 .get(peer)
-                .expect("Unknown peer, bailing out");
+                .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))
+                .map_err(|_| WorkerError::Panic)?;
             let mut session = peer_session.peer_client.lock().await;
             let client = (*session).blockfetch();
             let new_point: pallas_network::miniprotocols::Point = match point.clone() {

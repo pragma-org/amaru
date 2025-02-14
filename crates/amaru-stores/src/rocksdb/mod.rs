@@ -18,6 +18,7 @@ use amaru_ledger::{
     rewards::Pots,
     store::{
         columns as scolumns, Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError,
+        TipErrorKind,
     },
 };
 use columns::*;
@@ -245,7 +246,7 @@ impl Store for RocksDB {
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| cbor::decode(&bytes))
             .transpose()
-            .expect("unable to decode database's tip")
+            .map_err(|err| StoreError::Tip(TipErrorKind::Undecodable(err)))?
             .unwrap_or_else(|| {
                 panic!("no database tip. Did you forget to 'import' a snapshot first?")
             }))
@@ -354,7 +355,9 @@ impl Store for RocksDB {
             if path.exists() {
                 // RocksDB error can't be created externally, so panic instead
                 // It might be better to come up with a global error type
-                fs::remove_dir_all(&path).expect("Unable to remove existing snapshot directory");
+                fs::remove_dir_all(&path).map_err(|_| {
+                    StoreError::Internal("Unable to remove existing snapshot directory".into())
+                })?;
             }
             checkpoint::Checkpoint::new(&self.db)
                 .map_err(|err| StoreError::Internal(err.into()))?

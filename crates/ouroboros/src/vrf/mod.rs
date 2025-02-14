@@ -110,6 +110,7 @@ impl From<&VrfPublicKeyBytes> for VrfPublicKey {
 }
 
 // Create a VrfProof from a slice
+#[allow(clippy::expect_used)]
 impl From<&VrfProofBytes> for VrfProof {
     fn from(slice: &VrfProofBytes) -> Self {
         VrfProof {

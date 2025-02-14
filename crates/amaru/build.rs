@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#[allow(clippy::expect_used)]
 fn main() {
     built::write_built_file().expect("Failed to acquire build-time information");
 }

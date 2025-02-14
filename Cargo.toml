@@ -87,26 +87,17 @@ future-incompatible = { level = "deny" }
 # * https://doc.rust-lang.org/clippy/lints.htwml
 #
 # Group lints
-#
+
 # pedantic = "warn"
 # restriction = "warn"
 # nursery = "warn"
 # cargo = "warn"
-#
+# others are enabled by default, see table here: https://doc.rust-lang.org/clippy/
+
 # Individual lints
+
 # All lints are detailed here: https://rust-lang.github.io/rust-clippy/master/index.html
 # panic = "warn"
 # unwrap_used = "warn"
-# expect_used = "warn"
 # allow-unwrap-in-tests = true
-
-[profile.dev.package]
-insta.opt-level = 3
-
-[profile.test.package]
-proptest.opt-level = 3
-
-[profile.release]
-# See https://doc.rust-lang.org/cargo/reference/profiles.html
-lto = true
-codegen-units = 1
+expect_used = "warn"
