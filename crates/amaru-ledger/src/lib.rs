@@ -35,5 +35,6 @@ pub enum BlockValidationResult {
 ///
 /// A set of additional primitives around iterators. Not Amaru-specific so-to-speak.
 pub mod rewards;
+pub mod rules;
 pub mod state;
 pub mod store;

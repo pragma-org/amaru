@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use amaru_kernel::{cbor, Hash, Hasher, MintedBlock, Point};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
-use tracing::{instrument, trace_span, Level, Span};
+use tracing::{trace_span, Span};
 
 use amaru_ledger::{
+    rules,
     state::{self, BackwardError},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
@@ -73,7 +74,9 @@ impl<S: Store> Stage<S> {
         )
         .entered();
 
-        let (block_header_hash, block) = parse_block(&raw_block[..]);
+        let (block_header_hash, block) =
+            rules::validate_block(&raw_block[..], ProtocolParameters::default())
+                .unwrap_or_else(|_| panic!("Failed to valdiate block"));
 
         span_forward.record("header.height", block.header.header_body.block_number);
         span_forward.record("header.slot", block.header.header_body.slot);
@@ -142,12 +145,4 @@ impl<S: Store> gasket::framework::Worker<Stage<S>> for Worker {
 
         Ok(stage.downstream.send(result.into()).await.or_panic()?)
     }
-}
-
-#[instrument(level = Level::TRACE, skip(bytes), fields(block.size = bytes.len()))]
-fn parse_block(bytes: &[u8]) -> (Hash<32>, MintedBlock<'_>) {
-    let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)
-        .unwrap_or_else(|_| panic!("failed to decode Conway block: {:?}", hex::encode(bytes)));
-
-    (Hasher::<256>::hash(block.header.raw_cbor()), block)
 }
