@@ -1,0 +1,16 @@
+[package]
+name = "amaru-mempool"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+pallas-primitives.workspace = true
+
+amaru-ledger = { path = "../amaru-ledger" }
