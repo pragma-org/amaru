@@ -121,6 +121,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-mempool"
+version = "0.1.0"
+dependencies = [
+ "amaru-ledger",
+ "hex",
+ "minicbor",
+ "pallas-primitives",
+ "proptest",
+]
+
+[[package]]
 name = "amaru-ouroboros"
 version = "0.1.0"
 dependencies = [
