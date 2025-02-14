@@ -130,6 +130,7 @@ impl RocksDB {
     }
 }
 
+#[allow(clippy::panic)]
 fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::Decode<'d, ()>>(
     db: &OptimisticTransactionDB,
     prefix: [u8; PREFIX_LEN],
@@ -145,6 +146,7 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 }
 
 impl Snapshot for RocksDB {
+    #[allow(clippy::panic)]
     fn most_recent_snapshot(&'_ self) -> Epoch {
         self.snapshots
             .last()
@@ -194,6 +196,7 @@ impl Snapshot for RocksDB {
 }
 
 /// An generic column iterator, provided that rows from the column are (de)serialisable.
+#[allow(clippy::panic)]
 fn with_prefix_iterator<
     K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
     V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
@@ -240,16 +243,13 @@ impl Store for RocksDB {
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
-        Ok(self
-            .db
+        self.db
             .get(KEY_TIP)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| cbor::decode(&bytes))
             .transpose()
             .map_err(|err| StoreError::Tip(TipErrorKind::Undecodable(err)))?
-            .unwrap_or_else(|| {
-                panic!("no database tip. Did you forget to 'import' a snapshot first?")
-            }))
+            .ok_or(StoreError::Tip(TipErrorKind::Missing))
     }
 
     fn save(
@@ -274,6 +274,7 @@ impl Store for RocksDB {
             .get(KEY_TIP)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| {
+                #[allow(clippy::panic)]
                 cbor::decode(&bytes).unwrap_or_else(|e| {
                     panic!(
                         "unable to decode database tip ({}): {e:?}",

@@ -97,7 +97,9 @@ future-incompatible = { level = "deny" }
 # Individual lints
 
 # All lints are detailed here: https://rust-lang.github.io/rust-clippy/master/index.html
-# panic = "warn"
+panic = "warn"
 # unwrap_used = "warn"
 # allow-unwrap-in-tests = true
 expect_used = "warn"
+# unreachable = "warn"
+# todo = "warn"

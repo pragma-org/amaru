@@ -203,6 +203,7 @@ impl HeaderStage {
                 self.block_count.inc(1);
                 self.track_validation_tip(point);
             }
+            #[allow(clippy::panic)]
             chain_selection::ChainSelection::RollbackTo(_) => {
                 panic!("RollbackTo should never happen on a RollForward")
             }
@@ -239,6 +240,7 @@ impl HeaderStage {
             .select_rollback(peer, point_hash(rollback));
 
         match result {
+            #[allow(clippy::panic)]
             chain_selection::ChainSelection::NewTip(_) => {
                 panic!("cannot have a new tip on a rollback")
             }

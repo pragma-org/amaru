@@ -68,7 +68,7 @@ where
     Self: 'a,
 {
     pub fn as_iter_borrow(&mut self) -> IterBorrow<'a, '_, K, Option<V>> {
-        Box::new(self)
+        Box::new(self.filter_map(Result::ok))
     }
 }
 
@@ -81,15 +81,12 @@ impl<
 where
     Self: 'a,
 {
-    type Item = (K, Box<dyn BorrowMut<Option<V>> + 'a>);
+    type Item = Result<(K, Box<dyn BorrowMut<Option<V>> + 'a>), cbor::decode::Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.inner.next().map(|(k, v)| {
-            let key: K = cbor::decode(&k[PREFIX..])
-                .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&k)));
-
-            let original: V = cbor::decode(&v)
-                .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&v)));
+            let key: K = cbor::decode(&k[PREFIX..])?;
+            let original: V = cbor::decode(&v)?;
 
             // NOTE: .clone() is cheap, because `self.updates` is an Rc
             let updates = self.updates.clone();
@@ -97,11 +94,11 @@ where
             let on_update =
                 move |new: Option<V>| updates.as_ref().borrow_mut().push((k.to_vec(), new));
 
-            (
+            Ok((
                 key,
                 Box::new(BorrowableProxy::new(Some(original), on_update))
                     as Box<dyn BorrowMut<Option<V>> + 'a>,
-            )
+            ))
         })
     }
 }

@@ -77,8 +77,7 @@ pub fn bootstrap(
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     // FIXME: Take from config / command args
-    let store = RocksDB::new(&config.ledger_dir)
-        .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
+    let store = RocksDB::new(&config.ledger_dir)?;
     let (mut ledger, tip) = Stage::new(store);
 
     let peer_sessions: Vec<PeerSession> = clients
@@ -143,6 +142,7 @@ fn make_chain_selector(
 ) -> Result<Arc<Mutex<ChainSelector<ConwayHeader>>>, ConsensusError> {
     let mut builder = ChainSelectorBuilder::new();
 
+    #[allow(clippy::panic)]
     match chain_store.load_header(&point_hash(&tip)) {
         None => panic!("Tip {:?} not found in chain store", tip),
         Some(header) => builder.set_tip(&header),

@@ -76,6 +76,7 @@ pub fn apply(
     state
         .withdrawals
         .extend(withdrawals.iter().map(|(account, _)| {
+            #[allow(clippy::panic)]
             reward_account_to_stake_credential(account).unwrap_or_else(|| {
                 panic!("invalid reward account found in transaction ({transaction_id}): {account}")
             })

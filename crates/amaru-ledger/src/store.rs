@@ -35,6 +35,8 @@ pub enum OpenErrorKind {
 pub enum TipErrorKind {
     #[error("unable to decode database's tip")]
     Undecodable(#[from] cbor::decode::Error),
+    #[error("no database tip. Did you forget to 'import' a snapshot first?")]
+    Missing,
 }
 
 #[derive(Error, Debug)]

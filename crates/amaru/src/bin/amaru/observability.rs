@@ -57,6 +57,7 @@ impl TracingSubscriber<Registry> {
         Self::Registry(tracing_subscriber::registry())
     }
 
+    #[allow(clippy::panic)]
     pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
@@ -66,6 +67,7 @@ impl TracingSubscriber<Registry> {
         }
     }
 
+    #[allow(clippy::panic)]
     pub fn with_json<F, G>(&mut self, layer_json: F, layer_both: G)
     where
         F: FnOnce() -> JsonFilter<Registry>,
@@ -176,6 +178,7 @@ impl Default for OpenTelemetryHandle {
     }
 }
 
+#[allow(clippy::panic)]
 pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> OpenTelemetryHandle {
     use opentelemetry::{trace::TracerProvider as _, KeyValue};
     use opentelemetry_sdk::{metrics::Temporality, Resource};
@@ -254,7 +257,7 @@ fn teardown_open_telemetry(
 // -----------------------------------------------------------------------------
 // ENV FILTER
 // -----------------------------------------------------------------------------
-
+#[allow(clippy::panic)]
 fn default_filter(var: &str, default: &str) -> EnvFilter {
     // NOTE: We filter all logs using 'none' to avoid dependencies polluting our traces & logs,
     // which is a not so nice side-effects of the tracing library.

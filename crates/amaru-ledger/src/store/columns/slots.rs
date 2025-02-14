@@ -35,6 +35,7 @@ impl Row {
         Self { slot_leader }
     }
 
+    #[allow(clippy::panic)]
     pub fn unsafe_decode(bytes: Vec<u8>) -> Self {
         cbor::decode(&bytes).unwrap_or_else(|e| {
             panic!(

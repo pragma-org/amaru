@@ -23,6 +23,7 @@ use test_case::test_case;
 
 pub static LEDGER_DB: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("../../ledger.db"));
 
+#[allow(clippy::panic)]
 fn open_db(epoch: Epoch) -> RocksDB {
     RocksDB::new(&LEDGER_DB)
         .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch))

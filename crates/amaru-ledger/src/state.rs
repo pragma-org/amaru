@@ -102,9 +102,11 @@ impl<S: Store> State<S> {
         let latest_epoch = db.most_recent_snapshot();
 
         let mut stake_distributions = VecDeque::new();
+        #[allow(clippy::panic)]
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
             stake_distributions.push_front(recover_stake_distribution(&*db, epoch).unwrap_or_else(
                 |e| {
+                    // TODO deal with error
                     panic!(
                         "unable to get stake distribution for (epoch={:?}): {e:?}",
                         epoch
@@ -146,6 +148,7 @@ impl<S: Store> State<S> {
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
     /// applied to the ledger.
+    #[allow(clippy::panic)]
     pub fn tip(&'_ self) -> Cow<'_, Point> {
         if let Some(st) = self.volatile.view_back() {
             return Cow::Borrowed(&st.anchor.0);
@@ -247,6 +250,7 @@ impl<S: Store> State<S> {
                     .ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
                 let epoch = stake_distribution.epoch + 2;
                 self.rewards_summary = Some(
+                    #[allow(clippy::panic)]
                     RewardsSummary::new(
                         &db.for_epoch(epoch).unwrap_or_else(|e| {
                             panic!(
@@ -288,6 +292,7 @@ impl<S: Store> State<S> {
         })
     }
 
+    #[allow(clippy::panic)]
     fn resolve_inputs<'a>(
         &'a self,
         ongoing_state: &VolatileState,
@@ -364,6 +369,7 @@ impl<S: Store> State<S> {
     }
 }
 
+#[allow(clippy::panic)]
 fn recover_stake_distribution(
     db: &impl Store,
     epoch: Epoch,
