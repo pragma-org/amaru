@@ -17,9 +17,9 @@ serde.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 
-iter-borrow = { path = "../iter-borrow" }
-amaru-kernel = { path = "../amaru-kernel" }
-amaru-ouroboros-traits = { path = "../ouroboros-traits" }
+iter-borrow.workspace = true
+amaru-kernel.workspace = true
+amaru-ouroboros-traits.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

@@ -11,4 +11,4 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-amaru-kernel = { path = "../amaru-kernel" }
+amaru-kernel.workspace = true

@@ -50,6 +50,14 @@ tracing = "0.1.40"
 tracing-opentelemetry = "0.28.0"
 tracing-subscriber = "0.3.18"
 
+amaru-consensus = { path = "crates/amaru-consensus" }
+amaru-kernel = { path = "crates/amaru-kernel" }
+amaru-ledger = { path = "crates/amaru-ledger" }
+amaru-ouroboros = { path = "crates/ouroboros" }
+amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
+amaru-stores = { path = "crates/amaru-stores" }
+iter-borrow = { path = "crates/iter-borrow" }
+
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }
 kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
