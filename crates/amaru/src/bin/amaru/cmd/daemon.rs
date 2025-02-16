@@ -70,7 +70,7 @@ pub async fn run(
 
     let sync = amaru::sync::bootstrap(config, clients)?;
 
-    let exit = crate::exit::hook_exit_token();
+    let exit = amaru::exit::hook_exit_token();
 
     run_pipeline(gasket::daemon::Daemon::new(sync), exit.clone()).await;
 
