@@ -54,6 +54,7 @@ impl<S: Store> Stage<S> {
         )
     }
 
+    #[allow(clippy::panic)]
     pub async fn roll_forward(
         &mut self,
         point: Point,

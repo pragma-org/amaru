@@ -11,6 +11,7 @@ impl From<BlockHeaderSizeTooBig> for RuleViolation {
     }
 }
 
+#[allow(clippy::panic)]
 pub fn block_header_size_valid(
     header: &[u8],
     protocol_params: &ProtocolParameters,

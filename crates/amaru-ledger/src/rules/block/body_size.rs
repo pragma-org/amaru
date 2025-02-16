@@ -13,6 +13,7 @@ impl From<BlockBodySizeTooBig> for RuleViolation {
 
 // This validation checks that the purported block size in the header is within the bounds.
 // The logic that confirms the purported block size matches the actual block size should take place during serialization
+#[allow(clippy::panic)]
 pub fn block_body_size_valid(
     block_header: &HeaderBody,
     protocol_params: &ProtocolParameters,
