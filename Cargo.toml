@@ -85,7 +85,7 @@ future-incompatible = { level = "deny" }
 [workspace.lints.clippy]
 # Enable clippy lints for all members
 # * https://doc.rust-lang.org/clippy/lints.htwml
-#
+
 # Group lints
 
 # pedantic = "warn"
@@ -97,9 +97,9 @@ future-incompatible = { level = "deny" }
 # Individual lints
 
 # All lints are detailed here: https://rust-lang.github.io/rust-clippy/master/index.html
-panic = "warn"
-# unwrap_used = "warn"
 # allow-unwrap-in-tests = true
-expect_used = "warn"
 # unreachable = "warn"
-# todo = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unwrap_used = "warn"

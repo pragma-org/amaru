@@ -47,6 +47,7 @@ fn open_db(epoch: Epoch) -> RocksDB {
 #[test_case(178)]
 #[test_case(179)]
 #[ignore]
+#[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
     let db = open_db(epoch);
 

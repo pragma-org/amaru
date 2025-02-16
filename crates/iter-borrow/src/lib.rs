@@ -140,6 +140,7 @@ pub mod borrowable_proxy {
     where
         F: FnOnce(T),
     {
+        #[allow(clippy::unwrap_used)]
         fn borrow(&self) -> &T {
             self.item.as_ref().unwrap()
         }
@@ -150,6 +151,7 @@ pub mod borrowable_proxy {
     where
         F: FnOnce(T),
     {
+        #[allow(clippy::unwrap_used)]
         fn borrow_mut(&mut self) -> &mut T {
             self.borrowed = true;
             self.item.as_mut().unwrap()

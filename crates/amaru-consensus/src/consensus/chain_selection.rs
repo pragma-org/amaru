@@ -134,6 +134,7 @@ impl<H: Header + Clone> ChainSelectorBuilder<H> {
         self
     }
 
+    #[allow(clippy::unwrap_used)]
     pub fn build(&self) -> Result<ChainSelector<H>, ConsensusError> {
         Ok(ChainSelector {
             tip: self.tip.clone().ok_or(ConsensusError::MissingTip)?,
@@ -169,6 +170,7 @@ where
                  fields(peer = peer.name,
                         header.slot = header.slot(),
                         header.hash = %header.hash()))]
+    #[allow(clippy::unwrap_used)]
     pub fn select_roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
 
@@ -212,6 +214,7 @@ where
     /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
     /// tip of the chain.
     #[instrument(level = Level::TRACE, skip(self), fields(peer = peer.name, %point))]
+    #[allow(clippy::unwrap_used)]
     pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
         self.rollback_fragment(peer, point);
 
@@ -248,6 +251,7 @@ where
         best
     }
 
+    #[allow(clippy::unwrap_used)]
     fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);

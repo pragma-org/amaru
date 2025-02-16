@@ -131,6 +131,7 @@ impl RocksDB {
 }
 
 #[allow(clippy::panic)]
+#[allow(clippy::unwrap_used)]
 fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::Decode<'d, ()>>(
     db: &OptimisticTransactionDB,
     prefix: [u8; PREFIX_LEN],

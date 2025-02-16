@@ -92,6 +92,7 @@ async fn import_all(
     Ok(())
 }
 
+#[allow(clippy::unwrap_used)]
 async fn import_one(
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
@@ -318,9 +319,9 @@ fn import_utxo(
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(what = "utxo_entries", size = utxo.len());
 
-    let progress_delete = ProgressBar::no_length().with_style(
-        ProgressStyle::with_template("  Pruning UTxO entries {spinner} {elapsed}").unwrap(),
-    );
+    let progress_delete = ProgressBar::no_length().with_style(ProgressStyle::with_template(
+        "  Pruning UTxO entries {spinner} {elapsed}",
+    )?);
 
     db.with_utxo(|iterator| {
         for (_, mut handle) in iterator {
@@ -331,9 +332,9 @@ fn import_utxo(
 
     progress_delete.finish_and_clear();
 
-    let progress = ProgressBar::new(utxo.len() as u64).with_style(
-        ProgressStyle::with_template("  UTxO entries {bar:70} {pos:>7}/{len:7}").unwrap(),
-    );
+    let progress = ProgressBar::new(utxo.len() as u64).with_style(ProgressStyle::with_template(
+        "  UTxO entries {bar:70} {pos:>7}/{len:7}",
+    )?);
 
     while !utxo.is_empty() {
         let n = std::cmp::min(BATCH_SIZE, utxo.len());
@@ -476,8 +477,9 @@ fn import_accounts(
 
     info!(what = "credentials", size = credentials.len());
 
-    let progress = ProgressBar::new(credentials.len() as u64)
-        .with_style(ProgressStyle::with_template("  Accounts {bar:70} {pos:>7}/{len:7}").unwrap());
+    let progress = ProgressBar::new(credentials.len() as u64).with_style(
+        ProgressStyle::with_template("  Accounts {bar:70} {pos:>7}/{len:7}")?,
+    );
 
     while !credentials.is_empty() {
         let n = std::cmp::min(BATCH_SIZE, credentials.len());

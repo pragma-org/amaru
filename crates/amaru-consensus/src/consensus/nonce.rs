@@ -20,6 +20,7 @@ use std::collections::HashMap;
 // TODO: Move to pallas_primitives
 pub type Nonce = Hash<32>;
 
+#[allow(clippy::unwrap_used)]
 pub fn from_csv(csv: &str) -> HashMap<Epoch, Nonce> {
     let mut epoch_to_nonce = HashMap::new();
     for line in csv.lines() {
