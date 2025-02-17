@@ -69,3 +69,8 @@ insta.opt-level = 3
 
 [profile.test.package]
 proptest.opt-level = 3
+
+[profile.release]
+# See https://doc.rust-lang.org/cargo/reference/profiles.html
+lto = true
+codegen-units = 1
