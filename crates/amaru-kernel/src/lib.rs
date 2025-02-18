@@ -24,6 +24,7 @@ While elements are being contributed upstream, they might transiently live in th
 use std::sync::LazyLock;
 
 use num::{rational::Ratio, BigUint};
+use pallas_addresses::Error;
 use pallas_addresses::*;
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
@@ -237,10 +238,8 @@ impl serde::Serialize for PoolParams {
             format!("{}/{}", r.numerator, r.denominator)
         }
 
-        fn as_bech32_addr(bytes: &[u8]) -> String {
-            Address::from_bytes(bytes)
-                .and_then(|addr| addr.to_bech32())
-                .unwrap_or_else(|e| panic!("failed to encode address to bech32: {e:?}"))
+        fn as_bech32_addr(bytes: &[u8]) -> Result<String, Error> {
+            Address::from_bytes(bytes).and_then(|addr| addr.to_bech32())
         }
 
         struct WrapRelay<'a>(&'a Relay);
@@ -290,7 +289,10 @@ impl serde::Serialize for PoolParams {
         s.serialize_field("pledge", &as_lovelace_map(self.pledge))?;
         s.serialize_field("cost", &as_lovelace_map(self.cost))?;
         s.serialize_field("margin", &as_string_ratio(&self.margin))?;
-        s.serialize_field("rewardAccount", &as_bech32_addr(&self.reward_account))?;
+        s.serialize_field(
+            "rewardAccount",
+            &as_bech32_addr(&self.reward_account).map_err(serde::ser::Error::custom)?,
+        )?;
         s.serialize_field(
             "owners",
             &self.owners.iter().map(hex::encode).collect::<Vec<String>>(),
@@ -313,9 +315,9 @@ impl serde::Serialize for PoolParams {
 // Helpers
 // ----------------------------------------------------------------------------
 
-pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, bech32::EncodeError> {
-    let hrp = bech32::Hrp::parse(hrp).unwrap_or_else(|e| panic!("invalid HRP: {e:?}"));
-    bech32::encode::<bech32::Bech32>(hrp, payload)
+pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
+    let hrp = bech32::Hrp::parse(hrp)?;
+    Ok(bech32::encode::<bech32::Bech32>(hrp, payload)?)
 }
 
 /// Calculate the epoch number corresponding to a given slot on the PreProd network.
@@ -355,14 +357,16 @@ pub fn output_lovelace(output: &TransactionOutput) -> Lovelace {
 }
 
 /// TODO: See 'output_lovelace', same remark applies.
-pub fn output_stake_credential(output: &TransactionOutput) -> Option<StakeCredential> {
+pub fn output_stake_credential(
+    output: &TransactionOutput,
+) -> Result<Option<StakeCredential>, Error> {
     let address = Address::from_bytes(match output {
         TransactionOutput::Legacy(legacy) => &legacy.address[..],
         TransactionOutput::PostAlonzo(modern) => &modern.address[..],
-    })
-    .unwrap_or_else(|_| panic!("unable to deserialise address from output: {output:#?}"));
+    })?;
+    //"unable to deserialise address from output: {output:#?}"
 
-    match address {
+    Ok(match address {
         Address::Shelley(shelley) => match shelley.delegation() {
             ShelleyDelegationPart::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
             ShelleyDelegationPart::Script(script) => Some(StakeCredential::ScriptHash(*script)),
@@ -370,7 +374,7 @@ pub fn output_stake_credential(output: &TransactionOutput) -> Option<StakeCreden
         },
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
-    }
+    })
 }
 
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,
@@ -388,6 +392,7 @@ pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<Sta
 
 /// An 'unsafe' version of `reward_account_to_stake_credential` that panics when the given
 /// RewardAccount isn't a `StakeCredential`.
+#[allow(clippy::panic)]
 pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))

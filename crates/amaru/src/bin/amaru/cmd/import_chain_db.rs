@@ -88,7 +88,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         peer_client,
     };
 
-    let point = parse_point(args.starting_point.as_str(), Error::MalformedPoint).unwrap();
+    let point = parse_point(args.starting_point.as_str(), Error::MalformedPoint)?;
 
     let mut pull = sync::pull::Stage::new(peer_session.clone(), vec![point.clone()]);
 
@@ -158,6 +158,7 @@ async fn await_for_next_block(
     }
 }
 
+#[allow(clippy::unwrap_used)]
 fn handle_response(
     next: NextResponse<HeaderContent>,
     db: &mut RocksDBStore,
@@ -189,6 +190,7 @@ fn handle_response(
                 Ok(Continue)
             }
         }
+        #[allow(clippy::unwrap_used)]
         NextResponse::RollBackward(point, tip) => {
             info!(?point, ?tip, "roll_backward");
             let tip_slot = tip.0.slot_or_default();

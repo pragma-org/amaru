@@ -22,6 +22,7 @@ use tracing::trace_span;
 pub const EVENT_TARGET: &str = "amaru::ouroboros::header_validation";
 
 /// The certified natural max value represents 2^256 in praos consensus
+#[allow(clippy::expect_used)]
 static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
     FixedDecimal::from_str(
         "1157920892373161954235709850086879078532699846656405640394575840079131296399360000000000000000000000000000000000",

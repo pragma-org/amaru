@@ -74,13 +74,33 @@ test-case = "3.3.1"
 # build-dependencies
 built = "0.7.1"
 
-[profile.dev.package]
-insta.opt-level = 3
+[workspace.lints.rust]
+rust-2018-idioms = "warn"
+rust-2018-compatibility = "warn"
+rust-2021-compatibility = "warn"
+#rust-2024-compatibility = "warn"
+nonstandard-style = { level = "deny" }
+future-incompatible = { level = "deny" }
 
-[profile.test.package]
-proptest.opt-level = 3
+[workspace.lints.clippy]
+# Enable clippy lints for all members
+# * https://doc.rust-lang.org/clippy/lints.htwml
 
-[profile.release]
-# See https://doc.rust-lang.org/cargo/reference/profiles.html
-lto = true
-codegen-units = 1
+
+# Group lints
+
+# pedantic = "warn"
+# restriction = "warn"
+# nursery = "warn"
+# cargo = "warn"
+# others are enabled by default, see table here: https://doc.rust-lang.org/clippy/
+
+# Individual lints
+
+# All lints are detailed here: https://rust-lang.github.io/rust-clippy/master/index.html
+# allow-unwrap-in-tests = true
+# unreachable = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "warn"
+unwrap_used = "warn"

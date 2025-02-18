@@ -13,12 +13,14 @@
 // limitations under the License.
 
 use amaru_consensus::{
-    chain_forward, consensus,
+    chain_forward,
     consensus::{
+        self,
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         header::{point_hash, ConwayHeader},
         store::{rocksdb::RocksDBStore, ChainStore},
     },
+    ConsensusError,
 };
 use amaru_kernel::Point;
 use amaru_ouroboros::protocol::{
@@ -75,8 +77,7 @@ pub fn bootstrap(
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     // FIXME: Take from config / command args
-    let store = RocksDB::new(&config.ledger_dir)
-        .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
+    let store = RocksDB::new(&config.ledger_dir)?;
     let (mut ledger, tip) = Stage::new(store);
 
     let peer_sessions: Vec<PeerSession> = clients
@@ -92,7 +93,7 @@ pub fn bootstrap(
         .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
         .collect::<Vec<_>>();
     let chain_store = RocksDBStore::new(config.chain_dir.clone())?;
-    let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions);
+    let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions)?;
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = consensus::HeaderStage::new(
         peer_sessions,
@@ -138,9 +139,10 @@ fn make_chain_selector(
     tip: Point,
     chain_store: &impl ChainStore<ConwayHeader>,
     peers: &Vec<PeerSession>,
-) -> Arc<Mutex<ChainSelector<ConwayHeader>>> {
+) -> Result<Arc<Mutex<ChainSelector<ConwayHeader>>>, ConsensusError> {
     let mut builder = ChainSelectorBuilder::new();
 
+    #[allow(clippy::panic)]
     match chain_store.load_header(&point_hash(&tip)) {
         None => panic!("Tip {:?} not found in chain store", tip),
         Some(header) => builder.set_tip(&header),
@@ -150,5 +152,5 @@ fn make_chain_selector(
         builder.add_peer(&peer.peer);
     }
 
-    Arc::new(Mutex::new(builder.build()))
+    Ok(Arc::new(Mutex::new(builder.build()?)))
 }

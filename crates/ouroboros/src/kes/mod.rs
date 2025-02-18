@@ -33,7 +33,7 @@ pub struct KesSecretKey<'a> {
 
 impl KesSecretKey<'_> {
     /// Create a new KES secret key
-    pub fn from_bytes(sk_bytes: &mut Vec<u8>) -> Result<KesSecretKey, Error> {
+    pub fn from_bytes(sk_bytes: &mut Vec<u8>) -> Result<KesSecretKey<'_>, Error> {
         // TODO: extend() could potentially re-allocate memory to a new location and copy the sk_bytes.
         // This would leave the original memory containing the secret key without being wiped.
         sk_bytes.extend([0u8; 4]); // default to period = 0

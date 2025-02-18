@@ -166,6 +166,7 @@ impl Row {
         )
     }
 
+    #[allow(clippy::panic)]
     pub fn extend(mut bytes: Vec<u8>, future_params: (Option<PoolParams>, Epoch)) -> Vec<u8> {
         let tail = bytes.split_off(bytes.len() - 1);
         assert_eq!(tail, vec![0xFF], "invalid pool tail");
@@ -174,6 +175,7 @@ impl Row {
         [bytes, tail].concat()
     }
 
+    #[allow(clippy::panic)]
     pub fn unsafe_decode(bytes: Vec<u8>) -> Self {
         cbor::decode(&bytes).unwrap_or_else(|e| {
             panic!(

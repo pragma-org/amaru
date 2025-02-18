@@ -166,12 +166,13 @@ impl StakeDistribution {
             .collect::<BTreeMap<StakeCredential, AccountState>>();
 
         db.iter_utxos()?.for_each(|(_, output)| {
-            if let Some(credential) = output_stake_credential(&output) {
+            if let Ok(Some(credential)) = output_stake_credential(&output) {
                 let value = output_lovelace(&output);
                 accounts
                     .entry(credential)
                     .and_modify(|account| account.lovelace += value);
             }
+            // TODO deal with errors
         });
 
         let mut pools = db
@@ -798,6 +799,7 @@ impl RewardsSummary {
 
 // -------------------------------------------------------------------- Internal
 
+#[allow(clippy::panic)]
 fn unsafe_encode_pool_id(pool_id: &[u8]) -> String {
     encode_bech32("pool", pool_id)
         .unwrap_or_else(|e| panic!("unable to encode pool id ({pool_id:?}) to bech32: {e:?}"))

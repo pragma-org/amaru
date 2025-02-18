@@ -75,6 +75,7 @@ impl Stage {
             intersection.slot = self.intersection.last().unwrap().slot_or_default(),
         ),
     )]
+    #[allow(clippy::unwrap_used)]
     pub async fn find_intersection(&self) -> Result<(), WorkerError> {
         let mut peer_client = self.peer_session.peer_client.lock().await;
         let client = (*peer_client).chainsync();

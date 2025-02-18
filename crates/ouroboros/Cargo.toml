@@ -1,3 +1,5 @@
+lints.workspace = true
+
 [package]
 name = "amaru-ouroboros"
 version.workspace = true

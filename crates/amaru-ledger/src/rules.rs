@@ -33,7 +33,7 @@ impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
 pub fn validate_block(
     raw_block: &[u8],
     protocol_params: ProtocolParameters,
-) -> Result<(Hash<32>, MintedBlock), BlockValidationError> {
+) -> Result<(Hash<32>, MintedBlock<'_>), BlockValidationError> {
     let (block_header_hash, minted_block) = parse_block(raw_block)?;
     let block: Block = minted_block.clone().into();
 

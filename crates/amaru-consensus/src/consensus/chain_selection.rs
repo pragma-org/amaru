@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::ConsensusError;
+
 use super::{header::Header, peer::Peer, Point};
 use pallas_crypto::hash::Hash;
 use std::{collections::HashMap, fmt::Debug};
@@ -132,12 +134,10 @@ impl<H: Header + Clone> ChainSelectorBuilder<H> {
         self
     }
 
-    pub fn build(&self) -> ChainSelector<H> {
-        ChainSelector {
-            tip: self
-                .tip
-                .clone()
-                .expect("cannot build a chain selector without a tip"),
+    #[allow(clippy::unwrap_used)]
+    pub fn build(&self) -> Result<ChainSelector<H>, ConsensusError> {
+        Ok(ChainSelector {
+            tip: self.tip.clone().ok_or(ConsensusError::MissingTip)?,
             peers_chains: self
                 .peers
                 .iter()
@@ -148,7 +148,7 @@ impl<H: Header + Clone> ChainSelectorBuilder<H> {
                     )
                 })
                 .collect(),
-        }
+        })
     }
 }
 
@@ -170,6 +170,7 @@ where
                  fields(peer = peer.name,
                         header.slot = header.slot(),
                         header.hash = %header.hash()))]
+    #[allow(clippy::unwrap_used)]
     pub fn select_roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
 
@@ -213,6 +214,7 @@ where
     /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
     /// tip of the chain.
     #[instrument(level = Level::TRACE, skip(self), fields(peer = peer.name, %point))]
+    #[allow(clippy::unwrap_used)]
     pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
         self.rollback_fragment(peer, point);
 
@@ -249,6 +251,7 @@ where
         best
     }
 
+    #[allow(clippy::unwrap_used)]
     fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);
@@ -265,7 +268,7 @@ mod tests {
     #[test]
     fn extends_the_chain_with_single_header_from_peer() {
         let alice = Peer::new("alice");
-        let mut chain_selector = ChainSelectorBuilder::new()
+        let chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
             .set_tip(&TestHeader::Genesis)
             .build();
@@ -277,7 +280,7 @@ mod tests {
             body_hash: random_bytes(32).as_slice().into(),
         };
 
-        let result = chain_selector.select_roll_forward(&alice, header);
+        let result = chain_selector.unwrap().select_roll_forward(&alice, header);
 
         assert_eq!(NewTip(header), result);
     }
@@ -288,7 +291,8 @@ mod tests {
         let mut chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
             .set_tip(&TestHeader::Genesis)
-            .build();
+            .build()
+            .unwrap();
 
         let header = TestHeader::TestHeader {
             block_number: 1,
@@ -312,12 +316,14 @@ mod tests {
     #[test]
     fn dont_change_when_forward_with_genesis_block() {
         let alice = Peer::new("alice");
-        let mut chain_selector = ChainSelectorBuilder::new()
+        let chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
             .set_tip(&TestHeader::Genesis)
             .build();
 
-        let result = chain_selector.select_roll_forward(&alice, TestHeader::Genesis);
+        let result = chain_selector
+            .unwrap()
+            .select_roll_forward(&alice, TestHeader::Genesis);
 
         assert_eq!(NoChange, result);
     }
@@ -331,7 +337,8 @@ mod tests {
             .add_peer(&alice)
             .add_peer(&bob)
             .set_tip(&TestHeader::Genesis)
-            .build();
+            .build()
+            .unwrap();
 
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
@@ -364,7 +371,8 @@ mod tests {
             .add_peer(&alice)
             .add_peer(&bob)
             .set_tip(&TestHeader::Genesis)
-            .build();
+            .build()
+            .unwrap();
 
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);
@@ -387,7 +395,8 @@ mod tests {
         let mut chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
             .set_tip(&TestHeader::Genesis)
-            .build();
+            .build()
+            .unwrap();
 
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
 
@@ -410,7 +419,8 @@ mod tests {
         let mut chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
             .set_tip(&TestHeader::Genesis)
-            .build();
+            .build()
+            .unwrap();
 
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 5);
 
@@ -441,7 +451,8 @@ mod tests {
             .add_peer(&alice)
             .add_peer(&bob)
             .set_tip(&TestHeader::Genesis)
-            .build();
+            .build()
+            .unwrap();
 
         let chain1 = generate_headers_anchored_at(TestHeader::Genesis, 6);
         let chain2 = generate_headers_anchored_at(TestHeader::Genesis, 6);

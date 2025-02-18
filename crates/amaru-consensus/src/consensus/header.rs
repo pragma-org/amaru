@@ -69,6 +69,7 @@ impl Header for ConwayHeader {
         self.header_body.block_number
     }
 
+    #[allow(clippy::panic)]
     fn to_cbor(&self) -> Vec<u8> {
         let mut buffer = Vec::new();
         minicbor::encode(self, &mut buffer)
@@ -76,6 +77,7 @@ impl Header for ConwayHeader {
         buffer
     }
 
+    #[allow(clippy::panic)]
     fn from_cbor(bytes: &[u8]) -> Option<ConwayHeader> {
         minicbor::decode(bytes)
             .map_err(|e| {

@@ -21,6 +21,7 @@ use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
 /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x75, 0x74, 0x78, 0x6f];
 
+#[allow(clippy::panic)]
 pub fn get<T: ThreadMode>(
     db: &OptimisticTransactionDB<T>,
     key: &Key,

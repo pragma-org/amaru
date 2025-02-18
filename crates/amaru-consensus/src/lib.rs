@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+use amaru_ouroboros::protocol::peer::Peer;
+use thiserror::Error;
+
 /// Consensus interface
 ///
 /// The consensus interface is responsible for validating block headers.
@@ -19,3 +22,11 @@ pub mod consensus;
 
 /// Chain forward stage
 pub mod chain_forward;
+
+#[derive(Error, Debug)]
+pub enum ConsensusError {
+    #[error("cannot build a chain selector without a tip")]
+    MissingTip,
+    #[error("Unknown peer {0:?}, bailing out")]
+    UnknownPeer(Peer),
+}

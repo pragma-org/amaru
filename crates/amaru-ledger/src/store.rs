@@ -16,7 +16,7 @@ pub mod columns;
 
 use crate::rewards::Pots;
 pub use crate::rewards::{RewardsSummary, StakeDistribution};
-use amaru_kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use amaru_kernel::{cbor, Epoch, Point, PoolId, TransactionInput, TransactionOutput};
 use columns::*;
 use std::{borrow::BorrowMut, io, iter};
 use thiserror::Error;
@@ -30,14 +30,25 @@ pub enum OpenErrorKind {
     NoStableSnapshot,
 }
 
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub enum TipErrorKind {
+    #[error("unable to decode database's tip")]
+    Undecodable(#[from] cbor::decode::Error),
+    #[error("no database tip. Did you forget to 'import' a snapshot first?")]
+    Missing,
+}
+
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
-    Internal(#[from] Box<dyn std::error::Error + Send + Sync + 'static>),
+    Internal(#[from] Box<dyn std::error::Error>),
     #[error("error sending work unit through output port")]
     Send,
     #[error("error opening the store")]
     Open(#[source] OpenErrorKind),
+    #[error("error opening the tip")]
+    Tip(#[source] TipErrorKind),
 }
 
 // Store

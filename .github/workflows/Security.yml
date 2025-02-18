@@ -1,23 +1,35 @@
 name: Security audit
+
 on:
+  workflow_dispatch:
   push:
-    paths: 
+    paths:
       - 'Cargo.toml'
       - 'Cargo.lock'
       - "crates/**/Cargo.toml"
       - "crates/**/Cargo.lock"
       - "examples/**/Cargo.toml"
       - "examples/**/Cargo.lock"
+
 jobs:
-  security_audit:
+  check_unused_dependencies:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Check unused dependencies
-        run: |
-            cargo install cargo-machete
-            cargo machete
-      - name: Check licenses
-        run: |
-            cargo install --locked cargo-deny
-            cargo deny check licenses
+      - uses: jaxxstorm/action-install-gh-release@v1.10.0
+        with:
+          repo: bnjbvr/cargo-machete
+          tag: v0.7.0
+          binaries-location: cargo-machete-v0.7.0-x86_64-unknown-linux-musl
+      - run: cargo-machete
+
+  check_licenses:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: jaxxstorm/action-install-gh-release@v1.10.0
+        with:
+          repo: EmbarkStudios/cargo-deny
+          tag: 0.16.4
+          binaries-location: cargo-deny-0.16.4-x86_64-unknown-linux-musl
+      - run: cargo-deny check licenses

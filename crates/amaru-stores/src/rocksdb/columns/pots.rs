@@ -20,6 +20,7 @@ use rocksdb::Transaction;
 /// Name prefixed used for storing protocol pots. UTF-8 encoding for "pots"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x74, 0x73];
 
+#[allow(clippy::panic)]
 pub fn get<DB>(db: &Transaction<'_, DB>) -> Result<Row, StoreError> {
     Ok(Row::unsafe_decode(
         db.get(PREFIX)

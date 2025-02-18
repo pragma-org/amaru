@@ -18,6 +18,7 @@ use amaru_ledger::{
     rewards::Pots,
     store::{
         columns as scolumns, Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError,
+        TipErrorKind,
     },
 };
 use columns::*;
@@ -129,6 +130,8 @@ impl RocksDB {
     }
 }
 
+#[allow(clippy::panic)]
+#[allow(clippy::unwrap_used)]
 fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::Decode<'d, ()>>(
     db: &OptimisticTransactionDB,
     prefix: [u8; PREFIX_LEN],
@@ -144,6 +147,7 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 }
 
 impl Snapshot for RocksDB {
+    #[allow(clippy::panic)]
     fn most_recent_snapshot(&'_ self) -> Epoch {
         self.snapshots
             .last()
@@ -193,6 +197,7 @@ impl Snapshot for RocksDB {
 }
 
 /// An generic column iterator, provided that rows from the column are (de)serialisable.
+#[allow(clippy::panic)]
 fn with_prefix_iterator<
     K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
     V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
@@ -239,16 +244,13 @@ impl Store for RocksDB {
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
-        Ok(self
-            .db
+        self.db
             .get(KEY_TIP)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| cbor::decode(&bytes))
             .transpose()
-            .expect("unable to decode database's tip")
-            .unwrap_or_else(|| {
-                panic!("no database tip. Did you forget to 'import' a snapshot first?")
-            }))
+            .map_err(|err| StoreError::Tip(TipErrorKind::Undecodable(err)))?
+            .ok_or(StoreError::Tip(TipErrorKind::Missing))
     }
 
     fn save(
@@ -273,6 +275,7 @@ impl Store for RocksDB {
             .get(KEY_TIP)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| {
+                #[allow(clippy::panic)]
                 cbor::decode(&bytes).unwrap_or_else(|e| {
                     panic!(
                         "unable to decode database tip ({}): {e:?}",
@@ -354,7 +357,9 @@ impl Store for RocksDB {
             if path.exists() {
                 // RocksDB error can't be created externally, so panic instead
                 // It might be better to come up with a global error type
-                fs::remove_dir_all(&path).expect("Unable to remove existing snapshot directory");
+                fs::remove_dir_all(&path).map_err(|_| {
+                    StoreError::Internal("Unable to remove existing snapshot directory".into())
+                })?;
             }
             checkpoint::Checkpoint::new(&self.db)
                 .map_err(|err| StoreError::Internal(err.into()))?
