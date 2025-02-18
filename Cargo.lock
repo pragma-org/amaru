@@ -175,6 +175,7 @@ dependencies = [
  "tempfile",
  "test-case",
  "tokio",
+ "tokio-stream",
  "tokio-util",
  "tracing",
  "tracing-subscriber",

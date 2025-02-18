@@ -12,17 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{
-    io::{self},
-    time::Duration,
-};
+use std::time::Duration;
 
 use super::message::{
     Envelope,
     Message::{self, *},
 };
 use gasket::{framework::*, runtime::Tether};
-use tokio_util::sync::CancellationToken;
+use tokio::io::stdin;
+use tokio_stream::StreamExt;
+use tokio_util::{
+    codec::{FramedRead, LinesCodec},
+    sync::CancellationToken,
+};
 use tracing::{info, trace};
 
 pub async fn run() {
@@ -122,6 +124,20 @@ impl ReadInput {
             downstream: EchoesOut::default(),
         }
     }
+
+    pub async fn read_input(&self) -> Result<Envelope, WorkerError> {
+        let mut reader = FramedRead::new(stdin(), LinesCodec::new());
+        let input = reader.next().await;
+
+        match input {
+            Some(input) => {
+                let line = input.map_err(|_| WorkerError::Retry)?;
+                info!("input '{}'", line);
+                serde_json::from_str(&line).map_err(|_| WorkerError::Retry)
+            }
+            None => Err(WorkerError::Panic), // EOF
+        }
+    }
 }
 
 #[async_trait::async_trait(?Send)]
@@ -140,14 +156,7 @@ impl gasket::framework::Worker<ReadInput> for ReadWorker {
     }
 
     async fn execute(&mut self, _unit: &Action, stage: &mut ReadInput) -> Result<(), WorkerError> {
-        let mut input = String::new();
-        io::stdin()
-            .read_line(&mut input)
-            .map_err(|_| WorkerError::Recv)?;
-
-        info!("input '{}'", input);
-
-        let msg: Envelope = serde_json::from_str(&input).map_err(|_| WorkerError::Recv)?;
+        let msg = stage.read_input().await.or_panic()?;
 
         trace!("message '{:?}'", msg);
 
