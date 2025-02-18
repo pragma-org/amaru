@@ -166,6 +166,7 @@ dependencies = [
  "async-trait",
  "built",
  "envpath",
+ "futures-util",
  "gasket",
  "insta",
  "proptest",

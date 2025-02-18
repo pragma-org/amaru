@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod io;
 /// Implementation of maelstrom's [echo protocol](https://github.com/jepsen-io/maelstrom/blob/main/doc/workloads.md#workload-echo).
 ///
 /// This is intended as a simple example of how to implement a node in Rust that
@@ -19,6 +20,8 @@
 /// over tokio.
 mod message;
 mod run;
+mod service;
 
 pub use message::*;
 pub use run::*;
+pub use service::*;
