@@ -16,9 +16,9 @@ pallas-codec.workspace = true
 rocksdb.workspace = true
 tracing.workspace = true
 
-iter-borrow = { path = "../iter-borrow" }
-amaru-kernel = { path = "../amaru-kernel" }
-amaru-ledger = { path = "../amaru-ledger" }
+iter-borrow.workspace = true
+amaru-kernel.workspace = true
+amaru-ledger.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
