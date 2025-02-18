@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod pipeline;
-
-pub mod point;
-
-/// Sync pipeline
+mod io;
+/// Implementation of maelstrom's [echo protocol](https://github.com/jepsen-io/maelstrom/blob/main/doc/workloads.md#workload-echo).
 ///
-/// The sync pipeline is responsible for fetching blocks from the upstream node and
-/// applying them to the local chain.
-pub mod sync;
+/// This is intended as a simple example of how to implement a node in Rust that
+/// can be tested with maelstrom, using gasket as the underlying async runtime
+/// over tokio.
+mod message;
+mod run;
+mod service;
 
-/// Generic exit handler
-pub mod exit;
+pub use message::*;
+pub use run::*;
+pub use service::*;

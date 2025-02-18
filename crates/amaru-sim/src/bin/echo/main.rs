@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,15 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod pipeline;
+use amaru_sim::echo::run;
 
-pub mod point;
+#[tokio::main]
+async fn main() {
+    tracing_subscriber::fmt()
+        .with_writer(std::io::stderr)
+        .json()
+        .init();
 
-/// Sync pipeline
-///
-/// The sync pipeline is responsible for fetching blocks from the upstream node and
-/// applying them to the local chain.
-pub mod sync;
-
-/// Generic exit handler
-pub mod exit;
+    run().await;
+}

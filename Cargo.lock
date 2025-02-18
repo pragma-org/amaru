@@ -159,6 +159,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-sim"
+version = "0.1.0"
+dependencies = [
+ "amaru",
+ "async-trait",
+ "built",
+ "envpath",
+ "futures-util",
+ "gasket",
+ "insta",
+ "proptest",
+ "rand",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "test-case",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "amaru-stores"
 version = "0.1.0"
 dependencies = [
@@ -2396,10 +2420,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14cae93065090804185d3b75f0bf93b8eeda30c7a9b4a33d3bdb3988d6229e50"
 dependencies = [
  "bitflags",
+ "lazy_static",
  "num-traits",
  "rand",
  "rand_chacha",
  "rand_xorshift",
+ "regex-syntax 0.8.5",
  "unarray",
 ]
 

@@ -1,0 +1,43 @@
+[package]
+name = "amaru-sim"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+async-trait.workspace = true
+futures-util.workspace = true
+gasket = { workspace = true, features = ["derive"] }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
+tokio-util.workspace = true
+tokio-stream.workspace = true
+tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
+tracing.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+
+amaru = { path = "../amaru" }
+
+[dev-dependencies]
+envpath = { workspace = true, features = ["rand"] }
+insta = { workspace = true, features = ["json"] }
+proptest = {workspace = true, features = ["std"] }
+rand.workspace = true
+tempfile.workspace = true
+test-case.workspace = true
+
+[build-dependencies]
+built = { workspace = true, features = ["git2"] }
+
+[lib]
+name = "amaru_sim"
+path = "src/lib.rs"
+
+[[bin]]
+name = "echo"
