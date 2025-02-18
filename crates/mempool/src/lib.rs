@@ -14,13 +14,7 @@
 
 use std::collections::HashSet;
 use pallas_primitives::conway::{TransactionInput, Tx};
-use pallas_primitives::StakeCredential;
 use amaru_ledger::store::{Snapshot};
-use amaru_ledger::rewards::Pots;
-use std::slice::Iter;
-use std::collections::HashMap;
-use std::array::IntoIter;
-use std::iter::Cloned;
 
 pub trait Mempool {
     type Tx;
