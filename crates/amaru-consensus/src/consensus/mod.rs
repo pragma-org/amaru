@@ -51,15 +51,6 @@ pub struct HeaderStage {
 
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
-
-    #[metric]
-    block_count: gasket::metrics::Counter,
-
-    #[metric]
-    rollback_count: gasket::metrics::Counter,
-
-    #[metric]
-    validation_tip: gasket::metrics::Gauge,
 }
 
 impl HeaderStage {
@@ -82,14 +73,7 @@ impl HeaderStage {
             epoch_to_nonce,
             upstream: Default::default(),
             downstream: Default::default(),
-            block_count: Default::default(),
-            rollback_count: Default::default(),
-            validation_tip: Default::default(),
         }
-    }
-
-    fn track_validation_tip(&self, tip: &Point) {
-        self.validation_tip.set(tip.slot_or_default() as i64);
     }
 
     async fn forward_block(
@@ -199,9 +183,6 @@ impl HeaderStage {
             chain_selection::ChainSelection::NewTip(hdr) => {
                 trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
                 self.forward_block(peer, &hdr, parent_span).await?;
-
-                self.block_count.inc(1);
-                self.track_validation_tip(point);
             }
             #[allow(clippy::panic)]
             chain_selection::ChainSelection::RollbackTo(_) => {
@@ -250,8 +231,6 @@ impl HeaderStage {
                     .send(ValidateBlockEvent::Rollback(rollback.clone()).into())
                     .await
                     .or_panic()?;
-                self.rollback_count.inc(1);
-                self.track_validation_tip(rollback);
             }
             chain_selection::ChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, hash = %point_hash(rollback), "no_change");
