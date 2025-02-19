@@ -110,7 +110,7 @@ impl Consensus {
             client
                 .fetch_single(new_point.clone())
                 .await
-                .map_err(|_| ConsensusError::FetchBlockFailed(new_point.clone()))?
+                .map_err(|_| ConsensusError::FetchBlockFailed(point.clone()))?
         };
 
         Ok(ValidateBlockEvent::Validated(

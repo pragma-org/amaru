@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
+use amaru_kernel::Point;
 use amaru_ouroboros::{protocol::peer::Peer, validator::ValidationError};
-use pallas_network::miniprotocols::Point;
 use thiserror::Error;
 
 /// Consensus interface
@@ -33,9 +33,9 @@ pub enum ConsensusError {
     #[error("Failed to fetch block at {0:?}")]
     FetchBlockFailed(Point),
     #[error("Failed to validate header at {0:?}: {1}")]
-    InvalidHeader(amaru_kernel::Point, ValidationError),
+    InvalidHeader(Point, ValidationError),
     #[error("Failed to store header at {0:?}: {1}")]
-    StoreHeaderFailed(amaru_kernel::Point, consensus::store::StoreError),
+    StoreHeaderFailed(Point, consensus::store::StoreError),
     #[error("Failed to decode header at {0:?}")]
-    CannotDecodeHeader(amaru_kernel::Point),
+    CannotDecodeHeader(Point),
 }
