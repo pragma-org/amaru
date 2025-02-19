@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::chain_selection::{self, ChainSelector};
+use super::chain_selection::{self, ChainSelector, Fork};
 use super::header::{point_hash, ConwayHeader, Header};
 use super::store::ChainStore;
 use crate::ConsensusError;
@@ -173,24 +173,20 @@ impl Consensus {
             .select_roll_forward(peer, header.clone());
 
         let events = match result {
-            chain_selection::ChainSelection::NewTip(hdr) => {
+            chain_selection::ForwardChainSelection::NewTip(hdr) => {
                 trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
                 vec![self.forward_block(peer, &hdr, parent_span).await?]
             }
-            #[allow(clippy::panic)]
-            chain_selection::ChainSelection::RollbackTo(_) => {
-                panic!("RollbackTo should never happen on a RollForward")
-            }
-            chain_selection::ChainSelection::SwitchToFork {
+            chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 tip: _,
                 fork,
-            } => {
+            }) => {
                 self.switch_to_fork(&peer, &rollback_point, fork, parent_span)
                     .await?
             }
-            chain_selection::ChainSelection::NoChange => {
+            chain_selection::ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, hash = %header.hash(), "no_change");
                 vec![]
             }
@@ -215,24 +211,16 @@ impl Consensus {
             .select_rollback(peer, point_hash(rollback));
 
         match result {
-            #[allow(clippy::panic)]
-            chain_selection::ChainSelection::NewTip(_) => {
-                panic!("cannot have a new tip on a rollback")
-            }
-            chain_selection::ChainSelection::RollbackTo(hash) => {
+            chain_selection::RollbackChainSelection::RollbackTo(hash) => {
                 trace!(target: EVENT_TARGET, %hash, "rollback");
                 Ok(vec![ValidateBlockEvent::Rollback(rollback.clone())])
             }
-            chain_selection::ChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, hash = %point_hash(rollback), "no_change");
-                Ok(vec![])
-            }
-            chain_selection::ChainSelection::SwitchToFork {
+            chain_selection::RollbackChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 fork,
                 tip: _,
-            } => {
+            }) => {
                 self.switch_to_fork(&peer, &rollback_point, fork, parent_span)
                     .await
             }

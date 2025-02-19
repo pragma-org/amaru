@@ -83,30 +83,41 @@ pub struct ChainSelector<H: Header> {
     peers_chains: HashMap<Peer, Fragment<H>>,
 }
 
-/// The outcome of the chain selection process.
+/// Definition of a fork.
+///
+/// FIXME: The peer should not be needed here, as the fork should be
+/// comprised of known blocks. It is only needed to download the blocks
+/// we don't currently store.
 #[derive(Debug, PartialEq)]
-pub enum ChainSelection<H: Header> {
+pub struct Fork<H: Header> {
+    pub peer: Peer,
+    pub rollback_point: Point,
+    pub tip: H,
+    pub fork: Vec<H>,
+}
+
+/// The outcome of the chain selection process in  case of
+/// roll forward.
+#[derive(Debug, PartialEq)]
+pub enum ForwardChainSelection<H: Header> {
     /// The current best chain has been extended with a (single) new header.
     NewTip(H),
-
-    /// The current best chain has been rolled back to the given hash.
-    RollbackTo(Hash<32>),
 
     /// The current best chain is unchanged.
     NoChange,
 
-    /// The current best chain has switched to given fork starting at
-    /// given hash, from given Peer.
-    ///
-    /// FIXME: The peer should not be needed here, as the fork should be
-    /// comprised of known blocks. It is only needed to download the blocks
-    /// we don't currently store.
-    SwitchToFork {
-        peer: Peer,
-        rollback_point: Point,
-        tip: H,
-        fork: Vec<H>,
-    },
+    /// The current best chain has switched to given fork.
+    SwitchToFork(Fork<H>),
+}
+
+/// The outcome of the chain selection process in case of rollback
+#[derive(Debug, PartialEq)]
+pub enum RollbackChainSelection<H: Header> {
+    /// The current best chain has been rolled back to the given hash.
+    RollbackTo(Hash<32>),
+
+    /// The current best chain has switched to given fork.
+    SwitchToFork(Fork<H>),
 }
 
 /// Builder pattern for `ChainSelector`.
@@ -173,7 +184,9 @@ where
                         header.slot = header.slot(),
                         header.hash = %header.hash()))]
     #[allow(clippy::unwrap_used)]
-    pub fn select_roll_forward(&mut self, peer: &Peer, header: H) -> ChainSelection<H> {
+    pub fn select_roll_forward(&mut self, peer: &Peer, header: H) -> ForwardChainSelection<H> {
+        use ForwardChainSelection::*;
+
         let fragment = self.peers_chains.get_mut(peer).unwrap();
 
         // TODO: raise error if header does not match parent
@@ -182,26 +195,26 @@ where
                 let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
                 let result = if best_tip.parent().unwrap() == self.tip.hash() {
-                    ChainSelection::NewTip(header.clone())
+                    NewTip(header.clone())
                 } else if best_tip.block_height() > self.tip.block_height() {
                     let fragment = self.peers_chains.get(&best_peer).unwrap();
-                    ChainSelection::SwitchToFork {
+                    SwitchToFork(Fork {
                         peer: best_peer,
                         rollback_point: fragment.anchor.point(),
                         tip: best_tip,
                         fork: fragment.headers.clone(),
-                    }
+                    })
                 } else {
-                    ChainSelection::NoChange
+                    NoChange
                 };
 
-                if result != ChainSelection::NoChange {
+                if result != NoChange {
                     self.tip = header;
                 }
 
                 result
             }
-            _ => ChainSelection::NoChange,
+            _ => NoChange,
         }
     }
 
@@ -217,23 +230,25 @@ where
     /// tip of the chain.
     #[instrument(level = Level::TRACE, skip(self), fields(peer = peer.name, %point))]
     #[allow(clippy::unwrap_used)]
-    pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> ChainSelection<H> {
+    pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> RollbackChainSelection<H> {
+        use RollbackChainSelection::*;
+
         self.rollback_fragment(peer, point);
 
         let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
         let result = if best_peer == *peer {
-            ChainSelection::RollbackTo(point)
+            RollbackTo(point)
         } else {
             let fragment = self.peers_chains.get(&best_peer).unwrap();
             // TODO: do not always switch to anchor if there's a better intersection
             // with current chain
-            ChainSelection::SwitchToFork {
+            SwitchToFork(Fork {
                 peer: best_peer,
                 rollback_point: fragment.anchor.point(),
                 tip: best_tip.clone(),
                 fork: fragment.headers.clone(),
-            }
+            })
         };
 
         self.tip = best_tip;
@@ -264,7 +279,7 @@ where
 #[cfg(test)]
 mod tests {
 
-    use super::{ChainSelection::*, *};
+    use super::*;
     use crate::consensus::header::test::{generate_headers_anchored_at, random_bytes, TestHeader};
 
     #[test]
@@ -284,7 +299,7 @@ mod tests {
 
         let result = chain_selector.unwrap().select_roll_forward(&alice, header);
 
-        assert_eq!(NewTip(header), result);
+        assert_eq!(ForwardChainSelection::NewTip(header), result);
     }
 
     #[test]
@@ -312,7 +327,7 @@ mod tests {
         chain_selector.select_roll_forward(&alice, header);
         let result = chain_selector.select_roll_forward(&alice, new_header);
 
-        assert_eq!(NoChange, result);
+        assert_eq!(ForwardChainSelection::NoChange, result);
     }
 
     #[test]
@@ -327,7 +342,7 @@ mod tests {
             .unwrap()
             .select_roll_forward(&alice, TestHeader::Genesis);
 
-        assert_eq!(NoChange, result);
+        assert_eq!(ForwardChainSelection::NoChange, result);
     }
 
     #[test]
@@ -355,12 +370,12 @@ mod tests {
             .last();
 
         assert_eq!(
-            SwitchToFork {
+            ForwardChainSelection::SwitchToFork(Fork {
                 peer: bob,
                 rollback_point: Point::Origin,
                 tip: chain2[5],
                 fork: chain2
-            },
+            }),
             result.unwrap()
         );
     }
@@ -388,7 +403,7 @@ mod tests {
             .map(|header| chain_selector.select_roll_forward(&alice, *header))
             .last();
 
-        assert_eq!(NoChange, result.unwrap());
+        assert_eq!(ForwardChainSelection::NoChange, result.unwrap());
     }
 
     #[test]
@@ -412,7 +427,7 @@ mod tests {
         let result = chain_selector.select_rollback(&alice, hash);
 
         assert_eq!(rollback_point, chain_selector.best_chain());
-        assert_eq!(RollbackTo(hash), result);
+        assert_eq!(RollbackChainSelection::RollbackTo(hash), result);
     }
 
     #[test]
@@ -442,7 +457,7 @@ mod tests {
         chain_selector.select_rollback(&alice, hash);
         let result = chain_selector.select_roll_forward(&alice, new_header);
 
-        assert_eq!(NewTip(new_header), result);
+        assert_eq!(ForwardChainSelection::NewTip(new_header), result);
     }
 
     #[test]
@@ -471,12 +486,12 @@ mod tests {
         let result = chain_selector.select_rollback(&alice, rollback_point.hash());
 
         assert_eq!(
-            SwitchToFork {
+            RollbackChainSelection::SwitchToFork(Fork {
                 peer: bob,
                 rollback_point: Point::Origin,
                 tip: chain2[5],
                 fork: chain2
-            },
+            }),
             result
         );
     }
