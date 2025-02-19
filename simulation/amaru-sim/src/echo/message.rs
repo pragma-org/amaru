@@ -15,15 +15,15 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct Envelope {
+pub struct Envelope<T> {
     pub src: String,
     pub dest: String,
-    pub body: Message,
+    pub body: T,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
-pub enum Message {
+pub enum EchoMessage {
     Init {
         msg_id: u64,
         node_id: String,
@@ -47,28 +47,28 @@ pub enum Message {
 mod test {
     use proptest::{prelude::BoxedStrategy, proptest};
 
-    use super::Message;
+    use super::EchoMessage;
 
-    fn arbitrary_message() -> BoxedStrategy<Message> {
-        use super::Message;
+    fn arbitrary_message() -> BoxedStrategy<EchoMessage> {
+        use super::EchoMessage;
         use proptest::collection::vec;
         use proptest::prelude::*;
 
         prop_oneof![
             (any::<u64>(), any::<String>(), vec(any::<String>(), 0..10)).prop_map(
-                |(msg_id, node_id, node_ids)| Message::Init {
+                |(msg_id, node_id, node_ids)| EchoMessage::Init {
                     msg_id,
                     node_id,
                     node_ids
                 }
             ),
-            (any::<u64>()).prop_map(|msg_id| Message::InitOk {
+            (any::<u64>()).prop_map(|msg_id| EchoMessage::InitOk {
                 in_reply_to: msg_id
             }),
             (any::<u64>(), any::<String>())
-                .prop_map(|(msg_id, echo)| Message::Echo { msg_id, echo }),
+                .prop_map(|(msg_id, echo)| EchoMessage::Echo { msg_id, echo }),
             (any::<u64>(), any::<u64>(), any::<String>()).prop_map(
-                |(msg_id, in_reply_to, echo)| Message::EchoOk {
+                |(msg_id, in_reply_to, echo)| EchoMessage::EchoOk {
                     msg_id,
                     in_reply_to,
                     echo

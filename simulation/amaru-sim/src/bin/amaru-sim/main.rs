@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::process::exit;
-
 use clap::Parser;
 use simulator::Args;
 
@@ -30,11 +28,5 @@ async fn main() {
         .json()
         .init();
 
-    match simulator::run(args).await {
-        Ok(_) => exit(0),
-        Err(err) => {
-            eprintln!("error running simulation: {:?}", err);
-            exit(1)
-        }
-    };
+    simulator::run(args).await;
 }
