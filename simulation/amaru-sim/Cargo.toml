@@ -27,11 +27,11 @@ tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-amaru = { path = "../crates/amaru" }
-amaru-kernel = { path = "../crates/amaru-kernel" }
-amaru-consensus = { path = "../crates/amaru-consensus" }
-amaru-ouroboros = { path = "../crates/ouroboros" }
-amaru-stores = { path = "../crates/amaru-stores" }
+amaru = { path = "../../crates/amaru" }
+amaru-kernel = { path = "../../crates/amaru-kernel" }
+amaru-consensus = { path = "../../crates/amaru-consensus" }
+amaru-ouroboros = { path = "../../crates/ouroboros" }
+amaru-stores = { path = "../../crates/amaru-stores" }
 
 [dev-dependencies]
 envpath = { workspace = true, features = ["rand"] }

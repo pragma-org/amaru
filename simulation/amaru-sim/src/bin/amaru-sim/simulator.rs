@@ -14,17 +14,18 @@
 
 use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
 
+use amaru_consensus::peer::Peer;
 use amaru_consensus::{
     chain_forward,
     consensus::{
-        self,
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         header::{point_hash, ConwayHeader},
+        header_validation::Consensus,
         store::{rocksdb::RocksDBStore, ChainStore},
+        wiring::HeaderStage,
     },
 };
 use amaru_kernel::Point;
-use amaru_ouroboros::protocol::peer::Peer;
 use amaru_stores::rocksdb::RocksDB;
 use clap::{ArgAction, Parser};
 use gasket::runtime::Tether;
@@ -103,13 +104,15 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
             .collect::<Vec<_>>(),
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let mut consensus = consensus::HeaderStage::new(
+    let consensus = Consensus::new(
         vec![],
         Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
         chain_selector,
         HashMap::new(),
     );
+
+    let mut consensus_stage = HeaderStage::new(consensus);
 
     let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
 
@@ -118,8 +121,8 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
     sync_from_peers.downstream.connect(to_consensus);
-    consensus.upstream.connect(from_peers);
-    consensus.downstream.connect(to_ledger);
+    consensus_stage.upstream.connect(from_peers);
+    consensus_stage.downstream.connect(to_ledger);
     ledger.upstream.connect(from_header_validation);
     ledger.downstream.connect(to_block_forward);
     block_forward.upstream.connect(from_ledger);
@@ -127,7 +130,7 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
     let policy = define_gasket_policy();
 
     let chain_sync = gasket::runtime::spawn_stage(sync_from_peers, policy.clone());
-    let header_validation = gasket::runtime::spawn_stage(consensus, policy.clone());
+    let header_validation = gasket::runtime::spawn_stage(consensus_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());
 

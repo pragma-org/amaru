@@ -1,5 +1,5 @@
+use amaru_consensus::{consensus::wiring::PullEvent, peer::Peer};
 use amaru_kernel::Point;
-use amaru_ouroboros::protocol::{peer::Peer, PullEvent};
 use amaru_sim::echo::Envelope;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};
