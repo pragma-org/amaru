@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{message::Envelope, service::EchoService};
+use super::{message::Envelope, service::EchoService, EchoMessage};
 /// This module contains the streams, stages and workers to encapsulate the echo service.
 /// This could probably be made more generic as it's pretty much boilerplate adapter
 /// between maelstrom protocol, gasket framework, and the underlying service receiving
@@ -25,10 +25,10 @@ use tokio_util::codec::{FramedRead, FramedWrite, LinesCodec};
 use tracing::trace;
 
 /// The input ports for the service.
-pub type EnvelopeOut = gasket::messaging::OutputPort<Envelope>;
+pub type EnvelopeOut = gasket::messaging::OutputPort<Envelope<EchoMessage>>;
 
 /// The output ports for the service.
-pub type EnvelopeIn = gasket::messaging::InputPort<Envelope>;
+pub type EnvelopeIn = gasket::messaging::InputPort<Envelope<EchoMessage>>;
 
 /// A unit of work for the echo service.
 /// There's not much to do here, just a placeholder.
@@ -51,7 +51,7 @@ impl ReadInput {
         }
     }
 
-    pub async fn read_input(&self) -> Result<Envelope, WorkerError> {
+    pub async fn read_input(&self) -> Result<Envelope<EchoMessage>, WorkerError> {
         let mut reader = FramedRead::new(stdin(), LinesCodec::new());
         let input = reader.next().await;
 
@@ -107,7 +107,7 @@ impl SendOutput {
         }
     }
 
-    pub async fn write_output(&self, msg: Envelope) -> Result<(), WorkerError> {
+    pub async fn write_output(&self, msg: Envelope<EchoMessage>) -> Result<(), WorkerError> {
         let mut writer = FramedWrite::new(stdout(), LinesCodec::new());
         writer
             .send(serde_json::to_string(&msg).map_err(|_| WorkerError::Panic)?)
@@ -174,7 +174,7 @@ impl gasket::framework::Worker<DoEcho> for EchoWorker {
     async fn execute(&mut self, _unit: &Action, stage: &mut DoEcho) -> Result<(), WorkerError> {
         let from_echo = stage.upstream.recv().await.or_panic()?;
 
-        let to_echo: Envelope = stage
+        let to_echo: Envelope<EchoMessage> = stage
             .echo_service
             .handle_echo(from_echo.payload)
             .map_err(|_| WorkerError::Recv)?;

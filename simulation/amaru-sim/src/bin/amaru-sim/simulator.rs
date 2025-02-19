@@ -57,14 +57,12 @@ pub struct Args {
     data_dir: PathBuf,
 }
 
-pub async fn run(args: Args) -> miette::Result<()> {
-    let sync = bootstrap(args)?;
+pub async fn run(args: Args) {
+    let sync = bootstrap(args);
 
     let exit = amaru::exit::hook_exit_token();
 
     run_pipeline(gasket::daemon::Daemon::new(sync), exit.clone()).await;
-
-    Ok(())
 }
 
 fn define_gasket_policy() -> gasket::runtime::Policy {
@@ -85,7 +83,7 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
     }
 }
 
-pub fn bootstrap(args: Args) -> miette::Result<Vec<Tether>> {
+pub fn bootstrap(args: Args) -> Vec<Tether> {
     // FIXME: Take from config / command args
     let store = RocksDB::new(&args.ledger_dir)
         .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
@@ -93,7 +91,8 @@ pub fn bootstrap(args: Args) -> miette::Result<Vec<Tether>> {
 
     let mut sync_from_peers = crate::sync::Stage::new(&tip);
 
-    let chain_store = RocksDBStore::new(args.chain_dir.clone())?;
+    let chain_store =
+        RocksDBStore::new(args.chain_dir.clone()).expect("unable to open chain store");
     let chain_selector = make_chain_selector(
         tip,
         &chain_store,
@@ -132,7 +131,7 @@ pub fn bootstrap(args: Args) -> miette::Result<Vec<Tether>> {
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());
 
-    Ok(vec![chain_sync, header_validation, ledger, block_forward])
+    vec![chain_sync, header_validation, ledger, block_forward]
 }
 
 fn make_chain_selector(
@@ -151,7 +150,10 @@ fn make_chain_selector(
         builder.add_peer(peer);
     }
 
-    Arc::new(Mutex::new(builder.build()))
+    match builder.build() {
+        Ok(chain_selector) => Arc::new(Mutex::new(chain_selector)),
+        Err(e) => panic!("unable to build chain selector: {:?}", e),
+    }
 }
 
 pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationToken) {

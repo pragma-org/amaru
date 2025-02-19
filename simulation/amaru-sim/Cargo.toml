@@ -10,25 +10,22 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
-[package.metadata.cargo-machete]
-ignored = ["maelstrom-node"]
-
 [dependencies]
 async-trait.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
+futures-util.workspace = true
 gasket = { workspace = true, features = ["derive"] }
 hex.workspace = true
-miette = { workspace = true, features = ["fancy"] }
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
+tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
-maelstrom-node = "0.1.6"
 
 amaru = { path = "../crates/amaru" }
 amaru-kernel = { path = "../crates/amaru-kernel" }
@@ -39,7 +36,7 @@ amaru-stores = { path = "../crates/amaru-stores" }
 [dev-dependencies]
 envpath = { workspace = true, features = ["rand"] }
 insta = { workspace = true, features = ["json"] }
-proptest.workspace = true
+proptest = {workspace = true, features = ["std"] }
 rand.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
