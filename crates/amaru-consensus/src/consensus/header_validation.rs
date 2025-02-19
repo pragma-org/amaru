@@ -12,22 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::chain_selection::{self, ChainSelector};
+use super::header::{point_hash, ConwayHeader, Header};
+use super::store::ChainStore;
+use crate::ConsensusError;
 use amaru_kernel::epoch_from_slot;
+use amaru_kernel::Point;
+use amaru_ledger::ValidateBlockEvent;
+use amaru_ouroboros::protocol::peer::*;
 use amaru_ouroboros::{consensus::BlockValidator, validator::Validator};
 use amaru_ouroboros_traits::HasStakeDistribution;
-use gasket::framework::*;
+use pallas_codec::minicbor;
 use pallas_crypto::hash::Hash;
 use pallas_math::math::FixedDecimal;
 use pallas_primitives::{babbage, conway::Epoch};
-use std::collections::HashMap;
-use tracing::{instrument, warn, Level};
+use pallas_traverse::ComputeHash;
+use std::{collections::HashMap, sync::Arc};
+use tokio::sync::Mutex;
+use tracing::{instrument, trace, trace_span, Level, Span};
+
+const EVENT_TARGET: &str = "amaru::consensus";
 
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn assert_header<'a>(
+    point: &Point,
     header: &'a babbage::MintedHeader<'a>,
     epoch_to_nonce: &HashMap<Epoch, Hash<32>>,
     ledger: &dyn HasStakeDistribution,
-) -> Result<(), WorkerError> {
+) -> Result<(), ConsensusError> {
     let epoch = epoch_from_slot(header.header_body.slot);
 
     if let Some(epoch_nonce) = epoch_to_nonce.get(&epoch) {
@@ -37,8 +49,193 @@ pub fn assert_header<'a>(
 
         let block_validator = BlockValidator::new(header, ledger, epoch_nonce, &active_slots_coeff);
 
-        block_validator.validate().or_panic()
+        block_validator
+            .validate()
+            .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
     } else {
         Ok(())
+    }
+}
+
+pub struct Consensus {
+    peer_sessions: HashMap<Peer, PeerSession>,
+    chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
+    ledger: Box<dyn HasStakeDistribution>,
+    store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
+    epoch_to_nonce: HashMap<Epoch, Hash<32>>,
+}
+
+impl Consensus {
+    pub fn new(
+        peer_sessions: Vec<PeerSession>,
+        ledger: Box<dyn HasStakeDistribution>,
+        store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
+        chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
+        epoch_to_nonce: HashMap<Epoch, Hash<32>>,
+    ) -> Self {
+        let peer_sessions = peer_sessions
+            .into_iter()
+            .map(|p| (p.peer.clone(), p))
+            .collect::<HashMap<_, _>>();
+        Self {
+            peer_sessions,
+            chain_selector,
+            ledger,
+            store,
+            epoch_to_nonce,
+        }
+    }
+
+    async fn forward_block(
+        &mut self,
+        peer: &Peer,
+        header: &dyn Header,
+        parent_span: &Span,
+    ) -> Result<ValidateBlockEvent, ConsensusError> {
+        let point = header.point();
+        let block = {
+            // FIXME: should not crash if the peer is not found
+            let peer_session = self
+                .peer_sessions
+                .get(peer)
+                .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?;
+            let mut session = peer_session.peer_client.lock().await;
+            let client = (*session).blockfetch();
+            let new_point: pallas_network::miniprotocols::Point = match point.clone() {
+                Point::Origin => pallas_network::miniprotocols::Point::Origin,
+                Point::Specific(slot, hash) => {
+                    pallas_network::miniprotocols::Point::Specific(slot, hash)
+                }
+            };
+            client
+                .fetch_single(new_point.clone())
+                .await
+                .map_err(|_| ConsensusError::FetchBlockFailed(new_point.clone()))?
+        };
+
+        Ok(ValidateBlockEvent::Validated(
+            point,
+            block,
+            parent_span.clone(),
+        ))
+    }
+
+    async fn switch_to_fork(
+        &mut self,
+        peer: &Peer,
+        rollback_point: &Point,
+        fork: Vec<ConwayHeader>,
+        parent_span: &Span,
+    ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
+        let mut result = vec![ValidateBlockEvent::Rollback(rollback_point.clone())];
+
+        for header in fork {
+            result.push(self.forward_block(peer, &header, parent_span).await?);
+        }
+
+        Ok(result)
+    }
+
+    pub async fn handle_roll_forward(
+        &mut self,
+        peer: &Peer,
+        point: &Point,
+        raw_header: &[u8],
+        parent_span: &Span,
+    ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
+        let span = trace_span!(
+          target: EVENT_TARGET,
+          parent: parent_span,
+          "handle_roll_forward",
+          slot = ?point.slot_or_default(),
+          hash = point_hash(point).to_string())
+        .entered();
+
+        let header: babbage::MintedHeader<'_> = minicbor::decode(raw_header)
+            .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
+
+        // FIXME: move into chain_selector
+        assert_header(point, &header, &self.epoch_to_nonce, self.ledger.as_ref())?;
+
+        let header: ConwayHeader = ConwayHeader::from(header);
+
+        // first make sure we store the header
+        self.store
+            .lock()
+            .await
+            .store_header(&header.compute_hash(), &header)
+            .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))?;
+
+        let result = self
+            .chain_selector
+            .lock()
+            .await
+            .select_roll_forward(peer, header.clone());
+
+        let events = match result {
+            chain_selection::ChainSelection::NewTip(hdr) => {
+                trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
+                vec![self.forward_block(peer, &hdr, parent_span).await?]
+            }
+            #[allow(clippy::panic)]
+            chain_selection::ChainSelection::RollbackTo(_) => {
+                panic!("RollbackTo should never happen on a RollForward")
+            }
+            chain_selection::ChainSelection::SwitchToFork {
+                peer,
+                rollback_point,
+                tip: _,
+                fork,
+            } => {
+                self.switch_to_fork(&peer, &rollback_point, fork, parent_span)
+                    .await?
+            }
+            chain_selection::ChainSelection::NoChange => {
+                trace!(target: EVENT_TARGET, hash = %header.hash(), "no_change");
+                vec![]
+            }
+        };
+
+        span.exit();
+
+        Ok(events)
+    }
+
+    #[instrument(level = Level::TRACE, skip(self, parent_span))]
+    pub async fn handle_roll_back(
+        &mut self,
+        peer: &Peer,
+        rollback: &Point,
+        parent_span: &Span,
+    ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
+        let result = self
+            .chain_selector
+            .lock()
+            .await
+            .select_rollback(peer, point_hash(rollback));
+
+        match result {
+            #[allow(clippy::panic)]
+            chain_selection::ChainSelection::NewTip(_) => {
+                panic!("cannot have a new tip on a rollback")
+            }
+            chain_selection::ChainSelection::RollbackTo(hash) => {
+                trace!(target: EVENT_TARGET, %hash, "rollback");
+                Ok(vec![ValidateBlockEvent::Rollback(rollback.clone())])
+            }
+            chain_selection::ChainSelection::NoChange => {
+                trace!(target: EVENT_TARGET, hash = %point_hash(rollback), "no_change");
+                Ok(vec![])
+            }
+            chain_selection::ChainSelection::SwitchToFork {
+                peer,
+                rollback_point,
+                fork,
+                tip: _,
+            } => {
+                self.switch_to_fork(&peer, &rollback_point, fork, parent_span)
+                    .await
+            }
+        }
     }
 }
