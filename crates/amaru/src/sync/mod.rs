@@ -15,10 +15,11 @@
 use amaru_consensus::{
     chain_forward,
     consensus::{
-        self,
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         header::{point_hash, ConwayHeader},
+        header_validation::Consensus,
         store::{rocksdb::RocksDBStore, ChainStore},
+        wiring::HeaderStage,
     },
     ConsensusError,
 };
@@ -95,7 +96,7 @@ pub fn bootstrap(
     let chain_store = RocksDBStore::new(config.chain_dir.clone())?;
     let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions)?;
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let mut consensus = consensus::HeaderStage::new(
+    let consensus = Consensus::new(
         peer_sessions,
         Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
@@ -103,6 +104,7 @@ pub fn bootstrap(
         config.nonces,
     );
 
+    let mut consensus_stage = HeaderStage::new(consensus);
     let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
 
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
@@ -112,8 +114,8 @@ pub fn bootstrap(
         .iter_mut()
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
-    funnel_ports(outputs, &mut consensus.upstream, 50);
-    consensus.downstream.connect(to_ledger);
+    funnel_ports(outputs, &mut consensus_stage.upstream, 50);
+    consensus_stage.downstream.connect(to_ledger);
     ledger.upstream.connect(from_header_validation);
     ledger.downstream.connect(to_block_forward);
     block_forward.upstream.connect(from_ledger);
@@ -125,7 +127,7 @@ pub fn bootstrap(
         .map(|p| gasket::runtime::spawn_stage(p, policy.clone()))
         .collect::<Vec<_>>();
 
-    let header_validation = gasket::runtime::spawn_stage(consensus, policy.clone());
+    let header_validation = gasket::runtime::spawn_stage(consensus_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());
 

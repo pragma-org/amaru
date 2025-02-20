@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use amaru_ouroboros::protocol::peer::Peer;
+use amaru_kernel::Point;
+use amaru_ouroboros::{protocol::peer::Peer, validator::ValidationError};
 use thiserror::Error;
 
 /// Consensus interface
@@ -29,4 +30,12 @@ pub enum ConsensusError {
     MissingTip,
     #[error("Unknown peer {0:?}, bailing out")]
     UnknownPeer(Peer),
+    #[error("Failed to fetch block at {0:?}")]
+    FetchBlockFailed(Point),
+    #[error("Failed to validate header at {0:?}: {1}")]
+    InvalidHeader(Point, ValidationError),
+    #[error("Failed to store header at {0:?}: {1}")]
+    StoreHeaderFailed(Point, consensus::store::StoreError),
+    #[error("Failed to decode header at {0:?}")]
+    CannotDecodeHeader(Point),
 }
