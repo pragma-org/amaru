@@ -16,8 +16,10 @@
 //!
 //! <https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-03>
 
+pub use pallas_primitives::babbage::{derive_tagged_vrf_output, VrfDerivation as Derivation};
+use std::array::TryFromSliceError;
+
 use crate::{Hash, Hasher};
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 use vrf_dalek::{
     errors::VrfError,
@@ -52,6 +54,7 @@ impl SecretKey {
 // ------------------------------------------------------------------- PublicKey
 
 /// A VRF public key.
+#[derive(Debug, PartialEq)]
 pub struct PublicKey(PublicKey03);
 
 impl PublicKey {
@@ -68,9 +71,23 @@ impl AsRef<[u8]> for PublicKey {
     }
 }
 
+impl TryFrom<&[u8]> for PublicKey {
+    type Error = TryFromSliceError;
+
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        Ok(PublicKey(PublicKey03::from_bytes(slice.try_into()?)))
+    }
+}
+
 impl From<&[u8; Self::SIZE]> for PublicKey {
     fn from(slice: &[u8; Self::SIZE]) -> Self {
         PublicKey(PublicKey03::from_bytes(slice))
+    }
+}
+
+impl From<[u8; Self::SIZE]> for PublicKey {
+    fn from(slice: [u8; Self::SIZE]) -> Self {
+        Self::from(&slice)
     }
 }
 
@@ -82,6 +99,7 @@ impl From<&SecretKey> for PublicKey {
 
 // ----------------------------------------------------------------------- Input
 
+#[derive(Debug, PartialEq)]
 pub struct Input(Hash<32>);
 
 impl Input {
@@ -115,6 +133,7 @@ impl AsRef<[u8]> for Input {
 // ----------------------------------------------------------------------- Proof
 
 /// A VRF proof formed by an Edward point and two scalars.
+#[derive(Debug)]
 pub struct Proof(VrfProof03);
 
 impl Proof {
@@ -125,7 +144,7 @@ impl Proof {
     pub const HASH_SIZE: usize = 64;
 }
 
-#[derive(Error, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Error, Debug, PartialEq)]
 pub enum ProofFromBytesError {
     #[error("Decompression from Edwards point failed.")]
     DecompressionFailed,
@@ -171,48 +190,17 @@ impl From<&Proof> for Hash<{ Proof::HASH_SIZE }> {
     }
 }
 
+// ---------------------------------------------------------------------- Errors
+
 /// error that can be returned if the verification of a [`VrfProof`] fails
 /// see [`VrfProof::verify`]
-#[derive(Error, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Error, Debug, PartialEq)]
 #[error("VRF proof verification failed: {:?}", .0)]
 pub struct ProofVerifyError(
     #[from]
     #[source]
-    #[serde(
-        serialize_with = "serialize_verification_error",
-        deserialize_with = "deserialize_verification_error"
-    )]
     VrfError,
 );
-
-fn serialize_verification_error<S>(error: &VrfError, serializer: S) -> Result<S::Ok, S::Error>
-where
-    S: Serializer,
-{
-    match error {
-        VrfError::VerificationFailed => serializer.serialize_str("VerificationFailed"),
-        VrfError::DecompressionFailed => serializer.serialize_str("DecompressionFailed"),
-        VrfError::PkSmallOrder => serializer.serialize_str("PkSmallOrder"),
-        VrfError::VrfOutputInvalid => serializer.serialize_str("VrfOutputInvalid"),
-    }
-}
-
-fn deserialize_verification_error<'de, D>(deserializer: D) -> Result<VrfError, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let string = <String>::deserialize(deserializer)?;
-    match string.as_str() {
-        "VerificationFailed" => Ok(VrfError::VerificationFailed),
-        "DecompressionFailed" => Ok(VrfError::DecompressionFailed),
-        "PkSmallOrder" => Ok(VrfError::PkSmallOrder),
-        "VrfOutputInvalid" => Ok(VrfError::VrfOutputInvalid),
-        _ => Err(serde::de::Error::custom(format!(
-            "Unexpected VrfError {}",
-            string
-        ))),
-    }
-}
 
 #[cfg(test)]
 mod tests {

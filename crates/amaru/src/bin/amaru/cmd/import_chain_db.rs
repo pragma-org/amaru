@@ -1,10 +1,12 @@
 use crate::config::NetworkName;
 use amaru::sync;
-use amaru_consensus::consensus::{
-    header::{ConwayHeader, Header},
-    store::{rocksdb::RocksDBStore, ChainStore},
+use amaru_consensus::{
+    consensus::{
+        header::{ConwayHeader, Header},
+        store::{rocksdb::RocksDBStore, ChainStore},
+    },
+    peer::{Peer, PeerSession},
 };
-use amaru_ouroboros::protocol::peer::{Peer, PeerSession};
 use clap::{builder::TypedValueParser as _, Parser};
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};

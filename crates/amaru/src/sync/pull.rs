@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::point::{from_network_point, to_network_point};
+use amaru_consensus::{consensus::wiring::PullEvent, peer::PeerSession, RawHeader};
 use amaru_kernel::Point;
-use amaru_ouroboros::protocol::{peer::PeerSession, PullEvent, RawHeader};
 use anyhow::anyhow;
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};

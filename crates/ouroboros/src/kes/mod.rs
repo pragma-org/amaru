@@ -77,6 +77,9 @@ pub struct KesPublicKey {
 }
 
 impl KesPublicKey {
+    /// Size of a KES public key, in bytes;
+    pub const SIZE: usize = 32;
+
     /// Create a new KES public key
     pub fn from_bytes(pk_bytes: &[u8]) -> Result<KesPublicKey, Error> {
         let kes_pk = PublicKey::from_bytes(pk_bytes)?;
@@ -89,12 +92,23 @@ impl KesPublicKey {
     }
 }
 
+impl From<&[u8; KesPublicKey::SIZE]> for KesPublicKey {
+    fn from(bytes: &[u8; KesPublicKey::SIZE]) -> Self {
+        Self::from_bytes(bytes).unwrap_or_else(|e| {
+            unreachable!("Impossible! Failed to create a KES public key from a slice ({}) of known size: {e:?}", hex::encode(bytes))
+        })
+    }
+}
+
 /// KES signature
 pub struct KesSignature {
     sum_6_kes_sig: Sum6KesSig,
 }
 
 impl KesSignature {
+    /// Size of a KES signature, in bytes;
+    pub const SIZE: usize = Sum6KesSig::SIZE;
+
     /// Create a new KES signature
     pub fn from_bytes(sig_bytes: &[u8]) -> Result<KesSignature, Error> {
         let sum_6_kes_sig = Sum6KesSig::from_bytes(sig_bytes)?;
@@ -109,6 +123,14 @@ impl KesSignature {
     /// Verify the KES signature
     pub fn verify(&self, kes_period: u32, kes_pk: &KesPublicKey, msg: &[u8]) -> Result<(), Error> {
         Ok(self.sum_6_kes_sig.verify(kes_period, &kes_pk.kes_pk, msg)?)
+    }
+}
+
+impl From<&[u8; Self::SIZE]> for KesSignature {
+    fn from(bytes: &[u8; Self::SIZE]) -> Self {
+        Self::from_bytes(bytes).unwrap_or_else(|e| {
+            unreachable!("Impossible! Failed to create a KES signature from a slice ({}) of known size: {e:?}", hex::encode(bytes))
+        })
     }
 }
 

@@ -12,18 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::chain_selection::{self, ChainSelector, Fork};
-use super::header::{point_hash, ConwayHeader, Header};
-use super::store::ChainStore;
-use crate::ConsensusError;
-use amaru_kernel::epoch_from_slot;
-use amaru_kernel::Point;
+use crate::{
+    consensus::{
+        chain_selection::{self, ChainSelector, Fork},
+        header::{point_hash, ConwayHeader, Header},
+        store::ChainStore,
+    },
+    peer::{Peer, PeerSession},
+    ConsensusError,
+};
+use amaru_kernel::{epoch_from_slot, Point, ACTIVE_SLOT_COEFF_INVERSE};
 use amaru_ledger::ValidateBlockEvent;
-use amaru_ouroboros::protocol::peer::*;
-use amaru_ouroboros::{consensus::BlockValidator, validator::Validator};
+use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_codec::minicbor;
-use pallas_crypto::hash::Hash;
+use pallas_crypto::hash::{Hash, Hasher};
 use pallas_math::math::FixedDecimal;
 use pallas_primitives::{babbage, conway::Epoch};
 use pallas_traverse::ComputeHash;
@@ -33,7 +36,15 @@ use tracing::{instrument, trace, trace_span, Level, Span};
 
 const EVENT_TARGET: &str = "amaru::consensus";
 
-#[instrument(level = Level::TRACE, skip_all)]
+#[instrument(
+    level = Level::TRACE,
+    skip_all,
+    fields(
+        header.hash = %Hasher::<256>::hash(header.header_body.raw_cbor()),
+        header.slot = header.header_body.slot,
+        issuer.key = %header.header_body.issuer_vkey,
+    ),
+)]
 pub fn assert_header<'a>(
     point: &Point,
     header: &'a babbage::MintedHeader<'a>,
@@ -43,14 +54,14 @@ pub fn assert_header<'a>(
     let epoch = epoch_from_slot(header.header_body.slot);
 
     if let Some(epoch_nonce) = epoch_to_nonce.get(&epoch) {
-        // TODO: Take this parameter from an input context, rather than hard-coding it.
-        let active_slots_coeff: FixedDecimal =
-            FixedDecimal::from(5u64) / FixedDecimal::from(100u64);
+        let active_slot_coeff: FixedDecimal =
+            FixedDecimal::from(1_u64) / FixedDecimal::from(ACTIVE_SLOT_COEFF_INVERSE as u64);
 
-        let block_validator = BlockValidator::new(header, ledger, epoch_nonce, &active_slots_coeff);
-
-        block_validator
-            .validate()
+        praos::header::assert_all(header, ledger, *epoch_nonce, &active_slot_coeff)
+            .and_then(|assertions| {
+                use rayon::prelude::*;
+                assertions.into_par_iter().try_for_each(|assert| assert())
+            })
             .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
     } else {
         Ok(())
