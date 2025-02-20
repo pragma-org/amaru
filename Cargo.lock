@@ -33,7 +33,6 @@ dependencies = [
  "amaru-consensus",
  "amaru-kernel",
  "amaru-ledger",
- "amaru-ouroboros",
  "amaru-stores",
  "anyhow",
  "async-trait",
@@ -87,6 +86,7 @@ dependencies = [
  "pallas-traverse",
  "proptest",
  "rand",
+ "rayon",
  "rocksdb",
  "tempfile",
  "thiserror 2.0.11",
@@ -128,7 +128,6 @@ dependencies = [
 name = "amaru-ouroboros"
 version = "0.1.0"
 dependencies = [
- "amaru-kernel",
  "amaru-ouroboros-traits",
  "ctor",
  "hex",
@@ -137,7 +136,6 @@ dependencies = [
  "pallas-codec",
  "pallas-crypto",
  "pallas-math",
- "pallas-network",
  "pallas-primitives",
  "pallas-traverse",
  "rand",
@@ -145,8 +143,6 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.11",
- "tokio",
- "tracing",
  "tracing-subscriber",
  "vrf_dalek",
 ]
