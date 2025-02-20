@@ -35,7 +35,9 @@ pub enum ValidationError {
     #[error("Pool not found: {0:?}")]
     UnknownPool(PoolId),
     #[error("VrfVerificationError: {0}")]
-    VrfVerificationError(#[from] crate::vrf::VerificationError),
+    VrfProofVerifyError(#[from] crate::vrf::ProofVerifyError),
+    #[error("Malformed VRF proof: {0}")]
+    VrfProofFromBytesError(#[from] crate::vrf::ProofFromBytesError),
     #[error("InvalidVrfProofHash, expected: {0}, was: {1}")]
     InvalidVrfProofHash(String, String),
     #[error("InvalidVrfLeaderHash, expected: {0}, was: {1}")]

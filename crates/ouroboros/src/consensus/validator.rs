@@ -2,8 +2,7 @@ use crate::{
     issuer_vkey_to_pool_id,
     kes::{KesPublicKey, KesSignature},
     validator::{ValidationError, Validator},
-    vrf::{VrfProof, VrfProofBytes, VrfProofHashBytes, VrfPublicKey, VrfPublicKeyBytes},
-    PoolId, VrfKeyhash,
+    vrf, PoolId,
 };
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_crypto::{
@@ -74,32 +73,35 @@ impl<'b> BlockValidator<'b> {
         let pool_id: PoolId = issuer_vkey_to_pool_id(issuer_vkey);
         span.record("issuer.id", pool_id.to_string());
 
-        let vrf_vkey: VrfPublicKeyBytes =
-            (&self.header.header_body.vrf_vkey)
-                .try_into()
-                .map_err(|error| {
-                    ValidationError::GenericValidationError(format!("vrf_vkey: {}", error))
-                })?;
+        let vrf_vkey: [u8; vrf::PublicKey::SIZE] = (&self.header.header_body.vrf_vkey)
+            .try_into()
+            .map_err(|error| {
+            ValidationError::GenericValidationError(format!("vrf_vkey: {}", error))
+        })?;
 
         let leader_vrf_output = &self.header.header_body.leader_vrf_output();
 
-        let (ledger_vrf_vkey_hash, sigma): (VrfKeyhash, FixedDecimal) = self
-            .ledger_state
-            .get_pool(absolute_slot, &pool_id)
-            .map(|pool| {
-                (
-                    pool.vrf,
-                    FixedDecimal::from(pool.stake) / FixedDecimal::from(pool.active_stake),
-                )
-            })
-            .ok_or(ValidationError::UnknownPool(pool_id))?;
+        let (ledger_vrf_vkey_hash, sigma): (Hash<{ vrf::PublicKey::HASH_SIZE }>, FixedDecimal) =
+            self.ledger_state
+                .get_pool(absolute_slot, &pool_id)
+                .map(|pool| {
+                    (
+                        pool.vrf,
+                        FixedDecimal::from(pool.stake) / FixedDecimal::from(pool.active_stake),
+                    )
+                })
+                .ok_or(ValidationError::UnknownPool(pool_id))?;
 
-        let block_vrf_proof_hash: VrfProofHashBytes = (&self.header.header_body.vrf_result.0)
+        let block_vrf_proof_hash: [u8; vrf::Proof::HASH_SIZE] = (&self
+            .header
+            .header_body
+            .vrf_result
+            .0)
             .try_into()
             .map_err(|error| {
                 ValidationError::GenericValidationError(format!("block_vrf_proof_hash: {}", error))
             })?;
-        let block_vrf_proof: VrfProofBytes = (&self.header.header_body.vrf_result.1)
+        let block_vrf_proof: [u8; vrf::Proof::SIZE] = (&self.header.header_body.vrf_result.1)
             .try_into()
             .map_err(|error| {
                 ValidationError::GenericValidationError(format!("block_vrf_proof: {}", error))
@@ -266,19 +268,19 @@ impl<'b> BlockValidator<'b> {
     fn validate_block_vrf(
         &self,
         absolute_slot: u64,
-        vrf_vkey: &VrfPublicKeyBytes,
+        vrf_vkey: &[u8; vrf::PublicKey::SIZE],
         leader_vrf_output: &Vec<u8>,
         sigma: &FixedDecimal,
-        block_vrf_proof_hash: VrfProofHashBytes,
-        block_vrf_proof: &VrfProofBytes,
+        block_vrf_proof_hash: [u8; vrf::Proof::HASH_SIZE],
+        block_vrf_proof: &[u8; vrf::Proof::SIZE],
     ) -> Result<(), ValidationError> {
         // Calculate the VRF input seed so we can verify the VRF output against it.
-        let vrf_input_seed = self.mk_vrf_input(absolute_slot, self.epoch_nonce.as_ref());
+        let vrf_input_seed = self.mk_vrf_input(absolute_slot, self.epoch_nonce);
 
         // Verify the VRF proof
-        let vrf_proof = VrfProof::from(block_vrf_proof);
-        let vrf_vkey = VrfPublicKey::from(vrf_vkey);
-        let proof_hash = vrf_proof.verify(&vrf_vkey, vrf_input_seed.as_ref())?;
+        let vrf_proof = vrf::Proof::try_from(block_vrf_proof)?;
+        let vrf_vkey = vrf::PublicKey::from(vrf_vkey);
+        let proof_hash = vrf_proof.verify(&vrf_vkey, &vrf_input_seed)?;
         if proof_hash.as_slice() != block_vrf_proof_hash.as_slice() {
             Err(ValidationError::InvalidVrfProofHash(
                 hex::encode(block_vrf_proof_hash.as_slice()),
@@ -327,11 +329,11 @@ impl<'b> BlockValidator<'b> {
     /// Validate that the VRF key hash in the block matches the VRF key hash in the ledger
     fn validate_ledger_matches_block_vrf_key_hash(
         &self,
-        ledger_vrf_vkey_hash: &VrfKeyhash,
-        vrf_vkey: &VrfPublicKeyBytes,
+        ledger_vrf_vkey_hash: &[u8; vrf::PublicKey::HASH_SIZE],
+        vrf_vkey: &[u8; vrf::PublicKey::SIZE],
     ) -> Result<(), ValidationError> {
-        let vrf_vkey_hash: Hash<32> = Hasher::<256>::hash(vrf_vkey);
-        if &vrf_vkey_hash != ledger_vrf_vkey_hash {
+        let vrf_vkey_hash = Hasher::<{ 8 * vrf::PublicKey::HASH_SIZE }>::hash(vrf_vkey);
+        if vrf_vkey_hash.as_slice() != ledger_vrf_vkey_hash {
             return Err(ValidationError::InvalidVrfKeyForPool {
                 key_hash_from_ledger: hex::encode(ledger_vrf_vkey_hash),
                 key_hash_from_block: hex::encode(vrf_vkey),
@@ -340,11 +342,8 @@ impl<'b> BlockValidator<'b> {
         Ok(())
     }
 
-    fn mk_vrf_input(&self, absolute_slot: u64, eta0: &[u8]) -> Hash<32> {
-        let mut hasher = Hasher::<256>::new();
-        hasher.input(&absolute_slot.to_be_bytes());
-        hasher.input(eta0);
-        hasher.finalize()
+    fn mk_vrf_input(&self, absolute_slot: u64, epoch_nonce: &Hash<32>) -> vrf::Input {
+        vrf::Input::new(absolute_slot, epoch_nonce)
     }
 }
 

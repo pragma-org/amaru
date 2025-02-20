@@ -21,11 +21,11 @@ pub mod protocol;
 pub mod validator;
 pub mod vrf;
 
+pub mod praos;
+
 pub type PoolId = Hash<28>;
 
 pub type Lovelace = u64;
-
-pub type VrfKeyhash = Hash<32>;
 
 pub type Slot = u64;
 
