@@ -27,5 +27,4 @@ amaru-ouroboros-traits.workspace = true
 proptest.workspace = true
 
 [target.'cfg(not(std))'.dependencies]
-num = { version = "0.4.3", default-features = false, features = ["alloc", "libm"] }
-
+num = { workspace = true, default-features = false, features = ["alloc", "libm"] }

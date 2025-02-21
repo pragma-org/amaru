@@ -17,7 +17,7 @@ use pallas_codec::minicbor;
 use pallas_primitives::babbage;
 use std::{collections::HashMap, fs::File, io::BufReader};
 
-use amaru_ouroboros::{consensus::BlockValidator, kes::KesSecretKey, validator::Validator};
+use amaru_ouroboros::{kes, praos};
 use ctor::ctor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
@@ -99,8 +99,8 @@ pub struct KesKeyWrapperError {
 }
 
 impl KesKeyWrapper {
-    pub fn get_kes_secret_key(&'_ mut self) -> Result<KesSecretKey<'_>, KesKeyWrapperError> {
-        KesSecretKey::from_bytes(&mut self.bytes).map_err(|err| KesKeyWrapperError {
+    pub fn get_kes_secret_key(&'_ mut self) -> Result<kes::SecretKey<'_>, KesKeyWrapperError> {
+        kes::SecretKey::from_bytes(&mut self.bytes).map_err(|err| KesKeyWrapperError {
             reason: err.to_string(),
         })
     }
@@ -227,6 +227,8 @@ fn can_read_and_write_json_test_vectors() {
 
 #[test]
 fn validation_conforms_to_test_vectors() {
+    use rayon::prelude::*;
+
     let file = File::open("tests/data/test-vector.json").unwrap();
     let result: Result<Vec<(GeneratorContext, MutatedHeader)>, serde_json::Error> =
         serde_json::from_reader(BufReader::new(file));
@@ -244,14 +246,18 @@ fn validation_conforms_to_test_vectors() {
                     let ledger_state = mock_ledger_state(context);
                     let epoch_nonce = context.nonce;
                     let active_slot_coeff = context.active_slot_coeff_fraction();
-                    let block_validator =
-                        BlockValidator::new(&header,
-                                            &ledger_state,
-                                            &epoch_nonce,
-                                            &active_slot_coeff);
-                    let valid_result = block_validator.validate();
+                    let assertions = praos::header::assert_all(
+                        &header,
+                        &ledger_state,
+                        epoch_nonce,
+                        &active_slot_coeff,
+                    )
+                        .unwrap()
+                        .into_par_iter()
+                        .map(|assert| assert())
+                        .collect::<Result<Vec<_>, _>>();
 
-                    match (expected, valid_result) {
+                    match (expected, assertions) {
                         (Mutation::NoMutation, Ok(_)) => (),
                         (Mutation::NoMutation, Err(e)) => {
                             panic!(

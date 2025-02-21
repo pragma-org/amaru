@@ -40,7 +40,6 @@ anyhow.workspace = true
 amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
-amaru-ouroboros.workspace = true
 amaru-stores.workspace = true
 
 [dev-dependencies]

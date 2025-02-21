@@ -1,8 +1,15 @@
+use crate::{peer::Peer, Point};
 use amaru_ledger::ValidateBlockEvent;
-use amaru_ouroboros::protocol::PullEvent;
 use gasket::framework::*;
+use tracing::Span;
 
 use super::header_validation::Consensus;
+
+#[derive(Clone)]
+pub enum PullEvent {
+    RollForward(Peer, Point, Vec<u8>, Span),
+    Rollback(Peer, Point, Span),
+}
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;

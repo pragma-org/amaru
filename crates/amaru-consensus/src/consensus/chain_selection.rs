@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ConsensusError;
-
 use super::header::Header;
+use crate::{peer::Peer, ConsensusError};
 use amaru_kernel::Point;
-use amaru_ouroboros::protocol::peer::Peer;
 use pallas_crypto::hash::Hash;
 use std::{collections::HashMap, fmt::Debug};
 use tracing::{instrument, Level};

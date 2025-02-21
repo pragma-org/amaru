@@ -19,15 +19,12 @@ use amaru_consensus::{
         header::{point_hash, ConwayHeader},
         header_validation::Consensus,
         store::{rocksdb::RocksDBStore, ChainStore},
-        wiring::HeaderStage,
+        wiring::{HeaderStage, PullEvent},
     },
+    peer::{Peer, PeerSession},
     ConsensusError,
 };
 use amaru_kernel::Point;
-use amaru_ouroboros::protocol::{
-    peer::{Peer, PeerSession},
-    PullEvent,
-};
 use amaru_stores::rocksdb::RocksDB;
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},

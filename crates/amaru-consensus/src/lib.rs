@@ -13,7 +13,7 @@
 // limitations under the License
 
 use amaru_kernel::Point;
-use amaru_ouroboros::{protocol::peer::Peer, validator::ValidationError};
+use amaru_ouroboros::praos::header::AssertHeaderError;
 use thiserror::Error;
 
 /// Consensus interface
@@ -21,21 +21,25 @@ use thiserror::Error;
 /// The consensus interface is responsible for validating block headers.
 pub mod consensus;
 
+pub mod peer;
+
 /// Chain forward stage
 pub mod chain_forward;
+
+pub type RawHeader = Vec<u8>;
 
 #[derive(Error, Debug)]
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
-    #[error("Unknown peer {0:?}, bailing out")]
-    UnknownPeer(Peer),
     #[error("Failed to fetch block at {0:?}")]
     FetchBlockFailed(Point),
     #[error("Failed to validate header at {0:?}: {1}")]
-    InvalidHeader(Point, ValidationError),
+    InvalidHeader(Point, AssertHeaderError),
     #[error("Failed to store header at {0:?}: {1}")]
     StoreHeaderFailed(Point, consensus::store::StoreError),
     #[error("Failed to decode header at {0:?}")]
     CannotDecodeHeader(Point),
+    #[error("Unknown peer {0:?}, bailing out")]
+    UnknownPeer(peer::Peer),
 }
