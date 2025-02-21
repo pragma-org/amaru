@@ -12,6 +12,7 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 build = "build.rs"
+default-run = "amaru"
 
 [dependencies]
 async-trait.workspace = true
