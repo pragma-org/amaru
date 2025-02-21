@@ -22,7 +22,7 @@ tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-amaru = { path = "../amaru" }
+amaru = { path = "../../crates/amaru" }
 
 [dev-dependencies]
 envpath = { workspace = true, features = ["rand"] }
