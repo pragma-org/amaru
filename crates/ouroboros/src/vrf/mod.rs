@@ -17,7 +17,7 @@
 //! <https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-03>
 
 pub use pallas_primitives::babbage::{derive_tagged_vrf_output, VrfDerivation as Derivation};
-use std::array::TryFromSliceError;
+use std::{array::TryFromSliceError, ops::Deref};
 
 use crate::{Hash, Hasher};
 use thiserror::Error;
@@ -36,18 +36,18 @@ impl SecretKey {
     pub const SIZE: usize = 32;
 }
 
-impl From<&[u8; Self::SIZE]> for SecretKey {
-    fn from(slice: &[u8; Self::SIZE]) -> Self {
-        SecretKey(SecretKey03::from_bytes(slice))
-    }
-}
-
 impl SecretKey {
     /// Sign a challenge message value with a vrf secret key and produce a proof signature
     pub fn prove(&self, input: &Input) -> Proof {
         let pk = PublicKey03::from(&self.0);
         let proof = VrfProof03::generate(&pk, &self.0, input.as_ref());
         Proof(proof)
+    }
+}
+
+impl From<&[u8; Self::SIZE]> for SecretKey {
+    fn from(slice: &[u8; Self::SIZE]) -> Self {
+        SecretKey(SecretKey03::from_bytes(slice))
     }
 }
 
@@ -71,11 +71,11 @@ impl AsRef<[u8]> for PublicKey {
     }
 }
 
-impl TryFrom<&[u8]> for PublicKey {
-    type Error = TryFromSliceError;
+impl Deref for PublicKey {
+    type Target = [u8; PublicKey::SIZE];
 
-    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
-        Ok(PublicKey(PublicKey03::from_bytes(slice.try_into()?)))
+    fn deref(&self) -> &Self::Target {
+        self.0.as_bytes()
     }
 }
 
@@ -85,9 +85,11 @@ impl From<&[u8; Self::SIZE]> for PublicKey {
     }
 }
 
-impl From<[u8; Self::SIZE]> for PublicKey {
-    fn from(slice: [u8; Self::SIZE]) -> Self {
-        Self::from(&slice)
+impl TryFrom<&[u8]> for PublicKey {
+    type Error = TryFromSliceError;
+
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        Ok(PublicKey::from(<&[u8; Self::SIZE]>::try_from(slice)?))
     }
 }
 
@@ -130,6 +132,28 @@ impl AsRef<[u8]> for Input {
     }
 }
 
+impl Deref for Input {
+    type Target = Hash<32>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<&[u8; Self::SIZE]> for Input {
+    fn from(slice: &[u8; Self::SIZE]) -> Self {
+        Input(Hash::<{ Self::SIZE }>::from(&slice[..]))
+    }
+}
+
+impl TryFrom<&[u8]> for Input {
+    type Error = TryFromSliceError;
+
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Input::from(<&[u8; Self::SIZE]>::try_from(slice)?))
+    }
+}
+
 // ----------------------------------------------------------------------- Proof
 
 /// A VRF proof formed by an Edward point and two scalars.
@@ -142,6 +166,17 @@ impl Proof {
 
     /// Size of a VRF proof hash digest (SHA512), in bytes.
     pub const HASH_SIZE: usize = 64;
+
+    /// Verify a proof signature with a vrf public key. This will return a hash to compare with the original
+    /// signature hash, but any non-error result is considered a successful verification without needing
+    /// to do the extra comparison check.
+    pub fn verify(
+        &self,
+        public_key: &PublicKey,
+        input: &Input,
+    ) -> Result<Hash<{ Self::HASH_SIZE }>, ProofVerifyError> {
+        Ok(Hash::from(self.0.verify(&public_key.0, input.as_ref())?))
+    }
 }
 
 #[derive(Error, Debug, PartialEq)]
@@ -166,21 +201,9 @@ impl TryFrom<&[u8; Self::SIZE]> for Proof {
     }
 }
 
-impl Proof {
-    /// Return the created proof signature
-    pub fn signature(&self) -> [u8; Self::SIZE] {
-        self.0.to_bytes()
-    }
-
-    /// Verify a proof signature with a vrf public key. This will return a hash to compare with the original
-    /// signature hash, but any non-error result is considered a successful verification without needing
-    /// to do the extra comparison check.
-    pub fn verify(
-        &self,
-        public_key: &PublicKey,
-        input: &Input,
-    ) -> Result<Hash<{ Self::HASH_SIZE }>, ProofVerifyError> {
-        Ok(Hash::from(self.0.verify(&public_key.0, input.as_ref())?))
+impl From<&Proof> for [u8; Proof::SIZE] {
+    fn from(proof: &Proof) -> Self {
+        proof.0.to_bytes()
     }
 }
 
