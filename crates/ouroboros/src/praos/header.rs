@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    ed25519, issuer_to_pool_id,
-    kes::{KesPublicKey, KesSignature},
+    ed25519, issuer_to_pool_id, kes,
     math::{ExpOrdering, FixedDecimal, FixedPrecision},
     vrf, BlockHeader, Hash, Hasher, OperationalCert, PoolId, VrfCert,
 };
@@ -127,17 +126,8 @@ pub fn assert_all<'a>(
                 ledger_state.slot_to_kes_period(absolute_slot),
                 opcert.operational_cert_kes_period,
                 header.header_body.raw_cbor(),
-                {
-                    // TODO: Pallas should hold sized slices
-                    let bytes: [u8; KesPublicKey::SIZE] =
-                        opcert.operational_cert_hot_vkey[..].try_into()?;
-                    &KesPublicKey::from(&bytes)
-                },
-                {
-                    // TODO: Pallas should hold sized slices
-                    let bytes: [u8; KesSignature::SIZE] = header.body_signature[..].try_into()?;
-                    &KesSignature::from(&bytes)
-                },
+                &opcert.operational_cert_hot_vkey[..].try_into()?, // TODO: Pallas should hold sized slices
+                &header.body_signature[..].try_into()?, // TODO: Pallas should hold sized slices
                 ledger_state.max_kes_evolutions(),
             )?;
             Ok(())
@@ -312,8 +302,8 @@ impl AssertKesSignatureError {
         slot_kes_period: u64,
         opcert_kes_period: u64,
         header_body: &[u8],
-        public_key: &KesPublicKey,
-        signature: &KesSignature,
+        public_key: &kes::PublicKey,
+        signature: &kes::Signature,
         max_kes_evolutions: u64,
     ) -> Result<(), Self> {
         if opcert_kes_period > slot_kes_period {

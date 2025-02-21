@@ -17,7 +17,7 @@ use pallas_codec::minicbor;
 use pallas_primitives::babbage;
 use std::{collections::HashMap, fs::File, io::BufReader};
 
-use amaru_ouroboros::{kes::KesSecretKey, praos};
+use amaru_ouroboros::{kes, praos};
 use ctor::ctor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
@@ -99,8 +99,8 @@ pub struct KesKeyWrapperError {
 }
 
 impl KesKeyWrapper {
-    pub fn get_kes_secret_key(&'_ mut self) -> Result<KesSecretKey<'_>, KesKeyWrapperError> {
-        KesSecretKey::from_bytes(&mut self.bytes).map_err(|err| KesKeyWrapperError {
+    pub fn get_kes_secret_key(&'_ mut self) -> Result<kes::SecretKey<'_>, KesKeyWrapperError> {
+        kes::SecretKey::from_bytes(&mut self.bytes).map_err(|err| KesKeyWrapperError {
             reason: err.to_string(),
         })
     }
