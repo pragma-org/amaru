@@ -51,6 +51,14 @@ impl From<&[u8; Self::SIZE]> for SecretKey {
     }
 }
 
+impl TryFrom<&[u8]> for SecretKey {
+    type Error = TryFromSliceError;
+
+    fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
+        Ok(Self::from(<&[u8; Self::SIZE]>::try_from(slice)?))
+    }
+}
+
 // ------------------------------------------------------------------- PublicKey
 
 /// A VRF public key.
@@ -89,7 +97,7 @@ impl TryFrom<&[u8]> for PublicKey {
     type Error = TryFromSliceError;
 
     fn try_from(slice: &[u8]) -> Result<Self, Self::Error> {
-        Ok(PublicKey::from(<&[u8; Self::SIZE]>::try_from(slice)?))
+        Ok(Self::from(<&[u8; Self::SIZE]>::try_from(slice)?))
     }
 }
 
@@ -229,38 +237,103 @@ pub struct ProofVerifyError(
 mod tests {
     use super::*;
 
+    use proptest::prelude::*;
+
+    // Necessary to avoid defining a 'Debug' instance on SecretKey that would be leaky. It's only
+    // needed for test, so appears here.
+    struct WrappedSecretKey(SecretKey);
+    impl std::fmt::Debug for WrappedSecretKey {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+            write!(f, "{}", hex::encode(self.0 .0.to_bytes()))
+        }
+    }
+
+    prop_compose! {
+        fn any_secret_key()(bytes in proptest::array::uniform32(any::<u8>())) -> WrappedSecretKey {
+            WrappedSecretKey(SecretKey::from(&bytes))
+        }
+    }
+
+    prop_compose! {
+        fn any_public_key()(bytes in proptest::array::uniform32(any::<u8>())) -> PublicKey {
+            PublicKey::from(&bytes)
+        }
+    }
+
+    prop_compose! {
+        fn any_input()(bytes in proptest::array::uniform32(any::<u8>())) -> Input {
+            Input::from(&bytes)
+        }
+    }
+
+    prop_compose! {
+        fn any_proof()(
+            sk in any_secret_key(),
+            input in any_input(),
+        ) -> Proof {
+            sk.0.prove(&input)
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_verify_proof(
+            WrappedSecretKey(sk) in any_secret_key(),
+            input in any_input(),
+        ) {
+            let proof = sk.prove(&input);
+            assert_eq!(
+                proof.verify(&PublicKey::from(&sk), &input),
+                Ok(Hash::<{ Proof::HASH_SIZE }>::from(&proof)),
+            )
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_verify_fail_on_invalid_key(
+            WrappedSecretKey(sk) in any_secret_key(),
+            input in any_input(),
+            pk in any_public_key(),
+        ) {
+            let proof = sk.prove(&input);
+            assert!(matches!(proof.verify(&pk, &input), Err(..)));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_verify_fail_on_invalid_proof(
+            WrappedSecretKey(sk) in any_secret_key(),
+            input in any_input(),
+            proof in any_proof(),
+        ) {
+            assert!(matches!(proof.verify(&PublicKey::from(&sk), &input), Err(..)));
+        }
+    }
+
     #[test]
-    fn vrf_prove_and_verify() {
-        let raw_vrf_skey: Vec<u8> = hex::decode(
-            "adb9c97bec60189aa90d01d113e3ef405f03477d82a94f81da926c90cd46a3\
-             74e0ff2371508ac339431b50af7d69cde0f120d952bb876806d3136f9a7fda\
-             4381",
+    fn golden_sk_to_pk() {
+        let vrf_skey = SecretKey::try_from(
+            hex::decode(
+                "adb9c97bec60189aa90d01d113e3ef405f03477d82a94f81da926c\
+                 90cd46a374",
+            )
+            .unwrap()
+            .as_slice(),
         )
         .unwrap();
 
-        let raw_vrf_vkey: Vec<u8> = hex::decode(
-            "e0ff2371508ac339431b50af7d69cde0f120d952bb876806d3136f9a7fda43\
-             81",
+        let vrf_vkey = PublicKey::try_from(
+            hex::decode(
+                "e0ff2371508ac339431b50af7d69cde0f120d952bb876806d3136f\
+                 9a7fda4381",
+            )
+            .unwrap()
+            .as_slice(),
         )
         .unwrap();
 
-        let vrf_skey = SecretKey::from(&raw_vrf_skey[..SecretKey::SIZE].try_into().unwrap());
-        let vrf_vkey = PublicKey::from(
-            &raw_vrf_vkey[..PublicKey::SIZE].try_into().unwrap() as &[u8; PublicKey::SIZE]
-        );
-        let calculated_vrf_vkey = PublicKey::from(&vrf_skey);
-
-        assert_eq!(vrf_vkey.as_ref(), calculated_vrf_vkey.as_ref());
-
-        // random challenge to sign with vrf_skey
-        let input = Input::arbitrary();
-
-        // create a proof signature and hash of the seed
-        let proof = vrf_skey.prove(&input);
-        let proof_hash = Hash::<{ Proof::HASH_SIZE }>::from(&proof);
-
-        // verify the proof signature with the public vrf public key
-        let verified_hash = proof.verify(&vrf_vkey, &input).unwrap();
-        assert_eq!(proof_hash, verified_hash);
+        assert_eq!(vrf_vkey, PublicKey::from(&vrf_skey),);
     }
 }
