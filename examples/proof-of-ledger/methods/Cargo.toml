@@ -11,7 +11,7 @@ documentation.workspace = true
 publish = false
 
 [build-dependencies]
-risc0-build = { version = "1.2.3" }
+risc0-build = { version = "1.2.4" }
 
 [package.metadata.risc0]
 methods = ["guest"]

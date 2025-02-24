@@ -13,6 +13,6 @@ publish = false
 
 [dependencies]
 methods = { path = "methods" }
-risc0-zkvm = { version = "1.2.3" }
+risc0-zkvm = { version = "1.2.4" }
 amaru-examples-shared = { path = "../shared" }
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
