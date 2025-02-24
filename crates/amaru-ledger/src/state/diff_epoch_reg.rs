@@ -158,7 +158,7 @@ impl<'a, V> Fold<'a, V> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use std::collections::{btree_map, BTreeMap};
+    use std::collections::{BTreeMap, btree_map};
 
     pub const MAX_EPOCH: Epoch = 4;
 

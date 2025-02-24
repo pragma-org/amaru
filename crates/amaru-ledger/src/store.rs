@@ -16,7 +16,7 @@ pub mod columns;
 
 use crate::rewards::Pots;
 pub use crate::rewards::{RewardsSummary, StakeDistribution};
-use amaru_kernel::{cbor, Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use amaru_kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput, cbor};
 use columns::*;
 use std::{borrow::BorrowMut, io, iter};
 use thiserror::Error;

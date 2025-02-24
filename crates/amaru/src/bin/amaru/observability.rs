@@ -4,15 +4,15 @@ use std::{
     io::{self},
 };
 use tracing_subscriber::{
+    EnvFilter, Registry,
     filter::Filtered,
     fmt::{
-        format::{FmtSpan, Format, Json, JsonFields},
         Layer,
+        format::{FmtSpan, Format, Json, JsonFields},
     },
     layer::{Layered, SubscriberExt},
     prelude::*,
     util::SubscriberInitExt,
-    EnvFilter, Registry,
 };
 
 const SERVICE_NAME: &str = "amaru";
@@ -180,8 +180,8 @@ impl Default for OpenTelemetryHandle {
 
 #[allow(clippy::panic)]
 pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> OpenTelemetryHandle {
-    use opentelemetry::{trace::TracerProvider as _, KeyValue};
-    use opentelemetry_sdk::{metrics::Temporality, Resource};
+    use opentelemetry::{KeyValue, trace::TracerProvider as _};
+    use opentelemetry_sdk::{Resource, metrics::Temporality};
 
     let resource = Resource::new(vec![KeyValue::new("service.name", SERVICE_NAME)]);
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Lovelace, PoolId, StakeCredential};
+use amaru_kernel::{Lovelace, PoolId, StakeCredential, cbor};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";

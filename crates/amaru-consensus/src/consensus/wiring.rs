@@ -1,4 +1,4 @@
-use crate::{peer::Peer, Point};
+use crate::{Point, peer::Peer};
 use amaru_ledger::ValidateBlockEvent;
 use gasket::framework::*;
 use tracing::Span;

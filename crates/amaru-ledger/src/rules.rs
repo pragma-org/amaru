@@ -1,16 +1,16 @@
 mod block;
 
 use amaru_kernel::{
-    alonzo::MaybeIndefArray, cbor, protocol_parameters::ProtocolParameters, Block, Hash, Hasher,
-    MintedBlock, Redeemers,
+    Block, Hash, Hasher, MintedBlock, Redeemers, alonzo::MaybeIndefArray, cbor,
+    protocol_parameters::ProtocolParameters,
 };
 
 use block::{
-    body_size::{block_body_size_valid, BlockBodySizeTooBig},
+    body_size::{BlockBodySizeTooBig, block_body_size_valid},
     ex_units::*,
-    header_size::{block_header_size_valid, BlockHeaderSizeTooBig},
+    header_size::{BlockHeaderSizeTooBig, block_header_size_valid},
 };
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub enum RuleViolation {
     BlockBodySizeTooBig(BlockBodySizeTooBig),
@@ -93,8 +93,10 @@ mod tests {
 
         let pp = ProtocolParameters::default();
 
-        assert!(validate_block(bytes.as_slice(), pp)
-            .is_err_and(|e| matches!(e, BlockValidationError::SerializationError)))
+        assert!(
+            validate_block(bytes.as_slice(), pp)
+                .is_err_and(|e| matches!(e, BlockValidationError::SerializationError))
+        )
     }
 
     #[test]

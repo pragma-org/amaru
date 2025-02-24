@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use super::header::Header;
-use crate::{peer::Peer, ConsensusError};
+use crate::{ConsensusError, peer::Peer};
 use amaru_kernel::Point;
 use pallas_crypto::hash::Hash;
 use std::{collections::HashMap, fmt::Debug};
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 /// A fragment of the chain, represented by a list of headers
 /// and an anchor.
@@ -278,7 +278,7 @@ where
 mod tests {
 
     use super::*;
-    use crate::consensus::header::test::{generate_headers_anchored_at, random_bytes, TestHeader};
+    use crate::consensus::header::test::{TestHeader, generate_headers_anchored_at, random_bytes};
 
     #[test]
     fn extends_the_chain_with_single_header_from_peer() {

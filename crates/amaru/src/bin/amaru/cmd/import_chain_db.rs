@@ -3,11 +3,11 @@ use amaru::sync;
 use amaru_consensus::{
     consensus::{
         header::{ConwayHeader, Header},
-        store::{rocksdb::RocksDBStore, ChainStore},
+        store::{ChainStore, rocksdb::RocksDBStore},
     },
     peer::{Peer, PeerSession},
 };
-use clap::{builder::TypedValueParser as _, Parser};
+use clap::{Parser, builder::TypedValueParser as _};
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_network::{

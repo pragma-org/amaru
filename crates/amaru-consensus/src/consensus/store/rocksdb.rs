@@ -3,7 +3,7 @@ use crate::consensus::header::Header;
 use pallas_crypto::hash::Hash;
 use rocksdb::{OptimisticTransactionDB, Options};
 use std::path::PathBuf;
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -46,7 +46,7 @@ impl<H: Header> ChainStore<H> for RocksDBStore {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::consensus::header::test::{random_bytes, TestHeader};
+    use crate::consensus::header::test::{TestHeader, random_bytes};
     use std::fs::create_dir;
 
     #[test]

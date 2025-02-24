@@ -40,8 +40,8 @@ pub fn track_system_metrics(metrics: SdkMeterProvider) -> JoinHandle<()> {
 
 mod internals {
     use opentelemetry::{
-        metrics::{Gauge, MeterProvider},
         KeyValue,
+        metrics::{Gauge, MeterProvider},
     };
     use opentelemetry_sdk::metrics::SdkMeterProvider;
     use sysinfo::System;

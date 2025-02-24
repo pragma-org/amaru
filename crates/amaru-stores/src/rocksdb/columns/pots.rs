@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::super::common::{as_value, PREFIX_LEN};
+use super::super::common::{PREFIX_LEN, as_value};
 use crate::rocksdb::scolumns::pots::Row;
 use amaru_ledger::store::StoreError;
 use rocksdb::Transaction;

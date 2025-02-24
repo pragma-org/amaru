@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 use amaru_ledger::store::StoreError;
 use rocksdb::Transaction;
 use tracing::error;
 
-use amaru_ledger::store::columns::accounts::{Key, Row, Value, EVENT_TARGET};
+use amaru_ledger::store::columns::accounts::{EVENT_TARGET, Key, Row, Value};
 
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];

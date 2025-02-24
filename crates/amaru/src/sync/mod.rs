@@ -13,21 +13,20 @@
 // limitations under the License.
 
 use amaru_consensus::{
-    chain_forward,
+    ConsensusError, chain_forward,
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
-        header::{point_hash, ConwayHeader},
+        header::{ConwayHeader, point_hash},
         header_validation::Consensus,
-        store::{rocksdb::RocksDBStore, ChainStore},
+        store::{ChainStore, rocksdb::RocksDBStore},
         wiring::{HeaderStage, PullEvent},
     },
     peer::{Peer, PeerSession},
-    ConsensusError,
 };
 use amaru_kernel::Point;
 use amaru_stores::rocksdb::RocksDB;
 use gasket::{
-    messaging::{tokio::funnel_ports, OutputPort},
+    messaging::{OutputPort, tokio::funnel_ports},
     runtime::Tether,
 };
 use pallas_crypto::hash::Hash;

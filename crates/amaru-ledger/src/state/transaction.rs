@@ -17,12 +17,12 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    output_lovelace, reward_account_to_stake_credential, Certificate, Hash, Lovelace,
-    MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
-    TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    Certificate, Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams,
+    STAKE_CREDENTIAL_DEPOSIT, Set, StakeCredential, TransactionInput, TransactionOutput,
+    output_lovelace, reward_account_to_stake_credential,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use tracing::{trace, trace_span, Span};
+use tracing::{Span, trace, trace_span};
 
 const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
 

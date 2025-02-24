@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::consensus::{
-    header::{point_hash, ConwayHeader},
+    header::{ConwayHeader, point_hash},
     store::ChainStore,
 };
 use amaru_ledger::BlockValidationResult;

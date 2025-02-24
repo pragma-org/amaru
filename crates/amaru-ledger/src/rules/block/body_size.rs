@@ -1,5 +1,5 @@
 use crate::rules::RuleViolation;
-use amaru_kernel::{protocol_parameters::ProtocolParameters, HeaderBody};
+use amaru_kernel::{HeaderBody, protocol_parameters::ProtocolParameters};
 pub struct BlockBodySizeTooBig {
     pub supplied: usize,
     pub max: usize,
@@ -41,7 +41,7 @@ pub fn block_body_size_valid(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::{cbor, Block, MintedBlock};
+    use amaru_kernel::{Block, MintedBlock, cbor};
     #[test]
     fn test_block_body_size_valid() {
         // These bytes are Conway3.block from Pallas https://github.com/txpipe/pallas/blob/main/test_data/conway3.block

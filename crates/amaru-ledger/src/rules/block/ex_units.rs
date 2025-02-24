@@ -1,4 +1,4 @@
-use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
+use amaru_kernel::{ExUnits, protocol_parameters::ProtocolParameters, sum_ex_units};
 
 use crate::rules::RuleViolation;
 

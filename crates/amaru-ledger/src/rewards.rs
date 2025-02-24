@@ -96,17 +96,17 @@ the system at a certain point in time. We always take snapshots _at the end of e
 certain mutations are applied to the system.
 */
 
-use crate::store::{columns::*, Snapshot, StoreError};
+use crate::store::{Snapshot, StoreError, columns::*};
 use amaru_kernel::{
-    encode_bech32, expect_stake_credential, output_lovelace, output_stake_credential, Epoch, Hash,
-    Lovelace, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY,
-    MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH,
-    TREASURY_TAX,
+    ACTIVE_SLOT_COEFF_INVERSE, Epoch, Hash, Lovelace, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION,
+    OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, PoolId, PoolParams, SHELLEY_EPOCH_LENGTH,
+    StakeCredential, TREASURY_TAX, encode_bech32, expect_stake_credential, output_lovelace,
+    output_stake_credential,
 };
 use num::{
+    BigUint,
     rational::Ratio,
     traits::{One, Zero},
-    BigUint,
 };
 use serde::ser::SerializeStruct;
 use std::{collections::BTreeMap, iter};

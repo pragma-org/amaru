@@ -15,7 +15,7 @@
 use crate::{config::NetworkName, metrics::track_system_metrics};
 use amaru::sync::Config;
 use amaru_consensus::consensus::nonce;
-use clap::{builder::TypedValueParser as _, ArgAction, Parser};
+use clap::{ArgAction, Parser, builder::TypedValueParser as _};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc, time::Duration};

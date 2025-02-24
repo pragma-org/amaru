@@ -110,7 +110,7 @@ pub mod test {
     use pallas_codec::minicbor as cbor;
     use pallas_crypto::hash::Hasher;
     use proptest::prelude::*;
-    use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use rand::{RngCore, SeedableRng, rngs::StdRng};
     use std::fmt::{self, Display, Formatter};
 
     /// Basic `Header` implementation for testing purposes.
@@ -185,10 +185,14 @@ pub mod test {
                     body_hash,
                 } => {
                     write!(
-                f,
-                "TestHeader {{ hash: {}, block_number: {}, slot: {}, parent: {}, body_hash: {} }}",
-                self.hash(), block_number, slot, parent, body_hash
-            )
+                        f,
+                        "TestHeader {{ hash: {}, block_number: {}, slot: {}, parent: {}, body_hash: {} }}",
+                        self.hash(),
+                        block_number,
+                        slot,
+                        parent,
+                        body_hash
+                    )
                 }
                 TestHeader::Genesis => write!(f, "Genesis"),
             }

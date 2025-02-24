@@ -1,14 +1,13 @@
 use std::sync::Arc;
 
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
+use amaru_kernel::{Point, protocol_parameters::ProtocolParameters};
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
-use tracing::{trace_span, Span};
+use tracing::{Span, trace_span};
 
 use amaru_ledger::{
-    rules,
+    BlockValidationResult, RawBlock, ValidateBlockEvent, rules,
     state::{self, BackwardError},
     store::Store,
-    BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;

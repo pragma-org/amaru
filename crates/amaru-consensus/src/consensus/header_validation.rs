@@ -13,15 +13,15 @@
 // limitations under the License.
 
 use crate::{
+    ConsensusError,
     consensus::{
         chain_selection::{self, ChainSelector, Fork},
-        header::{point_hash, ConwayHeader, Header},
+        header::{ConwayHeader, Header, point_hash},
         store::ChainStore,
     },
     peer::{Peer, PeerSession},
-    ConsensusError,
 };
-use amaru_kernel::{epoch_from_slot, Point, ACTIVE_SLOT_COEFF_INVERSE};
+use amaru_kernel::{ACTIVE_SLOT_COEFF_INVERSE, Point, epoch_from_slot};
 use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
@@ -32,7 +32,7 @@ use pallas_primitives::{babbage, conway::Epoch};
 use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
-use tracing::{instrument, trace, trace_span, Level, Span};
+use tracing::{Level, Span, instrument, trace, trace_span};
 
 const EVENT_TARGET: &str = "amaru::consensus";
 

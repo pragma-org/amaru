@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    epoch_from_slot, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Set, StakeCredential,
-    TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    DRep, Epoch, Lovelace, Point, PoolId, PoolParams, STAKE_CREDENTIAL_DEPOSIT, Set,
+    StakeCredential, TransactionInput, TransactionOutput, epoch_from_slot,
 };
 use amaru_ledger::{
     self,
@@ -22,7 +22,7 @@ use amaru_ledger::{
         Store, {self},
     },
 };
-use amaru_stores::rocksdb::{columns::*, RocksDB};
+use amaru_stores::rocksdb::{RocksDB, columns::*};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_codec::minicbor as cbor;
@@ -61,7 +61,9 @@ pub struct Args {
 enum Error<'a> {
     #[error("malformed date: {}", .0)]
     MalformedDate(&'a str),
-    #[error("You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)")]
+    #[error(
+        "You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)"
+    )]
     IncorrectUsage,
 }
 
@@ -414,7 +416,8 @@ fn import_stake_pools(
             accounts: iter::empty(),
         },
         iter::empty(),
-    ).map_err(Into::into)
+    )
+    .map_err(Into::into)
 }
 
 fn import_pots(

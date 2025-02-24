@@ -23,10 +23,10 @@ While elements are being contributed upstream, they might transiently live in th
 
 use std::sync::LazyLock;
 
-use num::{rational::Ratio, BigUint};
+use num::{BigUint, rational::Ratio};
 use pallas_addresses::Error;
 use pallas_addresses::*;
-use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
+use pallas_codec::minicbor::{Decode, Decoder, Encode, Encoder, decode, encode};
 pub use pallas_codec::{
     minicbor as cbor,
     utils::{NonEmptyKeyValuePairs, Nullable, Set},

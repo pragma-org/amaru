@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Epoch, PoolId, PoolParams};
+use amaru_kernel::{Epoch, PoolId, PoolParams, cbor};
 use iter_borrow::IterBorrow;
 use tracing::trace;
 

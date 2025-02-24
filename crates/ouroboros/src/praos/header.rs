@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use crate::{
-    ed25519, issuer_to_pool_id, kes,
+    BlockHeader, Hash, Hasher, OperationalCert, PoolId, VrfCert, ed25519, issuer_to_pool_id, kes,
     math::{ExpOrdering, FixedDecimal, FixedPrecision},
-    vrf, BlockHeader, Hash, Hasher, OperationalCert, PoolId, VrfCert,
+    vrf,
 };
 use amaru_ouroboros_traits::HasStakeDistribution;
 use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
@@ -279,7 +279,9 @@ impl AssertLeaderStakeError {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum AssertKesSignatureError {
-    #[error("Operational Certificate KES period ({opcert_kes_period}) is greater than the block slot KES period ({slot_kes_period}).")]
+    #[error(
+        "Operational Certificate KES period ({opcert_kes_period}) is greater than the block slot KES period ({slot_kes_period})."
+    )]
     OpCertKesPeriodTooLarge {
         opcert_kes_period: u64,
         slot_kes_period: u64,
@@ -342,7 +344,7 @@ pub enum AssertOperationalCertificateError {
     #[error(
         "Operational certificate sequence number ({}) is too far ahead of the latest known sequence number ({}).",
         declared_sequence_number,
-        latest_sequence_number,
+        latest_sequence_number
     )]
     SequenceNumberTooFarAhead {
         declared_sequence_number: u64,
@@ -352,7 +354,7 @@ pub enum AssertOperationalCertificateError {
     #[error(
         "Operational certificate sequence number ({}) is less than the latest known sequence number ({}).",
         declared_sequence_number,
-        latest_sequence_number,
+        latest_sequence_number
     )]
     SequenceNumberTooSmall {
         declared_sequence_number: u64,

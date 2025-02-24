@@ -21,12 +21,12 @@ pub mod volatile_db;
 use crate::{
     rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
-    store::{columns::*, Store, StoreError},
+    store::{Store, StoreError, columns::*},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, TransactionInput,
-    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
-    STABILITY_WINDOW,
+    self, CONSENSUS_SECURITY_PARAM, Epoch, Hash, Hasher, MAX_KES_EVOLUTION, MintedBlock, Point,
+    PoolId, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW, Slot, TransactionInput, TransactionOutput,
+    epoch_from_slot,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
@@ -35,7 +35,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
-use tracing::{info_span, trace, trace_span, Span};
+use tracing::{Span, info_span, trace, trace_span};
 
 const EVENT_TARGET: &str = "amaru::ledger::state";
 
