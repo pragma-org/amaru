@@ -141,7 +141,7 @@ impl<S: Store> State<S> {
 
     /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
     /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution {
+    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S> {
         StakeDistributionView {
             view: self.stake_distributions.clone(),
         }

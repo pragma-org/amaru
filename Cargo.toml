@@ -1,13 +1,13 @@
 [workspace.package]
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 description = "A Cardano blockchain node implementation"
 license = "Apache-2.0"
 authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
-rust-version = "1.81.0"
+rust-version = "1.85.0"
 
 [workspace]
 members = ["crates/*", "simulation/*"]

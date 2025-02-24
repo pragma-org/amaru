@@ -366,7 +366,7 @@ fn import_stake_pools(
     pools: HashMap<PoolId, PoolParams>,
     updates: HashMap<PoolId, PoolParams>,
     retirements: HashMap<PoolId, Epoch>,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut state = amaru_ledger::state::diff_epoch_reg::DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);
@@ -414,7 +414,7 @@ fn import_stake_pools(
             accounts: iter::empty(),
         },
         iter::empty(),
-    )
+    ).map_err(Into::into)
 }
 
 fn import_pots(
