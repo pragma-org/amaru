@@ -105,3 +105,8 @@ expect_used = "warn"
 panic = "warn"
 todo = "warn"
 unwrap_used = "warn"
+
+[profile.release]
+# See https://doc.rust-lang.org/cargo/reference/profiles.html
+lto = true
+codegen-units = 1
