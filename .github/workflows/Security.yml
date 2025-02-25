@@ -32,4 +32,4 @@ jobs:
           repo: EmbarkStudios/cargo-deny
           tag: 0.16.4
           binaries-location: cargo-deny-0.16.4-x86_64-unknown-linux-musl
-      - run: cargo-deny check licenses
+      - run: cargo deny-amaru

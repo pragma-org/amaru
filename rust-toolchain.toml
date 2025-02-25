@@ -1,0 +1,3 @@
+[toolchain]
+channel = "1.81.0" # ⚠️ Also change in top-level Cargo.toml
+components = [ "rustc", "rustfmt", "clippy" ]
