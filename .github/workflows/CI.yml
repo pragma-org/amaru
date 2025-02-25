@@ -95,6 +95,7 @@ jobs:
             exit "$exitcode"
           fi
         shell: bash
+
   examples:
     name: Examples
     strategy:
@@ -104,11 +105,6 @@ jobs:
           - path: ledger-in-nodejs
             commands: |
               rustup target add wasm32-unknown-unknown
-              make
-          - path: proof-of-ledger
-            commands: |
-              curl -L https://risczero.com/install | bash
-              /home/runner/.risc0/bin/rzup install
               make
     defaults:
       run:
