@@ -17,7 +17,7 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    output_lovelace, reward_account_to_stake_credential, Certificate, Hash, Lovelace,
+    output_lovelace, reward_account_to_stake_credential, Anchor, Certificate, Hash, Lovelace,
     MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
     TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
@@ -70,7 +70,13 @@ pub fn apply(
         .map(|xs| xs.to_vec())
         .unwrap_or_default();
     span.record("transaction.certificates", certificates.len());
-    apply_certificates(&span, &mut state.pools, &mut state.accounts, certificates);
+    apply_certificates(
+        &span,
+        &mut state.pools,
+        &mut state.accounts,
+        &mut state.dreps,
+        certificates,
+    );
 
     let withdrawals = transaction_body
         .withdrawals
@@ -246,6 +252,7 @@ fn apply_certificates(
     parent: &Span,
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
     accounts: &mut DiffBind<StakeCredential, PoolId, Lovelace>,
+    dreps: &mut DiffBind<StakeCredential, Anchor, Lovelace>,
     certificates: Vec<Certificate>,
 ) {
     certificates
@@ -301,6 +308,18 @@ fn apply_certificates(
             Certificate::StakeDelegation(credential, pool) => {
                 trace!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
                 accounts.bind(credential, Some(pool));
+            },
+            Certificate::RegDRepCert(credential, coin, anchor) => {
+                trace!(name: "drep.registration", target: EVENT_TARGET, parent: parent, credential = ?credential, coin = ?coin, anchor = ?anchor);
+                dreps.register(credential, coin, anchor.into());
+            },
+            Certificate::UnRegDRepCert(credential, coin) => {
+                trace!(name: "drep.unregistration", target: EVENT_TARGET, parent: parent, credential = ?credential, coin = ?coin);
+                dreps.unregister(credential);
+            },
+            Certificate::UpdateDRepCert(credential, anchor) => {
+                trace!(name: "drep.update", target: EVENT_TARGET, parent: parent, credential = ?credential, anchor = ?anchor);
+                dreps.bind(credential, anchor.into());
             },
             // Ignore complex type certificates as they have been made useless via `flatten_certificate`
             Certificate::StakeVoteDeleg{..} | Certificate::StakeRegDeleg{..} | Certificate::StakeVoteRegDeleg{..} | Certificate::VoteRegDeleg{..} => {},
