@@ -249,7 +249,7 @@ fn validation_conforms_to_test_vectors() {
                     let assertions = praos::header::assert_all(
                         &header,
                         &ledger_state,
-                        epoch_nonce,
+                        &epoch_nonce,
                         &active_slot_coeff,
                     )
                         .unwrap()

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use amaru_kernel::Point;
+use amaru_kernel::{Epoch, Point};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use thiserror::Error;
 
@@ -32,6 +32,8 @@ pub type RawHeader = Vec<u8>;
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
+    #[error("failed to lookup and find an nonce associated with the given epoch: {0}")]
+    MissingNonceForEpoch(Epoch),
     #[error("Failed to fetch block at {0:?}")]
     FetchBlockFailed(Point),
     #[error("Failed to validate header at {0:?}: {1}")]

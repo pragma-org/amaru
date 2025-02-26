@@ -21,14 +21,14 @@ use crate::{
     peer::{Peer, PeerSession},
     ConsensusError,
 };
-use amaru_kernel::{epoch_from_slot, Point, ACTIVE_SLOT_COEFF_INVERSE};
+use amaru_kernel::{
+    epoch_from_slot, Epoch, Hasher, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE,
+};
 use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_codec::minicbor;
-use pallas_crypto::hash::{Hash, Hasher};
 use pallas_math::math::FixedDecimal;
-use pallas_primitives::{babbage, conway::Epoch};
 use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
@@ -47,25 +47,19 @@ const EVENT_TARGET: &str = "amaru::consensus";
 )]
 pub fn assert_header<'a>(
     point: &Point,
-    header: &'a babbage::MintedHeader<'a>,
-    epoch_to_nonce: &HashMap<Epoch, Hash<32>>,
+    header: &'a MintedHeader<'a>,
+    epoch_nonce: &Nonce,
     ledger: &dyn HasStakeDistribution,
 ) -> Result<(), ConsensusError> {
-    let epoch = epoch_from_slot(header.header_body.slot);
+    let active_slot_coeff: FixedDecimal =
+        FixedDecimal::from(1_u64) / FixedDecimal::from(ACTIVE_SLOT_COEFF_INVERSE as u64);
 
-    if let Some(epoch_nonce) = epoch_to_nonce.get(&epoch) {
-        let active_slot_coeff: FixedDecimal =
-            FixedDecimal::from(1_u64) / FixedDecimal::from(ACTIVE_SLOT_COEFF_INVERSE as u64);
-
-        praos::header::assert_all(header, ledger, *epoch_nonce, &active_slot_coeff)
-            .and_then(|assertions| {
-                use rayon::prelude::*;
-                assertions.into_par_iter().try_for_each(|assert| assert())
-            })
-            .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
-    } else {
-        Ok(())
-    }
+    praos::header::assert_all(header, ledger, epoch_nonce, &active_slot_coeff)
+        .and_then(|assertions| {
+            use rayon::prelude::*;
+            assertions.into_par_iter().try_for_each(|assert| assert())
+        })
+        .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
 pub struct Consensus {
@@ -73,7 +67,6 @@ pub struct Consensus {
     chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
     ledger: Box<dyn HasStakeDistribution>,
     store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
-    epoch_to_nonce: HashMap<Epoch, Hash<32>>,
 }
 
 impl Consensus {
@@ -82,7 +75,6 @@ impl Consensus {
         ledger: Box<dyn HasStakeDistribution>,
         store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
         chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
-        epoch_to_nonce: HashMap<Epoch, Hash<32>>,
     ) -> Self {
         let peer_sessions = peer_sessions
             .into_iter()
@@ -93,7 +85,6 @@ impl Consensus {
             chain_selector,
             ledger,
             store,
-            epoch_to_nonce,
         }
     }
 
@@ -162,20 +153,27 @@ impl Consensus {
           hash = point_hash(point).to_string())
         .entered();
 
-        let header: babbage::MintedHeader<'_> = minicbor::decode(raw_header)
+        let header: MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
 
+        // first make sure we store the header
+        let mut store = self.store.lock().await;
+
         // FIXME: move into chain_selector
-        assert_header(point, &header, &self.epoch_to_nonce, self.ledger.as_ref())?;
+        let epoch = epoch_from_slot(header.header_body.slot);
+        if let Some(ref epoch_nonce) = store.get_nonce(&epoch) {
+            assert_header(point, &header, epoch_nonce, self.ledger.as_ref())?;
+        } else {
+            return Err(ConsensusError::MissingNonceForEpoch(epoch));
+        }
 
         let header: ConwayHeader = ConwayHeader::from(header);
 
-        // first make sure we store the header
-        self.store
-            .lock()
-            .await
+        store
             .store_header(&header.compute_hash(), &header)
             .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))?;
+
+        drop(store);
 
         let result = self
             .chain_selector

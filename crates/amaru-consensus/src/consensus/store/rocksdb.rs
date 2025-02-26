@@ -42,17 +42,15 @@ impl<H: Header> ChainStore<H> for RocksDBStore {
             })
     }
 
-    fn get_nonce(&self, epoch: Epoch) -> Option<Nonce> {
+    fn get_nonce(&self, epoch: &Epoch) -> Option<Nonce> {
         self.db
             .get_pinned(epoch.to_be_bytes())
             .ok()
             .flatten()
-            .map(|bytes| Nonce::try_from(bytes.as_ref()).unwrap_or_else(|e| {
-                panic!("Unable to deserialise previously serialized nonce for epoch={epoch}: {e:?}");
-            }))
+            .map(|bytes| Nonce::from(bytes.as_ref()))
     }
 
-    fn insert_nonce(&mut self, epoch: Epoch, nonce: Nonce) -> Result<(), super::StoreError> {
+    fn insert_nonce(&mut self, epoch: &Epoch, nonce: Nonce) -> Result<(), super::StoreError> {
         self.db
             .put(epoch.to_be_bytes(), &nonce[..])
             .map_err(|e| StoreError::WriteError {

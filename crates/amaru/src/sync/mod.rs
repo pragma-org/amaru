@@ -30,10 +30,8 @@ use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,
 };
-use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
-use pallas_primitives::conway::Epoch;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::pipeline::Stage;
@@ -49,7 +47,6 @@ pub struct Config {
     pub chain_dir: PathBuf,
     pub upstream_peers: Vec<String>,
     pub network_magic: u32,
-    pub nonces: HashMap<Epoch, Hash<32>>,
 }
 
 fn define_gasket_policy() -> gasket::runtime::Policy {
@@ -98,7 +95,6 @@ pub fn bootstrap(
         Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
         chain_selector,
-        config.nonces,
     );
 
     let mut consensus_stage = HeaderStage::new(consensus);

@@ -17,6 +17,7 @@ use crate::{
     math::{ExpOrdering, FixedDecimal, FixedPrecision},
     vrf, BlockHeader, Hash, Hasher, OperationalCert, PoolId, VrfCert,
 };
+use amaru_kernel::Nonce;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
 use thiserror::Error;
@@ -60,7 +61,7 @@ pub type Assertion<'a> = Box<dyn Fn() -> Result<(), AssertHeaderError> + Send + 
 pub fn assert_all<'a>(
     header: &'a BlockHeader<'a>,
     ledger_state: &'a dyn HasStakeDistribution,
-    epoch_nonce: Hash<32>,
+    epoch_nonce: &'a Nonce,
     active_slot_coeff: &'a FixedDecimal,
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
@@ -97,7 +98,7 @@ pub fn assert_all<'a>(
         }),
         Box::new(move || {
             AssertVrfProofError::new(
-                &vrf::Input::new(absolute_slot, &epoch_nonce),
+                &vrf::Input::new(absolute_slot, epoch_nonce),
                 &header.header_body.leader_vrf_output()[..],
                 &vrf::PublicKey::from(declared_vrf_key),
                 &header.header_body.vrf_result,

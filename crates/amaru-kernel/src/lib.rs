@@ -33,6 +33,7 @@ pub use pallas_codec::{
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
     alonzo,
+    babbage::MintedHeader,
     conway::{
         AddrKeyhash, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody, MintedBlock,
         MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, PoolMetadata,

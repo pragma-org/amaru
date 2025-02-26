@@ -14,14 +14,13 @@
 
 use crate::{config::NetworkName, metrics::track_system_metrics};
 use amaru::sync::Config;
-use amaru_consensus::consensus::nonce;
 use clap::{builder::TypedValueParser as _, ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, trace};
+use tracing::trace;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -102,32 +101,10 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
 }
 
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
-    // TODO: Figure out from ledger + consensus store
-    let root = args.data_dir.join(args.network.to_string());
-
-    let nonces = read_csv(&root.join("nonces.csv"), nonce::from_csv)?;
-
     Ok(Config {
         ledger_dir: args.ledger_dir,
         chain_dir: args.chain_dir,
         upstream_peers: args.peer_address,
         network_magic: args.network.to_network_magic(),
-        nonces,
     })
-}
-
-fn read_csv<F, T>(filepath: &PathBuf, with: F) -> Result<T, Box<dyn std::error::Error>>
-where
-    F: FnOnce(&str) -> T,
-{
-    Ok(with(std::str::from_utf8(
-        std::fs::read(filepath)
-            .inspect_err(|e| {
-                error!(
-                    "failed to read csv data file at {}: {e}",
-                    filepath.as_path().to_str().unwrap_or_default(),
-                );
-            })?
-            .as_slice(),
-    )?))
 }
