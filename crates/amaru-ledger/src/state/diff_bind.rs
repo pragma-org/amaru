@@ -55,3 +55,47 @@ impl<K: Ord, J: Clone, V> DiffBind<K, J, V> {
         self.unregistered.insert(k);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn register_some_then_bind() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.register(1, "a", Some("b"));
+        diff_bind.bind(1, Some("c"));
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(Some(&(Some("c"), Some("a"))), diff_bind.registered.get(&1));
+    }
+
+    #[test]
+    fn register_none_then_bind() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.register(1, "a", None);
+        diff_bind.bind(1, Some("c"));
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(Some(&(Some("c"), Some("a"))), diff_bind.registered.get(&1));
+    }
+
+    #[test]
+    fn bind_then_register_none() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.bind(1, Some("c"));
+        diff_bind.register(1, "a", None);
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(Some(&(None, Some("a"))), diff_bind.registered.get(&1));
+    }
+
+    #[test]
+    fn bind_only() {
+        let mut diff_bind: DiffBind<i32, &str, &str> = DiffBind::default();
+        diff_bind.bind(1, Some("c"));
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(Some(&(Some("c"), None)), diff_bind.registered.get(&1));
+    }
+}
