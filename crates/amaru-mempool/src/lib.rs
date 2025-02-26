@@ -29,20 +29,15 @@ pub struct SimpleMempool {
 }
 
 impl SimpleMempool {
-    fn new() -> Self {
+    pub fn new() -> Self {
         SimpleMempool {
             transactions: vec![],
         }
     }
+
     // Just check that each tx input exists
     fn validate_tx<S: Snapshot>(&self, snapshot: &S, tx: &Tx) -> bool {
-        for input in &tx.transaction_body.inputs {
-            let u = snapshot.utxo(input);
-            if !u.is_ok() {
-                return false
-            }
-        }
-        return true
+        tx.transaction_body.inputs.iter().all(|input| snapshot.utxo(input).is_ok())
     }
 }
 
@@ -61,19 +56,9 @@ impl Mempool for SimpleMempool {
     }
 
     fn invalidate_utxos(&mut self, txins: HashSet<TransactionInput>) {
-        let mut new_transactions = vec![];
-        for tx in &self.transactions {
-            let mut valid = true;
-            for input in &tx.transaction_body.inputs {
-                if txins.contains(input) {
-                    valid = false;
-                }
-            }
-            if valid {
-                new_transactions.push(tx.clone());
-            }
-        }
-        self.transactions = new_transactions;
+        self.transactions = self.transactions.clone().into_iter().filter(|tx| {
+            tx.transaction_body.inputs.iter().all(|input| !txins.contains(input))
+        }).collect();
     }
 }
 
@@ -196,9 +181,7 @@ mod tests {
 
     #[test]
     fn add_tx_success() {
-        let mut mempool = SimpleMempool {
-            transactions: vec![],
-        };
+        let mut mempool = SimpleMempool::new();
         let id = [0; 32];
         let mut utxos = HashMap::new();
         utxos.insert(
@@ -218,9 +201,7 @@ mod tests {
 
     #[test]
     fn add_tx_failure() {
-        let mut mempool = SimpleMempool {
-            transactions: vec![],
-        };
+        let mut mempool = SimpleMempool::new(); 
         let id = [0; 32];
         let mut utxos = HashMap::new();
         utxos.insert(
