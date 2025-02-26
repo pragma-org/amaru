@@ -347,6 +347,7 @@ fn import_utxo(
                 utxo: chunk,
                 pools: iter::empty(),
                 accounts: iter::empty(),
+                dreps: iter::empty(),
             },
             Default::default(),
             iter::empty(),
@@ -407,11 +408,13 @@ fn import_stake_pools(
                         .collect::<Vec<_>>()
                 }),
             accounts: iter::empty(),
+            dreps: iter::empty(),
         },
         store::Columns {
             pools: state.unregistered.into_iter(),
             utxo: iter::empty(),
             accounts: iter::empty(),
+            dreps: iter::empty(),
         },
         iter::empty(),
     )
@@ -492,6 +495,7 @@ fn import_accounts(
                 utxo: iter::empty(),
                 pools: iter::empty(),
                 accounts: chunk,
+                dreps: iter::empty(),
             },
             Default::default(),
             iter::empty(),
