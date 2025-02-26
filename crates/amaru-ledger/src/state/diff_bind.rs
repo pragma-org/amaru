@@ -32,14 +32,28 @@ impl<K: Ord, J, V> Default for DiffBind<K, J, V> {
     }
 }
 
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Key is already registered")]
+    KeyAlreadyRegistered,
+    #[error("Key is already unregistered")]
+    KeyAlreadyUnregistered,
+}
+
 impl<K: Ord, J: Clone, V> DiffBind<K, J, V> {
-    pub fn register(&mut self, k: K, v: V, j: Option<J>) {
+    pub fn register(&mut self, k: K, v: V, j: Option<J>) -> Result<(), Error> {
+        if self.registered.contains_key(&k) {
+            return Err(Error::KeyAlreadyUnregistered);
+        }
         self.unregistered.remove(&k);
         self.registered.insert(k, (j, Some(v)));
+        Ok(())
     }
 
-    pub fn bind(&mut self, k: K, j: Option<J>) {
-        assert!(!self.unregistered.contains(&k));
+    pub fn bind(&mut self, k: K, j: Option<J>) -> Result<(), Error> {
+        if self.unregistered.contains(&k) {
+            return Err(Error::KeyAlreadyUnregistered);
+        }
         match self.registered.entry(k) {
             Entry::Occupied(mut e) => {
                 e.get_mut().0 = j;
@@ -48,6 +62,7 @@ impl<K: Ord, J: Clone, V> DiffBind<K, J, V> {
                 e.insert((j, None));
             }
         }
+        Ok(())
     }
 
     pub fn unregister(&mut self, k: K) {
@@ -63,8 +78,8 @@ mod tests {
     #[test]
     fn register_some_then_bind() {
         let mut diff_bind = DiffBind::default();
-        diff_bind.register(1, "a", Some("b"));
-        diff_bind.bind(1, Some("c"));
+        diff_bind.register(1, "a", Some("b")).unwrap();
+        diff_bind.bind(1, Some("c")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(Some(&(Some("c"), Some("a"))), diff_bind.registered.get(&1));
@@ -73,27 +88,24 @@ mod tests {
     #[test]
     fn register_none_then_bind() {
         let mut diff_bind = DiffBind::default();
-        diff_bind.register(1, "a", None);
-        diff_bind.bind(1, Some("c"));
+        diff_bind.register(1, "a", None).unwrap();
+        diff_bind.bind(1, Some("c")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(Some(&(Some("c"), Some("a"))), diff_bind.registered.get(&1));
     }
 
     #[test]
-    fn bind_then_register_none() {
+    fn bind_then_register_fails() {
         let mut diff_bind = DiffBind::default();
-        diff_bind.bind(1, Some("c"));
-        diff_bind.register(1, "a", None);
-        assert!(diff_bind.unregistered.is_empty());
-        assert!(diff_bind.registered.contains_key(&1));
-        assert_eq!(Some(&(None, Some("a"))), diff_bind.registered.get(&1));
+        diff_bind.bind(1, Some("c")).unwrap();
+        diff_bind.register(1, "a", None).unwrap_err();
     }
 
     #[test]
     fn bind_only() {
         let mut diff_bind: DiffBind<i32, &str, &str> = DiffBind::default();
-        diff_bind.bind(1, Some("c"));
+        diff_bind.bind(1, Some("c")).unwrap();
         assert!(diff_bind.unregistered.is_empty());
         assert!(diff_bind.registered.contains_key(&1));
         assert_eq!(Some(&(Some("c"), None)), diff_bind.registered.get(&1));
