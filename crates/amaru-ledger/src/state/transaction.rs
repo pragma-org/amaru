@@ -50,14 +50,14 @@ pub fn apply(
     .entered();
 
     let (utxo, fees) = if is_failed {
-        InputsOutputs::<true>::apply(
+        apply_io_failed(
             &span,
             transaction_id,
             &mut transaction_body,
             resolved_collateral_inputs,
         )
     } else {
-        InputsOutputs::<false>::apply(&span, transaction_id, &mut transaction_body, ())
+        apply_io(&span, transaction_id, &mut transaction_body)
     };
     state.utxo.merge(utxo);
 
@@ -94,121 +94,98 @@ pub fn apply(
     span.exit();
 }
 
-/// A trait to extract inputs, outputs and fees from a transaction; based on whether it is a failed
-/// transaction or not. It is meant to provide a unified interface that makes the parallel between
-/// the two cases.
-trait InputsOutputs<const IS_FAILED: bool> {
-    type ResolvedInputs;
-
-    fn apply(
-        span: &Span,
-        transaction_id: Hash<32>,
-        body: &mut Self,
-        resolved_inputs: Self::ResolvedInputs,
-    ) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace);
-}
-
 /// On successful transaction
 ///   - inputs are consumed;
 ///   - outputs are produced;
 ///   - fees are collected;
-impl InputsOutputs<false> for MintedTransactionBody<'_> {
-    type ResolvedInputs = ();
+pub fn apply_io(
+    span: &Span,
+    transaction_id: Hash<32>,
+    body: &mut MintedTransactionBody<'_>,
+) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace) {
+    let consumed = core::mem::replace(&mut body.inputs, Set::from(vec![]))
+        .to_vec()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    span.record("transaction.inputs", consumed.len());
 
-    fn apply(
-        span: &Span,
-        transaction_id: Hash<32>,
-        body: &mut Self,
-        _resolved_inputs: Self::ResolvedInputs,
-    ) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace) {
-        let consumed = core::mem::replace(&mut body.inputs, Set::from(vec![]))
-            .to_vec()
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-        span.record("transaction.inputs", consumed.len());
+    let outputs = core::mem::take(&mut body.outputs)
+        .into_iter()
+        .map(|x| x.into())
+        .collect::<Vec<_>>();
+    span.record("transaction.outputs", outputs.len());
 
-        let outputs = core::mem::take(&mut body.outputs)
-            .into_iter()
-            .map(|x| x.into())
-            .collect::<Vec<_>>();
-        span.record("transaction.outputs", outputs.len());
+    let produced = outputs
+        .into_iter()
+        .enumerate()
+        .map(|(index, output)| {
+            (
+                TransactionInput {
+                    transaction_id,
+                    index: index as u64,
+                },
+                output,
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
 
-        let produced = outputs
-            .into_iter()
-            .enumerate()
-            .map(|(index, output)| {
-                (
-                    TransactionInput {
-                        transaction_id,
-                        index: index as u64,
-                    },
-                    output,
-                )
-            })
-            .collect::<BTreeMap<_, _>>();
-
-        (DiffSet { consumed, produced }, body.fee)
-    }
+    (DiffSet { consumed, produced }, body.fee)
 }
 
 /// On failed transactions:
 ///   - collateral inputs are consumed;
 ///   - collateral outputs produced (if any);
 ///   - the difference between collateral inputs and outputs is collected as fees.
-impl InputsOutputs<true> for MintedTransactionBody<'_> {
-    type ResolvedInputs = Vec<TransactionOutput>;
+fn apply_io_failed(
+    span: &Span,
+    transaction_id: Hash<32>,
+    body: &mut MintedTransactionBody<'_>,
+    resolved_inputs: Vec<TransactionOutput>,
+) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace) {
+    let consumed = core::mem::take(&mut body.collateral)
+        .map(|x| x.to_vec())
+        .unwrap_or_default()
+        .into_iter()
+        .collect::<BTreeSet<_>>();
+    span.record("transaction.inputs", consumed.len());
 
-    fn apply(
-        span: &Span,
-        transaction_id: Hash<32>,
-        body: &mut Self,
-        resolved_inputs: Self::ResolvedInputs,
-    ) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace) {
-        let consumed = core::mem::take(&mut body.collateral)
-            .map(|x| x.to_vec())
-            .unwrap_or_default()
-            .into_iter()
-            .collect::<BTreeSet<_>>();
-        span.record("transaction.inputs", consumed.len());
+    let total_collateral = resolved_inputs
+        .iter()
+        .fold(0, |total, output| total + output_lovelace(output));
 
-        let total_collateral = resolved_inputs
-            .iter()
-            .fold(0, |total, output| total + output_lovelace(output));
+    match core::mem::take(&mut body.collateral_return) {
+        Some(output) => {
+            span.record("transaction.outputs", 1);
+            let output = output.into();
 
-        match core::mem::take(&mut body.collateral_return) {
-            Some(output) => {
-                span.record("transaction.outputs", 1);
-                let output = output.into();
+            let collateral_return = output_lovelace(&output);
 
-                let collateral_return = output_lovelace(&output);
+            let fees = total_collateral - collateral_return;
 
-                let fees = total_collateral - collateral_return;
+            let mut produced = BTreeMap::new();
+            produced.insert(
+                TransactionInput {
+                    transaction_id,
+                    // NOTE: Yes, you read that right. The index associated to collateral
+                    // outputs is the length of non-collateral outputs. So if a transaction has
+                    // two outputs, its (only) collateral output is accessible at index `1`,
+                    // and there's no collateral output at index `0` whatsoever.
+                    index: body.outputs.len() as u64,
+                },
+                output,
+            );
 
-                let mut produced = BTreeMap::new();
-                produced.insert(
-                    TransactionInput {
-                        transaction_id,
-                        // NOTE: Yes, you read that right. The index associated to collateral
-                        // outputs is the length of non-collateral outputs. So if a transaction has
-                        // two outputs, its (only) collateral output is accessible at index `1`,
-                        // and there's no collateral output at index `0` whatsoever.
-                        index: body.outputs.len() as u64,
-                    },
-                    output,
-                );
-
-                (DiffSet { consumed, produced }, fees)
-            }
-            None => {
-                span.record("transaction.outputs", 0);
-                (
-                    DiffSet {
-                        consumed,
-                        produced: BTreeMap::default(),
-                    },
-                    total_collateral,
-                )
-            }
+            (DiffSet { consumed, produced }, fees)
+        }
+        None => {
+            span.record("transaction.outputs", 0);
+            (
+                DiffSet {
+                    consumed,
+                    produced: BTreeMap::default(),
+                },
+                total_collateral,
+            )
         }
     }
 }
