@@ -101,11 +101,13 @@ pub trait Store: Snapshot + Send + Sync {
             impl Iterator<Item = (utxo::Key, utxo::Value)>,
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
+            impl Iterator<Item = (dreps::Key, dreps::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
+            impl Iterator<Item = dreps::Key>,
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
     ) -> Result<(), StoreError>;
@@ -156,18 +158,22 @@ pub trait Store: Snapshot + Send + Sync {
 
 /// A summary of all database columns, in a single struct. This can be derived to provide updates
 /// operations on multiple columns in a single db-transaction.
-pub struct Columns<U, P, A> {
+pub struct Columns<U, P, A, D> {
     pub utxo: U,
     pub pools: P,
     pub accounts: A,
+    pub dreps: D,
 }
 
-impl<U, P, A> Default for Columns<iter::Empty<U>, iter::Empty<P>, iter::Empty<A>> {
+impl<U, P, A, D> Default
+    for Columns<iter::Empty<U>, iter::Empty<P>, iter::Empty<A>, iter::Empty<D>>
+{
     fn default() -> Self {
         Self {
             utxo: iter::empty(),
             pools: iter::empty(),
             accounts: iter::empty(),
+            dreps: iter::empty(),
         }
     }
 }
