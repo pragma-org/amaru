@@ -11,6 +11,8 @@ use amaru_ledger::{
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 
+use amaru_mempool::{Mempool, SimpleMempool};
+
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
 
@@ -23,6 +25,7 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S>,
+    pub mempool: SimpleMempool,
 }
 
 impl<S: Store> gasket::framework::Stage for Stage<S> {
@@ -49,6 +52,7 @@ impl<S: Store> Stage<S> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
+                mempool: SimpleMempool::new(),
             },
             tip,
         )
@@ -82,6 +86,23 @@ impl<S: Store> Stage<S> {
         span_forward.record("header.height", block.header.header_body.block_number);
         span_forward.record("header.slot", block.header.header_body.slot);
         span_forward.record("header.hash", hex::encode(block_header_hash));
+
+        let bodies = match &block.transaction_bodies {
+            amaru_kernel::alonzo::MaybeIndefArray::Def(bodies) => {
+                bodies
+            }
+            amaru_kernel::alonzo::MaybeIndefArray::Indef(bodies) => {
+                bodies
+            }
+        };
+
+        for body in bodies {
+            let mut hash_set = std::collections::HashSet::new();
+            for input in &body.inputs {
+                hash_set.insert(input.clone());
+            }
+            self.mempool.invalidate_utxos(hash_set)
+        }
 
         let result = match self.state.forward(&span_forward, &point, block) {
             Ok(_) => BlockValidationResult::BlockValidated(point, parent.clone()),
