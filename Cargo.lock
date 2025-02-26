@@ -129,10 +129,7 @@ name = "amaru-mempool"
 version = "0.1.0"
 dependencies = [
  "amaru-ledger",
- "hex",
- "minicbor",
  "pallas-primitives",
- "proptest",
 ]
 
 [[package]]
