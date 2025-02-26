@@ -15,7 +15,8 @@
 use super::{diff_bind::DiffBind, diff_epoch_reg::DiffEpochReg, diff_set::DiffSet};
 use crate::store::{self, columns::*};
 use amaru_kernel::{
-    epoch_from_slot, Anchor, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential, TransactionInput, TransactionOutput
+    epoch_from_slot, Anchor, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use std::collections::{BTreeSet, VecDeque};
 
