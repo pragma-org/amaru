@@ -247,7 +247,7 @@ fn flatten_certificate(certificate: Certificate) -> Vec<Certificate> {
     }
 }
 
-#[allow(clippy::wildcard_enum_match_arm)]
+#[allow(clippy::unwrap_used)]
 fn apply_certificates(
     parent: &Span,
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
@@ -298,7 +298,7 @@ fn apply_certificates(
             Certificate::StakeRegistration(credential)
                 | Certificate::Reg(credential, _) => {
                 trace!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
-                accounts.register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
+                accounts.register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None).unwrap();
             },
             Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, _) => {
@@ -307,11 +307,11 @@ fn apply_certificates(
             },
             Certificate::StakeDelegation(credential, pool) => {
                 trace!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
-                accounts.bind(credential, Some(pool));
+                accounts.bind(credential, Some(pool)).unwrap();
             },
             Certificate::RegDRepCert(credential, coin, anchor) => {
                 trace!(name: "drep.registration", target: EVENT_TARGET, parent: parent, credential = ?credential, coin = ?coin, anchor = ?anchor);
-                dreps.register(credential, coin, anchor.into());
+                dreps.register(credential, coin, anchor.into()).unwrap();
             },
             Certificate::UnRegDRepCert(credential, coin) => {
                 trace!(name: "drep.unregistration", target: EVENT_TARGET, parent: parent, credential = ?credential, coin = ?coin);
@@ -319,12 +319,12 @@ fn apply_certificates(
             },
             Certificate::UpdateDRepCert(credential, anchor) => {
                 trace!(name: "drep.update", target: EVENT_TARGET, parent: parent, credential = ?credential, anchor = ?anchor);
-                dreps.bind(credential, anchor.into());
+                dreps.bind(credential, anchor.into()).unwrap();
             },
             // Ignore complex type certificates as they have been made useless via `flatten_certificate`
             Certificate::StakeVoteDeleg{..} | Certificate::StakeRegDeleg{..} | Certificate::StakeVoteRegDeleg{..} | Certificate::VoteRegDeleg{..} => {},
             // FIXME: Process other types of certificates
-            _ => {}
+            Certificate::VoteDeleg{..} | Certificate::AuthCommitteeHot{..} | Certificate::ResignCommitteeCold{..} => {}
         }
     });
 }
