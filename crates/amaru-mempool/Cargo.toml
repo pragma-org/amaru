@@ -15,7 +15,7 @@ hex.workspace = true
 minicbor = { workspace = true, features = ["std", "half", "derive"] }
 pallas-primitives.workspace = true
 
-amaru-ledger = { path = "../ledger" }
+amaru-ledger = { path = "../amaru-ledger" }
 
 [dev-dependencies]
 proptest.workspace = true
