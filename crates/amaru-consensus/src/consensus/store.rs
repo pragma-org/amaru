@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use super::header::Header;
+use amaru_kernel::{Epoch, Nonce};
 use pallas_crypto::hash::Hash;
 use std::fmt::Display;
 use thiserror::Error;
@@ -41,4 +42,7 @@ where
 {
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
+
+    fn get_nonce(&self, epoch: Epoch) -> Option<Nonce>;
+    fn insert_nonce(&mut self, epoch: Epoch, nonce: Nonce) -> Result<(), StoreError>;
 }

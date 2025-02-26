@@ -24,8 +24,7 @@ While elements are being contributed upstream, they might transiently live in th
 use std::sync::LazyLock;
 
 use num::{rational::Ratio, BigUint};
-use pallas_addresses::Error;
-use pallas_addresses::*;
+use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
     minicbor as cbor,
@@ -166,6 +165,8 @@ impl<'b> Decode<'b, ()> for Point {
 pub type PoolId = Hash<28>;
 
 pub type Slot = u64;
+
+pub type Nonce = Hash<32>;
 
 // PoolParams
 // ----------------------------------------------------------------------------

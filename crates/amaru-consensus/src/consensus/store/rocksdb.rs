@@ -1,6 +1,6 @@
 use super::{ChainStore, StoreError};
 use crate::consensus::header::Header;
-use pallas_crypto::hash::Hash;
+use amaru_kernel::{Epoch, Hash, Nonce};
 use rocksdb::{OptimisticTransactionDB, Options};
 use std::path::PathBuf;
 use tracing::{instrument, Level};
@@ -37,6 +37,24 @@ impl<H: Header> ChainStore<H> for RocksDBStore {
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), super::StoreError> {
         self.db
             .put(hash, header.to_cbor())
+            .map_err(|e| StoreError::WriteError {
+                error: e.to_string(),
+            })
+    }
+
+    fn get_nonce(&self, epoch: Epoch) -> Option<Nonce> {
+        self.db
+            .get_pinned(epoch.to_be_bytes())
+            .ok()
+            .flatten()
+            .map(|bytes| Nonce::try_from(bytes.as_ref()).unwrap_or_else(|e| {
+                panic!("Unable to deserialise previously serialized nonce for epoch={epoch}: {e:?}");
+            }))
+    }
+
+    fn insert_nonce(&mut self, epoch: Epoch, nonce: Nonce) -> Result<(), super::StoreError> {
+        self.db
+            .put(epoch.to_be_bytes(), &nonce[..])
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })
