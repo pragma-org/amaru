@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -17,10 +17,9 @@ use pallas_primitives::conway::{TransactionInput, Tx};
 use amaru_ledger::store::{Snapshot};
 
 pub trait Mempool {
-    type Tx;
-    type Block;
-    fn add_tx<S: Snapshot>(&mut self, snapshot: &S, tx: Self::Tx) -> bool;
-    fn make_block<S: Snapshot>(&mut self, snapshot: &S) -> Option<Self::Block>;
+    type AddTxError;
+    fn add_tx<S: Snapshot>(&mut self, snapshot: &S, tx: Tx) -> Result<(), Self::AddTxError>;
+    fn make_block<S: Snapshot>(&mut self, snapshot: &S) -> Option<Vec<Tx>>;
     fn invalidate_utxos(&mut self, txins: HashSet<TransactionInput>);
 }
 
@@ -30,6 +29,11 @@ pub struct SimpleMempool {
 }
 
 impl SimpleMempool {
+    fn new() -> Self {
+        SimpleMempool {
+            transactions: vec![],
+        }
+    }
     // Just check that each tx input exists
     fn validate_tx<S: Snapshot>(&self, snapshot: &S, tx: &Tx) -> bool {
         for input in &tx.transaction_body.inputs {
@@ -43,15 +47,13 @@ impl SimpleMempool {
 }
 
 impl Mempool for SimpleMempool {
-    type Tx = Tx;
-    type Block = Vec<Tx>;
-
-    fn add_tx<S: Snapshot>(&mut self, snapshot: &S, tx: Tx) -> bool {
+    type AddTxError = &'static str;
+    fn add_tx<S: Snapshot>(&mut self, snapshot: &S, tx: Tx) -> Result<(), Self::AddTxError> {
         if !self.validate_tx(snapshot, &tx) {
-            return false
+            return Err("tx did not validate");
         }
         self.transactions.push(tx);
-        return true
+        Ok(())
     }
 
     fn make_block<S: Snapshot>(&mut self, _snapshot: &S) -> Option<Vec<Tx>> {
