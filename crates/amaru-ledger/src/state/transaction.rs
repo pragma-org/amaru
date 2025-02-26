@@ -21,7 +21,10 @@ use amaru_kernel::{
     MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
     TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    vec,
+};
 use tracing::{trace, trace_span, Span};
 
 const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
@@ -204,6 +207,40 @@ impl InputsOutputs<true> for MintedTransactionBody<'_> {
     }
 }
 
+/// Flatten complex certificates. A complex certificate is a certificate that is a combination of multiple certificates.
+/// Simple certificate are returned as a vec containing only themselves.
+#[allow(clippy::wildcard_enum_match_arm)]
+fn flatten_certificate(certificate: Certificate) -> Vec<Certificate> {
+    match certificate {
+        Certificate::StakeVoteDeleg(stake_credential, hash, drep) => {
+            vec![
+                Certificate::VoteDeleg(stake_credential.clone(), drep),
+                Certificate::StakeDelegation(stake_credential, hash),
+            ]
+        }
+        Certificate::StakeRegDeleg(stake_credential, hash, coin) => {
+            vec![
+                Certificate::Reg(stake_credential.clone(), coin),
+                Certificate::StakeDelegation(stake_credential, hash),
+            ]
+        }
+        Certificate::StakeVoteRegDeleg(stake_credential, hash, drep, coin) => {
+            vec![
+                Certificate::Reg(stake_credential.clone(), coin),
+                Certificate::StakeDelegation(stake_credential.clone(), hash),
+                Certificate::VoteDeleg(stake_credential, drep),
+            ]
+        }
+        Certificate::VoteRegDeleg(stake_credential, drep, coin) => {
+            vec![
+                Certificate::Reg(stake_credential.clone(), coin),
+                Certificate::VoteDeleg(stake_credential, drep),
+            ]
+        }
+        _ => vec![certificate],
+    }
+}
+
 #[allow(clippy::wildcard_enum_match_arm)]
 fn apply_certificates(
     parent: &Span,
@@ -211,72 +248,64 @@ fn apply_certificates(
     accounts: &mut DiffBind<StakeCredential, PoolId, Lovelace>,
     certificates: Vec<Certificate>,
 ) {
-    for certificate in certificates {
+    certificates
+        .into_iter()
+        .flat_map(flatten_certificate)
+        .for_each(|certificate| {
         match certificate {
-                Certificate::StakeRegistration(credential) | Certificate::Reg(credential, ..) | Certificate::VoteRegDeleg(credential, ..) => {
-                    trace!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
-                    accounts.register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
-                }
-                Certificate::StakeDelegation(credential, pool)
-                // FIXME: register DRep delegation
-                | Certificate::StakeVoteDeleg(credential, pool, ..) => {
-                    trace!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
-                    accounts.bind(credential, Some(pool));
-                }
-                Certificate::StakeRegDeleg(credential, pool, ..)
-                // FIXME: register DRep delegation
-                | Certificate::StakeVoteRegDeleg(credential, pool, ..) => {
-                    trace!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
-                    trace!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
-                    accounts.register(
-                        credential,
-                        STAKE_CREDENTIAL_DEPOSIT as Lovelace,
-                        Some(pool),
-                    );
-                }
-                Certificate::StakeDeregistration(credential)
-                | Certificate::UnReg(credential, ..) => {
-                    trace!(name: "certificate.stake.deregistration", target: EVENT_TARGET, parent: parent, credential = ?credential);
-                    accounts.unregister(credential);
-                }
-                Certificate::PoolRetirement(id, epoch) => {
-                    trace!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
-                    pools.unregister(id, epoch)
-                }
-                Certificate::PoolRegistration {
-                    operator: id,
-                    vrf_keyhash: vrf,
+            Certificate::PoolRegistration {
+                operator: id,
+                vrf_keyhash: vrf,
+                pledge,
+                cost,
+                margin,
+                reward_account,
+                pool_owners: owners,
+                relays,
+                pool_metadata: metadata,
+            } => {
+                let params = PoolParams {
+                    id,vrf,
                     pledge,
                     cost,
                     margin,
                     reward_account,
-                    pool_owners: owners,
+                    owners,
                     relays,
-                    pool_metadata: metadata,
-                } => {
-                    let params = PoolParams {
-                        id,
-                        vrf,
-                        pledge,
-                        cost,
-                        margin,
-                        reward_account,
-                        owners,
-                        relays,
-                        metadata,
-                    };
-                    trace!(
-                        name: "certificate.pool.registration",
-                        target: EVENT_TARGET,
-                        parent: parent,
-                        pool = %id,
-                        params = ?params,
-                    );
+                    metadata,
+                };
+                trace!(
+                    name: "certificate.pool.registration",
+                    target: EVENT_TARGET,
+                    parent: parent,
+                    pool = %id,
+                    params = ?params,
+                );
 
-                    pools.register(id, params)
-                }
-                // FIXME: Process other types of certificates
-                _ => {}
+                pools.register(id, params)
             }
-    }
+            Certificate::PoolRetirement(id, epoch) => {
+                trace!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
+                pools.unregister(id, epoch)
+            },
+            Certificate::StakeRegistration(credential)
+                | Certificate::Reg(credential, _) => {
+                trace!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                accounts.register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None);
+            },
+            Certificate::StakeDeregistration(credential)
+                | Certificate::UnReg(credential, _) => {
+                trace!(name: "certificate.stake.deregistration", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                accounts.unregister(credential);
+            },
+            Certificate::StakeDelegation(credential, pool) => {
+                trace!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
+                accounts.bind(credential, Some(pool));
+            },
+            // Ignore complex type certificates as they have been made useless via `flatten_certificate`
+            Certificate::StakeVoteDeleg{..} | Certificate::StakeRegDeleg{..} | Certificate::StakeVoteRegDeleg{..} | Certificate::VoteRegDeleg{..} => {},
+            // FIXME: Process other types of certificates
+            _ => {}
+        }
+    });
 }
