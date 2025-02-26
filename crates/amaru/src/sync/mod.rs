@@ -49,24 +49,6 @@ pub struct Config {
     pub network_magic: u32,
 }
 
-fn define_gasket_policy() -> gasket::runtime::Policy {
-    let retries = gasket::retries::Policy {
-        max_retries: 20,
-        backoff_unit: std::time::Duration::from_secs(1),
-        backoff_factor: 2,
-        max_backoff: std::time::Duration::from_secs(60),
-        dismissible: false,
-    };
-
-    gasket::runtime::Policy {
-        //be generous with tick timeout to avoid timeout during block awaits
-        tick_timeout: std::time::Duration::from_secs(600).into(),
-        bootstrap_retry: retries.clone(),
-        work_retry: retries.clone(),
-        teardown_retry: retries.clone(),
-    }
-}
-
 pub fn bootstrap(
     config: Config,
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
@@ -113,7 +95,8 @@ pub fn bootstrap(
     ledger.downstream.connect(to_block_forward);
     block_forward.upstream.connect(from_ledger);
 
-    let policy = define_gasket_policy();
+    // No retry, crash on panics.
+    let policy = gasket::runtime::Policy::default();
 
     let mut pulls = pulls
         .into_iter()
