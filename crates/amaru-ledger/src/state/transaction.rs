@@ -17,7 +17,9 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    output_lovelace, reward_account_to_stake_credential, Anchor, Certificate, Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT
+    output_lovelace, reward_account_to_stake_credential, Anchor, Certificate, Hash, Lovelace,
+    MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
+    TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -68,7 +70,13 @@ pub fn apply(
         .map(|xs| xs.to_vec())
         .unwrap_or_default();
     span.record("transaction.certificates", certificates.len());
-    apply_certificates(&span, &mut state.pools, &mut state.accounts, &mut state.dreps, certificates);
+    apply_certificates(
+        &span,
+        &mut state.pools,
+        &mut state.accounts,
+        &mut state.dreps,
+        certificates,
+    );
 
     let withdrawals = transaction_body
         .withdrawals
