@@ -35,9 +35,9 @@ pub use pallas_primitives::{
     conway::{
         AddrKeyhash, Anchor, Block, Certificate, Coin, DRep, Epoch, ExUnits, GovActionId,
         HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
-        PoolMetadata, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
-        TransactionInput, TransactionOutput, UnitInterval, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        PoolMetadata, PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount,
+        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, UnitInterval, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 use std::{convert::Infallible, sync::LazyLock};
