@@ -42,6 +42,8 @@ pub use pallas_primitives::{
 };
 use std::{convert::Infallible, sync::LazyLock};
 
+pub use pallas_traverse::OriginalHash;
+
 pub mod protocol_parameters;
 
 // Constants
