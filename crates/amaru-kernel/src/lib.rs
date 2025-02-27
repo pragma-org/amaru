@@ -43,6 +43,8 @@ pub use pallas_primitives::{
     },
 };
 
+pub use pallas_traverse::OriginalHash;
+
 pub mod protocol_parameters;
 
 // Constants
