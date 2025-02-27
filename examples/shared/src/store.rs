@@ -120,13 +120,20 @@ impl Store for MemoryStore {
                     amaru_ledger::store::columns::dreps::Key,
                     amaru_ledger::store::columns::dreps::Value,
                 ),
-            >
+            >,
+            impl Iterator<
+                Item = (
+                    amaru_ledger::store::columns::delegations::Key,
+                    amaru_ledger::store::columns::delegations::Value,
+                ),
+        >
         >,
         _remove: amaru_ledger::store::Columns<
             impl Iterator<Item = amaru_ledger::store::columns::utxo::Key>,
             impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, Epoch)>,
             impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
             impl Iterator<Item = amaru_ledger::store::columns::dreps::Key>,
+            impl Iterator<Item = amaru_ledger::store::columns::delegations::Key>,
         >,
         _withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
     ) -> Result<(), amaru_ledger::store::StoreError> {
