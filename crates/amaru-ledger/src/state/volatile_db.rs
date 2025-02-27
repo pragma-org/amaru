@@ -15,10 +15,13 @@
 use super::{diff_bind::DiffBind, diff_epoch_reg::DiffEpochReg, diff_set::DiffSet};
 use crate::store::{self, columns::*};
 use amaru_kernel::{
-    epoch_from_slot, Anchor, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential,
+    epoch_from_slot, Anchor, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential,
     TransactionInput, TransactionOutput,
 };
-use std::collections::{BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeSet, HashMap, VecDeque},
+    iter,
+};
 
 // VolatileDB
 // ----------------------------------------------------------------------------
@@ -137,6 +140,7 @@ pub struct VolatileState {
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Lovelace>,
+    pub delegations: HashMap<StakeCredential, DRep>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub fees: Lovelace,
 }
@@ -182,12 +186,14 @@ impl AnchoredVolatileState {
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
+            impl Iterator<Item = (delegations::Key, delegations::Value)>,
         >,
         store::Columns<
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
             impl Iterator<Item = dreps::Key>,
+            impl Iterator<Item = delegations::Key>,
         >,
     > {
         let epoch = epoch_from_slot(self.anchor.0.slot_or_default());
@@ -221,12 +227,14 @@ impl AnchoredVolatileState {
                     .into_iter()
                     .map(|(credential, (pool, deposit))| (credential, (pool, deposit, 0))),
                 dreps: self.state.dreps.registered.into_iter(),
+                delegations: self.state.delegations.into_iter(),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),
                 pools: self.state.pools.unregistered.into_iter(),
                 accounts: self.state.accounts.unregistered.into_iter(),
                 dreps: self.state.dreps.unregistered.into_iter(),
+                delegations: iter::empty(),
             },
         }
     }

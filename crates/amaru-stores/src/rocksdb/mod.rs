@@ -263,12 +263,14 @@ impl Store for RocksDB {
             impl Iterator<Item = scolumns::pools::Value>,
             impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
             impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
+            impl Iterator<Item = (scolumns::delegations::Key, scolumns::delegations::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = scolumns::utxo::Key>,
             impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
             impl Iterator<Item = scolumns::accounts::Key>,
             impl Iterator<Item = scolumns::dreps::Key>,
+            impl Iterator<Item = scolumns::delegations::Key>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
     ) -> Result<(), StoreError> {
@@ -308,6 +310,7 @@ impl Store for RocksDB {
                 pools::add(&batch, add.pools)?;
                 accounts::add(&batch, add.accounts)?;
                 dreps::add(&batch, add.dreps)?;
+                delegations::add(&batch, add.delegations)?;
 
                 accounts::reset(&batch, withdrawals)?;
 

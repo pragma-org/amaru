@@ -17,12 +17,12 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    output_lovelace, reward_account_to_stake_credential, Anchor, Certificate, Hash, Lovelace,
+    output_lovelace, reward_account_to_stake_credential, Anchor, Certificate, DRep, Hash, Lovelace,
     MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
     TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, HashMap},
     vec,
 };
 use tracing::{trace, trace_span, Span};
@@ -75,6 +75,7 @@ pub fn apply(
         &mut state.pools,
         &mut state.accounts,
         &mut state.dreps,
+        &mut state.delegations,
         certificates,
     );
 
@@ -230,6 +231,7 @@ fn apply_certificates(
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
     accounts: &mut DiffBind<StakeCredential, PoolId, Lovelace>,
     dreps: &mut DiffBind<StakeCredential, Anchor, Lovelace>,
+    delegations: &mut HashMap<StakeCredential, DRep>,
     certificates: Vec<Certificate>,
 ) {
     certificates
@@ -298,10 +300,14 @@ fn apply_certificates(
                 trace!(name: "drep.update", target: EVENT_TARGET, parent: parent, credential = ?credential, anchor = ?anchor);
                 dreps.bind(credential, anchor.into()).unwrap();
             },
+            Certificate::VoteDeleg(credential, drep) => {
+                trace!(name: "vote.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                delegations.insert(credential, drep).unwrap();
+            },
             // Ignore complex type certificates as they have been made useless via `flatten_certificate`
             Certificate::StakeVoteDeleg{..} | Certificate::StakeRegDeleg{..} | Certificate::StakeVoteRegDeleg{..} | Certificate::VoteRegDeleg{..} => {},
             // FIXME: Process other types of certificates
-            Certificate::VoteDeleg{..} | Certificate::AuthCommitteeHot{..} | Certificate::ResignCommitteeCold{..} => {}
+            Certificate::AuthCommitteeHot{..} | Certificate::ResignCommitteeCold{..} => {}
         }
     });
 }
