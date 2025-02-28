@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
-use amaru_kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use amaru_kernel::{
+    epoch_from_slot, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+};
 use amaru_ledger::{
     rewards::Pots,
     store::{
@@ -26,6 +28,7 @@ use common::{as_value, PREFIX_LEN};
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
 use std::{
+    collections::BTreeSet,
     fmt, fs,
     path::{Path, PathBuf},
 };
@@ -273,6 +276,7 @@ impl Store for RocksDB {
             impl Iterator<Item = scolumns::delegations::Key>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
+        voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
         let batch = self.db.transaction();
 
@@ -309,7 +313,20 @@ impl Store for RocksDB {
                 utxo::add(&batch, add.utxo)?;
                 pools::add(&batch, add.pools)?;
                 accounts::add(&batch, add.accounts)?;
-                dreps::add(&batch, add.dreps)?;
+
+                let epoch = epoch_from_slot(point.slot_or_default());
+                let dreps = add
+                    .dreps
+                    // Each new DRep has an associated epoch
+                    .map(|(key, value)| (key, value, Some(epoch)))
+                    // Voting DReps get their epoch extended
+                    .chain(
+                        voting_dreps
+                            .into_iter()
+                            .map(|drep| (drep, (None, None), Some(epoch))),
+                    );
+
+                dreps::add(&batch, dreps)?;
                 delegations::add(&batch, add.delegations)?;
 
                 accounts::reset(&batch, withdrawals)?;
