@@ -2,8 +2,8 @@ mod block;
 mod transaction;
 
 use amaru_kernel::{
-    alonzo::MaybeIndefArray, cbor, protocol_parameters::ProtocolParameters, Block, Hash, Hasher,
-    MintedBlock, OriginalHash, Redeemers, TransactionBody, WitnessSet,
+    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, Block, Hash, Hasher, MintedBlock,
+    OriginalHash, Redeemers, TransactionBody, WitnessSet,
 };
 
 use block::{
@@ -12,8 +12,14 @@ use block::{
     header_size::{block_header_size_valid, BlockHeaderSizeTooBig},
 };
 use tracing::{instrument, Level};
-use transaction::disjoint_ref_inputs::{disjoint_ref_inputs, NonDisjointRefInputs};
-use transaction::output_size::{validate_output_size, OutputTooSmall};
+use transaction::{
+    disjoint_ref_inputs::{disjoint_ref_inputs, NonDisjointRefInputs},
+    metadata::validate_metadata,
+};
+use transaction::{
+    metadata::InvalidTransactionMetadata,
+    output_size::{validate_output_size, OutputTooSmall},
+};
 
 pub enum BlockValidationError {
     SerializationError,
@@ -35,6 +41,7 @@ pub enum RuleViolation {
 pub enum TransactionRuleViolation {
     NonDisjointRefInputs(NonDisjointRefInputs),
     OutputTooSmall(OutputTooSmall),
+    InvalidTransactionMetadata(InvalidTransactionMetadata),
 }
 
 impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
@@ -56,46 +63,34 @@ pub fn validate_block(
         .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
 
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
-    let ex_units = match block.transaction_witness_sets.clone() {
-        MaybeIndefArray::Def(vec) => vec,
-        MaybeIndefArray::Indef(vec) => vec,
-    }
-    .into_iter()
-    .flat_map(|witness_set| {
-        witness_set
-            .redeemer
-            .into_iter()
-            .map(|redeemers| match redeemers {
-                Redeemers::List(list) => list.iter().map(|r| r.ex_units).collect::<Vec<_>>(),
-                Redeemers::Map(map) => map.iter().map(|(_, r)| r.ex_units).collect::<Vec<_>>(),
-            })
-    })
-    .flatten()
-    .collect::<Vec<_>>();
+    let ex_units = block
+        .transaction_witness_sets
+        .clone()
+        .to_vec()
+        .into_iter()
+        .flat_map(|witness_set| {
+            witness_set
+                .redeemer
+                .into_iter()
+                .map(|redeemers| match redeemers {
+                    Redeemers::List(list) => list.iter().map(|r| r.ex_units).collect::<Vec<_>>(),
+                    Redeemers::Map(map) => map.iter().map(|(_, r)| r.ex_units).collect::<Vec<_>>(),
+                })
+        })
+        .flatten()
+        .collect::<Vec<_>>();
 
     block_ex_units_valid(ex_units, &protocol_params)
         .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
 
-    let transactions = match block.transaction_bodies {
-        MaybeIndefArray::Def(vec) => vec,
-        MaybeIndefArray::Indef(vec) => vec,
-    };
+    let transactions = block.transaction_bodies.to_vec();
 
-    let raw_transactions = match &minted_block.transaction_bodies {
-        MaybeIndefArray::Def(vec) => vec,
-        MaybeIndefArray::Indef(vec) => vec,
-    };
+    let raw_transactions = minted_block.transaction_bodies.clone().to_vec();
 
-    let witness_sets = match block.transaction_witness_sets {
-        MaybeIndefArray::Def(vec) => vec,
-        MaybeIndefArray::Indef(vec) => vec,
-    };
+    let witness_sets = block.transaction_witness_sets.to_vec();
 
     let invalid_transactions = match block.invalid_transactions {
-        Some(invalid_transactions) => match invalid_transactions {
-            MaybeIndefArray::Def(vec) => vec,
-            MaybeIndefArray::Indef(vec) => vec,
-        },
+        Some(invalid_transactions) => invalid_transactions.to_vec(),
         None => Vec::new(),
     };
 
@@ -110,15 +105,25 @@ pub fn validate_block(
 
         let is_valid = !invalid_transactions.contains(&i);
 
-        validate_transaction(&transaction, witness_set, is_valid, &protocol_params).map_err(
-            |err| {
-                BlockValidationError::RuleViolations(vec![RuleViolation::InvalidTransaction {
-                    transaction_hash: raw_transaction.original_hash(),
-                    transaction_index: i,
-                    violation: err,
-                }])
-            },
-        )?;
+        let auxiliary_data: Option<AuxiliaryData> = block
+            .auxiliary_data_set
+            .get(i as usize)
+            .map(|key_pair| key_pair.1.clone());
+
+        validate_transaction(
+            &transaction,
+            witness_set,
+            auxiliary_data,
+            is_valid,
+            &protocol_params,
+        )
+        .map_err(|err| {
+            BlockValidationError::RuleViolations(vec![RuleViolation::InvalidTransaction {
+                transaction_hash: raw_transaction.original_hash(),
+                transaction_index: i,
+                violation: err,
+            }])
+        })?;
     }
 
     Ok((block_header_hash, minted_block))
@@ -127,9 +132,12 @@ pub fn validate_block(
 pub fn validate_transaction(
     transaction_body: &TransactionBody,
     _witness_set: &WitnessSet,
+    auxiliary_data: Option<AuxiliaryData>,
     _is_valid: bool,
     protocol_params: &ProtocolParameters,
 ) -> Result<(), TransactionRuleViolation> {
+    validate_metadata(transaction_body, auxiliary_data).map_err(|err| err.into())?;
+
     disjoint_ref_inputs(transaction_body).map_err(|err| err.into())?;
     validate_output_size(transaction_body, protocol_params).map_err(|err| err.into())?;
 

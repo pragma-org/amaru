@@ -29,21 +29,21 @@ use pallas_addresses::*;
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
     alonzo,
     conway::{
-        AddrKeyhash, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody, MintedBlock,
-        MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, PoolMetadata,
-        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
-        TransactionBody, TransactionInput, TransactionOutput, UnitInterval, Value, VrfKeyhash,
-        WitnessSet,
+        AddrKeyhash, AuxiliaryData, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody,
+        MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
+        PoolMetadata, PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount,
+        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, UnitInterval, Value,
+        VrfKeyhash, WitnessSet,
     },
 };
 
-pub use pallas_traverse::OriginalHash;
+pub use pallas_traverse::{ComputeHash, OriginalHash};
 
 pub mod protocol_parameters;
 
