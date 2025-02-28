@@ -59,6 +59,12 @@ impl IsHeader for FakeHeader {
             Self::FakeHeader { .. } => Point::Specific(self.slot(), self.hash().to_vec()),
         }
     }
+
+    fn extended_leader_output(&self) -> Vec<u8> {
+        unimplemented!(
+            "called 'extended_leader_output' on a Fake header clearly not ready for that."
+        )
+    }
 }
 
 impl Display for FakeHeader {

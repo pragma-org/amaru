@@ -95,6 +95,11 @@ pub const SLOTS_PER_KES_PERIOD: u64 = 129600;
 /// indicates the validity period of a KES key before a new one is required.
 pub const MAX_KES_EVOLUTION: u8 = 62;
 
+/// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
+/// nonce of the following epoch.
+pub const RANDOMNESS_STABILIZATION_WINDOW: u64 =
+    4 * (CONSENSUS_SECURITY_PARAM as u64) * (ACTIVE_SLOT_COEFF_INVERSE as u64);
+
 // The monetary expansion value, a.k.a ρ
 pub static MONETARY_EXPANSION: LazyLock<Ratio<BigUint>> =
     LazyLock::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)));

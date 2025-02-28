@@ -15,17 +15,15 @@
 use crate::{
     consensus::{
         chain_selection::{self, ChainSelector, Fork},
-        store::ChainStore,
+        store::{ChainStore, NoncesError},
     },
     peer::{Peer, PeerSession},
     ConsensusError,
 };
-use amaru_kernel::{
-    epoch_from_slot, Hash, Hasher, Header, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE,
-};
+use amaru_kernel::{Hash, Hasher, Header, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
 use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader};
+use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, Praos};
 use pallas_codec::minicbor;
 use pallas_math::math::FixedDecimal;
 use std::{collections::HashMap, sync::Arc};
@@ -161,11 +159,17 @@ impl Consensus {
         let mut store = self.store.lock().await;
 
         // FIXME: move into chain_selector
-        let epoch = epoch_from_slot(header.header_body.slot);
-        if let Some(ref epoch_nonce) = store.get_nonce(&epoch) {
+        let parent = header
+            .header_body
+            .prev_hash
+            .ok_or(NoncesError::NoParentHeader {
+                header: header_hash,
+            })?;
+
+        if let Some(ref epoch_nonce) = store.get_nonce(&parent) {
             assert_header(point, &header, epoch_nonce, self.ledger.as_ref())?;
         } else {
-            return Err(ConsensusError::MissingNonceForEpoch(epoch));
+            return Err(NoncesError::UnknownHeader { header: parent }.into());
         }
 
         let header: Header = Header::from(header);

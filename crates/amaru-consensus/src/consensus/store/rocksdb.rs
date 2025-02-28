@@ -25,6 +25,8 @@ impl RocksDBStore {
     }
 }
 
+const NONCES_PREFIX: [u8; 5] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
+
 impl<H: IsHeader> ChainStore<H> for RocksDBStore {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.db
@@ -42,17 +44,26 @@ impl<H: IsHeader> ChainStore<H> for RocksDBStore {
             })
     }
 
-    fn get_nonce(&self, epoch: &Epoch) -> Option<Nonce> {
+    fn get_nonces(&self, header: &Hash<32>) -> Option<(Epoch, super::Nonces)> {
         self.db
-            .get_pinned(epoch.to_be_bytes())
+            .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
             .ok()
             .flatten()
-            .map(|bytes| Nonce::from(bytes.as_ref()))
+            .as_deref()
+            .and_then(from_cbor)
     }
 
-    fn insert_nonce(&mut self, epoch: &Epoch, nonce: Nonce) -> Result<(), super::StoreError> {
+    fn put_nonces(
+        &mut self,
+        header: &Hash<32>,
+        epoch: Epoch,
+        nonces: super::Nonces,
+    ) -> Result<(), super::StoreError> {
         self.db
-            .put(epoch.to_be_bytes(), &nonce[..])
+            .put(
+                [&NONCES_PREFIX[..], &header[..]].concat(),
+                to_cbor(&(epoch, nonces)),
+            )
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })
