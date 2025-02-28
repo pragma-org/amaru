@@ -20,15 +20,15 @@ use amaru_ouroboros_traits::IsHeader;
 /// Obtain the final nonce at an epoch boundary for the epoch from the stable candidate and the
 /// last block (header) of the previous epoch.
 ///
-/// Return `None` if header has no parent (i.e. never because all our blocks have parents in
-/// Amaru).
+/// Return `None` if header has no parent (i.e. which never happens because all our blocks have
+/// parents in Amaru).
 pub fn from_candidate<H: IsHeader>(header: &H, candidate: &Nonce) -> Option<Nonce> {
     Some(Hasher::<256>::hash(
         &[&candidate[..], &header.parent()?[..]].concat(),
     ))
 }
 
-/// Evolve the currenet nonce with combining it with the current rolling nonce and the
+/// Evolve the current nonce by combining it with the current rolling nonce and the
 /// range-extended tagged leader VRF output.
 ///
 /// Specifically, we combine it with `η` (a.k.a eta), which is a blake2b-256 hash of the
@@ -38,7 +38,7 @@ pub fn evolve<H: IsHeader>(header: &H, current: &Nonce) -> Nonce {
     Hasher::<256>::hash(
         &[
             &current[..],
-            &Hasher::<256>::hash(header.extended_leader_output().as_slice())[..],
+            &Hasher::<256>::hash(header.extended_vrf_nonce_output().as_slice())[..],
         ]
         .concat(),
     )
@@ -49,6 +49,6 @@ pub fn evolve<H: IsHeader>(header: &H, current: &Nonce) -> Nonce {
 pub fn randomness_stability_window<H: IsHeader>(header: &H) -> (Epoch, bool) {
     let epoch = epoch_from_slot(header.slot());
     let is_within_stability_window =
-        header.slot() + RANDOMNESS_STABILIZATION_WINDOW < next_epoch_first_slot(epoch);
-    (epoch, is_within_stability_window)
+        header.slot() + RANDOMNESS_STABILIZATION_WINDOW >= next_epoch_first_slot(epoch);
+    (epoch, !is_within_stability_window)
 }

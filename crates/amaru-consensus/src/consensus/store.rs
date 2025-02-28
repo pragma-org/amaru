@@ -48,7 +48,7 @@ where
     fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError>;
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Nonces {
     active: Nonce,
     evolving: Nonce,
@@ -163,9 +163,9 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
                 // at it is to think that there's always an entire epoch length contributing to the nonce
                 // randomness, but it spans over two epochs.
                 candidate: if is_within_stability_window {
-                    parent.candidate
-                } else {
                     evolving
+                } else {
+                    parent.candidate
                 },
 
                 // On epoch changes, the parent header is -- by definition -- the last header of the
@@ -181,5 +181,180 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
         )?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::test::{hash, include_header};
+    use amaru_kernel::{from_cbor, to_cbor, Header};
+    use amaru_ouroboros_traits::{IsHeader, Praos};
+    use proptest::{prelude::*, prop_compose, proptest};
+    use std::{collections::BTreeMap, sync::LazyLock};
+
+    // Epoch 164's last header
+    include_header!(PREPROD_HEADER_69638382, 69638382);
+
+    // Epoch 165's before-last header
+    include_header!(PREPROD_HEADER_70070331, 70070331);
+    static PREPROD_NONCES_70070331: LazyLock<Nonces> = LazyLock::new(|| Nonces {
+        epoch: 165,
+        active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
+        candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6",),
+        evolving: hash!("9b945f3c45b140f796f0d2ec81c48b50730044bf75eb7208c85f6195f68e9b8c"),
+        previous_epoch_last_header: hash!(
+            "5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7",
+        ),
+    });
+
+    // Epoch 165's last header
+    include_header!(PREPROD_HEADER_70070379, 70070379);
+    static PREPROD_NONCES_70070379: LazyLock<Nonces> = LazyLock::new(|| Nonces {
+        epoch: 165,
+        active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
+        candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6"),
+        evolving: hash!("24bb737ee28652cd99ca41f1f7be568353b4103d769c6e1ddb531fc874dd6718"),
+        previous_epoch_last_header: hash!(
+            "5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"
+        ),
+    });
+
+    // Epoch 166's first header
+    include_header!(PREPROD_HEADER_70070426, 70070426);
+    static PREPROD_NONCES_70070426: LazyLock<Nonces> = LazyLock::new(|| Nonces {
+        epoch: 166,
+        active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d"),
+        candidate: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c",),
+        evolving: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c"),
+        previous_epoch_last_header: hash!(
+            "d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
+        ),
+    });
+
+    // Epoch 166's second header
+    include_header!(PREPROD_HEADER_70070464, 70070464);
+    static PREPROD_NONCES_70070464: LazyLock<Nonces> = LazyLock::new(|| Nonces {
+        epoch: 166,
+        active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d"),
+        candidate: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
+        evolving: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
+        previous_epoch_last_header: hash!(
+            "d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"
+        ),
+    });
+
+    #[derive(Default)]
+    struct FakeStore {
+        headers: BTreeMap<Hash<32>, Header>,
+        nonces: BTreeMap<Hash<32>, Nonces>,
+    }
+
+    impl ChainStore<Header> for FakeStore {
+        fn load_header(&self, hash: &Hash<32>) -> Option<Header> {
+            self.headers.get(hash).cloned()
+        }
+
+        fn store_header(&mut self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
+            self.headers.insert(*hash, header.clone());
+            Ok(())
+        }
+
+        fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+            self.nonces.get(header).cloned()
+        }
+
+        fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError> {
+            self.nonces.insert(*header, nonces.clone());
+            Ok(())
+        }
+    }
+
+    fn evolve_nonce(
+        last_header_last_epoch: &Header,
+        parent: (&Header, &Nonces),
+        current: &Header,
+    ) -> Option<Nonces> {
+        let mut store = Box::new(FakeStore::default()) as Box<dyn ChainStore<Header>>;
+
+        // Have at least the last header of the last epoch available.
+        store
+            .store_header(&last_header_last_epoch.hash(), last_header_last_epoch)
+            .expect("database failure");
+
+        // Have information about the direct parent.
+        store
+            .put_nonces(&parent.0.hash(), parent.1.clone())
+            .expect("database failure");
+
+        // Evolve the current nonce so that 'get_nonces' can then return a result.
+        store.evolve_nonce(current).expect("evolve nonce failed");
+
+        store.get_nonces(&current.hash())
+    }
+
+    #[test]
+    fn evolve_nonce_inside_stability_window() {
+        assert_eq!(
+            evolve_nonce(
+                &PREPROD_HEADER_69638382,
+                (&PREPROD_HEADER_70070331, &PREPROD_NONCES_70070331),
+                &PREPROD_HEADER_70070379
+            )
+            .as_ref(),
+            Some(&*PREPROD_NONCES_70070379)
+        )
+    }
+
+    #[test]
+    fn evolve_nonce_at_epoch_boundary() {
+        assert_eq!(
+            evolve_nonce(
+                &PREPROD_HEADER_69638382,
+                (&PREPROD_HEADER_70070379, &PREPROD_NONCES_70070379),
+                &PREPROD_HEADER_70070426
+            )
+            .as_ref(),
+            Some(&*PREPROD_NONCES_70070426)
+        )
+    }
+
+    #[test]
+    fn evolve_nonce_outside_stability_window() {
+        assert_eq!(
+            evolve_nonce(
+                &PREPROD_HEADER_70070379,
+                (&PREPROD_HEADER_70070426, &PREPROD_NONCES_70070426),
+                &PREPROD_HEADER_70070464
+            )
+            .as_ref(),
+            Some(&*PREPROD_NONCES_70070464)
+        )
+    }
+
+    prop_compose! {
+        fn any_nonces()(
+            active in any::<[u8; 32]>(),
+            evolving in any::<[u8; 32]>(),
+            candidate in any::<[u8; 32]>(),
+            previous_epoch_last_header in any::<[u8; 32]>(),
+            epoch in any::<u64>(),
+        ) -> Nonces {
+            Nonces {
+            active: Nonce::from(active),
+            evolving: Nonce::from(evolving),
+            candidate: Nonce::from(candidate),
+            previous_epoch_last_header: Hash::from(previous_epoch_last_header),
+            epoch,
+            }
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_nonces_roundtrip_cbor(nonces in any_nonces()) {
+            let bytes = to_cbor(&nonces);
+            assert_eq!(Some(nonces), from_cbor::<Nonces>(&bytes))
+        }
     }
 }

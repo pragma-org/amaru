@@ -44,12 +44,12 @@ pub trait IsHeader: cbor::Encode<()> + for<'d> cbor::Decode<'d, ()> {
     /// Slot number of the header
     fn slot(&self) -> u64;
 
-    /// The range-extended tagged leader vrf output
+    /// The range-extended tagged nonce vrf output
     // TODO: Return type here should be a Hash<32>, but we cannot make this happen without either:
     // 1. Making this return a Result
     // 2. Use a panic
     // 3. Fix Pallas' leader_vrf_output to return a Hash<32> instead of a Vec.
-    fn extended_leader_output(&self) -> Vec<u8>;
+    fn extended_vrf_nonce_output(&self) -> Vec<u8>;
 }
 
 /// Concrete Conway-era compatible `Header` implementation.
@@ -70,7 +70,7 @@ impl IsHeader for Header {
         self.header_body.slot
     }
 
-    fn extended_leader_output(&self) -> Vec<u8> {
-        self.header_body.leader_vrf_output()
+    fn extended_vrf_nonce_output(&self) -> Vec<u8> {
+        self.header_body.nonce_vrf_output()
     }
 }

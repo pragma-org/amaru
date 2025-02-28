@@ -60,9 +60,9 @@ impl IsHeader for FakeHeader {
         }
     }
 
-    fn extended_leader_output(&self) -> Vec<u8> {
+    fn extended_vrf_nonce_output(&self) -> Vec<u8> {
         unimplemented!(
-            "called 'extended_leader_output' on a Fake header clearly not ready for that."
+            "called 'extended_vrf_nonce_output' on a Fake header clearly not ready for that."
         )
     }
 }

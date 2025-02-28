@@ -47,3 +47,26 @@ pub enum ConsensusError {
     #[error("{0}")]
     NoncesError(#[from] consensus::store::NoncesError),
 }
+
+#[cfg(test)]
+pub(crate) mod test {
+    macro_rules! include_header {
+        ($name:ident, $slot:expr) => {
+            static $name: std::sync::LazyLock<Header> = std::sync::LazyLock::new(|| {
+                let data =
+                    include_bytes!(concat!("../../tests/data/headers/preprod_", $slot, ".cbor"));
+                amaru_kernel::from_cbor(data.as_slice()).expect("invalid header")
+            });
+        };
+    }
+
+    pub(crate) use include_header;
+
+    macro_rules! hash {
+        ($hex_str:expr $(,)?) => {
+            amaru_kernel::Hash::from(hex::decode($hex_str).unwrap().as_slice())
+        };
+    }
+
+    pub(crate) use hash;
+}
