@@ -26,23 +26,23 @@ use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
     alonzo,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, Block, Certificate, Coin, DRep, Epoch, ExUnits, GovActionId,
-        HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
-        PoolMetadata, PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount,
-        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, UnitInterval, Value,
-        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        AddrKeyhash, Anchor, AuxiliaryData, Block, Certificate, Coin, DRep, Epoch, ExUnits,
+        GovActionId, HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput,
+        MintedWitnessSet, PoolMetadata, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
+        RewardAccount, StakeCredential, TransactionBody, TransactionInput, TransactionOutput,
+        UnitInterval, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 use std::{convert::Infallible, sync::LazyLock};
 
-pub use pallas_traverse::OriginalHash;
+pub use pallas_traverse::{ComputeHash, OriginalHash};
 
 pub mod protocol_parameters;
 
