@@ -26,7 +26,11 @@ use amaru_stores::rocksdb::{columns::*, RocksDB};
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_codec::minicbor as cbor;
-use std::{collections::HashMap, fs, iter, path::PathBuf};
+use std::{
+    collections::{BTreeSet, HashMap},
+    fs, iter,
+    path::PathBuf,
+};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -119,6 +123,7 @@ async fn import_one(
         Default::default(),
         Default::default(),
         iter::empty(),
+        BTreeSet::new(),
     )?;
 
     db.next_snapshot(epoch, None)?;
@@ -347,9 +352,12 @@ fn import_utxo(
                 utxo: chunk,
                 pools: iter::empty(),
                 accounts: iter::empty(),
+                dreps: iter::empty(),
+                delegations: iter::empty(),
             },
             Default::default(),
             iter::empty(),
+            BTreeSet::new(),
         )?;
 
         progress.inc(n as u64);
@@ -407,13 +415,18 @@ fn import_stake_pools(
                         .collect::<Vec<_>>()
                 }),
             accounts: iter::empty(),
+            dreps: iter::empty(),
+            delegations: iter::empty(),
         },
         store::Columns {
             pools: state.unregistered.into_iter(),
             utxo: iter::empty(),
             accounts: iter::empty(),
+            dreps: iter::empty(),
+            delegations: iter::empty(),
         },
         iter::empty(),
+        BTreeSet::new(),
     )
 }
 
@@ -492,9 +505,12 @@ fn import_accounts(
                 utxo: iter::empty(),
                 pools: iter::empty(),
                 accounts: chunk,
+                dreps: iter::empty(),
+                delegations: iter::empty(),
             },
             Default::default(),
             iter::empty(),
+            BTreeSet::new(),
         )?;
 
         progress.inc(n as u64);

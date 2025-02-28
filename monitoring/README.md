@@ -178,11 +178,14 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 
 | name                               | severity | description                                          |
 | ---                                | ---      | ---                                                  |
-| `certificate.stake.registration`   | `debug`  | A new stake credential registration was processed    |
-| `certificate.stake.delegation`     | `debug`  | A new stake delegation was processed                 |
-| `certificate.stake.deregistration` | `debug`  | A new stake credential de-registration was processed |
-| `certificate.pool.registration`    | `debug`  | A new stake pool registration was processed          |
-| `certificate.pool.retirement`      | `debug`  | A new stake pool retirement was processed            |
+| `certificate.stake.registration`   | `trace`  | A new stake credential registration was processed    |
+| `certificate.stake.delegation`     | `trace`  | A new stake delegation was processed                 |
+| `certificate.stake.deregistration` | `trace`  | A new stake credential de-registration was processed |
+| `certificate.pool.registration`    | `trace`  | A new stake pool registration was processed          |
+| `certificate.pool.retirement`      | `trace`  | A new stake pool retirement was processed            |
+| `drep.registration`                | `trace`  | A new drep registration was processed                |
+| `drep.unregistration`              | `trace`  | A new drep unregistration was processed              |
+| `drep.update`                      | `trace`  | A new drep anchor update was processed               |
 
 <details><summary>trace: `certificate.stake.registration`</summary>
 
@@ -233,8 +236,8 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | name                       | severity | description                                                                          |
 | ---                        | ---      | ---                                                                                  |
 | `new.unexpected_file`      | `warn`   | An unexpected file is present in the database folder, which may cause an issue later |
-| `save.point_already_known` | `info`   | Skipping saving ledger delta because it has already happened                         |
-| `new.found_snapshot`       | `debug`  | A previous database snapshot has been found in the database folder                   |
+| `save.point_already_known` | `trace`   | Skipping saving ledger delta because it has already happened                         |
+| `new.known_snapshots`      | `info`  | A previous database snapshot has been found in the database folder                   |
 
 <details><summary>trace: `new.unexpected_file`</summary>
 
@@ -250,7 +253,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `point` | The now-stable point already known and persisted |
 </details>
 
-<details><summary>trace: `new.found_snapshot`</summary>
+<details><summary>trace: `new.known_snapshots`</summary>
 
 | field   | description                                   |
 | ---     | ---                                           |
@@ -282,8 +285,8 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 
 | name            | severity | description                                             |
 | ---             | ---      | ---                                                     |
-| `tick.retiring` | `debug`  | Now-retiring (i.e. removing from stable storage) a pool |
-| `tick.updating` | `debug`  | Updating a pool's parameters                            |
+| `tick.retiring` | `trace`  | Now-retiring (i.e. removing from stable storage) a pool |
+| `tick.updating` | `trace`  | Updating a pool's parameters                            |
 
 <details><summary>trace: `tick.retiring`</summary>
 
