@@ -142,6 +142,7 @@ pub struct VolatileState {
     pub dreps: DiffBind<StakeCredential, Anchor, Lovelace>,
     pub delegations: HashMap<StakeCredential, DRep>,
     pub withdrawals: BTreeSet<StakeCredential>,
+    pub voting_dreps: BTreeSet<StakeCredential>,
     pub fees: Lovelace,
 }
 
@@ -171,6 +172,7 @@ pub struct StoreUpdate<W, A, R> {
     pub issuer: PoolId,
     pub fees: Lovelace,
     pub withdrawals: W,
+    pub voting_dreps: BTreeSet<StakeCredential>,
     pub add: A,
     pub remove: R,
 }
@@ -202,6 +204,7 @@ impl AnchoredVolatileState {
             issuer: self.anchor.1,
             fees: self.state.fees,
             withdrawals: self.state.withdrawals.into_iter(),
+            voting_dreps: self.state.voting_dreps,
             add: store::Columns {
                 utxo: self.state.utxo.produced.into_iter(),
                 pools: self.state.pools.registered.into_iter().flat_map(

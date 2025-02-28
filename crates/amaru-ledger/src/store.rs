@@ -16,9 +16,11 @@ pub mod columns;
 
 use crate::rewards::Pots;
 pub use crate::rewards::{RewardsSummary, StakeDistribution};
-use amaru_kernel::{cbor, Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use amaru_kernel::{
+    cbor, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+};
 use columns::*;
-use std::{borrow::BorrowMut, io, iter};
+use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -112,6 +114,7 @@ pub trait Store: Snapshot + Send + Sync {
             impl Iterator<Item = delegations::Key>,
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
+        voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError>;
 
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when
