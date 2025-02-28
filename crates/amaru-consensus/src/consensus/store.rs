@@ -44,13 +44,8 @@ where
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
 
-    fn get_nonces(&self, header: &Hash<32>) -> Option<(Epoch, Nonces)>;
-    fn put_nonces(
-        &mut self,
-        header: &Hash<32>,
-        epoch: Epoch,
-        nonces: Nonces,
-    ) -> Result<(), StoreError>;
+    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
+    fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError>;
 }
 
 #[derive(Debug)]
@@ -59,6 +54,7 @@ pub struct Nonces {
     evolving: Nonce,
     candidate: Nonce,
     previous_epoch_last_header: Hash<32>,
+    epoch: Epoch,
 }
 
 impl<C> cbor::encode::Encode<C> for Nonces {
@@ -67,11 +63,13 @@ impl<C> cbor::encode::Encode<C> for Nonces {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(4)?;
+        e.begin_array()?;
         e.encode_with(self.active, ctx)?;
         e.encode_with(self.evolving, ctx)?;
         e.encode_with(self.candidate, ctx)?;
         e.encode_with(self.previous_epoch_last_header, ctx)?;
+        e.encode_with(self.epoch, ctx)?;
+        e.end()?;
         Ok(())
     }
 }
@@ -84,6 +82,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Nonces {
             evolving: d.decode_with(ctx)?,
             candidate: d.decode_with(ctx)?,
             previous_epoch_last_header: d.decode_with(ctx)?,
+            epoch: d.decode_with(ctx)?,
         })
     }
 }
@@ -107,8 +106,7 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
     type Error = NoncesError;
 
     fn get_nonce(&self, header: &Hash<32>) -> Option<Nonce> {
-        self.get_nonces(header)
-            .map(|(_epoch, nonces)| nonces.active)
+        self.get_nonces(header).map(|nonces| nonces.active)
     }
 
     fn evolve_nonce(&mut self, header: &H) -> Result<(), Self::Error> {
@@ -118,24 +116,21 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
             header: header.hash(),
         })?;
 
-        let (parent_epoch, parent) =
-            self.get_nonces(&parent_hash)
-                .ok_or_else(|| NoncesError::UnknownParent {
-                    header: header.hash(),
-                    parent: parent_hash,
-                })?;
+        let parent = self
+            .get_nonces(&parent_hash)
+            .ok_or_else(|| NoncesError::UnknownParent {
+                header: header.hash(),
+                parent: parent_hash,
+            })?;
 
         // Compute the new evolving nonce by combining it with the current one and the header's VRF
         // output.
-        // Specifically, we combine it with `η` (a.k.a eta), which is a blake2b-256 hash of the
-        // tagged leader VRF output after a range extension. The range extension is, yet another
-        // blake2b-256 hash.
         let evolving = nonce::evolve(header, &parent.evolving);
 
         self.put_nonces(
             &header.hash(),
-            epoch,
             Nonces {
+                epoch,
                 evolving,
 
                 // On epoch changes, compute the new active nonce by combining:
@@ -143,7 +138,7 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
                 //   2. the previous epoch's last block's parent header hash.
                 //
                 // If the epoch hasn't changed, then our active nonce is unchanged.
-                active: if epoch > parent_epoch {
+                active: if epoch > parent.epoch {
                     let previous_epoch_last_header = self
                         .load_header(&parent.previous_epoch_last_header)
                         .ok_or(NoncesError::UnknownHeader {
@@ -177,7 +172,7 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
                 // previous epoch.
                 //
                 // Otherwise, the previous_epoch_last_header remains unchanged.
-                previous_epoch_last_header: if epoch > parent_epoch {
+                previous_epoch_last_header: if epoch > parent.epoch {
                     parent_hash
                 } else {
                     parent.previous_epoch_last_header

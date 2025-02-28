@@ -1,5 +1,5 @@
 use super::{ChainStore, StoreError};
-use amaru_kernel::{from_cbor, to_cbor, Epoch, Hash, Nonce};
+use amaru_kernel::{from_cbor, to_cbor, Hash};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use std::path::PathBuf;
@@ -44,7 +44,7 @@ impl<H: IsHeader> ChainStore<H> for RocksDBStore {
             })
     }
 
-    fn get_nonces(&self, header: &Hash<32>) -> Option<(Epoch, super::Nonces)> {
+    fn get_nonces(&self, header: &Hash<32>) -> Option<super::Nonces> {
         self.db
             .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
             .ok()
@@ -56,14 +56,10 @@ impl<H: IsHeader> ChainStore<H> for RocksDBStore {
     fn put_nonces(
         &mut self,
         header: &Hash<32>,
-        epoch: Epoch,
         nonces: super::Nonces,
     ) -> Result<(), super::StoreError> {
         self.db
-            .put(
-                [&NONCES_PREFIX[..], &header[..]].concat(),
-                to_cbor(&(epoch, nonces)),
-            )
+            .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(&nonces))
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })

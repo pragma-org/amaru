@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License
 
-use amaru_kernel::{Epoch, Point};
+use amaru_kernel::Point;
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use thiserror::Error;
 
