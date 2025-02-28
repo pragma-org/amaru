@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Anchor, Lovelace, StakeCredential};
+use amaru_kernel::{cbor, Anchor, Epoch, Lovelace, StakeCredential};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
@@ -28,6 +28,7 @@ pub type Key = StakeCredential;
 pub struct Row {
     pub deposit: Lovelace,
     pub anchor: Option<Anchor>,
+    pub last_interaction: Epoch,
 }
 
 impl Row {
@@ -51,6 +52,7 @@ impl<C> cbor::encode::Encode<C> for Row {
         e.array(3)?;
         e.encode_with(self.deposit, ctx)?;
         e.encode_with(self.anchor.clone(), ctx)?;
+        e.encode_with(self.last_interaction, ctx)?;
         Ok(())
     }
 }
@@ -61,6 +63,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         Ok(Row {
             deposit: d.decode_with(ctx)?,
             anchor: d.decode_with(ctx)?,
+            last_interaction: d.decode_with(ctx)?,
         })
     }
 }
