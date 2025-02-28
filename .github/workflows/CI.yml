@@ -44,12 +44,12 @@ jobs:
             target: x86_64-pc-windows-msvc
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
-            packages: -p amaru-ledger
+            packages: -p amaru-ledger -p amaru-ouroboros -p slot-arithmetic
             command: build
             setup: rustup target add wasm32-unknown-unknown
           - runner: ubuntu-latest
             target: riscv32im-risc0-zkvm-elf
-            packages: -p amaru-ledger
+            packages: -p amaru-ledger -p slot-arithmetic
             extra-args: +nightly -Zbuild-std=std,panic_abort
             command: build
             setup: |
