@@ -23,6 +23,7 @@ pub use pallas_primitives::conway::{OperationalCert, VrfCert};
 pub mod kes;
 pub mod praos;
 pub mod vrf;
+pub use amaru_ouroboros_traits::*;
 
 pub type PoolId = Hash<28>;
 

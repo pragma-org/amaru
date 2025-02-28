@@ -16,7 +16,6 @@ use amaru_consensus::{
     chain_forward,
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
-        header::{point_hash, ConwayHeader},
         header_validation::Consensus,
         store::{rocksdb::RocksDBStore, ChainStore},
         wiring::{HeaderStage, PullEvent},
@@ -24,7 +23,7 @@ use amaru_consensus::{
     peer::{Peer, PeerSession},
     ConsensusError,
 };
-use amaru_kernel::Point;
+use amaru_kernel::{Hash, Header, Point};
 use amaru_stores::rocksdb::RocksDB;
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
@@ -115,13 +114,13 @@ pub fn bootstrap(
 
 fn make_chain_selector(
     tip: Point,
-    chain_store: &impl ChainStore<ConwayHeader>,
+    chain_store: &impl ChainStore<Header>,
     peers: &Vec<PeerSession>,
-) -> Result<Arc<Mutex<ChainSelector<ConwayHeader>>>, ConsensusError> {
+) -> Result<Arc<Mutex<ChainSelector<Header>>>, ConsensusError> {
     let mut builder = ChainSelectorBuilder::new();
 
     #[allow(clippy::panic)]
-    match chain_store.load_header(&point_hash(&tip)) {
+    match chain_store.load_header(&Hash::from(&tip)) {
         None => panic!("Tip {:?} not found in chain store", tip),
         Some(header) => builder.set_tip(&header),
     };

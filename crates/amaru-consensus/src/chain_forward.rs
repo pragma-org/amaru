@@ -12,10 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::{
-    header::{point_hash, ConwayHeader},
-    store::ChainStore,
-};
+use crate::consensus::store::ChainStore;
+use amaru_kernel::{Hash, Header};
 use amaru_ledger::BlockValidationResult;
 use gasket::framework::*;
 use std::sync::Arc;
@@ -39,12 +37,12 @@ pub const EVENT_TARGET: &str = "amaru::consensus::chain_forward";
     worker = "Worker"
 )]
 pub struct ForwardStage {
-    pub store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
+    pub store: Arc<Mutex<dyn ChainStore<Header>>>,
     pub upstream: UpstreamPort,
 }
 
 impl ForwardStage {
-    pub fn new(store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>) -> Self {
+    pub fn new(store: Arc<Mutex<dyn ChainStore<Header>>>) -> Self {
         Self {
             store,
             upstream: Default::default(),
@@ -84,7 +82,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                     parent: span,
                     "forward.block_validated",
                     slot = ?point.slot_or_default(),
-                    hash = point_hash(point).to_string()
+                    hash = %Hash::<32>::from(point),
                 );
 
                 Ok(())
@@ -95,17 +93,27 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                     parent: span,
                     "forward.storage_failed",
                     slot = ?point.slot_or_default(),
-                    hash = %point_hash(point)
+                    hash = %Hash::<32>::from(point),
                 );
 
                 Err(WorkerError::Panic)
             }
             BlockValidationResult::InvalidRollbackPoint(point) => {
-                warn!(target: EVENT_TARGET, slot = point.slot_or_default(), hash = %point_hash(point), "invalid_rollback_point");
+                warn!(
+                    target: EVENT_TARGET,
+                    slot = point.slot_or_default(),
+                    hash = %Hash::<32>::from(point),
+                    "invalid_rollback_point"
+                );
                 Ok(())
             }
             BlockValidationResult::RolledBackTo(point) => {
-                info!(target: EVENT_TARGET, slot = point.slot_or_default(), hash = %point_hash(point),  "rolled_back_to");
+                info!(
+                    target: EVENT_TARGET,
+                    slot = point.slot_or_default(),
+                    hash = %Hash::<32>::from(point),
+                    "rolled_back_to"
+                );
                 Ok(())
             }
         }

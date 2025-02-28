@@ -33,7 +33,7 @@ pub use pallas_codec::{
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
     alonzo,
-    babbage::MintedHeader,
+    babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody, MintedBlock,
         MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, PoolMetadata,
@@ -130,6 +130,16 @@ impl Point {
     }
 }
 
+impl From<&Point> for Hash<32> {
+    fn from(point: &Point) -> Self {
+        match point {
+            // By convention, the hash of `Genesis` is all 0s.
+            Point::Origin => Hash::from([0; 32]),
+            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
+        }
+    }
+}
+
 impl Encode<()> for Point {
     fn encode<W: encode::Write>(
         &self,
@@ -168,6 +178,21 @@ pub type PoolId = Hash<28>;
 pub type Slot = u64;
 
 pub type Nonce = Hash<32>;
+
+// CBOR conversions
+// ----------------------------------------------------------------------------
+
+#[allow(clippy::panic)]
+pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    cbor::encode(value, &mut buffer)
+        .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+    buffer
+}
+
+pub fn from_cbor<T: for<'d> cbor::Decode<'d, ()>>(bytes: &[u8]) -> Option<T> {
+    cbor::decode(bytes).ok()
+}
 
 // PoolParams
 // ----------------------------------------------------------------------------

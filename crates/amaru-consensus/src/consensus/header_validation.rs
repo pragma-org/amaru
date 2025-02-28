@@ -15,21 +15,19 @@
 use crate::{
     consensus::{
         chain_selection::{self, ChainSelector, Fork},
-        header::{point_hash, ConwayHeader, Header},
         store::ChainStore,
     },
     peer::{Peer, PeerSession},
     ConsensusError,
 };
 use amaru_kernel::{
-    epoch_from_slot, Epoch, Hasher, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE,
+    epoch_from_slot, Hash, Hasher, Header, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE,
 };
 use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::praos;
-use amaru_ouroboros_traits::HasStakeDistribution;
+use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader};
 use pallas_codec::minicbor;
 use pallas_math::math::FixedDecimal;
-use pallas_traverse::ComputeHash;
 use std::{collections::HashMap, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, trace_span, Level, Span};
@@ -64,17 +62,17 @@ pub fn assert_header<'a>(
 
 pub struct Consensus {
     peer_sessions: HashMap<Peer, PeerSession>,
-    chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
+    chain_selector: Arc<Mutex<ChainSelector<Header>>>,
     ledger: Box<dyn HasStakeDistribution>,
-    store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
+    store: Arc<Mutex<dyn ChainStore<Header>>>,
 }
 
 impl Consensus {
     pub fn new(
         peer_sessions: Vec<PeerSession>,
         ledger: Box<dyn HasStakeDistribution>,
-        store: Arc<Mutex<dyn ChainStore<ConwayHeader>>>,
-        chain_selector: Arc<Mutex<ChainSelector<ConwayHeader>>>,
+        store: Arc<Mutex<dyn ChainStore<Header>>>,
+        chain_selector: Arc<Mutex<ChainSelector<Header>>>,
     ) -> Self {
         let peer_sessions = peer_sessions
             .into_iter()
@@ -88,10 +86,10 @@ impl Consensus {
         }
     }
 
-    async fn forward_block(
+    async fn forward_block<H: IsHeader>(
         &mut self,
         peer: &Peer,
-        header: &dyn Header,
+        header: &H,
         parent_span: &Span,
     ) -> Result<ValidateBlockEvent, ConsensusError> {
         let point = header.point();
@@ -126,7 +124,7 @@ impl Consensus {
         &mut self,
         peer: &Peer,
         rollback_point: &Point,
-        fork: Vec<ConwayHeader>,
+        fork: Vec<Header>,
         parent_span: &Span,
     ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
         let mut result = vec![ValidateBlockEvent::Rollback(rollback_point.clone())];
@@ -150,11 +148,14 @@ impl Consensus {
           parent: parent_span,
           "handle_roll_forward",
           slot = ?point.slot_or_default(),
-          hash = point_hash(point).to_string())
+          hash = %Hash::<32>::from(point),
+        )
         .entered();
 
         let header: MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
+
+        let header_hash = Hasher::<256>::hash(raw_header);
 
         // first make sure we store the header
         let mut store = self.store.lock().await;
@@ -167,10 +168,10 @@ impl Consensus {
             return Err(ConsensusError::MissingNonceForEpoch(epoch));
         }
 
-        let header: ConwayHeader = ConwayHeader::from(header);
+        let header: Header = Header::from(header);
 
         store
-            .store_header(&header.compute_hash(), &header)
+            .store_header(&header_hash, &header)
             .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))?;
 
         drop(store);
@@ -217,7 +218,7 @@ impl Consensus {
             .chain_selector
             .lock()
             .await
-            .select_rollback(peer, point_hash(rollback));
+            .select_rollback(peer, Hash::from(rollback));
 
         match result {
             chain_selection::RollbackChainSelection::RollbackTo(hash) => {

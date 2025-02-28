@@ -1,12 +1,11 @@
 use crate::config::NetworkName;
 use amaru::sync;
 use amaru_consensus::{
-    consensus::{
-        header::{ConwayHeader, Header},
-        store::{rocksdb::RocksDBStore, ChainStore},
-    },
+    consensus::store::{rocksdb::RocksDBStore, ChainStore},
     peer::{Peer, PeerSession},
+    IsHeader,
 };
+use amaru_kernel::{from_cbor, Header};
 use clap::{builder::TypedValueParser as _, Parser};
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -171,7 +170,7 @@ fn handle_response(
 ) -> Result<What, WorkerError> {
     match next {
         NextResponse::RollForward(content, tip) => {
-            let header = ConwayHeader::from_cbor(&content.cbor).unwrap();
+            let header: Header = from_cbor(&content.cbor).unwrap();
             let hash = header.hash();
 
             db.store_header(&hash, &header)

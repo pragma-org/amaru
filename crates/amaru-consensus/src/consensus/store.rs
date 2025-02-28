@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::header::Header;
 use amaru_kernel::{Epoch, Nonce};
+use amaru_ouroboros_traits::IsHeader;
 use pallas_crypto::hash::Hash;
 use std::fmt::Display;
 use thiserror::Error;
@@ -38,7 +38,7 @@ impl Display for StoreError {
 /// A simple chain store interface that can store and retrieve headers indexed by their hash.
 pub trait ChainStore<H>: Send + Sync
 where
-    H: Header,
+    H: IsHeader,
 {
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;

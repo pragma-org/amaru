@@ -16,6 +16,8 @@ use amaru_kernel::{Epoch, Point};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use thiserror::Error;
 
+pub use amaru_ouroboros_traits::*;
+
 /// Consensus interface
 ///
 /// The consensus interface is responsible for validating block headers.
