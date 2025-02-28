@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use amaru_kernel::Epoch;
 use amaru_ledger::store::StoreError;
 use rocksdb::Transaction;
 use tracing::error;
@@ -23,11 +24,12 @@ use amaru_ledger::store::columns::dreps::{Key, Row, Value, EVENT_TARGET};
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 
 /// Register a new DRep.
+#[allow(clippy::unwrap_used)]
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
-    rows: impl Iterator<Item = (Key, Value)>,
+    rows: impl Iterator<Item = (Key, Value, Option<Epoch>)>,
 ) -> Result<(), StoreError> {
-    for (credential, (anchor, deposit)) in rows {
+    for (credential, (anchor, deposit), epoch) in rows {
         let key = as_key(&PREFIX, &credential);
 
         // In case where a registration already exists, then we must only update the underlying
@@ -41,10 +43,17 @@ pub fn add<DB>(
             if let Some(deposit) = deposit {
                 row.deposit = deposit;
             }
+            if let Some(epoch) = epoch {
+                row.last_interaction = epoch;
+            }
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else if let Some(deposit) = deposit {
-            let row = Row { anchor, deposit };
+            let row = Row {
+                anchor,
+                deposit,
+                last_interaction: epoch.unwrap(), // Cannot fail; this is a new registration.
+            };
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {

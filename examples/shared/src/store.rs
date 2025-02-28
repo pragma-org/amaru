@@ -1,4 +1,5 @@
-use amaru_kernel::{Epoch, Point};
+use std::collections::BTreeSet;
+use amaru_kernel::{Epoch, Point, StakeCredential};
 use amaru_ledger::{
     rewards::Pots,
     store::{Snapshot, Store},
@@ -136,6 +137,7 @@ impl Store for MemoryStore {
             impl Iterator<Item = amaru_ledger::store::columns::delegations::Key>,
         >,
         _withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
+        _voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }

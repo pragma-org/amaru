@@ -24,14 +24,15 @@ use crate::{
     store::{columns::*, Store, StoreError},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, TransactionInput,
-    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
-    STABILITY_WINDOW,
+    self, epoch_from_slot, Epoch, GovActionId, Hash, Hasher, MintedBlock, NonEmptyKeyValuePairs,
+    Point, PoolId, Slot, StakeCredential, TransactionInput, TransactionOutput, Voter,
+    VotingProcedure, VotingProcedures, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
+    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
     borrow::Cow,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeSet, HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
@@ -82,6 +83,16 @@ where
     /// for each key. On a distribution of 1M+ stake credentials, that's ~26MB of memory per
     /// duplicate.
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
+}
+
+fn parse_voting_procedures(voting_procedures: &VotingProcedures) -> HashSet<StakeCredential> {
+    voting_procedures
+        .iter()
+        .filter_map(|(k, _)| match k {
+            Voter::DRepKey(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
+            _ => None,
+        })
+        .collect()
 }
 
 impl<S: Store> State<S> {
@@ -227,6 +238,7 @@ impl<S: Store> State<S> {
                 add,
                 remove,
                 withdrawals,
+                voting_dreps,
             } = now_stable.into_store_update();
 
             trace_span!(target: EVENT_TARGET, parent: span, "save").in_scope(|| {
@@ -236,6 +248,7 @@ impl<S: Store> State<S> {
                     add,
                     remove,
                     withdrawals,
+                    voting_dreps,
                 )
                 .and_then(|()| {
                     db.with_pots(|mut row| {
@@ -351,6 +364,17 @@ impl<S: Store> State<S> {
         for (ix, transaction_body) in transaction_bodies.into_iter().enumerate() {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
             let transaction_body = transaction_body.unwrap();
+
+            let voting_procedures: Option<
+                NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<GovActionId, VotingProcedure>>,
+            > = transaction_body.voting_procedures.clone();
+            let voting_dreps = voting_procedures
+                .as_ref()
+                .map(parse_voting_procedures)
+                .unwrap_or_default();
+            state.voting_dreps.extend(voting_dreps);
+
+            // Calculate votes for all pending  voting procedures per block ?
 
             let resolved_collateral_inputs = match transaction_body.collateral {
                 None => vec![],

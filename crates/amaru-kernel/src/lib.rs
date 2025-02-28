@@ -35,10 +35,11 @@ pub use pallas_primitives::{
     alonzo,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody,
-        MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
+        AddrKeyhash, Anchor, Block, Certificate, Coin, DRep, Epoch, ExUnits, GovActionId,
+        HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
         PoolMetadata, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
-        TransactionInput, TransactionOutput, UnitInterval, Value, VrfKeyhash, WitnessSet,
+        TransactionInput, TransactionOutput, UnitInterval, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 
