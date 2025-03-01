@@ -22,6 +22,7 @@ pallas-primitives.workspace = true
 thiserror.workspace = true
 vrf_dalek.workspace = true
 
+amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 
 [dev-dependencies]

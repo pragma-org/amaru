@@ -1,12 +1,11 @@
 use crate::config::NetworkName;
 use amaru::sync;
 use amaru_consensus::{
-    consensus::{
-        header::{ConwayHeader, Header},
-        store::{rocksdb::RocksDBStore, ChainStore},
-    },
+    consensus::store::{rocksdb::RocksDBStore, ChainStore},
     peer::{Peer, PeerSession},
+    IsHeader,
 };
+use amaru_kernel::{from_cbor, Header, Point};
 use clap::{builder::TypedValueParser as _, Parser};
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
@@ -18,8 +17,6 @@ use std::{path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::timeout};
 use tracing::info;
 
-use super::parse_point;
-
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Address of the node to connect to for retrieving chain data.
@@ -28,43 +25,38 @@ pub struct Args {
     /// as a client node.
     ///
     /// Addressis given in the usual `host:port` format, for example: "1.2.3.4:3000".
-    #[arg(long, verbatim_doc_comment)]
+    #[arg(long, value_name = "NETWORK_ADDRESS", verbatim_doc_comment)]
     peer_address: String,
 
     /// Network to use for the connection.
     #[arg(
         long,
+        value_name = "NETWORK",
         default_value_t = NetworkName::Preprod,
         value_parser = clap::builder::PossibleValuesParser::new(NetworkName::possible_values())
             .map(|s| s.parse::<NetworkName>().unwrap()),
     )]
     network: NetworkName,
 
-    /// Path of the on-disk storage.
+    /// Path of the consensus on-disk storage.
     ///
     /// This is the directory where data will be stored. The directory and any intermediate
     /// paths will be created if they do not exist.
-    #[arg(long, verbatim_doc_comment, default_value = super::DEFAULT_CHAIN_DATABASE_PATH)]
+    #[arg(long, value_name = "DIR", verbatim_doc_comment, default_value = super::DEFAULT_CHAIN_DB_DIR)]
     chain_dir: PathBuf,
 
     /// Starting point of import.
     ///
     /// This is the "intersection" point which will be given to the peer as a starting point
     /// to import the chain database.
-    #[arg(long, verbatim_doc_comment)]
-    starting_point: String,
+    #[arg(long, value_name = "POINT", verbatim_doc_comment, value_parser = super::parse_point)]
+    starting_point: Point,
 
     /// Number of headers to import.
     /// Maximum number of headers to import from the `peer`.
     /// By default, it will retrieve all headers until it reaches the tip of the peer's chain.
-    #[arg(long, verbatim_doc_comment, default_value_t = usize::MAX)]
+    #[arg(long, value_name = "UINT", verbatim_doc_comment, default_value_t = usize::MAX)]
     count: usize,
-}
-
-#[derive(Debug, thiserror::Error)]
-enum Error<'a> {
-    #[error("malformed point: {}", .0)]
-    MalformedPoint(&'a str),
 }
 
 enum What {
@@ -90,16 +82,14 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         peer_client,
     };
 
-    let point = parse_point(args.starting_point.as_str(), Error::MalformedPoint)?;
-
-    let mut pull = sync::pull::Stage::new(peer_session.clone(), vec![point.clone()]);
+    let mut pull = sync::pull::Stage::new(peer_session.clone(), vec![args.starting_point.clone()]);
 
     pull.find_intersection().await?;
 
     let mut peer_client = pull.peer_session.lock().await;
     let mut count = 0;
     let max = args.count;
-    let start = point.slot_or_default();
+    let start = args.starting_point.slot_or_default();
 
     let client = (*peer_client).chainsync();
 
@@ -171,7 +161,7 @@ fn handle_response(
 ) -> Result<What, WorkerError> {
     match next {
         NextResponse::RollForward(content, tip) => {
-            let header = ConwayHeader::from_cbor(&content.cbor).unwrap();
+            let header: Header = from_cbor(&content.cbor).unwrap();
             let hash = header.hash();
 
             db.store_header(&hash, &header)

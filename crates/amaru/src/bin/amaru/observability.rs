@@ -263,7 +263,7 @@ fn default_filter(var: &str, default: &str) -> EnvFilter {
     // which is a not so nice side-effects of the tracing library.
     EnvFilter::builder()
         .parse(format!(
-            "none,{}",
+            "none,gasket=error,{}",
             env::var(var).ok().as_deref().unwrap_or(default)
         ))
         .unwrap_or_else(|e| panic!("invalid {var} filters: {e}"))

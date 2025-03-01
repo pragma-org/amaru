@@ -23,14 +23,13 @@ pub use pallas_primitives::conway::{OperationalCert, VrfCert};
 pub mod kes;
 pub mod praos;
 pub mod vrf;
+pub use amaru_ouroboros_traits::*;
 
 pub type PoolId = Hash<28>;
 
 pub type Lovelace = u64;
 
 pub type Slot = u64;
-
-pub type BlockHeader<'a> = pallas_primitives::babbage::MintedHeader<'a>;
 
 /// The node's cold vkey is hashed with blake2b224 to create the pool id
 pub fn issuer_to_pool_id(issuer: &ed25519::PublicKey) -> PoolId {

@@ -23,4 +23,4 @@ pallas-primitives.workspace = true
 serde.workspace = true
 
 [dev-dependencies]
-proptest.workspace = true
+proptest = { workspace = true, default-features = true }

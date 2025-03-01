@@ -1,6 +1,6 @@
 use super::{ChainStore, StoreError};
-use crate::consensus::header::Header;
-use pallas_crypto::hash::Hash;
+use amaru_kernel::{cbor, from_cbor, to_cbor, Hash};
+use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use std::path::PathBuf;
 use tracing::{instrument, Level};
@@ -25,18 +25,41 @@ impl RocksDBStore {
     }
 }
 
-impl<H: Header> ChainStore<H> for RocksDBStore {
+const NONCES_PREFIX: [u8; 5] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
+
+impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.db
             .get_pinned(hash)
             .ok()
-            .and_then(|bytes| H::from_cbor(bytes?.as_ref()))
+            .and_then(|bytes| from_cbor(bytes?.as_ref()))
     }
 
     #[instrument(level = Level::TRACE, skip_all, fields(%hash))]
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), super::StoreError> {
         self.db
-            .put(hash, header.to_cbor())
+            .put(hash, to_cbor(header))
+            .map_err(|e| StoreError::WriteError {
+                error: e.to_string(),
+            })
+    }
+
+    fn get_nonces(&self, header: &Hash<32>) -> Option<super::Nonces> {
+        self.db
+            .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
+            .ok()
+            .flatten()
+            .as_deref()
+            .and_then(from_cbor)
+    }
+
+    fn put_nonces(
+        &mut self,
+        header: &Hash<32>,
+        nonces: super::Nonces,
+    ) -> Result<(), super::StoreError> {
+        self.db
+            .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(&nonces))
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })
@@ -46,7 +69,8 @@ impl<H: Header> ChainStore<H> for RocksDBStore {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::consensus::header::test::{random_bytes, TestHeader};
+    use crate::consensus::chain_selection::tests::random_bytes;
+    use amaru_ouroboros_traits::is_header::fake::FakeHeader;
     use std::fs::create_dir;
 
     #[test]
@@ -56,10 +80,10 @@ mod test {
         create_dir(&basedir).unwrap();
         let mut store = RocksDBStore::new(basedir.clone()).expect("fail to initialise RocksDB");
 
-        let header = TestHeader::TestHeader {
+        let header = FakeHeader::FakeHeader {
             block_number: 1,
             slot: 0,
-            parent: TestHeader::Genesis.hash(),
+            parent: FakeHeader::Genesis.hash(),
             body_hash: random_bytes(32).as_slice().into(),
         };
 

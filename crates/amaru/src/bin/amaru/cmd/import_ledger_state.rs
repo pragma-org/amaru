@@ -45,22 +45,22 @@ pub struct Args {
     ///   68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
     ///
     /// Can be repeated multiple times for multiple snapshots.
-    #[arg(long, verbatim_doc_comment, num_args(0..))]
+    #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment, num_args(0..))]
     snapshot: Vec<PathBuf>,
 
     /// Path to a directory containing multiple CBOR snapshots to import.
-    #[arg(long)]
+    #[arg(long, value_name = "DIR")]
     snapshot_dir: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, default_value = super::DEFAULT_LEDGER_DB_DIR)]
+    #[arg(long, value_name = "DIR", default_value = super::DEFAULT_LEDGER_DB_DIR)]
     ledger_dir: PathBuf,
 }
 
 #[derive(Debug, thiserror::Error)]
-enum Error<'a> {
+enum Error {
     #[error("malformed date: {}", .0)]
-    MalformedDate(&'a str),
+    MalformedDate(String),
     #[error("You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)")]
     IncorrectUsage,
 }
@@ -104,8 +104,8 @@ async fn import_one(
             .file_stem()
             .and_then(|s| s.to_str())
             .unwrap(),
-        Error::MalformedDate,
-    )?;
+    )
+    .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
     let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir)?;

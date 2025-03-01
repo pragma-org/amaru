@@ -1,2 +1,3 @@
 Cargo.lock linguist-generated=true merge=binary linguist-vendored
 **/*.snap merge=binary linguist-vendored
+**/*.cbor merge=binary linguist-vendored

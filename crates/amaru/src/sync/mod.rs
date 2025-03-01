@@ -16,7 +16,6 @@ use amaru_consensus::{
     chain_forward,
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
-        header::{point_hash, ConwayHeader},
         header_validation::Consensus,
         store::{rocksdb::RocksDBStore, ChainStore},
         wiring::{HeaderStage, PullEvent},
@@ -24,16 +23,14 @@ use amaru_consensus::{
     peer::{Peer, PeerSession},
     ConsensusError,
 };
-use amaru_kernel::Point;
+use amaru_kernel::{Hash, Header, Point};
 use amaru_stores::rocksdb::RocksDB;
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,
 };
-use pallas_crypto::hash::Hash;
 use pallas_network::facades::PeerClient;
-use pallas_primitives::conway::Epoch;
-use std::{collections::HashMap, path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::pipeline::Stage;
@@ -49,25 +46,6 @@ pub struct Config {
     pub chain_dir: PathBuf,
     pub upstream_peers: Vec<String>,
     pub network_magic: u32,
-    pub nonces: HashMap<Epoch, Hash<32>>,
-}
-
-fn define_gasket_policy() -> gasket::runtime::Policy {
-    let retries = gasket::retries::Policy {
-        max_retries: 20,
-        backoff_unit: std::time::Duration::from_secs(1),
-        backoff_factor: 2,
-        max_backoff: std::time::Duration::from_secs(60),
-        dismissible: false,
-    };
-
-    gasket::runtime::Policy {
-        //be generous with tick timeout to avoid timeout during block awaits
-        tick_timeout: std::time::Duration::from_secs(600).into(),
-        bootstrap_retry: retries.clone(),
-        work_retry: retries.clone(),
-        teardown_retry: retries.clone(),
-    }
 }
 
 pub fn bootstrap(
@@ -98,7 +76,6 @@ pub fn bootstrap(
         Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
         chain_selector,
-        config.nonces,
     );
 
     let mut consensus_stage = HeaderStage::new(consensus);
@@ -117,7 +94,8 @@ pub fn bootstrap(
     ledger.downstream.connect(to_block_forward);
     block_forward.upstream.connect(from_ledger);
 
-    let policy = define_gasket_policy();
+    // No retry, crash on panics.
+    let policy = gasket::runtime::Policy::default();
 
     let mut pulls = pulls
         .into_iter()
@@ -136,13 +114,13 @@ pub fn bootstrap(
 
 fn make_chain_selector(
     tip: Point,
-    chain_store: &impl ChainStore<ConwayHeader>,
+    chain_store: &impl ChainStore<Header>,
     peers: &Vec<PeerSession>,
-) -> Result<Arc<Mutex<ChainSelector<ConwayHeader>>>, ConsensusError> {
+) -> Result<Arc<Mutex<ChainSelector<Header>>>, ConsensusError> {
     let mut builder = ChainSelectorBuilder::new();
 
     #[allow(clippy::panic)]
-    match chain_store.load_header(&point_hash(&tip)) {
+    match chain_store.load_header(&Hash::from(&tip)) {
         None => panic!("Tip {:?} not found in chain store", tip),
         Some(header) => builder.set_tip(&header),
     };

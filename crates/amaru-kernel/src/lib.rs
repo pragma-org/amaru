@@ -24,8 +24,7 @@ While elements are being contributed upstream, they might transiently live in th
 use std::sync::LazyLock;
 
 use num::{rational::Ratio, BigUint};
-use pallas_addresses::Error;
-use pallas_addresses::*;
+use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
     minicbor as cbor,
@@ -34,6 +33,7 @@ pub use pallas_codec::{
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
     alonzo,
+    babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody, MintedBlock,
         MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, PoolMetadata,
@@ -95,6 +95,11 @@ pub const SLOTS_PER_KES_PERIOD: u64 = 129600;
 /// indicates the validity period of a KES key before a new one is required.
 pub const MAX_KES_EVOLUTION: u8 = 62;
 
+/// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
+/// nonce of the following epoch.
+pub const RANDOMNESS_STABILIZATION_WINDOW: u64 =
+    4 * (CONSENSUS_SECURITY_PARAM as u64) * (ACTIVE_SLOT_COEFF_INVERSE as u64);
+
 // The monetary expansion value, a.k.a ρ
 pub static MONETARY_EXPANSION: LazyLock<Ratio<BigUint>> =
     LazyLock::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)));
@@ -126,6 +131,16 @@ impl Point {
         match self {
             Point::Origin => 0,
             Point::Specific(slot, _) => *slot,
+        }
+    }
+}
+
+impl From<&Point> for Hash<32> {
+    fn from(point: &Point) -> Self {
+        match point {
+            // By convention, the hash of `Genesis` is all 0s.
+            Point::Origin => Hash::from([0; 32]),
+            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
         }
     }
 }
@@ -166,6 +181,23 @@ impl<'b> Decode<'b, ()> for Point {
 pub type PoolId = Hash<28>;
 
 pub type Slot = u64;
+
+pub type Nonce = Hash<32>;
+
+// CBOR conversions
+// ----------------------------------------------------------------------------
+
+#[allow(clippy::panic)]
+pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
+    let mut buffer = Vec::new();
+    cbor::encode(value, &mut buffer)
+        .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+    buffer
+}
+
+pub fn from_cbor<T: for<'d> cbor::Decode<'d, ()>>(bytes: &[u8]) -> Option<T> {
+    cbor::decode(bytes).ok()
+}
 
 // PoolParams
 // ----------------------------------------------------------------------------
@@ -333,6 +365,24 @@ pub fn relative_slot(slot: u64) -> u64 {
     let shelley_previous_slots = (epoch_from_slot(slot) - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
         * SHELLEY_EPOCH_LENGTH as u64;
     slot - shelley_previous_slots - BYRON_TOTAL_SLOTS as u64
+}
+
+/// Get the first slot of the next epoch (i.e. the slot coming straight after the last slot of the
+/// epoch).
+///
+/// ```
+/// use amaru_kernel::next_epoch_first_slot;
+/// assert_eq!(next_epoch_first_slot(3), 86400);
+/// assert!(next_epoch_first_slot(114) <= 48038412);
+/// assert!(next_epoch_first_slot(114) > 48038393);
+/// assert!(next_epoch_first_slot(150) <= 63590410);
+/// assert!(next_epoch_first_slot(150) > 63590393);
+/// ```
+// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
+pub fn next_epoch_first_slot(current_epoch: u64) -> u64 {
+    (BYRON_TOTAL_SLOTS as u64)
+        + (SHELLEY_EPOCH_LENGTH as u64)
+            * (1 + current_epoch - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
 }
 
 /// TODO: Ideally, we should either:
