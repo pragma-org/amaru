@@ -23,6 +23,7 @@ cargo build --release
 on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network.
 
 1. Download at least three [ledger snapshots](./data/README.md#cardano-ledger-snapshots):
+
 ```bash
 mkdir -p snapshots;
 curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" \
@@ -34,41 +35,59 @@ curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main
     done
 ```
 
-2. Import the snapshots just downloaded, either individually or a full directory
+2. Import the snapshots just downloaded:
 
 ```console
-cargo run --release -- import \
-  --snapshot snapshots/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor
-
-# OR
-cargo run --release -- import \
+cargo run --release -- import-ledger-state \
   --snapshot snapshots/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor \
+  --snapshot snapshots/69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor \
   --snapshot snapshots/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
-
-# OR
-cargo run --release -- import --snapshot-dir snapshots
 ```
 
-3. Import chain data from remote peer
+3. Import chain data from remote peer:
+
+> [!TIP]
+>
+> You only need two headers to bootstrap Amaru:
+>
+> - The last header of your imported snapshots
+> - The last header of the epoch before your last imported epoch
+>
+> Although, importing _more_ headers won't hurt. So you can do a single
+> synchronization of an entire epoch (~21600 blocks on good days, likely less
+> on PreProd and Preview networks).
 
 ```console
-cargo run --release -- import-chain-db \
-  --peer-address 127.0.0.1:3000 --starting-point 69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7
+cargo run --release -- import-headers \
+  --peer-address 127.0.0.1:3000 \
+  --starting-point 69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2 \
+  --count 21600
 ```
 
-> [!WARNING]
-> This can take a while as the code is currently non-optimised.
+4. Import VRF nonces information
 
-3. _(Optional)_ Setup observability backends:
+You need nonces states corresponding to the last header from the snapshots
+(i.e. the last block of PreProd's epoch 165 → `70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d`):
+
+```console
+cargo run --release -- import-nonces \
+  --at 70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d \
+  --active a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a \
+  --candidate 74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6 \
+  --evolving 24bb737ee28652cd99ca41f1f7be568353b4103d769c6e1ddb531fc874dd6718 \
+  --tail 5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7
+```
+
+5. _(Optional)_ Setup observability backends:
 
 ```console
 docker-compose -f monitoring/jaeger/docker-compose.yml up
 ```
 
-4. Run the node:
+6. Run the node:
 
 ```console
-AMARU_DEV_LOG=warn cargo run --release -- daemon \
+cargo run --release -- daemon \
   --peer-address=127.0.0.1:3000 \
   --network=preprod
 ```

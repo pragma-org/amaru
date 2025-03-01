@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point;
+use amaru_kernel::{Nonce, Point};
 
 pub(crate) mod daemon;
 pub(crate) mod import_headers;
 pub(crate) mod import_ledger_state;
+pub(crate) mod import_nonces;
 
 /// Default path to the on-disk ledger storage.
 pub(crate) const DEFAULT_LEDGER_DB_DIR: &str = "./ledger.db";
@@ -24,37 +25,39 @@ pub(crate) const DEFAULT_LEDGER_DB_DIR: &str = "./ledger.db";
 /// Default path to the on-disk chain storage.
 pub(crate) const DEFAULT_CHAIN_DB_DIR: &str = "./chain.db";
 
-/// Default path to pre-computed on-chain data needed for block header validation.
-pub(crate) const DEFAULT_DATA_DIR: &str = "./data";
-
 /// Utility function to parse a point from a string.
 ///
 /// Expects the input to be of the form '<point>.<hash>', where `<point>` is a number and `<hash>`
 /// is a hex-encoded 32 bytes hash.
 /// The first argument is the string to parse, the `bail` function is user to
 /// produce the error type `E` in case of failure to parse.
-pub(crate) fn parse_point<'a, F, E>(raw_str: &str, bail: F) -> Result<Point, E>
-where
-    F: Fn(&'a str) -> E + 'a,
-{
+pub(crate) fn parse_point(raw_str: &str) -> Result<Point, String> {
     let mut split = raw_str.split('.');
 
     let slot = split
         .next()
-        .ok_or(bail("missing slot number before '.'"))
+        .ok_or("missing slot number before '.'")
         .and_then(|s| {
             s.parse::<u64>()
-                .map_err(|_| bail("failed to parse point's slot as a non-negative integer"))
+                .map_err(|_| "failed to parse point's slot as a non-negative integer")
         })?;
 
     let block_header_hash = split
         .next()
-        .ok_or(bail("missing block header hash after '.'"))
-        .and_then(|s| {
-            hex::decode(s).map_err(|_| bail("unable to decode block header hash from hex"))
-        })?;
+        .ok_or("missing block header hash after '.'")
+        .and_then(|s| hex::decode(s).map_err(|_| "unable to decode block header hash from hex"))?;
 
     Ok(Point::Specific(slot, block_header_hash))
+}
+
+/// Utility function to parse a nonce (i.e. a blake2b-256 hash digest) from an hex-encoded string.
+pub(crate) fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
+    hex::decode(hex_str)
+        .map_err(|e| format!("invalid hex encoding: {e}"))
+        .and_then(|bytes| {
+            <[u8; 32]>::try_from(bytes).map_err(|_| "expected 32-byte nonce".to_string())
+        })
+        .map(Nonce::from)
 }
 
 #[cfg(test)]
@@ -63,7 +66,7 @@ mod test {
 
     #[test]
     fn test_parse_point() {
-        let point = parse_point("42.0123456789abcdef", |s| s).unwrap();
+        let point = parse_point("42.0123456789abcdef").unwrap();
         match point {
             Point::Specific(slot, hash) => {
                 assert_eq!(42, slot);
@@ -77,7 +80,6 @@ mod test {
     fn test_parse_real_point() {
         let point = parse_point(
             "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
-            |s| s,
         )
         .unwrap();
         match point {
@@ -86,5 +88,34 @@ mod test {
             }
             _ => panic!("expected a specific point"),
         }
+    }
+
+    #[test]
+    fn test_parse_nonce() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
+            Ok(..)
+        ));
+    }
+
+    #[test]
+    fn test_parse_nonce_not_hex() {
+        assert!(matches!(parse_nonce("patate"), Err(..)));
+    }
+
+    #[test]
+    fn test_parse_nonce_too_long() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d1234"),
+            Err(..)
+        ));
+    }
+
+    #[test]
+    fn test_parse_nonce_too_short() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a"),
+            Err(..)
+        ));
     }
 }

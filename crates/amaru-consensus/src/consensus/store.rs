@@ -50,11 +50,11 @@ where
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Nonces {
-    active: Nonce,
-    evolving: Nonce,
-    candidate: Nonce,
-    previous_epoch_last_header: Hash<32>,
-    epoch: Epoch,
+    pub active: Nonce,
+    pub evolving: Nonce,
+    pub candidate: Nonce,
+    pub tail: Hash<32>,
+    pub epoch: Epoch,
 }
 
 impl<C> cbor::encode::Encode<C> for Nonces {
@@ -67,7 +67,7 @@ impl<C> cbor::encode::Encode<C> for Nonces {
         e.encode_with(self.active, ctx)?;
         e.encode_with(self.evolving, ctx)?;
         e.encode_with(self.candidate, ctx)?;
-        e.encode_with(self.previous_epoch_last_header, ctx)?;
+        e.encode_with(self.tail, ctx)?;
         e.encode_with(self.epoch, ctx)?;
         e.end()?;
         Ok(())
@@ -81,7 +81,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Nonces {
             active: d.decode_with(ctx)?,
             evolving: d.decode_with(ctx)?,
             candidate: d.decode_with(ctx)?,
-            previous_epoch_last_header: d.decode_with(ctx)?,
+            tail: d.decode_with(ctx)?,
             epoch: d.decode_with(ctx)?,
         })
     }
@@ -139,14 +139,14 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
                 //
                 // If the epoch hasn't changed, then our active nonce is unchanged.
                 active: if epoch > parent.epoch {
-                    let previous_epoch_last_header = self
-                        .load_header(&parent.previous_epoch_last_header)
-                        .ok_or(NoncesError::UnknownHeader {
-                            header: parent.previous_epoch_last_header,
-                        })?;
-                    nonce::from_candidate(&previous_epoch_last_header, &parent.candidate).ok_or(
+                    let tail =
+                        self.load_header(&parent.tail)
+                            .ok_or(NoncesError::UnknownHeader {
+                                header: parent.tail,
+                            })?;
+                    nonce::from_candidate(&tail, &parent.candidate).ok_or(
                         NoncesError::NoParentHeader {
-                            header: parent.previous_epoch_last_header,
+                            header: parent.tail,
                         },
                     )?
                 } else {
@@ -171,11 +171,11 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
                 // On epoch changes, the parent header is -- by definition -- the last header of the
                 // previous epoch.
                 //
-                // Otherwise, the previous_epoch_last_header remains unchanged.
-                previous_epoch_last_header: if epoch > parent.epoch {
+                // Otherwise, the tail remains unchanged.
+                tail: if epoch > parent.epoch {
                     parent_hash
                 } else {
-                    parent.previous_epoch_last_header
+                    parent.tail
                 },
             },
         )?;
@@ -203,9 +203,7 @@ mod test {
         active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
         candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6",),
         evolving: hash!("9b945f3c45b140f796f0d2ec81c48b50730044bf75eb7208c85f6195f68e9b8c"),
-        previous_epoch_last_header: hash!(
-            "5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7",
-        ),
+        tail: hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7",),
     });
 
     // Epoch 165's last header
@@ -215,9 +213,7 @@ mod test {
         active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
         candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6"),
         evolving: hash!("24bb737ee28652cd99ca41f1f7be568353b4103d769c6e1ddb531fc874dd6718"),
-        previous_epoch_last_header: hash!(
-            "5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"
-        ),
+        tail: hash!("5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7"),
     });
 
     // Epoch 166's first header
@@ -227,9 +223,7 @@ mod test {
         active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d"),
         candidate: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c",),
         evolving: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c"),
-        previous_epoch_last_header: hash!(
-            "d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
-        ),
+        tail: hash!("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",),
     });
 
     // Epoch 166's second header
@@ -239,9 +233,7 @@ mod test {
         active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d"),
         candidate: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
         evolving: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
-        previous_epoch_last_header: hash!(
-            "d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"
-        ),
+        tail: hash!("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
     });
 
     #[derive(Default)]
@@ -337,15 +329,15 @@ mod test {
             active in any::<[u8; 32]>(),
             evolving in any::<[u8; 32]>(),
             candidate in any::<[u8; 32]>(),
-            previous_epoch_last_header in any::<[u8; 32]>(),
+            tail in any::<[u8; 32]>(),
             epoch in any::<u64>(),
         ) -> Nonces {
             Nonces {
-            active: Nonce::from(active),
-            evolving: Nonce::from(evolving),
-            candidate: Nonce::from(candidate),
-            previous_epoch_last_header: Hash::from(previous_epoch_last_header),
-            epoch,
+                active: Nonce::from(active),
+                evolving: Nonce::from(evolving),
+                candidate: Nonce::from(candidate),
+                tail: Hash::from(tail),
+                epoch,
             }
         }
     }

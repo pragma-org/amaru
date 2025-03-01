@@ -28,12 +28,13 @@ pub struct Args {
     ///
     /// This option can be specified multiple times to connect to multiple peers.
     /// At least one peer address must be specified.
-    #[arg(long, action = ArgAction::Append, required = true)]
+    #[arg(long, value_name = "NETWORK_ADDRESS", action = ArgAction::Append, required = true)]
     peer_address: Vec<String>,
 
     /// The target network to choose from.
     #[arg(
         long,
+        value_name = "NETWORK",
         default_value_t = NetworkName::Preprod,
         value_parser = clap::builder::PossibleValuesParser::new(NetworkName::possible_values())
             .map(|s| s.parse::<NetworkName>().unwrap()),
@@ -41,16 +42,12 @@ pub struct Args {
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, default_value = super::DEFAULT_LEDGER_DB_DIR)]
+    #[arg(long, value_name = "DIR", default_value = super::DEFAULT_LEDGER_DB_DIR)]
     ledger_dir: PathBuf,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, default_value = super::DEFAULT_CHAIN_DB_DIR)]
+    #[arg(long, value_name = "DIR", default_value = super::DEFAULT_CHAIN_DB_DIR)]
     chain_dir: PathBuf,
-
-    /// Path to the directory containing blockchain data such as epoch nonces.
-    #[arg(long, default_value = super::DEFAULT_DATA_DIR)]
-    data_dir: PathBuf,
 }
 
 pub async fn run(

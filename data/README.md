@@ -9,10 +9,10 @@ We provide CBOR-serialised snapshots obtained from a running Haskell Cardano nod
 >
 > If someone finds the motivation to document as CDDL the encoders from that pinned reference, a PR is more than welcome.
 
-Snapshots are named after the point on chain they've been taken from. More specifically, the first characters represent an absolute slot number, followed by 64 characters representing the hex-encoded block header hash; both separated by a dash `-`. For example:
+Snapshots are named after the point on chain they've been taken from. More specifically, the first characters represent an absolute slot number, followed by 64 characters representing the hex-encoded block header hash; both separated by a period `.`. For example:
 
 ```
-68774372-36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
+68774372.36f5b4a370c22fd4a5c870248f26ac72c0ac0ecc34a42e28ced1a4e15136efa4.cbor
 ```
 
 designates the ledger state dump of the last block of the Conway era (including the processing of that block) on the PreProd network.

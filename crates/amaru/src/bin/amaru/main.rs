@@ -26,13 +26,16 @@ enum Command {
     /// Run the node in all its glory.
     Daemon(cmd::daemon::Args),
 
-    /// Import the ledger state from a CBOR export produced by the Haskell node.
+    /// Import the ledger state from a CBOR export produced by a Haskell node.
     #[clap(alias = "import")]
     ImportLedgerState(cmd::import_ledger_state::Args),
 
     /// Import block headers from another (live) node.
     #[clap(alias = "import-chain-db")]
     ImportHeaders(cmd::import_headers::Args),
+
+    /// Import VRF nonces intermediate states
+    ImportNonces(cmd::import_nonces::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -72,6 +75,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
+        Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
