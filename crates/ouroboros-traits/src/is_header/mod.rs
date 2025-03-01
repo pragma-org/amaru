@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Hash, Hasher, Header, Point};
+use amaru_kernel::{cbor, Hash, Hasher, Header, MintedHeader, Point};
 
 pub mod fake;
 
 pub const HASH_SIZE: usize = 32;
 
 /// Interface to a header for the purpose of chain selection.
-pub trait IsHeader: cbor::Encode<()> + for<'d> cbor::Decode<'d, ()> {
+pub trait IsHeader: cbor::Encode<()> + Sized {
     /// Hash of the header
     ///
     /// This is used to identify the header in the chain selection.
@@ -58,6 +58,24 @@ pub trait IsHeader: cbor::Encode<()> + for<'d> cbor::Decode<'d, ()> {
 /// and Conway era. The idea is that we only keep concrete the header from
 /// the latest era, and convert other headers on the fly when needed.
 impl IsHeader for Header {
+    fn parent(&self) -> Option<Hash<HASH_SIZE>> {
+        self.header_body.prev_hash
+    }
+
+    fn block_height(&self) -> u64 {
+        self.header_body.block_number
+    }
+
+    fn slot(&self) -> u64 {
+        self.header_body.slot
+    }
+
+    fn extended_vrf_nonce_output(&self) -> Vec<u8> {
+        self.header_body.nonce_vrf_output()
+    }
+}
+
+impl IsHeader for MintedHeader<'_> {
     fn parent(&self) -> Option<Hash<HASH_SIZE>> {
         self.header_body.prev_hash
     }

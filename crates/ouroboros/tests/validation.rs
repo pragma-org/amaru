@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_ouroboros_traits::mock::MockLedgerState;
-use pallas_codec::minicbor;
-use pallas_primitives::babbage;
-use std::{collections::HashMap, fs::File, io::BufReader};
-
+use amaru_kernel::Header;
 use amaru_ouroboros::{kes, praos};
+use amaru_ouroboros_traits::mock::MockLedgerState;
 use ctor::ctor;
+use pallas_codec::minicbor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
+use pallas_primitives::babbage;
 use serde::{Deserialize, Deserializer, Serialize};
+use std::{collections::HashMap, fs::File, io::BufReader};
 
 /// Context from which a header has been generated.
 ///
@@ -241,13 +241,16 @@ fn validation_conforms_to_test_vectors() {
             test.1
                 .header
                 .get_header()
-                .map(|header| {
+                .map(|minted_header| {
                     let expected = &test.1.mutation;
                     let ledger_state = mock_ledger_state(context);
                     let epoch_nonce = context.nonce;
+                    let raw_header_body = minted_header.header_body.raw_cbor();
+                    let header = Header::from(minted_header);
                     let active_slot_coeff = context.active_slot_coeff_fraction();
                     let assertions = praos::header::assert_all(
                         &header,
+                        raw_header_body,
                         &ledger_state,
                         &epoch_nonce,
                         &active_slot_coeff,

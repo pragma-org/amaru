@@ -1,5 +1,5 @@
 use super::{ChainStore, StoreError};
-use amaru_kernel::{from_cbor, to_cbor, Hash};
+use amaru_kernel::{cbor, from_cbor, to_cbor, Hash};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use std::path::PathBuf;
@@ -27,7 +27,7 @@ impl RocksDBStore {
 
 const NONCES_PREFIX: [u8; 5] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
 
-impl<H: IsHeader> ChainStore<H> for RocksDBStore {
+impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.db
             .get_pinned(hash)

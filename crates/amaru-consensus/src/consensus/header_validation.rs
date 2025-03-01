@@ -20,7 +20,7 @@ use crate::{
     peer::{Peer, PeerSession},
     ConsensusError,
 };
-use amaru_kernel::{Hash, Hasher, Header, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
+use amaru_kernel::{Hash, Header, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
 use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, Praos};
@@ -36,26 +36,33 @@ const EVENT_TARGET: &str = "amaru::consensus";
     level = Level::TRACE,
     skip_all,
     fields(
-        header.hash = %Hasher::<256>::hash(header.header_body.raw_cbor()),
+        header.hash = %header.hash(),
         header.slot = header.header_body.slot,
         issuer.key = %header.header_body.issuer_vkey,
     ),
 )]
-pub fn assert_header<'a>(
+pub fn assert_header(
     point: &Point,
-    header: &'a MintedHeader<'a>,
+    header: &Header,
+    raw_header_body: &[u8],
     epoch_nonce: &Nonce,
     ledger: &dyn HasStakeDistribution,
 ) -> Result<(), ConsensusError> {
     let active_slot_coeff: FixedDecimal =
         FixedDecimal::from(1_u64) / FixedDecimal::from(ACTIVE_SLOT_COEFF_INVERSE as u64);
 
-    praos::header::assert_all(header, ledger, epoch_nonce, &active_slot_coeff)
-        .and_then(|assertions| {
-            use rayon::prelude::*;
-            assertions.into_par_iter().try_for_each(|assert| assert())
-        })
-        .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
+    praos::header::assert_all(
+        header,
+        raw_header_body,
+        ledger,
+        epoch_nonce,
+        &active_slot_coeff,
+    )
+    .and_then(|assertions| {
+        use rayon::prelude::*;
+        assertions.into_par_iter().try_for_each(|assert| assert())
+    })
+    .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
 pub struct Consensus {
@@ -150,29 +157,28 @@ impl Consensus {
         )
         .entered();
 
-        let header: MintedHeader<'_> = minicbor::decode(raw_header)
+        let minted_header: MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
 
-        let header_hash = Hasher::<256>::hash(raw_header);
+        let raw_body = minted_header.header_body.raw_cbor();
+
+        let header = Header::from(minted_header);
+
+        let header_hash = header.hash();
 
         // first make sure we store the header
         let mut store = self.store.lock().await;
 
-        // FIXME: move into chain_selector
-        let parent = header
-            .header_body
-            .prev_hash
-            .ok_or(NoncesError::NoParentHeader {
-                header: header_hash,
-            })?;
+        store.evolve_nonce(&header)?;
 
-        if let Some(ref epoch_nonce) = store.get_nonce(&parent) {
-            assert_header(point, &header, epoch_nonce, self.ledger.as_ref())?;
+        if let Some(ref epoch_nonce) = store.get_nonce(&header_hash) {
+            assert_header(point, &header, raw_body, epoch_nonce, self.ledger.as_ref())?;
         } else {
-            return Err(NoncesError::UnknownHeader { header: parent }.into());
+            return Err(NoncesError::UnknownHeader {
+                header: header_hash,
+            }
+            .into());
         }
-
-        let header: Header = Header::from(header);
 
         store
             .store_header(&header_hash, &header)
@@ -184,7 +190,7 @@ impl Consensus {
             .chain_selector
             .lock()
             .await
-            .select_roll_forward(peer, header.clone());
+            .select_roll_forward(peer, header);
 
         let events = match result {
             chain_selection::ForwardChainSelection::NewTip(hdr) => {
@@ -201,7 +207,7 @@ impl Consensus {
                     .await?
             }
             chain_selection::ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, hash = %header.hash(), "no_change");
+                trace!(target: EVENT_TARGET, hash = %header_hash, "no_change");
                 vec![]
             }
         };

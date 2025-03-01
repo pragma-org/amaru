@@ -15,9 +15,9 @@
 use crate::{
     ed25519, issuer_to_pool_id, kes,
     math::{ExpOrdering, FixedDecimal, FixedPrecision},
-    vrf, BlockHeader, Hash, Hasher, OperationalCert, PoolId, VrfCert,
+    vrf, Hash, Hasher, OperationalCert, PoolId, VrfCert,
 };
-use amaru_kernel::Nonce;
+use amaru_kernel::{Header, Nonce};
 use amaru_ouroboros_traits::HasStakeDistribution;
 use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
 use thiserror::Error;
@@ -59,7 +59,8 @@ pub enum AssertHeaderError {
 pub type Assertion<'a> = Box<dyn Fn() -> Result<(), AssertHeaderError> + Send + Sync + 'a>;
 
 pub fn assert_all<'a>(
-    header: &'a BlockHeader<'a>,
+    header: &'a Header,
+    raw_header_body: &'a [u8],
     ledger_state: &'a dyn HasStakeDistribution,
     epoch_nonce: &'a Nonce,
     active_slot_coeff: &'a FixedDecimal,
@@ -126,7 +127,7 @@ pub fn assert_all<'a>(
             AssertKesSignatureError::new(
                 ledger_state.slot_to_kes_period(absolute_slot),
                 opcert.operational_cert_kes_period,
-                header.header_body.raw_cbor(),
+                raw_header_body,
                 &opcert.operational_cert_hot_vkey[..].try_into()?, // TODO: Pallas should hold sized slices
                 &header.body_signature[..].try_into()?, // TODO: Pallas should hold sized slices
                 ledger_state.max_kes_evolutions(),
