@@ -27,10 +27,12 @@ enum Command {
     Daemon(cmd::daemon::Args),
 
     /// Import the ledger state from a CBOR export produced by the Haskell node.
-    Import(cmd::import::Args),
+    #[clap(alias = "import")]
+    ImportLedgerState(cmd::import_ledger_state::Args),
 
-    /// Import the chain DB from another node
-    ImportChainDB(cmd::import_chain_db::Args),
+    /// Import block headers from another (live) node.
+    #[clap(alias = "import-chain-db")]
+    ImportHeaders(cmd::import_headers::Args),
 }
 
 #[derive(Debug, Parser)]
@@ -68,8 +70,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let result = match args.command {
         Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
-        Command::Import(args) => cmd::import::run(args).await,
-        Command::ImportChainDB(args) => cmd::import_chain_db::run(args).await,
+        Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
+        Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook

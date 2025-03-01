@@ -45,7 +45,7 @@ pub struct Args {
     ledger_dir: PathBuf,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, default_value = super::DEFAULT_CHAIN_DATABASE_PATH)]
+    #[arg(long, default_value = super::DEFAULT_CHAIN_DB_DIR)]
     chain_dir: PathBuf,
 
     /// Path to the directory containing blockchain data such as epoch nonces.

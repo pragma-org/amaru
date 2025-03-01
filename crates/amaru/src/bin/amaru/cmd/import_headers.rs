@@ -43,7 +43,7 @@ pub struct Args {
     ///
     /// This is the directory where data will be stored. The directory and any intermediate
     /// paths will be created if they do not exist.
-    #[arg(long, verbatim_doc_comment, default_value = super::DEFAULT_CHAIN_DATABASE_PATH)]
+    #[arg(long, verbatim_doc_comment, default_value = super::DEFAULT_CHAIN_DB_DIR)]
     chain_dir: PathBuf,
 
     /// Starting point of import.
