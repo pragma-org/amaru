@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
-use amaru_kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use amaru_kernel::{
+    epoch_from_slot, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+};
 use amaru_ledger::{
     rewards::Pots,
     store::{
@@ -26,6 +28,7 @@ use common::{as_value, PREFIX_LEN};
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
 use std::{
+    collections::BTreeSet,
     fmt, fs,
     path::{Path, PathBuf},
 };
@@ -261,13 +264,18 @@ impl Store for RocksDB {
             impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
             impl Iterator<Item = scolumns::pools::Value>,
             impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
+            impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
+            impl Iterator<Item = (scolumns::delegations::Key, scolumns::delegations::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = scolumns::utxo::Key>,
             impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
             impl Iterator<Item = scolumns::accounts::Key>,
+            impl Iterator<Item = scolumns::dreps::Key>,
+            impl Iterator<Item = scolumns::delegations::Key>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
+        voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
         let batch = self.db.transaction();
 
@@ -305,11 +313,18 @@ impl Store for RocksDB {
                 pools::add(&batch, add.pools)?;
                 accounts::add(&batch, add.accounts)?;
 
+                let epoch = epoch_from_slot(point.slot_or_default());
+                dreps::add(&batch, add.dreps, epoch)?;
+                delegations::add(&batch, add.delegations)?;
+
+                dreps::tick(&batch, voting_dreps, epoch)?;
+
                 accounts::reset(&batch, withdrawals)?;
 
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
                 accounts::remove(&batch, remove.accounts)?;
+                dreps::remove(&batch, remove.dreps)?;
             }
         }
 

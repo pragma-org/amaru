@@ -13,6 +13,8 @@
 // limitations under the License.
 
 pub mod accounts;
+pub mod delegations;
+pub mod dreps;
 pub mod pools;
 pub mod pots;
 pub mod slots;

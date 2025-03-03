@@ -15,10 +15,13 @@
 use super::{diff_bind::DiffBind, diff_epoch_reg::DiffEpochReg, diff_set::DiffSet};
 use crate::store::{self, columns::*};
 use amaru_kernel::{
-    epoch_from_slot, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential, TransactionInput,
-    TransactionOutput,
+    epoch_from_slot, Anchor, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
-use std::collections::{BTreeSet, VecDeque};
+use std::{
+    collections::{BTreeSet, HashMap, VecDeque},
+    iter,
+};
 
 // VolatileDB
 // ----------------------------------------------------------------------------
@@ -136,7 +139,10 @@ pub struct VolatileState {
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, Lovelace>,
+    pub dreps: DiffBind<StakeCredential, Anchor, Lovelace>,
+    pub delegations: HashMap<StakeCredential, DRep>,
     pub withdrawals: BTreeSet<StakeCredential>,
+    pub voting_dreps: BTreeSet<StakeCredential>,
     pub fees: Lovelace,
 }
 
@@ -166,6 +172,7 @@ pub struct StoreUpdate<W, A, R> {
     pub issuer: PoolId,
     pub fees: Lovelace,
     pub withdrawals: W,
+    pub voting_dreps: BTreeSet<StakeCredential>,
     pub add: A,
     pub remove: R,
 }
@@ -180,11 +187,15 @@ impl AnchoredVolatileState {
             impl Iterator<Item = (utxo::Key, utxo::Value)>,
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
+            impl Iterator<Item = (dreps::Key, dreps::Value)>,
+            impl Iterator<Item = (delegations::Key, delegations::Value)>,
         >,
         store::Columns<
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
+            impl Iterator<Item = dreps::Key>,
+            impl Iterator<Item = delegations::Key>,
         >,
     > {
         let epoch = epoch_from_slot(self.anchor.0.slot_or_default());
@@ -193,6 +204,7 @@ impl AnchoredVolatileState {
             issuer: self.anchor.1,
             fees: self.state.fees,
             withdrawals: self.state.withdrawals.into_iter(),
+            voting_dreps: self.state.voting_dreps,
             add: store::Columns {
                 utxo: self.state.utxo.produced.into_iter(),
                 pools: self.state.pools.registered.into_iter().flat_map(
@@ -217,11 +229,15 @@ impl AnchoredVolatileState {
                     .registered
                     .into_iter()
                     .map(|(credential, (pool, deposit))| (credential, (pool, deposit, 0))),
+                dreps: self.state.dreps.registered.into_iter(),
+                delegations: self.state.delegations.into_iter(),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),
                 pools: self.state.pools.unregistered.into_iter(),
                 accounts: self.state.accounts.unregistered.into_iter(),
+                dreps: self.state.dreps.unregistered.into_iter(),
+                delegations: iter::empty(),
             },
         }
     }
