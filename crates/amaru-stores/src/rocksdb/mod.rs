@@ -314,19 +314,10 @@ impl Store for RocksDB {
                 accounts::add(&batch, add.accounts)?;
 
                 let epoch = epoch_from_slot(point.slot_or_default());
-                let dreps = add
-                    .dreps
-                    // Each new DRep has an associated epoch
-                    .map(|(key, value)| (key, value, Some(epoch)))
-                    // Voting DReps get their epoch extended
-                    .chain(
-                        voting_dreps
-                            .into_iter()
-                            .map(|drep| (drep, (None, None), Some(epoch))),
-                    );
-
-                dreps::add(&batch, dreps)?;
+                dreps::add(&batch, add.dreps, epoch)?;
                 delegations::add(&batch, add.delegations)?;
+
+                dreps::tick(&batch, voting_dreps, epoch)?;
 
                 accounts::reset(&batch, withdrawals)?;
 
