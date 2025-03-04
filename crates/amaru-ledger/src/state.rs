@@ -85,12 +85,15 @@ where
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
 }
 
-fn parse_voting_procedures(voting_procedures: &VotingProcedures) -> HashSet<StakeCredential> {
+fn select_stake_credentials(voting_procedures: &VotingProcedures) -> HashSet<StakeCredential> {
     voting_procedures
         .iter()
         .filter_map(|(k, _)| match k {
             Voter::DRepKey(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
-            _ => None,
+            Voter::DRepScript(hash) => Some(StakeCredential::ScriptHash(*hash)),
+            Voter::ConstitutionalCommitteeKey(..)
+            | Voter::ConstitutionalCommitteeScript(..)
+            | Voter::StakePoolKey(..) => None,
         })
         .collect()
 }
@@ -370,11 +373,11 @@ impl<S: Store> State<S> {
             > = transaction_body.voting_procedures.clone();
             let voting_dreps = voting_procedures
                 .as_ref()
-                .map(parse_voting_procedures)
+                .map(select_stake_credentials)
                 .unwrap_or_default();
             state.voting_dreps.extend(voting_dreps);
 
-            // Calculate votes for all pending  voting procedures per block ?
+            // TODO: Calculate votes for all pending  voting procedures per block ?
 
             let resolved_collateral_inputs = match transaction_body.collateral {
                 None => vec![],

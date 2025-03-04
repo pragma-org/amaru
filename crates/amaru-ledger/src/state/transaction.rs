@@ -22,7 +22,7 @@ use amaru_kernel::{
     TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     vec,
 };
 use tracing::{trace, trace_span, Span};
@@ -75,7 +75,6 @@ pub fn apply(
         &mut state.pools,
         &mut state.accounts,
         &mut state.dreps,
-        &mut state.delegations,
         certificates,
     );
 
@@ -229,9 +228,8 @@ fn flatten_certificate(certificate: Certificate) -> Vec<Certificate> {
 fn apply_certificates(
     parent: &Span,
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
-    accounts: &mut DiffBind<StakeCredential, PoolId, Lovelace>,
+    accounts: &mut DiffBind<StakeCredential, (Option<PoolId>, Option<DRep>), Lovelace>,
     dreps: &mut DiffBind<StakeCredential, Anchor, Lovelace>,
-    delegations: &mut HashMap<StakeCredential, DRep>,
     certificates: Vec<Certificate>,
 ) {
     certificates
@@ -274,10 +272,13 @@ fn apply_certificates(
                 trace!(name: "certificate.pool.retirement", target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch);
                 pools.unregister(id, epoch)
             },
-            Certificate::StakeRegistration(credential)
-                | Certificate::Reg(credential, _) => {
+            Certificate::StakeRegistration(credential) => {
                 trace!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
                 accounts.register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None).unwrap();
+            },
+            Certificate::Reg(credential, coin) => {
+                trace!(name: "certificate.stake.registration", target: EVENT_TARGET, parent: parent, credential = ?credential);
+                accounts.register(credential, coin, None).unwrap();
             },
             Certificate::StakeDeregistration(credential)
                 | Certificate::UnReg(credential, _) => {
@@ -286,7 +287,7 @@ fn apply_certificates(
             },
             Certificate::StakeDelegation(credential, pool) => {
                 trace!(name: "certificate.stake.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool);
-                accounts.bind(credential, Some(pool)).unwrap();
+                accounts.bind(credential, |_| {Some((Some(pool), None))}).unwrap();
             },
             Certificate::RegDRepCert(credential, coin, anchor) => {
                 trace!(name: "drep.registration", target: EVENT_TARGET, parent: parent, credential = ?credential, coin = ?coin, anchor = ?anchor);
@@ -298,12 +299,17 @@ fn apply_certificates(
             },
             Certificate::UpdateDRepCert(credential, anchor) => {
                 trace!(name: "drep.update", target: EVENT_TARGET, parent: parent, credential = ?credential, anchor = ?anchor);
-                dreps.bind(credential, anchor.into()).unwrap();
+                dreps.bind(credential, |_: Option<Anchor>| {anchor.clone().into()}).unwrap();
             },
             Certificate::VoteDeleg(credential, drep) => {
                 trace!(name: "vote.delegation", target: EVENT_TARGET, parent: parent, credential = ?credential);
-                delegations.insert(credential, drep).unwrap();
-            },
+                accounts.bind(credential, |previous| {
+                    match previous {
+                        Some((pool, _)) => Some((pool, Some(drep.clone()))),
+                        None => Some((None, Some(drep.clone()))),
+                    }
+                },
+            ).unwrap();},
             // Ignore complex type certificates as they have been made useless via `flatten_certificate`
             Certificate::StakeVoteDeleg{..} | Certificate::StakeRegDeleg{..} | Certificate::StakeVoteRegDeleg{..} | Certificate::VoteRegDeleg{..} => {},
             // FIXME: Process other types of certificates

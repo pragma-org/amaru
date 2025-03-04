@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Lovelace, PoolId, StakeCredential};
+use amaru_kernel::{cbor, DRep, Lovelace, PoolId, StakeCredential};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
@@ -20,7 +20,7 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Option<PoolId>, Option<Lovelace>, Lovelace);
+pub type Value = ((Option<PoolId>, Option<DRep>), Option<Lovelace>, Lovelace);
 
 pub type Key = StakeCredential;
 
@@ -28,6 +28,7 @@ pub type Key = StakeCredential;
 pub struct Row {
     pub delegatee: Option<PoolId>,
     pub deposit: Lovelace,
+    pub drep: Option<DRep>,
     // FIXME: We probably want to use an arbitrarily-sized for rewards; Going
     // for a Lovelace (aliasing u64) for now as we are only demonstrating the
     // ledger-state storage capabilities and it doesn't *fundamentally* change
@@ -53,9 +54,10 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(3)?;
+        e.array(4)?;
         e.encode_with(self.delegatee, ctx)?;
         e.encode_with(self.deposit, ctx)?;
+        e.encode_with(self.drep.clone(), ctx)?;
         e.encode_with(self.rewards, ctx)?;
         Ok(())
     }
@@ -67,6 +69,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         Ok(Row {
             delegatee: d.decode_with(ctx)?,
             deposit: d.decode_with(ctx)?,
+            drep: d.decode_with(ctx)?,
             rewards: d.decode_with(ctx)?,
         })
     }
