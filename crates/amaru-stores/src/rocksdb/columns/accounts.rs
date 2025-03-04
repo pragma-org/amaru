@@ -27,8 +27,9 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, (delegatee, deposit, rewards)) in rows {
+    for (credential, (value, deposit, rewards)) in rows {
         let key = as_key(&PREFIX, &credential);
+        let (delegatee, drep) = value.unwrap_or_default();
 
         // In case where a registration already exists, then we must only update the underlying
         // entry, while preserving the reward amount.
@@ -38,6 +39,7 @@ pub fn add<DB>(
             .map(Row::unsafe_decode)
         {
             row.delegatee = delegatee;
+            row.drep = drep;
             if let Some(deposit) = deposit {
                 row.deposit = deposit;
             }
@@ -47,6 +49,7 @@ pub fn add<DB>(
             let row = Row {
                 delegatee,
                 deposit,
+                drep,
                 rewards,
             };
             db.put(key, as_value(row))
