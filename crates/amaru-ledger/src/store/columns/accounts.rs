@@ -20,7 +20,7 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = ((Option<PoolId>, Option<DRep>), Option<Lovelace>, Lovelace);
+pub type Value = (Option<PoolId>, Option<DRep>, Option<Lovelace>, Lovelace);
 
 pub type Key = StakeCredential;
 
@@ -57,7 +57,7 @@ impl<C> cbor::encode::Encode<C> for Row {
         e.array(4)?;
         e.encode_with(self.delegatee, ctx)?;
         e.encode_with(self.deposit, ctx)?;
-        e.encode_with(self.drep.clone(), ctx)?;
+        e.encode_with(self.drep.as_ref(), ctx)?;
         e.encode_with(self.rewards, ctx)?;
         Ok(())
     }

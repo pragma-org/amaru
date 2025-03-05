@@ -27,7 +27,7 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, ((delegatee, drep), deposit, rewards)) in rows {
+    for (credential, (delegatee, drep, deposit, rewards)) in rows {
         let key = as_key(&PREFIX, &credential);
 
         // In case where a registration already exists, then we must only update the underlying

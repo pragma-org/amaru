@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{diff_bind::DiffBind, diff_epoch_reg::DiffEpochReg, diff_set::DiffSet};
+use super::{
+    diff_bind::{Bind, DiffBind, Empty},
+    diff_epoch_reg::DiffEpochReg,
+    diff_set::DiffSet,
+};
 use crate::store::{self, columns::*};
 use amaru_kernel::{
     epoch_from_slot, Anchor, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential,
@@ -135,8 +139,8 @@ impl VolatileCache {
 pub struct VolatileState {
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
-    pub accounts: DiffBind<StakeCredential, (Option<PoolId>, Option<DRep>), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Lovelace>,
+    pub accounts: DiffBind<StakeCredential, PoolId, DRep, Lovelace>,
+    pub dreps: DiffBind<StakeCredential, Anchor, Empty, Lovelace>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
     pub fees: Lovelace,
@@ -218,11 +222,27 @@ impl AnchoredVolatileState {
                     },
                 ),
                 accounts: self.state.accounts.registered.into_iter().map(
-                    |(credential, (pool, deposit))| {
-                        (credential, (pool.unwrap_or_default(), deposit, 0))
+                    |(
+                        credential,
+                        Bind {
+                            left: pool,
+                            right: drep,
+                            value: deposit,
+                        },
+                    )| (credential, (pool, drep, deposit, 0)),
+                ),
+                dreps: self.state.dreps.registered.into_iter().map(
+                    |(
+                        credential,
+                        Bind {
+                            left: anchor,
+                            right: _,
+                            value: deposit,
+                        },
+                    ): (_, Bind<_, Empty, _>)| {
+                        (credential, (anchor, deposit))
                     },
                 ),
-                dreps: self.state.dreps.registered.into_iter(),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),

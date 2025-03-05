@@ -24,10 +24,9 @@ use crate::{
     store::{columns::*, Store, StoreError},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, Epoch, GovActionId, Hash, Hasher, MintedBlock, NonEmptyKeyValuePairs,
-    Point, PoolId, Slot, StakeCredential, TransactionInput, TransactionOutput, Voter,
-    VotingProcedure, VotingProcedures, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
-    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, StakeCredential,
+    TransactionInput, TransactionOutput, Voter, VotingProcedures, CONSENSUS_SECURITY_PARAM,
+    MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
@@ -368,10 +367,8 @@ impl<S: Store> State<S> {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
             let transaction_body = transaction_body.unwrap();
 
-            let voting_procedures: Option<
-                NonEmptyKeyValuePairs<Voter, NonEmptyKeyValuePairs<GovActionId, VotingProcedure>>,
-            > = transaction_body.voting_procedures.clone();
-            let voting_dreps = voting_procedures
+            let voting_dreps = transaction_body
+                .voting_procedures
                 .as_ref()
                 .map(select_stake_credentials)
                 .unwrap_or_default();
