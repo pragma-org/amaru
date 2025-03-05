@@ -476,7 +476,8 @@ fn import_accounts(
                 (
                     credential,
                     (
-                        (Option::<PoolId>::from(pool), None),
+                        Option::<PoolId>::from(pool),
+                        None, // FIXME: extract DRep information from snapshot
                         Some(deposit),
                         rewards + rewards_update,
                     ),
