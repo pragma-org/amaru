@@ -91,7 +91,7 @@ fn parse_voting_procedures(voting_procedures: &VotingProcedures) -> HashSet<Stak
         .filter_map(|(k, _)| match k {
             Voter::DRepKey(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
             Voter::DRepScript(hash) => Some(StakeCredential::ScriptHash(*hash)),
-            _ => None,
+            Voter::ConstitutionalCommitteeKey(..) | Voter::ConstitutionalCommitteeScript(..) | StakePoolKey(..) => None,
         })
         .collect()
 }
