@@ -476,7 +476,7 @@ fn import_accounts(
                 (
                     credential,
                     (
-                        Some((Option::<PoolId>::from(pool), None)),
+                        (Option::<PoolId>::from(pool), None),
                         Some(deposit),
                         rewards + rewards_update,
                     ),

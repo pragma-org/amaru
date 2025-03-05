@@ -217,12 +217,11 @@ impl AnchoredVolatileState {
                             .collect::<Vec<_>>()
                     },
                 ),
-                accounts: self
-                    .state
-                    .accounts
-                    .registered
-                    .into_iter()
-                    .map(|(credential, (pool, deposit))| (credential, (pool, deposit, 0))),
+                accounts: self.state.accounts.registered.into_iter().map(
+                    |(credential, (pool, deposit))| {
+                        (credential, (pool.unwrap_or_default(), deposit, 0))
+                    },
+                ),
                 dreps: self.state.dreps.registered.into_iter(),
             },
             remove: store::Columns {
