@@ -67,3 +67,46 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         })
     }
 }
+
+#[cfg(test)]
+pub(crate) mod test {
+    use super::Row;
+    use amaru_kernel::{from_cbor, to_cbor, Anchor, Epoch, Hash, Lovelace};
+    use proptest::{option, prelude::*, string};
+
+    proptest! {
+        #[test]
+        fn prop_row_roundtrip_cbor(row in any_row()) {
+            let bytes = to_cbor(&row);
+            assert_eq!(Some(row), from_cbor::<Row>(&bytes))
+        }
+    }
+
+    prop_compose! {
+        fn any_row()(
+            deposit in any::<Lovelace>(),
+            anchor in option::of(any_anchor()),
+            last_interaction in any::<Epoch>(),
+        ) -> Row {
+            Row {
+                deposit,
+                anchor,
+                last_interaction,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn any_anchor()(
+            // NOTE: This can be any string really, but it's cute to generate URLs, isn't it?
+            url in string::string_regex("(https:)?[a-zA-Z0-9]{2,}(\\.[a-zA-Z0-9]{2,})(\\.[a-zA-Z0-9]{2,})?").unwrap(),
+            content_hash in any::<[u8; 32]>(),
+        ) -> Anchor {
+            Anchor {
+                url,
+                content_hash: Hash::from(content_hash),
+            }
+        }
+
+    }
+}
