@@ -375,7 +375,7 @@ impl<S: Store> State<S> {
                 .unwrap_or_default();
             state.voting_dreps.extend(voting_dreps);
 
-            // Calculate votes for all pending  voting procedures per block ?
+            // TODO: Calculate votes for all pending  voting procedures per block ?
 
             let resolved_collateral_inputs = match transaction_body.collateral {
                 None => vec![],
