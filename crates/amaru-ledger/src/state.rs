@@ -371,7 +371,7 @@ impl<S: Store> State<S> {
             > = transaction_body.voting_procedures.clone();
             let voting_dreps = voting_procedures
                 .as_ref()
-                .map(parse_voting_procedures)
+                .map(select_stake_credentials)
                 .unwrap_or_default();
             state.voting_dreps.extend(voting_dreps);
 
