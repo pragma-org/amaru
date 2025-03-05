@@ -43,7 +43,7 @@ pub enum Error {
 impl<K: Ord, J: Clone, V> DiffBind<K, J, V> {
     pub fn register(&mut self, k: K, v: V, j: Option<J>) -> Result<(), Error> {
         if self.registered.contains_key(&k) {
-            return Err(Error::KeyAlreadyUnregistered);
+            return Err(Error::KeyAlreadyRegistered);
         }
         self.unregistered.remove(&k);
         self.registered.insert(k, (j, Some(v)));
