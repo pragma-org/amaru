@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod accounts;
+pub mod committees;
 pub mod dreps;
 pub mod pools;
 pub mod pots;
