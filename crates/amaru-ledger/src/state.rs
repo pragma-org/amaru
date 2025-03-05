@@ -91,7 +91,9 @@ fn select_stake_credentials(voting_procedures: &VotingProcedures) -> HashSet<Sta
         .filter_map(|(k, _)| match k {
             Voter::DRepKey(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
             Voter::DRepScript(hash) => Some(StakeCredential::ScriptHash(*hash)),
-            Voter::ConstitutionalCommitteeKey(..) | Voter::ConstitutionalCommitteeScript(..) | StakePoolKey(..) => None,
+            Voter::ConstitutionalCommitteeKey(..)
+            | Voter::ConstitutionalCommitteeScript(..)
+            | Voter::StakePoolKey(..) => None,
         })
         .collect()
 }
