@@ -85,7 +85,7 @@ where
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
 }
 
-fn parse_voting_procedures(voting_procedures: &VotingProcedures) -> HashSet<StakeCredential> {
+fn select_stake_credentials(voting_procedures: &VotingProcedures) -> HashSet<StakeCredential> {
     voting_procedures
         .iter()
         .filter_map(|(k, _)| match k {
