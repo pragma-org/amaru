@@ -57,7 +57,7 @@ impl<C> cbor::encode::Encode<C> for Row {
         e.array(4)?;
         e.encode_with(self.delegatee, ctx)?;
         e.encode_with(self.deposit, ctx)?;
-        e.encode_with(self.drep.clone(), ctx)?;
+        e.encode_with(self.drep.as_ref(), ctx)?;
         e.encode_with(self.rewards, ctx)?;
         Ok(())
     }
