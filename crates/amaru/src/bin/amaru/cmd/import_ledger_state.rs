@@ -190,6 +190,7 @@ fn decode_new_epoch_state(
                 d.array()?;
                 import_stake_pools(
                     db,
+                    point,
                     epoch,
                     // Pools
                     d.decode()?,
@@ -231,6 +232,7 @@ fn decode_new_epoch_state(
 
                 import_utxo(
                     db,
+                    point,
                     d.decode::<HashMap<TransactionInput, TransactionOutput>>()?
                         .into_iter()
                         .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
@@ -274,7 +276,7 @@ fn decode_new_epoch_state(
         // NonMyopic
         d.skip()?;
 
-        import_accounts(db, accounts, &mut rewards)?;
+        import_accounts(db, point, accounts, &mut rewards)?;
 
         let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
             total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
@@ -320,6 +322,7 @@ fn import_block_issuers(
 
 fn import_utxo(
     db: &impl Store,
+    point: &Point,
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(what = "utxo_entries", size = utxo.len());
@@ -346,7 +349,7 @@ fn import_utxo(
         let chunk = utxo.drain(0..n);
 
         db.save(
-            &Point::Origin,
+            &point,
             None,
             store::Columns {
                 utxo: chunk,
@@ -369,6 +372,7 @@ fn import_utxo(
 
 fn import_stake_pools(
     db: &impl Store,
+    point: &Point,
     epoch: Epoch,
     pools: HashMap<PoolId, PoolParams>,
     updates: HashMap<PoolId, PoolParams>,
@@ -400,7 +404,7 @@ fn import_stake_pools(
     })?;
 
     db.save(
-        &Point::Origin,
+        &point,
         None,
         store::Columns {
             utxo: iter::empty(),
@@ -445,6 +449,7 @@ fn import_pots(
 
 fn import_accounts(
     db: &impl Store,
+    point: &Point,
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -497,7 +502,7 @@ fn import_accounts(
         let chunk = credentials.drain(0..n);
 
         db.save(
-            &Point::Origin,
+            &point,
             None,
             store::Columns {
                 utxo: iter::empty(),
