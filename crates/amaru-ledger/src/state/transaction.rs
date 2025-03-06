@@ -204,6 +204,7 @@ impl InputsOutputs<true> for MintedTransactionBody<'_> {
     }
 }
 
+#[allow(clippy::wildcard_enum_match_arm)]
 fn apply_certificates(
     parent: &Span,
     pools: &mut DiffEpochReg<PoolId, PoolParams>,

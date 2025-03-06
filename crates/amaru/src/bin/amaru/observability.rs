@@ -58,6 +58,7 @@ impl TracingSubscriber<Registry> {
     }
 
     #[allow(clippy::panic)]
+    #[allow(clippy::wildcard_enum_match_arm)]
     pub fn with_open_telemetry(&mut self, layer: OpenTelemetryFilter<Registry>) {
         match std::mem::take(self) {
             Self::Registry(registry) => {
@@ -68,6 +69,7 @@ impl TracingSubscriber<Registry> {
     }
 
     #[allow(clippy::panic)]
+    #[allow(clippy::wildcard_enum_match_arm)]
     pub fn with_json<F, G>(&mut self, layer_json: F, layer_both: G)
     where
         F: FnOnce() -> JsonFilter<Registry>,

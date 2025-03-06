@@ -270,6 +270,7 @@ impl AssertLeaderStakeError {
         let c = (&FixedDecimal::from(1u64) - active_slot_coeff).ln();
         let x = -(leader_relative_stake * &c);
         let ordering = x.exp_cmp(1000, 3, &recip_q);
+        #[allow(clippy::wildcard_enum_match_arm)]
         match ordering.estimation {
             ExpOrdering::LT => Ok(()),
             _ => Err(Self::InsuficientLeaderStake),
