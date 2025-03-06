@@ -105,7 +105,16 @@ panic = "warn"
 todo = "warn"
 unwrap_used = "warn"
 
-[profile.release]
 # See https://doc.rust-lang.org/cargo/reference/profiles.html
+
+[profile.dev]
+opt-level = 2
+debug = false
+
+[profile.dev-debug]
+inherits = "dev"
+debug = true
+
+[profile.release]
 lto = true
 codegen-units = 1
