@@ -113,7 +113,9 @@ opt-level = 2
 debug = false
 
 [profile.dev-debug]
+# Restore default 'dev' profile (see https://doc.rust-lang.org/cargo/reference/profiles.html#dev)
 inherits = "dev"
+opt-level = 0
 debug = true
 
 [profile.release]
