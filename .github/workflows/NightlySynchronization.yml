@@ -1,0 +1,47 @@
+name: Nightly Sync
+
+on:
+  # Enable, eventually
+  #
+  # schedule:
+  #   - cron: '00 05 * * *'
+  workflow_dispatch:
+    inputs:
+      synchronization-level:
+        description: 'Desired % synchronization level. Between 0 and 1.'
+        required: false
+        default: 1
+        type: number
+
+jobs:
+  sync_and_cache:
+    strategy:
+      matrix:
+        network: [ preprod ]
+        ogmios_version: [ v6.11.2 ]
+        cardano_node_version: [ 10.1.4 ]
+
+    runs-on: ubuntu-latest
+    steps:
+
+    - uses: actions/checkout@v4
+
+    - id: date-time
+      shell: bash
+      run: |
+        echo "timestamp=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+    - id: cache
+      uses: actions/cache@v3.3.1
+      with:
+        path: ${{ runner.temp }}/db-${{ matrix.network }}
+        key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.date-time.outputs.timestamp }}
+        restore-keys: |
+          cardano-node-ogmios-${{ matrix.network }}-
+
+    - uses: CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync@v1.1.0
+      with:
+        db-dir: ${{ runner.temp }}/db-${{ matrix.network }}
+        network: ${{ matrix.network }}
+        version: ${{ matrix.ogmios_version }}_${{ matrix.cardano_node_version }}
+        synchronization-level: ${{ inputs.synchronization-level || 1 }}
