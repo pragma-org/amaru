@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
 use amaru_kernel::{Epoch, Point, StakeCredential};
 use amaru_ledger::{
     rewards::Pots,
     store::{Snapshot, Store},
 };
+use std::collections::BTreeSet;
 
 pub struct MemoryStore {}
 
@@ -81,6 +81,19 @@ impl Snapshot for MemoryStore {
         std::vec::IntoIter<(
             amaru_ledger::store::columns::accounts::Key,
             amaru_ledger::store::columns::accounts::Row,
+        )>,
+        amaru_ledger::store::StoreError,
+    > {
+        Ok(vec![].into_iter())
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_dreps(
+        &self,
+    ) -> Result<
+        std::vec::IntoIter<(
+            amaru_ledger::store::columns::dreps::Key,
+            amaru_ledger::store::columns::dreps::Row,
         )>,
         amaru_ledger::store::StoreError,
     > {
@@ -174,6 +187,13 @@ impl Store for MemoryStore {
     fn with_utxo(
         &self,
         _with: impl FnMut(amaru_ledger::store::columns::utxo::Iter<'_, '_>),
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
+
+    fn with_dreps(
+        &self,
+        _with: impl FnMut(amaru_ledger::store::columns::dreps::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }

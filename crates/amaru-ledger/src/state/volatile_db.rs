@@ -232,7 +232,7 @@ impl AnchoredVolatileState {
                     )| (credential, (pool, drep, deposit, 0)),
                 ),
                 dreps: self.state.dreps.registered.into_iter().map(
-                    |(
+                    move |(
                         credential,
                         Bind {
                             left: anchor,
@@ -240,7 +240,7 @@ impl AnchoredVolatileState {
                             value: deposit,
                         },
                     ): (_, Bind<_, Empty, _>)| {
-                        (credential, (anchor, deposit))
+                        (credential, (anchor, deposit, epoch))
                     },
                 ),
             },

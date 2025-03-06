@@ -1,18 +1,34 @@
 use crate::store::{Snapshot, StoreError};
 use amaru_kernel::{encode_bech32, DRep, StakeCredential};
 use serde::ser::SerializeStruct;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]
+// TODO: Also add DRep information to this summary
 pub struct DRepsSummary {
     pub delegations: BTreeMap<StakeCredential, DRep>,
 }
 
 impl DRepsSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
+        let dreps = db
+            .iter_dreps()?
+            .map(|(k, _)| match k {
+                StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
+                StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+            })
+            .collect::<BTreeSet<_>>();
+
         let delegations = db
             .iter_accounts()?
-            .filter_map(|(credential, account)| account.drep.map(|drep| (credential, drep)))
+            .filter_map(|(credential, account)| {
+                account.drep.and_then(|drep| {
+                    if !dreps.contains(&drep) {
+                        return None;
+                    }
+                    Some((credential, drep))
+                })
+            })
             .collect::<BTreeMap<StakeCredential, DRep>>();
 
         Ok(DRepsSummary { delegations })
