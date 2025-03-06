@@ -272,7 +272,7 @@ impl AssertLeaderStakeError {
         let ordering = x.exp_cmp(1000, 3, &recip_q);
         match ordering.estimation {
             ExpOrdering::LT => Ok(()),
-            _ => Err(Self::InsuficientLeaderStake),
+            ExpOrdering::GT | ExpOrdering::UNKNOWN => Err(Self::InsuficientLeaderStake),
         }
     }
 }

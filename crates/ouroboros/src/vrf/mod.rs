@@ -197,6 +197,7 @@ pub enum ProofFromBytesError {
 impl TryFrom<&[u8; Self::SIZE]> for Proof {
     type Error = ProofFromBytesError;
 
+    #[allow(clippy::wildcard_enum_match_arm)]
     fn try_from(slice: &[u8; Self::SIZE]) -> Result<Self, Self::Error> {
         Ok(Proof(VrfProof03::from_bytes(slice).map_err(
             |e| match e {

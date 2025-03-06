@@ -104,6 +104,7 @@ expect_used = "warn"
 panic = "warn"
 todo = "warn"
 unwrap_used = "warn"
+wildcard_enum_match_arm = "warn"
 
 # See https://doc.rust-lang.org/cargo/reference/profiles.html
 
