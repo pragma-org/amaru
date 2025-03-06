@@ -97,6 +97,50 @@ jobs:
           fi
         shell: bash
 
+  snapshots:
+    name: Snapshots
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    env:
+      AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
+    steps:
+      - uses: actions/checkout@v4
+      - uses: Swatinem/rust-cache@v2
+      - name: Cache ledger.db
+        id: cache
+        uses: actions/cache@v3
+        with:
+          path: ~/ledger.db
+          key: ${{ runner.OS }}-ledger-cache-${{ hashFiles('.ledger.db/**') }}
+          restore-keys: |
+            ${{ runner.OS }}-ledger-cache-
+      - name: Cache chain.db
+        uses: actions/cache@v3
+        with:
+          path: ~/chain.db
+          key: ${{ runner.OS }}-chain-cache-${{ hashFiles('.chain.db/**') }}
+          restore-keys: |
+            ${{ runner.OS }}-chain-cache-
+      - name: Bootstrap amaru
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          make bootstrap
+      - name: Run node
+        timeout-minutes: 30
+        run: |
+          # Make sure amaru runs long enough so that snapshot tests can be executed
+          AMARU_RUN_EXTRA="--network=preprod" make | while read -r line; do
+            AMARU_PID=$!
+            EPOCH_VALUE=179
+            if echo "$line" | jq --arg epoch_value "$EPOCH_VALUE" 'select(.fields.message == "snapshot" and .fields.epoch == ($epoch_value | tonumber))' >/dev/null 2>&1; then
+              echo "Received stop signal, stopping the process."
+              pkill -P $AMARU_PID
+              break
+            fi
+          done
+      - name: Run tests
+        run: cargo test --locked --workspace -- --ignored
+
   examples:
     name: Examples
     strategy:
