@@ -42,6 +42,7 @@ jobs:
             target: aarch64-apple-darwin
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
+            command: test --profile dev-debug
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
             packages: -p amaru-ledger -p amaru-ouroboros -p slot-arithmetic
