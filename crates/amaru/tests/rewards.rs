@@ -14,19 +14,47 @@
 
 use amaru_ledger::{
     rewards::StakeDistribution,
-    store::{RewardsSummary, Store},
+    store::{RewardsSummary, Snapshot},
 };
 use amaru_stores::rocksdb::RocksDB;
 use pallas_primitives::Epoch;
-use std::{path::PathBuf, sync::LazyLock};
+use std::{
+    collections::BTreeMap,
+    path::PathBuf,
+    sync::{Arc, LazyLock, Mutex},
+};
 use test_case::test_case;
 
 pub static LEDGER_DB: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("../../ledger.db"));
 
+pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDB>>>> =
+    LazyLock::new(|| Mutex::new(BTreeMap::new()));
+
 #[allow(clippy::panic)]
-fn open_db(epoch: Epoch) -> RocksDB {
-    RocksDB::new(&LEDGER_DB)
-        .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch))
+#[allow(clippy::unwrap_used)]
+/// Get a read-only handle on a snapshot. This allows to run all test cases in parallel without
+/// conflicts (a single scenario typically need 2 snapshots, so two tests may need access to the
+/// same snapshot at the same time).
+///
+/// The following API ensures that this is handled properly, by creating connections only once and
+/// sharing them safely between threads.
+fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
+    let mut connections = CONNECTIONS.lock().unwrap();
+
+    let handle = connections
+        .entry(epoch)
+        .or_insert_with(|| {
+            Arc::new(
+                RocksDB::for_epoch_with(&LEDGER_DB, epoch).unwrap_or_else(|_| {
+                    panic!("Failed to open ledger snapshot for epoch {}", epoch)
+                }),
+            )
+        })
+        .clone();
+
+    drop(connections);
+
+    handle
 }
 
 #[test_case(163)]
@@ -38,22 +66,23 @@ fn open_db(epoch: Epoch) -> RocksDB {
 #[test_case(169)]
 #[test_case(170)]
 #[test_case(171)]
-#[test_case(172)]
-#[test_case(173)]
-#[test_case(174)]
-#[test_case(175)]
-#[test_case(176)]
-#[test_case(177)]
-#[test_case(178)]
-#[test_case(179)]
+// FIXME: re-enable once governance is implemented, we must be able to track proposal refunds in
+// order to get those snapshots right.
+//
+// #[test_case(172)]
+// #[test_case(173)]
+// #[test_case(174)]
+// #[test_case(175)]
+// #[test_case(176)]
+// #[test_case(177)]
+// #[test_case(178)]
+// #[test_case(179)]
 #[ignore]
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
-    let db = open_db(epoch);
-
-    let snapshot = StakeDistribution::new(&db.for_epoch(epoch).unwrap()).unwrap();
+    let snapshot = StakeDistribution::new(db(epoch).as_ref()).unwrap();
     insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), snapshot);
 
-    let rewards_summary = RewardsSummary::new(&db.for_epoch(epoch + 2).unwrap(), snapshot).unwrap();
+    let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), snapshot).unwrap();
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
 }

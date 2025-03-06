@@ -125,6 +125,18 @@ impl RocksDB {
         })
     }
 
+    pub fn for_epoch_with(dir: &Path, epoch: Epoch) -> Result<Self, StoreError> {
+        let mut opts = Options::default();
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+
+        Ok(RocksDB {
+            snapshots: vec![epoch],
+            dir: dir.to_path_buf(),
+            db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
+                .map_err(|err| StoreError::Internal(err.into()))?,
+        })
+    }
+
     pub fn unsafe_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
         self.db.transaction()
     }
@@ -229,18 +241,7 @@ fn with_prefix_iterator<
 
 impl Store for RocksDB {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
-        let mut opts = Options::default();
-        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
-
-        Ok(RocksDB {
-            snapshots: vec![epoch],
-            dir: self.dir.to_path_buf(),
-            db: OptimisticTransactionDB::open(
-                &opts,
-                self.dir.join(PathBuf::from(format!("{epoch:?}"))),
-            )
-            .map_err(|err| StoreError::Internal(err.into()))?,
-        })
+        Self::for_epoch_with(self.dir.as_path(), epoch)
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
