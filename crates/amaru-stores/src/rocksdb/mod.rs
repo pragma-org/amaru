@@ -64,6 +64,10 @@ pub struct RocksDB {
     /// The working directory where we store the various key/value stores.
     dir: PathBuf,
 
+    /// Whether to allow saving data incrementally (i.e. calling multiple times 'save' with the
+    /// same point). This is only sound when importing static data, but not when running live.
+    incremental_save: bool,
+
     /// An instance of RocksDB.
     db: OptimisticTransactionDB,
 
@@ -111,6 +115,7 @@ impl RocksDB {
         Ok(RocksDB {
             snapshots,
             dir: dir.to_path_buf(),
+            incremental_save: false,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
         })
@@ -123,6 +128,7 @@ impl RocksDB {
         Ok(RocksDB {
             snapshots: vec![],
             dir: dir.to_path_buf(),
+            incremental_save: true,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
         })
@@ -134,6 +140,7 @@ impl RocksDB {
 
         Ok(RocksDB {
             snapshots: vec![epoch],
+            incremental_save: false,
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
                 .map_err(|err| StoreError::Internal(err.into()))?,
@@ -292,7 +299,9 @@ impl Store for RocksDB {
             });
 
         match (point, tip) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
+            (Point::Specific(new, _), Some(Point::Specific(current, _)))
+                if *new <= current && !self.incremental_save =>
+            {
                 trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
@@ -310,14 +319,13 @@ impl Store for RocksDB {
 
                 utxo::add(&batch, add.utxo)?;
                 pools::add(&batch, add.pools)?;
+
                 accounts::add(&batch, add.accounts)?;
+                accounts::reset(&batch, withdrawals)?;
 
                 let epoch = epoch_from_slot(point.slot_or_default());
                 dreps::add(&batch, add.dreps, epoch)?;
-
                 dreps::tick(&batch, voting_dreps, epoch)?;
-
-                accounts::reset(&batch, withdrawals)?;
 
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
