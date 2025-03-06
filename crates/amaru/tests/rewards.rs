@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_ledger::{
+    governance::DRepsSummary,
     rewards::StakeDistribution,
     store::{RewardsSummary, Snapshot},
 };
@@ -80,9 +81,12 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[ignore]
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
-    let snapshot = StakeDistribution::new(db(epoch).as_ref()).unwrap();
-    insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), snapshot);
+    let stake_distr = StakeDistribution::new(db(epoch).as_ref()).unwrap();
+    insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), stake_distr);
 
-    let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), snapshot).unwrap();
+    let dreps = DRepsSummary::new(db(epoch).as_ref()).unwrap();
+    insta::assert_json_snapshot!(format!("dreps_{}", epoch), dreps);
+
+    let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), stake_distr).unwrap();
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
 }

@@ -146,7 +146,7 @@ pub struct StakeDistribution {
 }
 
 impl StakeDistribution {
-    /// Clompute a new stake distribution snapshot using data available in the `Store`.
+    /// Compute a new stake distribution snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {

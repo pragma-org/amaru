@@ -31,9 +31,7 @@ pub enum BlockValidationResult {
     RolledBackTo(Point),
 }
 
-/// Iterators
-///
-/// A set of additional primitives around iterators. Not Amaru-specific so-to-speak.
+pub mod governance;
 pub mod rewards;
 pub mod rules;
 pub mod state;
