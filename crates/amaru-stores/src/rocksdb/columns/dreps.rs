@@ -30,9 +30,8 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
-    epoch: Epoch,
 ) -> Result<(), StoreError> {
-    for (credential, (anchor, deposit)) in rows {
+    for (credential, (anchor, deposit, epoch)) in rows {
         let key = as_key(&PREFIX, &credential);
 
         // In case where a registration already exists, then we must only update the underlying

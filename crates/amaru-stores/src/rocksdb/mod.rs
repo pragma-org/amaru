@@ -216,6 +216,13 @@ impl Snapshot for RocksDB {
     {
         iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
     }
+
+    fn iter_dreps(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
+    {
+        iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
+    }
 }
 
 /// An generic column iterator, provided that rows from the column are (de)serialisable.
@@ -323,9 +330,12 @@ impl Store for RocksDB {
                 accounts::add(&batch, add.accounts)?;
                 accounts::reset(&batch, withdrawals)?;
 
-                let epoch = epoch_from_slot(point.slot_or_default());
-                dreps::add(&batch, add.dreps, epoch)?;
-                dreps::tick(&batch, voting_dreps, epoch)?;
+                dreps::add(&batch, add.dreps)?;
+                dreps::tick(
+                    &batch,
+                    voting_dreps,
+                    epoch_from_slot(point.slot_or_default()),
+                )?;
 
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
@@ -458,5 +468,12 @@ impl Store for RocksDB {
         with: impl FnMut(scolumns::slots::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
         with_prefix_iterator(self.db.transaction(), slots::PREFIX, with)
+    }
+
+    fn with_dreps(
+        &self,
+        with: impl FnMut(scolumns::dreps::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(self.db.transaction(), dreps::PREFIX, with)
     }
 }

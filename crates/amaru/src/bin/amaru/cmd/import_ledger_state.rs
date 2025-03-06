@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    epoch_from_slot, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Set, StakeCredential,
-    TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    epoch_from_slot, Anchor, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Set,
+    StakeCredential, TransactionInput, TransactionOutput, DREP_EXPIRY, STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
     self,
@@ -183,7 +183,17 @@ fn decode_new_epoch_state(
             d.array()?;
 
             // Epoch State / Ledger State / Cert State / Voting State
-            d.skip()?;
+            {
+                d.array()?;
+
+                import_dreps(db, point, d.decode()?)?;
+
+                // Committee
+                d.skip()?;
+
+                // Dormant Epoch
+                d.skip()?;
+            }
 
             // Epoch State / Ledger State / Cert State / Pool State
             {
@@ -349,7 +359,7 @@ fn import_utxo(
         let chunk = utxo.drain(0..n);
 
         db.save(
-            &point,
+            point,
             None,
             store::Columns {
                 utxo: chunk,
@@ -368,6 +378,43 @@ fn import_utxo(
     progress.finish_and_clear();
 
     Ok(())
+}
+
+fn import_dreps(
+    db: &impl Store,
+    point: &Point,
+    dreps: HashMap<StakeCredential, DRepState>,
+) -> Result<(), impl std::error::Error> {
+    db.with_dreps(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })?;
+
+    info!(what = "dreps", size = dreps.len());
+
+    db.save(
+        point,
+        None,
+        store::Columns {
+            utxo: iter::empty(),
+            pools: iter::empty(),
+            accounts: iter::empty(),
+            dreps: dreps.into_iter().map(|(credential, state)| {
+                (
+                    credential,
+                    (
+                        Option::from(state.anchor),
+                        Some(state.deposit),
+                        state.expiry - DREP_EXPIRY,
+                    ),
+                )
+            }),
+        },
+        Default::default(),
+        iter::empty(),
+        BTreeSet::new(),
+    )
 }
 
 fn import_stake_pools(
@@ -404,7 +451,7 @@ fn import_stake_pools(
     })?;
 
     db.save(
-        &point,
+        point,
         None,
         store::Columns {
             utxo: iter::empty(),
@@ -467,6 +514,7 @@ fn import_accounts(
                 Account {
                     rewards_and_deposit,
                     pool,
+                    drep,
                     ..
                 },
             )| {
@@ -482,7 +530,7 @@ fn import_accounts(
                     credential,
                     (
                         Option::<PoolId>::from(pool),
-                        None, // FIXME: extract DRep information from snapshot
+                        Option::<DRep>::from(drep),
                         Some(deposit),
                         rewards + rewards_update,
                     ),
@@ -502,7 +550,7 @@ fn import_accounts(
         let chunk = credentials.drain(0..n);
 
         db.save(
-            &point,
+            point,
             None,
             store::Columns {
                 utxo: iter::empty(),
@@ -592,7 +640,6 @@ struct Account {
     #[allow(dead_code)]
     pointers: Set<(u64, u64, u64)>,
     pool: StrictMaybe<PoolId>,
-    #[allow(dead_code)]
     drep: StrictMaybe<DRep>,
 }
 
@@ -604,6 +651,27 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Account {
             pointers: d.decode_with(ctx)?,
             pool: d.decode_with(ctx)?,
             drep: d.decode_with(ctx)?,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct DRepState {
+    expiry: Epoch,
+    anchor: StrictMaybe<Anchor>,
+    deposit: Lovelace,
+    #[allow(dead_code)]
+    delegators: Set<StakeCredential>,
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for DRepState {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        Ok(DRepState {
+            expiry: d.decode_with(ctx)?,
+            anchor: d.decode_with(ctx)?,
+            deposit: d.decode_with(ctx)?,
+            delegators: d.decode_with(ctx)?,
         })
     }
 }

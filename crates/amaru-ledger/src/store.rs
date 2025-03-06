@@ -85,6 +85,9 @@ pub trait Snapshot {
     fn iter_accounts(
         &self,
     ) -> Result<impl Iterator<Item = (accounts::Key, accounts::Row)>, StoreError>;
+
+    /// Get details about all dreps
+    fn iter_dreps(&self) -> Result<impl Iterator<Item = (dreps::Key, dreps::Row)>, StoreError>;
 }
 
 pub trait Store: Snapshot + Send + Sync {
@@ -154,6 +157,9 @@ pub trait Store: Snapshot + Send + Sync {
 
     /// Provide an access to iterate over utxo, similar to 'with_pools'.
     fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), StoreError>;
+
+    /// Provide an access to iterate over dreps, similar to 'with_pools'.
+    fn with_dreps(&self, with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<(), StoreError>;
 }
 
 // Columns

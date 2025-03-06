@@ -116,6 +116,9 @@ pub static PLEDGE_INFLUENCE: LazyLock<Ratio<BigUint>> =
 /// The optimal number of stake pools target for the incentives, a.k.a k
 pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
 
+/// Epoch duration after which inactive DReps are considered expired.
+pub const DREP_EXPIRY: u64 = 20;
+
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
 
