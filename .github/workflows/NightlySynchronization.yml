@@ -32,7 +32,7 @@ jobs:
         echo "timestamp=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
     - id: cache
-      uses: actions/cache@v3.3.1
+      uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/db-${{ matrix.network }}
         key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.date-time.outputs.timestamp }}
