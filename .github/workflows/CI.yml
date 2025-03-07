@@ -178,32 +178,31 @@ jobs:
           make import-headers
           make import-nonces
 
-#      - name: Run node
-#        timeout-minutes: 30
-#        shell: bash
-#        run: |
-#          set -eo pipefail
-#          # Make sure amaru runs long enough so that snapshot tests can be executed
-#	  AMARU_TRACE="amaru=debug" cargo run --release -- --with-json-traces daemon --peer-address=$AMARU_PEER_ADDRESS --network=${{ matrix.network }} | while read -r line; do
-#            TARGET_EPOCH=173
-#
-#            MESSAGE=$(echo $line | jq -r '.fields.message' 2>/dev/null)
-#            EPOCH=$(echo $line | jq -r '.fields.epoch' 2>/dev/null)
-#
-#            echo "line: $line"
-#            echo "message: $MESSAGE"
-#            echo "epoch: $EPOCH"
-#
-#
-#            if [ "$MESSAGE" == "stake_distribution.snapshot" ] && [ "$EPOCH" == "$TARGET_EPOCH" ]; then
-#              echo "Target epoch reached, stopping the process."
-#              pkill -P $$
-#              break
-#            fi
-#          done
-#
-#      - name: Run tests
-#        run: cargo test --release --locked -p amaru -- --ignored
+      - name: Run node
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          set -eo pipefail
+          # Make sure amaru runs long enough so that snapshot tests can be executed
+          AMARU_TRACE="amaru=debug" cargo run --release -- --with-json-traces daemon --peer-address=$AMARU_PEER_ADDRESS --network=${{ matrix.network }} | while read line; do
+            TARGET_EPOCH=173
+
+            MESSAGE=$(echo $line | jq -r '.fields.message' 2>/dev/null)
+            EPOCH=$(echo $line | jq -r '.fields.epoch' 2>/dev/null)
+
+            echo "line: $line"
+            echo "message: $MESSAGE"
+            echo "epoch: $EPOCH"
+
+            if [ "$MESSAGE" == "stake_distribution.snapshot" ] && [ "$EPOCH" == "$TARGET_EPOCH" ]; then
+              echo "Target epoch reached, stopping the process."
+              pkill -P $$
+              break
+            fi
+          done
+
+      - name: Run tests
+        run: cargo test --release --locked -p amaru -- --ignored
 
       - name: Teardown haskell node
         shell: bash
