@@ -60,4 +60,4 @@ enforce-peer-address:
 	fi
 
 run: enforce-peer-address ## Run the node
-	AMARU_TRACE=amaru=debug cargo run --release -- --with-json-traces daemon --peer-address=${AMARU_PEER_ADDRESS} ${AMARU_RUN_EXTRA}
+	AMARU_TRACE="amaru=debug" cargo run --release -- --with-json-traces daemon --peer-address=${AMARU_PEER_ADDRESS} ${AMARU_RUN_EXTRA}
