@@ -184,7 +184,7 @@ jobs:
         run: |
           # Make sure amaru runs long enough so that snapshot tests can be executed
           AMARU_RUN_EXTRA="--network=preprod" make run | while read -r line; do
-            TARGET_EPOCH=174
+            TARGET_EPOCH=173
 
             MESSAGE=$(echo $line | jq -r '.fields.message' 2>/dev/null)
             EPOCH=$(echo $line | jq -r '.fields.epoch' 2>/dev/null)
