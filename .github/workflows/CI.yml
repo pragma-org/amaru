@@ -182,8 +182,8 @@ jobs:
         timeout-minutes: 30
         run: |
           # Make sure amaru runs long enough so that snapshot tests can be executed
-          AMARU_RUN_EXTRA="--network=preprod" make run | while read -r line; do
-            AMARU_PID=$!
+          AMARU_RUN_EXTRA="--network=${{ matrix.network }}" make run | while read -r line; do
+            AMARU_PID=$$
             EPOCH_VALUE=174
             if echo "$line" | jq --arg epoch_value "$EPOCH_VALUE" 'select(.fields.message == "snapshot" and .fields.epoch == ($epoch_value | tonumber))' >/dev/null 2>&1; then
               echo "Received stop signal, stopping the process."
