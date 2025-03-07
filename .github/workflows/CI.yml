@@ -157,12 +157,9 @@ jobs:
 
       - name: Cache Amaru's ledger.db
         id: cache-ledger-db
-        uses: actions/cache@v3
+        uses: actions/cache/restore@v4
         with:
-          path: |
-            ./ledger.db/163
-            ./ledger.db/164
-            ./ledger.db/165
+          path: ./ledger.db
           # If the ledger store serialisation format changes and become
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
@@ -175,6 +172,12 @@ jobs:
         if: steps.cache-ledger-db.outputs.cache-hit != 'true'
         run: |
           make bootstrap
+
+      - if: steps.cache-ledger-db.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ./ledger.db
+          key: ${{ runner.OS }}-ledger-cache-v1
 
       - name: Light bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == 'true'
