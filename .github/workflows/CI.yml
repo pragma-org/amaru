@@ -194,10 +194,6 @@ jobs:
             MESSAGE=$(echo $line | jq -r '.fields.message' 2>/dev/null)
             EPOCH=$(echo $line | jq -r '.fields.epoch' 2>/dev/null)
 
-            echo "line: $line"
-            echo "message: $MESSAGE"
-            echo "epoch: $EPOCH"
-
             if [ "$MESSAGE" == "stake_distribution.snapshot" ] && [ "$EPOCH" == "$TARGET_EPOCH" ]; then
               echo "Target epoch reached, stopping the process."
               pkill -P $$
