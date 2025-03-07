@@ -160,12 +160,16 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
-            ~/ledger.db/163
-            ~/ledger.db/164
-            ~/ledger.db/165
-          key: ${{ runner.OS }}-ledger-cache-${{ hashFiles('.ledger.db/**') }}
+            ./ledger.db/163
+            ./ledger.db/164
+            ./ledger.db/165
+          # If the ledger store serialisation format changes and become
+          # incompatible, it is necessary to bump the index below to invalidate
+          # the cached ledger snapshots, and recompute them from the CBOR ones
+          # (i.e. Full bootstrap below)
+          key: ${{ runner.OS }}-ledger-cache-v1
           restore-keys: |
-            ${{ runner.OS }}-ledger-cache-
+            ${{ runner.OS }}-ledger-cache-v1
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit != 'true'
