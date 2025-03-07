@@ -63,7 +63,7 @@ pub fn panic_handler() {
             location = location,
         };
 
-        println!("\n{}", indent(&error_message, 3));
+        eprintln!("\n{}", indent(&error_message, 3));
     }));
 }
 
