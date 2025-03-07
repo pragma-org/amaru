@@ -180,14 +180,18 @@ jobs:
 
       - name: Run node
         timeout-minutes: 30
+        shell: bash
         run: |
           # Make sure amaru runs long enough so that snapshot tests can be executed
-          AMARU_RUN_EXTRA="--network=${{ matrix.network }}" make run | while read -r line; do
-            AMARU_PID=$$
-            EPOCH_VALUE=174
-            if echo "$line" | jq --arg epoch_value "$EPOCH_VALUE" 'select(.fields.message == "snapshot" and .fields.epoch == ($epoch_value | tonumber))' >/dev/null 2>&1; then
-              echo "Received stop signal, stopping the process."
-              pkill -P $AMARU_PID
+          AMARU_RUN_EXTRA="--network=preprod" make run | while read -r line; do
+            TARGET_EPOCH=174
+
+            MESSAGE=$(echo $line | jq -r '.fields.message' 2>/dev/null)
+            EPOCH=$(echo $line | jq -r '.fields.epoch' 2>/dev/null)
+
+            if [ "$MESSAGE" == "stake_distribution.snapshot" ] && [ "$EPOCH" == "$TARGET_EPOCH" ]; then
+              echo "Target epoch reached, stopping the process."
+              pkill -P $$
               break
             fi
           done
