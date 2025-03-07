@@ -102,44 +102,98 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.draft }}
     env:
-      AMARU_PEER_ADDRESS: preprod-node.play.dev.cardano.org:3001
+      AMARU_PEER_ADDRESS: 127.0.0.1:3000
+    strategy:
+      matrix:
+        network: [ preprod ]
+        cardano_node_version: [ 10.1.4 ]
     steps:
       - uses: actions/checkout@v4
+
       - uses: Swatinem/rust-cache@v2
-      - name: Cache ledger.db
-        id: cache
+
+      - id: date-time
+        shell: bash
+        run: echo "timestamp=$(/bin/date -u "+%Y%m%d-%H%M%S")" >> $GITHUB_OUTPUT
+
+      - name: Restore cardano-node DB
+        id: cache-cardano-node-db
         uses: actions/cache@v3
         with:
-          path: ~/ledger.db
+          path: ${{ runner.temp }}/node.db
+          # The key should match the one used for the 'Nightly Sync' workflow.
+          key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.date-time.outputs.timestamp }}
+          restore-keys: |
+            cardano-node-ogmios-${{ matrix.network }}-
+
+      - name: Check if cardano-node-db is available
+        if: steps.cache-cardano-node-db.outputs.cache-hit != 'true'
+        run: |
+          echo "Haskell node db not available, aborting job."
+          exit 1
+
+      - name: Spawn Haskell Node
+        id: spawn-cardano-node
+        shell: bash
+        run: |
+          docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
+          make HASKELL_NODE_CONFIG_DIR=cardano-node-config NETWORK=${{ matrix.network }} download-haskell-config
+          docker run -d --name cardano-node \
+            -v ${{ runner.temp }}/node.db:/db \
+            -v ${{ runner.temp }}/ipc:/ipc \
+            -v ./cardano-node-config:/config \
+            -v ./cardano-node-config:/genesis \
+            ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }} run \
+              --config /config/config.json \
+              --database-path /db \
+              --socket-path /ipc/node.socket \
+              --topology /config/topology.json
+
+      - name: Cache Amaru's ledger.db
+        id: cache-ledger-db
+        uses: actions/cache@v3
+        with:
+          path: |
+            ~/ledger.db/163
+            ~/ledger.db/164
+            ~/ledger.db/165
           key: ${{ runner.OS }}-ledger-cache-${{ hashFiles('.ledger.db/**') }}
           restore-keys: |
             ${{ runner.OS }}-ledger-cache-
-      - name: Cache chain.db
-        uses: actions/cache@v3
-        with:
-          path: ~/chain.db
-          key: ${{ runner.OS }}-chain-cache-${{ hashFiles('.chain.db/**') }}
-          restore-keys: |
-            ${{ runner.OS }}-chain-cache-
-      - name: Bootstrap amaru
-        if: steps.cache.outputs.cache-hit != 'true'
+
+      - name: Full bootstrap amaru
+        if: steps.cache-ledger-db.outputs.cache-hit != 'true'
         run: |
           make bootstrap
+
+      - name: Light bootstrap amaru
+        if: steps.cache-ledger-db.outputs.cache-hit == 'true'
+        run: |
+          make import-headers
+          make import-nonces
+
       - name: Run node
         timeout-minutes: 30
         run: |
           # Make sure amaru runs long enough so that snapshot tests can be executed
-          AMARU_RUN_EXTRA="--network=preprod" make | while read -r line; do
+          AMARU_RUN_EXTRA="--network=preprod" make run | while read -r line; do
             AMARU_PID=$!
-            EPOCH_VALUE=179
+            EPOCH_VALUE=174
             if echo "$line" | jq --arg epoch_value "$EPOCH_VALUE" 'select(.fields.message == "snapshot" and .fields.epoch == ($epoch_value | tonumber))' >/dev/null 2>&1; then
               echo "Received stop signal, stopping the process."
               pkill -P $AMARU_PID
               break
             fi
           done
+
       - name: Run tests
-        run: cargo test --locked --workspace -- --ignored
+        run: cargo test --release --locked -p amaru -- --ignored
+
+      - name: Teardown haskell node
+        shell: bash
+        run: |
+          docker stop ${{ steps.spawn-cardano-node.outputs.container }}
+          docker rm ${{ steps.spawn-cardano-node.outputs.container }}
 
   examples:
     name: Examples
