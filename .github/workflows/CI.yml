@@ -126,7 +126,7 @@ jobs:
             cardano-node-ogmios-${{ matrix.network }}-
 
       - name: Check if cardano-node-db is available
-        if: steps.cache-cardano-node-db.outputs.cache-hit != 'true'
+        if: steps.cache-cardano-node-db.outputs.cache-hit == ''
         run: |
           echo "Haskell node db not available, aborting job."
           exit 1
