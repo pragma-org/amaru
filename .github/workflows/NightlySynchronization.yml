@@ -24,18 +24,13 @@ jobs:
 
     - uses: actions/checkout@v4
 
-    - id: date-time
-      shell: bash
-      run: |
-        echo "timestamp=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-
     - id: cache
       uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/db-${{ matrix.network }}
-        key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.date-time.outputs.timestamp }}
+        key: cardano-node-ogmios-${{ matrix.network }}
         restore-keys: |
-          cardano-node-ogmios-${{ matrix.network }}-
+          cardano-node-ogmios-${{ matrix.network }}
 
     - uses: CardanoSolutions/gh-action-cardano-node-ogmios-docker-sync@v1.2.2
       with:
@@ -43,3 +38,11 @@ jobs:
         network: ${{ matrix.network }}
         version: ${{ matrix.ogmios_version }}_${{ matrix.cardano_node_version }}
         synchronization-level: ${{ inputs.synchronization-level || 1 }}
+
+    # Remove old immutable chunks from the database, we don't need them and they make cache & on-disk system larger.
+    - name: prune node db
+      shell: bash
+      working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
+      run: |
+        touch clean
+        rm immutable/00*.chunk immutable/01*.chunk immutable/02*.chunk immutable/030*.chunk

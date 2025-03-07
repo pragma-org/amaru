@@ -110,10 +110,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - id: date-time
-        shell: bash
-        run: echo "timestamp=$(/bin/date -u "+%Y%m%d-%H%M%S")" >> $GITHUB_OUTPUT
-
       - name: Restore cardano-node DB
         id: cache-cardano-node-db
         uses: actions/cache/restore@v4
@@ -121,9 +117,9 @@ jobs:
           # The path should match the one used for the 'Nightly Sync' workflow.
           path: ${{ runner.temp }}/db-${{ matrix.network }}
           # The key should also match
-          key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.date-time.outputs.timestamp }}
+          key: cardano-node-ogmios-${{ matrix.network }}
           restore-keys: |
-            cardano-node-ogmios-${{ matrix.network }}-
+            cardano-node-ogmios-${{ matrix.network }}
 
       - name: Check if cardano-node-db is available
         if: steps.cache-cardano-node-db.outputs.cache-hit == ''
