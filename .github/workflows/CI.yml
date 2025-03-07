@@ -110,15 +110,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: Swatinem/rust-cache@v2
-
       - id: date-time
         shell: bash
         run: echo "timestamp=$(/bin/date -u "+%Y%m%d-%H%M%S")" >> $GITHUB_OUTPUT
 
       - name: Restore cardano-node DB
         id: cache-cardano-node-db
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: ${{ runner.temp }}/node.db
           # The key should match the one used for the 'Nightly Sync' workflow.
@@ -148,6 +146,8 @@ jobs:
               --database-path /db \
               --socket-path /ipc/node.socket \
               --topology /config/topology.json
+
+      - uses: Swatinem/rust-cache@v2
 
       - name: Cache Amaru's ledger.db
         id: cache-ledger-db
