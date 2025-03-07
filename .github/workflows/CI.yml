@@ -118,8 +118,9 @@ jobs:
         id: cache-cardano-node-db
         uses: actions/cache@v4
         with:
-          path: ${{ runner.temp }}/node.db
-          # The key should match the one used for the 'Nightly Sync' workflow.
+          # The path should match the one used for the 'Nightly Sync' workflow.
+          path: ${{ runner.temp }}/db-${{ matrix.network }}
+          # The key should also match
           key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.date-time.outputs.timestamp }}
           restore-keys: |
             cardano-node-ogmios-${{ matrix.network }}-
@@ -137,7 +138,7 @@ jobs:
           docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
           make HASKELL_NODE_CONFIG_DIR=cardano-node-config NETWORK=${{ matrix.network }} download-haskell-config
           docker run -d --name cardano-node \
-            -v ${{ runner.temp }}/node.db:/db \
+            -v ${{ runner.temp }}/db-${{ matrix.network }}:/db \
             -v ${{ runner.temp }}/ipc:/ipc \
             -v ./cardano-node-config:/config \
             -v ./cardano-node-config:/genesis \
