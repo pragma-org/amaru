@@ -116,7 +116,7 @@ jobs:
 
       - name: Restore cardano-node DB
         id: cache-cardano-node-db
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           # The path should match the one used for the 'Nightly Sync' workflow.
           path: ${{ runner.temp }}/db-${{ matrix.network }}
