@@ -1,8 +1,9 @@
-use amaru_kernel::{Epoch, Point};
+use amaru_kernel::{Epoch, Point, StakeCredential};
 use amaru_ledger::{
     rewards::Pots,
     store::{Snapshot, Store},
 };
+use std::collections::BTreeSet;
 
 pub struct MemoryStore {}
 
@@ -85,6 +86,19 @@ impl Snapshot for MemoryStore {
     > {
         Ok(vec![].into_iter())
     }
+
+    #[allow(refining_impl_trait)]
+    fn iter_dreps(
+        &self,
+    ) -> Result<
+        std::vec::IntoIter<(
+            amaru_ledger::store::columns::dreps::Key,
+            amaru_ledger::store::columns::dreps::Row,
+        )>,
+        amaru_ledger::store::StoreError,
+    > {
+        Ok(vec![].into_iter())
+    }
 }
 
 impl Store for MemoryStore {
@@ -115,13 +129,21 @@ impl Store for MemoryStore {
                     amaru_ledger::store::columns::accounts::Value,
                 ),
             >,
+            impl Iterator<
+                Item = (
+                    amaru_ledger::store::columns::dreps::Key,
+                    amaru_ledger::store::columns::dreps::Value,
+                ),
+            >,
         >,
         _remove: amaru_ledger::store::Columns<
             impl Iterator<Item = amaru_ledger::store::columns::utxo::Key>,
             impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, Epoch)>,
             impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
+            impl Iterator<Item = amaru_ledger::store::columns::dreps::Key>,
         >,
         _withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
+        _voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }
@@ -165,6 +187,13 @@ impl Store for MemoryStore {
     fn with_utxo(
         &self,
         _with: impl FnMut(amaru_ledger::store::columns::utxo::Iter<'_, '_>),
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
+
+    fn with_dreps(
+        &self,
+        _with: impl FnMut(amaru_ledger::store::columns::dreps::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }

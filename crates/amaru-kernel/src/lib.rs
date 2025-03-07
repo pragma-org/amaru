@@ -35,10 +35,11 @@ pub use pallas_primitives::{
     alonzo,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody, MintedBlock,
-        MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, PoolMetadata,
-        RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential, TransactionInput,
-        TransactionOutput, UnitInterval, Value, VrfKeyhash, WitnessSet,
+        AddrKeyhash, Anchor, Block, Certificate, Coin, DRep, Epoch, ExUnits, GovActionId,
+        HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
+        PoolMetadata, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
+        TransactionInput, TransactionOutput, UnitInterval, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 
@@ -114,6 +115,9 @@ pub static PLEDGE_INFLUENCE: LazyLock<Ratio<BigUint>> =
 
 /// The optimal number of stake pools target for the incentives, a.k.a k
 pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
+
+/// Epoch duration after which inactive DReps are considered expired.
+pub const DREP_EXPIRY: u64 = 20;
 
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Lovelace, PoolId, StakeCredential};
+use amaru_kernel::{cbor, DRep, Lovelace, PoolId, StakeCredential};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
@@ -20,7 +20,7 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Option<PoolId>, Option<Lovelace>, Lovelace);
+pub type Value = (Option<PoolId>, Option<DRep>, Option<Lovelace>, Lovelace);
 
 pub type Key = StakeCredential;
 
@@ -28,6 +28,7 @@ pub type Key = StakeCredential;
 pub struct Row {
     pub delegatee: Option<PoolId>,
     pub deposit: Lovelace,
+    pub drep: Option<DRep>,
     // FIXME: We probably want to use an arbitrarily-sized for rewards; Going
     // for a Lovelace (aliasing u64) for now as we are only demonstrating the
     // ledger-state storage capabilities and it doesn't *fundamentally* change
@@ -53,9 +54,10 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(3)?;
+        e.array(4)?;
         e.encode_with(self.delegatee, ctx)?;
         e.encode_with(self.deposit, ctx)?;
+        e.encode_with(self.drep.as_ref(), ctx)?;
         e.encode_with(self.rewards, ctx)?;
         Ok(())
     }
@@ -67,7 +69,65 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         Ok(Row {
             delegatee: d.decode_with(ctx)?,
             deposit: d.decode_with(ctx)?,
+            drep: d.decode_with(ctx)?,
             rewards: d.decode_with(ctx)?,
         })
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use super::Row;
+    use amaru_kernel::{from_cbor, to_cbor, DRep, Hash, Lovelace, PoolId};
+    use proptest::{option, prelude::*};
+
+    proptest! {
+        #[test]
+        fn prop_row_roundtrip_cbor(row in any_row()) {
+            let bytes = to_cbor(&row);
+            assert_eq!(Some(row), from_cbor::<Row>(&bytes))
+        }
+    }
+
+    prop_compose! {
+        fn any_row()(
+            delegatee in option::of(any_pool_id()),
+            deposit in any::<Lovelace>(),
+            drep in option::of(any_drep()),
+            rewards in any::<Lovelace>(),
+        ) -> Row {
+            Row {
+                delegatee,
+                deposit,
+                drep,
+                rewards,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn any_drep()(
+            credential in any::<[u8; 28]>(),
+            kind in any::<u8>(),
+        ) -> DRep {
+            let kind = kind % 4;
+            match kind {
+                0 => DRep::Key(Hash::from(credential)),
+                1 => DRep::Script(Hash::from(credential)),
+                2 => DRep::Abstain,
+                3 => DRep::NoConfidence,
+                _ => unreachable!("% 4")
+            }
+
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn any_pool_id()(
+            bytes in any::<[u8; 28]>(),
+        ) -> PoolId {
+            Hash::from(bytes)
+        }
+
     }
 }
