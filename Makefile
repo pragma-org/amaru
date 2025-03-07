@@ -33,23 +33,23 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
 
 import-snapshots: snapshots ## Import PreProd snapshots for demo
-	cargo run --release -- import-ledger-state \
+	cargo run -- import-ledger-state \
 	--snapshot $^/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor \
 	--snapshot $^/69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor \
 	--snapshot $^/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
 
 import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
-	cargo run --release -- import-headers \
+	cargo run -- import-headers \
 	--peer-address ${AMARU_PEER_ADDRESS} \
 	--starting-point 69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2 \
 	--count 2
-	cargo run --release -- import-headers \
+	cargo run -- import-headers \
 	--peer-address ${AMARU_PEER_ADDRESS} \
 	--starting-point 70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c \
 	--count 2
 
 import-nonces: ## Import PreProd nonces for demo
-	cargo run --release -- import-nonces \
+	cargo run -- import-nonces \
 	--at 70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d \
 	--active a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a \
 	--candidate 74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6 \
