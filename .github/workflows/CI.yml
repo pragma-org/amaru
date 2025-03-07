@@ -196,7 +196,7 @@ jobs:
 
             if [ "$MESSAGE" == "stake_distribution.snapshot" ] && [ "$EPOCH" == "$TARGET_EPOCH" ]; then
               echo "Target epoch reached, stopping the process."
-              kill -s INT $$
+              pkill -INT -P $$
               break
             fi
           done
