@@ -44,5 +44,4 @@ jobs:
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
-        touch clean
         rm immutable/00*.chunk immutable/01*.chunk immutable/02*.chunk immutable/030*.chunk
