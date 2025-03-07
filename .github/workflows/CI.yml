@@ -176,7 +176,7 @@ jobs:
 
       - name: Build Amaru
         run: |
-          cargo build --release --locked
+          cargo build --locked
 
       - name: Cache Amaru's ledger.db
         id: cache-ledger-db
@@ -214,7 +214,7 @@ jobs:
         run: |
           set -eo pipefail
           # Make sure amaru runs long enough so that snapshot tests can be executed
-          AMARU_TRACE="amaru=debug" cargo run --release -- --with-json-traces daemon --peer-address=$AMARU_PEER_ADDRESS --network=${{ matrix.network }} | while read line; do
+          AMARU_TRACE="amaru=debug" cargo run -- --with-json-traces daemon --peer-address=$AMARU_PEER_ADDRESS --network=${{ matrix.network }} | while read line; do
             TARGET_EPOCH=173
 
             EVENT=$(echo $line | jq -r '.fields.message' 2>/dev/null)
@@ -231,7 +231,7 @@ jobs:
           done
 
       - name: Run tests
-        run: cargo test --release --locked -p amaru -- --ignored
+        run: cargo test -p amaru -- --ignored
 
       - name: Teardown haskell node
         shell: bash
