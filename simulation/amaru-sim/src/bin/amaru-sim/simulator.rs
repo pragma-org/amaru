@@ -14,6 +14,7 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
+use crate::ledger::{FakeLedgerStage, FakeStakeDistribution};
 use amaru_consensus::peer::Peer;
 use amaru_consensus::{
     chain_forward,
@@ -24,8 +25,10 @@ use amaru_consensus::{
         wiring::HeaderStage,
     },
 };
-use amaru_kernel::{Header, Point};
-use amaru_stores::rocksdb::RocksDB;
+use amaru_kernel::{
+    Header,
+    Point::{self, *},
+};
 use clap::{ArgAction, Parser};
 use gasket::runtime::Tether;
 use tokio::sync::Mutex;
@@ -44,9 +47,9 @@ pub struct Args {
     #[arg(long, action = ArgAction::Append, required = true)]
     peer_address: Vec<String>,
 
-    /// Path of the ledger on-disk storage.
-    #[arg(long, default_value = "./ledger.db")]
-    ledger_dir: PathBuf,
+    /// Path of JSON-formatted stake distribution file.
+    #[arg(long, default_value = "./stake_distribution.json")]
+    stake_distribution_file: PathBuf,
 
     /// Path of the chain on-disk storage.
     #[arg(long, default_value = "./chain.db")]
@@ -84,17 +87,17 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
 }
 
 pub fn bootstrap(args: Args) -> Vec<Tether> {
-    // FIXME: Take from config / command args
-    let store = RocksDB::new(&args.ledger_dir)
-        .unwrap_or_else(|e| panic!("unable to open ledger store: {e:?}"));
-    let (mut ledger, tip) = amaru::pipeline::Stage::new(store);
+    let stake_distribution: FakeStakeDistribution =
+        FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
 
-    let mut sync_from_peers = crate::sync::Stage::new(&tip);
+    let mut ledger = FakeLedgerStage::new();
+
+    let mut sync_from_peers = crate::sync::Stage::new();
 
     let chain_store =
         RocksDBStore::new(args.chain_dir.clone()).expect("unable to open chain store");
     let chain_selector = make_chain_selector(
-        tip,
+        Origin,
         &chain_store,
         &args
             .peer_address
@@ -105,7 +108,7 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let consensus = Consensus::new(
         vec![],
-        Box::new(ledger.state.view_stake_distribution()),
+        Box::new(stake_distribution),
         chain_ref.clone(),
         chain_selector,
     );

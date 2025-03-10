@@ -16,6 +16,7 @@ use crate::simulator::Args;
 use clap::Parser;
 
 mod bytes;
+mod ledger;
 mod simulator;
 mod sync;
 

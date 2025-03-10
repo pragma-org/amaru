@@ -30,6 +30,7 @@ serde_json.workspace = true
 amaru = { path = "../../crates/amaru" }
 amaru-kernel = { path = "../../crates/amaru-kernel" }
 amaru-consensus = { path = "../../crates/amaru-consensus" }
+amaru-ledger = { path = "../../crates/amaru-ledger" }
 amaru-ouroboros = { path = "../../crates/ouroboros" }
 amaru-stores = { path = "../../crates/amaru-stores" }
 

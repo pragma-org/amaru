@@ -21,7 +21,7 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub(crate) fn new(_tip: &Point) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             downstream: DownstreamPort::default(),
         }
