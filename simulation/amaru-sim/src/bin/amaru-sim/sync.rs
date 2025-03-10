@@ -128,7 +128,6 @@ fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent, Wo
 mod test {
     use std::str::FromStr;
 
-    use amaru_consensus::consensus::header::point_hash;
     use amaru_sim::echo::Envelope;
     use pallas_codec::minicbor;
     use pallas_crypto::hash::Hasher;
@@ -174,7 +173,9 @@ mod test {
     #[test]
     fn can_retrieve_forward_from_message() {
         let fwd = some_forward();
-
+        let expected_hash: Hash<32> =
+            Hash::from_str("746353a52e80b3ac2d6d51658df7988d4b7baa219f55584a4827bd00bc97617e")
+                .unwrap();
         let message = Envelope {
             src: "peer1".to_string(),
             dest: "me".to_string(),
@@ -188,13 +189,7 @@ mod test {
             super::PullEvent::RollForward(peer, point, header, _) => {
                 assert_eq!(peer.name, "peer1");
                 assert_eq!(point.slot_or_default(), 1234);
-                assert_eq!(
-                    point_hash(&point),
-                    Hash::from_str(
-                        "746353a52e80b3ac2d6d51658df7988d4b7baa219f55584a4827bd00bc97617e"
-                    )
-                    .unwrap()
-                );
+                assert_eq!(Hash::from(&point), expected_hash);
                 assert_eq!(header, hex::decode(TEST_HEADER).unwrap());
             }
             _ => panic!("expected RollForward event"),

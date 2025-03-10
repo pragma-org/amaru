@@ -12,20 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use amaru_consensus::peer::Peer;
 use amaru_consensus::{
     chain_forward,
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
-        header::{point_hash, ConwayHeader},
         header_validation::Consensus,
         store::{rocksdb::RocksDBStore, ChainStore},
         wiring::HeaderStage,
     },
 };
-use amaru_kernel::Point;
+use amaru_kernel::{Header, Point};
 use amaru_stores::rocksdb::RocksDB;
 use clap::{ArgAction, Parser};
 use gasket::runtime::Tether;
@@ -109,7 +108,6 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
         Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
         chain_selector,
-        HashMap::new(),
     );
 
     let mut consensus_stage = HeaderStage::new(consensus);
@@ -139,12 +137,12 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
 
 fn make_chain_selector(
     tip: Point,
-    chain_store: &impl ChainStore<ConwayHeader>,
+    chain_store: &impl ChainStore<Header>,
     peers: &Vec<Peer>,
-) -> Arc<Mutex<ChainSelector<ConwayHeader>>> {
+) -> Arc<Mutex<ChainSelector<Header>>> {
     let mut builder = ChainSelectorBuilder::new();
 
-    match chain_store.load_header(&point_hash(&tip)) {
+    match chain_store.load_header(&From::from(&tip)) {
         None => panic!("Tip {:?} not found in chain store", tip),
         Some(header) => builder.set_tip(&header),
     };

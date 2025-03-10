@@ -43,3 +43,11 @@ test-case.workspace = true
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
+
+[[bin]]
+name = "simulator"
+path = "src/bin/amaru-sim/main.rs"
+
+[[bin]]
+name = "echo"
+path = "src/bin/echo/main.rs"
