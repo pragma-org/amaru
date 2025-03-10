@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, DRep, Lovelace, PoolId, StakeCredential};
+use amaru_kernel::{cbor, DRep, Lovelace, PoolId, Slot, StakeCredential};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
@@ -20,7 +20,12 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Option<PoolId>, Option<DRep>, Option<Lovelace>, Lovelace);
+pub type Value = (
+    Option<PoolId>,
+    Option<(DRep, Slot)>,
+    Option<Lovelace>,
+    Lovelace,
+);
 
 pub type Key = StakeCredential;
 
@@ -28,7 +33,7 @@ pub type Key = StakeCredential;
 pub struct Row {
     pub delegatee: Option<PoolId>,
     pub deposit: Lovelace,
-    pub drep: Option<DRep>,
+    pub drep: Option<(DRep, Slot)>,
     // FIXME: We probably want to use an arbitrarily-sized for rewards; Going
     // for a Lovelace (aliasing u64) for now as we are only demonstrating the
     // ledger-state storage capabilities and it doesn't *fundamentally* change
@@ -78,7 +83,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(test)]
 pub(crate) mod test {
     use super::Row;
-    use amaru_kernel::{from_cbor, to_cbor, DRep, Hash, Lovelace, PoolId};
+    use amaru_kernel::{from_cbor, to_cbor, DRep, Hash, Lovelace, PoolId, Slot};
     use proptest::{option, prelude::*};
 
     proptest! {
@@ -94,12 +99,13 @@ pub(crate) mod test {
             delegatee in option::of(any_pool_id()),
             deposit in any::<Lovelace>(),
             drep in option::of(any_drep()),
+            drep_registered_at in  any::<Slot>(),
             rewards in any::<Lovelace>(),
         ) -> Row {
             Row {
                 delegatee,
                 deposit,
-                drep,
+                drep: drep.map(|drep| (drep, drep_registered_at)),
                 rewards,
             }
         }

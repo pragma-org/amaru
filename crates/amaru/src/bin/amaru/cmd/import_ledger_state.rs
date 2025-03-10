@@ -34,6 +34,7 @@ use std::{
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
+const DEFAULT_DREP_REGISTERED_AT: u64 = 0;
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -406,6 +407,7 @@ fn import_dreps(
                     (
                         Option::from(state.anchor),
                         Some(state.deposit),
+                        DEFAULT_DREP_REGISTERED_AT,
                         state.expiry - DREP_EXPIRY,
                     ),
                 )
@@ -530,7 +532,9 @@ fn import_accounts(
                     credential,
                     (
                         Option::<PoolId>::from(pool),
-                        Option::<DRep>::from(drep),
+                        //No slot to retrieve. All registrations coming from snapshot are considered valid.
+                        Option::<DRep>::from(drep)
+                            .map(|drep| (drep, DEFAULT_DREP_REGISTERED_AT + 1)),
                         Some(deposit),
                         rewards + rewards_update,
                     ),

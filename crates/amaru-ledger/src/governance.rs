@@ -1,7 +1,7 @@
-use crate::store::{Snapshot, StoreError};
+use crate::store::{columns::dreps::Row, Snapshot, StoreError};
 use amaru_kernel::{encode_bech32, DRep, StakeCredential};
 use serde::ser::SerializeStruct;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 #[derive(Debug)]
 // TODO: Also add DRep information to this summary
@@ -13,20 +13,27 @@ impl DRepsSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
         let dreps = db
             .iter_dreps()?
-            .map(|(k, _)| match k {
-                StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
-                StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+            .map(|(k, Row { registered_at, .. })| {
+                let drep = match k {
+                    StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
+                    StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+                };
+                (drep, registered_at)
             })
-            .collect::<BTreeSet<_>>();
+            .collect::<BTreeMap<_, _>>();
 
         let delegations = db
             .iter_accounts()?
             .filter_map(|(credential, account)| {
-                account.drep.and_then(|drep| {
-                    if !dreps.contains(&drep) {
-                        return None;
+                account.drep.and_then(|(drep, since)| {
+                    let registered_at = dreps.get(&drep);
+                    if let Some(registered_at) = registered_at {
+                        if since > *registered_at {
+                            // This is a registration with a previous registration of this DRep, it must be renewed
+                            return Some((credential, drep));
+                        }
                     }
-                    Some((credential, drep))
+                    None
                 })
             })
             .collect::<BTreeMap<StakeCredential, DRep>>();

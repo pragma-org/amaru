@@ -24,9 +24,9 @@ use crate::{
     store::{columns::*, Store, StoreError},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, DRep, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot,
-    StakeCredential, TransactionInput, TransactionOutput, Voter, VotingProcedures,
-    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, StakeCredential,
+    TransactionInput, TransactionOutput, Voter, VotingProcedures, CONSENSUS_SECURITY_PARAM,
+    MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
@@ -95,14 +95,6 @@ fn select_stake_credentials(voting_procedures: &VotingProcedures) -> HashSet<Sta
             | Voter::StakePoolKey(..) => None,
         })
         .collect()
-}
-
-fn as_stake_credential(drep: &DRep) -> Option<StakeCredential> {
-    match drep {
-        DRep::Key(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
-        DRep::Script(hash) => Some(StakeCredential::ScriptHash(*hash)),
-        DRep::Abstain | DRep::NoConfidence => None,
-    }
 }
 
 impl<S: Store> State<S> {
@@ -241,8 +233,6 @@ impl<S: Store> State<S> {
                 })?;
             }
 
-            let unregistered_dreps = now_stable.state.dreps.unregistered.clone();
-
             let StoreUpdate {
                 point: stable_point,
                 issuer: stable_issuer,
@@ -265,22 +255,6 @@ impl<S: Store> State<S> {
                 .and_then(|()| {
                     db.with_pots(|mut row| {
                         row.borrow_mut().fees += fees;
-                    })
-                })
-                .and_then(|()| {
-                    // Go over all accounts and remove the DRep if it's unregistered
-                    db.with_accounts(|iterator| {
-                        for (_, mut row) in iterator {
-                            if let Some(account) = row.borrow_mut() {
-                                if let Some(Some(credential)) =
-                                    account.drep.as_ref().map(as_stake_credential)
-                                {
-                                    if unregistered_dreps.contains(&credential) {
-                                        account.drep = None;
-                                    }
-                                }
-                            }
-                        }
                     })
                 })
                 .map_err(StateError::Storage)

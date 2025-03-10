@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Anchor, Epoch, Lovelace, StakeCredential};
+use amaru_kernel::{cbor, Anchor, Epoch, Lovelace, Slot, StakeCredential};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
@@ -20,7 +20,7 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Option<Anchor>, Option<Lovelace>, Epoch);
+pub type Value = (Option<Anchor>, Option<Lovelace>, Slot, Epoch);
 
 pub type Key = StakeCredential;
 
@@ -28,6 +28,7 @@ pub type Key = StakeCredential;
 pub struct Row {
     pub deposit: Lovelace,
     pub anchor: Option<Anchor>,
+    pub registered_at: Slot,
     pub last_interaction: Epoch,
 }
 
@@ -49,9 +50,10 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(3)?;
+        e.array(4)?;
         e.encode_with(self.deposit, ctx)?;
         e.encode_with(self.anchor.clone(), ctx)?;
+        e.encode_with(self.registered_at, ctx)?;
         e.encode_with(self.last_interaction, ctx)?;
         Ok(())
     }
@@ -63,6 +65,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         Ok(Row {
             deposit: d.decode_with(ctx)?,
             anchor: d.decode_with(ctx)?,
+            registered_at: d.decode_with(ctx)?,
             last_interaction: d.decode_with(ctx)?,
         })
     }
@@ -71,7 +74,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(test)]
 pub(crate) mod test {
     use super::Row;
-    use amaru_kernel::{from_cbor, to_cbor, Anchor, Epoch, Hash, Lovelace};
+    use amaru_kernel::{from_cbor, to_cbor, Anchor, Epoch, Hash, Lovelace, Slot};
     use proptest::{option, prelude::*, string};
 
     proptest! {
@@ -86,11 +89,13 @@ pub(crate) mod test {
         fn any_row()(
             deposit in any::<Lovelace>(),
             anchor in option::of(any_anchor()),
+            registered_at in any::<Slot>(),
             last_interaction in any::<Epoch>(),
         ) -> Row {
             Row {
                 deposit,
                 anchor,
+                registered_at,
                 last_interaction,
             }
         }

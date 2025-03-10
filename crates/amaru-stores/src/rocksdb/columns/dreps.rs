@@ -31,7 +31,7 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, (anchor, deposit, epoch)) in rows {
+    for (credential, (anchor, deposit, registered_at, epoch)) in rows {
         let key = as_key(&PREFIX, &credential);
 
         // In case where a registration already exists, then we must only update the underlying
@@ -52,6 +52,7 @@ pub fn add<DB>(
             let row = Row {
                 anchor,
                 deposit,
+                registered_at,
                 last_interaction: epoch,
             };
             db.put(key, as_value(row))

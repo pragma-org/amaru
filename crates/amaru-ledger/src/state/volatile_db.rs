@@ -196,7 +196,8 @@ impl AnchoredVolatileState {
             impl Iterator<Item = dreps::Key>,
         >,
     > {
-        let epoch = epoch_from_slot(self.anchor.0.slot_or_default());
+        let slot = self.anchor.0.slot_or_default();
+        let epoch = epoch_from_slot(slot);
         StoreUpdate {
             point: self.anchor.0,
             issuer: self.anchor.1,
@@ -222,14 +223,19 @@ impl AnchoredVolatileState {
                     },
                 ),
                 accounts: self.state.accounts.registered.into_iter().map(
-                    |(
+                    move |(
                         credential,
                         Bind {
                             left: pool,
                             right: drep,
                             value: deposit,
                         },
-                    )| (credential, (pool, drep, deposit, 0)),
+                    )| {
+                        (
+                            credential,
+                            (pool, drep.map(|drep| (drep, slot)), deposit, 0),
+                        )
+                    },
                 ),
                 dreps: self.state.dreps.registered.into_iter().map(
                     move |(
@@ -240,7 +246,7 @@ impl AnchoredVolatileState {
                             value: deposit,
                         },
                     ): (_, Bind<_, Empty, _>)| {
-                        (credential, (anchor, deposit, epoch))
+                        (credential, (anchor, deposit, slot, epoch))
                     },
                 ),
             },
