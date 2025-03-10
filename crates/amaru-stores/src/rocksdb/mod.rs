@@ -160,11 +160,16 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 ) -> Result<impl Iterator<Item = (K, V)> + use<'_, K, V>, StoreError> {
     Ok(db.prefix_iterator(prefix).map(|e| {
         let (key, value) = e.unwrap();
-        let key = cbor::decode(&key[PREFIX_LEN..])
+        let decoded_key = cbor::decode(&key[PREFIX_LEN..])
             .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
-        let value = cbor::decode(&value)
-            .unwrap_or_else(|e| panic!("unable to decode value ({}): {e:?}", hex::encode(&value)));
-        (key, value)
+        let decoded_value = cbor::decode(&value).unwrap_or_else(|e| {
+            panic!(
+                "unable to decode value ({}) for key ({}): {e:?}",
+                hex::encode(&key),
+                hex::encode(&value)
+            )
+        });
+        (decoded_key, decoded_value)
     }))
 }
 
