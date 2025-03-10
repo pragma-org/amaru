@@ -145,10 +145,7 @@ fn make_chain_selector(
 ) -> Arc<Mutex<ChainSelector<Header>>> {
     let mut builder = ChainSelectorBuilder::new();
 
-    match chain_store.load_header(&From::from(&tip)) {
-        None => panic!("Tip {:?} not found in chain store", tip),
-        Some(header) => builder.set_tip(&header),
-    };
+    load_tip_from_store(chain_store, tip, &mut builder);
 
     for peer in peers {
         builder.add_peer(peer);
@@ -158,6 +155,17 @@ fn make_chain_selector(
         Ok(chain_selector) => Arc::new(Mutex::new(chain_selector)),
         Err(e) => panic!("unable to build chain selector: {:?}", e),
     }
+}
+
+fn load_tip_from_store(
+    chain_store: &impl ChainStore<Header>,
+    tip: Point,
+    builder: &mut ChainSelectorBuilder<Header>,
+) {
+    match chain_store.load_header(&From::from(&tip)) {
+        None => panic!("Tip {:?} not found in chain store", tip),
+        Some(header) => builder.set_tip(&header),
+    };
 }
 
 pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationToken) {
