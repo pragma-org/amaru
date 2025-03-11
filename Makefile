@@ -60,3 +60,6 @@ bootstrap: import-headers import-nonces import-snapshots ## Bootstrap the node
 
 dev: ## Compile and run for development with default options
 	cargo run -- daemon --peer-address=$(AMARU_PEER_ADDRESS) --network=$(NETWORK)
+
+test-e2e: ## Run snapshot tests, assuming snapshots are available.
+	cargo test -p amaru -- --ignored
