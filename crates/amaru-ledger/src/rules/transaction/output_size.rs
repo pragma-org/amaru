@@ -1,5 +1,6 @@
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, TransactionBody, TransactionOutput,
+    cbor, output_lovelace, protocol_parameters::ProtocolParameters, TransactionBody,
+    TransactionOutput,
 };
 
 use crate::rules::TransactionRuleViolation;
@@ -14,6 +15,7 @@ impl Into<TransactionRuleViolation> for OutputTooSmall {
     }
 }
 
+// clean up clones, replace with lifetimes
 pub fn validate_output_size(
     transaction: &TransactionBody,
     protocol_parameters: &ProtocolParameters,
@@ -28,18 +30,7 @@ pub fn validate_output_size(
             cbor::encode(output, &mut bytes)
                 .unwrap_or_else(|_| panic!("Failed to serialize output"));
 
-            let lovelace = match output {
-                amaru_kernel::PseudoTransactionOutput::Legacy(legacy) => match legacy.amount {
-                    amaru_kernel::alonzo::Value::Coin(lovelace) => lovelace,
-                    amaru_kernel::alonzo::Value::Multiasset(lovelace, _) => lovelace,
-                },
-                amaru_kernel::PseudoTransactionOutput::PostAlonzo(post_alonzo) => {
-                    match post_alonzo.value {
-                        amaru_kernel::Value::Coin(lovelace) => lovelace,
-                        amaru_kernel::Value::Multiasset(lovelace, _) => lovelace,
-                    }
-                }
-            };
+            let lovelace = output_lovelace(output);
 
             lovelace <= bytes.len() as u64 * coins_per_utxo_byte
         })

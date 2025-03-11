@@ -17,12 +17,7 @@ impl Into<TransactionRuleViolation> for InvalidTransactionMetadata {
     }
 }
 
-// impl From<InvalidTransactionMetadata> for TransactionRuleViolation {
-//     fn from(value: InvalidTransactionMetadata) -> Self {
-//         TransactionRuleViolation::InvalidTransactionMetadata(value)
-//     }
-// }
-
+// TODO clean up clones, introduce lifetimes instead
 pub fn validate_metadata(
     transaction: &TransactionBody,
     auxilary_data: Option<AuxiliaryData>,
