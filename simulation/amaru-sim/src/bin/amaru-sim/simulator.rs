@@ -40,8 +40,9 @@ use tracing::trace;
 #[clap(bin_name = "amaru-sim")]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
-    /// Upstream peer addresses to synchronize from.
+    /// Upstream peer "addresses" to synchronize from.
     ///
+    /// These are not actual network addresses but rather identifiers for the peers.
     /// This option can be specified multiple times to connect to multiple peers.
     /// At least one peer address must be specified.
     #[arg(long, action = ArgAction::Append, required = true)]
