@@ -95,8 +95,8 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
 
     let mut sync_from_peers = crate::sync::Stage::new();
 
-    let chain_store =
-        RocksDBStore::new(args.chain_dir.clone()).expect("unable to open chain store");
+    let chain_store = RocksDBStore::new(args.chain_dir.clone())
+        .unwrap_or_else(|_| panic!("unable to open chain store at {}", args.chain_dir.display()));
     let chain_selector = make_chain_selector(
         Origin,
         &chain_store,
