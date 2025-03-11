@@ -41,6 +41,7 @@ jobs:
 
     # Remove old immutable chunks from the database, we don't need them and they make cache & on-disk system larger.
     - name: prune node db
+      if: steps.cache.outputs.cache-hit == 'true'
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
