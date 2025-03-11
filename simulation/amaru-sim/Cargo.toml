@@ -12,17 +12,26 @@ rust-version.workspace = true
 
 [dependencies]
 async-trait.workspace = true
+clap = { workspace = true, features = ["derive", "env"] }
 futures-util.workspace = true
 gasket = { workspace = true, features = ["derive"] }
+hex.workspace = true
+pallas-codec.workspace = true
+pallas-crypto.workspace = true
+pallas-primitives.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
-tokio-util.workspace = true
 tokio-stream.workspace = true
+tokio-util.workspace = true
 tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
 amaru = { path = "../../crates/amaru" }
+amaru-kernel = { path = "../../crates/amaru-kernel" }
+amaru-consensus = { path = "../../crates/amaru-consensus" }
+amaru-ledger = { path = "../../crates/amaru-ledger" }
+amaru-ouroboros = { path = "../../crates/ouroboros" }
 
 [dev-dependencies]
 envpath = { workspace = true, features = ["rand"] }
@@ -35,9 +44,10 @@ test-case.workspace = true
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
 
-[lib]
-name = "amaru_sim"
-path = "src/lib.rs"
+[[bin]]
+name = "simulator"
+path = "src/bin/amaru-sim/main.rs"
 
 [[bin]]
 name = "echo"
+path = "src/bin/echo/main.rs"

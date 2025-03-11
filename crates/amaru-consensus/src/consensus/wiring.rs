@@ -5,7 +5,7 @@ use tracing::Span;
 
 use super::header_validation::Consensus;
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum PullEvent {
     RollForward(Peer, Point, Vec<u8>, Span),
     Rollback(Peer, Point, Span),

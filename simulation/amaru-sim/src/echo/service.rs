@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{Envelope, Message, Message::*};
+use super::{EchoMessage, EchoMessage::*, Envelope};
 
 pub struct EchoService {
     node_id: String,
@@ -20,7 +20,7 @@ pub struct EchoService {
 }
 
 pub enum EchoError {
-    UnexpectedMessage(Message),
+    UnexpectedMessage(EchoMessage),
 }
 
 impl Default for EchoService {
@@ -37,7 +37,10 @@ impl EchoService {
         }
     }
 
-    pub fn handle_echo(&mut self, msg: Envelope) -> Result<Envelope, EchoError> {
+    pub fn handle_echo(
+        &mut self,
+        msg: Envelope<EchoMessage>,
+    ) -> Result<Envelope<EchoMessage>, EchoError> {
         match msg.body {
             Init {
                 msg_id,
@@ -60,14 +63,14 @@ impl EchoService {
         }
     }
 
-    fn init(&mut self, msg_id: u64, node_id: String, _node_ids: Vec<String>) -> Message {
+    fn init(&mut self, msg_id: u64, node_id: String, _node_ids: Vec<String>) -> EchoMessage {
         self.node_id = node_id;
         InitOk {
             in_reply_to: msg_id,
         }
     }
 
-    fn echo(&mut self, msg_id: u64, echo: String) -> Message {
+    fn echo(&mut self, msg_id: u64, echo: String) -> EchoMessage {
         self.count += 1;
         if self.count % 5 == 0 {
             EchoOk {
