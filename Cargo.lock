@@ -164,7 +164,6 @@ dependencies = [
  "amaru-kernel",
  "amaru-ledger",
  "amaru-ouroboros",
- "amaru-stores",
  "async-trait",
  "built",
  "clap",
