@@ -227,7 +227,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::{Hash, Nullable, RationalNumber};
+    use amaru_kernel::{prop_cbor_roundtrip, Hash, Nullable, RationalNumber};
     use proptest::prelude::*;
 
     prop_compose! {
@@ -298,15 +298,7 @@ mod tests {
         })
     }
 
-    proptest! {
-        #[test]
-        fn prop_roundtrip_cbor(row in any_row()) {
-            let mut bytes = Vec::new();
-            cbor::encode(&row, &mut bytes)
-                .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
-            assert_eq!(Ok(row), cbor::decode(&bytes).map_err(|e| e.to_string()));
-        }
-    }
+    prop_cbor_roundtrip!(Row, any_row());
 
     proptest! {
         #[test]

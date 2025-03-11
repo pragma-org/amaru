@@ -47,6 +47,7 @@ use std::{convert::Infallible, sync::LazyLock};
 
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
+pub mod macros;
 pub mod protocol_parameters;
 
 // Constants
