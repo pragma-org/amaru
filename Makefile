@@ -1,6 +1,7 @@
 NETWORK ?= preprod
 AMARU_PEER_ADDRESS ?= 127.0.0.1:3000
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
+DEMO_TARGET_EPOCH ?= 173
 HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
 
 .PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config
@@ -12,7 +13,7 @@ help:
 	@grep -E '^[a-zA-Z0-9 -]+:.*##'  Makefile | sort | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#')\n"; done
 	@echo ""
 	@echo "\033[1;4mConfiguration:\033[00m"
-	@grep -E '^[a-zA-Z0-9_]+ (:|\?)= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
+	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
 
 snapshots: ## Download snapshots
 	mkdir -p $@
@@ -63,3 +64,21 @@ dev: ## Compile and run for development with default options
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
 	cargo test -p amaru -- --ignored
+
+.ONESHELL:
+demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
+	@echo "      \033[1;32mTarget\033[00m epoch $(DEMO_TARGET_EPOCH)"
+	@set -eo pipefail
+	# Make sure amaru runs long enough so that snapshot tests can be executed
+	@AMARU_TRACE="amaru=debug" cargo run -- --with-json-traces daemon --peer-address=$(AMARU_PEER_ADDRESS) --network=$(NETWORK) | while read line; do
+		@EVENT=$$(echo $$line | jq -r '.fields.message' 2>/dev/null)
+		@SPAN=$$(echo $$line | jq -r '.spans[0].name' 2>/dev/null)
+		@if [ "$$EVENT" == "exit" ] && [ "$$SPAN" == "snapshot" ]; then
+			@EPOCH=$$(echo $$line | jq -r '.spans[0].epoch' 2>/dev/null)
+			@if [ "$$EPOCH" == "$(DEMO_TARGET_EPOCH)" ]; then
+				@echo "Target epoch reached, stopping the process."
+				@pkill -INT -P $$$$
+				@break
+			@fi
+		@fi
+	@done
