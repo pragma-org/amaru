@@ -15,6 +15,12 @@ env:
   CARGO_PROFILE_TEST_DEBUG: 0
   CARGO_PROFILE_RELEASE_LTO: true
   CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
+  RUST_CACHE_PATH: |
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+    target/
 
 jobs:
   sanity:
@@ -23,9 +29,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache/restore@v4
         with:
-          prefix-key: ${{ runner.os }}
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
       - name: Check format
         run: cargo fmt-amaru
       - name: Run clippy
@@ -66,9 +75,22 @@ jobs:
     runs-on: ${{ matrix.environments.runner }}
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+      # Cache dependencies when pushing (i.e. merging into allowed branch).
+      - uses: actions/cache@v4
+        if: ${{ github.event.push }}
         with:
-          prefix-key: ${{ runner.os }}-${{ matrix.environments.target }}
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-${{ matrix.environments.target }}
+          restore-keys: |
+            cargo-${{ matrix.environments.target }}
+      # Only restore cache for other types of events (e.g. Pull requests).
+      - uses: actions/cache/restore@v4
+        if: ${{ !github.event.push }}
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-${{ matrix.environments.target }}
+          restore-keys: |
+            cargo-${{ matrix.environments.target }}
       - name: Run tests
         run: |
           set +e
@@ -145,7 +167,12 @@ jobs:
               --socket-path /ipc/node.socket \
               --topology /config/topology.json
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
 
       - name: Build Amaru
         run: |
@@ -229,8 +256,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/cache/restore@v4
         with:
-          prefix-key: ${{ matrix.projects.path }}
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-wasm32-unknown-unknown
+          restore-keys: |
+            cargo-wasm32-unknown-unknown
       - name: Run commands
         run: ${{ matrix.projects.commands }}
