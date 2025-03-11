@@ -55,7 +55,7 @@ pub struct FakeStakeDistribution {
 
 impl FakeStakeDistribution {
     pub fn from_file(stake_distribution_file: &Path) -> Result<FakeStakeDistribution, Error> {
-        let file = File::open(stake_distribution_file).unwrap();
+        let file = File::open(stake_distribution_file).unwrap_or_else(|_| panic!("cannot find stake distribution file '{}', use --stake-distribution-file <FILE> to set the file to load distribution from", stake_distribution_file.display()));
 
         serde_json::from_reader(BufReader::new(file))
             .map(|pools: Vec<FakeStakePoolInfo>| FakeStakeDistribution::new(pools))
