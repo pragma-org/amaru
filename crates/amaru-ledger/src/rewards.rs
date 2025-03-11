@@ -669,7 +669,7 @@ impl RewardsSummary {
         info!(
             target: EVENT_TARGET,
             epoch = ?snapshot.epoch,
-            ?efficiency,
+            %efficiency,
             ?incentives,
             ?treasury_tax,
             ?total_rewards,
