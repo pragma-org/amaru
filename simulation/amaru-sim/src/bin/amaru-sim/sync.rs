@@ -17,8 +17,10 @@ use amaru_kernel::Point;
 use amaru_sim::echo::Envelope;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};
-use std::io;
-use tracing::{error, trace_span, Span};
+use tokio::io::stdin;
+use tokio_stream::StreamExt;
+use tokio_util::codec::{FramedRead, LinesCodec};
+use tracing::{error, trace, trace_span, Span};
 
 use crate::bytes::Bytes;
 
@@ -58,22 +60,27 @@ impl gasket::framework::Worker<Stage> for Worker {
     ) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
         // read one line of stdin which should be a JSON-formatted message from
         // some peer to our peer
-        let mut input = String::new();
         let span = trace_span!("pull-worker");
 
-        io::stdin()
-            .read_line(&mut input)
-            .map_err(|_| WorkerError::Recv)?;
+        let mut reader = FramedRead::new(stdin(), LinesCodec::new());
+        let input = reader.next().await;
 
-        match serde_json::from_str::<Envelope<ChainSyncMessage>>(input.as_str()) {
-            Ok(v) => {
-                let msg = mk_message(v, span)?;
-                Ok(WorkSchedule::Unit(WorkUnit::Send(msg)))
+        match input {
+            Some(input) => {
+                let line = input.map_err(|_| WorkerError::Retry)?;
+                trace!("input '{}'", line);
+                match serde_json::from_str::<Envelope<ChainSyncMessage>>(&line) {
+                    Ok(v) => {
+                        let msg = mk_message(v, span)?;
+                        Ok(WorkSchedule::Unit(WorkUnit::Send(msg)))
+                    }
+                    Err(err) => {
+                        error!("failed to deserialize input {}", err);
+                        Err(WorkerError::Recv)
+                    }
+                }
             }
-            Err(err) => {
-                error!("failed to deserialize input {}", err);
-                Err(WorkerError::Recv)
-            }
+            None => Err(WorkerError::Panic), // EOF
         }
     }
 
