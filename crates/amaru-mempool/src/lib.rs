@@ -13,13 +13,17 @@
 // limitations under the License.
 
 use std::collections::HashSet;
-use pallas_primitives::conway::{TransactionInput, Tx};
-use amaru_ledger::store::{Snapshot};
+use pallas_primitives::conway::{TransactionInput, TransactionOutput, Tx};
+
+pub trait State {
+    type Error;
+    fn utxo(&self, input: &TransactionInput) -> Result<TransactionOutput, Self::Error>;
+}
 
 pub trait Mempool {
     type AddTxError;
-    fn add_tx<S: Snapshot>(&mut self, snapshot: &S, tx: Tx) -> Result<(), Self::AddTxError>;
-    fn make_block<S: Snapshot>(&mut self, snapshot: &S) -> Option<Vec<Tx>>;
+    fn add_tx<S: State>(&mut self, state: &S, tx: Tx) -> Result<(), Self::AddTxError>;
+    fn make_block<S: State>(&mut self, state: &S) -> Option<Vec<Tx>>;
     fn invalidate_utxos(&mut self, txins: HashSet<TransactionInput>);
 }
 
@@ -36,14 +40,14 @@ impl SimpleMempool {
     }
 
     // Just check that each tx input exists
-    fn validate_tx<S: Snapshot>(&self, snapshot: &S, tx: &Tx) -> bool {
-        tx.transaction_body.inputs.iter().all(|input| snapshot.utxo(input).is_ok())
+    fn validate_tx<S: State>(&self, state: &S, tx: &Tx) -> bool {
+        tx.transaction_body.inputs.iter().all(|input| state.utxo(input).is_ok())
     }
 }
 
 impl Mempool for SimpleMempool {
     type AddTxError = &'static str;
-    fn add_tx<S: Snapshot>(&mut self, snapshot: &S, tx: Tx) -> Result<(), Self::AddTxError> {
+    fn add_tx<S: State>(&mut self, snapshot: &S, tx: Tx) -> Result<(), Self::AddTxError> {
         if !self.validate_tx(snapshot, &tx) {
             return Err("tx did not validate");
         }
@@ -51,7 +55,7 @@ impl Mempool for SimpleMempool {
         Ok(())
     }
 
-    fn make_block<S: Snapshot>(&mut self, _snapshot: &S) -> Option<Vec<Tx>> {
+    fn make_block<S: State>(&mut self, _snapshot: &S) -> Option<Vec<Tx>> {
         Some(self.transactions.clone())
     }
 
@@ -67,56 +71,30 @@ mod tests {
     use super::*;
     use pallas_primitives::{TransactionInput};
     use pallas_primitives::conway::{TransactionOutput, Tx};
-    use amaru_ledger::store::StoreError;
-    use amaru_ledger::store::columns::accounts;
-    use amaru_ledger::store::columns::pools;
-    use amaru_ledger::store::columns::slots;
+    use std::collections::HashMap;
 
-    struct TestSnapshot {
+    struct TestState {
         utxos: HashMap<TransactionInput, TransactionOutput>,
     }
 
+    impl State for TestState {
+        type Error = TestStateError;
+        fn utxo(&self, input: &TransactionInput) -> Result<TransactionOutput, TestStateError> {
+            self.utxos.get(input).ok_or(TestStateError{}).cloned()
+        }
+    }
+
     #[derive(Debug)]
-    struct TestStoreError {
+    struct TestStateError {
     }
 
-    impl std::fmt::Display for TestStoreError {
+    impl std::fmt::Display for TestStateError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-            write!(f, "TestStoreError")
+            write!(f, "TestStateError")
         }
     }
 
-    impl std::error::Error for TestStoreError {
-    }
-
-    impl Snapshot for TestSnapshot {
-        fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
-            match self.utxos.get(input) {
-                Some(ok) => Ok(Some(ok.clone())),
-                None => Err(StoreError::Internal(Box::new(TestStoreError{}))),
-            }
-        }
-        fn most_recent_snapshot(&self) -> u64 {
-            todo!()
-        }
-        fn pool(&self, _: &pallas_primitives::Hash<28>) -> Result<Option<pools::Row>, StoreError> {
-            todo!()
-        }
-        fn pots(&self) -> Result<Pots, StoreError> {
-            todo!()
-        }
-        fn iter_utxos(&self) -> Result<impl Iterator<Item = (TransactionInput, TransactionOutput)>, StoreError> {
-            todo!() as Result<Cloned<Iter<_>>, _>
-        }
-        fn iter_block_issuers(&self) -> Result<impl Iterator<Item = (u64, slots::Row)>, StoreError> {
-            todo!() as Result<Cloned<Iter<_>>, _>
-        }
-        fn iter_pools(&self) -> Result<impl Iterator<Item = (pallas_primitives::Hash<28>, pools::Row)>, StoreError> {
-            todo!() as Result<Cloned<Iter<_>>, _>
-        }
-        fn iter_accounts(&self) -> Result<impl Iterator<Item = (StakeCredential, accounts::Row)>, StoreError> {
-            todo!() as Result<Cloned<Iter<_>>, _>
-        }
+    impl std::error::Error for TestStateError {
     }
 
     fn make_empty_tx() -> Tx {
@@ -175,10 +153,6 @@ mod tests {
         tx.transaction_body.inputs = inputs.into();
     }
 
-    fn tx_add_output(tx: &mut Tx, output: TransactionOutput) {
-        tx.transaction_body.outputs.push(output);
-    }
-
     #[test]
     fn add_tx_success() {
         let mut mempool = SimpleMempool::new();
@@ -191,12 +165,12 @@ mod tests {
             },
             simple_output(1_000_000),
         );
-        let snapshot = TestSnapshot {
+        let state = TestState {
             utxos: utxos,
         };
-        let mut basic_tx = make_empty_tx();
-        let success = mempool.add_tx(&snapshot, basic_tx);
-        assert_eq!(success, true);
+        let basic_tx = make_empty_tx();
+        let success = mempool.add_tx(&state, basic_tx);
+        assert_eq!(success.is_ok(), true);
     }
 
     #[test]
@@ -211,7 +185,7 @@ mod tests {
             },
             simple_output(1_000_000),
         );
-        let snapshot = TestSnapshot {
+        let state = TestState {
             utxos: utxos,
         };
         let mut basic_tx = make_empty_tx();
@@ -219,8 +193,8 @@ mod tests {
             transaction_id: pallas_primitives::Hash::new(id),
             index: 1,
         });
-        let success = mempool.add_tx(&snapshot, basic_tx);
-        assert_eq!(success, false);
+        let success = mempool.add_tx(&state, basic_tx);
+        assert_eq!(success.is_ok(), false);
     }
 
     #[test]
@@ -237,7 +211,7 @@ mod tests {
             },
             simple_output(1_000_000),
         );
-        let snapshot = TestSnapshot {
+        let state = TestState {
             utxos: utxos,
         };
         let mut basic_tx = make_empty_tx();
@@ -245,7 +219,7 @@ mod tests {
             transaction_id: pallas_primitives::Hash::new(id),
             index: 0,
         });
-        mempool.add_tx(&snapshot, basic_tx);
+        let _ = mempool.add_tx(&state, basic_tx);
         let mut set = HashSet::new();
         set.insert(TransactionInput {
             transaction_id: pallas_primitives::Hash::new(id),
