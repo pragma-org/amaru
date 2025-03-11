@@ -77,7 +77,7 @@ jobs:
       - uses: actions/checkout@v4
       # Cache dependencies when pushing (i.e. merging into allowed branch).
       - uses: actions/cache@v4
-        if: ${{ github.event.push }}
+        if: ${{ github.event_name == "push" }}
         with:
           path: ${{ env.RUST_CACHE_PATH }}
           key: cargo-${{ matrix.environments.target }}
@@ -85,7 +85,7 @@ jobs:
             cargo-${{ matrix.environments.target }}
       # Only restore cache for other types of events (e.g. Pull requests).
       - uses: actions/cache/restore@v4
-        if: ${{ !github.event.push }}
+        if: ${{ github.event_name != "push" }}
         with:
           path: ${{ env.RUST_CACHE_PATH }}
           key: cargo-${{ matrix.environments.target }}
