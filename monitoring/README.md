@@ -33,6 +33,8 @@ But it will not match any of the following:
 - `amaru::sync`
 - `amaru::consensus`
 
+e.g. `AMARU_LOG="amaru::ledger::state::forward=info"` will filter out `target` **amaru::ledger::state::forward** with level bellow `info`.
+
 Refer to the tables below for the list of available targets.
 
 ### By severity
@@ -176,26 +178,36 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 
 #### Traces
 
+ø
+
+### target: `amaru::ledger::state::transaction::certificates`
+
+#### Spans
+
+ø
+
+#### Traces
+
 | name                               | severity | description                                          |
 | ---                                | ---      | ---                                                  |
-| `certificate.stake.registration`   | `trace`  | A new stake credential registration was processed    |
-| `certificate.stake.delegation`     | `trace`  | A new stake delegation was processed                 |
-| `certificate.stake.deregistration` | `trace`  | A new stake credential de-registration was processed |
-| `certificate.pool.registration`    | `trace`  | A new stake pool registration was processed          |
-| `certificate.pool.retirement`      | `trace`  | A new stake pool retirement was processed            |
-| `certificate.drep.registration`    | `trace`  | A new drep registration was processed                |
-| `certificate.drep.unregistration`  | `trace`  | A new drep unregistration was processed              |
-| `certificate.drep.update`          | `trace`  | A new drep anchor update was processed               |
-| `certificate.vote.delegation`      | `trace`  | A new vote delegation was processed                  |
+| `stake.registration`   | `trace`  | A new stake credential registration was processed    |
+| `stake.delegation`     | `trace`  | A new stake delegation was processed                 |
+| `stake.deregistration` | `trace`  | A new stake credential de-registration was processed |
+| `pool.registration`    | `trace`  | A new stake pool registration was processed          |
+| `pool.retirement`      | `trace`  | A new stake pool retirement was processed            |
+| `drep.registration`    | `trace`  | A new drep registration was processed                |
+| `drep.unregistration`  | `trace`  | A new drep unregistration was processed              |
+| `drep.update`          | `trace`  | A new drep anchor update was processed               |
+| `vote.delegation`      | `trace`  | A new vote delegation was processed                  |
 
-<details><summary>trace: `certificate.stake.registration`</summary>
+<details><summary>trace: `stake.registration`</summary>
 
 | field        | description                       |
 | ---          | ---                               |
 | `credential` | Stake credential being registered |
 </details>
 
-<details><summary>trace: `certificate.stake.delegation`</summary>
+<details><summary>trace: `stake.delegation`</summary>
 
 | field        | description                      |
 | ---          | ---                              |
@@ -203,14 +215,14 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `pool`       | Stake pool delegate              |
 </details>
 
-<details><summary>trace: `certificate.stake.deregistration`</summary>
+<details><summary>trace: `stake.deregistration`</summary>
 
 | field        | description                       |
 | ---          | ---                               |
 | `credential` | Stake credential being deregistered |
 </details>
 
-<details><summary>trace: `certificate.stake.registration`</summary>
+<details><summary>trace: `stake.registration`</summary>
 
 | field    | description                          |
 | ---      | ---                                  |
@@ -218,7 +230,7 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `params` | New or initial stake pool parameters |
 </details>
 
-<details><summary>trace: `certificate.stake.retirement`</summary>
+<details><summary>trace: `stake.retirement`</summary>
 
 | field   | description           |
 | ---     | ---                   |
