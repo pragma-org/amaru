@@ -228,6 +228,12 @@ jobs:
           docker stop cardano-node
           docker rm cardano-node
 
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push'
+        with:
+          path: ${{ runner.temp }}/db-${{ matrix.network }}
+          key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.timestamp.outputs.value }}
+
   examples:
     name: Examples
     strategy:
