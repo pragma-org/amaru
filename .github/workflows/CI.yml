@@ -195,26 +195,26 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-v2
+          key: ${{ runner.OS }}-ledger-cache-v2-${{ steps.timestamp.outputs.value }}
           restore-keys: |
             ${{ runner.OS }}-ledger-cache-v2
 
       - name: Full bootstrap amaru
-        if: steps.cache-ledger-db.outputs.cache-hit != 'true'
+        if: steps.cache-ledger-db.outputs.cache-hit == ''
         run: |
           make bootstrap
 
-      - if: steps.cache-ledger-db.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: ./ledger.db
-          key: ${{ runner.OS }}-ledger-cache-v2
-
       - name: Light bootstrap amaru
-        if: steps.cache-ledger-db.outputs.cache-hit == 'true'
+        if: steps.cache-ledger-db.outputs.cache-hit != ''
         run: |
           make import-headers
           make import-nonces
+
+      - uses: actions/cache/save@v4
+        if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
+        with:
+          path: ./ledger.db
+          key: ${{ runner.OS }}-ledger-cache-v2-${{ steps.timestamp.outputs.value }}
 
       - name: Run node
         timeout-minutes: 30
