@@ -11,14 +11,14 @@ We provide example configurations using different compositions of tools:
 
 Any event (trace, span or metric) can be filtered by target and severity using two environment variables:
 
-- `AMARU_LOG`: for any event emitted by the OpenTelemetry layer;
-- `AMARU_DEV_LOG`: for any event emitted to stdout;
+- `AMARU_TRACE`: for any event emitted by the OpenTelemetry layer;
+- `AMARU_LOG`: for any event emitted to stdout;
 
 > [!TIP]
 > Both environment variable are optional.
 >
-> - When omitted, `AMARU_LOG` defaults to all targets above the info level;
-> - When omitted, `AMARU_DEV_LOG` defaults to `AMARU_LOG`.
+> - When omitted, `AMARU_LOG` defaults to all **amaru** targets above the **debug** level;
+> - When omitted, `AMARU_LOG` defaults to all **amaru** targets above the **trace** level;
 
 ### By target
 
