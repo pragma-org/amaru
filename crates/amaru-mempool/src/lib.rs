@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use std::collections::HashSet;
-use pallas_primitives::conway::{TransactionInput, TransactionOutput, Tx};
+use amaru_kernel::{TransactionInput, TransactionOutput, Tx};
 
 pub trait State {
     type Error;

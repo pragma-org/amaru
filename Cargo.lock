@@ -127,6 +127,7 @@ dependencies = [
 name = "amaru-mempool"
 version = "0.1.0"
 dependencies = [
+ "amaru-kernel",
  "amaru-ledger",
  "pallas-primitives",
 ]
