@@ -19,15 +19,55 @@ use gasket::framework::*;
 use serde::{Deserialize, Serialize};
 use tokio::io::stdin;
 use tokio_stream::StreamExt;
-use tokio_util::codec::{FramedRead, LinesCodec};
-use tracing::{error, trace, trace_span, Span};
+use tokio_util::codec::{FramedRead, LinesCodec, LinesCodecError};
+use tracing::{error, info, trace_span, Span};
 
 use crate::bytes::Bytes;
+
+#[allow(dead_code)]
+#[derive(Debug)]
+pub enum InitError {
+    IOError(String),
+    DecodingError(String),
+    NotInitMessage(ChainSyncMessage),
+}
+
+pub async fn read_peer_addresses_from_init() -> Result<Vec<String>, InitError> {
+    let mut reader = FramedRead::new(stdin(), LinesCodec::new());
+    let input = reader.next().await;
+
+    let addresses = parse_peer_addresses(input);
+    info!("parsed peer addresses: {:?}", addresses);
+
+    addresses
+}
+
+fn parse_peer_addresses(
+    input: Option<Result<String, LinesCodecError>>,
+) -> Result<Vec<String>, InitError> {
+    use InitError::*;
+    match input {
+        Some(input) => {
+            let line = input.map_err(|e| IOError(e.to_string()))?;
+            match serde_json::from_str::<Envelope<ChainSyncMessage>>(&line) {
+                Ok(v) => match v.body {
+                    ChainSyncMessage::Init { node_ids, .. } => Ok(node_ids),
+                    msg => Err(NotInitMessage(msg)),
+                },
+                Err(err) => Err(DecodingError(format!(
+                    "failed to deserialize input ({}) {}",
+                    line, err
+                ))),
+            }
+        }
+        None => Ok(Vec::new()), // EOF
+    }
+}
 
 pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
 
 pub enum WorkUnit {
-    Send(PullEvent),
+    ReadLine,
 }
 
 #[derive(Stage)]
@@ -58,35 +98,42 @@ impl gasket::framework::Worker<Stage> for Worker {
         &mut self,
         _stage: &mut Stage,
     ) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
+        Ok(WorkSchedule::Unit(WorkUnit::ReadLine))
+    }
+
+    async fn execute(&mut self, _unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
         // read one line of stdin which should be a JSON-formatted message from
         // some peer to our peer
         let span = trace_span!("pull-worker");
 
         let mut reader = FramedRead::new(stdin(), LinesCodec::new());
-        let input = reader.next().await;
+        let next_input = reader.next().await;
 
-        match input {
+        match next_input {
             Some(input) => {
                 let line = input.map_err(|_| WorkerError::Retry)?;
-                trace!("input '{}'", line);
+                info!("input '{}'", line);
                 match serde_json::from_str::<Envelope<ChainSyncMessage>>(&line) {
                     Ok(v) => {
                         let msg = mk_message(v, span)?;
-                        Ok(WorkSchedule::Unit(WorkUnit::Send(msg)))
+                        info!("got message ({}) {:?}", line, msg);
+                        stage
+                            .downstream
+                            .send(msg.into())
+                            .await
+                            .map_err(|_| WorkerError::Retry)?;
+                        Ok(())
                     }
                     Err(err) => {
-                        error!("failed to deserialize input {}", err);
+                        error!("failed to deserialize input ({}) {}", line, err);
                         Err(WorkerError::Recv)
                     }
                 }
             }
-            None => Err(WorkerError::Panic), // EOF
-        }
-    }
-
-    async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
-        match unit {
-            WorkUnit::Send(event) => stage.downstream.send(event.clone().into()).await.or_panic(),
+            None => {
+                error!("EOF");
+                Err(WorkerError::Panic)
+            } // EOF
         }
     }
 }
@@ -214,5 +261,17 @@ mod test {
             }
             _ => panic!("expected RollForward event"),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn can_parse_init_message_with_some_peer_addresses() {
+        let input = r#"{"body":{"node_id":"c0","node_ids":["n1","n2"],"type":"init","msg_id":0},"dest":"c0","src":"c0"}"#;
+
+        let result = super::parse_peer_addresses(Some(Ok(input.to_string())));
+
+        assert_eq!(result.unwrap(), vec!["n1".to_string(), "n2".to_string()]);
     }
 }
