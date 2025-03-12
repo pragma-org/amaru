@@ -92,13 +92,14 @@ impl<S: Store> Stage<S> {
         let consumed_utxos = block
             .transaction_bodies
             .iter()
-            .flat_map(|body| body.inputs.deref())
+            .flat_map(|body| body.inputs.deref().clone())
             .collect::<HashSet<_>>();
 
-        self.mempool.invalidate_utxos(consumed_utxos);
-
         let result = match self.state.forward(&span_forward, &point, block) {
-            Ok(_) => BlockValidationResult::BlockValidated(point, parent.clone()),
+            Ok(_) => {
+                self.mempool.invalidate_utxos(consumed_utxos);
+                BlockValidationResult::BlockValidated(point, parent.clone())
+            },
             Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, parent.clone()),
         };
 
