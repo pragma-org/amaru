@@ -52,6 +52,7 @@ tracing-subscriber = "0.3.18"
 amaru-consensus = { path = "crates/amaru-consensus" }
 amaru-kernel = { path = "crates/amaru-kernel" }
 amaru-ledger = { path = "crates/amaru-ledger" }
+amaru-mempool = { path = "crates/amaru-mempool" }
 amaru-ouroboros = { path = "crates/ouroboros" }
 amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
 amaru-stores = { path = "crates/amaru-stores" }

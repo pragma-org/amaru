@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
@@ -11,6 +13,8 @@ use amaru_ledger::{
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 
+use amaru_mempool::{Mempool, SimpleMempool};
+
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
 
@@ -23,6 +27,7 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S>,
+    pub mempool: SimpleMempool,
 }
 
 impl<S: Store> gasket::framework::Stage for Stage<S> {
@@ -49,6 +54,7 @@ impl<S: Store> Stage<S> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
+                mempool: SimpleMempool::new(),
             },
             tip,
         )
@@ -83,8 +89,17 @@ impl<S: Store> Stage<S> {
         span_forward.record("header.slot", block.header.header_body.slot);
         span_forward.record("header.hash", hex::encode(block_header_hash));
 
+        let consumed_utxos = block
+            .transaction_bodies
+            .iter()
+            .flat_map(|body| body.inputs.deref().clone())
+            .collect::<HashSet<_>>();
+
         let result = match self.state.forward(&span_forward, &point, block) {
-            Ok(_) => BlockValidationResult::BlockValidated(point, parent.clone()),
+            Ok(_) => {
+                self.mempool.invalidate_utxos(consumed_utxos);
+                BlockValidationResult::BlockValidated(point, parent.clone())
+            },
             Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, parent.clone()),
         };
 
