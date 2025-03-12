@@ -24,11 +24,16 @@ jobs:
 
     - uses: actions/checkout@v4
 
+    - id: timestamp
+      shell: bash
+      run: |
+        echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
     - id: cache
-      uses: actions/cache/restore@v4
+      uses: actions/cache@v4
       with:
         path: ${{ runner.temp }}/db-${{ matrix.network }}
-        key: cardano-node-ogmios-${{ matrix.network }}
+        key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.timestamp.outputs.value }}
         restore-keys: |
           cardano-node-ogmios-${{ matrix.network }}
 
@@ -46,8 +51,3 @@ jobs:
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
         rm -f immutable/00*.chunk immutable/01*.chunk immutable/02*.chunk immutable/030*.chunk
-
-    - uses: actions/cache/save@v4
-      with:
-        path: ${{ runner.temp }}/db-${{ matrix.network }}
-        key: cardano-node-ogmios-${{ matrix.network }}
