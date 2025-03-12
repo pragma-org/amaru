@@ -10,11 +10,6 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Disable incremental compilation for faster from-scratch builds
-  CARGO_INCREMENTAL: 0
-  CARGO_PROFILE_TEST_DEBUG: 0
-  CARGO_PROFILE_RELEASE_LTO: true
-  CARGO_PROFILE_RELEASE_CODEGEN_UNITS: 1
   RUST_CACHE_PATH: |
     ~/.cargo/bin/
     ~/.cargo/registry/index/
@@ -185,7 +180,7 @@ jobs:
 
       - name: Build Amaru
         run: |
-          cargo build --locked
+          cargo test --no-run -p amaru --target x86_64-unknown-linux-gnu
 
       - name: Cache Amaru's ledger.db
         id: cache-ledger-db
