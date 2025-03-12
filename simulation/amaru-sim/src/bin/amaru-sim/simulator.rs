@@ -15,6 +15,7 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use crate::ledger::{FakeLedgerStage, FakeStakeDistribution};
+use crate::sync::read_peer_addresses_from_init;
 use amaru_consensus::peer::Peer;
 use amaru_consensus::{
     chain_forward,
@@ -29,7 +30,7 @@ use amaru_kernel::{
     Header,
     Point::{self, *},
 };
-use clap::{ArgAction, Parser};
+use clap::Parser;
 use gasket::runtime::Tether;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
@@ -40,14 +41,6 @@ use tracing::trace;
 #[clap(bin_name = "amaru-sim")]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
-    /// Upstream peer "addresses" to synchronize from.
-    ///
-    /// These are not actual network addresses but rather identifiers for the peers.
-    /// This option can be specified multiple times to connect to multiple peers.
-    /// At least one peer address must be specified.
-    #[arg(long, action = ArgAction::Append, required = true)]
-    peer_address: Vec<String>,
-
     /// Path of JSON-formatted stake distribution file.
     #[arg(long, default_value = "./stake_distribution.json")]
     stake_distribution_file: PathBuf,
@@ -62,7 +55,7 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) {
-    let sync = bootstrap(args);
+    let sync = bootstrap(args).await;
 
     let exit = amaru::exit::hook_exit_token();
 
@@ -87,7 +80,7 @@ fn define_gasket_policy() -> gasket::runtime::Policy {
     }
 }
 
-pub fn bootstrap(args: Args) -> Vec<Tether> {
+pub async fn bootstrap(args: Args) -> Vec<Tether> {
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
 
@@ -97,11 +90,13 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
 
     let chain_store = RocksDBStore::new(args.chain_dir.clone())
         .unwrap_or_else(|_| panic!("unable to open chain store at {}", args.chain_dir.display()));
+
+    let peer_addresses = read_peer_addresses_from_init().await.unwrap();
+
     let chain_selector = make_chain_selector(
         Origin,
         &chain_store,
-        &args
-            .peer_address
+        &peer_addresses
             .iter()
             .map(|a| Peer::new(&a.clone()))
             .collect::<Vec<_>>(),

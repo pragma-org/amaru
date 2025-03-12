@@ -1,7 +1,7 @@
 use crate::{peer::Peer, Point};
 use amaru_ledger::ValidateBlockEvent;
 use gasket::framework::*;
-use tracing::Span;
+use tracing::{info, Span};
 
 use super::header_validation::Consensus;
 
@@ -32,6 +32,7 @@ impl HeaderStage {
     }
 
     async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
+        info!("Handling event: {:?}", unit);
         let events = match unit {
             PullEvent::RollForward(peer, point, raw_header, span) => self
                 .consensus
