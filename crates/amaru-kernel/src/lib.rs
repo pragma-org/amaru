@@ -38,7 +38,7 @@ pub use pallas_primitives::{
         AddrKeyhash, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody, MintedBlock,
         MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, PoolMetadata,
         RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential, TransactionInput,
-        TransactionOutput, UnitInterval, Value, VrfKeyhash, WitnessSet,
+        TransactionOutput, Tx, UnitInterval, Value, VrfKeyhash, WitnessSet,
     },
 };
 
