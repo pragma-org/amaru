@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, DRep, Lovelace, PoolId, Slot, StakeCredential};
+use amaru_kernel::{cbor, CertificatePointer, DRep, Lovelace, PoolId, StakeCredential};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
@@ -22,7 +22,7 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = (
     Option<PoolId>,
-    Option<(DRep, Slot)>,
+    Option<(DRep, CertificatePointer)>,
     Option<Lovelace>,
     Lovelace,
 );
@@ -33,7 +33,7 @@ pub type Key = StakeCredential;
 pub struct Row {
     pub delegatee: Option<PoolId>,
     pub deposit: Lovelace,
-    pub drep: Option<(DRep, Slot)>,
+    pub drep: Option<(DRep, CertificatePointer)>,
     // FIXME: We probably want to use an arbitrarily-sized for rewards; Going
     // for a Lovelace (aliasing u64) for now as we are only demonstrating the
     // ledger-state storage capabilities and it doesn't *fundamentally* change
@@ -82,8 +82,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(test)]
 pub(crate) mod test {
+    use crate::store::columns::tests::any_certificate_pointer;
+
     use super::Row;
-    use amaru_kernel::{from_cbor, to_cbor, DRep, Hash, Lovelace, PoolId, Slot};
+    use amaru_kernel::{from_cbor, to_cbor, DRep, Hash, Lovelace, PoolId};
     use proptest::{option, prelude::*};
 
     proptest! {
@@ -99,7 +101,7 @@ pub(crate) mod test {
             delegatee in option::of(any_pool_id()),
             deposit in any::<Lovelace>(),
             drep in option::of(any_drep()),
-            drep_registered_at in  any::<Slot>(),
+            drep_registered_at in any_certificate_pointer(),
             rewards in any::<Lovelace>(),
         ) -> Row {
             Row {

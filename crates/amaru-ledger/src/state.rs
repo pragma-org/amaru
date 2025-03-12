@@ -191,7 +191,9 @@ impl<S: Store> State<S> {
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
         let relative_slot = amaru_kernel::relative_slot(point.slot_or_default());
 
-        let state = self.apply_block(span, block).map_err(StateError::Storage)?;
+        let state = self
+            .apply_block(span, relative_slot, block)
+            .map_err(StateError::Storage)?;
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
             let mut db = self.stable.lock().unwrap();
@@ -344,6 +346,7 @@ impl<S: Store> State<S> {
     fn apply_block(
         &self,
         parent: &Span,
+        slot: Slot,
         block: MintedBlock<'_>,
     ) -> Result<VolatileState, StoreError> {
         let failed_transactions = FailedTransactions::from_block(&block);
@@ -386,6 +389,8 @@ impl<S: Store> State<S> {
                 &span_apply_block,
                 failed_transactions.has(ix as u32),
                 transaction_id,
+                slot,
+                ix,
                 transaction_body,
                 resolved_collateral_inputs,
             );

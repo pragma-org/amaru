@@ -31,7 +31,7 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, (anchor, deposit, registered_at, epoch)) in rows {
+    for (credential, (anchor, register, epoch)) in rows {
         let key = as_key(&PREFIX, &credential);
 
         // In case where a registration already exists, then we must only update the underlying
@@ -42,13 +42,10 @@ pub fn add<DB>(
             .map(Row::unsafe_decode)
         {
             row.anchor = anchor;
-            if let Some(deposit) = deposit {
-                row.deposit = deposit;
-            }
             // Do not update the last interaction epoch as this is an existing DRep.
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
-        } else if let Some(deposit) = deposit {
+        } else if let Some((deposit, registered_at)) = register {
             let row = Row {
                 anchor,
                 deposit,

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Anchor, Epoch, Lovelace, Slot, StakeCredential};
+use amaru_kernel::{cbor, Anchor, CertificatePointer, Epoch, Lovelace, StakeCredential};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
@@ -20,7 +20,11 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Option<Anchor>, Option<Lovelace>, Slot, Epoch);
+pub type Value = (
+    Option<Anchor>,
+    Option<(Lovelace, CertificatePointer)>,
+    Epoch,
+);
 
 pub type Key = StakeCredential;
 
@@ -28,7 +32,7 @@ pub type Key = StakeCredential;
 pub struct Row {
     pub deposit: Lovelace,
     pub anchor: Option<Anchor>,
-    pub registered_at: Slot,
+    pub registered_at: CertificatePointer,
     pub last_interaction: Epoch,
 }
 
@@ -72,9 +76,11 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 }
 
 #[cfg(test)]
-pub(crate) mod test {
+pub mod test {
+    use crate::store::columns::tests::any_certificate_pointer;
+
     use super::Row;
-    use amaru_kernel::{from_cbor, to_cbor, Anchor, Epoch, Hash, Lovelace, Slot};
+    use amaru_kernel::{from_cbor, to_cbor, Anchor, Epoch, Hash, Lovelace};
     use proptest::{option, prelude::*, string};
 
     proptest! {
@@ -89,7 +95,7 @@ pub(crate) mod test {
         fn any_row()(
             deposit in any::<Lovelace>(),
             anchor in option::of(any_anchor()),
-            registered_at in any::<Slot>(),
+            registered_at in any_certificate_pointer(),
             last_interaction in any::<Epoch>(),
         ) -> Row {
             Row {

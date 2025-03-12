@@ -19,9 +19,9 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    output_lovelace, reward_account_to_stake_credential, Anchor, Certificate, DRep, Hash, Lovelace,
-    MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, StakeCredential,
-    TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    output_lovelace, reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer,
+    DRep, Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set,
+    Slot, StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -31,11 +31,14 @@ use tracing::{trace, trace_span, Span};
 
 const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
 
+#[allow(clippy::too_many_arguments)]
 pub fn apply(
     state: &mut VolatileState,
     parent: &Span,
     is_failed: bool,
     transaction_id: Hash<32>,
+    slot: Slot,
+    transaction_index: usize,
     mut transaction_body: MintedTransactionBody<'_>,
     resolved_collateral_inputs: Vec<TransactionOutput>,
 ) {
@@ -72,15 +75,23 @@ pub fn apply(
         .map(|xs| xs.to_vec())
         .unwrap_or_default();
     span.record("transaction.certificates", certificates.len());
-    certificates.into_iter().for_each(|certificate| {
-        apply_certificate(
-            &span,
-            &mut state.pools,
-            &mut state.accounts,
-            &mut state.dreps,
-            certificate,
-        )
-    });
+    certificates
+        .into_iter()
+        .enumerate()
+        .for_each(|(certificate_index, certificate)| {
+            apply_certificate(
+                &span,
+                &mut state.pools,
+                &mut state.accounts,
+                &mut state.dreps,
+                certificate,
+                CertificatePointer {
+                    slot,
+                    transaction_index,
+                    certificate_index,
+                },
+            )
+        });
 
     let withdrawals = transaction_body
         .withdrawals
@@ -198,9 +209,10 @@ fn apply_io_failed(
 fn apply_certificate(
     parent: &Span,
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
-    accounts: &mut DiffBind<StakeCredential, PoolId, DRep, Lovelace>,
-    dreps: &mut DiffBind<StakeCredential, Anchor, Empty, Lovelace>,
+    accounts: &mut DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
+    dreps: &mut DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
     certificate: Certificate,
+    pointer: CertificatePointer,
 ) {
     match certificate {
         Certificate::PoolRegistration {
@@ -252,34 +264,34 @@ fn apply_certificate(
         }
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
             let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
-            apply_certificate(parent, pools, accounts, dreps, drep_deleg);
+            apply_certificate(parent, pools, accounts, dreps, drep_deleg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            apply_certificate(parent, pools, accounts, dreps, pool_deleg);
+            apply_certificate(parent, pools, accounts, dreps, pool_deleg, pointer);
         }
         Certificate::StakeRegDeleg(credential, pool, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            apply_certificate(parent, pools, accounts, dreps, reg);
+            apply_certificate(parent, pools, accounts, dreps, reg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            apply_certificate(parent, pools, accounts, dreps, pool_deleg);
+            apply_certificate(parent, pools, accounts, dreps, pool_deleg, pointer);
         }
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            apply_certificate(parent, pools, accounts, dreps, reg);
+            apply_certificate(parent, pools, accounts, dreps, reg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
-            apply_certificate(parent, pools, accounts, dreps, pool_deleg);
+            apply_certificate(parent, pools, accounts, dreps, pool_deleg, pointer);
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            apply_certificate(parent, pools, accounts, dreps, drep_deleg);
+            apply_certificate(parent, pools, accounts, dreps, drep_deleg, pointer);
         }
         Certificate::VoteRegDeleg(credential, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            apply_certificate(parent, pools, accounts, dreps, reg);
+            apply_certificate(parent, pools, accounts, dreps, reg, pointer);
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            apply_certificate(parent, pools, accounts, dreps, drep_deleg);
+            apply_certificate(parent, pools, accounts, dreps, drep_deleg, pointer);
         }
         Certificate::RegDRepCert(credential, coin, anchor) => {
             trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, coin = ?coin, anchor = ?anchor, "drep.registration");
             dreps
-                .register(credential, coin, Option::from(anchor), None)
+                .register(credential, (coin, pointer), Option::from(anchor), None)
                 .unwrap();
         }
         Certificate::UnRegDRepCert(credential, coin) => {
@@ -292,7 +304,9 @@ fn apply_certificate(
         }
         Certificate::VoteDeleg(credential, drep) => {
             trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, "vote.delegation");
-            accounts.bind_right(credential, Some(drep)).unwrap();
+            accounts
+                .bind_right(credential, Some((drep, pointer)))
+                .unwrap();
         }
         // FIXME: Process other types of certificates
         Certificate::AuthCommitteeHot { .. } | Certificate::ResignCommitteeCold { .. } => {}

@@ -19,8 +19,8 @@ use super::{
 };
 use crate::store::{self, columns::*};
 use amaru_kernel::{
-    epoch_from_slot, Anchor, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, StakeCredential,
-    TransactionInput, TransactionOutput,
+    epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
+    StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::collections::{BTreeSet, VecDeque};
 
@@ -139,8 +139,8 @@ impl VolatileCache {
 pub struct VolatileState {
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
-    pub accounts: DiffBind<StakeCredential, PoolId, DRep, Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, Lovelace>,
+    pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
+    pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
     pub fees: Lovelace,
@@ -230,12 +230,7 @@ impl AnchoredVolatileState {
                             right: drep,
                             value: deposit,
                         },
-                    )| {
-                        (
-                            credential,
-                            (pool, drep.map(|drep| (drep, slot)), deposit, 0),
-                        )
-                    },
+                    )| { (credential, (pool, drep, deposit, 0)) },
                 ),
                 dreps: self.state.dreps.registered.into_iter().map(
                     move |(
@@ -246,7 +241,7 @@ impl AnchoredVolatileState {
                             value: deposit,
                         },
                     ): (_, Bind<_, Empty, _>)| {
-                        (credential, (anchor, deposit, slot, epoch))
+                        (credential, (anchor, deposit, epoch))
                     },
                 ),
             },

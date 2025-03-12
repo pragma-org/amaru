@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    epoch_from_slot, Anchor, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Set,
-    StakeCredential, TransactionInput, TransactionOutput, DREP_EXPIRY, STAKE_CREDENTIAL_DEPOSIT,
+    epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
+    Set, StakeCredential, TransactionInput, TransactionOutput, DREP_EXPIRY,
+    STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
     self,
@@ -406,8 +407,14 @@ fn import_dreps(
                     credential,
                     (
                         Option::from(state.anchor),
-                        Some(state.deposit),
-                        DEFAULT_DREP_REGISTERED_AT,
+                        Some((
+                            state.deposit,
+                            CertificatePointer {
+                                slot: DEFAULT_DREP_REGISTERED_AT,
+                                transaction_index: 0,
+                                certificate_index: 0,
+                            },
+                        )),
                         state.expiry - DREP_EXPIRY,
                     ),
                 )
@@ -533,8 +540,16 @@ fn import_accounts(
                     (
                         Option::<PoolId>::from(pool),
                         //No slot to retrieve. All registrations coming from snapshot are considered valid.
-                        Option::<DRep>::from(drep)
-                            .map(|drep| (drep, DEFAULT_DREP_REGISTERED_AT + 1)),
+                        Option::<DRep>::from(drep).map(|drep| {
+                            (
+                                drep,
+                                CertificatePointer {
+                                    slot: DEFAULT_DREP_REGISTERED_AT + 1,
+                                    transaction_index: 0,
+                                    certificate_index: 0,
+                                },
+                            )
+                        }),
                         Some(deposit),
                         rewards + rewards_update,
                     ),
