@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+use std::ops::Deref;
 use std::sync::Arc;
 
 use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
@@ -87,22 +89,13 @@ impl<S: Store> Stage<S> {
         span_forward.record("header.slot", block.header.header_body.slot);
         span_forward.record("header.hash", hex::encode(block_header_hash));
 
-        let bodies = match &block.transaction_bodies {
-            amaru_kernel::alonzo::MaybeIndefArray::Def(bodies) => {
-                bodies
-            }
-            amaru_kernel::alonzo::MaybeIndefArray::Indef(bodies) => {
-                bodies
-            }
-        };
+        let consumed_utxos = block
+            .transaction_bodies
+            .iter()
+            .flat_map(|body| body.inputs.deref())
+            .collect::<HashSet<_>>();
 
-        for body in bodies {
-            let mut hash_set = std::collections::HashSet::new();
-            for input in &body.inputs {
-                hash_set.insert(input.clone());
-            }
-            self.mempool.invalidate_utxos(hash_set)
-        }
+        self.mempool.invalidate_utxos(consumed_utxos);
 
         let result = match self.state.forward(&span_forward, &point, block) {
             Ok(_) => BlockValidationResult::BlockValidated(point, parent.clone()),

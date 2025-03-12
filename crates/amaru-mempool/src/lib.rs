@@ -24,7 +24,7 @@ pub trait Mempool {
     type AddTxError;
     fn add_tx<S: State>(&mut self, state: &S, tx: Tx) -> Result<(), Self::AddTxError>;
     fn make_block<S: State>(&mut self, state: &S) -> Option<Vec<Tx>>;
-    fn invalidate_utxos(&mut self, txins: HashSet<TransactionInput>);
+    fn invalidate_utxos(&mut self, txins: HashSet<&TransactionInput>);
 }
 
 #[derive(Clone, Debug)]
@@ -59,10 +59,13 @@ impl Mempool for SimpleMempool {
         Some(self.transactions.clone())
     }
 
-    fn invalidate_utxos(&mut self, txins: HashSet<TransactionInput>) {
-        self.transactions = self.transactions.clone().into_iter().filter(|tx| {
-            tx.transaction_body.inputs.iter().all(|input| !txins.contains(input))
-        }).collect();
+    fn invalidate_utxos(&mut self, txins: HashSet<&TransactionInput>) {
+        self.transactions.retain(|tx| {
+            tx.transaction_body
+                .inputs
+                .iter()
+                .all(|input| !txins.contains(input))
+        })
     }
 }
 
