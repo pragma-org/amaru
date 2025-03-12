@@ -51,6 +51,3 @@ jobs:
       with:
         path: ${{ runner.temp }}/db-${{ matrix.network }}
         key: cardano-node-ogmios-${{ matrix.network }}
-        restore-keys: |
-          cardano-node-ogmios-${{ matrix.network }}
-
