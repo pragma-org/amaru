@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
-use amaru_kernel::{Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use amaru_kernel::{
+    epoch_from_slot, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+};
 use amaru_ledger::{
     rewards::Pots,
     store::{
@@ -26,6 +28,7 @@ use common::{as_value, PREFIX_LEN};
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
 use std::{
+    collections::BTreeSet,
     fmt, fs,
     path::{Path, PathBuf},
 };
@@ -60,6 +63,10 @@ const DIR_LIVE_DB: &str = "live";
 pub struct RocksDB {
     /// The working directory where we store the various key/value stores.
     dir: PathBuf,
+
+    /// Whether to allow saving data incrementally (i.e. calling multiple times 'save' with the
+    /// same point). This is only sound when importing static data, but not when running live.
+    incremental_save: bool,
 
     /// An instance of RocksDB.
     db: OptimisticTransactionDB,
@@ -108,6 +115,7 @@ impl RocksDB {
         Ok(RocksDB {
             snapshots,
             dir: dir.to_path_buf(),
+            incremental_save: false,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
         })
@@ -120,6 +128,7 @@ impl RocksDB {
         Ok(RocksDB {
             snapshots: vec![],
             dir: dir.to_path_buf(),
+            incremental_save: true,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
         })
@@ -131,6 +140,7 @@ impl RocksDB {
 
         Ok(RocksDB {
             snapshots: vec![epoch],
+            incremental_save: false,
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
                 .map_err(|err| StoreError::Internal(err.into()))?,
@@ -150,11 +160,16 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 ) -> Result<impl Iterator<Item = (K, V)> + use<'_, K, V>, StoreError> {
     Ok(db.prefix_iterator(prefix).map(|e| {
         let (key, value) = e.unwrap();
-        let key = cbor::decode(&key[PREFIX_LEN..])
-            .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&key)));
-        let value = cbor::decode(&value)
-            .unwrap_or_else(|e| panic!("unable to decode object ({}): {e:?}", hex::encode(&value)));
-        (key, value)
+        let decoded_key = cbor::decode(&key[PREFIX_LEN..])
+            .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
+        let decoded_value = cbor::decode(&value).unwrap_or_else(|e| {
+            panic!(
+                "unable to decode value ({}) for key ({}): {e:?}",
+                hex::encode(&key),
+                hex::encode(&value)
+            )
+        });
+        (decoded_key, decoded_value)
     }))
 }
 
@@ -205,6 +220,13 @@ impl Snapshot for RocksDB {
     ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
     {
         iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
+    }
+
+    fn iter_dreps(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
+    {
+        iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
     }
 }
 
@@ -262,13 +284,16 @@ impl Store for RocksDB {
             impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
             impl Iterator<Item = scolumns::pools::Value>,
             impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
+            impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = scolumns::utxo::Key>,
             impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
             impl Iterator<Item = scolumns::accounts::Key>,
+            impl Iterator<Item = scolumns::dreps::Key>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
+        voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
         let batch = self.db.transaction();
 
@@ -286,7 +311,9 @@ impl Store for RocksDB {
             });
 
         match (point, tip) {
-            (Point::Specific(new, _), Some(Point::Specific(current, _))) if *new <= current => {
+            (Point::Specific(new, _), Some(Point::Specific(current, _)))
+                if *new <= current && !self.incremental_save =>
+            {
                 trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
@@ -304,13 +331,21 @@ impl Store for RocksDB {
 
                 utxo::add(&batch, add.utxo)?;
                 pools::add(&batch, add.pools)?;
-                accounts::add(&batch, add.accounts)?;
 
+                accounts::add(&batch, add.accounts)?;
                 accounts::reset(&batch, withdrawals)?;
+
+                dreps::add(&batch, add.dreps)?;
+                dreps::tick(
+                    &batch,
+                    voting_dreps,
+                    epoch_from_slot(point.slot_or_default()),
+                )?;
 
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
                 accounts::remove(&batch, remove.accounts)?;
+                dreps::remove(&batch, remove.dreps)?;
             }
         }
 
@@ -438,5 +473,12 @@ impl Store for RocksDB {
         with: impl FnMut(scolumns::slots::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
         with_prefix_iterator(self.db.transaction(), slots::PREFIX, with)
+    }
+
+    fn with_dreps(
+        &self,
+        with: impl FnMut(scolumns::dreps::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(self.db.transaction(), dreps::PREFIX, with)
     }
 }

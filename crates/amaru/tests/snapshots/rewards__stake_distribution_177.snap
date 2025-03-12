@@ -1,6 +1,6 @@
 ---
 source: crates/amaru/src/ledger/rewards.rs
-expression: snapshot
+expression: stake_distr
 ---
 {
   "epoch": 177,

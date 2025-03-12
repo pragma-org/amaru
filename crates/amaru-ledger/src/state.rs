@@ -24,14 +24,14 @@ use crate::{
     store::{columns::*, Store, StoreError},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, TransactionInput,
-    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
-    STABILITY_WINDOW,
+    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, StakeCredential,
+    TransactionInput, TransactionOutput, Voter, VotingProcedures, CONSENSUS_SECURITY_PARAM,
+    MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
     borrow::Cow,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeSet, HashSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
@@ -82,6 +82,19 @@ where
     /// for each key. On a distribution of 1M+ stake credentials, that's ~26MB of memory per
     /// duplicate.
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
+}
+
+fn select_stake_credentials(voting_procedures: &VotingProcedures) -> HashSet<StakeCredential> {
+    voting_procedures
+        .iter()
+        .filter_map(|(k, _)| match k {
+            Voter::DRepKey(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
+            Voter::DRepScript(hash) => Some(StakeCredential::ScriptHash(*hash)),
+            Voter::ConstitutionalCommitteeKey(..)
+            | Voter::ConstitutionalCommitteeScript(..)
+            | Voter::StakePoolKey(..) => None,
+        })
+        .collect()
 }
 
 impl<S: Store> State<S> {
@@ -178,7 +191,9 @@ impl<S: Store> State<S> {
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
         let relative_slot = amaru_kernel::relative_slot(point.slot_or_default());
 
-        let state = self.apply_block(span, block).map_err(StateError::Storage)?;
+        let state = self
+            .apply_block(span, point.slot_or_default(), block)
+            .map_err(StateError::Storage)?;
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
             let mut db = self.stable.lock().unwrap();
@@ -227,6 +242,7 @@ impl<S: Store> State<S> {
                 add,
                 remove,
                 withdrawals,
+                voting_dreps,
             } = now_stable.into_store_update();
 
             trace_span!(target: EVENT_TARGET, parent: span, "save").in_scope(|| {
@@ -236,6 +252,7 @@ impl<S: Store> State<S> {
                     add,
                     remove,
                     withdrawals,
+                    voting_dreps,
                 )
                 .and_then(|()| {
                     db.with_pots(|mut row| {
@@ -329,6 +346,7 @@ impl<S: Store> State<S> {
     fn apply_block(
         &self,
         parent: &Span,
+        absolute_slot: Slot,
         block: MintedBlock<'_>,
     ) -> Result<VolatileState, StoreError> {
         let failed_transactions = FailedTransactions::from_block(&block);
@@ -352,6 +370,15 @@ impl<S: Store> State<S> {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
             let transaction_body = transaction_body.unwrap();
 
+            let voting_dreps = transaction_body
+                .voting_procedures
+                .as_ref()
+                .map(select_stake_credentials)
+                .unwrap_or_default();
+            state.voting_dreps.extend(voting_dreps);
+
+            // TODO: Calculate votes for all pending  voting procedures per block ?
+
             let resolved_collateral_inputs = match transaction_body.collateral {
                 None => vec![],
                 Some(ref inputs) => self.resolve_inputs(&state, inputs.iter())?,
@@ -362,6 +389,8 @@ impl<S: Store> State<S> {
                 &span_apply_block,
                 failed_transactions.has(ix as u32),
                 transaction_id,
+                absolute_slot,
+                ix,
                 transaction_body,
                 resolved_collateral_inputs,
             );

@@ -18,12 +18,47 @@ use std::collections::{btree_map::Entry, BTreeMap, BTreeSet};
 /// another data-structure. Items can only be linked if they have been registered first. Yet, they
 /// can be unlinked without being unregistered.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffBind<K: Ord, J, V> {
-    pub registered: BTreeMap<K, (Option<J>, Option<V>)>,
+pub struct DiffBind<K: Ord, L, R, V> {
+    pub registered: BTreeMap<K, Bind<L, R, V>>,
     pub unregistered: BTreeSet<K>,
 }
 
-impl<K: Ord, J, V> Default for DiffBind<K, J, V> {
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Bind<L, R, V> {
+    pub left: Resettable<L>,
+    pub right: Resettable<R>,
+    pub value: Option<V>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Resettable<A> {
+    Set(A),
+    Reset,
+    Unchanged,
+}
+
+impl<A> Resettable<A> {
+    pub fn set_or_reset(self, value: &mut Option<A>) {
+        match self {
+            Resettable::Unchanged => (),
+            Resettable::Set(new) => *value = Some(new),
+            Resettable::Reset => *value = None,
+        };
+    }
+}
+
+impl<A> From<Option<A>> for Resettable<A> {
+    fn from(opt: Option<A>) -> Self {
+        match opt {
+            None => Resettable::Reset,
+            Some(r) => Resettable::Set(r),
+        }
+    }
+}
+
+pub struct Empty;
+
+impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
     fn default() -> Self {
         Self {
             registered: Default::default(),
@@ -32,26 +67,279 @@ impl<K: Ord, J, V> Default for DiffBind<K, J, V> {
     }
 }
 
-impl<K: Ord, J: Clone, V> DiffBind<K, J, V> {
-    pub fn register(&mut self, k: K, v: V, j: Option<J>) {
-        self.unregistered.remove(&k);
-        self.registered.insert(k, (j, Some(v)));
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("Key is already registered")]
+    KeyAlreadyRegistered,
+    #[error("Key is already unregistered")]
+    KeyAlreadyUnregistered,
+}
+
+impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
+    pub fn register(
+        &mut self,
+        key: K,
+        value: V,
+        left: Option<L>,
+        right: Option<R>,
+    ) -> Result<(), Error> {
+        if self.registered.contains_key(&key) {
+            return Err(Error::KeyAlreadyRegistered);
+        }
+
+        self.unregistered.remove(&key);
+        self.registered.insert(
+            key,
+            Bind {
+                left: Resettable::from(left),
+                right: Resettable::from(right),
+                value: Some(value),
+            },
+        );
+
+        Ok(())
     }
 
-    pub fn bind(&mut self, k: K, j: Option<J>) {
-        assert!(!self.unregistered.contains(&k));
-        match self.registered.entry(k) {
+    pub fn bind_left(&mut self, key: K, left: Option<L>) -> Result<(), Error> {
+        if self.unregistered.contains(&key) {
+            return Err(Error::KeyAlreadyUnregistered);
+        }
+
+        match self.registered.entry(key) {
             Entry::Occupied(mut e) => {
-                e.get_mut().0 = j;
+                e.get_mut().left = Resettable::from(left);
             }
             Entry::Vacant(e) => {
-                e.insert((j, None));
+                e.insert(Bind {
+                    left: Resettable::from(left),
+                    right: Resettable::Unchanged,
+                    value: None,
+                });
             }
         }
+
+        Ok(())
     }
 
-    pub fn unregister(&mut self, k: K) {
-        self.registered.remove(&k);
-        self.unregistered.insert(k);
+    pub fn bind_right(&mut self, key: K, right: Option<R>) -> Result<(), Error> {
+        if self.unregistered.contains(&key) {
+            return Err(Error::KeyAlreadyUnregistered);
+        }
+
+        match self.registered.entry(key) {
+            Entry::Occupied(mut e) => {
+                e.get_mut().right = Resettable::from(right);
+            }
+            Entry::Vacant(e) => {
+                e.insert(Bind {
+                    left: Resettable::Unchanged,
+                    right: Resettable::from(right),
+                    value: None,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn unregister(&mut self, key: K) {
+        self.registered.remove(&key);
+        self.unregistered.insert(key);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn register_some_left_then_bind_left() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind
+            .register(1, "value", Some("left_1"), None::<()>)
+            .unwrap();
+        diff_bind.bind_left(1, Some("left_2")).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Set("left_2"),
+                right: Resettable::Reset,
+                value: Some("value")
+            }),
+            diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn register_some_left_then_bind_right() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind
+            .register(1, "value", None::<()>, Some("right_1"))
+            .unwrap();
+        diff_bind.bind_right(1, Some("right_2")).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Reset,
+                right: Resettable::Set("right_2"),
+                value: Some("value")
+            }),
+            diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn register_some_left_then_unbind_left() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind
+            .register(1, "value", Some("left"), None::<()>)
+            .unwrap();
+        diff_bind.bind_left(1, None).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Reset,
+                right: Resettable::Reset,
+                value: Some("value")
+            }),
+            diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn register_some_right_then_unbind_right() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind
+            .register(1, "value", None::<()>, Some("right"))
+            .unwrap();
+        diff_bind.bind_right(1, None).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Reset,
+                right: Resettable::Reset,
+                value: Some("value")
+            }),
+            diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn register_then_unregister() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind
+            .register(1, "value", None::<()>, None::<()>)
+            .unwrap();
+        diff_bind.unregister(1);
+        assert!(diff_bind.unregistered.contains(&1));
+        assert!(diff_bind.registered.is_empty());
+    }
+
+    #[test]
+    fn register_none_then_bind_left() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.register(1, "value", None, None::<()>).unwrap();
+        diff_bind.bind_left(1, Some("left")).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Set("left"),
+                right: Resettable::Reset,
+                value: Some("value")
+            }),
+            diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn register_none_then_bind_right() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.register(1, "value", None::<()>, None).unwrap();
+        diff_bind.bind_right(1, Some("right")).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Reset,
+                right: Resettable::Set("right"),
+                value: Some("value")
+            }),
+            diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn register_none_then_bind_left_and_right() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.register(1, "value", None, None).unwrap();
+        diff_bind.bind_left(1, Some("left")).unwrap();
+        diff_bind.bind_right(1, Some("right")).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Set("left"),
+                right: Resettable::Set("right"),
+                value: Some("value")
+            }),
+            diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn bind_left_then_register_fails() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.bind_left(1, Some("left")).unwrap();
+        assert!(matches!(
+            diff_bind.register(1, "value", None, None::<()>),
+            Err(Error::KeyAlreadyRegistered { .. })
+        ));
+    }
+
+    #[test]
+    fn bind_right_then_register_fails() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.bind_right(1, Some("right")).unwrap();
+        assert!(matches!(
+            diff_bind.register(1, "value", None::<()>, None),
+            Err(Error::KeyAlreadyRegistered { .. })
+        ));
+    }
+
+    #[test]
+    fn bind_left_only() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.bind_left(1, Some("left")).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Set("left"),
+                right: Resettable::Unchanged::<()>,
+                value: None::<()>
+            }),
+            diff_bind.registered.get(&1)
+        );
+    }
+
+    #[test]
+    fn bind_right_only() {
+        let mut diff_bind = DiffBind::default();
+        diff_bind.bind_right(1, Some("right")).unwrap();
+        assert!(diff_bind.unregistered.is_empty());
+        assert!(diff_bind.registered.contains_key(&1));
+        assert_eq!(
+            Some(&Bind {
+                left: Resettable::Unchanged::<()>,
+                right: Resettable::Set("right"),
+                value: None::<()>
+            }),
+            diff_bind.registered.get(&1)
+        );
     }
 }

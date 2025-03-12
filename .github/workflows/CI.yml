@@ -176,7 +176,7 @@ jobs:
 
       - name: Build Amaru
         run: |
-          cargo build --release --locked
+          cargo build --locked
 
       - name: Cache Amaru's ledger.db
         id: cache-ledger-db
@@ -187,9 +187,9 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-v1
+          key: ${{ runner.OS }}-ledger-cache-v2
           restore-keys: |
-            ${{ runner.OS }}-ledger-cache-v1
+            ${{ runner.OS }}-ledger-cache-v2
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit != 'true'
@@ -200,7 +200,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ./ledger.db
-          key: ${{ runner.OS }}-ledger-cache-v1
+          key: ${{ runner.OS }}-ledger-cache-v2
 
       - name: Light bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == 'true'
@@ -212,26 +212,11 @@ jobs:
         timeout-minutes: 30
         shell: bash
         run: |
-          set -eo pipefail
-          # Make sure amaru runs long enough so that snapshot tests can be executed
-          AMARU_TRACE="amaru=debug" cargo run --release -- --with-json-traces daemon --peer-address=$AMARU_PEER_ADDRESS --network=${{ matrix.network }} | while read line; do
-            TARGET_EPOCH=173
-
-            EVENT=$(echo $line | jq -r '.fields.message' 2>/dev/null)
-            SPAN=$(echo $line | jq -r '.spans[0].name' 2>/dev/null)
-
-            if [ "$EVENT" == "exit" ] && [ "$SPAN" == "snapshot" ]; then
-              EPOCH=$(echo $line | jq -r '.spans[0].epoch' 2>/dev/null)
-              if [ "$EPOCH" == "$TARGET_EPOCH" ]; then
-                echo "Target epoch reached, stopping the process."
-                pkill -INT -P $$
-                break
-              fi
-            fi
-          done
+          make demo
 
       - name: Run tests
-        run: cargo test --release --locked -p amaru -- --ignored
+        run: |
+          make test-e2e
 
       - name: Teardown haskell node
         shell: bash

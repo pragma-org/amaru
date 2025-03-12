@@ -35,10 +35,11 @@ pub use pallas_primitives::{
     alonzo,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Block, Certificate, Coin, DRep, Epoch, ExUnits, HeaderBody, MintedBlock,
-        MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet, PoolMetadata,
-        RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential, TransactionInput,
-        TransactionOutput, UnitInterval, Value, VrfKeyhash, WitnessSet,
+        AddrKeyhash, Anchor, Block, Certificate, Coin, DRep, Epoch, ExUnits, GovActionId,
+        HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
+        PoolMetadata, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
+        TransactionInput, TransactionOutput, UnitInterval, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 
@@ -114,6 +115,9 @@ pub static PLEDGE_INFLUENCE: LazyLock<Ratio<BigUint>> =
 
 /// The optimal number of stake pools target for the incentives, a.k.a k
 pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
+
+/// Epoch duration after which inactive DReps are considered expired.
+pub const DREP_EXPIRY: u64 = 20;
 
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
@@ -344,6 +348,38 @@ impl serde::Serialize for PoolParams {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
+pub struct CertificatePointer {
+    pub slot: Slot,
+    pub transaction_index: usize,
+    pub certificate_index: usize,
+}
+
+impl<C> cbor::encode::Encode<C> for CertificatePointer {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(3)?;
+        e.encode_with(self.slot, ctx)?;
+        e.encode_with(self.transaction_index, ctx)?;
+        e.encode_with(self.certificate_index, ctx)?;
+        Ok(())
+    }
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let _len = d.array()?;
+        Ok(CertificatePointer {
+            slot: d.decode_with(ctx)?,
+            transaction_index: d.decode_with(ctx)?,
+            certificate_index: d.decode_with(ctx)?,
+        })
+    }
+}
+
 // Helpers
 // ----------------------------------------------------------------------------
 
@@ -472,5 +508,72 @@ pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
     ExUnits {
         mem: left.mem + right.mem,
         steps: left.steps + right.steps,
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn test_equal_pointers() {
+        let pointer = CertificatePointer {
+            slot: 42,
+            transaction_index: 0,
+            certificate_index: 0,
+        };
+        assert_eq!(pointer, pointer);
+    }
+
+    #[test]
+    fn test_pointer_accross_slots() {
+        let pointer = CertificatePointer {
+            slot: 42,
+            transaction_index: 0,
+            certificate_index: 0,
+        };
+        let pointer_after = CertificatePointer {
+            slot: 43,
+            transaction_index: 0,
+            certificate_index: 0,
+        };
+        assert!(pointer < pointer_after);
+    }
+
+    #[test]
+    fn test_pointer_accross_transactions() {
+        let pointer = CertificatePointer {
+            slot: 42,
+            transaction_index: 0,
+            certificate_index: 0,
+        };
+        let pointer_after = CertificatePointer {
+            slot: 42,
+            transaction_index: 1,
+            certificate_index: 0,
+        };
+        assert!(pointer < pointer_after);
+
+        let pointer_between = CertificatePointer {
+            slot: 42,
+            transaction_index: 0,
+            certificate_index: 5,
+        };
+        assert!(pointer_between < pointer_after);
+    }
+
+    #[test]
+    fn test_pointer_accross_certificates() {
+        let pointer = CertificatePointer {
+            slot: 42,
+            transaction_index: 0,
+            certificate_index: 0,
+        };
+        let pointer_after = CertificatePointer {
+            slot: 42,
+            transaction_index: 0,
+            certificate_index: 1,
+        };
+        assert!(pointer < pointer_after);
     }
 }

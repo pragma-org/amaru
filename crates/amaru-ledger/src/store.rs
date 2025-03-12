@@ -16,9 +16,11 @@ pub mod columns;
 
 use crate::rewards::Pots;
 pub use crate::rewards::{RewardsSummary, StakeDistribution};
-use amaru_kernel::{cbor, Epoch, Point, PoolId, TransactionInput, TransactionOutput};
+use amaru_kernel::{
+    cbor, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+};
 use columns::*;
-use std::{borrow::BorrowMut, io, iter};
+use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -83,6 +85,9 @@ pub trait Snapshot {
     fn iter_accounts(
         &self,
     ) -> Result<impl Iterator<Item = (accounts::Key, accounts::Row)>, StoreError>;
+
+    /// Get details about all dreps
+    fn iter_dreps(&self) -> Result<impl Iterator<Item = (dreps::Key, dreps::Row)>, StoreError>;
 }
 
 pub trait Store: Snapshot + Send + Sync {
@@ -101,13 +106,16 @@ pub trait Store: Snapshot + Send + Sync {
             impl Iterator<Item = (utxo::Key, utxo::Value)>,
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
+            impl Iterator<Item = (dreps::Key, dreps::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
+            impl Iterator<Item = dreps::Key>,
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
+        voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError>;
 
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when
@@ -149,6 +157,9 @@ pub trait Store: Snapshot + Send + Sync {
 
     /// Provide an access to iterate over utxo, similar to 'with_pools'.
     fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), StoreError>;
+
+    /// Provide an access to iterate over dreps, similar to 'with_pools'.
+    fn with_dreps(&self, with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<(), StoreError>;
 }
 
 // Columns
@@ -156,18 +167,22 @@ pub trait Store: Snapshot + Send + Sync {
 
 /// A summary of all database columns, in a single struct. This can be derived to provide updates
 /// operations on multiple columns in a single db-transaction.
-pub struct Columns<U, P, A> {
+pub struct Columns<U, P, A, D> {
     pub utxo: U,
     pub pools: P,
     pub accounts: A,
+    pub dreps: D,
 }
 
-impl<U, P, A> Default for Columns<iter::Empty<U>, iter::Empty<P>, iter::Empty<A>> {
+impl<U, P, A, D> Default
+    for Columns<iter::Empty<U>, iter::Empty<P>, iter::Empty<A>, iter::Empty<D>>
+{
     fn default() -> Self {
         Self {
             utxo: iter::empty(),
             pools: iter::empty(),
             accounts: iter::empty(),
+            dreps: iter::empty(),
         }
     }
 }

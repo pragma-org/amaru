@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_ledger::{
+    governance::DRepsSummary,
     rewards::StakeDistribution,
     store::{RewardsSummary, Snapshot},
 };
@@ -66,10 +67,10 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[test_case(169)]
 #[test_case(170)]
 #[test_case(171)]
+#[test_case(172)]
 // FIXME: re-enable once governance is implemented, we must be able to track proposal refunds in
 // order to get those snapshots right.
 //
-// #[test_case(172)]
 // #[test_case(173)]
 // #[test_case(174)]
 // #[test_case(175)]
@@ -80,9 +81,15 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[ignore]
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
-    let snapshot = StakeDistribution::new(db(epoch).as_ref()).unwrap();
-    insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), snapshot);
+    let stake_distr = StakeDistribution::new(db(epoch).as_ref()).unwrap();
+    insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), stake_distr);
 
-    let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), snapshot).unwrap();
-    insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
+    let dreps = DRepsSummary::new(db(epoch).as_ref()).unwrap();
+    insta::assert_json_snapshot!(format!("dreps_{}", epoch), dreps);
+
+    // FIXME: remove this condition once we're able to proceed beyond Epoch 173.
+    if epoch < 171 {
+        let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), stake_distr).unwrap();
+        insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
+    }
 }
