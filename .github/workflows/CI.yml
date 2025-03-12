@@ -75,12 +75,16 @@ jobs:
     runs-on: ${{ matrix.environments.runner }}
     steps:
       - uses: actions/checkout@v4
+      - id: timestamp
+        shell: bash
+        run: |
+          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
       # Cache dependencies when pushing (i.e. merging into allowed branch).
       - uses: actions/cache@v4
         if: github.event_name == 'push'
         with:
           path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-${{ matrix.environments.target }}
+          key: cargo-${{ matrix.environments.target }}-${{ steps.timestamp.outputs.value }}
           restore-keys: |
             cargo-${{ matrix.environments.target }}
       # Only restore cache for other types of events (e.g. Pull requests).
