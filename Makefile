@@ -68,7 +68,7 @@ test-e2e: ## Run snapshot tests, assuming snapshots are available.
 .ONESHELL:
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 	@echo "      \033[1;32mTarget\033[00m epoch $(DEMO_TARGET_EPOCH)"
-	@set -eo pipefail
+	@set -e
 	# Make sure amaru runs long enough so that snapshot tests can be executed
 	@AMARU_TRACE="amaru=debug" cargo run -- --with-json-traces daemon --peer-address=$(AMARU_PEER_ADDRESS) --network=$(NETWORK) | while read line; do
 		@EVENT=$$(echo $$line | jq -r '.fields.message' 2>/dev/null)
