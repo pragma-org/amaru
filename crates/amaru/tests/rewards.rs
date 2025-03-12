@@ -67,10 +67,10 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[test_case(169)]
 #[test_case(170)]
 #[test_case(171)]
+#[test_case(172)]
 // FIXME: re-enable once governance is implemented, we must be able to track proposal refunds in
 // order to get those snapshots right.
 //
-// #[test_case(172)]
 // #[test_case(173)]
 // #[test_case(174)]
 // #[test_case(175)]
