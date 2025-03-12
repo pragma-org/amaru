@@ -65,20 +65,5 @@ dev: ## Compile and run for development with default options
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
 	cargo test -p amaru -- --ignored
 
-.ONESHELL:
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
-	@echo "      \033[1;32mTarget\033[00m epoch $(DEMO_TARGET_EPOCH)"
-	@set -e
-	# Make sure amaru runs long enough so that snapshot tests can be executed
-	@AMARU_TRACE="amaru=debug" cargo run -- --with-json-traces daemon --peer-address=$(AMARU_PEER_ADDRESS) --network=$(NETWORK) | while read line; do
-		@EVENT=$$(echo $$line | jq -r '.fields.message' 2>/dev/null)
-		@SPAN=$$(echo $$line | jq -r '.spans[0].name' 2>/dev/null)
-		@if [ "$$EVENT" == "exit" ] && [ "$$SPAN" == "snapshot" ]; then
-			@EPOCH=$$(echo $$line | jq -r '.spans[0].epoch' 2>/dev/null)
-			@if [ "$$EPOCH" == "$(DEMO_TARGET_EPOCH)" ]; then
-				@echo "Target epoch reached, stopping the process."
-				@pkill -INT -P $$$$
-				@break
-			@fi
-		@fi
-	@done
+	./scripts/demo.sh $(AMARU_PEER_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
