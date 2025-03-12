@@ -183,9 +183,10 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | `certificate.stake.deregistration` | `trace`  | A new stake credential de-registration was processed |
 | `certificate.pool.registration`    | `trace`  | A new stake pool registration was processed          |
 | `certificate.pool.retirement`      | `trace`  | A new stake pool retirement was processed            |
-| `drep.registration`                | `trace`  | A new drep registration was processed                |
-| `drep.unregistration`              | `trace`  | A new drep unregistration was processed              |
-| `drep.update`                      | `trace`  | A new drep anchor update was processed               |
+| `certificate.drep.registration`    | `trace`  | A new drep registration was processed                |
+| `certificate.drep.unregistration`  | `trace`  | A new drep unregistration was processed              |
+| `certificate.drep.update`          | `trace`  | A new drep anchor update was processed               |
+| `certificate.vote.delegation`      | `trace`  | A new vote delegation was processed                  |
 
 <details><summary>trace: `certificate.stake.registration`</summary>
 
@@ -223,6 +224,32 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 | ---     | ---                   |
 | `pool`  | Stake pool identifier |
 | `epoch` | Retirement epoch      |
+</details>
+
+<details><summary>trace: `certificate.drep.registration`</summary>
+
+| field    | description                      |
+| ---      | ---                              |
+| `drep`   | DRep identifier being retired    |
+| `refund` | Mandatory Lovelace refund amount |
+</details>
+
+<details><summary>trace: `certificate.drep.retirement`</summary>
+
+| field     | description                                  |
+| ---       | ---                                          |
+| `drep`    | DRep identifier being registered             |
+| `deposit` | Mandatory Lovelace deposit amount            |
+| `anchor`  | An optional DRep anchor (URL + content hash) |
+</details>
+
+
+<details><summary>trace: `certificate.vote.delegation`</summary>
+
+| field        | description                      |
+| ---          | ---                              |
+| `credential` | Stake credential being delegated |
+| `drep`       | Target drep for delegation       |
 </details>
 
 ### target: `amaru::ledger::store`

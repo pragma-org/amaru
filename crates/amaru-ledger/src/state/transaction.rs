@@ -288,22 +288,22 @@ fn apply_certificate(
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
             apply_certificate(parent, pools, accounts, dreps, drep_deleg, pointer);
         }
-        Certificate::RegDRepCert(credential, coin, anchor) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, coin = ?coin, anchor = ?anchor, "drep.registration");
+        Certificate::RegDRepCert(drep, deposit, anchor) => {
+            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, deposit = ?deposit, anchor = ?anchor, "certificate.drep.registration");
             dreps
-                .register(credential, (coin, pointer), Option::from(anchor), None)
+                .register(drep, (deposit, pointer), Option::from(anchor), None)
                 .unwrap();
         }
-        Certificate::UnRegDRepCert(credential, coin) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, coin = ?coin, "drep.unregistration");
-            dreps.unregister(credential);
+        Certificate::UnRegDRepCert(drep, refund) => {
+            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, refund = ?refund, "certificate.drep.retirement");
+            dreps.unregister(drep);
         }
-        Certificate::UpdateDRepCert(credential, anchor) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, anchor = ?anchor, "drep.update");
-            dreps.bind_left(credential, Option::from(anchor)).unwrap();
+        Certificate::UpdateDRepCert(drep, anchor) => {
+            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, anchor = ?anchor, "certificate.drep.update");
+            dreps.bind_left(drep, Option::from(anchor)).unwrap();
         }
         Certificate::VoteDeleg(credential, drep) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, "vote.delegation");
+            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, drep = ?drep, "certificate.vote.delegation");
             accounts
                 .bind_right(credential, Some((drep, pointer)))
                 .unwrap();
