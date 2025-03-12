@@ -136,6 +136,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - id: timestamp
+        shell: bash
+        run: |
+          echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
       - name: Restore cardano-node DB
         id: cache-cardano-node-db
         uses: actions/cache/restore@v4
