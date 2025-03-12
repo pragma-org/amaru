@@ -192,7 +192,7 @@ impl<S: Store> State<S> {
         let relative_slot = amaru_kernel::relative_slot(point.slot_or_default());
 
         let state = self
-            .apply_block(span, relative_slot, block)
+            .apply_block(span, point.slot_or_default(), block)
             .map_err(StateError::Storage)?;
 
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
@@ -346,7 +346,7 @@ impl<S: Store> State<S> {
     fn apply_block(
         &self,
         parent: &Span,
-        slot: Slot,
+        absolute_slot: Slot,
         block: MintedBlock<'_>,
     ) -> Result<VolatileState, StoreError> {
         let failed_transactions = FailedTransactions::from_block(&block);
@@ -389,7 +389,7 @@ impl<S: Store> State<S> {
                 &span_apply_block,
                 failed_transactions.has(ix as u32),
                 transaction_id,
-                slot,
+                absolute_slot,
                 ix,
                 transaction_body,
                 resolved_collateral_inputs,

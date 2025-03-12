@@ -27,6 +27,7 @@ impl DRepsSummary {
             .filter_map(|(credential, account)| {
                 account.drep.and_then(|(drep, since)| {
                     let registered_at = dreps.get(&drep);
+
                     if let Some(registered_at) = registered_at {
                         if since >= *registered_at {
                             // This is a registration with a previous registration of this DRep, it must be renewed

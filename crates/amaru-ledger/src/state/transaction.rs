@@ -37,7 +37,7 @@ pub fn apply(
     parent: &Span,
     is_failed: bool,
     transaction_id: Hash<32>,
-    slot: Slot,
+    absolute_slot: Slot,
     transaction_index: usize,
     mut transaction_body: MintedTransactionBody<'_>,
     resolved_collateral_inputs: Vec<TransactionOutput>,
@@ -86,7 +86,7 @@ pub fn apply(
                 &mut state.dreps,
                 certificate,
                 CertificatePointer {
-                    slot,
+                    slot: absolute_slot,
                     transaction_index,
                     certificate_index,
                 },
