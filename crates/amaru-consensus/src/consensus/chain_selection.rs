@@ -342,17 +342,11 @@ where
         let mut best: Option<(Peer, H)> = None;
         for (peer, fragment) in self.peers_chains.iter() {
             let best_height = best.as_ref().map_or(0, |(_, tip)| tip.block_height());
-            if fragment.height() > best_height {
-                // FIXME: height is necessarily greater than 0, therefore tip
-                // can only be a header and not Genesis. How can I statically
-                // enforce this?
-                match fragment.tip() {
-                    Tip::Hdr(header) => {
-                        best = Some((peer.clone(), header.clone()));
-                    }
-                    #[allow(clippy::panic)]
-                    Tip::Genesis => panic!("Fragment has no tip"),
+            match fragment.tip() {
+                Tip::Hdr(header) if fragment.height() > best_height => {
+                    best = Some((peer.clone(), header.clone()));
                 }
+                Tip::Genesis | Tip::Hdr(_) => (),
             }
         }
         best

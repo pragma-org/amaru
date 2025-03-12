@@ -12,42 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, sync::Arc};
 
-use crate::ledger::{FakeLedgerStage, FakeStakeDistribution};
-use amaru_consensus::peer::Peer;
-use amaru_consensus::{
-    chain_forward,
-    consensus::{
-        chain_selection::{ChainSelector, ChainSelectorBuilder},
-        header_validation::Consensus,
-        store::{rocksdb::RocksDBStore, ChainStore},
-        wiring::HeaderStage,
-    },
+use crate::ledger::FakeStakeDistribution;
+use crate::sync::{
+    mk_message, read_peer_addresses_from_init, MessageReader, OutputWriter, StdinMessageReader,
 };
+use amaru_consensus::consensus::wiring::PullEvent;
+use amaru_consensus::consensus::{
+    chain_selection::{ChainSelector, ChainSelectorBuilder},
+    header_validation::Consensus,
+    store::{rocksdb::RocksDBStore, ChainStore},
+};
+use amaru_consensus::peer::Peer;
 use amaru_kernel::{
     Header,
     Point::{self, *},
 };
-use clap::{ArgAction, Parser};
-use gasket::runtime::Tether;
+use amaru_sim::echo::Envelope;
+use clap::Parser;
 use tokio::sync::Mutex;
-use tokio_util::sync::CancellationToken;
-use tracing::trace;
+use tracing::info;
 
 #[derive(Debug, Parser)]
 #[clap(name = "Amaru Simulator")]
 #[clap(bin_name = "amaru-sim")]
 #[clap(author, version, about, long_about = None)]
 pub struct Args {
-    /// Upstream peer "addresses" to synchronize from.
-    ///
-    /// These are not actual network addresses but rather identifiers for the peers.
-    /// This option can be specified multiple times to connect to multiple peers.
-    /// At least one peer address must be specified.
-    #[arg(long, action = ArgAction::Append, required = true)]
-    peer_address: Vec<String>,
-
     /// Path of JSON-formatted stake distribution file.
     #[arg(long, default_value = "./stake_distribution.json")]
     stake_distribution_file: PathBuf,
@@ -62,81 +53,93 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) {
-    let sync = bootstrap(args);
+    let consensus = bootstrap(args);
 
-    let exit = amaru::exit::hook_exit_token();
-
-    run_pipeline(gasket::daemon::Daemon::new(sync), exit.clone()).await;
+    consensus.await;
 }
 
-fn define_gasket_policy() -> gasket::runtime::Policy {
-    let retries = gasket::retries::Policy {
-        max_retries: 20,
-        backoff_unit: std::time::Duration::from_secs(1),
-        backoff_factor: 2,
-        max_backoff: std::time::Duration::from_secs(60),
-        dismissible: false,
-    };
+pub async fn bootstrap(args: Args) {
+    let mut input_reader = StdinMessageReader::new();
 
-    gasket::runtime::Policy {
-        //be generous with tick timeout to avoid timeout during block awaits
-        tick_timeout: std::time::Duration::from_secs(600).into(),
-        bootstrap_retry: retries.clone(),
-        work_retry: retries.clone(),
-        teardown_retry: retries.clone(),
-    }
-}
-
-pub fn bootstrap(args: Args) -> Vec<Tether> {
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
 
-    let mut ledger = FakeLedgerStage::new();
-
-    let mut sync_from_peers = crate::sync::Stage::new();
-
     let chain_store = RocksDBStore::new(args.chain_dir.clone())
         .unwrap_or_else(|_| panic!("unable to open chain store at {}", args.chain_dir.display()));
+
+    let peer_addresses = read_peer_addresses_from_init(&mut input_reader)
+        .await
+        .unwrap();
+
+    info!("using upstream peer addresses: {:?}", peer_addresses);
+
     let chain_selector = make_chain_selector(
         Origin,
         &chain_store,
-        &args
-            .peer_address
+        &peer_addresses
             .iter()
             .map(|a| Peer::new(&a.clone()))
             .collect::<Vec<_>>(),
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let consensus = Consensus::new(
+    let mut consensus = Consensus::new(
         vec![],
         Box::new(stake_distribution),
         chain_ref.clone(),
         chain_selector,
     );
 
-    let mut consensus_stage = HeaderStage::new(consensus);
+    run_simulator(&mut input_reader, &mut consensus).await;
+}
 
-    let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
+async fn run_simulator(input_reader: &mut impl MessageReader, consensus: &mut Consensus) {
+    let mut output_writer = OutputWriter::new();
+    loop {
+        let span = tracing::info_span!("simulator");
+        match input_reader.read().await {
+            Err(err) => {
+                tracing::error!("Error reading message: {:?}", err);
+                break;
+            }
+            Ok(msg) => {
+                let events = match mk_message(msg, span) {
+                    Ok(event) => match event {
+                        PullEvent::RollForward(peer, point, raw_header, span) => {
+                            consensus
+                                .handle_roll_forward(&peer, &point, &raw_header, &span)
+                                .await
+                        }
+                        PullEvent::Rollback(peer, rollback, span) => {
+                            consensus.handle_roll_back(&peer, &rollback, &span).await
+                        }
+                    },
+                    Err(_) => todo!(),
+                };
 
-    let (to_consensus, from_peers) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
-
-    sync_from_peers.downstream.connect(to_consensus);
-    consensus_stage.upstream.connect(from_peers);
-    consensus_stage.downstream.connect(to_ledger);
-    ledger.upstream.connect(from_header_validation);
-    ledger.downstream.connect(to_block_forward);
-    block_forward.upstream.connect(from_ledger);
-
-    let policy = define_gasket_policy();
-
-    let chain_sync = gasket::runtime::spawn_stage(sync_from_peers, policy.clone());
-    let header_validation = gasket::runtime::spawn_stage(consensus_stage, policy.clone());
-    let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
-    let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());
-
-    vec![chain_sync, header_validation, ledger, block_forward]
+                match events {
+                    Ok(events) => {
+                        output_writer
+                            .write(
+                                events
+                                    .iter()
+                                    .map(|e| Envelope {
+                                        src: "n1".to_string(),
+                                        dest: "".to_string(),
+                                        body: e.into(),
+                                    })
+                                    .collect(),
+                            )
+                            .await;
+                    }
+                    Err(e) => {
+                        tracing::error!("Error processing event: {:?}", e);
+                        return;
+                    }
+                }
+            }
+        }
+    }
+    info!("no more messages to process, exiting");
 }
 
 fn make_chain_selector(
@@ -170,24 +173,4 @@ fn load_tip_from_store<'a>(
             Some(header) => builder.set_tip(&header),
         },
     }
-}
-
-pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationToken) {
-    loop {
-        tokio::select! {
-            _ = tokio::time::sleep(Duration::from_secs(5000)) => {
-                if pipeline.should_stop() {
-                    break;
-                }
-            }
-            _ = exit.cancelled() => {
-                trace!("exit requested");
-                break;
-            }
-        }
-    }
-
-    trace!("shutting down pipeline");
-
-    pipeline.teardown();
 }
