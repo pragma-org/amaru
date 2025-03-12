@@ -37,25 +37,26 @@ pub fn add<DB>(
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(Row::unsafe_decode)
         {
-            // NOTE: One cannot remove a delegatee or a drep. So if an update contains a `None`
-            // delegatee or drep, then there's actually nothing to do. Crucially, we shall not
-            // erase either of the drep or the delegatee when binding the other for the first
-            // time.
-            row.delegatee = delegatee.or(row.delegatee);
-            row.drep = drep.or(row.drep);
+            delegatee.set_or_reset(&mut row.delegatee);
+            drep.set_or_reset(&mut row.drep);
 
             if let Some(deposit) = deposit {
                 row.deposit = deposit;
             }
+
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else if let Some(deposit) = deposit {
-            let row = Row {
-                delegatee,
+            let mut row = Row {
                 deposit,
-                drep,
+                delegatee: None,
+                drep: None,
                 rewards,
             };
+
+            delegatee.set_or_reset(&mut row.delegatee);
+            drep.set_or_reset(&mut row.drep);
+
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {

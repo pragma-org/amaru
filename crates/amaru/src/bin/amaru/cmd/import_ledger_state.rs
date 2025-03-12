@@ -19,6 +19,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     self,
+    state::diff_bind::Resettable,
     store::{
         Store, {self},
     },
@@ -406,7 +407,7 @@ fn import_dreps(
                 (
                     credential,
                     (
-                        Option::from(state.anchor),
+                        Resettable::from(Option::from(state.anchor)),
                         Some((
                             state.deposit,
                             CertificatePointer {
@@ -538,9 +539,9 @@ fn import_accounts(
                 (
                     credential,
                     (
-                        Option::<PoolId>::from(pool),
+                        Resettable::from(Option::<PoolId>::from(pool)),
                         //No slot to retrieve. All registrations coming from snapshot are considered valid.
-                        Option::<DRep>::from(drep).map(|drep| {
+                        Resettable::from(Option::<DRep>::from(drep).map(|drep| {
                             (
                                 drep,
                                 CertificatePointer {
@@ -549,7 +550,7 @@ fn import_accounts(
                                     certificate_index: 0,
                                 },
                             )
-                        }),
+                        })),
                         Some(deposit),
                         rewards + rewards_update,
                     ),

@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::state::diff_bind::Resettable;
 use amaru_kernel::{cbor, CertificatePointer, DRep, Lovelace, PoolId, StakeCredential};
 use iter_borrow::IterBorrow;
 
@@ -21,8 +22,8 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = (
-    Option<PoolId>,
-    Option<(DRep, CertificatePointer)>,
+    Resettable<PoolId>,
+    Resettable<(DRep, CertificatePointer)>,
     Option<Lovelace>,
     Lovelace,
 );

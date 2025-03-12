@@ -41,17 +41,18 @@ pub fn add<DB>(
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(Row::unsafe_decode)
         {
-            row.anchor = anchor;
+            anchor.set_or_reset(&mut row.anchor);
             // Do not update the last interaction epoch as this is an existing DRep.
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else if let Some((deposit, registered_at)) = register {
-            let row = Row {
-                anchor,
+            let mut row = Row {
+                anchor: None,
                 deposit,
                 registered_at,
                 last_interaction: epoch,
             };
+            anchor.set_or_reset(&mut row.anchor);
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {
