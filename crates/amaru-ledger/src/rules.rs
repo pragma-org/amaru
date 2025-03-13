@@ -1,33 +1,38 @@
 mod block;
 mod transaction;
 
-use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, Hash, Hasher, MintedBlock,
-    MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
-};
-use block::{
-    body_size::{block_body_size_valid, BlockBodySizeMismatch},
-    ex_units::*,
-    header_size::{block_header_size_valid, BlockHeaderSizeTooBig},
-};
 use std::ops::Deref;
-use tracing::{instrument, Level};
-use transaction::{
-    disjoint_ref_inputs::{disjoint_ref_inputs, NonDisjointRefInputs},
-    metadata::{validate_metadata, InvalidTransactionMetadata},
-    output_size::{validate_output_size, OutputTooSmall},
-};
 
+use amaru_kernel::{
+    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, Hasher,
+    MintedBlock, MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
+};
+use amaru_kernel::{TransactionInput, TransactionOutput};
+use block::{body_size::block_body_size_valid, ex_units::*, header_size::block_header_size_valid};
+use thiserror::Error;
+use tracing::{instrument, Level};
+use transaction::{disjoint_ref_inputs::disjoint_ref_inputs, metadata::validate_metadata};
+use transaction::{metadata::InvalidTransactionMetadata, output_size::validate_output_size};
+
+#[derive(Debug, Error)]
 pub enum BlockValidationError {
+    #[error("Serialization error")]
     SerializationError,
+    #[error("Rule Violations: {0:?}")]
     RuleViolations(Vec<RuleViolation>),
+    #[error("Cascading rule violations: root: {0:?}, resulting error(s): {1:?}")]
     Composite(RuleViolation, Box<BlockValidationError>),
 }
 
+#[derive(Debug, Error)]
 pub enum RuleViolation {
-    BlockBodySizeMismatch(BlockBodySizeMismatch),
-    BlockHeaderSizeTooBig(BlockHeaderSizeTooBig),
-    TooManyExUnitsBlock(TooManyExUnits),
+    #[error("Block body size mismatch: supplied {supplied}, actual {actual}")]
+    BlockBodySizeMismatch { supplied: usize, actual: usize },
+    #[error("Block header size too big: supplied {supplied}, max {max}")]
+    BlockHeaderSizeTooBig { supplied: usize, max: usize },
+    #[error("Too many execution units in block: provided {provided:?}, max {max:?}")]
+    TooManyExUnitsBlock { provided: ExUnits, max: ExUnits },
+    #[error("Invalid transaction (hash: {transaction_hash:?}, index: {transaction_index}): {violation} ")]
     InvalidTransaction {
         transaction_hash: Hash<32>,
         transaction_index: u32,
@@ -35,10 +40,18 @@ pub enum RuleViolation {
     },
 }
 
+#[derive(Debug, Error)]
 pub enum TransactionRuleViolation {
-    NonDisjointRefInputs(NonDisjointRefInputs),
-    OutputTooSmall(OutputTooSmall),
-    InvalidTransactionMetadata(InvalidTransactionMetadata),
+    #[error(
+        "Inputs included in both reference inputs and spent inputs: intersection {intersection:?}"
+    )]
+    NonDisjointRefInputs { intersection: Vec<TransactionInput> },
+    #[error("Outputs too small: outputs {outputs_too_small:?}")]
+    OutputTooSmall {
+        outputs_too_small: Vec<TransactionOutput>,
+    },
+    #[error("Invalid transaction metadata: {0}")]
+    InvalidTransactionMetadata(#[from] InvalidTransactionMetadata),
 }
 
 impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
@@ -126,9 +139,9 @@ pub fn validate_transaction(
     _is_valid: bool,
     protocol_params: &ProtocolParameters,
 ) -> Result<(), TransactionRuleViolation> {
-    validate_metadata(transaction_body, auxiliary_data).map_err(|err| err.into())?;
-    disjoint_ref_inputs(transaction_body).map_err(|err| err.into())?;
-    validate_output_size(transaction_body, protocol_params).map_err(|err| err.into())?;
+    validate_metadata(transaction_body, auxiliary_data)?;
+    disjoint_ref_inputs(transaction_body)?;
+    validate_output_size(transaction_body, protocol_params)?;
 
     Ok(())
 }
@@ -179,7 +192,13 @@ mod tests {
             validate_block(bytes.as_slice(), pp).is_err_and(|e| match e {
                 BlockValidationError::RuleViolations(violations) => {
                     violations.iter().any(|rule_violation| {
-                        matches!(rule_violation, RuleViolation::BlockHeaderSizeTooBig(_))
+                        matches!(
+                            rule_violation,
+                            RuleViolation::BlockHeaderSizeTooBig {
+                                supplied: _,
+                                max: _
+                            }
+                        )
                     })
                 }
                 _ => false,

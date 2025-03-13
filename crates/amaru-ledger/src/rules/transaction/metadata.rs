@@ -1,20 +1,17 @@
 use amaru_kernel::{AuxiliaryData, Bytes, ComputeHash, Hash, MintedTransactionBody};
+use thiserror::Error;
 
-use crate::rules::TransactionRuleViolation;
-
+#[derive(Error, Debug)]
 pub enum InvalidTransactionMetadata {
+    #[error("Missing metadata: auxiliary data hash {0}")]
     MissingTransactionMetadata(Bytes),
+    #[error("Missing auxiliary data hash: metadata hash {0}")]
     MissingTransactionAuxiliaryDataHash(Hash<32>),
+    #[error("Metadata hash mismatch: supplied {supplied:?} expected {expected:?}")]
     ConflictingMetadataHash {
         supplied: Hash<32>,
         expected: Hash<32>,
     },
-}
-
-impl Into<TransactionRuleViolation> for InvalidTransactionMetadata {
-    fn into(self) -> TransactionRuleViolation {
-        TransactionRuleViolation::InvalidTransactionMetadata(self)
-    }
 }
 
 pub fn validate_metadata(

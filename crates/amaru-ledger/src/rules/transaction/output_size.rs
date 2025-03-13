@@ -5,20 +5,10 @@ use amaru_kernel::{
 
 use crate::rules::TransactionRuleViolation;
 
-pub struct OutputTooSmall {
-    pub outputs_too_small: Vec<TransactionOutput>,
-}
-
-impl Into<TransactionRuleViolation> for OutputTooSmall {
-    fn into(self) -> TransactionRuleViolation {
-        TransactionRuleViolation::OutputTooSmall(self)
-    }
-}
-
 pub fn validate_output_size(
     transaction: &MintedTransactionBody<'_>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), OutputTooSmall> {
+) -> Result<(), TransactionRuleViolation> {
     let coins_per_utxo_byte = protocol_parameters.coins_per_utxo_byte;
     let outputs_too_small = transaction
         .outputs
@@ -32,7 +22,7 @@ pub fn validate_output_size(
     if outputs_too_small.is_empty() {
         Ok(())
     } else {
-        Err(OutputTooSmall {
+        Err(TransactionRuleViolation::OutputTooSmall {
             outputs_too_small: outputs_too_small
                 .into_iter()
                 .cloned()

@@ -1,20 +1,10 @@
-use amaru_kernel::{MintedTransactionBody, TransactionInput};
+use amaru_kernel::MintedTransactionBody;
 
 use crate::rules::TransactionRuleViolation;
 
-pub struct NonDisjointRefInputs {
-    pub intersection: Vec<TransactionInput>,
-}
-
-impl Into<TransactionRuleViolation> for NonDisjointRefInputs {
-    fn into(self) -> TransactionRuleViolation {
-        TransactionRuleViolation::NonDisjointRefInputs(self)
-    }
-}
-
 pub fn disjoint_ref_inputs(
     transaction: &MintedTransactionBody<'_>,
-) -> Result<(), NonDisjointRefInputs> {
+) -> Result<(), TransactionRuleViolation> {
     let intersection = match &transaction.reference_inputs {
         Some(ref_inputs) => ref_inputs
             .iter()
@@ -25,7 +15,7 @@ pub fn disjoint_ref_inputs(
     };
 
     if !intersection.is_empty() {
-        Err(NonDisjointRefInputs { intersection })
+        Err(TransactionRuleViolation::NonDisjointRefInputs { intersection })
     } else {
         Ok(())
     }
