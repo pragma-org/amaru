@@ -113,7 +113,7 @@ pub fn validate_block(
             .map(|key_pair| key_pair.1.clone());
 
         validate_transaction(
-            &transaction,
+            transaction,
             witness_set,
             auxiliary_data,
             is_valid,

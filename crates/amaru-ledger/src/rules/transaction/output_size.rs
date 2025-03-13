@@ -16,6 +16,7 @@ impl Into<TransactionRuleViolation> for OutputTooSmall {
 }
 
 // clean up clones, replace with lifetimes
+#[allow(clippy::panic)]
 pub fn validate_output_size(
     transaction: &TransactionBody,
     protocol_parameters: &ProtocolParameters,
