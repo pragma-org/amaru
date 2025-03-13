@@ -790,9 +790,9 @@ impl RewardsSummary {
     /// Return leftovers rewards that couldn't be allocated to account because they no longer
     /// exist. This method consumes (i.e. takes ownership) of the item because it is meant to be
     /// called last.
-    pub fn unclaimed_rewards(self) -> Lovelace {
+    pub fn unclaimed_rewards(&self) -> Lovelace {
         self.accounts
-            .into_iter()
+            .iter()
             .fold(0, |total, (_, rewards)| total + rewards)
     }
 }

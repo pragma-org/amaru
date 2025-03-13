@@ -314,7 +314,7 @@ where
     /// If the chain of the peer is still the longest, the function will return a
     /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
     /// tip of the chain.
-    #[instrument(level = Level::TRACE, skip(self), fields(peer = peer.name, %point))]
+    #[instrument(level = Level::TRACE, skip_all, fields(peer = peer.name, %point))]
     #[allow(clippy::unwrap_used)]
     pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> RollbackChainSelection<H> {
         use RollbackChainSelection::*;
@@ -342,7 +342,7 @@ where
         result
     }
 
-    #[instrument(level = Level::TRACE, skip(self))]
+    #[instrument(level = Level::TRACE, skip_all)]
     fn find_best_chain(&self) -> Option<(Peer, H)> {
         let mut best: Option<(Peer, H)> = None;
         for (peer, fragment) in self.peers_chains.iter() {

@@ -1,4 +1,4 @@
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, Hash, Point};
 use amaru_ledger::{
     rules,
     state::{self, BackwardError},
@@ -7,12 +7,11 @@ use amaru_ledger::{
 };
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
 use std::sync::Arc;
-use tracing::{trace_span, Span};
+use tracing::{instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
-
-const EVENT_TARGET: &str = "amaru::ledger";
 
 pub struct Stage<S>
 where
@@ -53,55 +52,30 @@ impl<S: Store> Stage<S> {
     }
 
     #[allow(clippy::panic)]
+    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = ?point.slot_or_default(), point.hash = %Hash::<32>::from(&point), header.height, header.slot, header.hash))]
     pub async fn roll_forward(
         &mut self,
         point: Point,
         raw_block: RawBlock,
-        parent: &Span,
     ) -> BlockValidationResult {
-        // TODO: use instrument macro
-        let span_forward = trace_span!(
-            target: EVENT_TARGET,
-            parent: parent,
-            "forward",
-            header.height = tracing::field::Empty,
-            header.slot = tracing::field::Empty,
-            header.hash = tracing::field::Empty,
-            stable.epoch = tracing::field::Empty,
-            tip.epoch = tracing::field::Empty,
-            tip.relative_slot = tracing::field::Empty,
-        )
-        .entered();
-
         let (block_header_hash, block) =
             rules::validate_block(&raw_block[..], ProtocolParameters::default())
                 .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
 
-        span_forward.record("header.height", block.header.header_body.block_number);
-        span_forward.record("header.slot", block.header.header_body.slot);
-        span_forward.record("header.hash", hex::encode(block_header_hash));
+        let current_span = Span::current();
 
-        let result = match self.state.forward(&span_forward, &point, block) {
-            Ok(()) => BlockValidationResult::BlockValidated(point, parent.clone()),
-            Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, parent.clone()),
-        };
+        current_span.record("header.height", block.header.header_body.block_number);
+        current_span.record("header.slot", block.header.header_body.slot);
+        current_span.record("header.hash", hex::encode(block_header_hash));
 
-        span_forward.exit();
-        result
+        match self.state.forward(&point, block) {
+            Ok(()) => BlockValidationResult::BlockValidated(point, current_span),
+            Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, current_span),
+        }
     }
 
+    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = point.slot_or_default(), point.hash = %Hash::<32>::from(&point)))]
     pub async fn rollback_to(&mut self, point: Point) -> BlockValidationResult {
-        let span_backward = trace_span!(
-            target: EVENT_TARGET,
-            "backward",
-            point.slot = point.slot_or_default(),
-            point.hash = tracing::field::Empty,
-        );
-
-        if let Point::Specific(_, header_hash) = &point {
-            span_backward.record("point.hash", hex::encode(header_hash));
-        }
-
         match self.state.backward(&point) {
             Ok(_) => BlockValidationResult::RolledBackTo(point),
             Err(BackwardError::UnknownRollbackPoint(_)) => {
@@ -127,6 +101,11 @@ impl<S: Store> gasket::framework::Worker<Stage<S>> for Worker {
         Ok(WorkSchedule::Unit(unit.payload))
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "pipeline.execute"
+    )]
     async fn execute(
         &mut self,
         unit: &ValidateBlockEvent,
@@ -134,9 +113,9 @@ impl<S: Store> gasket::framework::Worker<Stage<S>> for Worker {
     ) -> Result<(), WorkerError> {
         let result = match unit {
             ValidateBlockEvent::Validated(point, raw_block, parent_span) => {
-                stage
-                    .roll_forward(point.clone(), raw_block.to_vec(), parent_span)
-                    .await
+                // Restore parent span
+                Span::current().set_parent(parent_span.context());
+                stage.roll_forward(point.clone(), raw_block.to_vec()).await
             }
 
             ValidateBlockEvent::Rollback(point) => stage.rollback_to(point.clone()).await,
