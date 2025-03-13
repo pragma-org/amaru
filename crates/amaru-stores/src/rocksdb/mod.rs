@@ -285,12 +285,14 @@ impl Store for RocksDB {
             impl Iterator<Item = scolumns::pools::Value>,
             impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
             impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
+            impl Iterator<Item = (scolumns::committees::Key, scolumns::committees::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = scolumns::utxo::Key>,
             impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
             impl Iterator<Item = scolumns::accounts::Key>,
             impl Iterator<Item = scolumns::dreps::Key>,
+            impl Iterator<Item = scolumns::committees::Key>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
@@ -331,8 +333,9 @@ impl Store for RocksDB {
 
                 utxo::add(&batch, add.utxo)?;
                 pools::add(&batch, add.pools)?;
-
                 accounts::add(&batch, add.accounts)?;
+                committees::add(&batch, add.committees)?;
+
                 accounts::reset(&batch, withdrawals)?;
 
                 dreps::add(&batch, add.dreps)?;
