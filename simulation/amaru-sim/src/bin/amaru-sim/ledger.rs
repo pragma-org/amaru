@@ -15,9 +15,7 @@
 use std::{fs::File, io::BufReader, path::Path};
 
 use amaru_kernel::RationalNumber;
-use amaru_ledger::{BlockValidationResult, ValidateBlockEvent};
 use amaru_ouroboros::{HasStakeDistribution, PoolSummary};
-use gasket::framework::*;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
@@ -100,64 +98,6 @@ impl HasStakeDistribution for FakeStakeDistribution {
 
     fn latest_opcert_sequence_number(&self, _pool: &amaru_kernel::PoolId) -> Option<u64> {
         todo!()
-    }
-}
-
-// Fake ledger
-
-type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
-
-type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
-
-#[derive(Stage)]
-#[stage(name = "pull", unit = "ValidateBlockEvent", worker = "Worker")]
-pub struct FakeLedgerStage {
-    pub upstream: UpstreamPort,
-    pub downstream: DownstreamPort,
-}
-
-impl FakeLedgerStage {
-    pub fn new() -> Self {
-        Self {
-            upstream: UpstreamPort::default(),
-            downstream: DownstreamPort::default(),
-        }
-    }
-}
-
-pub struct Worker {}
-
-#[async_trait::async_trait(?Send)]
-impl gasket::framework::Worker<FakeLedgerStage> for Worker {
-    async fn bootstrap(_stage: &FakeLedgerStage) -> Result<Self, WorkerError> {
-        let worker = Self {};
-
-        Ok(worker)
-    }
-
-    async fn schedule(
-        &mut self,
-        stage: &mut FakeLedgerStage,
-    ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
-        let event = stage.upstream.recv().await.or_panic()?;
-        Ok(WorkSchedule::Unit(event.payload))
-    }
-
-    async fn execute(
-        &mut self,
-        unit: &ValidateBlockEvent,
-        stage: &mut FakeLedgerStage,
-    ) -> Result<(), WorkerError> {
-        let event: BlockValidationResult = match unit {
-            ValidateBlockEvent::Validated(point, _vec, span) => {
-                BlockValidationResult::BlockValidated(point.clone(), span.clone())
-            }
-            ValidateBlockEvent::Rollback(point) => {
-                BlockValidationResult::RolledBackTo(point.clone())
-            }
-        };
-        stage.downstream.send(event.into()).await.or_panic()?;
-        Ok(())
     }
 }
 
