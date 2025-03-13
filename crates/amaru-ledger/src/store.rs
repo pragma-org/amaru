@@ -22,6 +22,7 @@ use amaru_kernel::{
 use columns::*;
 use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
 use thiserror::Error;
+use tracing::{instrument, Level};
 
 #[derive(Debug, Error)]
 #[error(transparent)]
@@ -160,6 +161,15 @@ pub trait Store: Snapshot + Send + Sync {
 
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
     fn with_dreps(&self, with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<(), StoreError>;
+
+    #[instrument(level = Level::TRACE, name = "tick.pool", skip_all)]
+    fn tick_pools(&self, epoch: Epoch) -> Result<(), StoreError> {
+        self.with_pools(|iterator| {
+            for (_, pool) in iterator {
+                pools::Row::tick(pool, epoch)
+            }
+        })
+    }
 }
 
 // Columns

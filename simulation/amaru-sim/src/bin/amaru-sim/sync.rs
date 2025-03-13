@@ -132,7 +132,6 @@ fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent, Wo
         } => Ok(PullEvent::Rollback(
             peer,
             Point::Specific(slot, hash.into()),
-            span,
         )),
         _ => Err(WorkerError::Recv),
     }

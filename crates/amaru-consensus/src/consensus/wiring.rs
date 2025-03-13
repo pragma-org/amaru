@@ -1,14 +1,17 @@
 use crate::{peer::Peer, Point};
+use amaru_kernel::Hash;
 use amaru_ledger::ValidateBlockEvent;
 use gasket::framework::*;
-use tracing::Span;
+use tracing::{info_span, trace_span, Span};
 
 use super::header_validation::Consensus;
+
+const EVENT_TARGET: &str = "amaru::wiring";
 
 #[derive(Clone, Debug)]
 pub enum PullEvent {
     RollForward(Peer, Point, Vec<u8>, Span),
-    Rollback(Peer, Point, Span),
+    Rollback(Peer, Point),
 }
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
@@ -33,14 +36,23 @@ impl HeaderStage {
 
     async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
         let events = match unit {
-            PullEvent::RollForward(peer, point, raw_header, span) => self
+            PullEvent::RollForward(peer, point, raw_header, span) => {
+                // Restore `span` as current span
+                info_span!(
+                    target: EVENT_TARGET,
+                    parent: span,
+                    "handle_roll_forward",
+                    slot = ?point.slot_or_default(),
+                    hash = %Hash::<32>::from(point));
+
+                self.consensus
+                    .handle_roll_forward(peer, point, raw_header)
+                    .await
+                    .or_panic()?
+            }
+            PullEvent::Rollback(peer, rollback) => self
                 .consensus
-                .handle_roll_forward(peer, point, raw_header, span)
-                .await
-                .or_panic()?,
-            PullEvent::Rollback(peer, rollback, span) => self
-                .consensus
-                .handle_roll_back(peer, rollback, span)
+                .handle_roll_back(peer, rollback)
                 .await
                 .or_panic()?,
         };
