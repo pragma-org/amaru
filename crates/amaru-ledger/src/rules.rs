@@ -94,6 +94,8 @@ pub fn validate_block(
         None => Vec::new(),
     };
 
+    // using `zip` here instead of enumerate as it is safer to cast from usize to u32 than u32 to usize
+    // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, (transaction, raw_transaction)) in
         (0u32..).zip(transactions.iter().zip(raw_transactions))
     {

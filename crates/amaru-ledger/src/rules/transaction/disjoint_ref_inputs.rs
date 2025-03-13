@@ -12,12 +12,6 @@ impl Into<TransactionRuleViolation> for NonDisjointRefInputs {
     }
 }
 
-// impl From<NonDisjointRefInputs> for TransactionRuleViolation {
-//     fn from(value: NonDisjointRefInputs) -> Self {
-//         TransactionRuleViolation::NonDisjointRefInputs(value)
-//     }
-// }
-
 pub fn disjoint_ref_inputs(transaction: &TransactionBody) -> Result<(), NonDisjointRefInputs> {
     let intersection = match &transaction.reference_inputs {
         Some(ref_inputs) => ref_inputs

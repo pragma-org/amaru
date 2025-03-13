@@ -22,8 +22,8 @@ pub fn validate_output_size(
 ) -> Result<(), OutputTooSmall> {
     let coins_per_utxo_byte = protocol_parameters.coins_per_utxo_byte;
     let outputs_too_small = transaction
-        .clone()
         .outputs
+        .clone()
         .into_iter()
         .filter(|output| {
             let mut bytes = Vec::new();
