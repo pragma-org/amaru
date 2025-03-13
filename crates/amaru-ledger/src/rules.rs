@@ -7,7 +7,7 @@ use amaru_kernel::{
 };
 
 use block::{
-    body_size::{block_body_size_valid, BlockBodySizeTooBig},
+    body_size::{block_body_size_valid, BlockBodySizeMismatch},
     ex_units::*,
     header_size::{block_header_size_valid, BlockHeaderSizeTooBig},
 };
@@ -28,7 +28,7 @@ pub enum BlockValidationError {
 }
 
 pub enum RuleViolation {
-    BlockBodySizeTooBig(BlockBodySizeTooBig),
+    BlockBodySizeMismatch(BlockBodySizeMismatch),
     BlockHeaderSizeTooBig(BlockHeaderSizeTooBig),
     TooManyExUnitsBlock(TooManyExUnits),
     InvalidTransaction {
@@ -59,7 +59,7 @@ pub fn validate_block(
 
     block_header_size_valid(minted_block.header.raw_cbor(), &protocol_params)
         .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
-    block_body_size_valid(&block.header.header_body, &protocol_params)
+    block_body_size_valid(&block.header.header_body, &minted_block)
         .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
 
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
@@ -213,7 +213,7 @@ mod tests {
             validate_block(bytes.as_slice(), pp).is_err_and(|e| match e {
                 BlockValidationError::RuleViolations(violations) => {
                     violations.iter().any(|rule_violation| {
-                        matches!(rule_violation, RuleViolation::BlockBodySizeTooBig(_))
+                        matches!(rule_violation, RuleViolation::BlockBodySizeMismatch(_))
                     })
                 }
                 _ => false,
