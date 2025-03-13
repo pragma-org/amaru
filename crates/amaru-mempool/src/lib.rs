@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashSet;
 use amaru_kernel::{TransactionInput, TransactionOutput, Tx};
+use std::collections::HashSet;
 
 pub trait State {
     type Error;
@@ -41,7 +41,10 @@ impl SimpleMempool {
 
     // Just check that each tx input exists
     fn validate_tx<S: State>(&self, state: &S, tx: &Tx) -> bool {
-        tx.transaction_body.inputs.iter().all(|input| state.utxo(input).is_ok())
+        tx.transaction_body
+            .inputs
+            .iter()
+            .all(|input| state.utxo(input).is_ok())
     }
 }
 
@@ -72,8 +75,8 @@ impl Mempool for SimpleMempool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pallas_primitives::{TransactionInput};
     use pallas_primitives::conway::{TransactionOutput, Tx};
+    use pallas_primitives::TransactionInput;
     use std::collections::HashMap;
 
     struct TestState {
@@ -83,13 +86,12 @@ mod tests {
     impl State for TestState {
         type Error = TestStateError;
         fn utxo(&self, input: &TransactionInput) -> Result<TransactionOutput, TestStateError> {
-            self.utxos.get(input).ok_or(TestStateError{}).cloned()
+            self.utxos.get(input).ok_or(TestStateError {}).cloned()
         }
     }
 
     #[derive(Debug)]
-    struct TestStateError {
-    }
+    struct TestStateError {}
 
     impl std::fmt::Display for TestStateError {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
@@ -97,8 +99,7 @@ mod tests {
         }
     }
 
-    impl std::error::Error for TestStateError {
-    }
+    impl std::error::Error for TestStateError {}
 
     fn make_empty_tx() -> Tx {
         Tx {
@@ -141,13 +142,13 @@ mod tests {
 
     fn simple_output(amount: u64) -> TransactionOutput {
         pallas_primitives::conway::PseudoTransactionOutput::PostAlonzo(
-             pallas_primitives::conway::PostAlonzoTransactionOutput {
-                 address: vec![].into(),
-                 value: pallas_primitives::conway::Value::Coin(amount),
-                 datum_option: None,
-                 script_ref: None,
-             },
-         )
+            pallas_primitives::conway::PostAlonzoTransactionOutput {
+                address: vec![].into(),
+                value: pallas_primitives::conway::Value::Coin(amount),
+                datum_option: None,
+                script_ref: None,
+            },
+        )
     }
 
     fn tx_add_input(tx: &mut Tx, input: TransactionInput) {
@@ -168,9 +169,7 @@ mod tests {
             },
             simple_output(1_000_000),
         );
-        let state = TestState {
-            utxos: utxos,
-        };
+        let state = TestState { utxos: utxos };
         let basic_tx = make_empty_tx();
         let success = mempool.add_tx(&state, basic_tx);
         assert_eq!(success.is_ok(), true);
@@ -178,7 +177,7 @@ mod tests {
 
     #[test]
     fn add_tx_failure() {
-        let mut mempool = SimpleMempool::new(); 
+        let mut mempool = SimpleMempool::new();
         let id = [0; 32];
         let mut utxos = HashMap::new();
         utxos.insert(
@@ -188,14 +187,15 @@ mod tests {
             },
             simple_output(1_000_000),
         );
-        let state = TestState {
-            utxos: utxos,
-        };
+        let state = TestState { utxos: utxos };
         let mut basic_tx = make_empty_tx();
-        tx_add_input(&mut basic_tx, TransactionInput {
-            transaction_id: pallas_primitives::Hash::new(id),
-            index: 1,
-        });
+        tx_add_input(
+            &mut basic_tx,
+            TransactionInput {
+                transaction_id: pallas_primitives::Hash::new(id),
+                index: 1,
+            },
+        );
         let success = mempool.add_tx(&state, basic_tx);
         assert_eq!(success.is_ok(), false);
     }
@@ -214,14 +214,15 @@ mod tests {
             },
             simple_output(1_000_000),
         );
-        let state = TestState {
-            utxos: utxos,
-        };
+        let state = TestState { utxos: utxos };
         let mut basic_tx = make_empty_tx();
-        tx_add_input(&mut basic_tx, TransactionInput {
-            transaction_id: pallas_primitives::Hash::new(id),
-            index: 0,
-        });
+        tx_add_input(
+            &mut basic_tx,
+            TransactionInput {
+                transaction_id: pallas_primitives::Hash::new(id),
+                index: 0,
+            },
+        );
         let _ = mempool.add_tx(&state, basic_tx);
         let mut set = HashSet::new();
         set.insert(TransactionInput {

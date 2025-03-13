@@ -99,7 +99,7 @@ impl<S: Store> Stage<S> {
             Ok(_) => {
                 self.mempool.invalidate_utxos(consumed_utxos);
                 BlockValidationResult::BlockValidated(point, parent.clone())
-            },
+            }
             Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, parent.clone()),
         };
 
