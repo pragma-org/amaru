@@ -1,5 +1,5 @@
 use amaru_kernel::{
-    cbor, output_lovelace, protocol_parameters::ProtocolParameters, TransactionBody,
+    output_lovelace, protocol_parameters::ProtocolParameters, to_cbor, TransactionBody,
     TransactionOutput,
 };
 
@@ -27,12 +27,8 @@ pub fn validate_output_size(
         .clone()
         .into_iter()
         .filter(|output| {
-            let mut bytes = Vec::new();
-            cbor::encode(output, &mut bytes)
-                .unwrap_or_else(|_| panic!("Failed to serialize output"));
-
+            let bytes = to_cbor(output);
             let lovelace = output_lovelace(output);
-
             lovelace <= bytes.len() as u64 * coins_per_utxo_byte
         })
         .collect::<Vec<_>>();

@@ -1,5 +1,5 @@
 use crate::rules::RuleViolation;
-use amaru_kernel::{cbor, HeaderBody, MintedBlock};
+use amaru_kernel::{to_cbor, HeaderBody, MintedBlock};
 pub struct BlockBodySizeMismatch {
     pub supplied: usize,
     pub actual: usize,
@@ -31,19 +31,10 @@ pub fn block_body_size_valid(
 }
 
 fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
-    // TODO: how should we handle encoding errors here, if at all? They've already been deserialized to the MintedBlock type, which holds the original bytes.
-    // In other words this *shouldn't* fail...
-    let mut tx_bodies_raw = Vec::new();
-    let _ = cbor::encode(&block.transaction_bodies, &mut tx_bodies_raw);
-
-    let mut tx_witness_sets_raw = Vec::new();
-    let _ = cbor::encode(&block.transaction_witness_sets, &mut tx_witness_sets_raw);
-
-    let mut auxiliary_data_raw = Vec::new();
-    let _ = cbor::encode(&block.auxiliary_data_set, &mut auxiliary_data_raw);
-
-    let mut invalid_transactions_raw = Vec::new();
-    let _ = cbor::encode(&block.invalid_transactions, &mut invalid_transactions_raw);
+    let tx_bodies_raw = to_cbor(&block.transaction_bodies);
+    let tx_witness_sets_raw = to_cbor(&block.transaction_witness_sets);
+    let auxiliary_data_raw = to_cbor(&block.auxiliary_data_set);
+    let invalid_transactions_raw = to_cbor(&block.invalid_transactions);
 
     tx_bodies_raw.len()
         + tx_witness_sets_raw.len()

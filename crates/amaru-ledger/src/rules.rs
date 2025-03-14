@@ -65,13 +65,11 @@ pub fn validate_block(
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
     let ex_units = block
         .transaction_witness_sets
-        .clone()
-        .to_vec()
-        .into_iter()
+        .iter()
         .flat_map(|witness_set| {
             witness_set
                 .redeemer
-                .into_iter()
+                .iter()
                 .map(|redeemers| match redeemers {
                     Redeemers::List(list) => list.iter().map(|r| r.ex_units).collect::<Vec<_>>(),
                     Redeemers::Map(map) => map.iter().map(|(_, r)| r.ex_units).collect::<Vec<_>>(),
@@ -94,7 +92,7 @@ pub fn validate_block(
         None => Vec::new(),
     };
 
-    // using `zip` here instead of enumerate as it is safer to cast from usize to u32 than u32 to usize
+    // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, (transaction, raw_transaction)) in
         (0u32..).zip(transactions.iter().zip(raw_transactions))
