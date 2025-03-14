@@ -110,7 +110,8 @@ pub fn validate_block(
 
         let auxiliary_data: Option<&AuxiliaryData> = block
             .auxiliary_data_set
-            .get(i as usize)
+            .iter()
+            .find(|key_pair| key_pair.0 == i)
             .map(|key_pair| key_pair.1.deref());
 
         validate_transaction(
