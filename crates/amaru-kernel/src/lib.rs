@@ -21,8 +21,6 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
-use std::sync::LazyLock;
-
 use num::{rational::Ratio, BigUint};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
@@ -42,6 +40,7 @@ pub use pallas_primitives::{
         VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
+use std::{convert::Infallible, sync::LazyLock};
 
 pub mod protocol_parameters;
 
@@ -191,11 +190,11 @@ pub type Nonce = Hash<32>;
 // CBOR conversions
 // ----------------------------------------------------------------------------
 
-#[allow(clippy::panic)]
+#[allow(clippy::unwrap_used)]
 pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
     let mut buffer = Vec::new();
-    cbor::encode(value, &mut buffer)
-        .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
+    let result: Result<(), cbor::encode::Error<Infallible>> = cbor::encode(value, &mut buffer);
+    result.unwrap(); // Infallible
     buffer
 }
 
