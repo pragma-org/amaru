@@ -30,6 +30,7 @@ use std::{
 use tracing::{trace, trace_span, Span};
 
 const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
+const CERTIFICATES_EVENT_TARGET: &str = "amaru::ledger::state::transaction::certificates";
 
 #[allow(clippy::too_many_arguments)]
 pub fn apply(
@@ -237,29 +238,29 @@ fn apply_certificate(
                 relays,
                 metadata,
             };
-            trace!(target: EVENT_TARGET, parent: parent, pool = %id, params = ?params, "certificate.pool.registration");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, pool = %id, params = ?params, "pool.registration");
             pools.register(id, params)
         }
         Certificate::PoolRetirement(id, epoch) => {
-            trace!(target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch, "certificate.pool.retirement");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch, "pool.retirement");
             pools.unregister(id, epoch)
         }
         Certificate::StakeRegistration(credential) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, "certificate.stake.registration");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, credential = ?credential, "stake.registration");
             accounts
                 .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None, None)
                 .unwrap();
         }
         Certificate::Reg(credential, coin) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, "certificate.stake.registration");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, credential = ?credential, "stake.registration");
             accounts.register(credential, coin, None, None).unwrap();
         }
         Certificate::StakeDeregistration(credential) | Certificate::UnReg(credential, _) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, "certificate.stake.deregistration");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, credential = ?credential, "stake.deregistration");
             accounts.unregister(credential);
         }
         Certificate::StakeDelegation(credential, pool) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool, "certificate.stake.delegation");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool, "stake.delegation");
             accounts.bind_left(credential, Some(pool)).unwrap();
         }
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
@@ -289,21 +290,21 @@ fn apply_certificate(
             apply_certificate(parent, pools, accounts, dreps, drep_deleg, pointer);
         }
         Certificate::RegDRepCert(drep, deposit, anchor) => {
-            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, deposit = ?deposit, anchor = ?anchor, "certificate.drep.registration");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, drep = ?drep, deposit = ?deposit, anchor = ?anchor, "drep.registration");
             dreps
                 .register(drep, (deposit, pointer), Option::from(anchor), None)
                 .unwrap();
         }
         Certificate::UnRegDRepCert(drep, refund) => {
-            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, refund = ?refund, "certificate.drep.retirement");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, drep = ?drep, refund = ?refund, "drep.retirement");
             dreps.unregister(drep);
         }
         Certificate::UpdateDRepCert(drep, anchor) => {
-            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, anchor = ?anchor, "certificate.drep.update");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, drep = ?drep, anchor = ?anchor, "drep.update");
             dreps.bind_left(drep, Option::from(anchor)).unwrap();
         }
         Certificate::VoteDeleg(credential, drep) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, drep = ?drep, "certificate.vote.delegation");
+            trace!(target: CERTIFICATES_EVENT_TARGET, parent: parent, credential = ?credential, drep = ?drep, "vote.delegation");
             accounts
                 .bind_right(credential, Some((drep, pointer)))
                 .unwrap();
