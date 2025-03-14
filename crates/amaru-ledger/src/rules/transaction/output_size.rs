@@ -1,5 +1,5 @@
 use amaru_kernel::{
-    output_lovelace, protocol_parameters::ProtocolParameters, to_cbor, TransactionBody,
+    protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, MintedTransactionBody,
     TransactionOutput,
 };
 
@@ -15,27 +15,29 @@ impl Into<TransactionRuleViolation> for OutputTooSmall {
     }
 }
 
-// clean up clones, replace with lifetimes
-#[allow(clippy::panic)]
 pub fn validate_output_size(
-    transaction: &TransactionBody,
+    transaction: &MintedTransactionBody<'_>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), OutputTooSmall> {
     let coins_per_utxo_byte = protocol_parameters.coins_per_utxo_byte;
     let outputs_too_small = transaction
         .outputs
-        .clone()
-        .into_iter()
+        .iter()
         .filter(|output| {
             let bytes = to_cbor(output);
-            let lovelace = output_lovelace(output);
-            lovelace <= bytes.len() as u64 * coins_per_utxo_byte
+            output.lovelace() <= bytes.len() as u64 * coins_per_utxo_byte
         })
         .collect::<Vec<_>>();
 
     if outputs_too_small.is_empty() {
         Ok(())
     } else {
-        Err(OutputTooSmall { outputs_too_small })
+        Err(OutputTooSmall {
+            outputs_too_small: outputs_too_small
+                .into_iter()
+                .cloned()
+                .map(TransactionOutput::from)
+                .collect(),
+        })
     }
 }
