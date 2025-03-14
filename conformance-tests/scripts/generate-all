@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+scripts=$(dirname -- "${BASH_SOURCE[0]}")
+
+for e in $(seq 163 179); do
+  node $scripts/generate.mjs $e &
+done;
+
+wait
