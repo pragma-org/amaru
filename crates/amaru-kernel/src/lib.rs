@@ -22,6 +22,7 @@ While elements are being contributed upstream, they might transiently live in th
 */
 
 use num::{rational::Ratio, BigUint};
+pub use pallas_addresses::Address;
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
@@ -37,9 +38,10 @@ pub use pallas_primitives::{
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, Certificate, Coin, DRep, Epoch, ExUnits,
         GovActionId, HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput,
-        MintedWitnessSet, PoolMetadata, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
-        RewardAccount, StakeCredential, TransactionBody, TransactionInput, TransactionOutput,
-        UnitInterval, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        MintedWitnessSet, NonEmptySet, PoolMetadata, PseudoTransactionOutput, RationalNumber,
+        Redeemers, Relay, RewardAccount, StakeCredential, TransactionBody, TransactionInput,
+        TransactionOutput, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 use std::{convert::Infallible, sync::LazyLock};
@@ -530,6 +532,43 @@ pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
                 }),
         },
         None => ExUnits { mem: 0, steps: 0 },
+    }
+}
+
+pub trait HasAddress {
+    fn address(&self) -> Address;
+}
+
+impl HasAddress for TransactionOutput {
+    fn address(&self) -> Address {
+        match self {
+            // TODO: handle error
+            PseudoTransactionOutput::Legacy(transaction_output) => {
+                Address::from_bytes(&transaction_output.address).unwrap()
+            }
+            PseudoTransactionOutput::PostAlonzo(modern) => {
+                Address::from_bytes(&modern.address).unwrap()
+            }
+        }
+    }
+}
+
+pub fn get_payment_key_hash(address: Address) -> Option<PaymentKeyHash> {
+    match address {
+        Address::Shelley(shelley_address) => {
+            let payment = shelley_address.payment();
+            if payment.is_script() {
+                None
+            } else {
+                Some(payment.as_hash().clone())
+            }
+        }
+        Address::Byron(_byron_address) => {
+            // TODO: handle byron addresses
+            panic!("Uh oh, byron address discovered")
+        }
+
+        Address::Stake(_) => None,
     }
 }
 
