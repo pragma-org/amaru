@@ -21,7 +21,7 @@ use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip}
 use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
 use tokio::time::timeout;
-use tracing::{instrument, trace_span, Level};
+use tracing::{info_span, instrument, trace_span, Level};
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {
@@ -95,7 +95,7 @@ impl Stage {
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let span_forward = trace_span!(
+        let span_forward = info_span!(
             target: EVENT_TARGET,
             "pull.roll_forward",
             header.slot = tracing::field::Empty,
@@ -115,20 +115,22 @@ impl Stage {
             .or_panic()
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        name = "pull.roll_back",
+        skip_all,
+        fields(
+            point = ?point,
+            tip = ?tip,
+            peer = self.peer_session.peer.name,
+        ),
+    )]
     pub async fn roll_back(&mut self, point: Point, tip: Tip) -> Result<(), WorkerError> {
-        let span_backward = trace_span!(
-            target: EVENT_TARGET,
-            "pull.roll_back",
-            point = tracing::field::Empty,
-            tip = tracing::field::Empty,
-            peer = self.peer_session.peer.name
-        );
-
         self.track_tip(&tip);
 
         let peer = &self.peer_session.peer;
         self.downstream
-            .send(PullEvent::Rollback(peer.clone(), point, span_backward).into())
+            .send(PullEvent::Rollback(peer.clone(), point).into())
             .await
             .or_panic()
     }
