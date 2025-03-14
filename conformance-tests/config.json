@@ -1,0 +1,24 @@
+{
+  "points": [
+    {  "epoch": 163, "id": "6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912", "slot": 69206375},
+    {  "epoch": 164, "id": "5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7", "slot": 69638382},
+    {  "epoch": 165, "id": "d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d", "slot": 70070379},
+    {  "epoch": 166, "id": "fcb6c0dfb6f921eb6001bf3e0ba750287c2a4b816d2131e2bf45083667216242", "slot": 70502395},
+    {  "epoch": 167, "id": "b0bee439c55020a6a9f5f729744e3e4fdfe0dfef445bad79fefafd1aa5c11480", "slot": 70934392},
+    {  "epoch": 168, "id": "e1d2e6b226dd4b80ad5388242a4a5204186594595719fef531711a30faf0549d", "slot": 71366322},
+    {  "epoch": 169, "id": "68b4a66e1f98d20d38dfcb17cb6db1b5b4823283dd82ba7684bcec999a619110", "slot": 71798387},
+    {  "epoch": 170, "id": "98555fdea7efd77f70eed8e6ab40cbab3f6e6487d33df84edce6d586225b5d74", "slot": 72230332},
+    {  "epoch": 171, "id": "2f2bcab30dc53444cef311d6985eb126fd577a548b8e71cafecbb6e855bc8755", "slot": 72662384},
+    {  "epoch": 172, "id": "d2490dd62576684de851d2a8db1fbd4304eb18f8edb5c60389a64855768cae3b", "slot": 73094371},
+    {  "epoch": 173, "id": "187db32eda1c158e6b626b1734e31f914629568c6d42a749a02f6f5b65a406c1", "slot": 73526362},
+    {  "epoch": 174, "id": "f86cb53fd0352e905efbf8e4408ee7dfa6ce1e295f865e2d967fb78be1f15d22", "slot": 73958392},
+    {  "epoch": 175, "id": "1e8796e13a65c3add4ce8e10fe5cf1c6ff6f065ca0252af2533e778ca7960477", "slot": 74390395},
+    {  "epoch": 176, "id": "09d42204fa60c7dadd44f413886c5ce8bc98c7b12e438fc5d2c894701dcf96b5", "slot": 74822365},
+    {  "epoch": 177, "id": "fa2f126d8bc52ec40bfe2b5069e2e497f80d283ecc4f6ab49172c3c36f25a286", "slot": 75254398},
+    {  "epoch": 178, "id": "732f2e84e96461684f9ca7ccbb593141ba0638e15c4cc31de6e998c8cea19163", "slot": 75686391},
+    {  "epoch": 179, "id": "fbb0cf8edf0a1a231366c0ea7d2be811ef6c3eb29244e487799f13f8dc372822", "slot": 76118355},
+    {  "epoch": 180, "id": "51edd55ce23d54b32de71e42f809ca849238fbec622d02465eac4a9027c9355e", "slot": 76550373},
+    {  "epoch": 181, "id": "4e49ebb7ec332c004767a3d4c8ceb019f3dc3bf94eb1ff2817fef49d01c0ba62", "slot": 76982324},
+    {  "epoch": 182, "id": "f6ef2b5ff616b6ba39d630690673993897796362398e3486054850fcab8c5cf1", "slot": 77414335}
+  ]
+}

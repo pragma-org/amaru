@@ -1,0 +1,2403 @@
+{
+  "slotsPerEpoch": 432000,
+  "totalBlocksMade": 15901,
+  "totalBlocksExpected": 21600,
+  "maxLovelaceSupply": 45000000000000000,
+  "totalStake": 31112793878086059,
+  "activeStake": 332014674761177,
+  "ΔR1": 30669508964521,
+  "ΔT1": 6136925269575,
+  "R": 24547701078303,
+  "rewardPot": 30684626347878,
+  "η": "15901/21600",
+  "pools": {
+    "pool1qp2xfc2eml6ut7xvy20rlvc7vwxej0a5c07emt4v3nr3xju7rw0": {
+      "relativeStake": "1019497632698/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1q8aduy04kxq8y79jm9yp3u2fcx0rzkfrratc7qjkf22mqk8ypgl": {
+      "relativeStake": "397634194/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1qvfw4r3auysa5mhpr90n7mmdhs55js8gdywh0y2e3sy6568j2wp": {
+      "relativeStake": "19908946538/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1qv4qgv62s3ha74p0643nexee9zvcdydcyahqqnavhj90zheuykz": {
+      "relativeStake": "44738444083/31112793878086059",
+      "rewardPot": 38018226,
+      "blocksMade": 3,
+      "leaderReward": 38018226
+    },
+    "pool1qs89kqynhwcg0hnelppxtrydtaxc5y0x3ztvhr5xlmdpv4c20qv": {
+      "relativeStake": "2825699/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1q3gnyefcxdsnldjur0ykd8fluct66efkrv4usjgd2xlwuhne8j2": {
+      "relativeStake": "85979626/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1q37r2nxhmj4vlcyxedp9t6ganl0re3hzf6l9r0jz5w66umy0n75": {
+      "relativeStake": "13433496590/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1q4qwj2j75r04ctxgus9fafshx2wwypugl35uansl5hk5s5hnt2f": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1q4lgjl4snm87782n080vnj0xtylgfvhkv637c8jsx9k2jvnu7ng": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1qep8gwqux539qqtxhr4h8ea07qyc0jq3aak5jjcxzqyavuet7ya": {
+      "relativeStake": "35043876/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1q60vrsckzetz72m84rsxhny94mdk9dvduxz4nwhw642gjqawcyu": {
+      "relativeStake": "6502400000/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1qata6zlvsd72vz9dqnh3733xdv9qyrdzghh7hn5tdn02vl6evww": {
+      "relativeStake": "2495976473/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ql8dn9lm02v5ezdjwrteg4v48rxtyms5zyaweady2rqmw055f8s": {
+      "relativeStake": "165900000/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1pq2lsk6vvruptw333j32lgg4qhyt6eljrc6rhzguxq0uvy5vklc": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1pq4f0yt7cq9dz6tj6sj6eqnncem9m66txvuuv6d6m6jrq0wcdgv": {
+      "relativeStake": "29495078203/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ppmh24gjlhxrc7etpczwatehg9tfhh5v0kk2g3zgpxnsx5et0yy": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1pzdqdxrv0k74p4q33y98f2u7vzaz95et7mjeedjcfy0jcgk754f": {
+      "relativeStake": "412472949924/10370931292695353",
+      "rewardPot": 1064487773,
+      "blocksMade": 84,
+      "leaderReward": 489139406
+    },
+    "pool1p9ldx03yshlzj4dlhlaxd59nukysjd3mldc8cuv5ae897q7ky2z": {
+      "relativeStake": "1204360449599/31112793878086059",
+      "rewardPot": 1090057569,
+      "blocksMade": 86,
+      "leaderReward": 933844752
+    },
+    "pool1pgy4kgms6kv6xrflv7qq07mdj8wj42zdu66f3kny78ly68upg79": {
+      "relativeStake": "19698057154/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1pf8d83wvzxsyfnl3dacy2kyvndhkex8hz4qzdgar740jgk68edd": {
+      "relativeStake": "5940345/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ptyjx9c5tq47up4ggz6yy5672xmwcz3zr63cqc2cv8v9qksu695": {
+      "relativeStake": "18321025711/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1pdw2tqeg70crgwy3puz4hlffl3u9lr2t5katsz63v2w6jfl0gn2": {
+      "relativeStake": "1428669450472/31112793878086059",
+      "rewardPot": 1153195539,
+      "blocksMade": 91,
+      "leaderReward": 202533751
+    },
+    "pool1pkvs666cwlra94wqtc3ww0cc2a7zkhxldl6ktzyhu47kyjgue05": {
+      "relativeStake": "497634194/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1phgtk3jgdyq2ldsqae3d4kap8l8pq8lyadqacvfhcdxpzkpzfpc": {
+      "relativeStake": "29497278112/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1pmvsu5kmy9nt82qwqugcsku5772sls8r3x99ww5tnzcwjzpvy4n": {
+      "relativeStake": "1530294068741/31112793878086059",
+      "rewardPot": 1178568116,
+      "blocksMade": 93,
+      "leaderReward": 595344811
+    },
+    "pool1plld4snskqnegqu3dzkuq763e3xnh47kujjju6kvh56ej6suwd0": {
+      "relativeStake": "99632441/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zpyuuv8wus56cpmvr0c88njsnzcsf3qeaw4vyny6q6pd5x7vme5": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zr907nmfsq5kalxdjju349nwg6f03lyfmcjfqcz52jf45gcgh03": {
+      "relativeStake": "15068711225/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zgxyrg92crhawjeux2pavqde3c2a0fgs0kgmeckknj0m7wmpcvl": {
+      "relativeStake": "7944153185/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zg484cf3hdphs7cmmtp6j88k5jxx5zz5wwssh5fxgpkn2lf8wa0": {
+      "relativeStake": "9733505827/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zv0ldgrpp2pwzr39vjwcyfz57e8mlff3229wyykt5pmsjt95jhc": {
+      "relativeStake": "3697981641/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zwmkuyzj8wykfdq98g28stkpq28k0f3l2xse384re5yfwap80ca": {
+      "relativeStake": "353617127519/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1z05xqzuxnpl8kg8u2wwg8ftng0fwtdluv3h20ruryfqc5gc3efl": {
+      "relativeStake": "7090187755135/31112793878086059",
+      "rewardPot": 5987026527,
+      "blocksMade": 468,
+      "leaderReward": 4047992692
+    },
+    "pool1z063uemr7k9zzg95ymz0gfqnfv5k58et8xrnk6ynfyqdgjjw0e7": {
+      "relativeStake": "4000942972805/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zjxgjy4x9v9yrs9g3d2v7srg0yl8cl08nw338rhl0axgcqh2ftf": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zuhgh090ejafvztegmxx9h26cdk3eutuur07379vysuhxtr8qdy": {
+      "relativeStake": "9598100000/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1z7kuc2r7jgfmvuw0fazqzs8phcgfl64kmdmcsq7z440v578ekw8": {
+      "relativeStake": "3614592985/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1zl79v96hz9fn9rhjepxa3mpnk4gsw85fjkze35vpvarmv03ngw6": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1rr53gk9vaxqhvm0uuvyu4yzcvuc5zxqktvcl39k9swhewvaf7t2": {
+      "relativeStake": "3737013913310/31112793878086059",
+      "rewardPot": 3306731996,
+      "blocksMade": 260,
+      "leaderReward": 1241466038
+    },
+    "pool1rymgeu3pc4a847sksu8ulxgypeq5ysf0ccywgwkcsgr9cmay57u": {
+      "relativeStake": "1166525170442/31112793878086059",
+      "rewardPot": 912418347,
+      "blocksMade": 72,
+      "leaderReward": 384849531
+    },
+    "pool1r9lez5dne3gxe6yjpe3rl87kqweff9uyx8vkv2kk3yprs2k725u": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1r2k8y80zxvqjyvyy3xg8r50892qcewgm38z6pcy3uk8fky4rkl0": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1rtseflldkqytw7lm3mpek9g5m04ennkv6ejysxqjj52zyaq46rf": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1rwrtuuj2cqw6kfhpwragyzkuzzdj35rrgd07aku78uz7wucydjd": {
+      "relativeStake": "11508189713/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1rwghc6nncgueexc87t9zc556fdyach66493ndsdvukhakydsa6w": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1rsrah5my3lns23ghpdhk6wgpxmqucehvsvex7hv55r7nuyyrfel": {
+      "relativeStake": "423474284567/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1rsx8tp9ntpvzq7r9xtmzmv7p3veyhpgw2t06mrhzlllw5l7ff34": {
+      "relativeStake": "8992068173/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1rstkgcnzexnacmv99ycaf6nd7sqxmd9w279v6cmq5dehus8w0aw": {
+      "relativeStake": "357301558914/10370931292695353",
+      "rewardPot": 735003313,
+      "blocksMade": 58,
+      "leaderReward": 359750165
+    },
+    "pool1rkfs9glmfva3jd0q9vnlqvuhnrflpzj4l07u6sayfx5k7d788us": {
+      "relativeStake": "265509788412/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1rccstu3l9ty3k0a5cd06fl3szsss9r34dcg5j38fqgq9kvng0tg": {
+      "relativeStake": "4302247774185/10370931292695353",
+      "rewardPot": 10113392299,
+      "blocksMade": 790,
+      "leaderReward": 4034665711
+    },
+    "pool1r6zamscm3pqe65je0570rgd07qxajsgr5qgx80hmquwmsxl8mmp": {
+      "relativeStake": "19995651310/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1r76nahvpllch9k6u25g6kgmn07qtsk2w3qkqew06zxacw3m55sw": {
+      "relativeStake": "1000000000000/31112793878086059",
+      "rewardPot": 722330842,
+      "blocksMade": 57,
+      "leaderReward": 722330842
+    },
+    "pool1ypmhxlnrmhxpfavklkkt4td4dartxhphdc7shvc5knknur05ta0": {
+      "relativeStake": "39996297250/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1yzwxetclm2l48xzvmnwwf6x48a5qze0nx4t6glz5k8wk50xl006": {
+      "relativeStake": "423181250429/10370931292695353",
+      "rewardPot": 950449034,
+      "blocksMade": 75,
+      "leaderReward": 375727784
+    },
+    "pool1yrtux38kfj030vprg4k2f46q8rqkf6ss6yk2yvyeks8k5uk9tss": {
+      "relativeStake": "10015471465/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1yy4cemccmnk6m6adcnxedzy4dvrlw95djln4pctg0jpq5x7gczh": {
+      "relativeStake": "1163264630930/31112793878086059",
+      "rewardPot": 861728022,
+      "blocksMade": 68,
+      "leaderReward": 230368088
+    },
+    "pool1y9awaq0evchgpnfjgys53yljunxajzzn590459aeyw74q9xkxzg": {
+      "relativeStake": "36393692675/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1yfs7qc0frzlkvy5rw6npwyc94ve7pk094ugzxn0678mzsnmqs7f": {
+      "relativeStake": "46355813716/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ys9lst64mzprj7u029klxvjnsx0qs7hz9n7gn4ju2q6zz7tye3p": {
+      "relativeStake": "37931921938/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1y4jn4em2qht7vq8ve8s4retn4gtw8u0ha82w48sg6ggdvl9mlcq": {
+      "relativeStake": "9496612676/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1yh54ttht6ww74u77xehwm2mfhg27qmm3v56e5ahc2nsrszv0xtn": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ymrt98cl9s3zw7hrumyn7dyv8f8zy3aky523237e3r2zyrf3e26": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1yaap4p67ltp79m5na7s8qarszyz5d6n7ltqxlmf2apzsxmxlwzq": {
+      "relativeStake": "847633270/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1y78qthpjc0zvqwu7nfgy7m756226fz83dkkyxargq0juskqy63q": {
+      "relativeStake": "11496974042/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1y74f44yeedrls4nj0yf6h5pdl5ythd5ahm73knqf33hfvq9rhaf": {
+      "relativeStake": "12307106860/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool19zdqgm9hmstrjc36jh8wke5sa6t9wjaeyx6u8yza69d52crgvtd": {
+      "relativeStake": "3671112673/10370931292695353",
+      "rewardPot": 12672637,
+      "blocksMade": 1,
+      "leaderReward": 12672637
+    },
+    "pool19d8wgkqn7pc33y0uy2t5vx0922nvzv0a5999ejj0fjdyxjxdfve": {
+      "relativeStake": "6679993125/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool195w26ls6y937srmlk6xpv4pxsaam4zatu4lxp2cca726vt7w4ls": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1945cfqzmy2qe2z59mfdwm7jwqtucncfee5xkd8f4wu97zr8xuys": {
+      "relativeStake": "1052856108082/31112793878086059",
+      "rewardPot": 925385956,
+      "blocksMade": 73,
+      "leaderReward": 925385956
+    },
+    "pool19658g9m7a6e7vtky76aefcwmm75wegf9xs3t024s38l87rqq4ky": {
+      "relativeStake": "88351781161/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool19u5hvwc7hm5wrs0tf5knh7373p88en9gt2tyad5yjfujy29676m": {
+      "relativeStake": "39366899236/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xqgxjecd9jrf0g9vert2xzdte9rfwptnat03whfz69t4gx4qz4s": {
+      "relativeStake": "18394762601/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xqhqfj4jnehs5zkmr2py40wkuztvwatx9p7gsdvpesj6x6tsyt2": {
+      "relativeStake": "2319695518724/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xz6xjncxtgfv00qfklfma5ek9c3c4vk5yxgnd8vkc33kvrkey20": {
+      "relativeStake": "1614655681921/31112793878086059",
+      "rewardPot": 1317968651,
+      "blocksMade": 104,
+      "leaderReward": 1317907563
+    },
+    "pool1xrflm7hknav65t3chtcy2ca4s5v64erm2320g23jeuejvw60t7l": {
+      "relativeStake": "36982837650/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xxnkgjejhd2eqp4gusjd8s2tnq6frwh4z453j5s2vl7axv90n9a": {
+      "relativeStake": "9373426163/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xgxhm4zgkevltshwk7yezvt9un08anc9rhlutm5yp7jr2etj3x0": {
+      "relativeStake": "37774370290/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1x2f7xdre72calxp5j05k5g9hvskztl790v9enggn42js5mdxesn": {
+      "relativeStake": "548582456/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1x0rfh56fzs7c9vd2jsss6zx3eh882l0jan85utly6vke5reejt6": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xswvfnk5c0a3r7lh722vam7feye8de9wyys6c0e3hmxd54q9aae": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1x4p3cwemsm356vpxnjwuud7w76jz64hyss729zp7xa6wuey6yr9": {
+      "relativeStake": "1173726586913/31112793878086059",
+      "rewardPot": 1077359059,
+      "blocksMade": 85,
+      "leaderReward": 1053584591
+    },
+    "pool1xk2ml63jn0rjd5958zul47hc790neyngkcz0tqwxrdtn5nn349z": {
+      "relativeStake": "999053833/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1x6hwmrf5mz8hd02n5x3ycgsgwsdpfexurdegxfq7s4wsc79df2h": {
+      "relativeStake": "40804790989/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xm90p8nl7kaqvsskrvtyq60z70rx4afdfj4xex89u9gns62t0er": {
+      "relativeStake": "8230028957/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xu8ljtay48mcdmnu4qnd6l9s9qxeu73w0h6l0gpt0097jgs93y4": {
+      "relativeStake": "1187702086/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xapempldsxvte845vwxk2flmqm4x7jrhqftj5q3p5qhvynd6smz": {
+      "relativeStake": "19497622798/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xafhfcvhyk2cyr7lprt4luxjcxgh8z87z6fke7d6grvvzljga3l": {
+      "relativeStake": "4095698645/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xaj5w5m3ra8xypv58h4djvjkm08j94nu9w49nadlyyduqx6h5dp": {
+      "relativeStake": "5982917797/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1xa4fq45v0trzvcs507gel3dfrxs6m8kc20s9d5jy7a9kxxqt6wa": {
+      "relativeStake": "9132542411/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18q5sayzqekqvqyenlkgaarlza5jxzhkyq9akc9qr5ytgczkjh23": {
+      "relativeStake": "39637054292/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18rygfjne9pgqrx6lxtwm4hhvf4nd7ftg6q8vynzxylawkusrtxl": {
+      "relativeStake": "16890678318/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18ylse5vwz63ahy85zsxuttzy7u7zadnjq9kawpa7yqry7dr9zna": {
+      "relativeStake": "1084518387500/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool188vupfvh4nkd307swe4y02jx36lr7ee5qglavska0ywpxrqu8ra": {
+      "relativeStake": "152704806059/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool188etalcyudyh4xuaa4mjahs62jujem35h3l02ht83zjusqvwdh7": {
+      "relativeStake": "315496477727/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18f0ftweczx8kyqv054ld4dpauc92pqy6uvr44wa6x8vhk7tj2m3": {
+      "relativeStake": "13163512112/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18dx5asa2609c93lk6gawjynpcttum26469u6ljptz97kw00xnpm": {
+      "relativeStake": "25115419426/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18svpptnxfctewpx7ntnmlazy4w9cr24f4rcq8smkvpggw600ql4": {
+      "relativeStake": "1052595162137/31112793878086059",
+      "rewardPot": 836649367,
+      "blocksMade": 66,
+      "leaderReward": 836649367
+    },
+    "pool18jx0kufqqvhcjky7ml6s56lezuzrvxh8vt98ekpj4sz9wrp0q9m": {
+      "relativeStake": "5003784709/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1862n3xnc2y49rezae700z423lnewx6k5hj6jk0tl0vz87n0l279": {
+      "relativeStake": "2164994798/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18uptuw2h2adryvnkhkavj3u2fum0lnemwxaxv9p7exy2vcwhrpe": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18aj2dag2cn6xr59mzxhtyyfu9kh0h9266s79z7l9hqlvvf69t4y": {
+      "relativeStake": "10044893078/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool18alum6knwxaz2ku2k7zc78wa6k76w6c5l2l4pxg2j55w6wecdpn": {
+      "relativeStake": "9494478065/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool187yqngpdck7j8pa7r9hhp3fpxem478fqw2nklyr59ppkwystqdl": {
+      "relativeStake": "346885632718/10370931292695353",
+      "rewardPot": 861728027,
+      "blocksMade": 68,
+      "leaderReward": 362832652
+    },
+    "pool187jmkalfzyz5cdlw4mxz9t9n8plcxpj7ve7a74mk05umvufp7jh": {
+      "relativeStake": "25813260878/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1gyw5ysgwudxzl9nw0eujm4m3f8vzwx3e3jzy93v3x4jvq42fpux": {
+      "relativeStake": "9844632755/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1g9gkpj6kdt4gmlhnf7yzv7y9u2qstp3r0tm4f68a47ukztaqe6q": {
+      "relativeStake": "3165874926/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1g8yh6lekmzm7jj5ja86nn5gnszwefnv25tfxtar9uhm82rpy249": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1g8aqrg8u9uufjrsvzt78cnqk3fws4r298p9esw0exd2mqav0yl2": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ggurf2dnv9qh7k8zt9hha2fjtv26v2uy0w23vvf0q7snjqe42mm": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1g2ztg53vvf7233vnz3ff7wedx7lp6qnpp0nwt09kyqygycj0k6n": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1g20peax827vmg9yyqfzj4g8d65fpz9y9uhsuhe70jwmfvaceg2m": {
+      "relativeStake": "1886323793980/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1gvfth5tq0hdy3md9j33ee6wat7k04lnwjq4kmkjpmmrj7l99sxs": {
+      "relativeStake": "1771072739/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1gnyw5vz8ry8zjhx5zxrtdg0yqc5m0h3x86pj326zumjlw2xu944": {
+      "relativeStake": "9397280620/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1gc3u9crwkr4wxk5ctgprxamqusqrscf22lrgkc02hn8rx39mcgg": {
+      "relativeStake": "10996673809/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1gmxl4hv5hxh8vagw26r6av0pwhxemye8wv2hl30e2mehvzmzk89": {
+      "relativeStake": "408340669/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1gme3a0y0hqz2kmyvn5kqp6ngf74nw2uzypvw0ynxrfysug6p9fz": {
+      "relativeStake": "25559221094/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ga327ax76twamq0zypgxrc2n0g9dvwhsr3rkwf6rfl426mp8m2f": {
+      "relativeStake": "9300884580/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1g74v33gkx84x94tep4qwrczkwwk8l075sslne2vrmn9jx95rfqa": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1g74nu0hezqzd07jdk75gvaf665rrzwqnz2784xe0t5td5pj497p": {
+      "relativeStake": "27203295263/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fqq5dr93h874745hyn4kl7mlvq0j9l67j4grxehnpyr3jvmxcym": {
+      "relativeStake": "10057041250/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fq9e09gpyqqanrx02yevnw2kpqf063mlw6adjt2yh4zc79tckhf": {
+      "relativeStake": "10495391429/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fz8qe58ywqgyrvph5hwv4veualuwvy6uvwyzg3hajrynzgmcre2": {
+      "relativeStake": "3165815271/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1frc4f6cr8hwkjraygrhsvkl840xdv0u52g96k05lrd3tyeskmx7": {
+      "relativeStake": "1148955725000/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fyssphxavlclpddydsx4k3zdg04j6rkshkxvf7wedny95tvqyla": {
+      "relativeStake": "19352074264/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1f9p9jzdvq68dzl9f6svw0ss2e8r7zftfswgytlp2g7zxcf6z89u": {
+      "relativeStake": "479800536251/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fxqkwkutajp2vr7t3vpvt4sgy7gmlxetgnyh57hkn7ru2rf96a2": {
+      "relativeStake": "6671776937/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1f8c7lz93ysh00k09lwm8uycrq7plxsz5kqwd7cyq9v6sgvf6cnl": {
+      "relativeStake": "10586152005/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fd7g2qs8sysqvysm2vuv4mhlpt5x4gpe4arpgxjp3y072nqnm7q": {
+      "relativeStake": "3169103665/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fsv7u3actd93792f5nka66080l2m0elu69tuvk74qz8g5sukff0": {
+      "relativeStake": "10060602455/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fn03vv9hxw5zq0wvc20v5m6d4g4dr6a55m3m068l9a826h0k74y": {
+      "relativeStake": "32077359139/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1f5d6h7qv4q6kr5v5ymegdgvfp3tyznudq6xugdt7nwd6ga0szem": {
+      "relativeStake": "21799144759/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1fec6npl7y4qxt4dwvmlgd48488mm4uu6kcdy2yth7kcskmxry7g": {
+      "relativeStake": "1000000000000/31112793878086059",
+      "rewardPot": 544916249,
+      "blocksMade": 43,
+      "leaderReward": 544916249
+    },
+    "pool12qj4pk9sr6mxxwnfj9hvujf0r2d8c4t8tkwcafnrjdpxqep69ck": {
+      "relativeStake": "20224954342/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12rg7kqf2y3c7j643dm508xmkjl9ethfphfggtykp6xfyv6zjcge": {
+      "relativeStake": "32452290695/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12r7sxy225v94m6qcpnzt7g85axrmrg9gc05ykplzkwu7um36dns": {
+      "relativeStake": "17364754531/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool129n0d9zrla7ntfjlwhqrtmn7halem0shcjd5mz5zhfym2auyu05": {
+      "relativeStake": "1151200867639/31112793878086059",
+      "rewardPot": 1115230748,
+      "blocksMade": 88,
+      "leaderReward": 276267640
+    },
+    "pool129kx4etdult6t7amdv8hjl6yf3ur95hrhncpt29qk4k9czz8ura": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool128dntpzv0jz9g6r7f39dsjllx2rvjttvnwrzk56eg4z3jcct5jj": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12v43sug6avuwn458fwlx0j72lqrjqqcec9nc9ywk24x0wn7ng46": {
+      "relativeStake": "229607001607/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12dd0mg935mzx6rdaykngqj8aeqxrtjltg5jtdccrt7p0x78rc38": {
+      "relativeStake": "1085004461999/31112793878086059",
+      "rewardPot": 811057601,
+      "blocksMade": 64,
+      "leaderReward": 411852082
+    },
+    "pool12sa9qn5v62gdcdrnkwnu66c0kdmtq7kwl3vm3v7c8s58299smu5": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12jthfp4uqah0yndtdu6x2tqaxvgnlpc7h30gvwey3rsrc789tme": {
+      "relativeStake": "831136586444/31112793878086059",
+      "rewardPot": 697019105,
+      "blocksMade": 55,
+      "leaderReward": 363717872
+    },
+    "pool125tufz3q8ww2he3cwp7cn02lsf44u85tnlycmxq0y6pegz4mhjs": {
+      "relativeStake": "10692212854/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool124jq2jje25v9gtrjxk8qm34ujrcsa3msy4tm04nl2262j5scclv": {
+      "relativeStake": "643037244796/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12krslmkmerf45g4juaartm4hkawkmrh86peyy4hlte6nxyzwcyf": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12efl9gdw55cc7sax8cq5spmrfzj8t57gj2p63s0tfx8mwqrqe4g": {
+      "relativeStake": "9755070149/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12uvnqe8uq8jfrpk337k63pgfkf0q6lncy0zqcylfdq4zc9n8755": {
+      "relativeStake": "9512621258/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool12al62800devlmgdk8x5qpw38tnjsmgyys6lrd88hmfwvka2upuw": {
+      "relativeStake": "30746927204/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1tzau4l4xpk4jqh766am0m89np2k27k0p0we424fte9mczrfl49h": {
+      "relativeStake": "28521024598/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1traytmq6e7t33ux86fs4uk837ltl56hnv9fkd954ndkrjerkter": {
+      "relativeStake": "6165149499/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1t95f2kval0ratng95m7kqf5xch462gdpde62q9cr4849uehxmqa": {
+      "relativeStake": "9505974218/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1t89nwdvpm8zc9whhnkr2mvvzayu3w9m06jc9yrd28w7lvm2r0y3": {
+      "relativeStake": "368866688/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1tfqkatkvqujhm98fymsr3jqgz9hlu69dyvqagg7cn40jcm4gnn9": {
+      "relativeStake": "9997649330/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1t2hm2nqf4ju6ay8nn0h2zgcatdkfpnpawuzz9ru79709q03ajfj": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1tttjn80uzcvyzvzw2202r3xm7e5dz60tfjdtrlx6vkpjv78t0j9": {
+      "relativeStake": "19997826911/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1tdj08vm0ysfe7gq75pewdq495frfm7259dk6v65xtcw9gkh5q0u": {
+      "relativeStake": "331872110/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1tjc56tq7adk64nnq2ldu3f4nh6sxkphhmnejlu67ux7acq8y7rx": {
+      "relativeStake": "8470249548611/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1tn9gz0tnqtkptkrkzlrzvkjcujdkalykfk6r38my3n5a506u9ux": {
+      "relativeStake": "3165871670/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1thjxx384wxxeznx5a593ejuaqdqx6e0yq5z5f38jzwpfzytu7dc": {
+      "relativeStake": "3732484746/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1tcxnnq73yw07v573w2duesa8d4j40ghfkxg5fn37eveaz20gzs7": {
+      "relativeStake": "10092033538/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1tlpsswg9ev0frsrcgukpz5nsw5gcetldunwg6clrvxyz5sn2xaz": {
+      "relativeStake": "535983919367/10370931292695353",
+      "rewardPot": 1254604773,
+      "blocksMade": 99,
+      "leaderReward": 1254547786
+    },
+    "pool1vztvy9n9daayf8nuk5l9wmg4nlcs4j0f5awdjdnjkfvm7t89znm": {
+      "relativeStake": "2832308295/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1vgf6hsa6f2ct6jm5p42kdu3kkafsszud02xl8nmxu3atk7l3ec9": {
+      "relativeStake": "373092494288/10370931292695353",
+      "rewardPot": 899767030,
+      "blocksMade": 71,
+      "leaderReward": 459719386
+    },
+    "pool1vfqxyyxmfmfzg3egvc42dxkmmeea3he3r8h6q2dnwkaawwd0sv0": {
+      "relativeStake": "497624998/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1vf8ukuvdn7kv0hxgm23utjkkw5ugdhwfdrxy56l2t6wvxezspyu": {
+      "relativeStake": "1466986384/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1vtfhwwy868ryf49j3ft58ug3t9lq44t9fdcavyl5pawsx6hlvam": {
+      "relativeStake": "643571435/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1vtvseq6f76sxwknw5r6mv24x3nxcevenhpsyf35utkk77xljhag": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1vvkurfxhajtj4f7x8wjkeet7rg8amz34duy5nux76per5sn3npx": {
+      "relativeStake": "683944346138/10370931292695353",
+      "rewardPot": 1584096962,
+      "blocksMade": 125,
+      "leaderReward": 984705798
+    },
+    "pool1vw6fr9agt58djrp3w0t0lsn6t329t6eusqxz5ugd9w7ecyedsdv": {
+      "relativeStake": "1055245246960/31112793878086059",
+      "rewardPot": 937785348,
+      "blocksMade": 74,
+      "leaderReward": 406119798
+    },
+    "pool1v0mz3r0pkp5evjm62c7vrd6q2327nrw5uhhs8fefqst0yy57mgn": {
+      "relativeStake": "1668277081/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1v3lsp74wauazym2rwkktye9kdw2vyj8h9yvkgzj556t0g390ecw": {
+      "relativeStake": "1221026216738/31112793878086059",
+      "rewardPot": 937763300,
+      "blocksMade": 74,
+      "leaderReward": 376293934
+    },
+    "pool1vntql3yhyzzm3p846mds33nmuzz30jrn56fvjdd3hhu9u5n9d4d": {
+      "relativeStake": "1355426665051/31112793878086059",
+      "rewardPot": 1153410825,
+      "blocksMade": 91,
+      "leaderReward": 402206702
+    },
+    "pool1v5f89tua4ucmj9s0g4hdjkjtmpsuunxjz6sg5tj97ak0yja4hfl": {
+      "relativeStake": "2497634150/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1vknn7dv35hvnwzgee82lgcg88v743czky3kl8ze04pzgwu047f4": {
+      "relativeStake": "342084421886/10370931292695353",
+      "rewardPot": 50689908,
+      "blocksMade": 4,
+      "leaderReward": 50689908
+    },
+    "pool1vhlau0270khmruluxrc7dz6zfj066n9emhl3dtzw2cxtg7eht8g": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1vmhgsujfcqyn8n654yxtavlsjggew2a3knrr6smxcleggdwl3pp": {
+      "relativeStake": "1499211398/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1v7e8jk6vt2725t3p7w4x33pqwd4lynsragktq7rv8s4n2ngmpdn": {
+      "relativeStake": "502629442/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1dzxc7pqsqfs7dru7xdrkvkdf9s3kd4y2tqsdv063d2lfcxw6zmg": {
+      "relativeStake": "1195509995828/31112793878086059",
+      "rewardPot": 1077162624,
+      "blocksMade": 85,
+      "leaderReward": 436993010
+    },
+    "pool1dyy58ustunahrnk6gfmupfxsv99stqnrruxqvj5sjfk7vel02jr": {
+      "relativeStake": "3331895583/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1dg720fqut6y60phvxzk4pe639wvc2du65mv0yrnm8w6e570ct39": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1d20fqynupcwz54chju55syfz3nms6h3kazwy9a089ghm2t2lzpg": {
+      "relativeStake": "1001000000/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1dvwuefdyt53wt54t7hk8lcy4qsdg5jyww9nk08v9nrprs2uwk99": {
+      "relativeStake": "44000000/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1d0x6sj6f50h2d4ydzff76nupu24qma4azng7a44ffgxj2hw2jra": {
+      "relativeStake": "115641563/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1dje2qc5gp7t7sjgd5j6tse9smkwq0kezsccy8jkxr507x0aw4h3": {
+      "relativeStake": "11006161103/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1dmjagfyekz5vpfkdap7axpm8khhshnj658ukuscphgr76m4lef2": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1duwr8s97tsl6qqwwqnul5788ne949mlm5u6d2zq7dwpr2r4sd3t": {
+      "relativeStake": "165900000/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wyk7r2z9etzevz8yucu4jpamkt95f0rjtew82y3dx3zx5maj92v": {
+      "relativeStake": "18494515876/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wf9j0stckxueuxtrkupzug7463el4mdwz3fwxwlsdr98q9292s8": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wf542yl9c85gks2f4y479v2nlqtfr8t06v0td877h5e0qgry4st": {
+      "relativeStake": "9505580296/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wd2sv3nhfxd2z5sf5jjtleywqy0d56pe0w337xzpv266jn6mvp9": {
+      "relativeStake": "19833737500/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ws42l6rawqjv58crs5l32v0eem3qnngpnjfd7epwd4lmjccc5cg": {
+      "relativeStake": "251002504991/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wns664xl66hwsx7wf59lunq5x0t3mr46ew3j5sgm8t5xka32y4m": {
+      "relativeStake": "2713734815/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wn6a6f23ctq06udwhw27ravdpd6zcr7jlut3yez0wzdackz3222": {
+      "relativeStake": "514653950240/10370931292695353",
+      "rewardPot": 1330886289,
+      "blocksMade": 105,
+      "leaderReward": 936560785
+    },
+    "pool1w5qdxdjh4922f5paxgdej3cefz794hwjlnx3rlpxg6lj7sdgd86": {
+      "relativeStake": "1896101215/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wcz3mfg76ttd8tl7m54z9ptrs4wpfatx7vwd9ykrsjltwkzvcz9": {
+      "relativeStake": "183213477/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wcfnw3cf820z2fqn4rmlaf29yj5enymen4ll085eza4ey4shct9": {
+      "relativeStake": "1674161230/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1wmluq6pjne9ndvgl26q52f4lntpjaqkwj6x8u2py9jqfuy5mv8k": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool10qlwk6y9hhny4nweukak93yf0txrxk0p4k6c992v2hku6l9clkx": {
+      "relativeStake": "70597231384/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool10zaylnde5n0uurvcqyrmf2wjrk0hk2zmx0ln990p3alt2gh4mkk": {
+      "relativeStake": "22452880/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool108gvqf4qf6j2cspfuat9c6q6rh3csc34vvhezu05dn38c7xhrt5": {
+      "relativeStake": "29842708237/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool10t0uux47y60xuvaxlw7e2cau09szp25nly2klkrlyr0a7jv6zlq": {
+      "relativeStake": "7700000/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool10tcv8rekjzmmsr8a5j3cu9j7vl9ffj77sh006k5fa0cry35wmex": {
+      "relativeStake": "10311367957/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool10dtwvn64akqjdtn9d4pd2mnhpxfgp76hvsfkgmfwugrsxef3y2p": {
+      "relativeStake": "1187567611417/31112793878086059",
+      "rewardPot": 862031199,
+      "blocksMade": 68,
+      "leaderReward": 219099280
+    },
+    "pool10ny3ruzz9xee4smkpk293e9luvkx9fuf37zzz967uxgaca8ap2v": {
+      "relativeStake": "350777733627/10370931292695353",
+      "rewardPot": 405575121,
+      "blocksMade": 32,
+      "leaderReward": 343796006
+    },
+    "pool10hmpfez2u96atsf648xhe8jv470qxqn6j432zy20qa3227e8kgk": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool10aqw4wa8cenqut0mlhrnayfhh4jjv7kyg9zv40426axs793k6nx": {
+      "relativeStake": "36822779576/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool107k26e3wrqxwghju2py40ngngx2qcu48ppeg7lk0cm35jl2aenx": {
+      "relativeStake": "4716168068452/31112793878086059",
+      "rewardPot": 4221927454,
+      "blocksMade": 333,
+      "leaderReward": 849337106
+    },
+    "pool1s2drn889wxgszm055z4hj5nvevdtdx9q5lc66lwdvmcl2nvdq9y": {
+      "relativeStake": "970613940272/31112793878086059",
+      "rewardPot": 836387110,
+      "blocksMade": 66,
+      "leaderReward": 518446472
+    },
+    "pool1s02ue5qr6fw937k5hcfrdwv0wdrsz0e5269p5m6es4m7xyn2kcn": {
+      "relativeStake": "387321740/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1s04t5eyvf6p73fwr5zc4pcqrpz54nshp5ruuvfc8kshygahyq3x": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1scqanlqepaertn4zsr2cuf9pspgpwgrpq7s3zsrkd4hdsz6q7kh": {
+      "relativeStake": "3165000000/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1sew77wmm4ygdn2trm55fgjck895fyqvnnqqgmwuty86q5aukla7": {
+      "relativeStake": "56387341614/10370931292695353",
+      "rewardPot": 139406369,
+      "blocksMade": 11,
+      "leaderReward": 139406369
+    },
+    "pool1se43tfl325c0mgmd3lfvleljllsm9hkzmnhr45ujhx0mvgtahw3": {
+      "relativeStake": "41382872264/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1sm7h08std605lgr50dhajrxs0dh6jr7wskuj3j9em57w6tw8tuw": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1suqa64z86ht04r26lhzd2zdj2329nmt76f5u98djvy99xc9fmjr": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1s7wetfttn723hvdxx3wusz7yrxztzdfu6dm5nu4j6tuj6xcz2sj": {
+      "relativeStake": "235796542878/10370931292695353",
+      "rewardPot": 646356593,
+      "blocksMade": 51,
+      "leaderReward": 396191550
+    },
+    "pool13qyu46er2x2r6gqatghwlnjdld64kz9e3c4je36hytql7rdm932": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool13x9h4e00xt6vr7z7whr525lk0elzwtvt3z9pzqqrrhep2ztjcmh": {
+      "relativeStake": "2665843821/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool13fmuunlup35sgxt8t2jnjm0e5wxfe5swxeyr6tfyvh8gv9hdz68": {
+      "relativeStake": "300070406237/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool132jxjzyw4awr3s75ltcdx5tv5ecv6m042306l630wqjckhfm32r": {
+      "relativeStake": "11120825058095/31112793878086059",
+      "rewardPot": 9648623729,
+      "blocksMade": 758,
+      "leaderReward": 1357090888
+    },
+    "pool13dwtqgl5lnep4z5e8vjv7ef5qqd2095zmlccz3d9805zk423gwz": {
+      "relativeStake": "17625780742/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool13wj03r6wj8l2lyalxpg69kshsh9k3l0ejdv3f2auq339gl7un3w": {
+      "relativeStake": "1025609579348/31112793878086059",
+      "rewardPot": 1051815087,
+      "blocksMade": 83,
+      "leaderReward": 216312226
+    },
+    "pool13s22ldduwh07xr3xcesdsl89rujv4pehal6w3gdupv4rul4ntd6": {
+      "relativeStake": "37158831785/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool13jm000zz435dewqrwjd5nt4p5fy467yk2ldu2m0yqz8ncejd5ky": {
+      "relativeStake": "42854371387/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool135dzt5vxn7um8tx3z58zt7x2ut6nu6epfxfandps5radw2zhzf0": {
+      "relativeStake": "115605376111/31112793878086059",
+      "rewardPot": 25344954,
+      "blocksMade": 2,
+      "leaderReward": 25344954
+    },
+    "pool13hgadlyxdg306f43k9k950v6mc5nvanetszj0mxjh6wnuxwm9hd": {
+      "relativeStake": "10418229598/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool136rx90xnt0xqudmfwsjhadcje0k8zcnykf25furmxch2qc73pas": {
+      "relativeStake": "366066819177/10370931292695353",
+      "rewardPot": 975826884,
+      "blocksMade": 77,
+      "leaderReward": 352663523
+    },
+    "pool136t3ag3gzeftu7dlmxj9dvk5cj2ankuqujaphvn0y6glusap0fd": {
+      "relativeStake": "3765009898/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool13634p85x5duyu6d2ke38032hjry5c6h524l9k9wqa6uv7e29n7e": {
+      "relativeStake": "11222188756/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool13m26ky08vz205232k20u8ft5nrg8u68klhn0xfsk9m4gsqsc44v": {
+      "relativeStake": "19191602621722/10370931292695353",
+      "rewardPot": 46875696007,
+      "blocksMade": 3699,
+      "leaderReward": 3265350369
+    },
+    "pool13lqm9qxuvsrt6txassazk94jce6a3q63ppm3yej0rney265k07s": {
+      "relativeStake": "23652119870/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool13ls4vfl0cznxjh0jm7kmzv5a5wf8e8uh27esucwm2f4mwt40sfv": {
+      "relativeStake": "30533339876/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool13la5erny3srx9u4fz9tujtl2490350f89r4w4qjhk0vdjmuv78v": {
+      "relativeStake": "28823873059922/31112793878086059",
+      "rewardPot": 23646437479,
+      "blocksMade": 1864,
+      "leaderReward": 582891695
+    },
+    "pool1j8jjj8y07k5kh2ur8usekj5w0y4swl8khd2lgn8ghlfsuwexwf9": {
+      "relativeStake": "426508660787/10370931292695353",
+      "rewardPot": 1051815086,
+      "blocksMade": 83,
+      "leaderReward": 363015671
+    },
+    "pool1jgl6h9fyy8gqt593ah638kqps4ls7c78d5p00we6qlzycdmhhvq": {
+      "relativeStake": "395155369057/10370931292695353",
+      "rewardPot": 874400785,
+      "blocksMade": 69,
+      "leaderReward": 479481765
+    },
+    "pool1j20l32n8un5gce4adk44n9zks8cdvnk3amgursud847cwnpgeg4": {
+      "relativeStake": "6531800000/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1jtsar7k09zne4wzlen5ctmxa8mjuzwmzp9tmdxdul9f2q70074k": {
+      "relativeStake": "47929442/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1jt6tf4y0eshz0agzww8dc44wqt5kk8ytu730yww37acykezuly7": {
+      "relativeStake": "9497624426/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1jv7euu69zch46rl9a3nenaa50pwypjk6g7uzy5qzf3s76tafy72": {
+      "relativeStake": "11000000/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1jd86ej2sqk5h4d9y0gtd6qquqvpdw0cdhtny7epcyh4rjl8wrsr": {
+      "relativeStake": "1608743756626/31112793878086059",
+      "rewardPot": 1140549794,
+      "blocksMade": 90,
+      "leaderReward": 1140499899
+    },
+    "pool1jw898y658nejvaw7slrt5rfjwa7gky8lk6hy24l2gs3kqqesnfr": {
+      "relativeStake": "1110321357679/31112793878086059",
+      "rewardPot": 798403818,
+      "blocksMade": 63,
+      "leaderReward": 187450366
+    },
+    "pool1j5ykmf5a87myg947w2svnnj8f3evt8dqmvv624kugv9tcwwk8vr": {
+      "relativeStake": "1409455969009/31112793878086059",
+      "rewardPot": 582961572,
+      "blocksMade": 46,
+      "leaderReward": 392936368
+    },
+    "pool1j55ew47zgftph5jkf6qsuuhxwu0tjf4fvln6259mpqn06xcktvj": {
+      "relativeStake": "19591803251/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1je73q7ax8h2ke74n3l93r09p0qshvnyrnp0rlrckn5xjchduktz": {
+      "relativeStake": "2611068751/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1j67m773nj49h0h3dha8x7s768d5w4z3t9t8emnlulc8au9tzfvt": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1jaed3q2trl0n6s5mwd0tw8s9k4uheqr7ytpfne034lrh2fj7wd7": {
+      "relativeStake": "1209575156762/31112793878086059",
+      "rewardPot": 1013799872,
+      "blocksMade": 80,
+      "leaderReward": 479187664
+    },
+    "pool1nqcfx7mp2fhsww2xy7qc9xwch0uueqcjlvwsh4fsj488zyvfknj": {
+      "relativeStake": "352727253685/10370931292695353",
+      "rewardPot": 887073392,
+      "blocksMade": 70,
+      "leaderReward": 360495516
+    },
+    "pool1nprz06vaq28d8kt8tur30v7j4h0drg4538e6uh6agvz6vxnnjfr": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1nxxa0gyygv8msrfqfww5wq80glxadkda450gavkg00p26p2fqyd": {
+      "relativeStake": "4330878580/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1n84mel6x3e8sp0jjgmepme0zmv8gkw8chs98sqwxtruvkhhcsg8": {
+      "relativeStake": "4435497000070/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1nfwteq3rsk6uzxwncj7vdaqggkd263n038hf6xhwrj92v0cs48x": {
+      "relativeStake": "46161836152/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1nfn2m3lq52hw6l8lq9nlag4lsdvlav2zdl9saptfelh07arxfc5": {
+      "relativeStake": "1267410715564/31112793878086059",
+      "rewardPot": 1127855346,
+      "blocksMade": 89,
+      "leaderReward": 397164031
+    },
+    "pool1ndxf966uknq89g8xvurh0cduskr2yq4ua678qt5pkyc4u6eq0mv": {
+      "relativeStake": "43214197720/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1njr03m7t9k808fcav8phxnskacr4v59w5cnqgqsgnug2j2lvn85": {
+      "relativeStake": "66594651029/10370931292695353",
+      "rewardPot": 88709381,
+      "blocksMade": 7,
+      "leaderReward": 88709381
+    },
+    "pool1nj7z8vrq2m2u052cv58srudcrj2k3na0pqz9evc3n498wvm65a2": {
+      "relativeStake": "9497237896/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1nnmpqky7kcy67l0mhvknqu5qpxs0u6xw5cyrer0r92e4k84mthk": {
+      "relativeStake": "5245657164/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1n5hmumfnhzpk94cec4kux2gc9rgcq5jqxqp8pvn9ek2kzgqtw7g": {
+      "relativeStake": "8997446957/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1n4djuwkk8jvcywzh5dzgh5qhs5h0ugvyy5ahfhdc97x3qhnsv5s": {
+      "relativeStake": "41982549691/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1nkzh9k8n3cl9lskzpcga5047pgp0ksxu8mlmmm7ysutw2ux2ygy": {
+      "relativeStake": "347634194/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1nkfqdhfhqan2s8p7tsj04vfgjspv47wjkc0tzne7943nglyjkjw": {
+      "relativeStake": "29603772827/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1nkc9txh8rtul3zwncqtc4acdp3hd8kzjtnmu43aq9e8lqs4e5fm": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1nmfr5j5rnqndprtazre802glpc3h865sy50mxdny65kfgf3e5eh": {
+      "relativeStake": "4186729923591/10370931292695353",
+      "rewardPot": 10484304791,
+      "blocksMade": 818,
+      "leaderReward": 5064010833
+    },
+    "pool1numy3c5kc4a2ju3d54m9ekvvagphfgvwnuq4kc4gxql6jlcny6r": {
+      "relativeStake": "142280224/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15yv334wn9dzw5njtnzynkpg7967wnf6a4sxvx7tfrzjw2j3m530": {
+      "relativeStake": "191280224/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool158e08av7pux9guu574zfuaft90ejakxskqr3n36684g3cs6msmx": {
+      "relativeStake": "40388439446/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool152g6nqpmfelr7sq2809e0m5wkq0k0y24uqmdj3efz8r32t4t0gs": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15272x2srkjaqxs8gfuc5guj8jsjuhvja3znulwmh97kr2xwxxvk": {
+      "relativeStake": "2497634150/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15dc0n2avq04xltwt8muj9nh58mudcpm8mhr0r5ven93qwcj8478": {
+      "relativeStake": "157818842086/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15wd2rnaqdcrjqxxrwlred8dvu2rvuxssc25xd9p0rc42y50cl89": {
+      "relativeStake": "50415937840/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15w7lejtrpk4868drc8h65cgmm504qlnzhh52e2yndgrs5a9w232": {
+      "relativeStake": "22943861929/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool150an6nge5wnpr9j2pduez0ff2n7wc0gfkmf896vwfmc8kqd7aek": {
+      "relativeStake": "8476529258/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15stacednny2nl2n07p2p6hdlpj8yu49vrpgcnxy4v9swurchv75": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15kkydrvnkqyqq6zmlnjglskqwulka0qr95wgz84a7mzmufrnzj5": {
+      "relativeStake": "48443613850/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool156a5fugj6xxv8d6vwnk9wmctsrk5p5xff8fsvpwhmraggq56w9k": {
+      "relativeStake": "140171086/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15mss6pkavrgqe9xg4mwp20tu3pfglsvrt6zk54kte4ukjkf2kuj": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15udpynn4qj4sdtlfz400he4narmagth659nzlx83rmklq2773kg": {
+      "relativeStake": "1175663915540/31112793878086059",
+      "rewardPot": 887072964,
+      "blocksMade": 70,
+      "leaderReward": 367353648
+    },
+    "pool15uue6svd6kjt9gjplp3a2z2f6sq79m0h7fx3fd3960g6chhudm9": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool15lymw44dq5extwwj6kt49xckwj9f6ht8hl8ujxunzzjm2mllclh": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool14qcpfdnxugjl9gdhpdmvkcf72ruu4lrjfxn6v0zvr4al60lrmuc": {
+      "relativeStake": "3854541371/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool14qayv3w4lyar4lpg07jllrtd73azn7h2vztz0eezwxur2y0rg5h": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool14pmq6d9ym3q98z9uw2cgp4vcxar6scpw0c50gksa3kxzw90sd2s": {
+      "relativeStake": "20950125763/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool14t88wyzkfeqex34hjtk7e773r8rx3erfxl6s4mckzzhtcdc2egk": {
+      "relativeStake": "19765649630/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool140qtx3sfkm0sxlld059xt6vejwcawul6x70la9clml3kxruz6qp": {
+      "relativeStake": "1172378862632/31112793878086059",
+      "rewardPot": 950439897,
+      "blocksMade": 75,
+      "leaderReward": 367901661
+    },
+    "pool1406426vectppa96tc54p0jpa335zn4793969udppzcj8qlfwech": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool144pedg8hc3lr660w30te9jqv5zllaesegh8vt3ptft5s7qu45re": {
+      "relativeStake": "985859979103/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool14kjc0axlsazplwfz9epvn88s866hgn7mvaya5pzrevnwy5cvj6a": {
+      "relativeStake": "3237818458/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool14eftq7myfpt5zfaa5eeswpf3w6s8jtnsnev806vmypkc5lk6y2m": {
+      "relativeStake": "11559408452/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool14mvfr40jveuche70n3mtqph783kwxktx02ke2twajuz455e2ul3": {
+      "relativeStake": "3325418091/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool14773v3ddtf363gfcaah8424wtv3uczmk49vvjvhuslj653hfjpt": {
+      "relativeStake": "1000000/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1kp6y5wt4ujewtlqy4nqtcemgy3ekkq0qwa6vwg3pqq8gjm6d7j3": {
+      "relativeStake": "30943174420/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1kxtrz8evgdrwwrdajhwweng6k8eysjvqgn59r8a5wkqw6rlnvv6": {
+      "relativeStake": "350975754981/10370931292695353",
+      "rewardPot": 938062767,
+      "blocksMade": 74,
+      "leaderReward": 938062767
+    },
+    "pool1kxk8w4c5t68dvu9k6xwfy8slamltwwerl0kmqxqkk5yx7ndrfpq": {
+      "relativeStake": "3620257382/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1kgzq2g7glzcu76ygcl2llhamjjutcts5vhe2mzglmn5jxt2cnfs": {
+      "relativeStake": "188116694233/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1k2r9ys5jlj3m0n0ytjj8fhzwaxffksvy53w3tkw888cgjdhqsru": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1k4nqdlvd9y3l4rfgj8fm80mcrrgcvgkx732x0n04jqfakxy2dvd": {
+      "relativeStake": "95563128655/31112793878086059",
+      "rewardPot": 50691041,
+      "blocksMade": 4,
+      "leaderReward": 50691041
+    },
+    "pool1ke9h4mggr8ttf45ale5dv4ntkvuw2wkvm6la4mv02688xuy99qp": {
+      "relativeStake": "1215003571948/31112793878086059",
+      "rewardPot": 1128085717,
+      "blocksMade": 89,
+      "leaderReward": 220262161
+    },
+    "pool1k6nh3ay7u49sr3qfv8q5dhf4nh0n4p9rkh3zye9h76wngxyekz8": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1k6a0z9xshhar2sltamm7k3qlnpnvupyuct63kp0m7wv4u7f00p4": {
+      "relativeStake": "23396113790/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1km5tjulmhpwyrarkda3dpp3pvp5adcz6djz9sqx8p5pnyvelxgs": {
+      "relativeStake": "3165800000/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1kmmwsywmkus520vhk82k9uvtlx09r50ukn80pn2xr26jjmm6ltc": {
+      "relativeStake": "6499209990/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ka0prnwsau3v7mrffw8zlk4gvq7aun2hsymlmxpkens7kkpm5aw": {
+      "relativeStake": "118315713458/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1h9rvj96leksykmj6v5zdwwc352ln875g5mdqeexzstrwudkddmc": {
+      "relativeStake": "26767341416/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1hgsnn5yr0g5rnhqqaf8g26ldsvuhavhkfmyxdjlparr6xvp425n": {
+      "relativeStake": "1049233260/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1hghdaa7chn4hykkf9h0g0yqpz6j93gexvllz0w6p93y72saukmp": {
+      "relativeStake": "1138104073471/31112793878086059",
+      "rewardPot": 646296048,
+      "blocksMade": 51,
+      "leaderReward": 415531161
+    },
+    "pool1hfndr5ja3w7ptzhpjsds8f2eye3umg6nj8t7cq6s9vddj9q70k6": {
+      "relativeStake": "401124415500/10370931292695353",
+      "rewardPot": 925160807,
+      "blocksMade": 73,
+      "leaderReward": 207640061
+    },
+    "pool1h2ag7yej9veur67zhu0gqk7caefsqetl7tq0qaymezfwyzh0ec7": {
+      "relativeStake": "2683762578387/10370931292695353",
+      "rewardPot": 6832630026,
+      "blocksMade": 538,
+      "leaderReward": 761131084
+    },
+    "pool1hsxu3tfj0mfp2ncpg67rj3kywwqvu2p3k0cqr8fz0ghnxjfyy55": {
+      "relativeStake": "10964874523/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1h4w59hqkzn4l546a8q0yjlf94jz9tv85qjca4pjc9lne58ft7pz": {
+      "relativeStake": "45841339126/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1h4n2c2g6c5saatezzs0mpe0z7rknmf33txulf8sl2q9v7e72nky": {
+      "relativeStake": "933499042426/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1h4c9vz3f4rmkt2hc5y80kt4r5lcajq76hetu7ju29ley7acvclp": {
+      "relativeStake": "33478198486/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1huftf4gt4qm7ckprs3zt8gjeva4hkfmqsk8le9w7rxag6mhxms0": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1hlsuxcuylukyjwxv06x5r77mtwwmgyuw3jrljntn0mqcvqy503k": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1crsjjsvp9tppqrs4tdjqdxze4xxdj9jsrdxajytrp57s2797uvk": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1c8u8gmxepqu93adxh7c2pgrgutmyufkezpy454h06r24knmt7tk": {
+      "relativeStake": "19508607305/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1cg74u7gq3kx2yjfzrwkrxnsk2kase7z7n6tr5vvdnstukdtjz5z": {
+      "relativeStake": "66600000/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1c2k44smpn99j4xmt8wy2g6rarr5q038hz38wvaaw7nhmq65thre": {
+      "relativeStake": "9521344971/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1csef5r4287g2fn6ajvetamd0y4sevuxkdwj9ulwc57crx8u88zq": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1c3ez592g7wp2rf44guwp2cq8cpxnn39mgv0790f9kmjk77p7aat": {
+      "relativeStake": "149211398/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ch2t32x83w6ncxa6fgv9u0zfsmgrrhv02u5phn83kajcgxw4cd7": {
+      "relativeStake": "3132547386/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1c65t3mxfvvxlm5fg3hlw2aakk3r4e9evmgycxjnu6hkyxu5yfmr": {
+      "relativeStake": "10105963306/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1cmkjkxmk8hsf4dwxy6cng06arcvyk5du06jk6nxu2fj7kckv070": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1cap99vewanqjy4ejex7z5099hqkqdp0y2fatme9cdcsuy85rq06": {
+      "relativeStake": "86379109672/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ez2wz52f605j0qd9nc35hw0pund5zp3fwaqtgv2tyzy25kmkr0n": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ezt0htr2q0qjxfv8myeqegfqla5pfxq2guk904jmzf50ya343u0": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1e994rxs8glsefr5rqtagnl0y50e8nrejgqehr7mg4su2gtrvxwn": {
+      "relativeStake": "1000000/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ext7qrwjzaxcdfhdnkq5mth59ukuu2atcg6tgqpmevpt7ratkta": {
+      "relativeStake": "118353225488/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1egfg26w0syqly9qc65hz33gqv2qrzyka8tfue3ccsk3c73a56jp": {
+      "relativeStake": "2044249695377/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1egu0kaxmv3zu54xd80p9u0dcalnywmfru0qnm43hjvfzqa5zw5x": {
+      "relativeStake": "201041740102/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1e0mu44gtaglzv3507aaw34eyhw6jea93d7zjywsr5yfh20h4zv8": {
+      "relativeStake": "146699553221/31112793878086059",
+      "rewardPot": 152076484,
+      "blocksMade": 12,
+      "leaderReward": 152076484
+    },
+    "pool1e0arfuamnymdkmjztvkryasxv9d8u8key27ajgc4mquz2nr8mk9": {
+      "relativeStake": "34789329668473/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1e303tg8cmmgcjd89e30c7u7tz52ct0nguq4w4ryjj4422y99u23": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ece99q865t5u0rmx88z4ev0cut0pqarvqg3mq4zmhde3wqsdhcq": {
+      "relativeStake": "29785359787/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1eudmugh8x6ys05lh8kaaf2y0w0y52lf3s0gx0s70q694ksq6t7y": {
+      "relativeStake": "3165874926/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1e7vegr50kmr4cffv4jn4fpym997zzs20gq65w5x06snqxxyfgrq": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool16rfj469javk35q62jg69yjsk4v5kw7x6qgd07x3hj3lss9l27ru": {
+      "relativeStake": "61007023099/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool169q6y3lmn58xkv05uw7pvxcrjc3qewz4u8vkkh4t0acxgrrjtup": {
+      "relativeStake": "1194766439552/31112793878086059",
+      "rewardPot": 1014032028,
+      "blocksMade": 80,
+      "leaderReward": 381060577
+    },
+    "pool16x0zwm5j7lv0fvrla0z377sem7rha2lzwkgvsazu7nfzjtn83l8": {
+      "relativeStake": "1054333447820/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool160pfyrqp00up4n3t2xmpa7smd38ffd3ephc0a79w6kzkvk2jfu3": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool160u5drqagq5k4mwghps36cvq7e6vcptm5r8tnkpcpkhwvrm2gad": {
+      "relativeStake": "87091775476/31112793878086059",
+      "rewardPot": 126724709,
+      "blocksMade": 10,
+      "leaderReward": 126724709
+    },
+    "pool16hr6sjve8pcy9yucap0270rfdswsvpwfl2ksy8yp6vl9qk8u6zx": {
+      "relativeStake": "1401938919694/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool16c0tqycyj7ztuwmnlv2hva76ec7dv3emslevrcjej8ph5lz3e8q": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool16cefgx8t9re4gy2qaapshxl34my5ya6ks7hje39k3pew2ejlkx7": {
+      "relativeStake": "2497634150/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool16eqe8ngw7vfl4tltw3j2c4kjphu58xl9hwjuzmkwm2akghn9dat": {
+      "relativeStake": "536133901564/10370931292695353",
+      "rewardPot": 1330641426,
+      "blocksMade": 105,
+      "leaderReward": 1330579691
+    },
+    "pool16eta2yaat8cp6clzv6e5wt30c944w229xkslx0tq5ce4vg39vwz": {
+      "relativeStake": "1616760233458/31112793878086059",
+      "rewardPot": 1166395547,
+      "blocksMade": 92,
+      "leaderReward": 606849721
+    },
+    "pool1mp96jpc2dtaruz0cazmljh03dev0969c4rq3wr6hnc4rjdxn8aw": {
+      "relativeStake": "2010054569728/31112793878086059",
+      "rewardPot": 1611909811,
+      "blocksMade": 127,
+      "leaderReward": 766990935
+    },
+    "pool1m8crhnqj5k2kyszf5j2scshupystyxc887zdfrpzh6ty6eun4fx": {
+      "relativeStake": "2057723967110/31112793878086059",
+      "rewardPot": 1761599947,
+      "blocksMade": 139,
+      "leaderReward": 416328912
+    },
+    "pool1mtyjt95svreuxl46xnww3m09afp0pfggf6m7j8ewa5tc6qmndce": {
+      "relativeStake": "19485268960/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1mv0kgwy8pghc0l2kr7dueeaf756a6pvwe0zp0umdpmug565r5hn": {
+      "relativeStake": "364139534831/10370931292695353",
+      "rewardPot": 975780262,
+      "blocksMade": 77,
+      "leaderReward": 355684648
+    },
+    "pool1m3t4nk54p5tnl24gwpakkyej4u4ad4efkf0c9cmspc3p543aqnk": {
+      "relativeStake": "22430545/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1mnp9rma5zcmqutjw57uek6uug5w5espzljtppvcqygutqevuxt8": {
+      "relativeStake": "115122629/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1mhmk5qndxhse7xsjectzrrhj44uq9uc4a4x6v9dae4us586g4ww": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1maydque4d3nnj5vekfsegymtxh3uauxlywd79mytdav0y3ggfqq": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ma3z83uxmvpaxxl3gp6zvgqqcdfdvd3spqy2gz8f0094sxtx2zp": {
+      "relativeStake": "4398080532/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1m7xzrlw358czfundrytv82hw5wksg8sgxa23y9zpgey5j9ns5ph": {
+      "relativeStake": "3132426756/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1mlse64uvz922nax8s8xv044rr7qv5zv7ppuhrsx8ht4yq845ne8": {
+      "relativeStake": "9497622490/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1uqkr3aes23dd6t6n6q480tgasy8r2tz9250lhejlnr98cvu8jw9": {
+      "relativeStake": "192228404390/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1upqfyzqpk6wkpsvw90qqrpr9tjyemh484wk4em69anwpu586ehq": {
+      "relativeStake": "20015773928885/31112793878086059",
+      "rewardPot": 16162452636,
+      "blocksMade": 1275,
+      "leaderReward": 2971682588
+    },
+    "pool1upeknjpwqkemwm2ephx2v94wkk5wlh7ce58xg0w4fxetq25mn2d": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1uzsnj4eu37efwm0trm6nggwvq23nl7894wsnpq6pqp2eu0xdm9x": {
+      "relativeStake": "1020863794853/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1u997u0wg039euqrsx5fuyy3wktw983xmrxrzc93z3j5azgfk6y6": {
+      "relativeStake": "18622427750/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1uwg22a2nvattzh8sqydumja5xgh68r9mtdgy80hknm8xk8asj5h": {
+      "relativeStake": "1795480345/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1u3ltum2lm8jxlnlphr3avk50tng58saxwnzknwn0fzsuvesj45p": {
+      "relativeStake": "63200000000/31112793878086059",
+      "rewardPot": 25345504,
+      "blocksMade": 2,
+      "leaderReward": 25345504
+    },
+    "pool1ujafaae6h7quhldzwcs0psxa0mxczx7zay4vnggmu0sacycdgum": {
+      "relativeStake": "46639103236/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ujajzuj0jjt45t4yafh9uwjr6g5aaprq9h6tcn5fa6m72vv8x2a": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1u4x4ly6qyx9fs9k2lt7f9hpa2gftd52fee67jcmuhnt7qqae3x0": {
+      "relativeStake": "10584925510208/31112793878086059",
+      "rewardPot": 8909176240,
+      "blocksMade": 703,
+      "leaderReward": 740087672
+    },
+    "pool1uhkxzvt9rj5s9emzr3uklwg2wdt7uky3aatgv9amhn2yz59laey": {
+      "relativeStake": "16171042958/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1u6x2xqxpkcqc3fedj0tllvf5c4k8lwxxrjhsal6rwt2866pjtk3": {
+      "relativeStake": "19590488471/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1a9qju4zhpxj5ywt5ez79zzjhszg47kk2dq4stllvs5qywmlv8cj": {
+      "relativeStake": "115431143311/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1axqjzy6mtr7h0cm6trz36fjn4d33qvlu7a6yxaxf2f6wuarlh2k": {
+      "relativeStake": "1121635117946/31112793878086059",
+      "rewardPot": 1026751474,
+      "blocksMade": 81,
+      "leaderReward": 398085305
+    },
+    "pool1a2r8szr9hqcrjw0jr0sy8mryqqm5tw4wumc23rqw8t252ah0w4m": {
+      "relativeStake": "72064880332/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1a28qxpdfculv8c2q80jfjhy0s385w25uzpmcyzy5dkz9qwgtt35": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1aw7fkxekw2w28f3ug46rwn8nf8lchyhy2aec3tvaw70r6r2kr0l": {
+      "relativeStake": "55943556884/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1a3nhq8gd5c55eye6t5hmmclv4yvtctg72ckcjze8e00eupftylh": {
+      "relativeStake": "678092481/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1a5fy9pzm22r0w9avdu668s60yg3j894prt7ys4yplkpmu9ykv2q": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1amrnegn99cdwj2zjr90lx2yamxg6s0d7t7vf7phpe94kga9gg86": {
+      "relativeStake": "574803391104/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1am8e6xumuc2nyrh6d36586r2yuctha0gsj029vpr8ahqvatwwrq": {
+      "relativeStake": "19495449817/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1ausmtj7pg57n49cv6pnm6vakuakya38jwrqde7wgnfk4wqycwu8": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1al30ghsq7n335v9zdrnd0dpuva435c9yqtsrvphsfcgjytz3exp": {
+      "relativeStake": "3165875014/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool178l32gz8uve9jfhh9sqz80rf680asc5gaxp4q5tnav0uz85gkj3": {
+      "relativeStake": "86375211332/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool170lseazv7knrlu2m7xzj852mngvn075x2vqgmdmdvmd05wwdxpy": {
+      "relativeStake": "32673818195/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool17n848ynu33sprccmef0hpj48tl9g298qut9uadfnhuyd6zwj4jc": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool175lu3gm2rmvqpsrg6m82zvdmqaaryeqmsvjj7qyvvj20vxunc60": {
+      "relativeStake": "21717473789/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool17k256w4nlkfxtpapyph4sgpchrw4f0hrqepssqy6k5ts2vgklc3": {
+      "relativeStake": "35117538059/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool17hd3fxccyckape0hn2ddpetq3fa6xkx5gnnhse3c285r268t5h9": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool17cl7z0njlda4vl4vra5ef3yns5y0wgmka3mh55empdeuj22uaep": {
+      "relativeStake": "94436880/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool17mq6lu4ycqq03eq479q0jlfg96y8r0c9pgnfn3l3p8agkdswm7x": {
+      "relativeStake": "19502757409/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool17lr0zh49w3leg4ya0ndkyea0dmpr8ksnqz5mhdpwn8zxqg56tte": {
+      "relativeStake": "360898195045/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1lzz7qqyx6g4dycdlppmftswxugyyw86rtzj3y6yyrj7wjl94rcx": {
+      "relativeStake": "844960680595/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1l8ywwf6nfrfmrg6edj2qjh6rxpuepnzlsq9mhvjk9xr9swkht93": {
+      "relativeStake": "1202647657097/31112793878086059",
+      "rewardPot": 1077165217,
+      "blocksMade": 85,
+      "leaderReward": 349754540
+    },
+    "pool1lgd9u8nshsh60asqszepfaalt2c5c5w6fvc85xne9st3g3fwtvm": {
+      "relativeStake": "1656636337217/31112793878086059",
+      "rewardPot": 1267277552,
+      "blocksMade": 100,
+      "leaderReward": 1267218760
+    },
+    "pool1ldt5k4gjm0vr26a45n7g9vu4ffk47hlyqxjvzefwss20gppeag3": {
+      "relativeStake": "3337220110/10370931292695353",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1lsygahp0r97tdt9ed7dx8g8yx7du96hmvh85q74ccwc0w5zfamj": {
+      "relativeStake": "69278250884/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1lk6cxjaqd66t4t74q4gd9hymxapd93fvchhxt0uxwwprk9m8v6c": {
+      "relativeStake": "1149328425755/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1lhknlva0yzrz6uty8wcct4eyurgz2ghan2y4mmudn3xkq5sdcus": {
+      "relativeStake": "9804716348/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1lenzcfx02maescnpv8mk6gc6c59t0dramqucdgcvr4revw89xpz": {
+      "relativeStake": "91478922679/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1lec5sxj3hzwz0f0t597r3g52a6lryv0v3vu3n382u6qpuqquhw6": {
+      "relativeStake": "0/1",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1laacstav6s62exgvg2f65c8nhz5qzmn665tyfyu4jl5sckpz52x": {
+      "relativeStake": "25390989206/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    },
+    "pool1llsrnl35k82ytcnxv2hnxgc6grsynucszhxtjyefa26r78ky5pd": {
+      "relativeStake": "88153963339/31112793878086059",
+      "blocksMade": 0,
+      "pot": null,
+      "leaderReward": null
+    }
+  }
+}
