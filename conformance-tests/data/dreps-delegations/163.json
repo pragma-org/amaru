@@ -1,0 +1,39 @@
+{
+  "951fcc7230ca42c67077aeb005e041bb428d32f023edbfc3ac77a742": {
+    "delegateRepresentative": {
+      "type": "registered",
+      "from": "verificationKey",
+      "id": "743e345e716c2ae570bc9f3923c992dafc5523441b0d24f9d6435f11"
+    },
+    "rewards": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 2000000
+      }
+    }
+  },
+  "edc52808d58a420ce2df3da8c7118c858c7aa136fa7b2b1baa3e81ed": {
+    "stakePool": {
+      "id": "pool1nmfr5j5rnqndprtazre802glpc3h865sy50mxdny65kfgf3e5eh"
+    },
+    "delegateRepresentative": {
+      "type": "registered",
+      "from": "verificationKey",
+      "id": "fa6a8dc2635dddcf9af495cb144f7eb4ff845866fe48695ad7cb65d3"
+    },
+    "rewards": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 2000000
+      }
+    }
+  }
+}

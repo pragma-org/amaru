@@ -1,0 +1,1356 @@
+[
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "08b4c887d44668d5c0fde508d8363c0c2cdfea6f3ff4faefb05bd935",
+    "mandate": {
+      "epoch": 188
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 5114663720
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/UPTODATE-DEV/dRep/main/Cardano%20Africa%20C.jsonld",
+      "hash": "d63edeb7d4b2398103dfc3db3ab409feebd88a1373402b59f8b38a2048b92fb1"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "aeb4548104cc2f404a81f77408c00f5f7ca38aa71add0ac6f7f4048c"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "0d0dbdafe5f01086187aa1564b69e8f2f2b175423a4c4738f528fc6d",
+    "mandate": {
+      "epoch": 198
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "11ee7ea43198d7265e6e46ad56caff515b974dd2af4ff1c2562a4f43",
+    "mandate": {
+      "epoch": 201
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "db5e8ece0982acc4883de67c2e3411cc26bd56686a162074998c02bc"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1943ec7bf8c992b38f5f210263248b36a1b3aac51b233f3ad0e2e170",
+    "mandate": {
+      "epoch": 199
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 3348494441966
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "4cf4f01890215bd181d1fcd3c9589a2a4a3adbcff1a70b748080fa82"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "23bc63ced4e40b22dd4e6051c258ba38d5679d81e33f34fe5e5cdb4d",
+    "mandate": {
+      "epoch": 188
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "27f2a65f1443db9a8c6ab7a2549d7d34a99d6b00a102cf1dc735fd04",
+    "mandate": {
+      "epoch": 198
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 6652198569537
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "61c083ba69ca5e6946e8ddfe34034ce84817c1b6a806b112706109da"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "33400a4542196f78627b31b0286116100a6a39d27646ca68cfccb9ed",
+    "mandate": {
+      "epoch": 192
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 178247686403
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Dangtq84/HA_NHIEN_1/refs/heads/main/HA_NHIEN_1.jsonld",
+      "hash": "c470d07d3eb20cc757cb3c0d136d49a108287b23fa9edb35f98c8554979f54ac"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "a713b66406e1723e8c2768880075740d81357dca2c39aeca3676911d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fa4ca121f0b5a6537d807f3b325cb88db3a3f78de0e23c2d9d7f7102"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3ca5cb94bbdd2b13ce8e562c53309420a17fb2982acd49d163efe8f5",
+    "mandate": {
+      "epoch": 198
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497813687
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Sadeghg/drep-repo/refs/heads/main/GovCircleCommitt.jsonld",
+      "hash": "be2c1c4c312e2ff2e551bef8b2424645e3147ce278b1bfdf5476f048e9f2b2d9"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "b962564daa46a8b822e8dcffd7ac63850598e5c84104140b42444162"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "47c6d376abd6b65454fd7eb6610982f721388cf46f816f61e66ad63d",
+    "mandate": {
+      "epoch": 199
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 485024006
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/test",
+      "hash": "9a553483f48f246a31a68cd6d23607a4607197421d0e123c8f4bc0dccc4c4f70"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c2f45a16a6685616e566c00fc081fe59f8bd7ab679ee15e9ce203446"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "48577642f6c78d1a9dac1513518b58960cf75d918ac3c4d81eb1437c",
+    "mandate": {
+      "epoch": 188
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 3855285408
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1fab5f9cba03290d7e25379c3df0a43450796895d5dacbb6b255e580"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "56353cb569b3011885ad4859d370a6511db547eb7ecb3d80762750a3",
+    "mandate": {
+      "epoch": 188
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 2617290916
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/UPTODATE-DEV/dRep/drep_test/Cardano%20Africa%20C.jsonld",
+      "hash": "59830510a828097b58b8bf1bf23970c1e34a420cc5cb3fe4dce80aa1d8993f11"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "d11b592fcc913605dbc42459d4ae8bb89c848e13926123bac85e2ab5"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "58b7c688fef6cccadc6eca2ad4d74082c3c3010ed01e49139f962222",
+    "mandate": {
+      "epoch": 200
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 30784158138
+      }
+    },
+    "metadata": {
+      "url": "https://most-brass-sun.quicknode-ipfs.com/ipfs/QmeBvVtqPGC9De2m4d4Hp3HCQ2rrvagPDi7AtpXmEJ4a1b",
+      "hash": "73a6ce4d8873eaaa3c2ca69dfea092e533b43d003104600f302987ca750dc2fc"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "0eacf5fbb6f7bcd56f8fb48a5fda92043057fc0c0316f3d9a5bf501b"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a6eba4752133fb46424976c48c1acd4f66264d33a4c757fbde3caf84"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fa20c8d43f548753b05f7d26a64018db64fc669851e18642b722b69c"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5bfef20b43131c5ca870846b561ef4f395add12019e9c7a47f756d44",
+    "mandate": {
+      "epoch": 199
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 22315189481496
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/szikora/stakepoolbazar/refs/heads/main/drep.jsonld",
+      "hash": "c7a2cd6296ae3185727f4ee7bd4c79e22785b0b57a8dc7df1fa1a1d7f30c5395"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "226ba10ba5bc94fdb6d120ff5fe263d85063f059c8829b54454ef53f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "631dd9612e573e06cd1a458181d36060be91ea955ace14a7c853fb88"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "643bb98a40c054c84970fa526f17062515fbb17931d16bd6a99a3ee4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6b5fd73e599a24b2d4b79ab3dbe0cb8ca000c3b3badf309392870f61"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "87b14e26826bb4dd4644dc9afdab5cf63494efe0e5f7737b667f9304"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "884abfcc55a89c3180c74146b5b5727e85fbc3f4107f47f29d9151e8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b9b2eda974c6e980b6612f43ba298c45102caf8803a9ab274c43a33c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c3edd34415e593f30787ac03264fbfe09414f0bf0613b19ceadc73da"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d430f4204f2e480111c23dac750f6d129a7aceda8d51339dd907aae2"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "60ac971554c144b15dc148830ee6ffd1d11770521e624fb2f342da1c",
+    "mandate": {
+      "epoch": 192
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 14900059995
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Dangtq84/HA_NHIEN_dReps/main/HA_NHIEN.jsonld",
+      "hash": "88dbae72d6eb70ef4a8a2b661b990ee4fc89e8abde0686c6878daf90a0a2edcb"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "db4004c77d0d6371dc49aa87df4bcc90d5a02cc9f8096ba8b7430999"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "63ace9022803a876334d96e711fa9f8d471042c5bb66ba9faedaf57a",
+    "mandate": {
+      "epoch": 199
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 5465547418
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "8fcbfb9e771a928d717bd9877bc6db9a3dfa728330031aa2877c13b4"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7188d8667157084ca3702741ac09e02b8762c6f774566174acb64a60",
+    "mandate": {
+      "epoch": 199
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 189178272722
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "2966ddf1dacf046d52483389174713c212a3b549370f996066569251"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "743e345e716c2ae570bc9f3923c992dafc5523441b0d24f9d6435f11",
+    "mandate": {
+      "epoch": 188
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9694449375
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/NanaSafo01/drep-metadata/main/WadaDrep.jsonld",
+      "hash": "8a1971eaccf490599fc7e02c522f0c2012f8d9f0e3f6bcf938b7134b58c617c0"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "951fcc7230ca42c67077aeb005e041bb428d32f023edbfc3ac77a742"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fd1c740673b5b8840a12cfbbd4e6c5c243bf08bbece4c8b3258194b2"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "74519ac5359c003a7ace69c475ae55a86eb8f9fec6cf6feaada1debf",
+    "mandate": {
+      "epoch": 196
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 4497637054
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/m-i-k-e/meta_test/refs/heads/main/asdfasdf%20(1).jsonld",
+      "hash": "2a6efdba965ff4d333d84fee3491edbbe6b8348edc6f07e307a6a1afec101b46"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "79bb181ab55772b961a883a2a24e73a5416e163375817c898993f120"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "775f552d0191399266691052ffeaeb6267e25ce1019219bcdf47fd1b",
+    "mandate": {
+      "epoch": 200
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 179611440982
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "21ce11997949f939fc1909ab6e5cc0c510b870bc0f243e33720e081c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4bec2d4e59e40ffc8ac4ed7e3b1e5b32cdc821f5f4b8447cc06d021f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "81378d3ea89b68f0fc09944b1f93f2feb851318f196f98ba4029d8a8",
+    "mandate": {
+      "epoch": 197
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 1918464607085
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "e6cd48c60e2c7b844255c4b778c9952b7f04d0c8d22f0dd6652ac14e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8b75035882d4165bea8000c4d3f2c123ae33c1d92a751a78135a2402",
+    "mandate": {
+      "epoch": 190
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 1878706441190
+      }
+    },
+    "delegators": [
+      {
+        "from": "script",
+        "credential": "516aaa23a00adc271c481f3fb5b753e36feaef6fc7e8aa0a6e35ee59"
+      },
+      {
+        "from": "script",
+        "credential": "77978bd01b5b23865b431d40b457d368608ca87d3fc8cfe8d6539932"
+      },
+      {
+        "from": "script",
+        "credential": "bbf1a3e050345b98556758e7c1acbb8e540a6278c6896fa7fd7ab333"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "03bf2292273043a0f6ff5b3e4e839d78f1f34e78be1a4ecfac4ffd0a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "1ec80930158084eb5c735fd9bfb1ec53b8b5001c4b39d32c116b4921"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "25b57d0e01bd657db7fddeb5528bddf88f1d9d445c992dffd3936f9e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5ecd40556ba18330dd5a718e0262d2c7943639798fb6943c09823f06"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "79773d7df44c3af7e3ad81b8be3cf76a5043a15ecf18e1d3d669d00d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "af7d1f2718d003a2d80bc0bbb051ddf5933a7c044ed7585562e05177"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b75276e07c061a807a079b95c42ddd36bc86aa3cafbeee9d3d624287"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "cf1ef74bee52e2a7b03b3e3af80cf17ba914123cc514e85c0c01201e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ff2c8a08dbfcf8877c0471ee02dca414e64ef20b20b62dffda74fdeb"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8dc91d567324398d028661751322445f3ce6f6139a5cb4b66a9e9576",
+    "mandate": {
+      "epoch": 190
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 211586321684
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "ce5bfef8d88f9ef013c841fc9e93aae6164d330e317727198b7ca1cb"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8ee224ce211dd966764e08f81471482cce277582c2621df2aaa3500a",
+    "mandate": {
+      "epoch": 193
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 8452496675
+      }
+    },
+    "metadata": {
+      "url": "https://preprod.handle.me/papagoose",
+      "hash": "c3c98684edb7f2a0ca72f33db0755677f6de71484d6c41300ae874e19d60a6cc"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "f1a8e379127b811583070faf74db00d880d45027fe6171b1b69bd9ca"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9283131cf1c152ea7256c564a800cb53761f2c757526ea7c86a8513d",
+    "mandate": {
+      "epoch": 189
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 24700913502
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "d3e3c4bf80f3ac8641af4a99214363bf4060deba1ed5c0d830b62c9e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a547ab8084bfee4868a67d1d9b0ae054ee17511eb28ad44d47c5d9cf",
+    "mandate": {
+      "epoch": 188
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9608337097
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c9e345aa4048ef863333d5dfa3bcdb0f05b905f484049cf1947a7c86"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a9229ecc027cb8ae550b0ce1c86af28ed80d39b0568446c600c74d00",
+    "mandate": {
+      "epoch": 193
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 114726591826
+      }
+    },
+    "metadata": {
+      "url": "https://adawallet.io/public_files/MDRep.jsonld",
+      "hash": "d604fa7dcd2c0efef5524f059bc43c3911eddb6bfca1b048b3985ac5aea19726"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "4d0abda0fa477aa2cdf365770e80f814aa62395b35a49f6fda21db99"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "687352e5c62c977cee8978c024c06c5ab2ed280d2181e5ec0b59fb8d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b0111edb19e227b39b08283388c00e253bf4083deab5d39577ef35c2",
+    "mandate": {
+      "epoch": 195
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9493292372
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/test",
+      "hash": "9a553483f48f246a31a68cd6d23607a4607197421d0e123c8f4bc0dccc4c4f70"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "158f05b68cc6fdae1f28abe1e5b8c44e1662e2a6043266faac738605"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9f248ed39e37987cac65b37406b35972dbe55d31f47f1e431b1c422f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b17951d65a7ec99d008d3bc888b1986088b26c44792631bdbb29c8bd",
+    "mandate": {
+      "epoch": 195
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 6788957
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/3cfe537ae5f9c053b4fa3aa101b306b1bf51fe720fe4ab8e425b73de0aa9dc8a",
+      "hash": "3cfe537ae5f9c053b4fa3aa101b306b1bf51fe720fe4ab8e425b73de0aa9dc8a"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "97bca9525ee8d29533c7510b11396a9f08fe3ec7db59377d910b704f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b2a7f53b1cae7709ea715473bc0e68321bf70407fb7010349e8689dd",
+    "mandate": {
+      "epoch": 201
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "bbd847438e420189e8cded6b4b652646e9a3748fd3009e301136d5b4",
+    "mandate": {
+      "epoch": 195
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d114c798799bd5680f05136457cdbff6d80775bfe3b69eda46256f0b",
+    "mandate": {
+      "epoch": 192
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9820257156
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "207c9ab177d332a654b9c0135df65d300aee237becc22ab8142f5cd3"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d1bffcf5008a05f9103c36904f5a68d362aead7b4399c5a1ce420e50",
+    "mandate": {
+      "epoch": 200
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 11286303359
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3c39b51c61b4af48b714abf204b91dc8d42cc00b91d3bfe2427c882f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d9d72e40804a2fdb1d119fed56adbf21d32c785bc548ec410552d408",
+    "mandate": {
+      "epoch": 201
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://most-brass-sun.quicknode-ipfs.com/ipfs/QmUTPMAB68EaFyLJt13jeqN3pZ5k8Ydm2j3Y6qnfmrqiUV",
+      "hash": "4d70f08d123f5e10b96fddf08b8d56adbc7036af9a38784fb6269a15564a7a2c"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "203ee53f593e8babbc36c9430e80d83b9f4d5093a915875b006a0724"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "dd586656f03d5b3b1159dc6d67c3997e63af0d67e10afaf7a9f168d7",
+    "mandate": {
+      "epoch": 200
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://upstream.org.uk/assets/preprod/drep.json",
+      "hash": "52d74ce011fca5373986e1aced9cf4d557b84645eff396f481d97597cfc4ad34"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "5139e81456c1b4e2f0af22c1e94ff22ea648588b03a7c7914b6eb256"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "687c83f59510df72e0399ee3dfa5cd02f8285adae15d4c11bce86484"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "e04d73abcdffb31364d8ddc260377c35973a6f91a132241a642bebd6",
+    "mandate": {
+      "epoch": 189
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9142338514
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "a2ca2495e5be135760f68299660873861e753100042d1c891826b279"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "e9529fa1028dbe3388da5f26b6960d04d8e301c8a7adab6283397884",
+    "mandate": {
+      "epoch": 189
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 11176634004
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1bf1e138f2f8beabc963c94cc28ee8ed4b41744601f2edaf50b21efd"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "eab807376b108c36b9a61d007ddcfb0841ca459039c0728ef925c2ce",
+    "mandate": {
+      "epoch": 189
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 15651398
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "2d5709375e5626be0932063831e994fd088fd05f12a29eee0656db6f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a7b21a51ed041f634a618c9ab9774b179790b728fe303bde432321d6"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "ec47423ff6f9114a36fffcfada2ea1956028ef9ff287ca30f4a860c7",
+    "mandate": {
+      "epoch": 198
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "ed11d1ad4d95806b4443576724a4c5b57b93dc15eca5a3f46d235a9e",
+    "mandate": {
+      "epoch": 200
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 15481497
+      }
+    },
+    "metadata": {
+      "url": "https://meshjs.dev/governance/meshjs.jsonld",
+      "hash": "09eca138de5472a78f612bfdb61ea09b692720ee5ca7c7f1649b5bd487ec24e5"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "29a6a03f3192516f8387dadcf9e05809cac6c4d9719c1dd4fca3f44b"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "42eca2d6b6abbed8d296f8b7984bdc05b82740966fcedfb819c7136f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "59d88fc96461b369378237893cf275828628a2b4371cacb44eb3878a"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f0ed00410031f3288d7889aa896cfdad79a7441885d3bae8982ac151",
+    "mandate": {
+      "epoch": 198
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 1222969954828
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3dd92899f772d4616a1a7fcbf1c4b161deb8f7eecc77d6bbecee62ac"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f2b5f94917f7c6ec14a4265a7f74062d08e6db70440a60498397c82c",
+    "mandate": {
+      "epoch": 196
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497460993
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/IAmATestDRepMan",
+      "hash": "26804e1e72aa765c990cb2d4f0aca008cd9f3cf37d3810f33174ce200bc148a7"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c2e32e6ab787a646760cb376646256db93e116e383409e721f279cb9"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "fa6a8dc2635dddcf9af495cb144f7eb4ff845866fe48695ad7cb65d3",
+    "mandate": {
+      "epoch": 188
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 4386654970
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "d6d3e8ee16191f0253e0776c0d531a8a47aa0a6f74993a4eac80c335"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "da6c67c319374bd962a4ec2b0133526b3ccb6cb4b92dfb3b9d412fa9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "edc52808d58a420ce2df3da8c7118c858c7aa136fa7b2b1baa3e81ed"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "0f9d89a5262888c01f7598a1f31b1d3464f5b0e4ad9d1b5698a87b5a",
+    "mandate": {
+      "epoch": 199
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://2pzt5hfjckkkpzfl.public.blob.vercel-storage.com/drep/test-sfZpppAO3J4yO6J29vZLrqVZuUcLTP.jsonld",
+      "hash": "55bf0d08ccda158c3f5736bba48bd74b7401d98a3e38576a31e18c5c482be8f6"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "245c4fd87622e20d71fe3f6573a557ccd3f0c014b8f00ba7b12277f0",
+    "mandate": {
+      "epoch": 188
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "379c8fc9c3a68a67b167b0e5215c0468a86e8732f7d0dc3460198313",
+    "mandate": {
+      "epoch": 189
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://www.logicalmechanism.io/drepTestnet",
+      "hash": "55c4ea20e133878ef8c80ddbf3f73adbe3220963a2874f8757d435d60126db41"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "763ef75661f0cd8c8fa159a79d79bfe8f9a76878bdaaff700598ee0e",
+    "mandate": {
+      "epoch": 189
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 5142629922275
+      }
+    },
+    "metadata": {
+      "url": "https://www.logicalmechanism.io/drepTestnet",
+      "hash": "55c4ea20e133878ef8c80ddbf3f73adbe3220963a2874f8757d435d60126db41"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "40b3c98d3b5f5a7748829d612e9e1ccd5f429970abc9abfeae867af9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "86c769419aaa673c963da04e4b5bae448d490e2ceac902cb82e4da76"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b5c562bdedfb6d283af13b35a63556c0d4acc5ea01069f96e7975a6b"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "bfaa385c8eab7bbdc6c98b50413435b3d02b73de3c644e1384b801d4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fd0e26443fd3dc2ec11cddfa1bdb94dfc476404154f9eb8caa3dfd1f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "cb79ee95f9809bc83ee8e62ca747e61d06f971982a4633322d56749c",
+    "mandate": {
+      "epoch": 190
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://meshjs.dev/governance/meshjs.jsonld",
+      "hash": "237157ffba4e8db9aa3fbdac2d440483066d725326c819d3ba8e1ae5fffb4c00"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "d04d39c4e4b42e9edddbb741bb6636683b6822ae2c68df704b65ce4a",
+    "mandate": {
+      "epoch": 201
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 7652894
+      }
+    },
+    "metadata": {
+      "url": "https://2pzt5hfjckkkpzfl.public.blob.vercel-storage.com/drep/testHTJ-o4isH7ztLEim1QMDNkK2WSuDBd97P9.jsonld",
+      "hash": "0e823e004257161185b2ea269fa14ddd33aadb80957fa883af545b388dc7c834"
+    },
+    "delegators": []
+  },
+  {
+    "type": "abstain",
+    "stake": {
+      "ada": {
+        "lovelace": 56223632082539
+      }
+    }
+  },
+  {
+    "type": "noConfidence",
+    "stake": {
+      "ada": {
+        "lovelace": 205042529885
+      }
+    }
+  }
+]
