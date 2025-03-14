@@ -1,4 +1,5 @@
 mod block;
+mod context;
 mod transaction;
 
 use std::ops::Deref;
@@ -52,6 +53,8 @@ pub enum TransactionRuleViolation {
     },
     #[error("Invalid transaction metadata: {0}")]
     InvalidTransactionMetadata(#[from] InvalidTransactionMetadata),
+    #[error("Missing required signatures: pkhs {missing_key_hashes:?}")]
+    MissingRequiredWitnesses { missing_key_hashes: Vec<Hash<28>> },
 }
 
 impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
