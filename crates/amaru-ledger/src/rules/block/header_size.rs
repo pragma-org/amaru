@@ -1,28 +1,18 @@
 use crate::rules::RuleViolation;
 use amaru_kernel::protocol_parameters::ProtocolParameters;
-pub struct BlockHeaderSizeTooBig {
-    pub supplied: usize,
-    pub max: usize,
-}
-
-impl From<BlockHeaderSizeTooBig> for RuleViolation {
-    fn from(value: BlockHeaderSizeTooBig) -> Self {
-        RuleViolation::BlockHeaderSizeTooBig(value)
-    }
-}
 
 #[allow(clippy::panic)]
 pub fn block_header_size_valid(
     header: &[u8],
     protocol_params: &ProtocolParameters,
-) -> Result<(), BlockHeaderSizeTooBig> {
+) -> Result<(), RuleViolation> {
     let max_header_size = protocol_params
         .max_header_size
         .try_into()
         .unwrap_or_else(|_| panic!("Failed to convert u32 to usize"));
 
     if header.len() > max_header_size {
-        Err(BlockHeaderSizeTooBig {
+        Err(RuleViolation::BlockHeaderSizeTooBig {
             supplied: header.len(),
             max: max_header_size,
         })

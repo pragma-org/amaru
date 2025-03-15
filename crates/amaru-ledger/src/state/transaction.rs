@@ -19,9 +19,9 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    output_lovelace, reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer,
-    DRep, Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set,
-    Slot, StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer, DRep, HasLovelace,
+    Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, Slot,
+    StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -166,14 +166,14 @@ fn apply_io_failed(
 
     let total_collateral = resolved_inputs
         .iter()
-        .fold(0, |total, output| total + output_lovelace(output));
+        .fold(0, |total, output| total + output.lovelace());
 
     match core::mem::take(&mut body.collateral_return) {
         Some(output) => {
             span.record("transaction.outputs", 1);
-            let output = output.into();
+            let output = TransactionOutput::from(output);
 
-            let collateral_return = output_lovelace(&output);
+            let collateral_return = output.lovelace();
 
             let fees = total_collateral - collateral_return;
 
