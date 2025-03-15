@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use crate::{peer::Peer, ConsensusError};
-use amaru_kernel::Point;
+use amaru_kernel::{cbor, Point};
+use amaru_ouroboros::HASH_SIZE;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use std::{collections::HashMap, fmt::Debug};
@@ -27,7 +28,7 @@ use tracing::{instrument, Level};
 #[derive(Debug, PartialEq)]
 pub struct Fragment<H: IsHeader> {
     headers: Vec<H>,
-    anchor: H,
+    anchor: Tip<H>,
 }
 
 enum FragmentExtension {
@@ -36,7 +37,7 @@ enum FragmentExtension {
 }
 
 impl<H: IsHeader + Clone> Fragment<H> {
-    fn start_from(tip: &H) -> Fragment<H> {
+    fn start_from(tip: &Tip<H>) -> Fragment<H> {
         Fragment {
             headers: vec![],
             anchor: tip.clone(),
@@ -53,9 +54,9 @@ impl<H: IsHeader + Clone> Fragment<H> {
             .position(|header| header.hash() == point)
     }
 
-    fn tip(&self) -> H {
+    fn tip(&self) -> Tip<H> {
         match self.headers.last() {
-            Some(header) => header.clone(),
+            Some(header) => Tip::Hdr(header.clone()),
             None => self.anchor.clone(),
         }
     }
@@ -71,13 +72,73 @@ impl<H: IsHeader + Clone> Fragment<H> {
     }
 }
 
+#[derive(Debug, PartialEq, Clone)]
+pub enum Tip<H: IsHeader> {
+    Genesis,
+    Hdr(H),
+}
+
+impl<H, C> cbor::encode::Encode<C> for Tip<H>
+where
+    H: cbor::encode::Encode<C> + IsHeader,
+{
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        match self {
+            Tip::Genesis => e.encode(0).map(|_| ()),
+            Tip::Hdr(header) => header.encode(e, ctx),
+        }
+    }
+}
+
+impl<H: IsHeader> IsHeader for Tip<H> {
+    fn parent(&self) -> Option<Hash<HASH_SIZE>> {
+        match self {
+            Tip::Genesis => None,
+            Tip::Hdr(header) => header.parent(),
+        }
+    }
+
+    fn block_height(&self) -> u64 {
+        match self {
+            Tip::Genesis => 0,
+            Tip::Hdr(header) => header.block_height(),
+        }
+    }
+
+    fn slot(&self) -> u64 {
+        match self {
+            Tip::Genesis => 0,
+            Tip::Hdr(header) => header.slot(),
+        }
+    }
+
+    fn extended_vrf_nonce_output(&self) -> Vec<u8> {
+        match self {
+            Tip::Genesis => vec![],
+            Tip::Hdr(header) => header.extended_vrf_nonce_output(),
+        }
+    }
+}
+
+impl<H: IsHeader> From<Option<H>> for Tip<H> {
+    fn from(tip: Option<H>) -> Tip<H> {
+        match tip {
+            Some(header) => Tip::Hdr(header),
+            None => Tip::Genesis,
+        }
+    }
+}
 /// Current state of chain selection process
 ///
 /// Chain selection is parameterised by the header type `H`, in
 /// order to better decouple the internals of what's a header from
 /// the selection logic
 pub struct ChainSelector<H: IsHeader> {
-    tip: H,
+    tip: Tip<H>,
     peers_chains: HashMap<Peer, Fragment<H>>,
 }
 
@@ -148,14 +209,14 @@ impl<H: IsHeader + Clone> ChainSelectorBuilder<H> {
     #[allow(clippy::unwrap_used)]
     pub fn build(&self) -> Result<ChainSelector<H>, ConsensusError> {
         Ok(ChainSelector {
-            tip: self.tip.clone().ok_or(ConsensusError::MissingTip)?,
+            tip: self.tip.clone().into(),
             peers_chains: self
                 .peers
                 .iter()
                 .map(|peer| {
                     (
                         peer.clone(),
-                        Fragment::start_from(self.tip.as_ref().unwrap()),
+                        Fragment::start_from(&(self.tip.clone().into())),
                     )
                 })
                 .collect(),
@@ -207,17 +268,13 @@ where
                 };
 
                 if result != NoChange {
-                    self.tip = header;
+                    self.tip = Tip::Hdr(header);
                 }
 
                 result
             }
             _ => NoChange,
         }
-    }
-
-    pub fn best_chain(&self) -> &H {
-        &self.tip
     }
 
     /// Rollback the chain to a given point.
@@ -249,7 +306,7 @@ where
             })
         };
 
-        self.tip = best_tip;
+        self.tip = Tip::Hdr(best_tip);
 
         result
     }
@@ -260,7 +317,16 @@ where
         for (peer, fragment) in self.peers_chains.iter() {
             let best_height = best.as_ref().map_or(0, |(_, tip)| tip.block_height());
             if fragment.height() > best_height {
-                best = Some((peer.clone(), fragment.tip()));
+                // FIXME: height is necessarily greater than 0, therefore tip
+                // can only be a header and not Genesis. How can I statically
+                // enforce this?
+                match fragment.tip() {
+                    Tip::Hdr(header) => {
+                        best = Some((peer.clone(), header.clone()));
+                    }
+                    #[allow(clippy::panic)]
+                    Tip::Genesis => panic!("Fragment has no tip"),
+                }
             }
         }
         best
@@ -480,7 +546,7 @@ pub(crate) mod tests {
 
         let result = chain_selector.select_rollback(&alice, hash);
 
-        assert_eq!(rollback_point, chain_selector.best_chain());
+        assert_eq!(Tip::Hdr(*rollback_point), chain_selector.tip);
         assert_eq!(RollbackChainSelection::RollbackTo(hash), result);
     }
 

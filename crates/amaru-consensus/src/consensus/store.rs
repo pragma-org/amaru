@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Epoch, Nonce};
+use amaru_kernel::{cbor, Epoch, Nonce, Point};
 use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;
@@ -112,9 +112,7 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
     fn evolve_nonce(&mut self, header: &H) -> Result<(), Self::Error> {
         let (epoch, is_within_stability_window) = nonce::randomness_stability_window(header);
 
-        let parent_hash = header.parent().ok_or_else(|| NoncesError::NoParentHeader {
-            header: header.hash(),
-        })?;
+        let parent_hash = header.parent().unwrap_or((&Point::Origin).into());
 
         let parent = self
             .get_nonces(&parent_hash)

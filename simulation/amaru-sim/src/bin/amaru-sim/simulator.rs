@@ -158,15 +158,18 @@ fn make_chain_selector(
     }
 }
 
-fn load_tip_from_store(
+fn load_tip_from_store<'a>(
     chain_store: &impl ChainStore<Header>,
     tip: Point,
-    builder: &mut ChainSelectorBuilder<Header>,
-) {
-    match chain_store.load_header(&From::from(&tip)) {
-        None => panic!("Tip {:?} not found in chain store", tip),
-        Some(header) => builder.set_tip(&header),
-    };
+    builder: &'a mut ChainSelectorBuilder<Header>,
+) -> &'a mut ChainSelectorBuilder<Header> {
+    match tip {
+        Origin => builder,
+        Specific(..) => match chain_store.load_header(&From::from(&tip)) {
+            None => panic!("Tip {:?} not found in chain store", tip),
+            Some(header) => builder.set_tip(&header),
+        },
+    }
 }
 
 pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationToken) {
