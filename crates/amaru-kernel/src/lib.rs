@@ -29,7 +29,10 @@ pub use pallas_codec::{
     minicbor as cbor,
     utils::{Bytes, NonEmptyKeyValuePairs, Nullable, Set},
 };
-pub use pallas_crypto::hash::{Hash, Hasher};
+pub use pallas_crypto::{
+    hash::{Hash, Hasher},
+    key::ed25519::{PublicKey, Signature},
+};
 pub use pallas_primitives::{
     // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
     // Investigate.
