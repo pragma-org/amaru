@@ -40,17 +40,11 @@ pub use pallas_primitives::{
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, Certificate, Coin, DRep, Epoch, ExUnits,
-        GovActionId, HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, MintedWitnessSet, MintedWitnessSet, NonEmptySet, PoolMetadata,
-        PoolMetadata, PoolMetadata, PseudoTransactionOutput, PseudoTransactionOutput,
-        PseudoTransactionOutput, RationalNumber, RationalNumber, RationalNumber, Redeemers,
-        Redeemers, Redeemers, Relay, Relay, Relay, RewardAccount, RewardAccount, RewardAccount,
-        StakeCredential, StakeCredential, StakeCredential, TransactionBody, TransactionBody,
-        TransactionBody, TransactionInput, TransactionInput, TransactionInput, TransactionOutput,
-        TransactionOutput, TransactionOutput, Tx, UnitInterval, UnitInterval, UnitInterval,
-        VKeyWitness, Value, Value, Value, Voter, Voter, Voter, VotingProcedure, VotingProcedure,
-        VotingProcedure, VotingProcedures, VotingProcedures, VotingProcedures, VrfKeyhash,
-        VrfKeyhash, VrfKeyhash, WitnessSet, WitnessSet, WitnessSet,
+        GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
+        MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet, PoolMetadata,
+        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 use std::{convert::Infallible, sync::LazyLock};

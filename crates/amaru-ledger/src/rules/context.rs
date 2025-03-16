@@ -7,6 +7,6 @@ pub type UtxoSlice = BTreeMap<TransactionInput, TransactionOutput>;
 
 // The BlockValidationContext is a collection of slices needed to validate a block
 pub struct BlockValidationContext {
-    utxo_slice: UtxoSlice,
+    pub utxo_slice: UtxoSlice,
     // TODO: add more slices as needed
 }

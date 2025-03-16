@@ -2,16 +2,19 @@ mod block;
 mod context;
 mod transaction;
 
+use std::collections::BTreeMap;
 use std::ops::Deref;
 
 use amaru_kernel::{
     cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, Hasher,
     MintedBlock, MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
 };
-use amaru_kernel::{TransactionInput, TransactionOutput};
+use amaru_kernel::{KeepRaw, TransactionInput, TransactionOutput, VKeyWitness};
 use block::{body_size::block_body_size_valid, ex_units::*, header_size::block_header_size_valid};
+use context::BlockValidationContext;
 use thiserror::Error;
 use tracing::{instrument, Level};
+use transaction::signature::validate_sigantures;
 use transaction::{disjoint_ref_inputs::disjoint_ref_inputs, metadata::validate_metadata};
 use transaction::{metadata::InvalidTransactionMetadata, output_size::validate_output_size};
 
@@ -23,6 +26,8 @@ pub enum BlockValidationError {
     RuleViolations(Vec<RuleViolation>),
     #[error("Cascading rule violations: root: {0:?}, resulting error(s): {1:?}")]
     Composite(RuleViolation, Box<BlockValidationError>),
+    #[error("Unnammed error: {0}")]
+    Unnamed(String),
 }
 
 #[derive(Debug, Error)]
@@ -55,6 +60,8 @@ pub enum TransactionRuleViolation {
     InvalidTransactionMetadata(#[from] InvalidTransactionMetadata),
     #[error("Missing required signatures: pkhs {missing_key_hashes:?}")]
     MissingRequiredWitnesses { missing_key_hashes: Vec<Hash<28>> },
+    #[error("Invalid vkey witnesses: {invalid_witnesses:?}")]
+    InvalidWitnesses { invalid_witnesses: Vec<VKeyWitness> },
 }
 
 impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
@@ -103,11 +110,12 @@ pub fn validate_block(
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, transaction) in (0u32..).zip(transactions.iter()) {
-        // TODO handle `as` correctly
-        let witness_set = match witness_sets.get(i as usize) {
-            Some(witness_set) => witness_set,
-            None => continue,
-        };
+        let witness_set = witness_sets
+            .get(i as usize)
+            .ok_or(BlockValidationError::Unnamed(format!(
+                "Missing witness set for transaction index {}",
+                i
+            )))?;
 
         let is_valid = !invalid_transactions.contains(&i);
 
@@ -118,11 +126,12 @@ pub fn validate_block(
             .map(|key_pair| key_pair.1.deref());
 
         validate_transaction(
-            transaction,
-            witness_set,
-            auxiliary_data,
-            is_valid,
+            (transaction, witness_set, auxiliary_data, is_valid),
             &protocol_params,
+            // TODO: this is temporary, pass in real context
+            &BlockValidationContext {
+                utxo_slice: BTreeMap::new(),
+            },
         )
         .map_err(|err| {
             BlockValidationError::RuleViolations(vec![RuleViolation::InvalidTransaction {
@@ -137,15 +146,23 @@ pub fn validate_block(
 }
 
 pub fn validate_transaction(
-    transaction_body: &MintedTransactionBody<'_>,
-    _witness_set: &MintedWitnessSet<'_>,
-    auxiliary_data: Option<&AuxiliaryData>,
-    _is_valid: bool,
+    transaction: (
+        &KeepRaw<'_, MintedTransactionBody<'_>>,
+        &MintedWitnessSet<'_>,
+        Option<&AuxiliaryData>,
+        bool,
+    ),
     protocol_params: &ProtocolParameters,
+    context: &BlockValidationContext,
 ) -> Result<(), TransactionRuleViolation> {
-    validate_metadata(transaction_body, auxiliary_data)?;
-    disjoint_ref_inputs(transaction_body)?;
-    validate_output_size(transaction_body, protocol_params)?;
+    validate_metadata(transaction.0, transaction.2)?;
+    disjoint_ref_inputs(transaction.0)?;
+    validate_output_size(transaction.0, protocol_params)?;
+    validate_sigantures(
+        transaction.0,
+        &transaction.1.vkeywitness,
+        &context.utxo_slice,
+    )?;
 
     Ok(())
 }
