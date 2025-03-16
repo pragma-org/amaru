@@ -40,11 +40,11 @@ pub use pallas_primitives::{
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, Certificate, Coin, DRep, Epoch, ExUnits,
-        GovActionId, HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput,
-        MintedWitnessSet, NonEmptySet, PoolMetadata, PseudoTransactionOutput, RationalNumber,
-        Redeemers, Relay, RewardAccount, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
+        MintedTransactionOutput, MintedWitnessSet, NonEmptySet, PoolMetadata,
+        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, UnitInterval, VKeyWitness, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 use std::{convert::Infallible, sync::LazyLock};
