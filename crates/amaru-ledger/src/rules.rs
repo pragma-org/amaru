@@ -26,6 +26,7 @@ pub enum BlockValidationError {
     RuleViolations(Vec<RuleViolation>),
     #[error("Cascading rule violations: root: {0:?}, resulting error(s): {1:?}")]
     Composite(RuleViolation, Box<BlockValidationError>),
+    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("Unnammed error: {0}")]
     Unnamed(String),
 }
@@ -62,6 +63,7 @@ pub enum TransactionRuleViolation {
     MissingRequiredWitnesses { missing_key_hashes: Vec<Hash<28>> },
     #[error("Invalid vkey witnesses: {invalid_witnesses:?}")]
     InvalidWitnesses { invalid_witnesses: Vec<VKeyWitness> },
+    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("Unnamed error: {0}")]
     Unnanmed(String),
 }
