@@ -12,21 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, StakeCredential};
+use amaru_kernel::{cbor, Epoch, StakeCredential};
 use iter_borrow::IterBorrow;
+
+use crate::state::diff_bind::Resettable;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::committees";
 
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = StakeCredential;
+pub type Value = (Epoch, Resettable<StakeCredential>);
 
 pub type Key = StakeCredential;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    pub hot_credential: StakeCredential,
+    pub term_limit: Epoch,
+    pub hot_credential: Option<StakeCredential>,
 }
 
 impl Row {
@@ -47,7 +50,8 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(1)?;
+        e.array(2)?;
+        e.encode_with(self.term_limit, ctx)?;
         e.encode_with(self.hot_credential.clone(), ctx)?;
         Ok(())
     }
@@ -57,6 +61,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(Row {
+            term_limit: d.decode_with(ctx)?,
             hot_credential: d.decode_with(ctx)?,
         })
     }

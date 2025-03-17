@@ -19,12 +19,12 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer, DRep, HasLovelace,
+    reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer, DRep, Epoch, HasLovelace,
     Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, Slot,
     StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     vec,
 };
 use tracing::{instrument, trace, Level, Span};
@@ -198,7 +198,7 @@ fn apply_certificate(
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
     accounts: &mut DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     dreps: &mut DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
-    committee: &mut HashMap<StakeCredential, StakeCredential>,
+    committee: &mut DiffBind<StakeCredential, StakeCredential, Empty, Epoch>,
     certificate: Certificate,
     pointer: CertificatePointer,
 ) {
@@ -310,11 +310,13 @@ fn apply_certificate(
         }
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
             trace!(name: "committee.hot_key", target: EVENT_TARGET, parent: parent, cold_credential = ?cold_credential, hot_credential = ?hot_credential);
-            committee.insert(cold_credential, hot_credential);
+            committee
+                .bind_left(cold_credential, Some(hot_credential))
+                .unwrap();
         }
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
             trace!(name: "committee.resign_cold_key", target: EVENT_TARGET, parent: parent, cold_credential = ?cold_credential, anchor = ?anchor);
-            committee.remove(&cold_credential);
+            committee.bind_left(cold_credential, None).unwrap();
         }
     }
 }

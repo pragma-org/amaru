@@ -22,10 +22,7 @@ use amaru_kernel::{
     epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
     StakeCredential, TransactionInput, TransactionOutput,
 };
-use std::{
-    collections::{BTreeSet, HashMap, VecDeque},
-    iter,
-};
+use std::collections::{BTreeSet, VecDeque};
 
 // VolatileDB
 // ----------------------------------------------------------------------------
@@ -144,7 +141,7 @@ pub struct VolatileState {
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
-    pub committee: HashMap<StakeCredential, StakeCredential>,
+    pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Epoch>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
     pub fees: Lovelace,
@@ -250,14 +247,26 @@ impl AnchoredVolatileState {
                         (credential, (anchor, deposit, epoch))
                     },
                 ),
-                committees: self.state.committee.into_iter(),
+                committees: self.state.committee.registered.into_iter().map(
+                    move |(
+                        credential,
+                        Bind {
+                            left: hot_credential,
+                            right: _,
+                            value: epoch,
+                        },
+                    )| {
+                        (credential, (epoch.unwrap_or_default(), hot_credential))
+                        // Never None
+                    },
+                ),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),
                 pools: self.state.pools.unregistered.into_iter(),
                 accounts: self.state.accounts.unregistered.into_iter(),
                 dreps: self.state.dreps.unregistered.into_iter(),
-                committees: iter::empty(),
+                committees: self.state.committee.unregistered.into_iter(),
             },
         }
     }
