@@ -95,6 +95,13 @@ where
 }
 
 impl<H: IsHeader> IsHeader for Tip<H> {
+    fn point(&self) -> Point {
+        match self {
+            Tip::Genesis => Point::Origin,
+            Tip::Hdr(header) => header.point(),
+        }
+    }
+
     fn parent(&self) -> Option<Hash<HASH_SIZE>> {
         match self {
             Tip::Genesis => None,
