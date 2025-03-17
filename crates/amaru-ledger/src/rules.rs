@@ -14,7 +14,7 @@ use block::{body_size::block_body_size_valid, ex_units::*, header_size::block_he
 use context::BlockValidationContext;
 use thiserror::Error;
 use tracing::{instrument, Level};
-use transaction::signature::validate_sigantures;
+use transaction::signatures::validate_sigantures;
 use transaction::{disjoint_ref_inputs::disjoint_ref_inputs, metadata::validate_metadata};
 use transaction::{metadata::InvalidTransactionMetadata, output_size::validate_output_size};
 
@@ -62,6 +62,8 @@ pub enum TransactionRuleViolation {
     MissingRequiredWitnesses { missing_key_hashes: Vec<Hash<28>> },
     #[error("Invalid vkey witnesses: {invalid_witnesses:?}")]
     InvalidWitnesses { invalid_witnesses: Vec<VKeyWitness> },
+    #[error("Unnamed error: {0}")]
+    Unnanmed(String),
 }
 
 impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
