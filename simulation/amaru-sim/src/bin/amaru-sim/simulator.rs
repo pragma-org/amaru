@@ -14,7 +14,7 @@
 
 use std::{path::PathBuf, sync::Arc};
 
-use crate::ledger::FakeStakeDistribution;
+use crate::ledger::{populate_chain_store, FakeStakeDistribution};
 use crate::sync::{
     mk_message, read_peer_addresses_from_init, MessageReader, OutputWriter, StdinMessageReader,
 };
@@ -29,6 +29,7 @@ use amaru_kernel::{
     Header,
     Point::{self, *},
 };
+pub use pallas_crypto::hash::Hash;
 use amaru_sim::echo::Envelope;
 use clap::Parser;
 use tokio::sync::Mutex;
@@ -43,6 +44,10 @@ pub struct Args {
     #[arg(long, default_value = "./stake_distribution.json")]
     stake_distribution_file: PathBuf,
 
+    /// Path of JSON-formatted consensus context file.
+    #[arg(long, default_value = "./consensus_context.json")]
+    consensus_context_file: PathBuf,
+
     /// Path of the chain on-disk storage.
     #[arg(long, default_value = "./chain.db")]
     chain_dir: PathBuf,
@@ -50,6 +55,12 @@ pub struct Args {
     /// Path to the directory containing blockchain data such as epoch nonces.
     #[arg(long, default_value = "./data")]
     data_dir: PathBuf,
+
+    /// Starting point for the (simulated) chain.
+    /// Default to genesis hash, eg. all-zero hash.
+    #[arg(long, default_value_t = Hash::from([0; 32]))]
+    start_header: Hash<32>,
+    
 }
 
 pub async fn run(args: Args) {
@@ -64,8 +75,10 @@ pub async fn bootstrap(args: Args) {
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
 
-    let chain_store = RocksDBStore::new(args.chain_dir.clone())
+    let mut chain_store = RocksDBStore::new(args.chain_dir.clone())
         .unwrap_or_else(|_| panic!("unable to open chain store at {}", args.chain_dir.display()));
+
+    populate_chain_store(&mut chain_store, &args.start_header, &args.consensus_context_file).unwrap();
 
     let peer_addresses = read_peer_addresses_from_init(&mut input_reader)
         .await
@@ -89,10 +102,14 @@ pub async fn bootstrap(args: Args) {
         chain_selector,
     );
 
-    run_simulator(&mut input_reader, &mut consensus).await;
+    run_simulator(&mut input_reader, chain_ref, &mut consensus).await;
 }
 
-async fn run_simulator(input_reader: &mut impl MessageReader, consensus: &mut Consensus) {
+async fn run_simulator(
+    input_reader: &mut impl MessageReader,
+    _store: Arc<Mutex<dyn ChainStore<Header>>>,
+    consensus: &mut Consensus,
+) {
     let mut output_writer = OutputWriter::new();
     loop {
         let span = tracing::info_span!("simulator");

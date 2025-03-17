@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_consensus::{consensus::wiring::PullEvent, peer::Peer};
-use amaru_kernel::Point;
+use amaru_kernel::{self, Point};
 use amaru_ledger::ValidateBlockEvent;
 use amaru_sim::echo::Envelope;
 use futures_util::sink::SinkExt;
@@ -141,8 +141,18 @@ pub enum ChainSyncMessage {
 
 impl From<&ValidateBlockEvent> for ChainSyncMessage {
     fn from(event: &ValidateBlockEvent) -> Self {
+        pub use pallas_crypto::hash::Hash;
+
         match event {
-            ValidateBlockEvent::Validated(_point, _vec, _span) => todo!(),
+            ValidateBlockEvent::Validated(point, _vec, _span) => {
+                let raw_hash : Hash<32> = point.into();
+                ChainSyncMessage::Fwd {
+                            msg_id: 0,
+                            slot: point.slot_or_default(),
+                            hash: Bytes { bytes: raw_hash.to_vec()},
+                            header: Bytes { bytes: vec![] }, // FIXME: vec is the full body not the header
+                        }
+            },
             ValidateBlockEvent::Rollback(_point) => todo!(),
         }
     }
@@ -181,12 +191,15 @@ pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent
 mod test {
     use std::str::FromStr;
 
+    use amaru_kernel::Point;
+    use amaru_ledger::ValidateBlockEvent;
     use amaru_sim::echo::Envelope;
     use pallas_codec::minicbor;
     use pallas_crypto::hash::Hasher;
     use pallas_primitives::{babbage, Hash};
     use proptest::prelude::*;
     use proptest::{prelude::BoxedStrategy, proptest};
+    use tracing::trace_span;
 
     use crate::bytes::Bytes;
     use crate::sync::{parse, read_peer_addresses_from_init};
@@ -329,6 +342,26 @@ mod test {
             let encoded = serde_json::to_string(&message).unwrap();
             let decoded = serde_json::from_str(&encoded).unwrap();
             assert_eq!(message, decoded);
+        }
+
+    }
+
+    fn arbitrary_block_validated_event() -> BoxedStrategy<ValidateBlockEvent> {
+        use proptest::prelude::*;
+        use ValidateBlockEvent::*;
+
+        prop_oneof![(any::<u64>(), any::<[u8; 32]>()).prop_map(|(slot, hash)| {
+            let span = trace_span!("");
+            Validated(Point::Specific(slot, hash.into()), vec![], span)
+        })]
+        .boxed()
+    }
+
+    proptest! {
+        #[test]
+        fn converts_block_validated_event_to_messages(event in arbitrary_block_validated_event()) {
+            let message = ChainSyncMessage::from(&event);
+            assert!(matches!(message, ChainSyncMessage::Fwd{..}));
         }
     }
 }
