@@ -14,7 +14,8 @@
 
 use std::{fs::File, io::BufReader, path::Path};
 
-use amaru_kernel::RationalNumber;
+use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
+use amaru_kernel::{Header, RationalNumber, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD};
 use amaru_ouroboros::{HasStakeDistribution, PoolSummary};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
@@ -49,11 +50,14 @@ pub struct FakeStakePoolInfo {
 pub struct FakeStakeDistribution {
     total_active_stake: u64,
     pools: Vec<FakeStakePoolInfo>,
+    max_kes_evolutions: u8,
+    slots_per_kes_period: u64,
 }
 
 impl FakeStakeDistribution {
     pub fn from_file(stake_distribution_file: &Path) -> Result<FakeStakeDistribution, Error> {
-        let file = File::open(stake_distribution_file).unwrap_or_else(|_| panic!("cannot find stake distribution file '{}', use --stake-distribution-file <FILE> to set the file to load distribution from", stake_distribution_file.display()));
+        let file = File::open(stake_distribution_file)
+            .unwrap_or_else(|_| panic!("cannot find stake distribution file '{}', use --stake-distribution-file <FILE> to set the file to load distribution from", stake_distribution_file.display()));
 
         serde_json::from_reader(BufReader::new(file))
             .map(|pools: Vec<FakeStakePoolInfo>| FakeStakeDistribution::new(pools))
@@ -68,6 +72,8 @@ impl FakeStakeDistribution {
         FakeStakeDistribution {
             pools,
             total_active_stake,
+            max_kes_evolutions: MAX_KES_EVOLUTION,
+            slots_per_kes_period: SLOTS_PER_KES_PERIOD,
         }
     }
 }
@@ -88,25 +94,93 @@ impl HasStakeDistribution for FakeStakeDistribution {
             })
     }
 
-    fn slot_to_kes_period(&self, _slot: u64) -> u64 {
-        todo!()
+    fn slot_to_kes_period(&self, slot: u64) -> u64 {
+        slot / self.slots_per_kes_period
     }
 
     fn max_kes_evolutions(&self) -> u64 {
-        todo!()
+        self.max_kes_evolutions as u64
     }
 
-    fn latest_opcert_sequence_number(&self, _pool: &amaru_kernel::PoolId) -> Option<u64> {
-        todo!()
+    fn latest_opcert_sequence_number(&self, pool: &amaru_kernel::PoolId) -> Option<u64> {
+        self.pools
+            .iter()
+            .find(|p| p.pool_id == *pool)
+            .map(|info| info.ocert_counter)
     }
+}
+
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum PopulateError {
+    IoError(StoreError),
+    SerdeError(serde_json::Error),
+}
+
+/// Populate a chain store with nonces data from given context file.
+pub(crate) fn populate_chain_store(
+    chain_store: &mut impl ChainStore<Header>,
+    header: &Hash<32>,
+    consensus_context_file: &Path,
+) -> Result<(), PopulateError> {
+    use PopulateError::*;
+
+    let file = File::open(consensus_context_file)
+            .unwrap_or_else(|_| panic!("cannot find consensus context file '{}', use --consensus-context-file <FILE> to set the file to load context from", consensus_context_file.display()));
+
+    let store: ConsensusContext =
+        serde_json::from_reader(BufReader::new(file)).map_err(SerdeError)?;
+    let nonces = Nonces {
+        active: store.nonce,
+        evolving: store.nonce,
+        candidate: store.nonce,
+        tail: *header,
+        epoch: 0,
+    };
+
+    chain_store.put_nonces(header, nonces).map_err(IoError)?;
+
+    Ok(())
+}
+
+/// Consensus context used to populate chain store with data needed
+/// for consensus.
+///
+/// This context is generated as part of traces generation from Haskell
+/// code.
+/// At this stage (2025-03-18) we do not use the `active_slot_coeff` field.
+#[derive(Debug, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+// NOTE: we allow non snake case here because of the way the field name and KES
+// acronym is usually encoded in Haskell-land.
+#[allow(non_snake_case)]
+pub struct ConsensusContext {
+    active_slot_coeff: f64,
+    nonce: Hash<32>,
+    praos_max_KES_evo: u8,
+    praos_slots_per_KES_period: u64,
 }
 
 #[cfg(test)]
 mod test {
+    use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
+    use amaru_kernel::Header;
+
+    use crate::ledger::populate_chain_store;
+
     use super::FakeStakeDistribution;
     use amaru_ouroboros::HasStakeDistribution;
     use pallas_crypto::hash::Hash;
-    use std::path::PathBuf;
+    use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use std::{collections::HashMap, path::PathBuf};
+
+    /// FIXME: already exists in chain_selection test module
+    pub fn random_bytes(arg: u32) -> Vec<u8> {
+        let mut rng = StdRng::from_entropy();
+        let mut buffer = vec![0; arg as usize];
+        rng.fill_bytes(&mut buffer);
+        buffer
+    }
 
     #[test]
     fn can_create_stake_distribution_from_file() {
@@ -139,5 +213,60 @@ mod test {
                 .get_pool(42, &pool_id)
                 .map(|p| p.active_stake)
         )
+    }
+
+    struct FakeConsensusStore {
+        nonces: HashMap<Hash<32>, Nonces>,
+    }
+
+    impl FakeConsensusStore {
+        pub(crate) fn new() -> FakeConsensusStore {
+            FakeConsensusStore {
+                nonces: HashMap::new(),
+            }
+        }
+    }
+
+    impl ChainStore<Header> for FakeConsensusStore {
+        fn load_header(&self, _hash: &Hash<32>) -> Option<Header> {
+            todo!()
+        }
+
+        fn store_header(&mut self, _hash: &Hash<32>, _header: &Header) -> Result<(), StoreError> {
+            todo!()
+        }
+
+        fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+            self.nonces.get(header).cloned()
+        }
+
+        fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError> {
+            self.nonces.insert(*header, nonces);
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn populate_chain_store_nonces_from_context_file() {
+        let consensus_store_file = "tests/data/consensus-context.json";
+        let mut consensus_store = FakeConsensusStore::new();
+        let expected_nonce = amaru_kernel::Hash::from(
+            hex::decode("ec08f270a044fb94bf61f9870e928a96cf75027d1f0e9f5dead0651b40849a89")
+                .unwrap()
+                .as_slice(),
+        );
+        let genesis_hash = random_bytes(32).as_slice().into();
+
+        populate_chain_store(
+            &mut consensus_store,
+            &genesis_hash,
+            &PathBuf::from(consensus_store_file),
+        )
+        .unwrap();
+
+        assert_eq!(
+            expected_nonce,
+            consensus_store.get_nonces(&genesis_hash).unwrap().active
+        );
     }
 }
