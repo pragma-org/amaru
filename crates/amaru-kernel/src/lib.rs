@@ -556,6 +556,19 @@ impl HasAddress for TransactionOutput {
     }
 }
 
+pub trait HasPaymentKeyHash {
+    fn payment_key_hash(&self) -> Option<&Hash<28>>;
+}
+
+impl HasPaymentKeyHash for StakeCredential {
+    fn payment_key_hash(&self) -> Option<&Hash<28>> {
+        match self {
+            StakeCredential::AddrKeyhash(hash) => Some(hash),
+            StakeCredential::ScriptHash(_) => None,
+        }
+    }
+}
+
 pub fn get_payment_key_hash(address: Address) -> Option<PaymentKeyHash> {
     match address {
         Address::Shelley(shelley_address) => {
