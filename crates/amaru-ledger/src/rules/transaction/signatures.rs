@@ -27,21 +27,19 @@ pub fn validate_sigantures(
         let mut pkhs = Vec::with_capacity(inputs_with_collateral.len());
 
         for input in inputs_with_collateral.iter() {
-            let output = utxo_slice.get(input).ok_or_else(|| {
-                TransactionRuleViolation::Unnanmed(format!(
-                    "Missing input in utxo_slice: {:?}",
-                    input
-                ))
-            })?;
-            let address = output.address().map_err(|e| {
-                TransactionRuleViolation::Unnanmed(format!(
-                    "Invalid output address. (error {:?}) output: {:?}",
-                    e, output,
-                ))
-            })?;
+            // We are assuming the utxo_slice has already been checked for valid inputs
+            let output = utxo_slice.get(input);
+            if output.is_some() {
+                let address = output.unwrap().address().map_err(|e| {
+                    TransactionRuleViolation::Unnanmed(format!(
+                        "Invalid output address. (error {:?}) output: {:?}",
+                        e, output,
+                    ))
+                })?;
 
-            if let Some(key_hash) = address.get_key_hash() {
-                pkhs.push(key_hash);
+                if let Some(key_hash) = address.get_key_hash() {
+                    pkhs.push(key_hash);
+                };
             };
         }
 
@@ -63,7 +61,7 @@ pub fn validate_sigantures(
                 })
                 .collect::<Vec<_>>()
         })
-        .unwrap_or(vec![]);
+        .unwrap_or_default();
 
     let vote_pkhs = transaction_body
         .voting_procedures
@@ -80,7 +78,7 @@ pub fn validate_sigantures(
                 })
                 .collect::<Vec<_>>()
         })
-        .unwrap_or(vec![]);
+        .unwrap_or_default();
 
     let certificate_pkhs = transaction_body
         .certificates
@@ -149,7 +147,7 @@ pub fn validate_sigantures(
                 })
                 .collect::<Vec<_>>()
         })
-        .unwrap_or(vec![]);
+        .unwrap_or_default();
 
     let required_vkey_hashes = [
         spend_pkhs.as_slice(),
@@ -178,7 +176,7 @@ pub fn validate_sigantures(
     }
 
     let invalid_witnesses = vkey_witnesses
-        .into_iter()
+        .iter()
         .filter(|witness| {
             match validate_witness(witness, transaction_body.original_hash().as_slice()) {
                 Ok(valid) => !valid,
