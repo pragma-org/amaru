@@ -556,35 +556,45 @@ impl HasAddress for TransactionOutput {
     }
 }
 
-pub trait HasPaymentKeyHash {
-    fn payment_key_hash(&self) -> Option<&Hash<28>>;
+pub trait HasKeyHash {
+    fn key_hash(&self) -> Option<Hash<28>>;
 }
 
-impl HasPaymentKeyHash for StakeCredential {
-    fn payment_key_hash(&self) -> Option<&Hash<28>> {
+impl HasKeyHash for StakeCredential {
+    fn key_hash(&self) -> Option<Hash<28>> {
         match self {
-            StakeCredential::AddrKeyhash(hash) => Some(hash),
+            StakeCredential::AddrKeyhash(hash) => Some(*hash),
             StakeCredential::ScriptHash(_) => None,
         }
     }
 }
 
-pub fn get_payment_key_hash(address: Address) -> Option<PaymentKeyHash> {
-    match address {
-        Address::Shelley(shelley_address) => {
-            let payment = shelley_address.payment();
-            if payment.is_script() {
-                None
-            } else {
-                Some(payment.as_hash().clone())
+impl HasKeyHash for Address {
+    fn key_hash(&self) -> Option<Hash<28>> {
+        match self {
+            Address::Shelley(shelley_address) => {
+                let payment = shelley_address.payment();
+                if payment.is_script() {
+                    None
+                } else {
+                    Some(*payment.as_hash())
+                }
             }
-        }
-        Address::Byron(_byron_address) => {
-            // TODO: handle byron addresses
-            panic!("Uh oh, byron address discovered")
-        }
+            Address::Byron(byron_address) => {
+                let payload = byron_address.decode().ok()?;
+                match payload.addrtype {
+                    byron::AddrType::PubKey => Some(payload.root),
+                    byron::AddrType::Script => None,
+                    byron::AddrType::Redeem => None, // this is an ancient artifact I can't find much documentation on -- how do we want to handle this?
+                    byron::AddrType::Other(_) => None,
+                }
+            }
 
-        Address::Stake(_) => None,
+            Address::Stake(stake_address) => match stake_address.payload() {
+                StakePayload::Stake(hash) => Some(*hash),
+                StakePayload::Script(_) => None,
+            },
+        }
     }
 }
 

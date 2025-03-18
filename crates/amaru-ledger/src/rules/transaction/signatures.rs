@@ -1,8 +1,8 @@
 use std::{array::TryFromSliceError, ops::Deref};
 
 use amaru_kernel::{
-    get_payment_key_hash, Certificate, HasAddress, HasPaymentKeyHash, Hash, Hasher, KeepRaw,
-    MintedTransactionBody, NonEmptySet, OriginalHash, PublicKey, Signature, VKeyWitness, Voter,
+    Certificate, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
+    OriginalHash, PublicKey, Signature, VKeyWitness, Voter,
 };
 
 use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
@@ -14,13 +14,12 @@ pub fn validate_sigantures(
 ) -> Result<(), TransactionRuleViolation> {
     let empty_vec = vec![];
     let collateral = transaction_body.collateral.as_deref().unwrap_or(&empty_vec);
+
     let empty_vec = vec![];
     let required_signers = transaction_body
         .required_signers
         .as_deref()
-        .unwrap_or(&empty_vec)
-        .iter()
-        .collect::<Vec<_>>();
+        .unwrap_or(&empty_vec);
 
     let spend_pkhs = [transaction_body.inputs.as_slice(), collateral.as_slice()]
         .concat()
@@ -29,14 +28,14 @@ pub fn validate_sigantures(
             // Here we are assuming the inputs have already been validated (they exist in the utxo slice)
             utxo_slice.get(input).and_then(|output| {
                 let address = output.address();
-                get_payment_key_hash(address)
+                address.key_hash()
             })
         })
         .collect::<Vec<_>>();
 
     let withdrawal_pkhs = transaction_body
         .withdrawals
-        .as_deref()
+        .as_ref()
         .map(|withdrawals| {
             withdrawals
                 .iter()
@@ -53,14 +52,14 @@ pub fn validate_sigantures(
 
     let vote_pkhs = transaction_body
         .voting_procedures
-        .as_deref()
+        .as_ref()
         .map(|voting_procedures| {
             voting_procedures
                 .iter()
                 .filter_map(|(voter, _)| match voter {
-                    Voter::ConstitutionalCommitteeKey(hash) => Some(hash),
-                    Voter::DRepKey(hash) => Some(hash),
-                    Voter::StakePoolKey(hash) => Some(hash),
+                    Voter::ConstitutionalCommitteeKey(hash) => Some(*hash),
+                    Voter::DRepKey(hash) => Some(*hash),
+                    Voter::StakePoolKey(hash) => Some(*hash),
                     Voter::ConstitutionalCommitteeScript(_) => None,
                     Voter::DRepScript(_) => None,
                 })
@@ -75,14 +74,12 @@ pub fn validate_sigantures(
             certificates
                 .iter()
                 .filter_map(|certificate| match certificate {
-                    Certificate::StakeRegistration(stake_credential) => {
-                        stake_credential.payment_key_hash()
-                    }
+                    Certificate::StakeRegistration(stake_credential) => stake_credential.key_hash(),
                     Certificate::StakeDeregistration(stake_credential) => {
-                        stake_credential.payment_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::StakeDelegation(stake_credential, _) => {
-                        stake_credential.payment_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::PoolRegistration {
                         operator,
@@ -94,49 +91,47 @@ pub fn validate_sigantures(
                         pool_owners: _,
                         relays: _,
                         pool_metadata: _,
-                    } => Some(operator),
-                    Certificate::PoolRetirement(hash, _) => Some(hash),
-                    Certificate::Reg(stake_credential, _) => stake_credential.payment_key_hash(),
-                    Certificate::UnReg(stake_credential, _) => stake_credential.payment_key_hash(),
-                    Certificate::VoteDeleg(stake_credential, _) => {
-                        stake_credential.payment_key_hash()
+                    } => Some(*operator),
+                    Certificate::PoolRetirement(hash, _) => Some(*hash),
+                    Certificate::Reg(stake_credential, coin) => {
+                        if coin == &0 {
+                            None
+                        } else {
+                            stake_credential.key_hash()
+                        }
                     }
+                    Certificate::UnReg(stake_credential, _) => stake_credential.key_hash(),
+                    Certificate::VoteDeleg(stake_credential, _) => stake_credential.key_hash(),
                     Certificate::StakeVoteDeleg(stake_credential, _, _) => {
-                        stake_credential.payment_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::StakeRegDeleg(stake_credential, _, _) => {
-                        stake_credential.payment_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::VoteRegDeleg(stake_credential, _, _) => {
-                        stake_credential.payment_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::StakeVoteRegDeleg(stake_credential, _, _, _) => {
-                        stake_credential.payment_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::AuthCommitteeHot(stake_credential, _) => {
-                        stake_credential.payment_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::ResignCommitteeCold(stake_credential, _) => {
-                        stake_credential.payment_key_hash()
+                        stake_credential.key_hash()
                     }
-                    Certificate::RegDRepCert(stake_credential, _, _) => {
-                        stake_credential.payment_key_hash()
-                    }
-                    Certificate::UnRegDRepCert(stake_credential, _) => {
-                        stake_credential.payment_key_hash()
-                    }
-                    Certificate::UpdateDRepCert(stake_credential, _) => {
-                        stake_credential.payment_key_hash()
-                    }
+                    Certificate::RegDRepCert(stake_credential, _, _) => stake_credential.key_hash(),
+                    Certificate::UnRegDRepCert(stake_credential, _) => stake_credential.key_hash(),
+                    Certificate::UpdateDRepCert(stake_credential, _) => stake_credential.key_hash(),
                 })
                 .collect::<Vec<_>>()
         })
         .unwrap_or(vec![]);
 
     let required_vkey_hashes = [
-        spend_pkhs.iter().collect::<Vec<_>>().as_slice(),
+        spend_pkhs.as_slice(),
         required_signers.as_slice(),
-        withdrawal_pkhs.iter().collect::<Vec<_>>().as_slice(),
+        withdrawal_pkhs.as_slice(),
         vote_pkhs.as_slice(),
         certificate_pkhs.as_slice(),
     ]
@@ -153,7 +148,6 @@ pub fn validate_sigantures(
     let missing_key_hashes: Vec<_> = required_vkey_hashes
         .into_iter()
         .filter(|hash| !vkey_hashes.contains(hash))
-        .cloned()
         .collect();
 
     if !missing_key_hashes.is_empty() {
