@@ -103,6 +103,7 @@ dependencies = [
  "pallas-codec",
  "pallas-crypto",
  "pallas-primitives",
+ "pallas-traverse",
  "proptest",
  "serde",
 ]

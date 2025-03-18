@@ -98,7 +98,7 @@ certain mutations are applied to the system.
 
 use crate::store::{columns::*, Snapshot, StoreError};
 use amaru_kernel::{
-    encode_bech32, expect_stake_credential, output_lovelace, output_stake_credential, Epoch, Hash,
+    encode_bech32, expect_stake_credential, output_stake_credential, Epoch, HasLovelace, Hash,
     Lovelace, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY,
     MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH,
     TREASURY_TAX,
@@ -167,7 +167,7 @@ impl StakeDistribution {
 
         db.iter_utxos()?.for_each(|(_, output)| {
             if let Ok(Some(credential)) = output_stake_credential(&output) {
-                let value = output_lovelace(&output);
+                let value = output.lovelace();
                 accounts
                     .entry(credential)
                     .and_modify(|account| account.lovelace += value);

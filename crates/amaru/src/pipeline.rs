@@ -77,7 +77,7 @@ impl<S: Store> Stage<S> {
 
         let (block_header_hash, block) =
             rules::validate_block(&raw_block[..], ProtocolParameters::default())
-                .unwrap_or_else(|_| panic!("Failed to valdiate block"));
+                .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
 
         span_forward.record("header.height", block.header.header_body.block_number);
         span_forward.record("header.slot", block.header.header_body.slot);

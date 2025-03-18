@@ -26,21 +26,25 @@ use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::hash::{Hash, Hasher};
 pub use pallas_primitives::{
+    // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
+    // Investigate.
     alonzo,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, Block, Certificate, Coin, DRep, Epoch, ExUnits, GovActionId,
-        HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
-        PoolMetadata, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
-        TransactionInput, TransactionOutput, UnitInterval, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        AddrKeyhash, Anchor, AuxiliaryData, Block, Certificate, Coin, DRep, Epoch, ExUnits,
+        GovActionId, HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput,
+        MintedWitnessSet, PoolMetadata, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
+        RewardAccount, StakeCredential, TransactionBody, TransactionInput, TransactionOutput,
+        UnitInterval, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 use std::{convert::Infallible, sync::LazyLock};
+
+pub use pallas_traverse::{ComputeHash, OriginalHash};
 
 pub mod protocol_parameters;
 
@@ -428,16 +432,43 @@ pub fn next_epoch_first_slot(current_epoch: u64) -> u64 {
 ///   we can use pallas_traverse out of the box.
 ///
 /// Doing the latter properly is a lifetime hell I am not willing to explore right now.
-pub fn output_lovelace(output: &TransactionOutput) -> Lovelace {
-    match output {
-        TransactionOutput::Legacy(legacy) => match legacy.amount {
-            alonzo::Value::Coin(lovelace) => lovelace,
-            alonzo::Value::Multiasset(lovelace, _) => lovelace,
-        },
-        TransactionOutput::PostAlonzo(modern) => match modern.value {
-            Value::Coin(lovelace) => lovelace,
-            Value::Multiasset(lovelace, _) => lovelace,
-        },
+pub trait HasLovelace {
+    fn lovelace(&self) -> Lovelace;
+}
+
+impl HasLovelace for Value {
+    fn lovelace(&self) -> Lovelace {
+        match self {
+            Value::Coin(lovelace) => *lovelace,
+            Value::Multiasset(lovelace, _) => *lovelace,
+        }
+    }
+}
+
+impl HasLovelace for alonzo::Value {
+    fn lovelace(&self) -> Lovelace {
+        match self {
+            alonzo::Value::Coin(lovelace) => *lovelace,
+            alonzo::Value::Multiasset(lovelace, _) => *lovelace,
+        }
+    }
+}
+
+impl HasLovelace for TransactionOutput {
+    fn lovelace(&self) -> Lovelace {
+        match self {
+            TransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
+            TransactionOutput::PostAlonzo(modern) => modern.value.lovelace(),
+        }
+    }
+}
+
+impl HasLovelace for MintedTransactionOutput<'_> {
+    fn lovelace(&self) -> Lovelace {
+        match self {
+            PseudoTransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
+            PseudoTransactionOutput::PostAlonzo(modern) => modern.value.lovelace(),
+        }
     }
 }
 
