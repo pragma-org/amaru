@@ -539,29 +539,26 @@ pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
 }
 
 pub trait HasAddress {
-    fn address(&self) -> Address;
+    fn address(&self) -> Result<Address, pallas_addresses::Error>;
 }
 
 impl HasAddress for TransactionOutput {
-    fn address(&self) -> Address {
+    fn address(&self) -> Result<Address, pallas_addresses::Error> {
         match self {
-            // TODO: handle error
             PseudoTransactionOutput::Legacy(transaction_output) => {
-                Address::from_bytes(&transaction_output.address).unwrap()
+                Address::from_bytes(&transaction_output.address)
             }
-            PseudoTransactionOutput::PostAlonzo(modern) => {
-                Address::from_bytes(&modern.address).unwrap()
-            }
+            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
         }
     }
 }
 
 pub trait HasKeyHash {
-    fn key_hash(&self) -> Option<Hash<28>>;
+    fn get_key_hash(&self) -> Option<Hash<28>>;
 }
 
 impl HasKeyHash for StakeCredential {
-    fn key_hash(&self) -> Option<Hash<28>> {
+    fn get_key_hash(&self) -> Option<Hash<28>> {
         match self {
             StakeCredential::AddrKeyhash(hash) => Some(*hash),
             StakeCredential::ScriptHash(_) => None,
@@ -570,7 +567,7 @@ impl HasKeyHash for StakeCredential {
 }
 
 impl HasKeyHash for Address {
-    fn key_hash(&self) -> Option<Hash<28>> {
+    fn get_key_hash(&self) -> Option<Hash<28>> {
         match self {
             Address::Shelley(shelley_address) => {
                 let payment = shelley_address.payment();
