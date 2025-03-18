@@ -76,7 +76,7 @@ pub async fn bootstrap(args: Args) {
         FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
 
     let mut chain_store = RocksDBStore::new(args.chain_dir.clone())
-        .unwrap_or_else(|_| panic!("unable to open chain store at {}", args.chain_dir.display()));
+        .unwrap_or_else(|e| panic!("unable to open chain store at {}: {:?}", args.chain_dir.display(), e));
 
     populate_chain_store(&mut chain_store, &args.start_header, &args.consensus_context_file).unwrap();
 
