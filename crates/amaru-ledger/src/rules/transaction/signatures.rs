@@ -20,18 +20,33 @@ pub fn validate_sigantures(
         .required_signers
         .as_deref()
         .unwrap_or(&empty_vec);
+    let spend_pkhs = {
+        let inputs_with_collateral =
+            [transaction_body.inputs.as_slice(), collateral.as_slice()].concat();
 
-    let spend_pkhs = [transaction_body.inputs.as_slice(), collateral.as_slice()]
-        .concat()
-        .iter()
-        .filter_map(|input| {
-            // Here we are assuming the inputs have already been validated (they exist in the utxo slice)
-            utxo_slice.get(input).and_then(|output| {
-                let address = output.address();
-                address.key_hash()
-            })
-        })
-        .collect::<Vec<_>>();
+        let mut pkhs = Vec::with_capacity(inputs_with_collateral.len());
+
+        for input in inputs_with_collateral.iter() {
+            let output = utxo_slice.get(input).ok_or_else(|| {
+                TransactionRuleViolation::Unnanmed(format!(
+                    "Missing input in utxo_slice: {:?}",
+                    input
+                ))
+            })?;
+            let address = output.address().map_err(|e| {
+                TransactionRuleViolation::Unnanmed(format!(
+                    "Invalid output address. (error {:?}) output: {:?}",
+                    e, output,
+                ))
+            })?;
+
+            if let Some(key_hash) = address.get_key_hash() {
+                pkhs.push(key_hash);
+            };
+        }
+
+        pkhs
+    };
 
     let withdrawal_pkhs = transaction_body
         .withdrawals
@@ -74,12 +89,14 @@ pub fn validate_sigantures(
             certificates
                 .iter()
                 .filter_map(|certificate| match certificate {
-                    Certificate::StakeRegistration(stake_credential) => stake_credential.key_hash(),
+                    Certificate::StakeRegistration(stake_credential) => {
+                        stake_credential.get_key_hash()
+                    }
                     Certificate::StakeDeregistration(stake_credential) => {
-                        stake_credential.key_hash()
+                        stake_credential.get_key_hash()
                     }
                     Certificate::StakeDelegation(stake_credential, _) => {
-                        stake_credential.key_hash()
+                        stake_credential.get_key_hash()
                     }
                     Certificate::PoolRegistration {
                         operator,
@@ -97,32 +114,38 @@ pub fn validate_sigantures(
                         if coin == &0 {
                             None
                         } else {
-                            stake_credential.key_hash()
+                            stake_credential.get_key_hash()
                         }
                     }
-                    Certificate::UnReg(stake_credential, _) => stake_credential.key_hash(),
-                    Certificate::VoteDeleg(stake_credential, _) => stake_credential.key_hash(),
+                    Certificate::UnReg(stake_credential, _) => stake_credential.get_key_hash(),
+                    Certificate::VoteDeleg(stake_credential, _) => stake_credential.get_key_hash(),
                     Certificate::StakeVoteDeleg(stake_credential, _, _) => {
-                        stake_credential.key_hash()
+                        stake_credential.get_key_hash()
                     }
                     Certificate::StakeRegDeleg(stake_credential, _, _) => {
-                        stake_credential.key_hash()
+                        stake_credential.get_key_hash()
                     }
                     Certificate::VoteRegDeleg(stake_credential, _, _) => {
-                        stake_credential.key_hash()
+                        stake_credential.get_key_hash()
                     }
                     Certificate::StakeVoteRegDeleg(stake_credential, _, _, _) => {
-                        stake_credential.key_hash()
+                        stake_credential.get_key_hash()
                     }
                     Certificate::AuthCommitteeHot(stake_credential, _) => {
-                        stake_credential.key_hash()
+                        stake_credential.get_key_hash()
                     }
                     Certificate::ResignCommitteeCold(stake_credential, _) => {
-                        stake_credential.key_hash()
+                        stake_credential.get_key_hash()
                     }
-                    Certificate::RegDRepCert(stake_credential, _, _) => stake_credential.key_hash(),
-                    Certificate::UnRegDRepCert(stake_credential, _) => stake_credential.key_hash(),
-                    Certificate::UpdateDRepCert(stake_credential, _) => stake_credential.key_hash(),
+                    Certificate::RegDRepCert(stake_credential, _, _) => {
+                        stake_credential.get_key_hash()
+                    }
+                    Certificate::UnRegDRepCert(stake_credential, _) => {
+                        stake_credential.get_key_hash()
+                    }
+                    Certificate::UpdateDRepCert(stake_credential, _) => {
+                        stake_credential.get_key_hash()
+                    }
                 })
                 .collect::<Vec<_>>()
         })
