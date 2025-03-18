@@ -11,14 +11,14 @@ We provide example configurations using different compositions of tools:
 
 Any event (trace, span or metric) can be filtered by target and severity using two environment variables:
 
-- `AMARU_LOG`: for any event emitted by the OpenTelemetry layer;
-- `AMARU_DEV_LOG`: for any event emitted to stdout;
+- `AMARU_TRACE`: for any event emitted by the OpenTelemetry layer (enabled both by `--with-open-telemetry` and `--with-json-traces`);
+- `AMARU_LOG`: for any event emitted to stdout;
 
 > [!TIP]
 > Both environment variable are optional.
 >
-> - When omitted, `AMARU_LOG` defaults to all targets above the info level;
-> - When omitted, `AMARU_DEV_LOG` defaults to `AMARU_LOG`.
+> - When omitted, `AMARU_TRACE` defaults to all **amaru** targets above the **trace** level;
+> - When omitted, `AMARU_LOG` defaults to all **amaru** targets above the **debug** level;
 
 ### By target
 
@@ -33,6 +33,8 @@ But it will not match any of the following:
 - `amaru::sync`
 - `amaru::consensus`
 
+e.g. `AMARU_LOG="amaru::ledger::state::forward=info"` will filter out `target` **amaru::ledger::state::forward** with level bellow `info`.
+
 Refer to the tables below for the list of available targets.
 
 ### By severity
@@ -40,6 +42,11 @@ Refer to the tables below for the list of available targets.
 It is also possible to filter events by severity: `error`, `warn`, `info`, `debug`, `trace`, `off`. Severity can be specified either globally (in which case it applies to all events) or for a specific target by specifying the severity after the target using `=`. For example, `amaru::ledger::state=error` will filter out any events below the error severity for the `amaru::ledger::state` target.
 
 Refer to the tables below for an overview of the various severities.
+
+### By span
+
+A `span` name can be used as a filter too. Note that any `span`or `event` inside this `span` will be considered, including those not matching the initial `target` (e.g. `pallas` events could match).
+For example `amaru[find_intersection]=trace` will filter all `spans` and `events` with the name `find_intersection` plus all children of this event.
 
 ### Combining filters
 
