@@ -27,6 +27,7 @@ impl BlockValidationContext {
             for (output, index) in transaction_body.outputs.iter().zip(0u64..) {
                 self.utxo_slice.insert(
                     TransactionInput {
+                        // Is it OK to clone here?
                         transaction_id: tx_hash.clone(),
                         index,
                     },
@@ -45,9 +46,11 @@ impl BlockValidationContext {
                         Some(collateral_return) => {
                             self.utxo_slice.insert(
                                 TransactionInput {
+                                    // Is it OK to clone here?
                                     transaction_id: tx_hash.clone(),
-                                    // TODO: is this right? Figue out index of collateral return
-                                    index: 0,
+                                    // Collateral output index is last_output_index + 1
+                                    // Safe to do `as u64` here because we won't have 2^32+1 outputs in a tx
+                                    index: transaction_body.outputs.len() as u64,
                                 },
                                 collateral_return.clone().into(),
                             );
