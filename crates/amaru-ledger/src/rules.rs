@@ -67,9 +67,9 @@ pub fn validate_block(
     let (block_header_hash, block) = parse_block(raw_block)?;
 
     block_header_size_valid(block.header.raw_cbor(), &protocol_params)
-        .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
+        .map_err(|err| BlockValidationError::RuleViolations(vec![err]))?;
     block_body_size_valid(&block.header.header_body, &block)
-        .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
+        .map_err(|err| BlockValidationError::RuleViolations(vec![err]))?;
 
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
     let ex_units = block
@@ -88,7 +88,7 @@ pub fn validate_block(
         .collect::<Vec<_>>();
 
     block_ex_units_valid(ex_units, &protocol_params)
-        .map_err(|err| BlockValidationError::RuleViolations(vec![err.into()]))?;
+        .map_err(|err| BlockValidationError::RuleViolations(vec![err]))?;
 
     let transactions = block.transaction_bodies.deref().to_vec();
 
