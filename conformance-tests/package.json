@@ -1,0 +1,19 @@
+{
+  "name": "cardano-conformance-tests",
+  "version": "1.0.0",
+  "description": "A collection of script utils to generate conformance-tests for Cardano.",
+  "repository": "git@github.com:pragma-org/amaru.git",
+  "author": "KtorZ <matthias.benkort@gmail.com>",
+  "license": "Apache-2.0",
+  "private": false,
+  "scripts": {
+    "fetch": "node scripts/fetch.mjs",
+    "generate": "node scripts/generate.mjs",
+    "generate-all": "./scripts/generate-all"
+  },
+  "dependencies": {
+    "@cardano-ogmios/mdk": "^1.0.0",
+    "@cardanosolutions/json-bigint": "^1.0.1",
+    "bech32": "^2.0.0"
+  }
+}
