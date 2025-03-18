@@ -15,7 +15,7 @@ pub fn validate_output_size(
         .iter()
         .filter(|output| {
             let bytes = to_cbor(output);
-            output.lovelace() <= bytes.len() as u64 * coins_per_utxo_byte
+            output.lovelace() < bytes.len() as u64 * coins_per_utxo_byte
         })
         .collect::<Vec<_>>();
 
