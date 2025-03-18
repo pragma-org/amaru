@@ -29,8 +29,8 @@ pub fn validate_sigantures(
         for input in inputs_with_collateral.iter() {
             // We are assuming the utxo_slice has already been checked for valid inputs
             let output = utxo_slice.get(input);
-            if output.is_some() {
-                let address = output.unwrap().address().map_err(|e| {
+            if let Some(output) = output {
+                let address = output.address().map_err(|e| {
                     TransactionRuleViolation::Unnanmed(format!(
                         "Invalid output address. (error {:?}) output: {:?}",
                         e, output,
