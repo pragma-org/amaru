@@ -3,14 +3,63 @@ source: crates/amaru/src/ledger/rewards.rs
 expression: dreps
 ---
 {
-  "keys": {
-    "1fab5f9cba03290d7e25379c3df0a43450796895d5dacbb6b255e580": "drep1yfy9wajz7mrc6x5a4s23x5vttztqea6ajx9v83xcr6c5xlqxjx05p",
-    "951fcc7230ca42c67077aeb005e041bb428d32f023edbfc3ac77a742": "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74",
-    "aeb4548104cc2f404a81f77408c00f5f7ca38aa71add0ac6f7f4048c": "drep1ygytfjy863rx34wqlhjs3kpk8sxzehl2dullf7h0kpdajdgrga7lc",
-    "c9e345aa4048ef863333d5dfa3bcdb0f05b905f484049cf1947a7c86": "drep1y2j502uqsjl7ujrg5e73mxc2up2wu963r6eg44zdglzanncytjpxy",
-    "d11b592fcc913605dbc42459d4ae8bb89c848e13926123bac85e2ab5": "drep1yftr2094dxeszxy944y9n5ms5eg3md28adlvk0vqwcn4pgc7kq6wr",
-    "edc52808d58a420ce2df3da8c7118c858c7aa136fa7b2b1baa3e81ed": "drep1ytax4rwzvdwamnu67j2uk9z00660lpzcvmlys6266l9kt5c262k7m",
-    "fd1c740673b5b8840a12cfbbd4e6c5c243bf08bbece4c8b3258194b2": "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74"
+  "delegations": {
+    "keys": {
+      "1fab5f9cba03290d7e25379c3df0a43450796895d5dacbb6b255e580": "drep1yfy9wajz7mrc6x5a4s23x5vttztqea6ajx9v83xcr6c5xlqxjx05p",
+      "951fcc7230ca42c67077aeb005e041bb428d32f023edbfc3ac77a742": "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74",
+      "aeb4548104cc2f404a81f77408c00f5f7ca38aa71add0ac6f7f4048c": "drep1ygytfjy863rx34wqlhjs3kpk8sxzehl2dullf7h0kpdajdgrga7lc",
+      "c9e345aa4048ef863333d5dfa3bcdb0f05b905f484049cf1947a7c86": "drep1y2j502uqsjl7ujrg5e73mxc2up2wu963r6eg44zdglzanncytjpxy",
+      "d11b592fcc913605dbc42459d4ae8bb89c848e13926123bac85e2ab5": "drep1yftr2094dxeszxy944y9n5ms5eg3md28adlvk0vqwcn4pgc7kq6wr",
+      "edc52808d58a420ce2df3da8c7118c858c7aa136fa7b2b1baa3e81ed": "drep1ytax4rwzvdwamnu67j2uk9z00660lpzcvmlys6266l9kt5c262k7m",
+      "fd1c740673b5b8840a12cfbbd4e6c5c243bf08bbece4c8b3258194b2": "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74"
+    },
+    "scripts": {}
   },
-  "scripts": {}
+  "dreps": {
+    "drep1y2j502uqsjl7ujrg5e73mxc2up2wu963r6eg44zdglzanncytjpxy": {
+      "mandate": 184,
+      "metadata": null
+    },
+    "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74": {
+      "mandate": 184,
+      "metadata": {
+        "url": "https://raw.githubusercontent.com/NanaSafo01/drep-metadata/main/WadaDrep.jsonld",
+        "content_hash": "8a1971eaccf490599fc7e02c522f0c2012f8d9f0e3f6bcf938b7134b58c617c0"
+      }
+    },
+    "drep1yftr2094dxeszxy944y9n5ms5eg3md28adlvk0vqwcn4pgc7kq6wr": {
+      "mandate": 184,
+      "metadata": {
+        "url": "https://raw.githubusercontent.com/UPTODATE-DEV/dRep/drep_test/Cardano%20Africa%20C.jsonld",
+        "content_hash": "59830510a828097b58b8bf1bf23970c1e34a420cc5cb3fe4dce80aa1d8993f11"
+      }
+    },
+    "drep1yfy9wajz7mrc6x5a4s23x5vttztqea6ajx9v83xcr6c5xlqxjx05p": {
+      "mandate": 184,
+      "metadata": null
+    },
+    "drep1yg3mcc7w6njqkgkafes9rsjchgud2euas83n7d87tewdkngpgk07n": {
+      "mandate": 184,
+      "metadata": null
+    },
+    "drep1ygytfjy863rx34wqlhjs3kpk8sxzehl2dullf7h0kpdajdgrga7lc": {
+      "mandate": 184,
+      "metadata": {
+        "url": "https://raw.githubusercontent.com/UPTODATE-DEV/dRep/main/Cardano%20Africa%20C.jsonld",
+        "content_hash": "d63edeb7d4b2398103dfc3db3ab409feebd88a1373402b59f8b38a2048b92fb1"
+      }
+    },
+    "drep1ytax4rwzvdwamnu67j2uk9z00660lpzcvmlys6266l9kt5c262k7m": {
+      "mandate": 184,
+      "metadata": null
+    },
+    "drep1ytk3r5ddfk2cq66ygdtkwf9yck6hhy7uzhk2tgl5d53448skyutw7": {
+      "mandate": 184,
+      "metadata": null
+    },
+    "drep1yvj9cn7cwc3wyrt3lclk2ua92lxd8uxqzju0qza8ky380uqjpzm8s": {
+      "mandate": 184,
+      "metadata": null
+    }
+  }
 }

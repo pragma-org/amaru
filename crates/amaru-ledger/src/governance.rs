@@ -1,34 +1,61 @@
 use crate::store::{columns::dreps::Row, Snapshot, StoreError};
-use amaru_kernel::{encode_bech32, DRep, StakeCredential};
+use amaru_kernel::{encode_bech32, Anchor, DRep, Epoch, StakeCredential, DREP_EXPIRY};
 use serde::ser::SerializeStruct;
 use std::collections::BTreeMap;
 
 #[derive(Debug)]
-// TODO: Also add DRep information to this summary
 pub struct DRepsSummary {
     pub delegations: BTreeMap<StakeCredential, DRep>,
+    pub dreps: BTreeMap<DRep, DRepState>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct DRepState {
+    pub mandate: Epoch,
+    pub metadata: Option<Anchor>,
 }
 
 impl DRepsSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
-        let dreps = db
+        let mut dreps = BTreeMap::new();
+
+        let dreps_registrations = db
             .iter_dreps()?
-            .map(|(k, Row { registered_at, .. })| {
-                let drep = match k {
-                    StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
-                    StakeCredential::ScriptHash(hash) => DRep::Script(hash),
-                };
-                (drep, registered_at)
-            })
+            .map(
+                |(
+                    k,
+                    Row {
+                        registered_at,
+                        last_interaction,
+                        anchor,
+                        ..
+                    },
+                )| {
+                    let drep = match k {
+                        StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
+                        StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+                    };
+
+                    // TODO: We'll most probably need to add a cooldown period here for epochs with
+                    // no proposal whatsoever.
+                    dreps.insert(
+                        drep.clone(),
+                        DRepState {
+                            metadata: anchor,
+                            mandate: last_interaction + DREP_EXPIRY,
+                        },
+                    );
+
+                    (drep, registered_at)
+                },
+            )
             .collect::<BTreeMap<_, _>>();
 
         let delegations = db
             .iter_accounts()?
             .filter_map(|(credential, account)| {
                 account.drep.and_then(|(drep, since)| {
-                    let registered_at = dreps.get(&drep);
-
-                    if let Some(registered_at) = registered_at {
+                    if let Some(registered_at) = dreps_registrations.get(&drep) {
                         if since >= *registered_at {
                             // This is a registration with a previous registration of this DRep, it must be renewed
                             return Some((credential, drep));
@@ -39,7 +66,7 @@ impl DRepsSummary {
             })
             .collect::<BTreeMap<StakeCredential, DRep>>();
 
-        Ok(DRepsSummary { delegations })
+        Ok(DRepsSummary { delegations, dreps })
     }
 }
 
@@ -47,6 +74,7 @@ impl serde::Serialize for DRepsSummary {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("DRepsSummary", 2)?;
 
+        let mut delegations = BTreeMap::new();
         let mut keys = BTreeMap::new();
         let mut scripts = BTreeMap::new();
         self.delegations.iter().for_each(|(credential, drep)| {
@@ -57,9 +85,17 @@ impl serde::Serialize for DRepsSummary {
                 };
             }
         });
+        delegations.insert("keys".to_string(), keys);
+        delegations.insert("scripts".to_string(), scripts);
+        s.serialize_field("delegations", &delegations)?;
 
-        s.serialize_field("keys", &keys)?;
-        s.serialize_field("scripts", &scripts)?;
+        let mut dreps = BTreeMap::new();
+        self.dreps.iter().for_each(|(drep, st)| {
+            if let Some(id) = into_drep_id(drep) {
+                dreps.insert(id, st);
+            }
+        });
+        s.serialize_field("dreps", &dreps)?;
 
         s.end()
     }
