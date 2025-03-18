@@ -363,10 +363,38 @@ impl serde::Serialize for PoolParams {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
-pub struct CertificatePointer {
+pub struct TransactionPointer {
     pub slot: Slot,
     pub transaction_index: usize,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
+pub struct CertificatePointer {
+    pub transaction_pointer: TransactionPointer,
     pub certificate_index: usize,
+}
+
+impl<C> cbor::encode::Encode<C> for TransactionPointer {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(2)?;
+        e.encode_with(self.slot, ctx)?;
+        e.encode_with(self.transaction_index, ctx)?;
+        Ok(())
+    }
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let _len = d.array()?;
+        Ok(TransactionPointer {
+            slot: d.decode_with(ctx)?,
+            transaction_index: d.decode_with(ctx)?,
+        })
+    }
 }
 
 impl<C> cbor::encode::Encode<C> for CertificatePointer {
@@ -375,9 +403,8 @@ impl<C> cbor::encode::Encode<C> for CertificatePointer {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(3)?;
-        e.encode_with(self.slot, ctx)?;
-        e.encode_with(self.transaction_index, ctx)?;
+        e.array(2)?;
+        e.encode_with(self.transaction_pointer, ctx)?;
         e.encode_with(self.certificate_index, ctx)?;
         Ok(())
     }
@@ -387,8 +414,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let _len = d.array()?;
         Ok(CertificatePointer {
-            slot: d.decode_with(ctx)?,
-            transaction_index: d.decode_with(ctx)?,
+            transaction_pointer: d.decode_with(ctx)?,
             certificate_index: d.decode_with(ctx)?,
         })
     }
@@ -644,8 +670,10 @@ mod test {
     #[test]
     fn test_equal_pointers() {
         let pointer = CertificatePointer {
-            slot: 42,
-            transaction_index: 0,
+            transaction_pointer: TransactionPointer {
+                slot: 42,
+                transaction_index: 0,
+            },
             certificate_index: 0,
         };
         assert_eq!(pointer, pointer);
@@ -654,13 +682,17 @@ mod test {
     #[test]
     fn test_pointer_accross_slots() {
         let pointer = CertificatePointer {
-            slot: 42,
-            transaction_index: 0,
+            transaction_pointer: TransactionPointer {
+                slot: 42,
+                transaction_index: 0,
+            },
             certificate_index: 0,
         };
         let pointer_after = CertificatePointer {
-            slot: 43,
-            transaction_index: 0,
+            transaction_pointer: TransactionPointer {
+                slot: 43,
+                transaction_index: 0,
+            },
             certificate_index: 0,
         };
         assert!(pointer < pointer_after);
@@ -669,20 +701,26 @@ mod test {
     #[test]
     fn test_pointer_accross_transactions() {
         let pointer = CertificatePointer {
-            slot: 42,
-            transaction_index: 0,
+            transaction_pointer: TransactionPointer {
+                slot: 42,
+                transaction_index: 0,
+            },
             certificate_index: 0,
         };
         let pointer_after = CertificatePointer {
-            slot: 42,
-            transaction_index: 1,
+            transaction_pointer: TransactionPointer {
+                slot: 42,
+                transaction_index: 1,
+            },
             certificate_index: 0,
         };
         assert!(pointer < pointer_after);
 
         let pointer_between = CertificatePointer {
-            slot: 42,
-            transaction_index: 0,
+            transaction_pointer: TransactionPointer {
+                slot: 42,
+                transaction_index: 0,
+            },
             certificate_index: 5,
         };
         assert!(pointer_between < pointer_after);
@@ -691,13 +729,17 @@ mod test {
     #[test]
     fn test_pointer_accross_certificates() {
         let pointer = CertificatePointer {
-            slot: 42,
-            transaction_index: 0,
+            transaction_pointer: TransactionPointer {
+                slot: 42,
+                transaction_index: 0,
+            },
             certificate_index: 0,
         };
         let pointer_after = CertificatePointer {
-            slot: 42,
-            transaction_index: 0,
+            transaction_pointer: TransactionPointer {
+                slot: 42,
+                transaction_index: 0,
+            },
             certificate_index: 1,
         };
         assert!(pointer < pointer_after);
