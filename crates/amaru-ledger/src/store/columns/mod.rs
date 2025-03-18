@@ -22,7 +22,7 @@ pub mod utxo;
 
 #[cfg(test)]
 pub mod tests {
-    use amaru_kernel::{CertificatePointer, Slot};
+    use amaru_kernel::{CertificatePointer, Slot, TransactionPointer};
     use proptest::prelude::*;
 
     prop_compose! {
@@ -32,8 +32,10 @@ pub mod tests {
             certificate_index in any::<usize>(),
         ) -> CertificatePointer {
             CertificatePointer {
-                slot,
-                transaction_index,
+                transaction_pointer: TransactionPointer {
+                    slot,
+                    transaction_index,
+                },
                 certificate_index,
             }
         }

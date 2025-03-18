@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
-    Set, StakeCredential, TransactionInput, TransactionOutput, DREP_EXPIRY,
+    Set, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY,
     STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
@@ -412,8 +412,10 @@ fn import_dreps(
                         Some((
                             state.deposit,
                             CertificatePointer {
-                                slot: DEFAULT_DREP_REGISTERED_AT,
-                                transaction_index: 0,
+                                transaction_pointer: TransactionPointer {
+                                    slot: DEFAULT_DREP_REGISTERED_AT,
+                                    transaction_index: 0,
+                                },
                                 certificate_index: 0,
                             },
                         )),
@@ -549,8 +551,10 @@ fn import_accounts(
                             (
                                 drep,
                                 CertificatePointer {
-                                    slot: DEFAULT_DREP_REGISTERED_AT + 1,
-                                    transaction_index: 0,
+                                    transaction_pointer: TransactionPointer {
+                                        slot: DEFAULT_DREP_REGISTERED_AT + 1,
+                                        transaction_index: 0,
+                                    },
                                     certificate_index: 0,
                                 },
                             )
