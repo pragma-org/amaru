@@ -1,6 +1,6 @@
 use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
 use amaru_ledger::{
-    rules,
+    rules::{self, context::BlockValidationContext},
     state::{self, BackwardError},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
@@ -62,9 +62,12 @@ impl<S: Store + Send + Sync> Stage<S> {
         point: Point,
         raw_block: RawBlock,
     ) -> BlockValidationResult {
-        let (_block_header_hash, block) =
-            rules::validate_block(&raw_block[..], ProtocolParameters::default())
-                .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
+        let (_block_header_hash, block) = rules::validate_block(
+            &raw_block[..],
+            ProtocolParameters::default(),
+            &mut BlockValidationContext::default(),
+        )
+        .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
 
         let current_span = Span::current();
 
