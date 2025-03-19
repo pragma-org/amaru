@@ -30,7 +30,7 @@ amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
-acto = { version = "0.7.1", features = ["tokio"] }
+acto = { version = "0.7.2", features = ["tokio"] }
 
 [dev-dependencies]
 envpath.workspace = true

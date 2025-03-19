@@ -1,7 +1,7 @@
 use super::client_state::{find_headers_between, ClientOp, ClientState};
 use crate::consensus::store::ChainStore;
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime, PanicOrAbort};
-use amaru_kernel::Header;
+use amaru_kernel::{to_cbor, Header};
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{
@@ -200,8 +200,12 @@ async fn chain_sync_handler(
     }
 }
 
-fn to_header_content(_header: Header) -> HeaderContent {
-    todo!()
+fn to_header_content(header: Header) -> HeaderContent {
+    HeaderContent {
+        variant: 1,
+        byron_prefix: None,
+        cbor: to_cbor(&header),
+    }
 }
 
 enum BlockFetchMsg {}

@@ -114,6 +114,6 @@ pub(super) fn hash_point(point: &Point) -> Hash<32> {
 pub(super) fn to_pallas_point(point: &amaru_kernel::Point) -> Point {
     match point {
         amaru_kernel::Point::Origin => Point::Origin,
-        amaru_kernel::Point::Specific(_slot, hash) => Point::Specific(0, hash.clone()),
+        amaru_kernel::Point::Specific(slot, hash) => Point::Specific(*slot, hash.clone()),
     }
 }

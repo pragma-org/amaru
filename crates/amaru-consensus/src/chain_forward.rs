@@ -168,9 +168,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                 let store = stage.store.lock().await;
                 if let Some(header) = store.load_header(&Hash::from(point)) {
                     self.tip = Tip(to_pallas_point(point), header.block_height());
-
-                    self.clients
-                        .send(ClientMsg::Op(ClientOp::Forward(header.clone())));
+                    self.clients.send(ClientMsg::Op(ClientOp::Forward(header)));
                 }
 
                 Ok(())
@@ -207,7 +205,6 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                 let store = stage.store.lock().await;
                 if let Some(header) = store.load_header(&Hash::from(point)) {
                     self.tip = Tip(to_pallas_point(point), header.block_height());
-
                     self.clients
                         .send(ClientMsg::Op(ClientOp::Backward(to_pallas_point(point))));
                 }
@@ -215,7 +212,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                 Ok(())
             }
             Unit::Peer(peer) => {
-                // FIXME: pallas design bug that we only get &Unit and thus cannot take values from it without internal mutability
+                // FIXME: gasket design bug that we only get &Unit and thus cannot take values from it without internal mutability
                 let peer = peer.borrow_mut().take();
                 if let Some(peer) = peer {
                     self.clients.send(ClientMsg::Peer(peer, self.tip.clone()));
