@@ -80,10 +80,10 @@ mod test {
         create_dir(&basedir).unwrap();
         let mut store = RocksDBStore::new(basedir.clone()).expect("fail to initialise RocksDB");
 
-        let header = FakeHeader::FakeHeader {
+        let header = FakeHeader {
             block_number: 1,
             slot: 0,
-            parent: FakeHeader::Genesis.hash(),
+            parent: None,
             body_hash: random_bytes(32).as_slice().into(),
         };
 
