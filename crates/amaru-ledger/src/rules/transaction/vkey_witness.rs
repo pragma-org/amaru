@@ -2,14 +2,13 @@ use std::{array::TryFromSliceError, ops::Deref};
 
 use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
 use amaru_kernel::{
-    Certificate, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody,
-    MintedWitnessSet, OriginalHash, PublicKey, Signature, VKeyWitness, Voter,
+    Certificate, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
+    OriginalHash, PublicKey, Signature, VKeyWitness, Voter,
 };
-use sha3::{Digest, Sha3_256};
 
-pub fn validate_sigantures(
+pub fn validate_vkey_wintesses(
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
-    witness_set: &MintedWitnessSet<'_>,
+    vkey_witnesses: &Option<NonEmptySet<VKeyWitness>>,
     utxo_slice: &UtxoSlice,
 ) -> Result<(), TransactionRuleViolation> {
     let empty_vec = vec![];
@@ -157,50 +156,27 @@ pub fn validate_sigantures(
     .concat();
 
     let empty_vec = vec![];
-    let vkey_witnesses = witness_set.vkeywitness.as_deref().unwrap_or(&empty_vec);
+    let vkey_witnesses = vkey_witnesses.as_deref().unwrap_or(&empty_vec);
     let vkey_hashes = vkey_witnesses
         .iter()
         .map(|witness| Hasher::<224>::hash(&witness.vkey))
         .collect::<Vec<_>>();
 
-    let empty_vec = vec![];
-    let bootstrap_witnesses = witness_set
-        .bootstrap_witness
-        .as_deref()
-        .unwrap_or(&empty_vec);
-    let bootstrap_roots = bootstrap_witnesses
-        .iter()
-        .map(|bootstrap_witness| {
-            // CBOR header for data that will be encoded
-            let prefix: &[u8] = &[131, 0, 130, 0, 88, 64];
-
-            let mut sha_hasher = Sha3_256::new();
-            sha_hasher.update(prefix);
-            sha_hasher.update(bootstrap_witness.public_key.deref());
-            sha_hasher.update(bootstrap_witness.chain_code.deref());
-            sha_hasher.update(bootstrap_witness.attributes.deref());
-
-            let sha_digest = sha_hasher.finalize();
-            Hasher::<224>::hash(&sha_digest)
-        })
-        .collect::<Vec<_>>();
-
     // Are we worried about efficiency here? this is quadratic time
     let missing_key_hashes: Vec<_> = required_vkey_hashes
-        .clone()
         .into_iter()
-        .filter(|hash| !vkey_hashes.contains(hash) && !bootstrap_roots.contains(hash))
+        .filter(|hash| !vkey_hashes.contains(hash))
         .collect();
 
     if !missing_key_hashes.is_empty() {
-        return Err(TransactionRuleViolation::MissingRequiredWitnesses { missing_key_hashes });
+        return Err(TransactionRuleViolation::MissingRequiredVkeyWitnesses { missing_key_hashes });
     }
 
     let invalid_witnesses = vkey_witnesses
         .iter()
         .filter(|witness| {
             match validate_witness(witness, transaction_body.original_hash().as_slice()) {
-                Ok(valid) => !valid,
+                Ok(is_valid) => !is_valid,
                 Err(e) => {
                     eprintln!("Failed to validate witness: {:?}", e);
                     true
@@ -211,7 +187,7 @@ pub fn validate_sigantures(
         .collect::<Vec<_>>();
 
     if !invalid_witnesses.is_empty() {
-        return Err(TransactionRuleViolation::InvalidWitnesses { invalid_witnesses });
+        return Err(TransactionRuleViolation::InvalidVkeyWitnesses { invalid_witnesses });
     }
 
     Ok(())

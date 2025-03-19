@@ -5,15 +5,16 @@ mod transaction;
 use std::ops::Deref;
 
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, Hasher,
-    MintedBlock, MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
+    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, BootstrapWitness, ExUnits, Hash,
+    Hasher, MintedBlock, MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
 };
 use amaru_kernel::{KeepRaw, TransactionInput, TransactionOutput, VKeyWitness};
 use block::{body_size::block_body_size_valid, ex_units::*, header_size::block_header_size_valid};
 use context::BlockValidationContext;
 use thiserror::Error;
 use tracing::{instrument, Level};
-use transaction::signatures::validate_sigantures;
+use transaction::bootstrap_witness::validate_bootstrap_witnesses;
+use transaction::vkey_witness::validate_vkey_wintesses;
 use transaction::{disjoint_ref_inputs::disjoint_ref_inputs, metadata::validate_metadata};
 use transaction::{metadata::InvalidTransactionMetadata, output_size::validate_output_size};
 
@@ -59,9 +60,17 @@ pub enum TransactionRuleViolation {
     #[error("Invalid transaction metadata: {0}")]
     InvalidTransactionMetadata(#[from] InvalidTransactionMetadata),
     #[error("Missing required signatures: pkhs {missing_key_hashes:?}")]
-    MissingRequiredWitnesses { missing_key_hashes: Vec<Hash<28>> },
+    MissingRequiredVkeyWitnesses { missing_key_hashes: Vec<Hash<28>> },
     #[error("Invalid vkey witnesses: {invalid_witnesses:?}")]
-    InvalidWitnesses { invalid_witnesses: Vec<VKeyWitness> },
+    InvalidVkeyWitnesses { invalid_witnesses: Vec<VKeyWitness> },
+    #[error("Missing required signatures: bootstrap roots {missing_bootstrap_roots:?}")]
+    MissingRequiredBootstrapWitnesses {
+        missing_bootstrap_roots: Vec<Hash<28>>,
+    },
+    #[error("Invalid bootstrap witnesses: {invalid_witnesses:?}")]
+    InvalidBootstrapWitnesses {
+        invalid_witnesses: Vec<BootstrapWitness>,
+    },
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("Unnamed error: {0}")]
     Unnanmed(String),
@@ -160,9 +169,14 @@ pub fn validate_transaction<'a>(
     validate_metadata(transaction_body, transaction_auxiliary_data)?;
     disjoint_ref_inputs(transaction_body)?;
     validate_output_size(transaction_body, protocol_params)?;
-    validate_sigantures(
+    validate_vkey_wintesses(
         transaction_body,
-        transaction_witness_set,
+        &transaction_witness_set.vkeywitness,
+        &context.utxo_slice,
+    )?;
+    validate_bootstrap_witnesses(
+        transaction_body,
+        &transaction_witness_set.bootstrap_witness,
         &context.utxo_slice,
     )?;
 
