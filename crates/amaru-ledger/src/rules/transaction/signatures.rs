@@ -1,15 +1,15 @@
 use std::{array::TryFromSliceError, ops::Deref};
 
-use amaru_kernel::{
-    Certificate, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
-    OriginalHash, PublicKey, Signature, VKeyWitness, Voter,
-};
-
 use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
+use amaru_kernel::{
+    Certificate, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody,
+    MintedWitnessSet, OriginalHash, PublicKey, Signature, VKeyWitness, Voter,
+};
+use sha3::{Digest, Sha3_256};
 
 pub fn validate_sigantures(
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
-    vkey_witnesses: &Option<NonEmptySet<VKeyWitness>>,
+    witness_set: &MintedWitnessSet<'_>,
     utxo_slice: &UtxoSlice,
 ) -> Result<(), TransactionRuleViolation> {
     let empty_vec = vec![];
@@ -157,16 +157,39 @@ pub fn validate_sigantures(
     .concat();
 
     let empty_vec = vec![];
-    let vkey_witnesses = vkey_witnesses.as_deref().unwrap_or(&empty_vec);
+    let vkey_witnesses = witness_set.vkeywitness.as_deref().unwrap_or(&empty_vec);
     let vkey_hashes = vkey_witnesses
         .iter()
         .map(|witness| Hasher::<224>::hash(&witness.vkey))
         .collect::<Vec<_>>();
 
+    let empty_vec = vec![];
+    let bootstrap_witnesses = witness_set
+        .bootstrap_witness
+        .as_deref()
+        .unwrap_or(&empty_vec);
+    let bootstrap_roots = bootstrap_witnesses
+        .iter()
+        .map(|bootstrap_witness| {
+            // CBOR header for data that will be encoded
+            let prefix: &[u8] = &[131, 0, 130, 0, 88, 64];
+
+            let mut sha_hasher = Sha3_256::new();
+            sha_hasher.update(prefix);
+            sha_hasher.update(bootstrap_witness.public_key.deref());
+            sha_hasher.update(bootstrap_witness.chain_code.deref());
+            sha_hasher.update(bootstrap_witness.attributes.deref());
+
+            let sha_digest = sha_hasher.finalize();
+            Hasher::<224>::hash(&sha_digest)
+        })
+        .collect::<Vec<_>>();
+
     // Are we worried about efficiency here? this is quadratic time
     let missing_key_hashes: Vec<_> = required_vkey_hashes
+        .clone()
         .into_iter()
-        .filter(|hash| !vkey_hashes.contains(hash))
+        .filter(|hash| !vkey_hashes.contains(hash) && !bootstrap_roots.contains(hash))
         .collect();
 
     if !missing_key_hashes.is_empty() {
