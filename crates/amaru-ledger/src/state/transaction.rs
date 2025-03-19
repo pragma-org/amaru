@@ -19,9 +19,9 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer, DRep, Epoch, HasLovelace,
-    Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, Slot,
-    StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer, DRep, Epoch,
+    HasLovelace, Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams,
+    Set, Slot, StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
