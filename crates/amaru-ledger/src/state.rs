@@ -25,7 +25,7 @@ use crate::{
 };
 use amaru_kernel::{
     self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
-    ProposalProcedurePointer, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    ProposalPointer, Slot, StakeCredential, TransactionInput, TransactionOutput,
     TransactionPointer, Voter, VotingProcedures, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
     SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
@@ -358,15 +358,15 @@ impl<S: Store> State<S> {
                 .into_iter()
                 .enumerate()
                 .for_each(|(pp_ix, pp)| {
-                    let key = ProposalProcedurePointer {
+                    let key = ProposalPointer {
                         transaction_pointer: TransactionPointer {
                             slot: absolute_slot,
                             transaction_index: ix,
                         },
-                        proposal_procedure_index: pp_ix,
+                        proposal_index: pp_ix,
                     };
                     state
-                        .proposal_procedures
+                        .proposals
                         .register(key, (0, pp), None, None)
                         .unwrap_or_default(); // Can't happen as by construction key is unique
                 });

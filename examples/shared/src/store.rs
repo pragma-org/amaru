@@ -99,6 +99,19 @@ impl Snapshot for MemoryStore {
     > {
         Ok(vec![].into_iter())
     }
+
+    #[allow(refining_impl_trait)]
+    fn iter_proposals(
+        &self,
+    ) -> Result<
+        std::vec::IntoIter<(
+            amaru_ledger::store::columns::proposals::Key,
+            amaru_ledger::store::columns::proposals::Row,
+        )>,
+        amaru_ledger::store::StoreError,
+    > {
+        Ok(vec![].into_iter())
+    }
 }
 
 impl Store for MemoryStore {
@@ -141,6 +154,12 @@ impl Store for MemoryStore {
                     amaru_ledger::store::columns::cc_members::Value,
                 ),
             >,
+            impl Iterator<
+                Item = (
+                    amaru_ledger::store::columns::proposals::Key,
+                    amaru_ledger::store::columns::proposals::Value,
+                ),
+            >,
         >,
         _remove: amaru_ledger::store::Columns<
             impl Iterator<Item = amaru_ledger::store::columns::utxo::Key>,
@@ -148,6 +167,7 @@ impl Store for MemoryStore {
             impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
             impl Iterator<Item = amaru_ledger::store::columns::dreps::Key>,
             impl Iterator<Item = amaru_ledger::store::columns::cc_members::Key>,
+            impl Iterator<Item = amaru_ledger::store::columns::proposals::Key>,
         >,
         _withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
         _voting_dreps: BTreeSet<StakeCredential>,
