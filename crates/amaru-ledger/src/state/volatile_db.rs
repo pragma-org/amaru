@@ -20,8 +20,7 @@ use super::{
 use crate::store::{self, columns::*};
 use amaru_kernel::{
     epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
-    ProposalProcedure, ProposalProcedurePointer, StakeCredential, TransactionInput,
-    TransactionOutput,
+    Proposal, ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::collections::{BTreeSet, VecDeque};
 
@@ -145,8 +144,7 @@ pub struct VolatileState {
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Epoch>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
-    pub proposal_procedures:
-        DiffBind<ProposalProcedurePointer, Empty, Empty, (Epoch, ProposalProcedure)>,
+    pub proposals: DiffBind<ProposalPointer, Empty, Empty, (Epoch, Proposal)>,
     pub fees: Lovelace,
 }
 
@@ -193,6 +191,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
             impl Iterator<Item = (committees::Key, committees::Value)>,
+            impl Iterator<Item = (proposals::Key, proposals::Value)>,
         >,
         store::Columns<
             impl Iterator<Item = utxo::Key>,
@@ -200,6 +199,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = accounts::Key>,
             impl Iterator<Item = dreps::Key>,
             impl Iterator<Item = committees::Key>,
+            impl Iterator<Item = proposals::Key>,
         >,
     > {
         let slot = self.anchor.0.slot_or_default();
@@ -263,6 +263,16 @@ impl AnchoredVolatileState {
                         // Never None
                     },
                 ),
+                proposals: self.state.proposals.registered.into_iter().map(
+                    move |(
+                        proposal_pointer,
+                        Bind {
+                            left: _,
+                            right: _,
+                            value,
+                        },
+                    ): (_, Bind<_, Empty, _>)| { (proposal_pointer, value) },
+                ),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),
@@ -270,6 +280,7 @@ impl AnchoredVolatileState {
                 accounts: self.state.accounts.unregistered.into_iter(),
                 dreps: self.state.dreps.unregistered.into_iter(),
                 committees: self.state.committee.unregistered.into_iter(),
+                proposals: self.state.proposals.unregistered.into_iter(),
             },
         }
     }

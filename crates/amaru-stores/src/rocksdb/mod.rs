@@ -291,6 +291,15 @@ impl Snapshot for RocksDB {
     {
         iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
     }
+
+    fn iter_proposals(
+        &self,
+    ) -> Result<
+        impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
+        StoreError,
+    > {
+        iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
+    }
 }
 
 /// An generic column iterator, provided that rows from the column are (de)serialisable.
@@ -349,6 +358,7 @@ impl Store for RocksDB {
             impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
             impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
             impl Iterator<Item = (scolumns::committees::Key, scolumns::committees::Value)>,
+            impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = scolumns::utxo::Key>,
@@ -356,6 +366,7 @@ impl Store for RocksDB {
             impl Iterator<Item = scolumns::accounts::Key>,
             impl Iterator<Item = scolumns::dreps::Key>,
             impl Iterator<Item = scolumns::committees::Key>,
+            impl Iterator<Item = scolumns::proposals::Key>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
@@ -407,11 +418,13 @@ impl Store for RocksDB {
                     voting_dreps,
                     epoch_from_slot(point.slot_or_default()),
                 )?;
+                proposals::add(&batch, add.proposals)?;
 
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
                 accounts::remove(&batch, remove.accounts)?;
                 dreps::remove(&batch, remove.dreps)?;
+                proposals::remove(&batch, remove.proposals)?;
             }
         }
 

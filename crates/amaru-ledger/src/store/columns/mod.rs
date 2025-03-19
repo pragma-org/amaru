@@ -17,6 +17,7 @@ pub mod committees;
 pub mod dreps;
 pub mod pools;
 pub mod pots;
+pub mod proposals;
 pub mod slots;
 pub mod utxo;
 

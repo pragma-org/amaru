@@ -37,9 +37,9 @@ pub use pallas_primitives::{
     conway::{
         AddrKeyhash, Anchor, Block, Certificate, Coin, DRep, Epoch, ExUnits, GovActionId,
         HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedWitnessSet,
-        PoolMetadata, ProposalProcedure, RationalNumber, Redeemers, Relay, RewardAccount,
-        StakeCredential, TransactionInput, TransactionOutput, UnitInterval, Value, Voter,
-        VotingProcedure, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        PoolMetadata, ProposalProcedure as Proposal, RationalNumber, Redeemers, Relay,
+        RewardAccount, StakeCredential, TransactionInput, TransactionOutput, UnitInterval, Value,
+        Voter, VotingProcedure, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 use std::{convert::Infallible, sync::LazyLock};
@@ -364,9 +364,9 @@ pub struct CertificatePointer {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
-pub struct ProposalProcedurePointer {
+pub struct ProposalPointer {
     pub transaction_pointer: TransactionPointer,
-    pub proposal_procedure_index: usize,
+    pub proposal_index: usize,
 }
 
 impl<C> cbor::encode::Encode<C> for TransactionPointer {
@@ -415,7 +415,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
     }
 }
 
-impl<C> cbor::encode::Encode<C> for ProposalProcedurePointer {
+impl<C> cbor::encode::Encode<C> for ProposalPointer {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -423,17 +423,17 @@ impl<C> cbor::encode::Encode<C> for ProposalProcedurePointer {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
         e.encode_with(self.transaction_pointer, ctx)?;
-        e.encode_with(self.proposal_procedure_index, ctx)?;
+        e.encode_with(self.proposal_index, ctx)?;
         Ok(())
     }
 }
 
-impl<'b, C> cbor::decode::Decode<'b, C> for ProposalProcedurePointer {
+impl<'b, C> cbor::decode::Decode<'b, C> for ProposalPointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let _len = d.array()?;
-        Ok(ProposalProcedurePointer {
+        Ok(ProposalPointer {
             transaction_pointer: d.decode_with(ctx)?,
-            proposal_procedure_index: d.decode_with(ctx)?,
+            proposal_index: d.decode_with(ctx)?,
         })
     }
 }
