@@ -580,9 +580,10 @@ impl HasKeyHash for Address {
             Address::Byron(byron_address) => {
                 let payload = byron_address.decode().ok()?;
                 match payload.addrtype {
+                    // not actually the key hash, but a double hash of the key and some other elements of the address
                     byron::AddrType::PubKey => Some(payload.root),
                     byron::AddrType::Script => None,
-                    byron::AddrType::Redeem => None, // this is an ancient artifact I can't find much documentation on -- how do we want to handle this?
+                    byron::AddrType::Redeem => None,
                     byron::AddrType::Other(_) => None,
                 }
             }
