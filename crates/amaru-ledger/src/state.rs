@@ -352,6 +352,27 @@ impl<S: Store> State<S> {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
             let transaction_body = transaction_body.unwrap();
 
+            transaction_body
+                .proposal_procedures
+                .as_ref()
+                .map(|ps| ps.clone().to_vec())
+                .unwrap_or_default()
+                .into_iter()
+                .enumerate()
+                .for_each(|(pp_ix, pp)| {
+                    let key = ProposalProcedurePointer {
+                        transaction_pointer: TransactionPointer {
+                            slot: absolute_slot,
+                            transaction_index: ix,
+                        },
+                        proposal_procedure_index: pp_ix,
+                    };
+                    state
+                        .proposal_procedures
+                        .register(key, (0, pp), None, None)
+                        .unwrap_or_default(); // Can't happen as by construction key is unique
+                });
+
             let voting_dreps = transaction_body
                 .voting_procedures
                 .as_ref()

@@ -20,7 +20,8 @@ use super::{
 use crate::store::{self, columns::*};
 use amaru_kernel::{
     epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
-    StakeCredential, TransactionInput, TransactionOutput,
+    ProposalProcedure, ProposalProcedurePointer, StakeCredential, TransactionInput,
+    TransactionOutput,
 };
 use std::collections::{BTreeSet, VecDeque};
 
@@ -144,6 +145,8 @@ pub struct VolatileState {
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Epoch>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
+    pub proposal_procedures:
+        DiffBind<ProposalProcedurePointer, Empty, Empty, (Epoch, ProposalProcedure)>,
     pub fees: Lovelace,
 }
 
