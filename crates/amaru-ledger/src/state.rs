@@ -24,9 +24,10 @@ use crate::{
     store::{Store, StoreError},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot,
-    StakeCredential, TransactionInput, TransactionOutput, Voter, VotingProcedures,
-    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
+    ProposalProcedurePointer, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    TransactionPointer, Voter, VotingProcedures, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
+    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
@@ -348,6 +349,27 @@ impl<S: Store> State<S> {
         for (ix, transaction_body) in transaction_bodies.into_iter().enumerate() {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
             let transaction_body = transaction_body.unwrap();
+
+            transaction_body
+                .proposal_procedures
+                .as_ref()
+                .map(|ps| ps.clone().to_vec())
+                .unwrap_or_default()
+                .into_iter()
+                .enumerate()
+                .for_each(|(pp_ix, pp)| {
+                    let key = ProposalProcedurePointer {
+                        transaction_pointer: TransactionPointer {
+                            slot: absolute_slot,
+                            transaction_index: ix,
+                        },
+                        proposal_procedure_index: pp_ix,
+                    };
+                    state
+                        .proposal_procedures
+                        .register(key, (0, pp), None, None)
+                        .unwrap_or_default(); // Can't happen as by construction key is unique
+                });
 
             let voting_dreps = transaction_body
                 .voting_procedures

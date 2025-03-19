@@ -42,10 +42,10 @@ pub use pallas_primitives::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, DRep,
         Epoch, ExUnits, GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
         MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet, PoolMetadata,
-        PostAlonzoTransactionOutput, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
-        RewardAccount, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
-        WitnessSet,
+        PostAlonzoTransactionOutput, ProposalProcedure, PseudoTransactionOutput, RationalNumber,
+        Redeemers, Relay, RewardAccount, StakeCredential, TransactionBody, TransactionInput,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use sha3;
@@ -362,7 +362,7 @@ impl serde::Serialize for PoolParams {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
 pub struct TransactionPointer {
     pub slot: Slot,
     pub transaction_index: usize,
@@ -372,6 +372,12 @@ pub struct TransactionPointer {
 pub struct CertificatePointer {
     pub transaction_pointer: TransactionPointer,
     pub certificate_index: usize,
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
+pub struct ProposalProcedurePointer {
+    pub transaction_pointer: TransactionPointer,
+    pub proposal_procedure_index: usize,
 }
 
 impl<C> cbor::encode::Encode<C> for TransactionPointer {
@@ -416,6 +422,29 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
         Ok(CertificatePointer {
             transaction_pointer: d.decode_with(ctx)?,
             certificate_index: d.decode_with(ctx)?,
+        })
+    }
+}
+
+impl<C> cbor::encode::Encode<C> for ProposalProcedurePointer {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(2)?;
+        e.encode_with(self.transaction_pointer, ctx)?;
+        e.encode_with(self.proposal_procedure_index, ctx)?;
+        Ok(())
+    }
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for ProposalProcedurePointer {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let _len = d.array()?;
+        Ok(ProposalProcedurePointer {
+            transaction_pointer: d.decode_with(ctx)?,
+            proposal_procedure_index: d.decode_with(ctx)?,
         })
     }
 }
