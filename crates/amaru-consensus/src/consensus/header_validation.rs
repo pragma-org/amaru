@@ -17,18 +17,19 @@ use crate::{
         chain_selection::{self, ChainSelector, Fork},
         store::{ChainStore, NoncesError},
     },
-    peer::{Peer, PeerSession},
+    peer::Peer,
     ConsensusError,
 };
 use amaru_kernel::{Hash, Header, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
-use amaru_ledger::ValidateBlockEvent;
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, Praos};
 use pallas_codec::minicbor;
 use pallas_math::math::FixedDecimal;
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{instrument, trace, Level, Span};
+use tracing::{info, instrument, trace, Level, Span};
+
+use super::fetch::ValidateHeaderEvent;
 
 const EVENT_TARGET: &str = "amaru::consensus";
 
@@ -64,7 +65,6 @@ pub fn assert_header(
 }
 
 pub struct Consensus {
-    peer_sessions: HashMap<Peer, PeerSession>,
     chain_selector: Arc<Mutex<ChainSelector<Header>>>,
     ledger: Box<dyn HasStakeDistribution>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
@@ -72,69 +72,40 @@ pub struct Consensus {
 
 impl Consensus {
     pub fn new(
-        peer_sessions: Vec<PeerSession>,
         ledger: Box<dyn HasStakeDistribution>,
         store: Arc<Mutex<dyn ChainStore<Header>>>,
         chain_selector: Arc<Mutex<ChainSelector<Header>>>,
     ) -> Self {
-        let peer_sessions = peer_sessions
-            .into_iter()
-            .map(|p| (p.peer.clone(), p))
-            .collect::<HashMap<_, _>>();
         Self {
-            peer_sessions,
             chain_selector,
             ledger,
             store,
         }
     }
 
-    #[instrument(level = Level::TRACE, skip_all, name = "fetch_block")]
-    async fn forward_block<H: IsHeader>(
+    fn forward_block<H: IsHeader>(
         &mut self,
         peer: &Peer,
         header: &H,
         span: &Span,
-    ) -> Result<ValidateBlockEvent, ConsensusError> {
-        let point = header.point();
-        let block = {
-            // FIXME: should not crash if the peer is not found
-            let peer_session = self
-                .peer_sessions
-                .get(peer)
-                .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?;
-            let mut session = peer_session.peer_client.lock().await;
-            let client = (*session).blockfetch();
-            let new_point: pallas_network::miniprotocols::Point = match point.clone() {
-                Point::Origin => pallas_network::miniprotocols::Point::Origin,
-                Point::Specific(slot, hash) => {
-                    pallas_network::miniprotocols::Point::Specific(slot, hash)
-                }
-            };
-            client
-                .fetch_single(new_point.clone())
-                .await
-                .map_err(|_| ConsensusError::FetchBlockFailed(point.clone()))?
-        };
-
-        Ok(ValidateBlockEvent::Validated(point, block, span.clone()))
+    ) -> ValidateHeaderEvent {
+        ValidateHeaderEvent::Validated(peer.clone(), header.point().clone(), span.clone())
     }
 
-    #[instrument(level = Level::TRACE, skip_all)]
-    async fn switch_to_fork(
+    fn switch_to_fork(
         &mut self,
         peer: &Peer,
         rollback_point: &Point,
         fork: Vec<Header>,
         span: &Span,
-    ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
-        let mut result = vec![ValidateBlockEvent::Rollback(rollback_point.clone())];
+    ) -> Vec<ValidateHeaderEvent> {
+        let mut result = vec![ValidateHeaderEvent::Rollback(rollback_point.clone())];
 
         for header in fork {
-            result.push(self.forward_block(peer, &header, span).await?);
+            result.push(self.forward_block(peer, &header, span));
         }
 
-        Ok(result)
+        result
     }
 
     #[instrument(
@@ -150,8 +121,8 @@ impl Consensus {
         &mut self,
         peer: &Peer,
         point: &Point,
-        raw_header: &[u8],
-    ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
+        raw_header: &[u8]
+    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let minted_header: MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
 
@@ -191,7 +162,8 @@ impl Consensus {
 
         let events = match result {
             chain_selection::ForwardChainSelection::NewTip(hdr) => {
-                vec![self.forward_block(peer, &hdr, &span).await?]
+                trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
+                vec![self.forward_block(peer, &hdr, &span)]
             }
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,
@@ -200,8 +172,7 @@ impl Consensus {
                 fork,
             }) => {
                 self.switch_to_fork(&peer, &rollback_point, fork, &span)
-                    .await?
-            }
+            },
             chain_selection::ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
                 vec![]
@@ -224,7 +195,7 @@ impl Consensus {
         &mut self,
         peer: &Peer,
         rollback: &Point,
-    ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
+    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let result = self
             .chain_selector
             .lock()
@@ -233,20 +204,18 @@ impl Consensus {
 
         let span = Span::current();
 
+        info!("result: {:?}", result);
         match result {
             chain_selection::RollbackChainSelection::RollbackTo(hash) => {
                 trace!(target: EVENT_TARGET, %hash, "rollback");
-                Ok(vec![ValidateBlockEvent::Rollback(rollback.clone())])
+                Ok(vec![ValidateHeaderEvent::Rollback(rollback.clone())])
             }
             chain_selection::RollbackChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 fork,
                 tip: _,
-            }) => {
-                self.switch_to_fork(&peer, &rollback_point, fork, &span)
-                    .await
-            }
+            }) => Ok(self.switch_to_fork(&peer, &rollback_point, fork, &span)),
         }
     }
 }
