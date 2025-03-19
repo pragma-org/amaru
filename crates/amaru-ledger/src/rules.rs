@@ -162,7 +162,7 @@ pub fn validate_transaction<'a>(
     validate_output_size(transaction_body, protocol_params)?;
     validate_sigantures(
         transaction_body,
-        &transaction_witness_set,
+        transaction_witness_set,
         &context.utxo_slice,
     )?;
 
