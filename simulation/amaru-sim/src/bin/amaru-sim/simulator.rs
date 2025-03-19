@@ -116,7 +116,7 @@ pub fn bootstrap(args: Args) -> Vec<Tether> {
 
     let mut consensus_stage = HeaderStage::new(consensus);
 
-    let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
+    let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone(), 1);
 
     let (to_consensus, from_peers) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);

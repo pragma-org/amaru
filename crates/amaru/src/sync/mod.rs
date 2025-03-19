@@ -79,7 +79,8 @@ pub fn bootstrap(
     );
 
     let mut consensus_stage = HeaderStage::new(consensus);
-    let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
+    let mut block_forward =
+        chain_forward::ForwardStage::new(chain_ref.clone(), config.network_magic as u64);
 
     let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);

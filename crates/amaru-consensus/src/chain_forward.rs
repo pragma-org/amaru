@@ -13,16 +13,33 @@
 // limitations under the License.
 
 use crate::consensus::store::ChainStore;
+use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime};
 use amaru_kernel::{Hash, Header};
 use amaru_ledger::BlockValidationResult;
+use amaru_ouroboros::IsHeader;
+use client_protocol::{client_protocols, ChainSyncMsg};
+use client_state::{to_pallas_point, ClientOp};
 use gasket::framework::*;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use pallas_network::{
+    facades::PeerServer,
+    miniprotocols::{chainsync::Tip, Point},
+};
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use tokio::{
+    net::TcpListener,
+    sync::{
+        mpsc::{self, Receiver},
+        Mutex,
+    },
+    task::JoinHandle,
+};
 use tracing::{error_span, info, trace_span, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
 pub const EVENT_TARGET: &str = "amaru::consensus::chain_forward";
+
+pub const LISTEN_ADDRESS: &str = "0.0.0.0:3001";
 
 /// Forwarding stage of the consensus where blocks are stored and made
 /// available to downstream peers.
@@ -31,49 +48,111 @@ pub const EVENT_TARGET: &str = "amaru::consensus::chain_forward";
 /// forward new chain downstream
 
 #[derive(Stage)]
-#[stage(
-    name = "consensus.forward",
-    unit = "BlockValidationResult",
-    worker = "Worker"
-)]
+#[stage(name = "consensus.forward", unit = "Unit", worker = "Worker")]
 pub struct ForwardStage {
     pub store: Arc<Mutex<dyn ChainStore<Header>>>,
     pub upstream: UpstreamPort,
+    pub network_magic: u64,
+    pub runtime: AcTokio,
 }
 
 impl ForwardStage {
-    pub fn new(store: Arc<Mutex<dyn ChainStore<Header>>>) -> Self {
+    pub fn new(store: Arc<Mutex<dyn ChainStore<Header>>>, network_magic: u64) -> Self {
+        let runtime = AcTokio::new("consensus.forward", 1).unwrap();
         Self {
             store,
             upstream: Default::default(),
+            network_magic,
+            runtime,
         }
     }
 }
 
-pub struct Worker {}
+pub enum Unit {
+    Peer(RefCell<Option<PeerServer>>),
+    Block(BlockValidationResult),
+}
+
+pub struct Worker {
+    server: JoinHandle<()>,
+    rx: Receiver<PeerServer>,
+    tip: Tip,
+    clients: ActoRef<ClientMsg>,
+}
+
+impl Drop for Worker {
+    fn drop(&mut self) {
+        self.server.abort();
+    }
+}
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<ForwardStage> for Worker {
-    async fn bootstrap(_stage: &ForwardStage) -> Result<Self, WorkerError> {
-        Ok(Self {})
+    async fn bootstrap(stage: &ForwardStage) -> Result<Self, WorkerError> {
+        let server = TcpListener::bind(LISTEN_ADDRESS).await.or_panic()?;
+        let (tx, rx) = mpsc::channel(10);
+
+        let clients = stage
+            .runtime
+            .spawn_actor("chain_forward", |cell| {
+                client_supervisor(cell, stage.store.clone())
+            })
+            .me;
+
+        let network_magic = stage.network_magic;
+        let server = tokio::spawn(async move {
+            loop {
+                // due to the signature of TcpListener::accept, this is the only way to use this API
+                // in particular, it isn’t possible to poll for new peers within the `schedule` method
+                let peer = match PeerServer::accept(&server, network_magic).await {
+                    Ok(peer) => peer,
+                    Err(e) => {
+                        tracing::warn!(
+                            target: EVENT_TARGET,
+                            "error accepting peer: {e}",
+                        );
+                        continue;
+                    }
+                };
+
+                match tx.send(peer).await {
+                    Ok(_) => {}
+                    Err(e) => {
+                        tracing::info!(
+                            target: EVENT_TARGET,
+                            "dropping incoming connection: {e}"
+                        );
+                    }
+                }
+            }
+        });
+
+        Ok(Self {
+            server,
+            rx,
+            tip: Tip(Point::Origin, 0),
+            clients,
+        })
     }
 
     async fn schedule(
         &mut self,
         stage: &mut ForwardStage,
-    ) -> Result<WorkSchedule<BlockValidationResult>, WorkerError> {
-        let unit = stage.upstream.recv().await.or_panic()?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+    ) -> Result<WorkSchedule<Unit>, WorkerError> {
+        tokio::select! {
+            block = stage.upstream.recv() => Ok(WorkSchedule::Unit(Unit::Block(block.or_panic()?.payload))),
+            peer = self.rx.recv() => {
+                match peer {
+                    Some(peer) => Ok(WorkSchedule::Unit(Unit::Peer(RefCell::new(Some(peer))))),
+                    None => Err(WorkerError::Panic),
+                }
+            }
+        }
     }
 
-    async fn execute(
-        &mut self,
-        unit: &BlockValidationResult,
-        _stage: &mut ForwardStage,
-    ) -> Result<(), WorkerError> {
+    async fn execute(&mut self, unit: &Unit, stage: &mut ForwardStage) -> Result<(), WorkerError> {
         match unit {
-            BlockValidationResult::BlockValidated(point, span) => {
+            Unit::Block(BlockValidationResult::BlockValidated(point, span)) => {
                 // FIXME: this span is just a placeholder to hold a link to t
                 // the parent, it will be filled once we had the storage and
                 // forwarding logic.
@@ -85,9 +164,16 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                     hash = %Hash::<32>::from(point),
                 );
 
+                // FIXME: block height should be part of BlockValidated message
+                let store = stage.store.lock().await;
+                if let Some(header) = store.load_header(&Hash::from(point)) {
+                    self.tip = Tip(to_pallas_point(point), header.block_height());
+                    self.clients.send(ClientMsg::Op(ClientOp::Forward(header)));
+                }
+
                 Ok(())
             }
-            BlockValidationResult::BlockForwardStorageFailed(point, span) => {
+            Unit::Block(BlockValidationResult::BlockForwardStorageFailed(point, span)) => {
                 let _span = error_span!(
                     target: EVENT_TARGET,
                     parent: span,
@@ -98,7 +184,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
 
                 Err(WorkerError::Panic)
             }
-            BlockValidationResult::InvalidRollbackPoint(point) => {
+            Unit::Block(BlockValidationResult::InvalidRollbackPoint(point)) => {
                 warn!(
                     target: EVENT_TARGET,
                     slot = point.slot_or_default(),
@@ -107,15 +193,74 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                 );
                 Ok(())
             }
-            BlockValidationResult::RolledBackTo(point) => {
+            Unit::Block(BlockValidationResult::RolledBackTo(point)) => {
                 info!(
                     target: EVENT_TARGET,
                     slot = point.slot_or_default(),
                     hash = %Hash::<32>::from(point),
                     "rolled_back_to"
                 );
+
+                // FIXME: block height should be part of BlockValidated message
+                let store = stage.store.lock().await;
+                if let Some(header) = store.load_header(&Hash::from(point)) {
+                    self.tip = Tip(to_pallas_point(point), header.block_height());
+                    self.clients
+                        .send(ClientMsg::Op(ClientOp::Backward(to_pallas_point(point))));
+                }
+
+                Ok(())
+            }
+            Unit::Peer(peer) => {
+                // FIXME: gasket design bug that we only get &Unit and thus cannot take values from it without internal mutability
+                let peer = peer.borrow_mut().take();
+                if let Some(peer) = peer {
+                    self.clients.send(ClientMsg::Peer(peer, self.tip.clone()));
+                } else {
+                    tracing::error!(target: EVENT_TARGET, "Unit::Peer was empty in execute");
+                }
                 Ok(())
             }
         }
     }
 }
+
+enum ClientMsg {
+    Peer(PeerServer, Tip),
+    Op(ClientOp),
+}
+
+async fn client_supervisor(
+    mut cell: ActoCell<ClientMsg, impl ActoRuntime, Result<(), client_protocol::ClientError>>,
+    store: Arc<Mutex<dyn ChainStore<Header>>>,
+) {
+    let mut clients = HashMap::new();
+    while let Some(msg) = cell.recv().await.has_senders() {
+        match msg {
+            ActoMsgSuper::Message(ClientMsg::Peer(peer, tip)) => {
+                let addr = peer
+                    .accepted_address()
+                    .map(|a| a.to_string())
+                    .unwrap_or_default();
+
+                let client = cell.spawn_supervised(&addr, {
+                    let store = store.clone();
+                    move |cell| client_protocols(cell, peer, store, tip)
+                });
+                clients.insert(client.id(), client);
+            }
+            ActoMsgSuper::Message(ClientMsg::Op(op)) => {
+                for client in clients.values() {
+                    client.send(ChainSyncMsg::Op(op.clone()));
+                }
+            }
+            ActoMsgSuper::Supervision { id, name, result } => {
+                tracing::info!(target: EVENT_TARGET, "client {} terminated: {:?}", name, result);
+                clients.remove(&id);
+            }
+        }
+    }
+}
+
+mod client_protocol;
+mod client_state;
