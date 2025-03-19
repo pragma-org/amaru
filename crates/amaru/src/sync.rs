@@ -16,6 +16,7 @@ use amaru_consensus::{
     chain_forward,
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
+        fetch::BlockFetchStage,
         header_validation::Consensus,
         store::{rocksdb::RocksDBStore, ChainStore},
         wiring::{HeaderStage, PullEvent},
@@ -35,7 +36,6 @@ use tokio::sync::Mutex;
 
 use crate::pipeline::Stage;
 
-pub mod fetch;
 pub mod pull;
 
 pub type Slot = u64;
@@ -64,6 +64,8 @@ pub fn bootstrap(
         })
         .collect();
 
+    let mut block_fetch_stage = BlockFetchStage::new(peer_sessions.as_slice());
+
     let mut pulls = peer_sessions
         .iter()
         .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
@@ -72,7 +74,6 @@ pub fn bootstrap(
     let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions)?;
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let consensus = Consensus::new(
-        peer_sessions,
         Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
         chain_selector,
@@ -81,7 +82,8 @@ pub fn bootstrap(
     let mut consensus_stage = HeaderStage::new(consensus);
     let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
 
-    let (to_ledger, from_header_validation) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_block_fetch, from_consensus_stage) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
     let outputs: Vec<&mut OutputPort<PullEvent>> = pulls
@@ -89,8 +91,10 @@ pub fn bootstrap(
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
     funnel_ports(outputs, &mut consensus_stage.upstream, 50);
-    consensus_stage.downstream.connect(to_ledger);
-    ledger.upstream.connect(from_header_validation);
+    consensus_stage.downstream.connect(to_block_fetch);
+    block_fetch_stage.upstream.connect(from_consensus_stage);
+    block_fetch_stage.downstream.connect(to_ledger);
+    ledger.upstream.connect(from_block_fetch);
     ledger.downstream.connect(to_block_forward);
     block_forward.upstream.connect(from_ledger);
 
@@ -103,10 +107,12 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
 
     let header_validation = gasket::runtime::spawn_stage(consensus_stage, policy.clone());
+    let fetch = gasket::runtime::spawn_stage(block_fetch_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());
 
     pulls.push(header_validation);
+    pulls.push(fetch);
     pulls.push(ledger);
     pulls.push(block_forward);
     Ok(pulls)
