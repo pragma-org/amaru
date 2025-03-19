@@ -21,43 +21,28 @@ use std::{
 
 /// Basic `Header` implementation for testing purposes.
 #[derive(Debug, PartialEq, Clone, Copy)]
-pub enum FakeHeader {
-    FakeHeader {
-        block_number: u64,
-        slot: u64,
-        parent: Hash<HASH_SIZE>,
-        body_hash: Hash<HASH_SIZE>,
-    },
-    Genesis,
+pub struct FakeHeader {
+    pub block_number: u64,
+    pub slot: u64,
+    pub parent: Option<Hash<HASH_SIZE>>,
+    pub body_hash: Hash<HASH_SIZE>,
 }
 
 impl IsHeader for FakeHeader {
     fn parent(&self) -> Option<Hash<HASH_SIZE>> {
-        match self {
-            Self::FakeHeader { parent, .. } => Some(*parent),
-            Self::Genesis => None,
-        }
+        self.parent
     }
 
     fn block_height(&self) -> u64 {
-        match self {
-            Self::FakeHeader { block_number, .. } => *block_number,
-            Self::Genesis => 0,
-        }
+        self.block_number
     }
 
     fn slot(&self) -> u64 {
-        match self {
-            Self::FakeHeader { slot, .. } => *slot,
-            Self::Genesis => 0,
-        }
+        self.slot
     }
 
     fn point(&self) -> Point {
-        match self {
-            Self::Genesis => Point::Origin,
-            Self::FakeHeader { .. } => Point::Specific(self.slot(), self.hash().to_vec()),
-        }
+        Point::Specific(self.slot(), self.hash().to_vec())
     }
 
     fn extended_vrf_nonce_output(&self) -> Vec<u8> {
@@ -69,21 +54,17 @@ impl IsHeader for FakeHeader {
 
 impl Display for FakeHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::FakeHeader {
-                block_number,
-                slot,
-                parent,
-                body_hash,
-            } => {
-                write!(
-                f,
-                "FakeHeader {{ hash: {}, block_number: {}, slot: {}, parent: {}, body_hash: {} }}",
-                self.hash(), block_number, slot, parent, body_hash
-            )
-            }
-            Self::Genesis => write!(f, "Genesis"),
-        }
+        write!(
+            f,
+            "FakeHeader {{ hash: {}, block_number: {}, slot: {}, parent: {}, body_hash: {} }}",
+            self.hash(),
+            self.block_number,
+            self.slot,
+            self.parent
+                .map(|h| h.to_string())
+                .unwrap_or_else(|| "None".to_string()),
+            self.body_hash
+        )
     }
 }
 
@@ -93,44 +74,27 @@ impl<C> cbor::encode::Encode<C> for FakeHeader {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        match self {
-            Self::FakeHeader {
-                block_number,
-                slot,
-                parent,
-                body_hash,
-            } => e
-                .encode(0)?
-                .array(4)?
-                .encode_with(block_number, ctx)?
-                .encode_with(slot, ctx)?
-                .encode_with(parent, ctx)?
-                .encode_with(body_hash, ctx)?
-                .ok(),
-            Self::Genesis => e.encode(1)?.ok(),
-        }
+        e.array(4)?
+            .encode_with(self.block_number, ctx)?
+            .encode_with(self.slot, ctx)?
+            .encode_with(self.parent, ctx)?
+            .encode_with(self.body_hash, ctx)?
+            .ok()
     }
 }
 
 impl<'b, C> cbor::decode::Decode<'b, C> for FakeHeader {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let tag = d.u8()?;
-        match tag {
-            0 => {
-                d.array()?;
-                let block_number = d.decode_with(ctx)?;
-                let slot = d.decode_with(ctx)?;
-                let parent = d.decode_with(ctx)?;
-                let body_hash = d.decode_with(ctx)?;
-                Ok(Self::FakeHeader {
-                    block_number,
-                    slot,
-                    parent,
-                    body_hash,
-                })
-            }
-            1 => Ok(Self::Genesis),
-            _ => Err(cbor::decode::Error::message(format!("unknown tag {}", tag))),
-        }
+        d.array()?;
+        let block_number = d.decode_with(ctx)?;
+        let slot = d.decode_with(ctx)?;
+        let parent = d.decode_with(ctx)?;
+        let body_hash = d.decode_with(ctx)?;
+        Ok(Self {
+            block_number,
+            slot,
+            parent,
+            body_hash,
+        })
     }
 }
