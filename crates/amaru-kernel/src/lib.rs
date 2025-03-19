@@ -22,7 +22,7 @@ While elements are being contributed upstream, they might transiently live in th
 */
 
 use num::{rational::Ratio, BigUint};
-pub use pallas_addresses::Address;
+pub use pallas_addresses::{byron::AddrType, Address};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
@@ -39,8 +39,8 @@ pub use pallas_primitives::{
     alonzo,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, AuxiliaryData, Block, Certificate, Coin, DRep, Epoch, ExUnits,
-        GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
+        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, DRep,
+        Epoch, ExUnits, GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
         MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet, PoolMetadata,
         PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
         TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
@@ -577,17 +577,7 @@ impl HasKeyHash for Address {
                     Some(*payment.as_hash())
                 }
             }
-            Address::Byron(byron_address) => {
-                let payload = byron_address.decode().ok()?;
-                match payload.addrtype {
-                    // not actually the key hash, but a double hash of the key and some other elements of the address
-                    byron::AddrType::PubKey => Some(payload.root),
-                    byron::AddrType::Script => None,
-                    byron::AddrType::Redeem => None,
-                    byron::AddrType::Other(_) => None,
-                }
-            }
-
+            Address::Byron(_) => None,
             Address::Stake(stake_address) => match stake_address.payload() {
                 StakePayload::Stake(hash) => Some(*hash),
                 StakePayload::Script(_) => None,
