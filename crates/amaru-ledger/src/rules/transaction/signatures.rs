@@ -87,9 +87,7 @@ pub fn validate_sigantures(
             certificates
                 .iter()
                 .filter_map(|certificate| match certificate {
-                    Certificate::StakeRegistration(stake_credential) => {
-                        stake_credential.get_key_hash()
-                    }
+                    Certificate::StakeRegistration(_) => None,
                     Certificate::StakeDeregistration(stake_credential) => {
                         stake_credential.get_key_hash()
                     }
