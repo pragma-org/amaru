@@ -417,6 +417,7 @@ impl Store for RocksDB {
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
+    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
     fn next_snapshot(
         &'_ mut self,
         epoch: Epoch,
