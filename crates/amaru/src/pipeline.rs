@@ -1,15 +1,13 @@
-use std::sync::Arc;
-
 use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
-use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
-use tracing::{trace_span, Span};
-
 use amaru_ledger::{
     rules,
     state::{self, BackwardError},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
+use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
+use std::sync::Arc;
+use tracing::{trace_span, Span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
@@ -84,7 +82,7 @@ impl<S: Store> Stage<S> {
         span_forward.record("header.hash", hex::encode(block_header_hash));
 
         let result = match self.state.forward(&span_forward, &point, block) {
-            Ok(_) => BlockValidationResult::BlockValidated(point, parent.clone()),
+            Ok(()) => BlockValidationResult::BlockValidated(point, parent.clone()),
             Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, parent.clone()),
         };
 
