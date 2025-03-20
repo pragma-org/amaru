@@ -22,7 +22,6 @@ NETWORK=${3:-preprod}
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 set -eo pipefail
 AMARU_TRACE="amaru=debug" cargo run -- --with-json-traces daemon --peer-address=$PEER_ADDRESS --network=$NETWORK | while read line; do
-  echo $line;
   EVENT=$(echo $line | jq -r '.fields.message' 2>/dev/null)
   SPAN=$(echo $line | jq -r '.span.name' 2>/dev/null)
   if [ "$EVENT" == "exit" ] && [ "$SPAN" == "snapshot" ]; then

@@ -1,4 +1,4 @@
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Hash, Point};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
 use amaru_ledger::{
     rules,
     state::{self, BackwardError},
@@ -52,21 +52,21 @@ impl<S: Store> Stage<S> {
     }
 
     #[allow(clippy::panic)]
-    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = ?point.slot_or_default(), point.hash = %Hash::<32>::from(&point), header.height, header.slot, header.hash))]
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "ledger.roll_forward"
+    )]
     pub async fn roll_forward(
         &mut self,
         point: Point,
         raw_block: RawBlock,
     ) -> BlockValidationResult {
-        let (block_header_hash, block) =
+        let (_block_header_hash, block) =
             rules::validate_block(&raw_block[..], ProtocolParameters::default())
                 .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
 
         let current_span = Span::current();
-
-        current_span.record("header.height", block.header.header_body.block_number);
-        current_span.record("header.slot", block.header.header_body.slot);
-        current_span.record("header.hash", hex::encode(block_header_hash));
 
         match self.state.forward(&point, block) {
             Ok(()) => BlockValidationResult::BlockValidated(point, current_span),
@@ -74,7 +74,11 @@ impl<S: Store> Stage<S> {
         }
     }
 
-    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = point.slot_or_default(), point.hash = %Hash::<32>::from(&point)))]
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "ledger.roll_backward",
+    )]
     pub async fn rollback_to(&mut self, point: Point) -> BlockValidationResult {
         match self.state.backward(&point) {
             Ok(_) => BlockValidationResult::RolledBackTo(point),
@@ -104,7 +108,7 @@ impl<S: Store> gasket::framework::Worker<Stage<S>> for Worker {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "pipeline.execute"
+        name = "stage.ledger"
     )]
     async fn execute(
         &mut self,

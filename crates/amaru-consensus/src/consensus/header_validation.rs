@@ -36,8 +36,6 @@ const EVENT_TARGET: &str = "amaru::consensus";
     level = Level::TRACE,
     skip_all,
     fields(
-        header.hash = %header.hash(),
-        header.slot = header.header_body.slot,
         issuer.key = %header.header_body.issuer_vkey,
     ),
 )]
@@ -91,10 +89,12 @@ impl Consensus {
         }
     }
 
+    #[instrument(level = Level::TRACE, skip_all, name = "fetch_block")]
     async fn forward_block<H: IsHeader>(
         &mut self,
         peer: &Peer,
         header: &H,
+        span: &Span,
     ) -> Result<ValidateBlockEvent, ConsensusError> {
         let point = header.point();
         let block = {
@@ -117,24 +117,35 @@ impl Consensus {
                 .map_err(|_| ConsensusError::FetchBlockFailed(point.clone()))?
         };
 
-        Ok(ValidateBlockEvent::Validated(point, block, Span::current()))
+        Ok(ValidateBlockEvent::Validated(point, block, span.clone()))
     }
 
+    #[instrument(level = Level::TRACE, skip_all)]
     async fn switch_to_fork(
         &mut self,
         peer: &Peer,
         rollback_point: &Point,
         fork: Vec<Header>,
+        span: &Span,
     ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
         let mut result = vec![ValidateBlockEvent::Rollback(rollback_point.clone())];
 
         for header in fork {
-            result.push(self.forward_block(peer, &header).await?);
+            result.push(self.forward_block(peer, &header, span).await?);
         }
 
         Ok(result)
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.roll_forward",
+        fields(
+            point.slot = point.slot_or_default(),
+            point.hash = %Hash::<32>::from(point),
+        )
+    )]
     pub async fn handle_roll_forward(
         &mut self,
         peer: &Peer,
@@ -176,19 +187,23 @@ impl Consensus {
             .await
             .select_roll_forward(peer, header);
 
+        let span = Span::current();
+
         let events = match result {
             chain_selection::ForwardChainSelection::NewTip(hdr) => {
-                trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
-                vec![self.forward_block(peer, &hdr).await?]
+                vec![self.forward_block(peer, &hdr, &span).await?]
             }
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 tip: _,
                 fork,
-            }) => self.switch_to_fork(&peer, &rollback_point, fork).await?,
+            }) => {
+                self.switch_to_fork(&peer, &rollback_point, fork, &span)
+                    .await?
+            }
             chain_selection::ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, hash = %header_hash, "no_change");
+                trace!(target: EVENT_TARGET, "no_change");
                 vec![]
             }
         };
@@ -196,7 +211,15 @@ impl Consensus {
         Ok(events)
     }
 
-    #[instrument(level = Level::TRACE, name = "roll_back", skip_all)]
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.roll_backward",
+        fields(
+            point.slot = rollback.slot_or_default(),
+            point.hash = %Hash::<32>::from(rollback),
+        )
+    )]
     pub async fn handle_roll_back(
         &mut self,
         peer: &Peer,
@@ -208,6 +231,8 @@ impl Consensus {
             .await
             .select_rollback(peer, Hash::from(rollback));
 
+        let span = Span::current();
+
         match result {
             chain_selection::RollbackChainSelection::RollbackTo(hash) => {
                 trace!(target: EVENT_TARGET, %hash, "rollback");
@@ -218,7 +243,10 @@ impl Consensus {
                 rollback_point,
                 fork,
                 tip: _,
-            }) => self.switch_to_fork(&peer, &rollback_point, fork).await,
+            }) => {
+                self.switch_to_fork(&peer, &rollback_point, fork, &span)
+                    .await
+            }
         }
     }
 }

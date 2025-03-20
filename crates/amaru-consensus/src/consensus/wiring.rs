@@ -1,5 +1,4 @@
 use crate::{peer::Peer, ConsensusError, Point};
-use amaru_kernel::Hash;
 use amaru_ledger::ValidateBlockEvent;
 use gasket::framework::*;
 use tracing::{instrument, Level, Span};
@@ -33,15 +32,6 @@ impl HeaderStage {
         }
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "roll_forward",
-        fields(
-            slot = ?point.slot_or_default(),
-            hash = %Hash::<32>::from(point)
-        )
-    )]
     async fn handle_roll_forward(
         &mut self,
         peer: &Peer,
@@ -58,7 +48,6 @@ impl HeaderStage {
             PullEvent::RollForward(peer, point, raw_header, span) => {
                 // Restore parent span
                 Span::current().set_parent(span.context());
-
                 self.handle_roll_forward(peer, point, raw_header)
                     .await
                     .or_panic()?
@@ -98,7 +87,7 @@ impl gasket::framework::Worker<HeaderStage> for Worker {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "wiring.execute"
+        name = "stage.consensus"
     )]
     async fn execute(
         &mut self,

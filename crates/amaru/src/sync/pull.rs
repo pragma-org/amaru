@@ -115,11 +115,10 @@ impl Stage {
 
     #[instrument(
         level = Level::TRACE,
-        name = "pull.roll_back",
+        name = "pull.roll_backward",
         skip_all,
         fields(
             point = ?point,
-            tip = ?tip,
             peer = self.peer_session.peer.name,
         ),
     )]
@@ -161,7 +160,7 @@ impl gasket::framework::Worker<Stage> for Worker {
 
     #[instrument(
         level = Level::TRACE,
-        name = "pull.execute",
+        name = "stage.pull",
         skip_all,
     )]
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
