@@ -7,7 +7,7 @@ authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
-rust-version = "1.84" # ⚠️ Also change in .cargo/rust-toolchain.toml
+rust-version = "1.84"                                    # ⚠️ Also change in .cargo/rust-toolchain.toml
 
 [workspace]
 members = ["crates/*", "simulation/*"]
@@ -37,9 +37,13 @@ pallas-network = "0.32.0"
 pallas-primitives = "0.32.0"
 pallas-traverse = "0.32.0"
 rayon = "1.10"
-rocksdb = { version = "0.23.0", default-features = false, features = ["bindgen-runtime", "snappy"] }
+rocksdb = { version = "0.23.0", default-features = false, features = [
+    "bindgen-runtime",
+    "snappy",
+] }
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0.128", default-features = false }
+sha3 = "0.10.8"
 sysinfo = "0.33.1"
 thiserror = "2.0.3"
 tokio = "1.40.0"

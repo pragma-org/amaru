@@ -30,7 +30,6 @@ impl BlockValidationContext {
                         transaction_id: tx_hash,
                         index,
                     },
-                    // TODO: Can we not clone here?
                     output.clone().into(),
                 );
             }
