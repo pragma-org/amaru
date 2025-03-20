@@ -33,7 +33,6 @@ dependencies = [
  "amaru-consensus",
  "amaru-kernel",
  "amaru-ledger",
- "amaru-mempool",
  "amaru-stores",
  "anyhow",
  "async-trait",
