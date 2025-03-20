@@ -26,7 +26,7 @@ pub fn validate_bootstrap_witnesses(
             let output = utxo_slice.get(input);
             if let Some(output) = output {
                 let address = output.address().map_err(|e| {
-                    TransactionRuleViolation::Unnanmed(format!(
+                    TransactionRuleViolation::UncategorizedError(format!(
                         "Invalid output address. (error {:?}) output: {:?}",
                         e, output,
                     ))
@@ -34,7 +34,7 @@ pub fn validate_bootstrap_witnesses(
 
                 if let Address::Byron(byron_address) = address {
                     let payload = byron_address.decode().map_err(|e| {
-                        TransactionRuleViolation::Unnanmed(format!(
+                        TransactionRuleViolation::UncategorizedError(format!(
                             "Invalid byron address payload. (error {:?}) address: {:?}",
                             e, byron_address
                         ))
@@ -87,10 +87,7 @@ pub fn validate_bootstrap_witnesses(
         .filter(|witness| {
             match validate_witness(witness, transaction_body.original_hash().as_slice()) {
                 Ok(is_valid) => !is_valid,
-                Err(e) => {
-                    eprintln!("Failed to validate witness: {:?}", e);
-                    true
-                }
+                Err(_) => true,
             }
         })
         .cloned()

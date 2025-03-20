@@ -554,11 +554,11 @@ impl HasAddress for TransactionOutput {
 }
 
 pub trait HasKeyHash {
-    fn get_key_hash(&self) -> Option<Hash<28>>;
+    fn key_hash(&self) -> Option<Hash<28>>;
 }
 
 impl HasKeyHash for StakeCredential {
-    fn get_key_hash(&self) -> Option<Hash<28>> {
+    fn key_hash(&self) -> Option<Hash<28>> {
         match self {
             StakeCredential::AddrKeyhash(hash) => Some(*hash),
             StakeCredential::ScriptHash(_) => None,
@@ -567,7 +567,7 @@ impl HasKeyHash for StakeCredential {
 }
 
 impl HasKeyHash for Address {
-    fn get_key_hash(&self) -> Option<Hash<28>> {
+    fn key_hash(&self) -> Option<Hash<28>> {
         match self {
             Address::Shelley(shelley_address) => {
                 let payment = shelley_address.payment();

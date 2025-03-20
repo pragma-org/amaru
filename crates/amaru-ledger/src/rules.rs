@@ -27,8 +27,8 @@ pub enum BlockValidationError {
     #[error("Cascading rule violations: root: {0:?}, resulting error(s): {1:?}")]
     Composite(RuleViolation, Box<BlockValidationError>),
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("Unnammed error: {0}")]
-    Unnamed(String),
+    #[error("Uncategorized error: {0}")]
+    UncategorizedError(String),
 }
 
 #[derive(Debug, Error)]
@@ -72,8 +72,8 @@ pub enum TransactionRuleViolation {
         invalid_witnesses: Vec<BootstrapWitness>,
     },
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("Unnamed error: {0}")]
-    Unnanmed(String),
+    #[error("Uncategorized error: {0}")]
+    UncategorizedError(String),
 }
 
 impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
@@ -123,12 +123,13 @@ pub fn validate_block<'a>(
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, transaction) in (0u32..).zip(transactions.iter()) {
-        let witness_set = witness_sets
-            .get(i as usize)
-            .ok_or(BlockValidationError::Unnamed(format!(
-                "Missing witness set for transaction index {}",
-                i
-            )))?;
+        let witness_set =
+            witness_sets
+                .get(i as usize)
+                .ok_or(BlockValidationError::UncategorizedError(format!(
+                    "Missing witness set for transaction index {}",
+                    i
+                )))?;
 
         let is_valid = !invalid_transactions.contains(&i);
 
@@ -208,7 +209,6 @@ mod tests {
             &mut BlockValidationContext::default(),
         );
 
-        println!("{:?}", results);
         assert!(results.is_ok())
     }
 

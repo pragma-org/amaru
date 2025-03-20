@@ -30,13 +30,13 @@ pub fn validate_vkey_wintesses(
             let output = utxo_slice.get(input);
             if let Some(output) = output {
                 let address = output.address().map_err(|e| {
-                    TransactionRuleViolation::Unnanmed(format!(
+                    TransactionRuleViolation::UncategorizedError(format!(
                         "Invalid output address. (error {:?}) output: {:?}",
                         e, output,
                     ))
                 })?;
 
-                if let Some(key_hash) = address.get_key_hash() {
+                if let Some(key_hash) = address.key_hash() {
                     pkhs.push(key_hash);
                 };
             };
@@ -52,6 +52,7 @@ pub fn validate_vkey_wintesses(
             withdrawals
                 .iter()
                 .filter_map::<Hash<28>, _>(|(reward_account, _)| {
+                    // The first four bits of the reward account are 1110 for a key hash and 1111 for a script hash
                     if reward_account[0] & 0b00010000 == 0 {
                         Some(Hash::from(&reward_account[1..29]))
                     } else {
@@ -88,10 +89,10 @@ pub fn validate_vkey_wintesses(
                 .filter_map(|certificate| match certificate {
                     Certificate::StakeRegistration(_) => None,
                     Certificate::StakeDeregistration(stake_credential) => {
-                        stake_credential.get_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::StakeDelegation(stake_credential, _) => {
-                        stake_credential.get_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::PoolRegistration {
                         operator,
@@ -109,38 +110,32 @@ pub fn validate_vkey_wintesses(
                         if coin == &0 {
                             None
                         } else {
-                            stake_credential.get_key_hash()
+                            stake_credential.key_hash()
                         }
                     }
-                    Certificate::UnReg(stake_credential, _) => stake_credential.get_key_hash(),
-                    Certificate::VoteDeleg(stake_credential, _) => stake_credential.get_key_hash(),
+                    Certificate::UnReg(stake_credential, _) => stake_credential.key_hash(),
+                    Certificate::VoteDeleg(stake_credential, _) => stake_credential.key_hash(),
                     Certificate::StakeVoteDeleg(stake_credential, _, _) => {
-                        stake_credential.get_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::StakeRegDeleg(stake_credential, _, _) => {
-                        stake_credential.get_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::VoteRegDeleg(stake_credential, _, _) => {
-                        stake_credential.get_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::StakeVoteRegDeleg(stake_credential, _, _, _) => {
-                        stake_credential.get_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::AuthCommitteeHot(stake_credential, _) => {
-                        stake_credential.get_key_hash()
+                        stake_credential.key_hash()
                     }
                     Certificate::ResignCommitteeCold(stake_credential, _) => {
-                        stake_credential.get_key_hash()
+                        stake_credential.key_hash()
                     }
-                    Certificate::RegDRepCert(stake_credential, _, _) => {
-                        stake_credential.get_key_hash()
-                    }
-                    Certificate::UnRegDRepCert(stake_credential, _) => {
-                        stake_credential.get_key_hash()
-                    }
-                    Certificate::UpdateDRepCert(stake_credential, _) => {
-                        stake_credential.get_key_hash()
-                    }
+                    Certificate::RegDRepCert(stake_credential, _, _) => stake_credential.key_hash(),
+                    Certificate::UnRegDRepCert(stake_credential, _) => stake_credential.key_hash(),
+                    Certificate::UpdateDRepCert(stake_credential, _) => stake_credential.key_hash(),
                 })
                 .collect::<Vec<_>>()
         })
@@ -177,10 +172,7 @@ pub fn validate_vkey_wintesses(
         .filter(|witness| {
             match validate_witness(witness, transaction_body.original_hash().as_slice()) {
                 Ok(is_valid) => !is_valid,
-                Err(e) => {
-                    eprintln!("Failed to validate witness: {:?}", e);
-                    true
-                }
+                Err(_) => true,
             }
         })
         .cloned()
