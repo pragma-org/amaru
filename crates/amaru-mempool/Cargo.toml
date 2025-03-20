@@ -11,6 +11,4 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-pallas-primitives.workspace = true
-
-amaru-ledger = { path = "../amaru-ledger" }
+amaru-kernel = { path = "../amaru-kernel" }
