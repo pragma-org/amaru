@@ -32,7 +32,7 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
-use tracing::{info, info_span, trace, trace_span, warn};
+use tracing::{info, instrument, trace, warn, Level};
 
 pub mod columns;
 pub mod common;
@@ -149,6 +149,69 @@ impl RocksDB {
 
     pub fn unsafe_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
         self.db.transaction()
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        name = "snapshot.applying_rewards",
+        skip_all,
+    )]
+    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
+        self.with_accounts(|iterator| {
+            for (account, mut row) in iterator {
+                if let Some(rewards) = rewards_summary.extract_rewards(&account) {
+                    if rewards > 0 {
+                        if let Some(account) = row.borrow_mut() {
+                            account.rewards += rewards;
+                        }
+                    }
+                }
+            }
+        })
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        name= "snapshot.adjusting_pots",
+        skip_all,
+    )]
+    fn adjust_pots(
+        &self,
+        delta_treasury: u64,
+        delta_reserves: u64,
+        unclaimed_rewards: u64,
+    ) -> Result<(), StoreError> {
+        self.with_pots(|mut row| {
+            let pots = row.borrow_mut();
+            pots.treasury += delta_treasury + unclaimed_rewards;
+            pots.reserves -= delta_reserves;
+        })
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+    )]
+    fn reset_fees(&self) -> Result<(), StoreError> {
+        self.with_pots(|mut row| {
+            row.borrow_mut().fees = 0;
+        })
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        name = "reset.blocks_count",
+        skip_all,
+    )]
+    fn reset_blocks_count(&self) -> Result<(), StoreError> {
+        // TODO: If necessary, come up with a more efficient way of dropping a "table".
+        // RocksDB does support batch-removing of key ranges, but somehow, not in a
+        // transactional way. So it isn't as trivial to implement as it may seem.
+        self.with_block_issuers(|iterator| {
+            for (_, mut row) in iterator {
+                *row.borrow_mut() = None;
+            }
+        })
     }
 }
 
@@ -354,6 +417,7 @@ impl Store for RocksDB {
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
+    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
     fn next_snapshot(
         &'_ mut self,
         epoch: Epoch,
@@ -362,31 +426,13 @@ impl Store for RocksDB {
         let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             if let Some(mut rewards_summary) = rewards_summary {
-                info_span!(target: EVENT_TARGET, "snapshot.applying_rewards").in_scope(|| {
-                    self.with_accounts(|iterator| {
-                        for (account, mut row) in iterator {
-                            if let Some(rewards) = rewards_summary.extract_rewards(&account) {
-                                if rewards > 0 {
-                                    if let Some(account) = row.borrow_mut() {
-                                        account.rewards += rewards;
-                                    }
-                                }
-                            }
-                        }
-                    })
-                })?;
+                self.apply_rewards(&mut rewards_summary)?;
 
-                let delta_treasury = rewards_summary.delta_treasury();
-                let delta_reserves = rewards_summary.delta_reserves();
-                let unclaimed_rewards = rewards_summary.unclaimed_rewards();
-
-                trace_span!(target: EVENT_TARGET, "snapshot.adjusting_pots", delta_treasury, delta_reserves, unclaimed_rewards).in_scope(|| {
-                    self.with_pots(|mut row| {
-                        let pots = row.borrow_mut();
-                        pots.treasury += delta_treasury + unclaimed_rewards;
-                        pots.reserves -= delta_reserves;
-                    })
-                })?;
+                self.adjust_pots(
+                    rewards_summary.delta_treasury(),
+                    rewards_summary.delta_reserves(),
+                    rewards_summary.unclaimed_rewards(),
+                )?;
             }
 
             let path = self.dir.join(snapshot.to_string());
@@ -402,22 +448,9 @@ impl Store for RocksDB {
                 .create_checkpoint(path)
                 .map_err(|err| StoreError::Internal(err.into()))?;
 
-            trace_span!(target: EVENT_TARGET, "reset.blocks_count").in_scope(|| {
-                // TODO: If necessary, come up with a more efficient way of dropping a "table".
-                // RocksDB does support batch-removing of key ranges, but somehow, not in a
-                // transactional way. So it isn't as trivial to implement as it may seem.
-                self.with_block_issuers(|iterator| {
-                    for (_, mut row) in iterator {
-                        *row.borrow_mut() = None;
-                    }
-                })
-            })?;
+            self.reset_blocks_count()?;
 
-            trace_span!(target: EVENT_TARGET, "reset.fees").in_scope(|| {
-                self.with_pots(|mut row| {
-                    row.borrow_mut().fees = 0;
-                })
-            })?;
+            self.reset_fees()?;
 
             self.snapshots.push(snapshot);
         } else {

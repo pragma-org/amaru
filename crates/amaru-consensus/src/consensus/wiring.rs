@@ -1,14 +1,15 @@
-use crate::{peer::Peer, Point};
+use crate::{peer::Peer, ConsensusError, Point};
 use amaru_ledger::ValidateBlockEvent;
 use gasket::framework::*;
-use tracing::Span;
+use tracing::{instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use super::header_validation::Consensus;
 
 #[derive(Clone, Debug)]
 pub enum PullEvent {
     RollForward(Peer, Point, Vec<u8>, Span),
-    Rollback(Peer, Point, Span),
+    Rollback(Peer, Point),
 }
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
@@ -31,16 +32,29 @@ impl HeaderStage {
         }
     }
 
+    async fn handle_roll_forward(
+        &mut self,
+        peer: &Peer,
+        point: &Point,
+        raw_header: &[u8],
+    ) -> Result<Vec<ValidateBlockEvent>, ConsensusError> {
+        self.consensus
+            .handle_roll_forward(peer, point, raw_header)
+            .await
+    }
+
     async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
         let events = match unit {
-            PullEvent::RollForward(peer, point, raw_header, span) => self
+            PullEvent::RollForward(peer, point, raw_header, span) => {
+                // Restore parent span
+                Span::current().set_parent(span.context());
+                self.handle_roll_forward(peer, point, raw_header)
+                    .await
+                    .or_panic()?
+            }
+            PullEvent::Rollback(peer, rollback) => self
                 .consensus
-                .handle_roll_forward(peer, point, raw_header, span)
-                .await
-                .or_panic()?,
-            PullEvent::Rollback(peer, rollback, span) => self
-                .consensus
-                .handle_roll_back(peer, rollback, span)
+                .handle_roll_back(peer, rollback)
                 .await
                 .or_panic()?,
         };
@@ -70,6 +84,11 @@ impl gasket::framework::Worker<HeaderStage> for Worker {
         Ok(WorkSchedule::Unit(unit.payload))
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "stage.consensus"
+    )]
     async fn execute(
         &mut self,
         unit: &PullEvent,

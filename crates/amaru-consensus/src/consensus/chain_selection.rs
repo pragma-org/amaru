@@ -268,10 +268,6 @@ where
     ///
     /// The function returns the result of the chain selection process, which might lead
     /// to a new tip, a switch to a fork, no change, or some change in status for the peer.
-    #[instrument(level = Level::TRACE, skip_all,
-                 fields(peer = peer.name,
-                        header.slot = header.slot(),
-                        header.hash = %header.hash()))]
     #[allow(clippy::unwrap_used)]
     pub fn select_roll_forward(&mut self, peer: &Peer, header: H) -> ForwardChainSelection<H> {
         use ForwardChainSelection::*;
@@ -314,7 +310,6 @@ where
     /// If the chain of the peer is still the longest, the function will return a
     /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
     /// tip of the chain.
-    #[instrument(level = Level::TRACE, skip(self), fields(peer = peer.name, %point))]
     #[allow(clippy::unwrap_used)]
     pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> RollbackChainSelection<H> {
         use RollbackChainSelection::*;
@@ -342,7 +337,7 @@ where
         result
     }
 
-    #[instrument(level = Level::TRACE, skip(self))]
+    #[instrument(level = Level::TRACE, skip_all)]
     fn find_best_chain(&self) -> Option<(Peer, H)> {
         let mut best: Option<(Peer, H)> = None;
         for (peer, fragment) in self.peers_chains.iter() {
@@ -364,6 +359,7 @@ where
     }
 
     #[allow(clippy::unwrap_used)]
+    #[instrument(level = Level::TRACE, skip_all)]
     fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);

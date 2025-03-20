@@ -16,4 +16,3 @@ amaru-kernel = { path = "../../crates/amaru-kernel" }
 amaru-ledger = { path = "../../crates/amaru-ledger" }
 
 hex.workspace = true
-tracing.workspace = true

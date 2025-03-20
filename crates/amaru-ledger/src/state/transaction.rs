@@ -27,14 +27,12 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     vec,
 };
-use tracing::{trace, trace_span, Span};
-
-const EVENT_TARGET: &str = "amaru::ledger::state::transaction";
+use tracing::{instrument, trace, Level, Span};
 
 #[allow(clippy::too_many_arguments)]
+#[instrument(level = Level::TRACE, name = "transaction", skip_all, fields(transaction.id= %transaction_id, transaction.inputs, transaction.outputs, transaction.certificates))]
 pub fn apply(
     state: &mut VolatileState,
-    parent: &Span,
     is_failed: bool,
     transaction_id: Hash<32>,
     absolute_slot: Slot,
@@ -42,27 +40,29 @@ pub fn apply(
     mut transaction_body: MintedTransactionBody<'_>,
     resolved_collateral_inputs: Vec<TransactionOutput>,
 ) {
-    let span = trace_span!(
-        target: EVENT_TARGET,
-        parent: parent,
-        "apply.transaction",
-        transaction.id = %transaction_id,
-        transaction.inputs = tracing::field::Empty,
-        transaction.outputs = tracing::field::Empty,
-        transaction.certificates = tracing::field::Empty,
-        transaction.withdrawals = tracing::field::Empty,
-    )
-    .entered();
-
     let (utxo, fees) = if is_failed {
+        let consumed = core::mem::take(&mut transaction_body.collateral)
+            .map(|x| x.to_vec())
+            .unwrap_or_default()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
         apply_io_failed(
-            &span,
             transaction_id,
             &mut transaction_body,
             resolved_collateral_inputs,
+            consumed,
         )
     } else {
-        apply_io(&span, transaction_id, &mut transaction_body)
+        let consumed = core::mem::replace(&mut transaction_body.inputs, Set::from(vec![]))
+            .to_vec()
+            .into_iter()
+            .collect::<BTreeSet<_>>();
+
+        let outputs = core::mem::take(&mut transaction_body.outputs)
+            .into_iter()
+            .map(|x| x.into())
+            .collect::<Vec<TransactionOutput>>();
+        apply_io(transaction_id, &mut transaction_body, consumed, outputs)
     };
     state.utxo.merge(utxo);
 
@@ -74,13 +74,14 @@ pub fn apply(
         .certificates
         .map(|xs| xs.to_vec())
         .unwrap_or_default();
-    span.record("transaction.certificates", certificates.len());
+
+    Span::current().record("transaction.certificates", certificates.len());
+
     certificates
         .into_iter()
         .enumerate()
         .for_each(|(certificate_index, certificate)| {
             apply_certificate(
-                &span,
                 &mut state.pools,
                 &mut state.accounts,
                 &mut state.dreps,
@@ -96,7 +97,6 @@ pub fn apply(
     let withdrawals = transaction_body
         .withdrawals
         .unwrap_or_else(|| NonEmptyKeyValuePairs::Def(vec![]));
-    span.record("transaction.withdrawals", withdrawals.len());
     state
         .withdrawals
         .extend(withdrawals.iter().map(|(account, _)| {
@@ -106,7 +106,7 @@ pub fn apply(
             })
         }));
 
-    span.exit();
+    Span::current().record("transaction.withdrawals", withdrawals.len());
 }
 
 /// On successful transaction
@@ -114,22 +114,11 @@ pub fn apply(
 ///   - outputs are produced;
 ///   - fees are collected;
 pub fn apply_io(
-    span: &Span,
     transaction_id: Hash<32>,
     body: &mut MintedTransactionBody<'_>,
+    consumed: BTreeSet<TransactionInput>,
+    outputs: Vec<TransactionOutput>,
 ) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace) {
-    let consumed = core::mem::replace(&mut body.inputs, Set::from(vec![]))
-        .to_vec()
-        .into_iter()
-        .collect::<BTreeSet<_>>();
-    span.record("transaction.inputs", consumed.len());
-
-    let outputs = core::mem::take(&mut body.outputs)
-        .into_iter()
-        .map(|x| x.into())
-        .collect::<Vec<_>>();
-    span.record("transaction.outputs", outputs.len());
-
     let produced = outputs
         .into_iter()
         .enumerate()
@@ -144,6 +133,9 @@ pub fn apply_io(
         })
         .collect::<BTreeMap<_, _>>();
 
+    Span::current().record("transaction.inputs", consumed.len());
+    Span::current().record("transaction.outputs", produced.len());
+
     (DiffSet { consumed, produced }, body.fee)
 }
 
@@ -152,17 +144,12 @@ pub fn apply_io(
 ///   - collateral outputs produced (if any);
 ///   - the difference between collateral inputs and outputs is collected as fees.
 fn apply_io_failed(
-    span: &Span,
     transaction_id: Hash<32>,
     body: &mut MintedTransactionBody<'_>,
     resolved_inputs: Vec<TransactionOutput>,
+    consumed: BTreeSet<TransactionInput>,
 ) -> (DiffSet<TransactionInput, TransactionOutput>, Lovelace) {
-    let consumed = core::mem::take(&mut body.collateral)
-        .map(|x| x.to_vec())
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<BTreeSet<_>>();
-    span.record("transaction.inputs", consumed.len());
+    Span::current().record("transaction.inputs", consumed.len());
 
     let total_collateral = resolved_inputs
         .iter()
@@ -170,7 +157,7 @@ fn apply_io_failed(
 
     match core::mem::take(&mut body.collateral_return) {
         Some(output) => {
-            span.record("transaction.outputs", 1);
+            Span::current().record("transaction.outputs", 1);
             let output = TransactionOutput::from(output);
 
             let collateral_return = output.lovelace();
@@ -193,7 +180,7 @@ fn apply_io_failed(
             (DiffSet { consumed, produced }, fees)
         }
         None => {
-            span.record("transaction.outputs", 0);
+            Span::current().record("transaction.outputs", 0);
             (
                 DiffSet {
                     consumed,
@@ -207,7 +194,6 @@ fn apply_io_failed(
 
 #[allow(clippy::unwrap_used)]
 fn apply_certificate(
-    parent: &Span,
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
     accounts: &mut DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     dreps: &mut DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
@@ -237,73 +223,73 @@ fn apply_certificate(
                 relays,
                 metadata,
             };
-            trace!(target: EVENT_TARGET, parent: parent, pool = %id, params = ?params, "certificate.pool.registration");
+            trace!(pool = %id, params = ?params, "certificate.pool.registration");
             pools.register(id, params)
         }
         Certificate::PoolRetirement(id, epoch) => {
-            trace!(target: EVENT_TARGET, parent: parent, pool = %id, epoch = %epoch, "certificate.pool.retirement");
+            trace!(pool = %id, epoch = %epoch, "certificate.pool.retirement");
             pools.unregister(id, epoch)
         }
         Certificate::StakeRegistration(credential) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, "certificate.stake.registration");
+            trace!(credential = ?credential, "certificate.stake.registration");
             accounts
                 .register(credential, STAKE_CREDENTIAL_DEPOSIT as Lovelace, None, None)
                 .unwrap();
         }
         Certificate::Reg(credential, coin) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, "certificate.stake.registration");
+            trace!(credential = ?credential, "certificate.stake.registration");
             accounts.register(credential, coin, None, None).unwrap();
         }
         Certificate::StakeDeregistration(credential) | Certificate::UnReg(credential, _) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, "certificate.stake.deregistration");
+            trace!(credential = ?credential, "certificate.stake.deregistration");
             accounts.unregister(credential);
         }
         Certificate::StakeDelegation(credential, pool) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, pool = %pool, "certificate.stake.delegation");
+            trace!(credential = ?credential, pool = %pool, "certificate.stake.delegation");
             accounts.bind_left(credential, Some(pool)).unwrap();
         }
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
             let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
-            apply_certificate(parent, pools, accounts, dreps, drep_deleg, pointer);
+            apply_certificate(pools, accounts, dreps, drep_deleg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            apply_certificate(parent, pools, accounts, dreps, pool_deleg, pointer);
+            apply_certificate(pools, accounts, dreps, pool_deleg, pointer);
         }
         Certificate::StakeRegDeleg(credential, pool, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            apply_certificate(parent, pools, accounts, dreps, reg, pointer);
+            apply_certificate(pools, accounts, dreps, reg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            apply_certificate(parent, pools, accounts, dreps, pool_deleg, pointer);
+            apply_certificate(pools, accounts, dreps, pool_deleg, pointer);
         }
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            apply_certificate(parent, pools, accounts, dreps, reg, pointer);
+            apply_certificate(pools, accounts, dreps, reg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
-            apply_certificate(parent, pools, accounts, dreps, pool_deleg, pointer);
+            apply_certificate(pools, accounts, dreps, pool_deleg, pointer);
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            apply_certificate(parent, pools, accounts, dreps, drep_deleg, pointer);
+            apply_certificate(pools, accounts, dreps, drep_deleg, pointer);
         }
         Certificate::VoteRegDeleg(credential, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            apply_certificate(parent, pools, accounts, dreps, reg, pointer);
+            apply_certificate(pools, accounts, dreps, reg, pointer);
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            apply_certificate(parent, pools, accounts, dreps, drep_deleg, pointer);
+            apply_certificate(pools, accounts, dreps, drep_deleg, pointer);
         }
         Certificate::RegDRepCert(drep, deposit, anchor) => {
-            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, deposit = ?deposit, anchor = ?anchor, "certificate.drep.registration");
+            trace!(drep = ?drep, deposit = ?deposit, anchor = ?anchor, "certificate.drep.registration");
             dreps
                 .register(drep, (deposit, pointer), Option::from(anchor), None)
                 .unwrap();
         }
         Certificate::UnRegDRepCert(drep, refund) => {
-            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, refund = ?refund, "certificate.drep.retirement");
+            trace!(drep = ?drep, refund = ?refund, "certificate.drep.retirement");
             dreps.unregister(drep);
         }
         Certificate::UpdateDRepCert(drep, anchor) => {
-            trace!(target: EVENT_TARGET, parent: parent, drep = ?drep, anchor = ?anchor, "certificate.drep.update");
+            trace!(drep = ?drep, anchor = ?anchor, "certificate.drep.update");
             dreps.bind_left(drep, Option::from(anchor)).unwrap();
         }
         Certificate::VoteDeleg(credential, drep) => {
-            trace!(target: EVENT_TARGET, parent: parent, credential = ?credential, drep = ?drep, "certificate.vote.delegation");
+            trace!(credential = ?credential, drep = ?drep, "certificate.vote.delegation");
             accounts
                 .bind_right(credential, Some((drep, pointer)))
                 .unwrap();

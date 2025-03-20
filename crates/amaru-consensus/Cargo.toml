@@ -25,6 +25,7 @@ rocksdb.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-opentelemetry.workspace = true
 
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true

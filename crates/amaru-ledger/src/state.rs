@@ -21,12 +21,12 @@ pub mod volatile_db;
 use crate::{
     rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
-    store::{columns::*, Store, StoreError},
+    store::{Store, StoreError},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot, StakeCredential,
-    TransactionInput, TransactionOutput, Voter, VotingProcedures, CONSENSUS_SECURITY_PARAM,
-    MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot,
+    StakeCredential, TransactionInput, TransactionOutput, Voter, VotingProcedures,
+    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
@@ -35,7 +35,8 @@ use std::{
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
-use tracing::{info_span, trace, trace_span, Span};
+use tracing::{instrument, trace, Level, Span};
+use volatile_db::AnchoredVolatileState;
 
 const EVENT_TARGET: &str = "amaru::ledger::state";
 
@@ -178,123 +179,109 @@ impl<S: Store> State<S> {
         )
     }
 
+    #[allow(clippy::unwrap_used)]
+    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = now_stable.anchor.0.slot_or_default()))]
+    fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
+        let current_epoch = epoch_from_slot(now_stable.anchor.0.slot_or_default());
+
+        // Note: the volatile sequence may contain points belonging to two epochs. We diligently
+        // make snapshots at the end of each epoch. Thus, as soon as the next stable block is
+        // exactly MORE than one epoch apart, it means that we've already pushed to the stable
+        // db all the blocks from the previous epoch and it's time to make a snapshot before we
+        // apply this new stable diff.
+        //
+        // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
+        // we must snapshot the one _just before_.
+        let mut db = self.stable.lock().unwrap();
+
+        if current_epoch > db.most_recent_snapshot() + 1 {
+            epoch_transition(&mut *db, current_epoch, self.rewards_summary.take())?;
+        }
+
+        let StoreUpdate {
+            point: stable_point,
+            issuer: stable_issuer,
+            fees,
+            add,
+            remove,
+            withdrawals,
+            voting_dreps,
+        } = now_stable.into_store_update();
+
+        db.save(
+            &stable_point,
+            Some(&stable_issuer),
+            add,
+            remove,
+            withdrawals,
+            voting_dreps,
+        )
+        .and_then(|()| {
+            db.with_pots(|mut row| {
+                row.borrow_mut().fees += fees;
+            })
+        })
+        .map_err(StateError::Storage)
+    }
+
+    #[allow(clippy::unwrap_used)]
+    #[instrument(level = Level::TRACE, skip_all)]
+    fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
+        let db = self.stable.lock().unwrap();
+
+        let mut stake_distributions = self.stake_distributions.lock().unwrap();
+        let stake_distribution = stake_distributions
+            .pop_back()
+            .ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
+
+        let epoch = stake_distribution.epoch + 2;
+
+        #[allow(clippy::panic)]
+        let rewards_summary = RewardsSummary::new(
+            &db.for_epoch(epoch).unwrap_or_else(|e| {
+                panic!(
+                    "unable to open database snapshot for epoch {:?}: {:?}",
+                    epoch, e
+                )
+            }),
+            stake_distribution,
+        )
+        .map_err(StateError::Storage)?;
+
+        stake_distributions
+            .push_front(recover_stake_distribution(&*db, epoch).map_err(StateError::Storage)?);
+
+        Ok(rewards_summary)
+    }
+
     /// Roll the ledger forward with the given block by applying transactions one by one, in
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
     #[allow(clippy::unwrap_used)]
-    pub fn forward(
-        &mut self,
-        span: &Span,
-        point: &Point,
-        block: MintedBlock<'_>,
-    ) -> Result<(), StateError> {
-        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-        let relative_slot = amaru_kernel::relative_slot(point.slot_or_default());
-
-        let state = self
-            .apply_block(span, point.slot_or_default(), block)
-            .map_err(StateError::Storage)?;
-
+    #[instrument(level = Level::TRACE, skip_all, fields(epoch = epoch_from_slot(point.slot_or_default())))]
+    pub fn forward(&mut self, point: &Point, block: MintedBlock<'_>) -> Result<(), StateError> {
+        // Persist the next now-immutable block, which may not quite exist when we just
+        // bootstrapped the system
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
-            let mut db = self.stable.lock().unwrap();
-
             let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
                 unreachable!("pre-condition: self.volatile.len() >= CONSENSUS_SECURITY_PARAM")
             });
 
-            let current_epoch = epoch_from_slot(now_stable.anchor.0.slot_or_default());
-            span.record("stable.epoch", current_epoch);
-
-            // Note: the volatile sequence may contain points belonging to two epochs. We diligently
-            // make snapshots at the end of each epoch. Thus, as soon as the next stable block is
-            // exactly MORE than one epoch apart, it means that we've already pushed to the stable
-            // db all the blocks from the previous epoch and it's time to make a snapshot before we
-            // apply this new stable diff.
-            //
-            // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
-            // we must snapshot the one _just before_.
-            if current_epoch > db.most_recent_snapshot() + 1 {
-                // FIXME: All operations below should technically happen in the same database
-                // transaction. If we interrupt the application between any of those, we might end
-                // up with a corrupted state.
-                info_span!(target: EVENT_TARGET, parent: span, "snapshot", epoch = current_epoch - 1).in_scope(|| {
-                    db.next_snapshot(current_epoch - 1, self.rewards_summary.take())
-                        .map_err(StateError::Storage)
-                })?;
-
-                trace_span!(target: EVENT_TARGET, parent: span, "tick.pool").in_scope(|| {
-                    // Then we, can tick pools to compute their new state at the epoch boundary. Notice
-                    // how we tick with the _current epoch_ however, but we take the snapshot before
-                    // the tick since the actions are only effective once the epoch is crossed.
-                    db.with_pools(|iterator| {
-                        for (_, pool) in iterator {
-                            pools::Row::tick(pool, current_epoch)
-                        }
-                    })
-                    .map_err(StateError::Storage)
-                })?;
-            }
-
-            let StoreUpdate {
-                point: stable_point,
-                issuer: stable_issuer,
-                fees,
-                add,
-                remove,
-                withdrawals,
-                voting_dreps,
-            } = now_stable.into_store_update();
-
-            trace_span!(target: EVENT_TARGET, parent: span, "save").in_scope(|| {
-                db.save(
-                    &stable_point,
-                    Some(&stable_issuer),
-                    add,
-                    remove,
-                    withdrawals,
-                    voting_dreps,
-                )
-                .and_then(|()| {
-                    db.with_pots(|mut row| {
-                        row.borrow_mut().fees += fees;
-                    })
-                })
-                .map_err(StateError::Storage)
-            })?;
-
-            // Once we reach the stability window,
-            if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
-                let mut stake_distributions = self.stake_distributions.lock().unwrap();
-                let stake_distribution = stake_distributions
-                    .pop_back()
-                    .ok_or(StateError::StakeDistributionNotAvailableForRewards)?;
-                let epoch = stake_distribution.epoch + 2;
-                self.rewards_summary = Some(
-                    #[allow(clippy::panic)]
-                    RewardsSummary::new(
-                        &db.for_epoch(epoch).unwrap_or_else(|e| {
-                            panic!(
-                                "unable to open database snapshot for epoch {:?}: {:?}",
-                                epoch, e
-                            )
-                        }),
-                        stake_distribution,
-                    )
-                    .map_err(StateError::Storage)?,
-                );
-
-                stake_distributions.push_front(
-                    recover_stake_distribution(&*db, current_epoch - 1)
-                        .map_err(StateError::Storage)?,
-                );
-            }
+            self.apply_block(now_stable)?;
         } else {
-            trace!(target: EVENT_TARGET, parent: span, size = self.volatile.len(), "volatile.warming_up",);
+            trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }
 
-        span.record("tip.epoch", epoch_from_slot(point.slot_or_default()));
-        span.record("tip.relative_slot", relative_slot);
+        // Once we reach the stability window, compute rewards unless we've already done so.
+        let relative_slot = relative_slot(point.slot_or_default());
+        if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
+            self.rewards_summary = Some(self.compute_rewards()?);
+        }
 
+        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+        let state = self
+            .next_state(point.slot_or_default(), block)
+            .map_err(StateError::Storage)?;
         self.volatile.push_back(state.anchor(point, issuer));
 
         Ok(())
@@ -343,9 +330,9 @@ impl<S: Store> State<S> {
     }
 
     /// Process a given block into a series of ledger-state diff (a.k.a events) to apply.
-    fn apply_block(
+    #[instrument(level = Level::TRACE, skip_all, fields(transactions.total, transactions.failed, transactions.success))]
+    fn next_state(
         &self,
-        parent: &Span,
         absolute_slot: Slot,
         block: MintedBlock<'_>,
     ) -> Result<VolatileState, StoreError> {
@@ -354,15 +341,10 @@ impl<S: Store> State<S> {
         let total_count = transaction_bodies.len();
         let failed_count = failed_transactions.inner.len();
 
-        let span_apply_block = trace_span!(
-            target: EVENT_TARGET,
-            parent: parent,
-            "block.body.validate",
-            block.transactions.total = total_count,
-            block.transactions.failed = failed_count,
-            block.transactions.success = total_count - failed_count
-        )
-        .entered();
+        let span = Span::current();
+        span.record("block.transactions.total", total_count);
+        span.record("block.transactions.failed", failed_count);
+        span.record("block.transactions.success", total_count - failed_count);
 
         let mut state = VolatileState::default();
 
@@ -386,7 +368,6 @@ impl<S: Store> State<S> {
 
             transaction::apply(
                 &mut state,
-                &span_apply_block,
                 failed_transactions.has(ix as u32),
                 transaction_id,
                 absolute_slot,
@@ -395,8 +376,6 @@ impl<S: Store> State<S> {
                 resolved_collateral_inputs,
             );
         }
-
-        span_apply_block.exit();
 
         Ok(state)
     }
@@ -414,6 +393,24 @@ fn recover_stake_distribution(
         )
     });
     StakeDistribution::new(&snapshot)
+}
+
+#[instrument(level = Level::TRACE, skip_all)]
+fn epoch_transition(
+    db: &mut impl Store,
+    current_epoch: Epoch,
+    rewards_summary: Option<RewardsSummary>,
+) -> Result<(), StateError> {
+    // FIXME: All operations below should technically happen in the same database
+    // transaction. If we interrupt the application between any of those, we might end
+    // up with a corrupted state.
+    db.next_snapshot(current_epoch - 1, rewards_summary)
+        .map_err(StateError::Storage)?;
+
+    // Then we, can tick pools to compute their new state at the epoch boundary. Notice
+    // how we tick with the _current epoch_ however, but we take the snapshot before
+    // the tick since the actions are only effective once the epoch is crossed.
+    db.tick_pools(current_epoch).map_err(StateError::Storage)
 }
 
 // HasStakeDistribution

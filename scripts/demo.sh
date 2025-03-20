@@ -23,9 +23,9 @@ echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 set -eo pipefail
 AMARU_TRACE="amaru=debug" cargo run -- --with-json-traces daemon --peer-address=$PEER_ADDRESS --network=$NETWORK | while read line; do
   EVENT=$(echo $line | jq -r '.fields.message' 2>/dev/null)
-  SPAN=$(echo $line | jq -r '.spans[0].name' 2>/dev/null)
+  SPAN=$(echo $line | jq -r '.span.name' 2>/dev/null)
   if [ "$EVENT" == "exit" ] && [ "$SPAN" == "snapshot" ]; then
-    EPOCH=$(echo $line | jq -r '.spans[0].epoch' 2>/dev/null)
+    EPOCH=$(echo $line | jq -r '.span.epoch' 2>/dev/null)
     if [ "$EPOCH" == "$TARGET_EPOCH" ]; then
       echo "Target epoch reached, stopping the process."
       pkill -INT -P $$

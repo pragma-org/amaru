@@ -147,7 +147,7 @@ pub fn validate_transaction(
     Ok(())
 }
 
-#[instrument(level = Level::TRACE, skip(bytes), fields(block.size = bytes.len()))]
+#[instrument(level = Level::TRACE, skip_all, fields(block.size = bytes.len()))]
 fn parse_block(bytes: &[u8]) -> Result<(Hash<32>, MintedBlock<'_>), BlockValidationError> {
     let (_, block): (u16, MintedBlock<'_>) =
         cbor::decode(bytes).map_err(|_| BlockValidationError::SerializationError)?;
