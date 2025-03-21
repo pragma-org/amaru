@@ -107,6 +107,7 @@ dependencies = [
  "pallas-traverse",
  "proptest",
  "serde",
+ "sha3",
 ]
 
 [[package]]
@@ -120,7 +121,6 @@ dependencies = [
  "num",
  "proptest",
  "serde",
- "sha3",
  "thiserror 2.0.12",
  "tracing",
 ]

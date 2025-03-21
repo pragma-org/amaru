@@ -47,7 +47,8 @@ pub use pallas_primitives::{
         Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
-use std::{convert::Infallible, sync::LazyLock};
+use sha3::{Digest, Sha3_256};
+use std::{convert::Infallible, ops::Deref, sync::LazyLock};
 
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
@@ -195,6 +196,8 @@ pub type PoolId = Hash<28>;
 pub type Slot = u64;
 
 pub type Nonce = Hash<32>;
+
+pub type Withdrawal = (Bytes, u64);
 
 // CBOR conversions
 // ----------------------------------------------------------------------------
@@ -586,7 +589,92 @@ impl HasKeyHash for Address {
     }
 }
 
-// Create a new `ExUnits` that is the sum of two `ExUnits`
+pub trait RequiresVkeyWitness {
+    /// `RequiresVkeyWitness for T` returns the key hash of the vkey witness that is required for transaction validation
+    fn requires_vkey_witness(&self) -> Option<Hash<28>>;
+}
+
+impl RequiresVkeyWitness for Withdrawal {
+    fn requires_vkey_witness(&self) -> Option<Hash<28>> {
+        // The first four bits of the reward account are 1110 for a key hash and 1111 for a script hash
+        if self.0[0] & 0b00010000 == 0 {
+            Some(Hash::from(&self.0[1..29]))
+        } else {
+            None
+        }
+    }
+}
+
+impl RequiresVkeyWitness for Voter {
+    fn requires_vkey_witness(&self) -> Option<Hash<28>> {
+        match self {
+            Voter::ConstitutionalCommitteeKey(hash) => Some(*hash),
+            Voter::DRepKey(hash) => Some(*hash),
+            Voter::StakePoolKey(hash) => Some(*hash),
+            Voter::ConstitutionalCommitteeScript(_) => None,
+            Voter::DRepScript(_) => None,
+        }
+    }
+}
+
+impl RequiresVkeyWitness for Certificate {
+    fn requires_vkey_witness(&self) -> Option<Hash<28>> {
+        match self {
+            Certificate::StakeRegistration(_) => None,
+            Certificate::StakeDeregistration(stake_credential) => stake_credential.key_hash(),
+            Certificate::StakeDelegation(stake_credential, _) => stake_credential.key_hash(),
+            Certificate::PoolRegistration {
+                operator,
+                vrf_keyhash: _,
+                pledge: _,
+                cost: _,
+                margin: _,
+                reward_account: _,
+                pool_owners: _,
+                relays: _,
+                pool_metadata: _,
+            } => Some(*operator),
+            Certificate::PoolRetirement(hash, _) => Some(*hash),
+            Certificate::Reg(stake_credential, coin) => {
+                if coin == &0 {
+                    None
+                } else {
+                    stake_credential.key_hash()
+                }
+            }
+            Certificate::UnReg(stake_credential, _) => stake_credential.key_hash(),
+            Certificate::VoteDeleg(stake_credential, _) => stake_credential.key_hash(),
+            Certificate::StakeVoteDeleg(stake_credential, _, _) => stake_credential.key_hash(),
+            Certificate::StakeRegDeleg(stake_credential, _, _) => stake_credential.key_hash(),
+            Certificate::VoteRegDeleg(stake_credential, _, _) => stake_credential.key_hash(),
+            Certificate::StakeVoteRegDeleg(stake_credential, _, _, _) => {
+                stake_credential.key_hash()
+            }
+            Certificate::AuthCommitteeHot(stake_credential, _) => stake_credential.key_hash(),
+            Certificate::ResignCommitteeCold(stake_credential, _) => stake_credential.key_hash(),
+            Certificate::RegDRepCert(stake_credential, _, _) => stake_credential.key_hash(),
+            Certificate::UnRegDRepCert(stake_credential, _) => stake_credential.key_hash(),
+            Certificate::UpdateDRepCert(stake_credential, _) => stake_credential.key_hash(),
+        }
+    }
+}
+
+/// Construct the bootstrap root from a bootstrap witness
+pub fn to_root(witness: &BootstrapWitness) -> Hash<28> {
+    // CBOR header for data that will be encoded
+    let prefix: &[u8] = &[131, 0, 130, 0, 88, 64];
+
+    let mut sha_hasher = Sha3_256::new();
+    sha_hasher.update(prefix);
+    sha_hasher.update(witness.public_key.deref());
+    sha_hasher.update(witness.chain_code.deref());
+    sha_hasher.update(witness.attributes.deref());
+
+    let sha_digest = sha_hasher.finalize();
+    Hasher::<224>::hash(&sha_digest)
+}
+
+/// Create a new `ExUnits` that is the sum of two `ExUnits`
 pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
     ExUnits {
         mem: left.mem + right.mem,
