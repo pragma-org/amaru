@@ -24,6 +24,7 @@ use amaru_kernel::{
 };
 use std::collections::BTreeMap;
 
+#[derive(Debug, Clone)]
 pub struct FakeBlockPreparationContext {
     pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
 }
@@ -71,14 +72,6 @@ impl PrepareDRepsSlice for FakeBlockPreparationContext {
 // implementation_.
 pub struct FakeBlockValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
-}
-
-impl FakeBlockValidationContext {
-    pub fn new() -> Self {
-        Self {
-            utxo: BTreeMap::new(),
-        }
-    }
 }
 
 impl BlockValidationContext for FakeBlockValidationContext {}

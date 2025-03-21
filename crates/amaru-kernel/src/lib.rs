@@ -42,9 +42,10 @@ pub use pallas_primitives::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, DRep,
         Epoch, ExUnits, GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
         MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet, PoolMetadata,
-        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
-        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
-        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        PostAlonzoTransactionOutput, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
+        RewardAccount, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
+        WitnessSet,
     },
 };
 use sha3::{Digest, Sha3_256};
