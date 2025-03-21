@@ -1,7 +1,10 @@
 use crate::store::{columns::dreps::Row, Snapshot, StoreError};
-use amaru_kernel::{encode_bech32, Anchor, DRep, Epoch, StakeCredential, DREP_EXPIRY};
+use amaru_kernel::{
+    encode_bech32, epoch_from_slot, Anchor, DRep, Epoch, StakeCredential, DREP_EXPIRY,
+    GOV_ACTION_LIFETIME,
+};
 use serde::ser::SerializeStruct;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug)]
 pub struct DRepsSummary {
@@ -19,6 +22,22 @@ impl DRepsSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
         let mut dreps = BTreeMap::new();
 
+        let current_epoch = db.most_recent_snapshot();
+        let all_proposals_epochs = db
+            .iter_proposals()?
+            .map(|(key, _)| epoch_from_slot(key.transaction_pointer.slot))
+            .collect::<HashSet<_>>();
+        // TODO filter out proposals that have been ratified
+
+        // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
+        // e.g.
+        // Considering a proposal created at epoch 163, it is valid until epoch 163 + GOV_ACTION_LIFETIME
+        // for epochs 163 and 165, with GOV_ACTION_LIFETIME = 6, proposals_activity_periods would equal [163, 164, 165, 166, 167, 168, 169, 170, 171]
+        // for epochs 163 and 172, with GOV_ACTION_LIFETIME = 6, proposals_activity_periods would equal [163, 164, 165, 166, 167, 168, 169, 172, 173, 174, 175, 176, 177, 178]
+        let proposals_activity_periods = all_proposals_epochs
+            .iter()
+            .flat_map(|&value| (value..=value + GOV_ACTION_LIFETIME).collect::<HashSet<_>>())
+            .collect::<HashSet<u64>>();
         let dreps_registrations = db
             .iter_dreps()?
             .map(
@@ -36,13 +55,18 @@ impl DRepsSummary {
                         StakeCredential::ScriptHash(hash) => DRep::Script(hash),
                     };
 
-                    // TODO: We'll most probably need to add a cooldown period here for epochs with
-                    // no proposal whatsoever.
+                    // Each epoch with no active proposals increase the mandate by 1
+                    let epochs_without_active_proposals =
+                        HashSet::from_iter(last_interaction..=current_epoch) // Total period considered for this DRep
+                            .difference(&proposals_activity_periods)
+                            .count();
                     dreps.insert(
                         drep.clone(),
                         DRepState {
                             metadata: anchor,
-                            mandate: last_interaction + DREP_EXPIRY,
+                            mandate: last_interaction
+                                + DREP_EXPIRY
+                                + epochs_without_active_proposals as u64,
                         },
                     );
 
