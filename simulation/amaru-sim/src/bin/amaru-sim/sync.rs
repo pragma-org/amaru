@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_consensus::consensus::fetch::ValidateHeaderEvent;
 use amaru_consensus::{consensus::wiring::PullEvent, peer::Peer};
 use amaru_kernel::{self, Point};
-use amaru_ledger::ValidateBlockEvent;
 use amaru_sim::echo::Envelope;
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
@@ -139,21 +139,23 @@ pub enum ChainSyncMessage {
     },
 }
 
-impl From<&ValidateBlockEvent> for ChainSyncMessage {
-    fn from(event: &ValidateBlockEvent) -> Self {
+impl From<&ValidateHeaderEvent> for ChainSyncMessage {
+    fn from(event: &ValidateHeaderEvent) -> Self {
         pub use pallas_crypto::hash::Hash;
 
         match event {
-            ValidateBlockEvent::Validated(point, _vec, _span) => {
-                let raw_hash : Hash<32> = point.into();
+            ValidateHeaderEvent::Validated(_peer, point, _span) => {
+                let raw_hash: Hash<32> = point.into();
                 ChainSyncMessage::Fwd {
-                            msg_id: 0,
-                            slot: point.slot_or_default(),
-                            hash: Bytes { bytes: raw_hash.to_vec()},
-                            header: Bytes { bytes: vec![] }, // FIXME: vec is the full body not the header
-                        }
-            },
-            ValidateBlockEvent::Rollback(_point) => todo!(),
+                    msg_id: 0,
+                    slot: point.slot_or_default(),
+                    hash: Bytes {
+                        bytes: raw_hash.to_vec(),
+                    },
+                    header: Bytes { bytes: vec![] }, // FIXME: vec is the full body not the header
+                }
+            }
+            ValidateHeaderEvent::Rollback(_point) => todo!(),
         }
     }
 }
@@ -191,8 +193,9 @@ pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent
 mod test {
     use std::str::FromStr;
 
+    use amaru_consensus::consensus::fetch::ValidateHeaderEvent;
+    use amaru_consensus::peer::Peer;
     use amaru_kernel::Point;
-    use amaru_ledger::ValidateBlockEvent;
     use amaru_sim::echo::Envelope;
     use pallas_codec::minicbor;
     use pallas_crypto::hash::Hasher;
@@ -346,14 +349,16 @@ mod test {
 
     }
 
-    fn arbitrary_block_validated_event() -> BoxedStrategy<ValidateBlockEvent> {
+    fn arbitrary_block_validated_event() -> BoxedStrategy<ValidateHeaderEvent> {
         use proptest::prelude::*;
-        use ValidateBlockEvent::*;
+        use ValidateHeaderEvent::*;
 
-        prop_oneof![(any::<u64>(), any::<[u8; 32]>()).prop_map(|(slot, hash)| {
-            let span = trace_span!("");
-            Validated(Point::Specific(slot, hash.into()), vec![], span)
-        })]
+        prop_oneof![("[0-9a-z]+", any::<u64>(), any::<[u8; 32]>()).prop_map(
+            |(name, slot, hash)| {
+                let span = trace_span!("");
+                Validated(Peer { name }, Point::Specific(slot, hash.into()), span)
+            }
+        )]
         .boxed()
     }
 

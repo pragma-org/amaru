@@ -96,7 +96,6 @@ pub async fn bootstrap(args: Args) {
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = Consensus::new(
-        vec![],
         Box::new(stake_distribution),
         chain_ref.clone(),
         chain_selector,
@@ -121,13 +120,13 @@ async fn run_simulator(
             Ok(msg) => {
                 let events = match mk_message(msg, span) {
                     Ok(event) => match event {
-                        PullEvent::RollForward(peer, point, raw_header, span) => {
+                        PullEvent::RollForward(peer, point, raw_header, _span) => {
                             consensus
-                                .handle_roll_forward(&peer, &point, &raw_header, &span)
+                                .handle_roll_forward(&peer, &point, &raw_header)
                                 .await
                         }
-                        PullEvent::Rollback(peer, rollback, span) => {
-                            consensus.handle_roll_back(&peer, &rollback, &span).await
+                        PullEvent::Rollback(peer, rollback) => {
+                            consensus.handle_roll_back(&peer, &rollback).await
                         }
                     },
                     Err(_) => todo!(),
