@@ -1,16 +1,15 @@
-use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
-
+use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
 use amaru_kernel::{
     alonzo::BootstrapWitness, to_root, AddrType, Address, HasAddress, KeepRaw,
     MintedTransactionBody, NonEmptySet, OriginalHash, PublicKey, Signature,
 };
-
-use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
+use sha3::{Digest, Sha3_256};
+use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
 
 pub fn validate_bootstrap_witnesses(
+    context: &impl UtxoSlice,
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
     bootstrap_witnesses: &Option<NonEmptySet<BootstrapWitness>>,
-    utxo_slice: &UtxoSlice,
 ) -> Result<(), TransactionRuleViolation> {
     let mut required_bootstrap_roots = BTreeSet::new();
     let empty_vec = vec![];
@@ -20,28 +19,29 @@ pub fn validate_bootstrap_witnesses(
         [transaction_body.inputs.as_slice(), collateral.as_slice()].concat();
 
     for input in inputs_with_collateral.iter() {
-        // We are assuming the utxo_slice has already been checked for valid inputs
-        let output = utxo_slice.get(input);
-        if let Some(output) = output {
-            let address = output.address().map_err(|e| {
-                TransactionRuleViolation::UncategorizedError(format!(
-                    "Invalid output address. (error {:?}) output: {:?}",
-                    e, output,
-                ))
-            })?;
-
-            if let Address::Byron(byron_address) = address {
-                let payload = byron_address.decode().map_err(|e| {
+        match context.lookup(input) {
+            Some(output) => {
+                let address = output.address().map_err(|e| {
                     TransactionRuleViolation::UncategorizedError(format!(
-                        "Invalid byron address payload. (error {:?}) address: {:?}",
-                        e, byron_address
+                        "Invalid output address. (error {:?}) output: {:?}",
+                        e, output,
                     ))
                 })?;
-                if let AddrType::PubKey = payload.addrtype {
-                    required_bootstrap_roots.insert(payload.root);
+
+                if let Address::Byron(byron_address) = address {
+                    let payload = byron_address.decode().map_err(|e| {
+                        TransactionRuleViolation::UncategorizedError(format!(
+                            "Invalid byron address payload. (error {:?}) address: {:?}",
+                            e, byron_address
+                        ))
+                    })?;
+                    if let AddrType::PubKey = payload.addrtype {
+                        required_bootstrap_roots.insert(payload.root);
+                    };
                 };
-            };
-        };
+            }
+            None => unimplemented!("failed to lookup input: {input:?}"),
+        }
     }
 
     let empty_vec = vec![];

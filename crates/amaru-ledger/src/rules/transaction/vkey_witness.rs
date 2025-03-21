@@ -1,15 +1,14 @@
-use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
-
 use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
 use amaru_kernel::{
     HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
     OriginalHash, PublicKey, RequiresVkeyWitness, Signature, VKeyWitness,
 };
+use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
 
-pub fn validate_vkey_wintesses(
+pub fn validate_vkey_witnesses(
+    context: &impl UtxoSlice,
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
     vkey_witnesses: &Option<NonEmptySet<VKeyWitness>>,
-    utxo_slice: &UtxoSlice,
 ) -> Result<(), TransactionRuleViolation> {
     let mut required_vkey_hashes: BTreeSet<Hash<28>> = BTreeSet::new();
 
@@ -19,20 +18,21 @@ pub fn validate_vkey_wintesses(
         .concat()
         .iter()
     {
-        // We are assuming the utxo_slice has already been checked for valid inputs
-        let output = utxo_slice.get(input);
-        if let Some(output) = output {
-            let address = output.address().map_err(|e| {
-                TransactionRuleViolation::UncategorizedError(format!(
-                    "Invalid output address. (error {:?}) output: {:?}",
-                    e, output,
-                ))
-            })?;
+        match context.lookup(input) {
+            Some(output) => {
+                let address = output.address().map_err(|e| {
+                    TransactionRuleViolation::UncategorizedError(format!(
+                        "Invalid output address. (error {:?}) output: {:?}",
+                        e, output,
+                    ))
+                })?;
 
-            if let Some(key_hash) = address.key_hash() {
-                required_vkey_hashes.insert(key_hash);
-            };
-        };
+                if let Some(key_hash) = address.key_hash() {
+                    required_vkey_hashes.insert(key_hash);
+                };
+            }
+            None => unimplemented!("failed to lookup input: {input:?}"),
+        }
     }
 
     if let Some(required_signers) = &transaction_body.required_signers {
