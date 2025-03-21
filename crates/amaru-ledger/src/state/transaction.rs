@@ -252,41 +252,29 @@ fn apply_certificate(
         }
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
             let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
-            apply_certificate(
-                pools, accounts, dreps, committee, drep_deleg, pointer,
-            );
+            apply_certificate(pools, accounts, dreps, committee, drep_deleg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            apply_certificate(
-                pools, accounts, dreps, committee, pool_deleg, pointer,
-            );
+            apply_certificate(pools, accounts, dreps, committee, pool_deleg, pointer);
         }
         Certificate::StakeRegDeleg(credential, pool, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
             apply_certificate(pools, accounts, dreps, committee, reg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            apply_certificate(
-                pools, accounts, dreps, committee, pool_deleg, pointer,
-            );
+            apply_certificate(pools, accounts, dreps, committee, pool_deleg, pointer);
         }
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
             apply_certificate(pools, accounts, dreps, committee, reg, pointer);
             let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
-            apply_certificate(
-                pools, accounts, dreps, committee, pool_deleg, pointer,
-            );
+            apply_certificate(pools, accounts, dreps, committee, pool_deleg, pointer);
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            apply_certificate(
-                pools, accounts, dreps, committee, drep_deleg, pointer,
-            );
+            apply_certificate(pools, accounts, dreps, committee, drep_deleg, pointer);
         }
         Certificate::VoteRegDeleg(credential, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
             apply_certificate(pools, accounts, dreps, committee, reg, pointer);
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            apply_certificate(
-                pools, accounts, dreps, committee, drep_deleg, pointer,
-            );
+            apply_certificate(pools, accounts, dreps, committee, drep_deleg, pointer);
         }
         Certificate::RegDRepCert(drep, deposit, anchor) => {
             trace!(drep = ?drep, deposit = ?deposit, anchor = ?anchor, "certificate.drep.registration");
@@ -309,13 +297,13 @@ fn apply_certificate(
                 .unwrap();
         }
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
-            trace!(name: "committee.hot_key", target: EVENT_TARGET, parent: parent, cold_credential = ?cold_credential, hot_credential = ?hot_credential);
+            trace!(name: "committee.hot_key", cold_credential = ?cold_credential, hot_credential = ?hot_credential);
             committee
                 .bind_left(cold_credential, Some(hot_credential))
                 .unwrap();
         }
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
-            trace!(name: "committee.resign_cold_key", target: EVENT_TARGET, parent: parent, cold_credential = ?cold_credential, anchor = ?anchor);
+            trace!(name: "committee.resign_cold_key", cold_credential = ?cold_credential, anchor = ?anchor);
             committee.bind_left(cold_credential, None).unwrap();
         }
     }
