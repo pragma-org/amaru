@@ -61,12 +61,4 @@ pub(crate) mod test {
     }
 
     pub(crate) use include_header;
-
-    macro_rules! hash {
-        ($hex_str:expr $(,)?) => {
-            amaru_kernel::Hash::from(hex::decode($hex_str).unwrap().as_slice())
-        };
-    }
-
-    pub(crate) use hash;
 }

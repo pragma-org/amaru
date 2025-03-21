@@ -28,3 +28,36 @@ macro_rules! prop_cbor_roundtrip {
         prop_cbor_roundtrip!(prop_cbor_roundtrip, $ty, $strategy);
     };
 }
+
+/// Easily create a hash from a hex-encoded literal string. Useful for testing.
+///
+/// Requires:
+/// - hex
+///
+/// Usage:
+///
+/// # ```
+/// # let my_hash32: Hash<32> = hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
+/// # let my_hash28: Hash<28> = hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b5"),
+/// # ```
+#[macro_export]
+macro_rules! hash {
+    ($str:literal $(,)?) => {{
+        // Raise a compile-time error if the literal string is looking dubious
+        const _ASSERT_IS_HEX: () = {
+            let bytes = $str.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() {
+                match bytes[i] {
+                    b'0'..=b'9' | b'a'..=b'f' | b'A'..=b'F' => {}
+                    _ => panic!("not a valid hex literal"),
+                }
+                i += 1;
+            }
+            if i != 64 && i != 56 {
+                panic!("invalid hash literal length");
+            }
+        };
+        amaru_kernel::Hash::from(hex::decode($str).unwrap().as_slice())
+    }};
+}
