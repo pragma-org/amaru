@@ -91,7 +91,7 @@ pub trait Snapshot {
     fn iter_dreps(&self) -> Result<impl Iterator<Item = (dreps::Key, dreps::Row)>, StoreError>;
 }
 
-pub trait Store: Snapshot + Send + Sync {
+pub trait Store: Snapshot {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
