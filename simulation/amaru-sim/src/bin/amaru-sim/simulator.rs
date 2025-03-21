@@ -14,10 +14,13 @@
 
 use std::{path::PathBuf, sync::Arc};
 
+use crate::bytes::Bytes;
 use crate::ledger::{populate_chain_store, FakeStakeDistribution};
 use crate::sync::{
-    mk_message, read_peer_addresses_from_init, MessageReader, OutputWriter, StdinMessageReader,
+    mk_message, read_peer_addresses_from_init, ChainSyncMessage, MessageReader, OutputWriter,
+    StdinMessageReader,
 };
+use amaru_consensus::consensus::fetch::ValidateHeaderEvent;
 use amaru_consensus::consensus::wiring::PullEvent;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
@@ -25,13 +28,14 @@ use amaru_consensus::consensus::{
     store::{rocksdb::RocksDBStore, ChainStore},
 };
 use amaru_consensus::peer::Peer;
+use amaru_kernel::to_cbor;
 use amaru_kernel::{
     Header,
     Point::{self, *},
 };
-pub use pallas_crypto::hash::Hash;
 use amaru_sim::echo::Envelope;
 use clap::Parser;
+pub use pallas_crypto::hash::Hash;
 use tokio::sync::Mutex;
 use tracing::info;
 
@@ -60,7 +64,6 @@ pub struct Args {
     /// Default to genesis hash, eg. all-zero hash.
     #[arg(long, default_value_t = Hash::from([0; 32]))]
     start_header: Hash<32>,
-    
 }
 
 pub async fn run(args: Args) {
@@ -71,14 +74,27 @@ pub async fn run(args: Args) {
 
 pub async fn bootstrap(args: Args) {
     let mut input_reader = StdinMessageReader::new();
+    // NOTE: the output writer is behind a mutex because otherwise it's problematic to borrow
+    // it as mutable in the inner loop of run simulator
+    let output_writer = Arc::new(Mutex::new(OutputWriter::new()));
 
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
 
-    let mut chain_store = RocksDBStore::new(args.chain_dir.clone())
-        .unwrap_or_else(|e| panic!("unable to open chain store at {}: {:?}", args.chain_dir.display(), e));
+    let mut chain_store = RocksDBStore::new(args.chain_dir.clone()).unwrap_or_else(|e| {
+        panic!(
+            "unable to open chain store at {}: {:?}",
+            args.chain_dir.display(),
+            e
+        )
+    });
 
-    populate_chain_store(&mut chain_store, &args.start_header, &args.consensus_context_file).unwrap();
+    populate_chain_store(
+        &mut chain_store,
+        &args.start_header,
+        &args.consensus_context_file,
+    )
+    .unwrap();
 
     let peer_addresses = read_peer_addresses_from_init(&mut input_reader)
         .await
@@ -86,6 +102,16 @@ pub async fn bootstrap(args: Args) {
 
     info!("using upstream peer addresses: {:?}", peer_addresses);
 
+    {
+        let mut w = output_writer.lock().await;
+        let msg = Envelope {
+            src: "n1".to_string(),
+            dest: "c0".to_string(),
+            body: ChainSyncMessage::InitOk { in_reply_to: 0 }
+        };
+        
+        w.write(vec![msg]).await; 
+    }
     let chain_selector = make_chain_selector(
         Origin,
         &chain_store,
@@ -101,15 +127,21 @@ pub async fn bootstrap(args: Args) {
         chain_selector,
     );
 
-    run_simulator(&mut input_reader, chain_ref, &mut consensus).await;
+    run_simulator(
+        &mut input_reader,
+        output_writer,
+        chain_ref,
+        &mut consensus,
+    )
+    .await;
 }
 
 async fn run_simulator(
     input_reader: &mut impl MessageReader,
-    _store: Arc<Mutex<dyn ChainStore<Header>>>,
+    output_writer: Arc<Mutex<OutputWriter>>,
+    store: Arc<Mutex<dyn ChainStore<Header>>>,
     consensus: &mut Consensus,
 ) {
-    let mut output_writer = OutputWriter::new();
     loop {
         let span = tracing::info_span!("simulator");
         match input_reader.read().await {
@@ -121,6 +153,7 @@ async fn run_simulator(
                 let events = match mk_message(msg, span) {
                     Ok(event) => match event {
                         PullEvent::RollForward(peer, point, raw_header, _span) => {
+                            info!("got forward event {:?}", &point);
                             consensus
                                 .handle_roll_forward(&peer, &point, &raw_header)
                                 .await
@@ -132,20 +165,12 @@ async fn run_simulator(
                     Err(_) => todo!(),
                 };
 
+                info!("result {:?}", events);
+
                 match events {
                     Ok(events) => {
-                        output_writer
-                            .write(
-                                events
-                                    .iter()
-                                    .map(|e| Envelope {
-                                        src: "n1".to_string(),
-                                        dest: "".to_string(),
-                                        body: e.into(),
-                                    })
-                                    .collect(),
-                            )
-                            .await;
+                        let mut w = output_writer.lock().await;
+                        write_events(&mut w, &store, &events).await;
                     }
                     Err(e) => {
                         tracing::error!("Error processing event: {:?}", e);
@@ -156,6 +181,57 @@ async fn run_simulator(
         }
     }
     info!("no more messages to process, exiting");
+}
+
+async fn write_events(
+    output_writer: &mut OutputWriter,
+    store: &Arc<Mutex<dyn ChainStore<Header>>>,
+    events: &[ValidateHeaderEvent],
+) {
+    let mut msgs = vec![];
+    let s = store.lock().await;
+    for e in events {
+        match e {
+            ValidateHeaderEvent::Validated(peer, point, _span) => {
+                let h: Hash<32> = point.into();
+                let hdr = s.load_header(&h).unwrap();
+                let fwd = ChainSyncMessage::Fwd {
+                    msg_id: 0, // FIXME
+                    slot: point.slot_or_default(),
+                    hash: Bytes {
+                        bytes: (*h).to_vec(),
+                    },
+                    header: Bytes {
+                        bytes: to_cbor(&hdr),
+                    },
+                };
+                let envelope = Envelope {
+                    src: "n1".to_string(),
+                    dest: peer.name.clone(),
+                    body: fwd,
+                };
+                msgs.push(envelope);
+            }
+            ValidateHeaderEvent::Rollback(point) => {
+                let h: Hash<32> = point.into();
+                let fwd = ChainSyncMessage::Bck {
+                    msg_id: 0, // FIXME
+                    slot: point.slot_or_default(),
+                    hash: Bytes {
+                        bytes: (*h).to_vec(),
+                    },
+                };
+                let envelope = Envelope {
+                    src: "n1".to_string(),
+                    dest: "n2".to_string(),
+                    body: fwd,
+                };
+                msgs.push(envelope);
+            }
+        }
+    }
+
+    output_writer.write(msgs).await;
 }
 
 fn make_chain_selector(
