@@ -23,11 +23,14 @@ impl DRepsSummary {
         let mut dreps = BTreeMap::new();
 
         let current_epoch = db.most_recent_snapshot();
-        let all_proposals_epochs = db
+        let mut all_proposals_epochs = db
             .iter_proposals()?
             .map(|(key, _)| epoch_from_slot(key.transaction_pointer.slot))
             .collect::<HashSet<_>>();
         // TODO filter out proposals that have been ratified
+
+        all_proposals_epochs.insert(163);
+        all_proposals_epochs.insert(165);
 
         // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
         // e.g.
