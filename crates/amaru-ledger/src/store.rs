@@ -60,7 +60,7 @@ pub enum StoreError {
 pub trait Snapshot {
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
-    fn most_recent_snapshot(&self) -> Epoch;
+    fn epoch(&self) -> Epoch;
 
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;

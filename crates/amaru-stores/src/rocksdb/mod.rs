@@ -238,11 +238,11 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 
 impl Snapshot for RocksDB {
     #[allow(clippy::panic)]
-    fn most_recent_snapshot(&'_ self) -> Epoch {
+    fn epoch(&'_ self) -> Epoch {
         self.snapshots
             .last()
             .cloned()
-            .unwrap_or_else(|| panic!("called 'most_recent_snapshot' on empty database?!"))
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
     }
 
     fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {

@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 pub struct MemoryStore {}
 
 impl Snapshot for MemoryStore {
-    fn most_recent_snapshot(&self) -> Epoch {
+    fn epoch(&self) -> Epoch {
         0
     }
 

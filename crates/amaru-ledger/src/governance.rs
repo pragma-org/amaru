@@ -22,7 +22,7 @@ impl DRepsSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
         let mut dreps = BTreeMap::new();
 
-        let current_epoch = db.most_recent_snapshot();
+        let current_epoch = db.epoch();
         let mut all_proposals_epochs = db
             .iter_proposals()?
             .map(|(key, _)| epoch_from_slot(key.transaction_pointer.slot))
