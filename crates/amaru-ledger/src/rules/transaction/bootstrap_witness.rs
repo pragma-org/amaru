@@ -6,7 +6,7 @@ use amaru_kernel::{
 use sha3::{Digest, Sha3_256};
 use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
 
-pub fn validate_bootstrap_witnesses(
+pub fn execute(
     context: &impl UtxoSlice,
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
     bootstrap_witnesses: &Option<NonEmptySet<BootstrapWitness>>,

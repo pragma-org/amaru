@@ -14,7 +14,7 @@ pub enum InvalidTransactionMetadata {
     },
 }
 
-pub fn validate_metadata(
+pub fn execute(
     transaction: &MintedTransactionBody<'_>,
     auxilary_data: Option<&AuxiliaryData>,
 ) -> Result<(), InvalidTransactionMetadata> {

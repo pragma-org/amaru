@@ -5,7 +5,7 @@ use amaru_kernel::{
 };
 use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
 
-pub fn validate_vkey_witnesses(
+pub fn execute(
     context: &impl UtxoSlice,
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
     vkey_witnesses: &Option<NonEmptySet<VKeyWitness>>,

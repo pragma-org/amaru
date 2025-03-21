@@ -1,11 +1,10 @@
+use crate::rules::TransactionRuleViolation;
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, MintedTransactionBody,
     TransactionOutput,
 };
 
-use crate::rules::TransactionRuleViolation;
-
-pub fn validate_output_size(
+pub fn execute(
     transaction: &MintedTransactionBody<'_>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), TransactionRuleViolation> {

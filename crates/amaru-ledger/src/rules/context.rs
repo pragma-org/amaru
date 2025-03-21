@@ -19,13 +19,19 @@ use amaru_kernel::{
 
 pub mod fake;
 
-// The BlockValidationContext is a collection of slices needed to validate a block
+/// The BlockValidationContext is a collection of slices needed to validate a block
 pub trait BlockValidationContext:
     PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice
 {
 }
 
-// An interface for interacting with the protocol pots.
+/// The BlockPreparationContext is a collection of interfaces needed to prepare a block
+pub trait BlockPreparationContext:
+    PrepareUtxoSlice + PreparePoolsSlice + PrepareAccountsSlice + PrepareDRepsSlice
+{
+}
+
+/// An interface for interacting with the protocol pots.
 pub trait PotsSlice {
     fn add_fees(&mut self);
 }
@@ -37,14 +43,24 @@ pub trait UtxoSlice {
     fn produce(&mut self, input: TransactionInput, output: TransactionOutput);
 }
 
-// An interface for interacting with a subset of the Pools state.
+/// An interface to help constructing the concrete UtxoSlice ahead of time.
+pub trait PrepareUtxoSlice {
+    fn require(&mut self, input: &TransactionInput);
+}
+
+/// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
     fn lookup(&self, pool: &PoolId) -> Option<&PoolParams>;
     fn register(&mut self, params: PoolParams);
     fn retire(&mut self, pool: &PoolId);
 }
 
-// An interface for interacting with a subset of the Accounts state.
+/// An interface to help constructing the concrete PoolsSlice ahead of time.
+pub trait PreparePoolsSlice {
+    fn require(&mut self, pool: &PoolId);
+}
+
+/// An interface for interacting with a subset of the Accounts state.
 pub trait AccountsSlice {
     fn lookup(&self, credential: &StakeCredential) -> Option<&AccountState>;
     fn register(&mut self, credential: StakeCredential, state: AccountState);
@@ -54,6 +70,11 @@ pub trait AccountsSlice {
     fn withdraw_from(&mut self, credential: &StakeCredential);
 }
 
+/// An interface to help constructing the concrete AccountsSlice ahead of time.
+pub trait PrepareAccountsSlice {
+    fn require(&mut self, credential: &StakeCredential);
+}
+
 #[derive(Debug)]
 pub struct AccountState {
     pub deposit: Lovelace,
@@ -61,13 +82,18 @@ pub struct AccountState {
     pub drep: Option<(DRep, CertificatePointer)>,
 }
 
-// An interface for interacting with a subset of the DReps state.
+/// An interface for interacting with a subset of the DReps state.
 pub trait DRepsSlice {
-    fn lookup(&self, credential: &StakeCredential) -> Option<&DRepState>;
+    fn lookup(&self, credential: &DRep) -> Option<&DRepState>;
     fn register(&mut self, drep: DRep, state: DRepState);
     fn update(&mut self, drep: &DRep, anchor: Option<Anchor>);
     fn unregister(&mut self, drep: &DRep);
     fn vote(&mut self, drep: DRep);
+}
+
+/// An interface to help constructing the concrete DRepsSlice ahead of time.
+pub trait PrepareDRepsSlice {
+    fn require(&mut self, credential: &DRep);
 }
 
 #[derive(Debug)]
