@@ -6,10 +6,10 @@ use std::fmt::Display;
 use std::ops::Deref;
 
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, BootstrapWitness, ExUnits, Hash,
-    Hasher, MintedBlock, MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
+    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, Hasher,
+    MintedBlock, MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
 };
-use amaru_kernel::{KeepRaw, TransactionInput, TransactionOutput, VKeyWitness};
+use amaru_kernel::{KeepRaw, TransactionInput, TransactionOutput};
 use block::{body_size::block_body_size_valid, ex_units::*, header_size::block_header_size_valid};
 use context::BlockValidationContext;
 use thiserror::Error;
