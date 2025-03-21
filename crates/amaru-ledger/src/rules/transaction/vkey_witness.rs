@@ -169,13 +169,19 @@ pub fn validate_vkey_wintesses(
 
     let invalid_witnesses = vkey_witnesses
         .iter()
-        .filter(|witness| {
+        .enumerate()
+        .filter_map(|(index, witness)| {
             match validate_witness(witness, transaction_body.original_hash().as_slice()) {
-                Ok(is_valid) => !is_valid,
-                Err(_) => true,
+                Ok(is_valid) => {
+                    if !is_valid {
+                        Some(index)
+                    } else {
+                        None
+                    }
+                }
+                Err(_) => Some(index),
             }
         })
-        .cloned()
         .collect::<Vec<_>>();
 
     if !invalid_witnesses.is_empty() {

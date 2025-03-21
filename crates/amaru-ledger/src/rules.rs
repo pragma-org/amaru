@@ -2,6 +2,7 @@ mod block;
 pub mod context;
 mod transaction;
 
+use std::fmt::Display;
 use std::ops::Deref;
 
 use amaru_kernel::{
@@ -37,9 +38,11 @@ pub enum RuleViolation {
     BlockBodySizeMismatch { supplied: usize, actual: usize },
     #[error("Block header size too big: supplied {supplied}, max {max}")]
     BlockHeaderSizeTooBig { supplied: usize, max: usize },
-    #[error("Too many execution units in block: provided {provided:?}, max {max:?}")]
+    #[error("Too many execution units in block: provided (mem: {}, steps: {}), max (mem: {}, steps: {})", provided.mem, provided.steps, max.mem, max.steps)]
     TooManyExUnitsBlock { provided: ExUnits, max: ExUnits },
-    #[error("Invalid transaction (hash: {transaction_hash:?}, index: {transaction_index}): {violation} ")]
+    #[error(
+        "Invalid transaction (hash: {transaction_hash}, index: {transaction_index}): {violation} "
+    )]
     InvalidTransaction {
         transaction_hash: Hash<32>,
         transaction_index: u32,
@@ -49,9 +52,7 @@ pub enum RuleViolation {
 
 #[derive(Debug, Error)]
 pub enum TransactionRuleViolation {
-    #[error(
-        "Inputs included in both reference inputs and spent inputs: intersection {intersection:?}"
-    )]
+    #[error("Inputs included in both reference inputs and spent inputs: intersection [{}]", intersection.iter().map(|input| format!("{}#{}", input.transaction_id, input.transaction_id)).collect::<Vec<_>>().join(", "))]
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
     #[error("Outputs too small: outputs {outputs_too_small:?}")]
     OutputTooSmall {
@@ -59,18 +60,25 @@ pub enum TransactionRuleViolation {
     },
     #[error("Invalid transaction metadata: {0}")]
     InvalidTransactionMetadata(#[from] InvalidTransactionMetadata),
-    #[error("Missing required signatures: pkhs {missing_key_hashes:?}")]
+    #[error(
+        "Missing required signatures: pkhs [{}]",
+        format_vec(missing_key_hashes)
+    )]
     MissingRequiredVkeyWitnesses { missing_key_hashes: Vec<Hash<28>> },
-    #[error("Invalid vkey witnesses: {invalid_witnesses:?}")]
-    InvalidVkeyWitnesses { invalid_witnesses: Vec<VKeyWitness> },
-    #[error("Missing required signatures: bootstrap roots {missing_bootstrap_roots:?}")]
+    #[error("Invalid vkey witnesses: indices [{}]", format_vec(invalid_witnesses))]
+    InvalidVkeyWitnesses { invalid_witnesses: Vec<usize> },
+    #[error(
+        "Missing required signatures: bootstrap roots [{}]",
+        format_vec(missing_bootstrap_roots)
+    )]
     MissingRequiredBootstrapWitnesses {
         missing_bootstrap_roots: Vec<Hash<28>>,
     },
-    #[error("Invalid bootstrap witnesses: {invalid_witnesses:?}")]
-    InvalidBootstrapWitnesses {
-        invalid_witnesses: Vec<BootstrapWitness>,
-    },
+    #[error(
+        "Invalid bootstrap witnesses: indices [{}]",
+        format_vec(invalid_witnesses)
+    )]
+    InvalidBootstrapWitnesses { invalid_witnesses: Vec<usize> },
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("Uncategorized error: {0}")]
     UncategorizedError(String),
@@ -192,6 +200,14 @@ fn parse_block(bytes: &[u8]) -> Result<(Hash<32>, MintedBlock<'_>), BlockValidat
         cbor::decode(bytes).map_err(|_| BlockValidationError::SerializationError)?;
 
     Ok((Hasher::<256>::hash(block.header.raw_cbor()), block))
+}
+
+fn format_vec<T: Display>(items: &[T]) -> String {
+    items
+        .iter()
+        .map(|item| item.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 #[cfg(test)]
