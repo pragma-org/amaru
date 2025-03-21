@@ -636,6 +636,11 @@ impl RequiresVkeyWitness for Certificate {
             } => Some(*operator),
             Certificate::PoolRetirement(hash, _) => Some(*hash),
             Certificate::Reg(stake_credential, coin) => {
+                // The "old behavior of not requiring a witness for staking credential registration"
+                //  is mantained:
+                // - Only during the "transitional period of Conway"
+                // - Only for staking credential registration certificates without a deposit
+                // (see https://github.com/IntersectMBO/cardano-ledger/blob/81637a1c2250225fef47399dd56f80d87384df32/eras/conway/impl/src/Cardano/Ledger/Conway/TxCert.hs#L698)
                 if coin == &0 {
                     None
                 } else {
