@@ -1,9 +1,12 @@
-use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
+use crate::rules::{
+    context::UtxoSlice, vkey_witness::verify_ed25519_signature, TransactionRuleViolation,
+    WithPosition,
+};
 use amaru_kernel::{
     alonzo::BootstrapWitness, to_root, AddrType, Address, HasAddress, KeepRaw,
-    MintedTransactionBody, NonEmptySet, OriginalHash, PublicKey, Signature,
+    MintedTransactionBody, NonEmptySet, OriginalHash,
 };
-use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
+use std::collections::BTreeSet;
 
 pub fn execute(
     context: &impl UtxoSlice,
@@ -63,36 +66,22 @@ pub fn execute(
         );
     }
 
-    let invalid_witnesses = bootstrap_witnesses
+    let mut invalid_witnesses = vec![];
+    bootstrap_witnesses
         .iter()
         .enumerate()
-        .filter_map(|(index, witness)| {
-            match validate_witness(witness, transaction_body.original_hash().as_slice()) {
-                Ok(is_valid) => {
-                    if !is_valid {
-                        Some(index)
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => Some(index),
-            }
-        })
-        .collect::<Vec<_>>();
+        .for_each(|(position, witness)| {
+            verify_ed25519_signature(
+                &witness.public_key,
+                &witness.signature,
+                transaction_body.original_hash().as_slice(),
+            )
+            .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
+        });
 
     if !invalid_witnesses.is_empty() {
         return Err(TransactionRuleViolation::InvalidBootstrapWitnesses { invalid_witnesses });
     }
 
     Ok(())
-}
-
-fn validate_witness(witness: &BootstrapWitness, message: &[u8]) -> Result<bool, TryFromSliceError> {
-    let vkey_bytes: [u8; 32] = witness.public_key.deref().as_slice().try_into()?;
-    let signature_bytes: [u8; 64] = witness.signature.deref().as_slice().try_into()?;
-
-    let public_key: PublicKey = vkey_bytes.into();
-    let signature: Signature = signature_bytes.into();
-
-    Ok(public_key.verify(message, &signature))
 }

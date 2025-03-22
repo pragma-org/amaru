@@ -19,7 +19,12 @@ use amaru_kernel::{
 };
 use block::{body_size::block_body_size_valid, ex_units::*, header_size::block_header_size_valid};
 use context::BlockValidationContext;
-use std::{fmt::Display, ops::Deref};
+use std::{
+    array::TryFromSliceError,
+    fmt,
+    fmt::{Debug, Display},
+    ops::Deref,
+};
 use thiserror::Error;
 use tracing::{instrument, Level};
 
@@ -75,8 +80,13 @@ pub enum TransactionRuleViolation {
         format_vec(missing_key_hashes)
     )]
     MissingRequiredVkeyWitnesses { missing_key_hashes: Vec<Hash<28>> },
-    #[error("Invalid vkey witnesses: indices [{}]", format_vec(invalid_witnesses))]
-    InvalidVkeyWitnesses { invalid_witnesses: Vec<usize> },
+    #[error(
+        "Invalid verification key witnesses: [{}]",
+        format_vec(invalid_witnesses)
+    )]
+    InvalidVKeyWitnesses {
+        invalid_witnesses: Vec<WithPosition<InvalidVKeyWitness>>,
+    },
     #[error(
         "Missing required signatures: bootstrap roots [{}]",
         format_vec(missing_bootstrap_roots)
@@ -88,7 +98,9 @@ pub enum TransactionRuleViolation {
         "Invalid bootstrap witnesses: indices [{}]",
         format_vec(invalid_witnesses)
     )]
-    InvalidBootstrapWitnesses { invalid_witnesses: Vec<usize> },
+    InvalidBootstrapWitnesses {
+        invalid_witnesses: Vec<WithPosition<InvalidVKeyWitness>>,
+    },
     #[error("Unexpected bytes instead of reward account in {context:?} at position {position}")]
     MalformedRewardAccount {
         bytes: Vec<u8>,
@@ -98,6 +110,34 @@ pub enum TransactionRuleViolation {
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("Uncategorized error: {0}")]
     UncategorizedError(String),
+}
+
+#[derive(Debug)]
+pub struct WithPosition<T: Display> {
+    pub position: usize,
+    pub element: T,
+}
+
+impl<T: Display> Display for WithPosition<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "#{}: {}", self.position, self.element)
+    }
+}
+
+#[derive(Debug, Error)]
+pub enum InvalidVKeyWitness {
+    #[error("invalid signature size: {error:?}")]
+    InvalidSignatureSize {
+        error: TryFromSliceError,
+        expected: usize,
+    },
+    #[error("invalid verification key size: {error:?}")]
+    InvalidKeySize {
+        error: TryFromSliceError,
+        expected: usize,
+    },
+    #[error("invalid signature for given key")]
+    InvalidSignature,
 }
 
 #[derive(Debug)]

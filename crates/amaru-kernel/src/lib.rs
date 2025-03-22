@@ -31,7 +31,7 @@ pub use pallas_codec::{
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
-    key::ed25519::{PublicKey, Signature},
+    key::ed25519,
 };
 pub use pallas_primitives::{
     // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
@@ -50,7 +50,7 @@ pub use pallas_primitives::{
 };
 pub use sha3;
 use sha3::{Digest as _, Sha3_256};
-use std::{convert::Infallible, ops::Deref, sync::LazyLock};
+use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyLock};
 
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
@@ -395,6 +395,28 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
 
 // Helpers
 // ----------------------------------------------------------------------------
+
+/// Turn any Bytes-like structure into a sized slice. Useful for crypto operation requiring
+/// operands with specific bytes sizes. For example:
+///
+/// # ```
+/// # let public_key: [u8; ed25519::PublicKey::SIZE] = into_sized_array(vkey, |error, expected| {
+/// #     InvalidVKeyWitness::InvalidKeySize { error, expected }
+/// # })?;
+/// # ```
+pub fn into_sized_array<const SIZE: usize, E, T>(
+    bytes: T,
+    into_error: impl Fn(TryFromSliceError, usize) -> E,
+) -> Result<[u8; SIZE], E>
+where
+    T: Deref<Target = Bytes>,
+{
+    bytes
+        .deref()
+        .as_slice()
+        .try_into()
+        .map_err(|e| into_error(e, SIZE))
+}
 
 pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
     let hrp = bech32::Hrp::parse(hrp)?;

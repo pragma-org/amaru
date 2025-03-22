@@ -1,12 +1,12 @@
 use crate::rules::{
-    context::UtxoSlice, traits::requires_vkey_witness::RequiresVkeyWitness, TransactionField,
-    TransactionRuleViolation,
+    context::UtxoSlice, traits::requires_vkey_witness::RequiresVkeyWitness, InvalidVKeyWitness,
+    TransactionField, TransactionRuleViolation, WithPosition,
 };
 use amaru_kernel::{
-    Address, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
-    OriginalHash, PublicKey, Signature, VKeyWitness,
+    ed25519, into_sized_array, Address, Bytes, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw,
+    MintedTransactionBody, NonEmptySet, OriginalHash, VKeyWitness,
 };
-use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
+use std::collections::BTreeSet;
 
 pub fn execute(
     context: &impl UtxoSlice,
@@ -99,36 +99,46 @@ pub fn execute(
         return Err(TransactionRuleViolation::MissingRequiredVkeyWitnesses { missing_key_hashes });
     }
 
-    let invalid_witnesses = vkey_witnesses
+    let mut invalid_witnesses = vec![];
+    vkey_witnesses
         .iter()
         .enumerate()
-        .filter_map(|(index, witness)| {
-            match validate_witness(witness, transaction_body.original_hash().as_slice()) {
-                Ok(is_valid) => {
-                    if !is_valid {
-                        Some(index)
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => Some(index),
-            }
-        })
-        .collect::<Vec<_>>();
+        .for_each(|(position, witness)| {
+            verify_ed25519_signature(
+                &witness.vkey,
+                &witness.signature,
+                transaction_body.original_hash().as_slice(),
+            )
+            .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
+        });
 
     if !invalid_witnesses.is_empty() {
-        return Err(TransactionRuleViolation::InvalidVkeyWitnesses { invalid_witnesses });
+        return Err(TransactionRuleViolation::InvalidVKeyWitnesses { invalid_witnesses });
     }
 
     Ok(())
 }
 
-fn validate_witness(witness: &VKeyWitness, message: &[u8]) -> Result<bool, TryFromSliceError> {
-    let vkey_bytes: [u8; 32] = witness.vkey.deref().as_slice().try_into()?;
-    let signature_bytes: [u8; 64] = witness.signature.deref().as_slice().try_into()?;
+pub(crate) fn verify_ed25519_signature(
+    vkey: &Bytes,
+    signature: &Bytes,
+    message: &[u8],
+) -> Result<(), InvalidVKeyWitness> {
+    // TODO: vkey should come as sized bytes out of the serialization.
+    // To be fixed upstream in Pallas.
+    let public_key = ed25519::PublicKey::from(into_sized_array(vkey, |error, expected| {
+        InvalidVKeyWitness::InvalidKeySize { error, expected }
+    })?);
 
-    let public_key: PublicKey = vkey_bytes.into();
-    let signature: Signature = signature_bytes.into();
+    // TODO: signature should come as sized bytes out of the serialization.
+    // To be fixed upstream in Pallas.
+    let signature = ed25519::Signature::from(into_sized_array(signature, |error, expected| {
+        InvalidVKeyWitness::InvalidSignatureSize { error, expected }
+    })?);
 
-    Ok(public_key.verify(message, &signature))
+    if !public_key.verify(message, &signature) {
+        Err(InvalidVKeyWitness::InvalidSignature)
+    } else {
+        Ok(())
+    }
 }
