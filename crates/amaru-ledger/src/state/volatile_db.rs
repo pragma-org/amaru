@@ -144,7 +144,7 @@ pub struct VolatileState {
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
-    pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Epoch>,
+    pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
     pub proposals: DiffBind<ProposalPointer, Empty, Empty, (Epoch, Proposal)>,
@@ -253,37 +253,16 @@ impl AnchoredVolatileState {
                         (credential, (anchor, deposit, epoch))
                     },
                 ),
-                cc_members: self
-                    .state
-                    .committee
-                    .registered
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(
-                        move |(
-                            index,
-                            (
-                                credential,
-                                Bind {
-                                    left: hot_credential,
-                                    right: _,
-                                    value: epoch,
-                                },
-                            ),
-                        )| {
-                            match epoch {
-                                Some(epoch) => Some((credential, (epoch, hot_credential))),
-                                None => {
-                                    error!(
-                                        target: EVENT_TARGET,
-                                        index,
-                                        "add.cc_members.no_epoch",
-                                    );
-                                    None
-                                }
-                            }
+                cc_members: self.state.committee.registered.into_iter().map(
+                    move |(
+                        credential,
+                        Bind {
+                            left: hot_credential,
+                            right: _,
+                            value: _,
                         },
-                    ),
+                    )| { (credential, hot_credential) },
+                ),
                 proposals: self
                     .state
                     .proposals

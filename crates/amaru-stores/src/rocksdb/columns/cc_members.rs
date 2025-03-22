@@ -26,8 +26,9 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, (term_limit, hot_credential)) in rows {
+    for (credential, hot_credential) in rows {
         let key = as_key(&PREFIX, &credential);
+
         // In case where a registration already exists, then we must only update the underlying
         // entry.
         let mut row = db
@@ -35,11 +36,11 @@ pub fn add<DB>(
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(Row::unsafe_decode)
             .unwrap_or(Row {
-                term_limit,
                 hot_credential: None,
             });
 
         hot_credential.set_or_reset(&mut row.hot_credential);
+
         db.put(key, as_value(row))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }

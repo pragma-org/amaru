@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Epoch, StakeCredential};
+use amaru_kernel::{cbor, StakeCredential};
 use iter_borrow::IterBorrow;
 
 use crate::state::diff_bind::Resettable;
@@ -22,13 +22,12 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::cc_members";
 /// Iterator used to browse rows from the CC members column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Epoch, Resettable<StakeCredential>);
+pub type Value = Resettable<StakeCredential>;
 
 pub type Key = StakeCredential;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    pub term_limit: Epoch,
     pub hot_credential: Option<StakeCredential>,
 }
 
@@ -51,7 +50,6 @@ impl<C> cbor::encode::Encode<C> for Row {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
-        e.encode_with(self.term_limit, ctx)?;
         e.encode_with(self.hot_credential.clone(), ctx)?;
         Ok(())
     }
@@ -61,7 +59,6 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(Row {
-            term_limit: d.decode_with(ctx)?,
             hot_credential: d.decode_with(ctx)?,
         })
     }
@@ -70,18 +67,16 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(test)]
 pub mod test {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, Epoch, Hash, StakeCredential};
+    use amaru_kernel::{prop_cbor_roundtrip, Hash, StakeCredential};
     use proptest::{option, prelude::*};
 
     prop_cbor_roundtrip!(Row, any_row());
 
     prop_compose! {
         fn any_row()(
-            term_limit in any::<Epoch>(),
             hot_credential in option::of(any_stake_credential()),
         ) -> Row {
             Row {
-                term_limit,
                 hot_credential,
             }
         }
