@@ -19,9 +19,10 @@ use super::{
     volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer, DRep, Epoch,
-    HasLovelace, Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams,
-    Set, Slot, StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer, DRep, HasLovelace,
+    Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams, Set, Slot,
+    StakeCredential, TransactionInput, TransactionOutput, TransactionPointer,
+    STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -88,8 +89,10 @@ pub fn apply(
                 &mut state.committee,
                 certificate,
                 CertificatePointer {
-                    slot: absolute_slot,
-                    transaction_index,
+                    transaction_pointer: TransactionPointer {
+                        slot: absolute_slot,
+                        transaction_index,
+                    },
                     certificate_index,
                 },
             )
@@ -198,7 +201,7 @@ fn apply_certificate(
     pools: &mut DiffEpochReg<PoolId, PoolParams>,
     accounts: &mut DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     dreps: &mut DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
-    committee: &mut DiffBind<StakeCredential, StakeCredential, Empty, Epoch>,
+    committee: &mut DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     certificate: Certificate,
     pointer: CertificatePointer,
 ) {

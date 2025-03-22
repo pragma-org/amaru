@@ -1,34 +1,90 @@
 use crate::store::{columns::dreps::Row, Snapshot, StoreError};
-use amaru_kernel::{encode_bech32, DRep, StakeCredential};
+use amaru_kernel::{
+    encode_bech32, Anchor, DRep, Epoch, StakeCredential, DREP_EXPIRY, GOV_ACTION_LIFETIME,
+};
 use serde::ser::SerializeStruct;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug)]
-// TODO: Also add DRep information to this summary
 pub struct DRepsSummary {
     pub delegations: BTreeMap<StakeCredential, DRep>,
+    pub dreps: BTreeMap<DRep, DRepState>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct DRepState {
+    pub mandate: Epoch,
+    pub metadata: Option<Anchor>,
 }
 
 impl DRepsSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
-        let dreps = db
+        let mut dreps = BTreeMap::new();
+
+        let all_proposals_epochs = db
+            .iter_proposals()?
+            .map(|(_, row)| row.epoch)
+            .collect::<HashSet<_>>();
+        // TODO filter out proposals that have been ratified
+
+        let current_epoch = db.epoch();
+
+        // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
+        // e.g.
+        //
+        // Considering a proposal created at epoch 163, it is valid until epoch 163 + GOV_ACTION_LIFETIME
+        //
+        // for epochs 163 and 165, with GOV_ACTION_LIFETIME = 6, proposals_activity_periods would equal
+        //   [163, 164, 165, 166, 167, 168, 169, 170, 171]
+        //
+        // for epochs 163 and 172, with GOV_ACTION_LIFETIME = 6, proposals_activity_periods would equal
+        //   [163, 164, 165, 166, 167, 168, 169, 172, 173, 174, 175, 176, 177, 178]
+        let proposals_activity_periods = all_proposals_epochs
+            .iter()
+            .flat_map(|&value| (value..=value + GOV_ACTION_LIFETIME).collect::<HashSet<_>>())
+            .collect::<HashSet<u64>>();
+        let dreps_registrations = db
             .iter_dreps()?
-            .map(|(k, Row { registered_at, .. })| {
-                let drep = match k {
-                    StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
-                    StakeCredential::ScriptHash(hash) => DRep::Script(hash),
-                };
-                (drep, registered_at)
-            })
+            .map(
+                |(
+                    k,
+                    Row {
+                        registered_at,
+                        last_interaction,
+                        anchor,
+                        ..
+                    },
+                )| {
+                    let drep = match k {
+                        StakeCredential::AddrKeyhash(hash) => DRep::Key(hash),
+                        StakeCredential::ScriptHash(hash) => DRep::Script(hash),
+                    };
+
+                    // Each epoch with no active proposals increase the mandate by 1
+                    let epochs_without_active_proposals =
+                        HashSet::from_iter(last_interaction..=current_epoch) // Total period considered for this DRep
+                            .difference(&proposals_activity_periods)
+                            .count();
+                    dreps.insert(
+                        drep.clone(),
+                        DRepState {
+                            metadata: anchor,
+                            mandate: last_interaction
+                                + DREP_EXPIRY
+                                + epochs_without_active_proposals as u64,
+                        },
+                    );
+
+                    (drep, registered_at)
+                },
+            )
             .collect::<BTreeMap<_, _>>();
 
         let delegations = db
             .iter_accounts()?
             .filter_map(|(credential, account)| {
                 account.drep.and_then(|(drep, since)| {
-                    let registered_at = dreps.get(&drep);
-
-                    if let Some(registered_at) = registered_at {
+                    if let Some(registered_at) = dreps_registrations.get(&drep) {
                         if since >= *registered_at {
                             // This is a registration with a previous registration of this DRep, it must be renewed
                             return Some((credential, drep));
@@ -39,7 +95,7 @@ impl DRepsSummary {
             })
             .collect::<BTreeMap<StakeCredential, DRep>>();
 
-        Ok(DRepsSummary { delegations })
+        Ok(DRepsSummary { delegations, dreps })
     }
 }
 
@@ -47,6 +103,7 @@ impl serde::Serialize for DRepsSummary {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("DRepsSummary", 2)?;
 
+        let mut delegations = BTreeMap::new();
         let mut keys = BTreeMap::new();
         let mut scripts = BTreeMap::new();
         self.delegations.iter().for_each(|(credential, drep)| {
@@ -57,9 +114,17 @@ impl serde::Serialize for DRepsSummary {
                 };
             }
         });
+        delegations.insert("keys".to_string(), keys);
+        delegations.insert("scripts".to_string(), scripts);
+        s.serialize_field("delegations", &delegations)?;
 
-        s.serialize_field("keys", &keys)?;
-        s.serialize_field("scripts", &scripts)?;
+        let mut dreps = BTreeMap::new();
+        self.dreps.iter().for_each(|(drep, st)| {
+            if let Some(id) = into_drep_id(drep) {
+                dreps.insert(id, st);
+            }
+        });
+        s.serialize_field("dreps", &dreps)?;
 
         s.end()
     }

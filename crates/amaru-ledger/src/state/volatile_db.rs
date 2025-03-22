@@ -20,9 +20,12 @@ use super::{
 use crate::store::{self, columns::*};
 use amaru_kernel::{
     epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
-    StakeCredential, TransactionInput, TransactionOutput,
+    Proposal, ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::collections::{BTreeSet, VecDeque};
+use tracing::error;
+
+pub const EVENT_TARGET: &str = "amaru::ledger::state::volatile_db";
 
 // VolatileDB
 // ----------------------------------------------------------------------------
@@ -141,9 +144,10 @@ pub struct VolatileState {
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
-    pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Epoch>,
+    pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
+    pub proposals: DiffBind<ProposalPointer, Empty, Empty, (Epoch, Proposal)>,
     pub fees: Lovelace,
 }
 
@@ -190,6 +194,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
             impl Iterator<Item = (cc_members::Key, cc_members::Value)>,
+            impl Iterator<Item = (proposals::Key, proposals::Value)>,
         >,
         store::Columns<
             impl Iterator<Item = utxo::Key>,
@@ -197,6 +202,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = accounts::Key>,
             impl Iterator<Item = dreps::Key>,
             impl Iterator<Item = cc_members::Key>,
+            impl Iterator<Item = proposals::Key>,
         >,
     > {
         let slot = self.anchor.0.slot_or_default();
@@ -253,13 +259,43 @@ impl AnchoredVolatileState {
                         Bind {
                             left: hot_credential,
                             right: _,
-                            value: epoch,
+                            value: _,
                         },
-                    )| {
-                        (credential, (epoch.unwrap_or_default(), hot_credential))
-                        // Never None
-                    },
+                    )| { (credential, hot_credential) },
                 ),
+                proposals: self
+                    .state
+                    .proposals
+                    .registered
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(
+                        move |(
+                            index,
+                            (
+                                proposal_pointer,
+                                Bind {
+                                    left: _,
+                                    right: _,
+                                    value,
+                                },
+                            ),
+                        ): (usize, (_, Bind<_, Empty, _>))| {
+                            match value {
+                                Some((epoch, proposal)) => {
+                                    Some((proposal_pointer, (epoch, proposal)))
+                                }
+                                None => {
+                                    error!(
+                                        target: EVENT_TARGET,
+                                        index,
+                                        "add.proposals.no_proposal",
+                                    );
+                                    None
+                                }
+                            }
+                        },
+                    ),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),
@@ -267,6 +303,7 @@ impl AnchoredVolatileState {
                 accounts: self.state.accounts.unregistered.into_iter(),
                 dreps: self.state.dreps.unregistered.into_iter(),
                 cc_members: self.state.committee.unregistered.into_iter(),
+                proposals: self.state.proposals.unregistered.into_iter(),
             },
         }
     }

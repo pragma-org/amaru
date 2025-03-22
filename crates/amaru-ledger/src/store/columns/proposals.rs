@@ -12,23 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, StakeCredential};
+use amaru_kernel::{cbor, Epoch, Proposal, ProposalPointer};
 use iter_borrow::IterBorrow;
 
-use crate::state::diff_bind::Resettable;
+pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 
-pub const EVENT_TARGET: &str = "amaru::ledger::store::cc_members";
-
-/// Iterator used to browse rows from the CC members column. Meant to be referenced using qualified imports.
+/// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = Resettable<StakeCredential>;
+pub type Value = (Epoch, Proposal);
 
-pub type Key = StakeCredential;
+pub type Key = ProposalPointer;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    pub hot_credential: Option<StakeCredential>,
+    pub epoch: Epoch,
+    pub proposal: Proposal,
 }
 
 impl Row {
@@ -50,7 +49,8 @@ impl<C> cbor::encode::Encode<C> for Row {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
-        e.encode_with(self.hot_credential.clone(), ctx)?;
+        e.encode_with(self.epoch, ctx)?;
+        e.encode_with(self.proposal.clone(), ctx)?;
         Ok(())
     }
 }
@@ -59,39 +59,8 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(Row {
-            hot_credential: d.decode_with(ctx)?,
+            epoch: d.decode_with(ctx)?,
+            proposal: d.decode_with(ctx)?,
         })
-    }
-}
-
-#[cfg(test)]
-pub mod test {
-    use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, Hash, StakeCredential};
-    use proptest::{option, prelude::*};
-
-    prop_cbor_roundtrip!(Row, any_row());
-
-    prop_compose! {
-        fn any_row()(
-            hot_credential in option::of(any_stake_credential()),
-        ) -> Row {
-            Row {
-                hot_credential,
-            }
-        }
-    }
-
-    prop_compose! {
-        fn any_stake_credential()(
-            is_script in any::<bool>(),
-            credential in any::<[u8; 28]>(),
-        ) -> StakeCredential {
-            if is_script {
-                StakeCredential::ScriptHash(Hash::from(credential))
-            } else {
-                StakeCredential::AddrKeyhash(Hash::from(credential))
-            }
-        }
     }
 }

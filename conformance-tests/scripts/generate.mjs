@@ -24,21 +24,41 @@ const pots = load("pots", epoch + 3);
 const dreps = Object.keys(accounts)
   .reduce((acc, credential) => {
     const drep = accounts[credential].delegateRepresentative;
+
     if (drep === undefined) {
       return acc;
     }
 
+    const drepId = toDrepId(drep.id, drep.from);
+
+    const info = drepsInfo.find(({ id, from }) => id == drep.id && from == drep.from);
+
+
     // TODO: Also add the values of the abstain / no-confidence dreps somewhere?
     if (drep.type === "registered") {
-      const delegators = drepsInfo.find(({ id }) => id == drep.id).delegators;
-      const category = delegators.find((deleg) => deleg.credential === credential).from === "verificationKey"
+      const category = info.delegators.find((deleg) => deleg.credential === credential).from === "verificationKey"
         ? "keys"
         : "scripts";
-      acc[category][credential] = toDrepId(drep.id, drep.from);
+      acc[category][credential] = drepId;
     }
 
     return acc;
-  }, { keys: {}, scripts: {} });
+  }, {
+    keys: {},
+    scripts: {},
+    dreps: drepsInfo.reduce((acc, drep) => {
+      // TODO: Also add the values of the abstain / no-confidence dreps somewhere?
+      if (drep.type === "registered") {
+        const drepId = toDrepId(drep.id, drep.from);
+        acc[drepId] = {
+          mandate: drep.mandate.epoch,
+          metadata: drep.metadata ? ({ url: drep.metadata.url, content_hash: drep.metadata.hash }) : null,
+        };
+      }
+
+      return acc;
+    }, {}),
+  });
 
 // Relative source  of the snapshot test in the target crate.
 const source = "crates/amaru/src/ledger/rewards.rs";
@@ -118,8 +138,11 @@ withStream(`rewards__dreps_${epoch}.snap`, (stream) => {
   stream.write(`expression: dreps\n`)
   stream.write("---\n")
   stream.write("{")
-  encodeCollection(stream, "keys", dreps.keys, false);
-  encodeCollection(stream, "scripts", dreps.scripts);
+  stream.write(`\n  "delegations": {`)
+  encodeCollection(stream, "keys", dreps.keys, false, 4);
+  encodeCollection(stream, "scripts", dreps.scripts, true, 4);
+  stream.write(`\n  },`);
+  encodeCollection(stream, "dreps", dreps.dreps);
   stream.end("\n}");
 });
 
@@ -150,6 +173,7 @@ function toDrepId(str, category) {
 
 function encodeItem(stream, ix, maxItems, [k, v], isLast = true, indent = 4) {
   const pad = "".padEnd(indent, " ");
+  const padEnd = "".padEnd(indent - 2, " ");
   const json = $.stringify(v, null, 2);
   const row = json
     .split("\n")
@@ -158,7 +182,7 @@ function encodeItem(stream, ix, maxItems, [k, v], isLast = true, indent = 4) {
     .slice(indent);
   stream.write(`${pad}"${k}": ${row}`);
   if (ix == maxItems - 1) {
-    stream.write(`\n  }${isLast ? '' : ','}`);
+    stream.write(`\n${padEnd}}${isLast ? '' : ','}`);
   } else {
     stream.write(',\n');
   }

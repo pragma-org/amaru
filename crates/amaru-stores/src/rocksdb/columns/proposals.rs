@@ -13,35 +13,38 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_ledger::store::StoreError;
+use amaru_ledger::store::{
+    columns::proposals::{Key, Row, Value},
+    StoreError,
+};
 use rocksdb::Transaction;
 
-use amaru_ledger::store::columns::cc_members::{Key, Row, Value};
+/// Name prefixed used for storing Proposals entries. UTF-8 encoding for "prop"
+pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
 
-/// Name prefixed used for storing delegations entries. UTF-8 encoding for "comm"
-pub const PREFIX: [u8; PREFIX_LEN] = [0x43, 0x4F, 0x4D, 0x4D];
-
-/// Register a new CC Member.
+/// Register a new Proposal.
+#[allow(clippy::unwrap_used)]
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, hot_credential) in rows {
-        let key = as_key(&PREFIX, &credential);
-
-        // In case where a registration already exists, then we must only update the underlying
-        // entry.
-        let mut row = db
-            .get(&key)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(Row::unsafe_decode)
-            .unwrap_or(Row {
-                hot_credential: None,
-            });
-
-        hot_credential.set_or_reset(&mut row.hot_credential);
-
+    for (proposal_pointer, (epoch, proposal)) in rows {
+        let key = as_key(&PREFIX, proposal_pointer);
+        let row = Row { epoch, proposal };
         db.put(key, as_value(row))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+    }
+
+    Ok(())
+}
+
+/// Clear a Proposal registration.
+pub fn remove<DB>(
+    db: &Transaction<'_, DB>,
+    rows: impl Iterator<Item = Key>,
+) -> Result<(), StoreError> {
+    for proposal_pointer in rows {
+        db.delete(as_key(&PREFIX, proposal_pointer))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }
 

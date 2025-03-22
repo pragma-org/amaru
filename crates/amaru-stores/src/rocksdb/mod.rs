@@ -238,11 +238,11 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 
 impl Snapshot for RocksDB {
     #[allow(clippy::panic)]
-    fn most_recent_snapshot(&'_ self) -> Epoch {
+    fn epoch(&'_ self) -> Epoch {
         self.snapshots
             .last()
             .cloned()
-            .unwrap_or_else(|| panic!("called 'most_recent_snapshot' on empty database?!"))
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
     }
 
     fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
@@ -290,6 +290,15 @@ impl Snapshot for RocksDB {
     ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
     {
         iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
+    }
+
+    fn iter_proposals(
+        &self,
+    ) -> Result<
+        impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
+        StoreError,
+    > {
+        iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
     }
 }
 
@@ -349,6 +358,7 @@ impl Store for RocksDB {
             impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Value)>,
             impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
             impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Value)>,
+            impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = scolumns::utxo::Key>,
@@ -356,6 +366,7 @@ impl Store for RocksDB {
             impl Iterator<Item = scolumns::accounts::Key>,
             impl Iterator<Item = scolumns::dreps::Key>,
             impl Iterator<Item = scolumns::cc_members::Key>,
+            impl Iterator<Item = scolumns::proposals::Key>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
@@ -407,11 +418,13 @@ impl Store for RocksDB {
                     voting_dreps,
                     epoch_from_slot(point.slot_or_default()),
                 )?;
+                proposals::add(&batch, add.proposals)?;
 
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
                 accounts::remove(&batch, remove.accounts)?;
                 dreps::remove(&batch, remove.dreps)?;
+                proposals::remove(&batch, remove.proposals)?;
             }
         }
 
@@ -516,5 +529,12 @@ impl Store for RocksDB {
         with: impl FnMut(scolumns::dreps::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
         with_prefix_iterator(self.db.transaction(), dreps::PREFIX, with)
+    }
+
+    fn with_proposals(
+        &self,
+        with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(self.db.transaction(), proposals::PREFIX, with)
     }
 }

@@ -24,9 +24,10 @@ use crate::{
     store::{Store, StoreError},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId, Slot,
-    StakeCredential, TransactionInput, TransactionOutput, Voter, VotingProcedures,
-    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
+    ProposalPointer, Slot, StakeCredential, TransactionInput, TransactionOutput, Voter,
+    VotingProcedures, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
+    STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
@@ -114,7 +115,7 @@ impl<S: Store> State<S> {
         //
         // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
         // the ongoing epoch, not yet finished (and so, not available as snapshot).
-        let latest_epoch = db.most_recent_snapshot();
+        let latest_epoch = db.epoch();
 
         let mut stake_distributions = VecDeque::new();
         #[allow(clippy::panic)]
@@ -194,7 +195,7 @@ impl<S: Store> State<S> {
         // we must snapshot the one _just before_.
         let mut db = self.stable.lock().unwrap();
 
-        if current_epoch > db.most_recent_snapshot() + 1 {
+        if current_epoch > db.epoch() + 1 {
             epoch_transition(&mut *db, current_epoch, self.rewards_summary.take())?;
         }
 
@@ -348,6 +349,24 @@ impl<S: Store> State<S> {
         for (ix, transaction_body) in transaction_bodies.into_iter().enumerate() {
             let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
             let transaction_body = transaction_body.unwrap();
+
+            transaction_body
+                .proposal_procedures
+                .as_ref()
+                .map(|ps| ps.clone().to_vec())
+                .unwrap_or_default()
+                .into_iter()
+                .enumerate()
+                .for_each(|(pp_ix, pp)| {
+                    let key = ProposalPointer {
+                        transaction: transaction_id,
+                        proposal_index: pp_ix,
+                    };
+                    state
+                        .proposals
+                        .register(key, (0, pp), None, None)
+                        .unwrap_or_default(); // Can't happen as by construction key is unique
+                });
 
             let voting_dreps = transaction_body
                 .voting_procedures
