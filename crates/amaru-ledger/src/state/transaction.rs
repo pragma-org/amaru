@@ -21,7 +21,8 @@ use super::{
 use amaru_kernel::{
     reward_account_to_stake_credential, Anchor, Certificate, CertificatePointer, DRep, Epoch,
     HasLovelace, Hash, Lovelace, MintedTransactionBody, NonEmptyKeyValuePairs, PoolId, PoolParams,
-    Set, Slot, StakeCredential, TransactionInput, TransactionOutput, STAKE_CREDENTIAL_DEPOSIT,
+    Set, Slot, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer,
+    STAKE_CREDENTIAL_DEPOSIT,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -88,8 +89,10 @@ pub fn apply(
                 &mut state.committee,
                 certificate,
                 CertificatePointer {
-                    slot: absolute_slot,
-                    transaction_index,
+                    transaction_pointer: TransactionPointer {
+                        slot: absolute_slot,
+                        transaction_index,
+                    },
                     certificate_index,
                 },
             )

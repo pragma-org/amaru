@@ -16,11 +16,12 @@ use std::collections::BTreeSet;
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_kernel::{Epoch, StakeCredential};
-use amaru_ledger::store::StoreError;
+use amaru_ledger::store::{
+    columns::dreps::{Key, Row, Value, EVENT_TARGET},
+    StoreError,
+};
 use rocksdb::Transaction;
 use tracing::error;
-
-use amaru_ledger::store::columns::dreps::{Key, Row, Value, EVENT_TARGET};
 
 /// Name prefixed used for storing DReps entries. UTF-8 encoding for "drep"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x64, 0x72, 0x65, 0x70];

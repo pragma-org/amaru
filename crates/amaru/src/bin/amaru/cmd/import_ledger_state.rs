@@ -14,7 +14,7 @@
 
 use amaru_kernel::{
     epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
-    Set, StakeCredential, TransactionInput, TransactionOutput, DREP_EXPIRY,
+    Set, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY,
     STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
@@ -370,6 +370,7 @@ fn import_utxo(
                 accounts: iter::empty(),
                 dreps: iter::empty(),
                 cc_members: iter::empty(),
+                proposals: iter::empty(),
             },
             Default::default(),
             iter::empty(),
@@ -412,8 +413,10 @@ fn import_dreps(
                         Some((
                             state.deposit,
                             CertificatePointer {
-                                slot: DEFAULT_DREP_REGISTERED_AT,
-                                transaction_index: 0,
+                                transaction_pointer: TransactionPointer {
+                                    slot: DEFAULT_DREP_REGISTERED_AT,
+                                    transaction_index: 0,
+                                },
                                 certificate_index: 0,
                             },
                         )),
@@ -422,6 +425,7 @@ fn import_dreps(
                 )
             }),
             cc_members: iter::empty(),
+            proposals: iter::empty(),
         },
         Default::default(),
         iter::empty(),
@@ -479,6 +483,7 @@ fn import_stake_pools(
             accounts: iter::empty(),
             dreps: iter::empty(),
             cc_members: iter::empty(),
+            proposals: iter::empty(),
         },
         store::Columns {
             pools: state.unregistered.into_iter(),
@@ -486,6 +491,7 @@ fn import_stake_pools(
             accounts: iter::empty(),
             dreps: iter::empty(),
             cc_members: iter::empty(),
+            proposals: iter::empty(),
         },
         iter::empty(),
         BTreeSet::new(),
@@ -549,8 +555,10 @@ fn import_accounts(
                             (
                                 drep,
                                 CertificatePointer {
-                                    slot: DEFAULT_DREP_REGISTERED_AT + 1,
-                                    transaction_index: 0,
+                                    transaction_pointer: TransactionPointer {
+                                        slot: DEFAULT_DREP_REGISTERED_AT + 1,
+                                        transaction_index: 0,
+                                    },
                                     certificate_index: 0,
                                 },
                             )
@@ -582,6 +590,7 @@ fn import_accounts(
                 accounts: chunk,
                 dreps: iter::empty(),
                 cc_members: iter::empty(),
+                proposals: iter::empty(),
             },
             Default::default(),
             iter::empty(),

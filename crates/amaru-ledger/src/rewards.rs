@@ -223,7 +223,7 @@ impl StakeDistribution {
                 .and_modify(|pool| pool.blocks_count += 1);
         });
 
-        let epoch = db.most_recent_snapshot();
+        let epoch = db.epoch();
 
         info!(
             target: EVENT_TARGET,
