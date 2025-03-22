@@ -1,7 +1,10 @@
-use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
+use crate::rules::{
+    context::UtxoSlice, traits::requires_vkey_witness::RequiresVkeyWitness, TransactionField,
+    TransactionRuleViolation,
+};
 use amaru_kernel::{
-    HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
-    OriginalHash, PublicKey, RequiresVkeyWitness, Signature, VKeyWitness,
+    Address, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
+    OriginalHash, PublicKey, Signature, VKeyWitness,
 };
 use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
 
@@ -42,11 +45,26 @@ pub fn execute(
     }
 
     if let Some(withdrawals) = &transaction_body.withdrawals {
-        withdrawals.iter().for_each(|withdrawal| {
-            if let Some(kh) = withdrawal.requires_vkey_witness() {
-                required_vkey_hashes.insert(kh);
-            };
-        });
+        withdrawals
+            .iter()
+            .enumerate()
+            .try_for_each(|(position, (raw_account, _))| {
+                match Address::from_bytes(raw_account) {
+                    // TODO: This parsing should happen when we first deserialise the block, and
+                    // not in the middle of rules validations.
+                    Ok(Address::Stake(account)) => {
+                        if let Some(kh) = account.requires_vkey_witness() {
+                            required_vkey_hashes.insert(kh);
+                        };
+                        Ok(())
+                    }
+                    _ => Err(TransactionRuleViolation::MalformedRewardAccount {
+                        bytes: raw_account.to_vec(),
+                        context: TransactionField::Withdrawals,
+                        position,
+                    }),
+                }
+            })?;
     }
 
     if let Some(voting_procedures) = &transaction_body.voting_procedures {

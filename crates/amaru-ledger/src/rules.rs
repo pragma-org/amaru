@@ -1,5 +1,7 @@
-mod block;
 pub mod context;
+
+mod block;
+mod traits;
 mod transaction;
 
 use crate::rules::{
@@ -87,9 +89,20 @@ pub enum TransactionRuleViolation {
         format_vec(invalid_witnesses)
     )]
     InvalidBootstrapWitnesses { invalid_witnesses: Vec<usize> },
+    #[error("Unexpected bytes instead of reward account in {context:?} at position {position}")]
+    MalformedRewardAccount {
+        bytes: Vec<u8>,
+        context: TransactionField,
+        position: usize,
+    },
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("Uncategorized error: {0}")]
     UncategorizedError(String),
+}
+
+#[derive(Debug)]
+pub enum TransactionField {
+    Withdrawals,
 }
 
 impl From<Vec<Option<RuleViolation>>> for BlockValidationError {

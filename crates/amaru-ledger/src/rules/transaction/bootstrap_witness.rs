@@ -3,7 +3,6 @@ use amaru_kernel::{
     alonzo::BootstrapWitness, to_root, AddrType, Address, HasAddress, KeepRaw,
     MintedTransactionBody, NonEmptySet, OriginalHash, PublicKey, Signature,
 };
-use sha3::{Digest, Sha3_256};
 use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
 
 pub fn execute(
