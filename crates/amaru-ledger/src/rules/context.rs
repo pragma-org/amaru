@@ -1,61 +1,104 @@
-use std::collections::BTreeMap;
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
-use amaru_kernel::{Hasher, KeepRaw, MintedTransactionBody, TransactionInput, TransactionOutput};
+use amaru_kernel::{
+    Anchor, CertificatePointer, DRep, Lovelace, PoolId, PoolParams, StakeCredential,
+    TransactionInput, TransactionOutput,
+};
 
-// A slice here is a subset of the ledger state a ta moment in time
-pub type UtxoSlice = BTreeMap<TransactionInput, TransactionOutput>;
+pub mod fake;
 
-// The BlockValidationContext is a collection of slices needed to validate a block
-#[derive(Default, Debug)]
-pub struct BlockValidationContext {
-    pub utxo_slice: UtxoSlice,
-    // TODO: add more slices as needed
+/// The BlockValidationContext is a collection of slices needed to validate a block
+pub trait BlockValidationContext:
+    PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice
+{
 }
 
-impl BlockValidationContext {
-    pub fn update(
-        &mut self,
-        transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
-        transaction_is_valid: bool,
-    ) {
-        let tx_hash = Hasher::<256>::hash(transaction_body.raw_cbor());
-        if transaction_is_valid {
-            transaction_body.inputs.iter().for_each(|input| {
-                self.utxo_slice.remove(input);
-            });
+/// The BlockPreparationContext is a collection of interfaces needed to prepare a block
+pub trait BlockPreparationContext:
+    PrepareUtxoSlice + PreparePoolsSlice + PrepareAccountsSlice + PrepareDRepsSlice
+{
+}
 
-            for (output, index) in transaction_body.outputs.iter().zip(0u64..) {
-                self.utxo_slice.insert(
-                    TransactionInput {
-                        transaction_id: tx_hash,
-                        index,
-                    },
-                    output.clone().into(),
-                );
-            }
-        } else {
-            match &transaction_body.collateral {
-                Some(collateral) => {
-                    collateral.iter().for_each(|input| {
-                        self.utxo_slice.remove(input);
-                    });
+/// An interface for interacting with the protocol pots.
+pub trait PotsSlice {
+    fn add_fees(&mut self);
+}
 
-                    if let Some(collateral_return) = &transaction_body.collateral_return {
-                        self.utxo_slice.insert(
-                            TransactionInput {
-                                transaction_id: tx_hash,
-                                // Collateral output index is last_output_index + 1
-                                // Safe to do `as u64` here because we won't have 2^32+1 outputs in a tx
-                                index: transaction_body.outputs.len() as u64,
-                            },
-                            collateral_return.clone().into(),
-                        );
-                    }
-                }
-                None => {
-                    // TODO: This should never be possible to reach, but do we want to error? Or just assume our validation has occurred and we're only updating with valid transactions?
-                }
-            }
-        }
-    }
+// An interface for interacting with a subset of the UTxO state.
+pub trait UtxoSlice {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput>;
+    fn consume(&mut self, input: &TransactionInput);
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput);
+}
+
+/// An interface to help constructing the concrete UtxoSlice ahead of time.
+pub trait PrepareUtxoSlice {
+    fn require(&mut self, input: &TransactionInput);
+}
+
+/// An interface for interacting with a subset of the Pools state.
+pub trait PoolsSlice {
+    fn lookup(&self, pool: &PoolId) -> Option<&PoolParams>;
+    fn register(&mut self, params: PoolParams);
+    fn retire(&mut self, pool: &PoolId);
+}
+
+/// An interface to help constructing the concrete PoolsSlice ahead of time.
+pub trait PreparePoolsSlice {
+    fn require(&mut self, pool: &PoolId);
+}
+
+/// An interface for interacting with a subset of the Accounts state.
+pub trait AccountsSlice {
+    fn lookup(&self, credential: &StakeCredential) -> Option<&AccountState>;
+    fn register(&mut self, credential: StakeCredential, state: AccountState);
+    fn delegate_pool(&mut self, pool: PoolId);
+    fn delegate_vote(&mut self, drep: DRep, ptr: CertificatePointer);
+    fn unregister(&mut self, credential: &StakeCredential);
+    fn withdraw_from(&mut self, credential: &StakeCredential);
+}
+
+/// An interface to help constructing the concrete AccountsSlice ahead of time.
+pub trait PrepareAccountsSlice {
+    fn require(&mut self, credential: &StakeCredential);
+}
+
+#[derive(Debug)]
+pub struct AccountState {
+    pub deposit: Lovelace,
+    pub pool: Option<PoolId>,
+    pub drep: Option<(DRep, CertificatePointer)>,
+}
+
+/// An interface for interacting with a subset of the DReps state.
+pub trait DRepsSlice {
+    fn lookup(&self, credential: &DRep) -> Option<&DRepState>;
+    fn register(&mut self, drep: DRep, state: DRepState);
+    fn update(&mut self, drep: &DRep, anchor: Option<Anchor>);
+    fn unregister(&mut self, drep: &DRep);
+    fn vote(&mut self, drep: DRep);
+}
+
+/// An interface to help constructing the concrete DRepsSlice ahead of time.
+pub trait PrepareDRepsSlice {
+    fn require(&mut self, credential: &DRep);
+}
+
+#[derive(Debug)]
+pub struct DRepState {
+    pub deposit: Lovelace,
+    pub anchor: Option<Anchor>,
+    pub registered_at: CertificatePointer,
 }

@@ -1,12 +1,12 @@
 use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
 use amaru_ledger::{
-    rules::{self, context::BlockValidationContext},
+    rules::{self, context},
     state::{self, BackwardError},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
-use std::sync::Arc;
+use std::{collections::BTreeMap, sync::Arc};
 use tracing::{instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -62,10 +62,17 @@ impl<S: Store + Send + Sync> Stage<S> {
         point: Point,
         raw_block: RawBlock,
     ) -> BlockValidationResult {
-        let (_block_header_hash, block) = rules::validate_block(
-            &raw_block[..],
+        let mut ctx = context::fake::FakeBlockPreparationContext {
+            utxo: BTreeMap::new(),
+        };
+
+        let block = rules::prepare_block(&mut ctx, &raw_block[..])
+            .unwrap_or_else(|e| panic!("Failed to prepare block: {:?}", e));
+
+        rules::validate_block(
+            &mut context::fake::FakeBlockValidationContext::from(ctx),
             ProtocolParameters::default(),
-            &mut BlockValidationContext::default(),
+            &block,
         )
         .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
 

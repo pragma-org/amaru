@@ -22,7 +22,7 @@ While elements are being contributed upstream, they might transiently live in th
 */
 
 use num::{rational::Ratio, BigUint};
-pub use pallas_addresses::{byron::AddrType, Address};
+pub use pallas_addresses::{byron::AddrType, Address, StakeAddress, StakePayload};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
@@ -31,7 +31,7 @@ pub use pallas_codec::{
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
-    key::ed25519::{PublicKey, Signature},
+    key::ed25519,
 };
 pub use pallas_primitives::{
     // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
@@ -42,13 +42,15 @@ pub use pallas_primitives::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, DRep,
         Epoch, ExUnits, GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
         MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet, PoolMetadata,
-        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential,
-        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
-        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        PostAlonzoTransactionOutput, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
+        RewardAccount, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
+        WitnessSet,
     },
 };
-use sha3::{Digest, Sha3_256};
-use std::{convert::Infallible, ops::Deref, sync::LazyLock};
+pub use sha3;
+use sha3::{Digest as _, Sha3_256};
+use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyLock};
 
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
@@ -197,7 +199,7 @@ pub type Slot = u64;
 
 pub type Nonce = Hash<32>;
 
-pub type Withdrawal = (Bytes, u64);
+pub type Withdrawal = (StakeAddress, Lovelace);
 
 // CBOR conversions
 // ----------------------------------------------------------------------------
@@ -394,6 +396,28 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
 // Helpers
 // ----------------------------------------------------------------------------
 
+/// Turn any Bytes-like structure into a sized slice. Useful for crypto operation requiring
+/// operands with specific bytes sizes. For example:
+///
+/// # ```
+/// # let public_key: [u8; ed25519::PublicKey::SIZE] = into_sized_array(vkey, |error, expected| {
+/// #     InvalidVKeyWitness::InvalidKeySize { error, expected }
+/// # })?;
+/// # ```
+pub fn into_sized_array<const SIZE: usize, E, T>(
+    bytes: T,
+    into_error: impl Fn(TryFromSliceError, usize) -> E,
+) -> Result<[u8; SIZE], E>
+where
+    T: Deref<Target = Bytes>,
+{
+    bytes
+        .deref()
+        .as_slice()
+        .try_into()
+        .map_err(|e| into_error(e, SIZE))
+}
+
 pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
     let hrp = bech32::Hrp::parse(hrp)?;
     Ok(bech32::encode::<bech32::Bech32>(hrp, payload)?)
@@ -585,81 +609,6 @@ impl HasKeyHash for Address {
                 StakePayload::Stake(hash) => Some(*hash),
                 StakePayload::Script(_) => None,
             },
-        }
-    }
-}
-
-pub trait RequiresVkeyWitness {
-    /// `RequiresVkeyWitness for T` returns the key hash of the vkey witness that is required for transaction validation
-    fn requires_vkey_witness(&self) -> Option<Hash<28>>;
-}
-
-impl RequiresVkeyWitness for Withdrawal {
-    fn requires_vkey_witness(&self) -> Option<Hash<28>> {
-        // The first four bits of the reward account are 1110 for a key hash and 1111 for a script hash
-        if self.0[0] & 0b00010000 == 0 {
-            Some(Hash::from(&self.0[1..29]))
-        } else {
-            None
-        }
-    }
-}
-
-impl RequiresVkeyWitness for Voter {
-    fn requires_vkey_witness(&self) -> Option<Hash<28>> {
-        match self {
-            Voter::ConstitutionalCommitteeKey(hash) => Some(*hash),
-            Voter::DRepKey(hash) => Some(*hash),
-            Voter::StakePoolKey(hash) => Some(*hash),
-            Voter::ConstitutionalCommitteeScript(_) => None,
-            Voter::DRepScript(_) => None,
-        }
-    }
-}
-
-impl RequiresVkeyWitness for Certificate {
-    fn requires_vkey_witness(&self) -> Option<Hash<28>> {
-        match self {
-            Certificate::StakeRegistration(_) => None,
-            Certificate::StakeDeregistration(stake_credential) => stake_credential.key_hash(),
-            Certificate::StakeDelegation(stake_credential, _) => stake_credential.key_hash(),
-            Certificate::PoolRegistration {
-                operator,
-                vrf_keyhash: _,
-                pledge: _,
-                cost: _,
-                margin: _,
-                reward_account: _,
-                pool_owners: _,
-                relays: _,
-                pool_metadata: _,
-            } => Some(*operator),
-            Certificate::PoolRetirement(hash, _) => Some(*hash),
-            Certificate::Reg(stake_credential, coin) => {
-                // The "old behavior of not requiring a witness for staking credential registration"
-                //  is mantained:
-                // - Only during the "transitional period of Conway"
-                // - Only for staking credential registration certificates without a deposit
-                // (see https://github.com/IntersectMBO/cardano-ledger/blob/81637a1c2250225fef47399dd56f80d87384df32/eras/conway/impl/src/Cardano/Ledger/Conway/TxCert.hs#L698)
-                if coin == &0 {
-                    None
-                } else {
-                    stake_credential.key_hash()
-                }
-            }
-            Certificate::UnReg(stake_credential, _) => stake_credential.key_hash(),
-            Certificate::VoteDeleg(stake_credential, _) => stake_credential.key_hash(),
-            Certificate::StakeVoteDeleg(stake_credential, _, _) => stake_credential.key_hash(),
-            Certificate::StakeRegDeleg(stake_credential, _, _) => stake_credential.key_hash(),
-            Certificate::VoteRegDeleg(stake_credential, _, _) => stake_credential.key_hash(),
-            Certificate::StakeVoteRegDeleg(stake_credential, _, _, _) => {
-                stake_credential.key_hash()
-            }
-            Certificate::AuthCommitteeHot(stake_credential, _) => stake_credential.key_hash(),
-            Certificate::ResignCommitteeCold(stake_credential, _) => stake_credential.key_hash(),
-            Certificate::RegDRepCert(stake_credential, _, _) => stake_credential.key_hash(),
-            Certificate::UnRegDRepCert(stake_credential, _) => stake_credential.key_hash(),
-            Certificate::UpdateDRepCert(stake_credential, _) => stake_credential.key_hash(),
         }
     }
 }

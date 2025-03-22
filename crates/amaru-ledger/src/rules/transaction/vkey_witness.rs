@@ -1,15 +1,17 @@
-use std::{array::TryFromSliceError, collections::BTreeSet, ops::Deref};
-
-use crate::rules::{context::UtxoSlice, TransactionRuleViolation};
-use amaru_kernel::{
-    HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
-    OriginalHash, PublicKey, RequiresVkeyWitness, Signature, VKeyWitness,
+use crate::rules::{
+    context::UtxoSlice, traits::requires_vkey_witness::RequiresVkeyWitness, InvalidVKeyWitness,
+    TransactionField, TransactionRuleViolation, WithPosition,
 };
+use amaru_kernel::{
+    ed25519, into_sized_array, Address, Bytes, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw,
+    MintedTransactionBody, NonEmptySet, OriginalHash, VKeyWitness,
+};
+use std::collections::BTreeSet;
 
-pub fn validate_vkey_wintesses(
+pub fn execute(
+    context: &impl UtxoSlice,
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
     vkey_witnesses: &Option<NonEmptySet<VKeyWitness>>,
-    utxo_slice: &UtxoSlice,
 ) -> Result<(), TransactionRuleViolation> {
     let mut required_vkey_hashes: BTreeSet<Hash<28>> = BTreeSet::new();
 
@@ -19,20 +21,21 @@ pub fn validate_vkey_wintesses(
         .concat()
         .iter()
     {
-        // We are assuming the utxo_slice has already been checked for valid inputs
-        let output = utxo_slice.get(input);
-        if let Some(output) = output {
-            let address = output.address().map_err(|e| {
-                TransactionRuleViolation::UncategorizedError(format!(
-                    "Invalid output address. (error {:?}) output: {:?}",
-                    e, output,
-                ))
-            })?;
+        match context.lookup(input) {
+            Some(output) => {
+                let address = output.address().map_err(|e| {
+                    TransactionRuleViolation::UncategorizedError(format!(
+                        "Invalid output address. (error {:?}) output: {:?}",
+                        e, output,
+                    ))
+                })?;
 
-            if let Some(key_hash) = address.key_hash() {
-                required_vkey_hashes.insert(key_hash);
-            };
-        };
+                if let Some(key_hash) = address.key_hash() {
+                    required_vkey_hashes.insert(key_hash);
+                };
+            }
+            None => unimplemented!("failed to lookup input: {input:?}"),
+        }
     }
 
     if let Some(required_signers) = &transaction_body.required_signers {
@@ -42,11 +45,26 @@ pub fn validate_vkey_wintesses(
     }
 
     if let Some(withdrawals) = &transaction_body.withdrawals {
-        withdrawals.iter().for_each(|withdrawal| {
-            if let Some(kh) = withdrawal.requires_vkey_witness() {
-                required_vkey_hashes.insert(kh);
-            };
-        });
+        withdrawals
+            .iter()
+            .enumerate()
+            .try_for_each(|(position, (raw_account, _))| {
+                match Address::from_bytes(raw_account) {
+                    // TODO: This parsing should happen when we first deserialise the block, and
+                    // not in the middle of rules validations.
+                    Ok(Address::Stake(account)) => {
+                        if let Some(kh) = account.requires_vkey_witness() {
+                            required_vkey_hashes.insert(kh);
+                        };
+                        Ok(())
+                    }
+                    _ => Err(TransactionRuleViolation::MalformedRewardAccount {
+                        bytes: raw_account.to_vec(),
+                        context: TransactionField::Withdrawals,
+                        position,
+                    }),
+                }
+            })?;
     }
 
     if let Some(voting_procedures) = &transaction_body.voting_procedures {
@@ -81,36 +99,46 @@ pub fn validate_vkey_wintesses(
         return Err(TransactionRuleViolation::MissingRequiredVkeyWitnesses { missing_key_hashes });
     }
 
-    let invalid_witnesses = vkey_witnesses
+    let mut invalid_witnesses = vec![];
+    vkey_witnesses
         .iter()
         .enumerate()
-        .filter_map(|(index, witness)| {
-            match validate_witness(witness, transaction_body.original_hash().as_slice()) {
-                Ok(is_valid) => {
-                    if !is_valid {
-                        Some(index)
-                    } else {
-                        None
-                    }
-                }
-                Err(_) => Some(index),
-            }
-        })
-        .collect::<Vec<_>>();
+        .for_each(|(position, witness)| {
+            verify_ed25519_signature(
+                &witness.vkey,
+                &witness.signature,
+                transaction_body.original_hash().as_slice(),
+            )
+            .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
+        });
 
     if !invalid_witnesses.is_empty() {
-        return Err(TransactionRuleViolation::InvalidVkeyWitnesses { invalid_witnesses });
+        return Err(TransactionRuleViolation::InvalidVKeyWitnesses { invalid_witnesses });
     }
 
     Ok(())
 }
 
-fn validate_witness(witness: &VKeyWitness, message: &[u8]) -> Result<bool, TryFromSliceError> {
-    let vkey_bytes: [u8; 32] = witness.vkey.deref().as_slice().try_into()?;
-    let signature_bytes: [u8; 64] = witness.signature.deref().as_slice().try_into()?;
+pub(crate) fn verify_ed25519_signature(
+    vkey: &Bytes,
+    signature: &Bytes,
+    message: &[u8],
+) -> Result<(), InvalidVKeyWitness> {
+    // TODO: vkey should come as sized bytes out of the serialization.
+    // To be fixed upstream in Pallas.
+    let public_key = ed25519::PublicKey::from(into_sized_array(vkey, |error, expected| {
+        InvalidVKeyWitness::InvalidKeySize { error, expected }
+    })?);
 
-    let public_key: PublicKey = vkey_bytes.into();
-    let signature: Signature = signature_bytes.into();
+    // TODO: signature should come as sized bytes out of the serialization.
+    // To be fixed upstream in Pallas.
+    let signature = ed25519::Signature::from(into_sized_array(signature, |error, expected| {
+        InvalidVKeyWitness::InvalidSignatureSize { error, expected }
+    })?);
 
-    Ok(public_key.verify(message, &signature))
+    if !public_key.verify(message, &signature) {
+        Err(InvalidVKeyWitness::InvalidSignature)
+    } else {
+        Ok(())
+    }
 }
