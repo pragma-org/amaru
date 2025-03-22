@@ -18,7 +18,7 @@ use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
 
-/// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
+/// Iterator used to browse rows from the DRep column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = (

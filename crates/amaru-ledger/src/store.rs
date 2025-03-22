@@ -108,14 +108,14 @@ pub trait Store: Snapshot {
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
-            impl Iterator<Item = (committees::Key, committees::Value)>,
+            impl Iterator<Item = (cc_members::Key, cc_members::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
             impl Iterator<Item = dreps::Key>,
-            impl Iterator<Item = committees::Key>,
+            impl Iterator<Item = cc_members::Key>,
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
@@ -179,16 +179,16 @@ pub trait Store: Snapshot {
 
 /// A summary of all database columns, in a single struct. This can be derived to provide updates
 /// operations on multiple columns in a single db-transaction.
-pub struct Columns<U, P, A, D, CO> {
+pub struct Columns<U, P, A, D, C> {
     pub utxo: U,
     pub pools: P,
     pub accounts: A,
     pub dreps: D,
-    pub committees: CO,
+    pub cc_members: C,
 }
 
-impl<U, P, A, D, CO> Default
-    for Columns<iter::Empty<U>, iter::Empty<P>, iter::Empty<A>, iter::Empty<D>, iter::Empty<CO>>
+impl<U, P, A, D, C> Default
+    for Columns<iter::Empty<U>, iter::Empty<P>, iter::Empty<A>, iter::Empty<D>, iter::Empty<C>>
 {
     fn default() -> Self {
         Self {
@@ -196,7 +196,7 @@ impl<U, P, A, D, CO> Default
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: iter::empty(),
-            committees: iter::empty(),
+            cc_members: iter::empty(),
         }
     }
 }

@@ -137,8 +137,8 @@ impl Store for MemoryStore {
             >,
             impl Iterator<
                 Item = (
-                    amaru_ledger::store::columns::committees::Key,
-                    amaru_ledger::store::columns::committees::Value,
+                    amaru_ledger::store::columns::cc_members::Key,
+                    amaru_ledger::store::columns::cc_members::Value,
                 ),
             >,
         >,
@@ -147,7 +147,7 @@ impl Store for MemoryStore {
             impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, Epoch)>,
             impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
             impl Iterator<Item = amaru_ledger::store::columns::dreps::Key>,
-            impl Iterator<Item = amaru_ledger::store::columns::committees::Key>,
+            impl Iterator<Item = amaru_ledger::store::columns::cc_members::Key>,
         >,
         _withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
         _voting_dreps: BTreeSet<StakeCredential>,

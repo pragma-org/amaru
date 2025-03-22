@@ -17,9 +17,9 @@ use iter_borrow::IterBorrow;
 
 use crate::state::diff_bind::Resettable;
 
-pub const EVENT_TARGET: &str = "amaru::ledger::store::committees";
+pub const EVENT_TARGET: &str = "amaru::ledger::store::cc_members";
 
-/// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
+/// Iterator used to browse rows from the CC members column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = (Epoch, Resettable<StakeCredential>);

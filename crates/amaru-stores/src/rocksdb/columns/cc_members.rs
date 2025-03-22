@@ -16,12 +16,12 @@ use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_ledger::store::StoreError;
 use rocksdb::Transaction;
 
-use amaru_ledger::store::columns::committees::{Key, Row, Value};
+use amaru_ledger::store::columns::cc_members::{Key, Row, Value};
 
 /// Name prefixed used for storing delegations entries. UTF-8 encoding for "comm"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x43, 0x4F, 0x4D, 0x4D];
 
-/// Register a new DRep.
+/// Register a new CC Member.
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
