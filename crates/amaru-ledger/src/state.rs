@@ -299,31 +299,28 @@ impl<S: Store> State<S> {
         })
     }
 
-    #[allow(clippy::panic)]
     #[allow(clippy::unwrap_used)]
-    fn resolve_inputs<'a>(
-        &'a self,
+    pub fn resolve_inputs<'a>(
+        &'_ self,
         ongoing_state: &VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<TransactionOutput>, StoreError> {
+    ) -> Result<Vec<(&'a TransactionInput, Option<TransactionOutput>)>, StoreError> {
         let mut result = Vec::new();
 
+        // TODO: perform lookup in batch, and possibly within the same transaction as other
+        // required data pre-fetch.
         for input in inputs {
             let output = ongoing_state
                 .resolve_input(input)
                 .cloned()
                 .or_else(|| self.volatile.resolve_input(input).cloned())
-                .map(Ok)
+                .map(|output| Ok(Some(output)))
                 .unwrap_or_else(|| {
                     let db = self.stable.lock().unwrap();
-                    db.utxo(input).map(|opt| {
-                        opt.unwrap_or_else(|| {
-                            panic!("unknown UTxO expected to be known: {input:?}!")
-                        })
-                    })
+                    db.utxo(input)
                 })?;
 
-            result.push(output);
+            result.push((input, output));
         }
 
         Ok(result)
@@ -361,9 +358,16 @@ impl<S: Store> State<S> {
 
             // TODO: Calculate votes for all pending  voting procedures per block ?
 
+            #[allow(clippy::panic)]
             let resolved_collateral_inputs = match transaction_body.collateral {
                 None => vec![],
-                Some(ref inputs) => self.resolve_inputs(&state, inputs.iter())?,
+                Some(ref inputs) => self
+                    .resolve_inputs(&state, inputs.iter())?
+                    .into_iter()
+                    .map(|(input, output)| {
+                        output.unwrap_or_else(|| panic!("unknown required input: {input:?}"))
+                    })
+                    .collect(),
             };
 
             transaction::apply(

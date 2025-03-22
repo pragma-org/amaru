@@ -22,67 +22,81 @@ use amaru_kernel::{
     Anchor, CertificatePointer, DRep, PoolId, PoolParams, StakeCredential, TransactionInput,
     TransactionOutput,
 };
-use std::collections::BTreeMap;
+use std::{
+    borrow::Cow,
+    collections::{BTreeMap, BTreeSet},
+};
 
-#[derive(Debug, Clone)]
-/// A Fake block preparation context that can used for testing. The context is expected to be
-/// provided upfront as test data, and all `require` method merely checks that the requested data
-/// pre-exists in the context.
-pub struct FakeBlockPreparationContext {
-    pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
+/// An implementation of the block preparation context that's suitable for use in normal operation.
+///
+/// It is for now incomplete, but we'll use eventually bridge the gap between the validations and
+/// the state management so that this fully replaces the current state module and child modules.
+///
+/// For now, there's still a bit of duplication between the modules.
+#[derive(Debug, Default)]
+pub struct SimpleBlockPreparationContext<'a> {
+    pub utxo: BTreeSet<&'a TransactionInput>,
 }
 
-impl From<FakeBlockPreparationContext> for FakeBlockValidationContext {
-    fn from(ctx: FakeBlockPreparationContext) -> FakeBlockValidationContext {
-        FakeBlockValidationContext { utxo: ctx.utxo }
-    }
-}
-
-impl BlockPreparationContext<'_> for FakeBlockPreparationContext {}
-
-impl PrepareUtxoSlice<'_> for FakeBlockPreparationContext {
-    #[allow(clippy::panic)]
-    fn require_input(&mut self, input: &TransactionInput) {
-        if !self.utxo.contains_key(input) {
-            panic!("unknown required input: {input:?}");
+impl SimpleBlockPreparationContext<'_> {
+    pub fn new() -> Self {
+        Self {
+            utxo: BTreeSet::new(),
         }
     }
 }
 
-impl PreparePoolsSlice<'_> for FakeBlockPreparationContext {
+impl<'a> BlockPreparationContext<'a> for SimpleBlockPreparationContext<'a> {}
+
+impl<'a> PrepareUtxoSlice<'a> for SimpleBlockPreparationContext<'a> {
+    fn require_input(&'_ mut self, input: &'a TransactionInput) {
+        self.utxo.insert(input);
+    }
+}
+
+impl<'a> PreparePoolsSlice<'a> for SimpleBlockPreparationContext<'a> {
     fn require_pool(&mut self, _pool: &PoolId) {
         unimplemented!();
     }
 }
 
-impl PrepareAccountsSlice<'_> for FakeBlockPreparationContext {
+impl<'a> PrepareAccountsSlice<'a> for SimpleBlockPreparationContext<'a> {
     fn require_account(&mut self, _credential: &StakeCredential) {
         unimplemented!();
     }
 }
 
-impl PrepareDRepsSlice<'_> for FakeBlockPreparationContext {
+impl<'a> PrepareDRepsSlice<'a> for SimpleBlockPreparationContext<'a> {
     fn require_drep(&mut self, _drep: &DRep) {
         unimplemented!();
     }
 }
 
 #[derive(Debug)]
-// TODO: Move into a separate module possibly, or eventually just replace with our _real
-// implementation_.
-pub struct FakeBlockValidationContext {
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
+pub struct SimpleBlockValidationContext<'a> {
+    utxo: BTreeMap<Cow<'a, TransactionInput>, TransactionOutput>,
 }
 
-impl BlockValidationContext for FakeBlockValidationContext {}
+impl<'a> SimpleBlockValidationContext<'a> {
+    pub fn new(utxo: BTreeMap<&'a TransactionInput, TransactionOutput>) -> Self {
+        Self {
+            utxo: utxo
+                .into_iter()
+                .map(|(input, output)| (Cow::Borrowed(input), output))
+                .collect(),
+        }
+    }
+}
 
-impl PotsSlice for FakeBlockValidationContext {
+impl BlockValidationContext for SimpleBlockValidationContext<'_> {}
+
+impl PotsSlice for SimpleBlockValidationContext<'_> {
     fn add_fees(&mut self) {
         unimplemented!()
     }
 }
 
-impl UtxoSlice for FakeBlockValidationContext {
+impl UtxoSlice for SimpleBlockValidationContext<'_> {
     fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
         self.utxo.get(input)
     }
@@ -92,11 +106,11 @@ impl UtxoSlice for FakeBlockValidationContext {
     }
 
     fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
-        self.utxo.insert(input, output);
+        self.utxo.insert(Cow::Owned(input), output);
     }
 }
 
-impl PoolsSlice for FakeBlockValidationContext {
+impl PoolsSlice for SimpleBlockValidationContext<'_> {
     fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
         unimplemented!()
     }
@@ -108,7 +122,7 @@ impl PoolsSlice for FakeBlockValidationContext {
     }
 }
 
-impl AccountsSlice for FakeBlockValidationContext {
+impl AccountsSlice for SimpleBlockValidationContext<'_> {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
         unimplemented!()
     }
@@ -134,7 +148,7 @@ impl AccountsSlice for FakeBlockValidationContext {
     }
 }
 
-impl DRepsSlice for FakeBlockValidationContext {
+impl DRepsSlice for SimpleBlockValidationContext<'_> {
     fn lookup(&self, _credential: &DRep) -> Option<&DRepState> {
         unimplemented!()
     }

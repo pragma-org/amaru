@@ -17,7 +17,9 @@ use amaru_kernel::{
     TransactionInput, TransactionOutput,
 };
 
-pub mod fake;
+pub use simple::*;
+pub(crate) mod fake;
+mod simple;
 
 /// The BlockValidationContext is a collection of slices needed to validate a block
 pub trait BlockValidationContext:
@@ -26,8 +28,8 @@ pub trait BlockValidationContext:
 }
 
 /// The BlockPreparationContext is a collection of interfaces needed to prepare a block
-pub trait BlockPreparationContext:
-    PrepareUtxoSlice + PreparePoolsSlice + PrepareAccountsSlice + PrepareDRepsSlice
+pub trait BlockPreparationContext<'a>:
+    PrepareUtxoSlice<'a> + PreparePoolsSlice<'a> + PrepareAccountsSlice<'a> + PrepareDRepsSlice<'a>
 {
 }
 
@@ -44,8 +46,8 @@ pub trait UtxoSlice {
 }
 
 /// An interface to help constructing the concrete UtxoSlice ahead of time.
-pub trait PrepareUtxoSlice {
-    fn require(&mut self, input: &TransactionInput);
+pub trait PrepareUtxoSlice<'a> {
+    fn require_input(&'_ mut self, input: &'a TransactionInput);
 }
 
 /// An interface for interacting with a subset of the Pools state.
@@ -56,8 +58,8 @@ pub trait PoolsSlice {
 }
 
 /// An interface to help constructing the concrete PoolsSlice ahead of time.
-pub trait PreparePoolsSlice {
-    fn require(&mut self, pool: &PoolId);
+pub trait PreparePoolsSlice<'a> {
+    fn require_pool(&'a mut self, pool: &'a PoolId);
 }
 
 /// An interface for interacting with a subset of the Accounts state.
@@ -71,8 +73,8 @@ pub trait AccountsSlice {
 }
 
 /// An interface to help constructing the concrete AccountsSlice ahead of time.
-pub trait PrepareAccountsSlice {
-    fn require(&mut self, credential: &StakeCredential);
+pub trait PrepareAccountsSlice<'a> {
+    fn require_account(&'a mut self, credential: &'a StakeCredential);
 }
 
 #[derive(Debug)]
@@ -92,8 +94,8 @@ pub trait DRepsSlice {
 }
 
 /// An interface to help constructing the concrete DRepsSlice ahead of time.
-pub trait PrepareDRepsSlice {
-    fn require(&mut self, credential: &DRep);
+pub trait PrepareDRepsSlice<'a> {
+    fn require_drep(&'a mut self, credential: &'a DRep);
 }
 
 #[derive(Debug)]

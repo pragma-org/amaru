@@ -151,34 +151,36 @@ impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
     }
 }
 
-pub fn prepare_block<'a>(
-    context: &mut impl BlockPreparationContext,
-    bytes: &'a [u8],
-) -> Result<MintedBlock<'a>, BlockPreparationError> {
-    let block = parse_block(bytes)?;
+#[instrument(level = Level::TRACE, skip_all)]
+pub fn prepare_block<'block>(
+    context: &mut impl BlockPreparationContext<'block>,
+    block: &'block MintedBlock<'_>,
+) {
+    block.transaction_bodies.iter().for_each(|transaction| {
+        let inputs = transaction.inputs.iter();
 
-    block
-        .transaction_bodies
-        .deref()
-        .iter()
-        .for_each(|transaction| {
-            let inputs = transaction.inputs.iter();
+        let collaterals = transaction
+            .collateral
+            .as_deref()
+            .map(|xs| xs.as_slice())
+            .unwrap_or(&[])
+            .iter();
 
-            let collaterals = transaction
-                .collateral
-                .as_deref()
-                .map(|xs| xs.as_slice())
-                .unwrap_or(&[])
-                .iter();
+        let reference_inputs = transaction
+            .reference_inputs
+            .as_deref()
+            .map(|xs| xs.as_slice())
+            .unwrap_or(&[])
+            .iter();
 
-            inputs
-                .chain(collaterals)
-                .for_each(|input| PrepareUtxoSlice::require(context, input));
-        });
-
-    Ok(block)
+        inputs
+            .chain(reference_inputs)
+            .chain(collaterals)
+            .for_each(|input| context.require_input(input));
+    });
 }
 
+#[instrument(level = Level::TRACE, skip_all)]
 pub fn validate_block(
     context: &mut impl BlockValidationContext,
     protocol_params: ProtocolParameters,
@@ -273,7 +275,7 @@ pub fn validate_transaction(
 }
 
 #[instrument(level = Level::TRACE, skip_all, fields(block.size = bytes.len()))]
-fn parse_block(bytes: &[u8]) -> Result<MintedBlock<'_>, BlockPreparationError> {
+pub fn parse_block(bytes: &[u8]) -> Result<MintedBlock<'_>, BlockPreparationError> {
     let (_, block): (u16, MintedBlock<'_>) =
         cbor::decode(bytes).map_err(|_| BlockPreparationError::DeserializationError)?;
     Ok(block)
@@ -344,7 +346,9 @@ mod tests {
     fn validate_block_success() {
         let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
 
-        let block = prepare_block(&mut ctx, &CONWAY_BLOCK).unwrap();
+        let block = parse_block(&CONWAY_BLOCK).unwrap();
+
+        prepare_block(&mut ctx, &block);
 
         let results = validate_block(
             &mut FakeBlockValidationContext::from(ctx),
@@ -357,9 +361,7 @@ mod tests {
 
     #[test]
     fn validate_block_serialization_err() {
-        let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
-
-        assert!(prepare_block(&mut ctx, &MODIFIED_CONWAY_BLOCK)
+        assert!(parse_block(&MODIFIED_CONWAY_BLOCK)
             .is_err_and(|e| matches!(e, BlockPreparationError::DeserializationError)),);
     }
 
@@ -376,7 +378,9 @@ mod tests {
                 *o = fake_output("6100000000000000000000000000000000000000000000000000000000")
             });
 
-        let block = prepare_block(&mut ctx, &CONWAY_BLOCK).unwrap();
+        let block = parse_block(&CONWAY_BLOCK).unwrap();
+
+        prepare_block(&mut ctx, &block);
 
         assert!(validate_block(
             &mut FakeBlockValidationContext::from(ctx),
@@ -409,7 +413,9 @@ mod tests {
 
         let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
 
-        let block = prepare_block(&mut ctx, &CONWAY_BLOCK).unwrap();
+        let block = parse_block(&CONWAY_BLOCK).unwrap();
+
+        prepare_block(&mut ctx, &block);
 
         assert!(
             validate_block(&mut FakeBlockValidationContext::from(ctx), pp, &block).is_err_and(
