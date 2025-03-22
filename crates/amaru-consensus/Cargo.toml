@@ -15,7 +15,6 @@ rust-version.workspace = true
 [dependencies]
 async-trait.workspace = true
 gasket = { workspace = true, features = [ "derive" ] }
-hex.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
@@ -34,6 +33,7 @@ amaru-ouroboros-traits.workspace = true
 
 [dev-dependencies]
 envpath.workspace = true
+hex.workspace = true
 insta.workspace = true
 proptest.workspace = true
 rand.workspace = true
