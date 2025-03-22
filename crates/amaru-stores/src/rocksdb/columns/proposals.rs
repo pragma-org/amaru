@@ -13,10 +13,12 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_ledger::store::StoreError;
+use amaru_ledger::store::{
+    columns::proposals::{Key, Row, Value, EVENT_TARGET},
+    StoreError,
+};
 use rocksdb::Transaction;
-
-use amaru_ledger::store::columns::proposals::{Key, Row, Value};
+use tracing::error;
 
 /// Name prefixed used for storing DReps entries. UTF-8 encoding for "prop"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
@@ -34,8 +36,13 @@ pub fn add<DB>(
             let row = Row { epoch, proposal };
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
+        } else {
+            error!(
+                target: EVENT_TARGET,
+                ?proposal_pointer,
+                "add.no_proposal_nor_epoch",
+            )
         }
-        // else can't happen
     }
 
     Ok(())
