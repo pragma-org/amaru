@@ -4,18 +4,21 @@ mod block;
 mod traits;
 mod transaction;
 
-use crate::rules::{
-    context::{BlockPreparationContext, PrepareUtxoSlice},
-    transaction::{
-        bootstrap_witness, disjoint_ref_inputs,
-        metadata::{self, InvalidTransactionMetadata},
-        output_size, vkey_witness,
+use crate::{
+    rules::{
+        context::{BlockPreparationContext, PrepareUtxoSlice},
+        transaction::{
+            bootstrap_witness, disjoint_ref_inputs,
+            metadata::{self, InvalidTransactionMetadata},
+            outputs, vkey_witness,
+        },
     },
+    state::FailedTransactions,
 };
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, KeepRaw,
+    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, KeepRaw, Lovelace,
     MintedBlock, MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
-    TransactionInput, TransactionOutput,
+    TransactionInput,
 };
 use block::{body_size::block_body_size_valid, ex_units::*, header_size::block_header_size_valid};
 use context::BlockValidationContext;
@@ -69,9 +72,9 @@ pub enum RuleViolation {
 pub enum TransactionRuleViolation {
     #[error("Inputs included in both reference inputs and spent inputs: intersection [{}]", intersection.iter().map(|input| format!("{}#{}", input.transaction_id, input.transaction_id)).collect::<Vec<_>>().join(", "))]
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
-    #[error("Outputs too small: outputs {outputs_too_small:?}")]
-    OutputTooSmall {
-        outputs_too_small: Vec<TransactionOutput>,
+    #[error("Invalid transaction outputs: [{}]", format_vec(invalid_outputs))]
+    InvalidOutputs {
+        invalid_outputs: Vec<WithPosition<InvalidOutput>>,
     },
     #[error("Invalid transaction metadata: {0}")]
     InvalidTransactionMetadata(#[from] InvalidTransactionMetadata),
@@ -122,6 +125,17 @@ impl<T: Display> Display for WithPosition<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "#{}: {}", self.position, self.element)
     }
+}
+
+#[derive(Debug, Error)]
+pub enum InvalidOutput {
+    #[error(
+        "output doesn't contain enough Lovelace: minimum: {minimum_value}, given: {given_value}"
+    )]
+    OutputTooSmall {
+        minimum_value: Lovelace,
+        given_value: Lovelace,
+    },
 }
 
 #[derive(Debug, Error)]
@@ -213,6 +227,8 @@ pub fn validate_block(
 
     let transactions = block.transaction_bodies.deref().to_vec();
 
+    let failed_transactions = FailedTransactions::from_block(block);
+
     let witness_sets = block.transaction_witness_sets.deref().to_vec();
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
@@ -234,6 +250,7 @@ pub fn validate_block(
 
         validate_transaction(
             context,
+            !failed_transactions.has(i),
             transaction,
             witness_set,
             auxiliary_data,
@@ -253,24 +270,58 @@ pub fn validate_block(
 
 pub fn validate_transaction(
     context: &mut impl BlockValidationContext,
+    is_valid: bool,
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
     transaction_witness_set: &MintedWitnessSet<'_>,
     transaction_auxiliary_data: Option<&AuxiliaryData>,
     protocol_params: &ProtocolParameters,
 ) -> Result<(), TransactionRuleViolation> {
+    let new_output_reference = |index: u64| -> TransactionInput {
+        TransactionInput {
+            transaction_id: transaction_body.original_hash(),
+            index,
+        }
+    };
+
     metadata::execute(transaction_body, transaction_auxiliary_data)?;
+
     disjoint_ref_inputs::execute(transaction_body)?;
-    output_size::execute(transaction_body, protocol_params)?;
+
+    outputs::execute(
+        protocol_params,
+        transaction_body.outputs.iter(),
+        &mut |index, output| {
+            if is_valid {
+                context.produce(new_output_reference(index), output);
+            }
+        },
+    )?;
+
+    outputs::execute(
+        protocol_params,
+        transaction_body.collateral_return.iter(),
+        &mut |index, output| {
+            if !is_valid {
+                // NOTE: Collateral outputs are indexed as if starting at the end of standard
+                // outputs.
+                let offset = transaction_body.outputs.len() as u64;
+                context.produce(new_output_reference(index + offset), output);
+            }
+        },
+    )?;
+
     vkey_witness::execute(
         context,
         transaction_body,
         &transaction_witness_set.vkeywitness,
     )?;
+
     bootstrap_witness::execute(
         context,
         transaction_body,
         &transaction_witness_set.bootstrap_witness,
     )?;
+
     Ok(())
 }
 
@@ -293,7 +344,7 @@ fn format_vec<T: Display>(items: &[T]) -> String {
 mod tests {
     use super::*;
     use crate::rules::context::fake::{FakeBlockPreparationContext, FakeBlockValidationContext};
-    use amaru_kernel::{Bytes, PostAlonzoTransactionOutput, Value};
+    use amaru_kernel::{Bytes, PostAlonzoTransactionOutput, TransactionOutput, Value};
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {

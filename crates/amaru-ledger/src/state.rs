@@ -460,12 +460,12 @@ impl HasStakeDistribution for StakeDistributionView {
 
 /// Failed transactions aren'y immediately available in blocks. Only indices of those transactions
 /// are stored. This internal structure provides a clean(er) interface to accessing those indices.
-struct FailedTransactions {
+pub(crate) struct FailedTransactions {
     inner: BTreeSet<u32>,
 }
 
 impl FailedTransactions {
-    pub fn from_block(block: &MintedBlock<'_>) -> Self {
+    pub(crate) fn from_block(block: &MintedBlock<'_>) -> Self {
         FailedTransactions {
             inner: block
                 .invalid_transactions
@@ -479,7 +479,7 @@ impl FailedTransactions {
         }
     }
 
-    pub fn has(&self, ix: u32) -> bool {
+    pub(crate) fn has(&self, ix: u32) -> bool {
         self.inner.contains(&ix)
     }
 }
