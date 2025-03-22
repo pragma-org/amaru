@@ -22,28 +22,35 @@ While elements are being contributed upstream, they might transiently live in th
 */
 
 use num::{rational::Ratio, BigUint};
+pub use pallas_addresses::{byron::AddrType, Address, StakeAddress, StakePayload};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
     minicbor as cbor,
     utils::{Bytes, NonEmptyKeyValuePairs, Nullable, Set},
 };
-pub use pallas_crypto::hash::{Hash, Hasher};
+pub use pallas_crypto::{
+    hash::{Hash, Hasher},
+    key::ed25519,
+};
 pub use pallas_primitives::{
     // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
     // Investigate.
     alonzo,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, AuxiliaryData, Block, Certificate, Coin, DRep, Epoch, ExUnits,
-        GovActionId, HeaderBody, MintedBlock, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, PoolMetadata, PseudoTransactionOutput, RationalNumber,
-        Redeemers, Relay, RewardAccount, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, Value, Voter, VotingProcedure, VotingProcedures,
-        VrfKeyhash, WitnessSet,
+        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, DRep,
+        Epoch, ExUnits, GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
+        MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet, PoolMetadata,
+        PostAlonzoTransactionOutput, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
+        RewardAccount, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
+        WitnessSet,
     },
 };
-use std::{convert::Infallible, sync::LazyLock};
+pub use sha3;
+use sha3::{Digest as _, Sha3_256};
+use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyLock};
 
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
@@ -191,6 +198,8 @@ pub type PoolId = Hash<28>;
 pub type Slot = u64;
 
 pub type Nonce = Hash<32>;
+
+pub type Withdrawal = (StakeAddress, Lovelace);
 
 // CBOR conversions
 // ----------------------------------------------------------------------------
@@ -387,6 +396,28 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
 // Helpers
 // ----------------------------------------------------------------------------
 
+/// Turn any Bytes-like structure into a sized slice. Useful for crypto operation requiring
+/// operands with specific bytes sizes. For example:
+///
+/// # ```
+/// # let public_key: [u8; ed25519::PublicKey::SIZE] = into_sized_array(vkey, |error, expected| {
+/// #     InvalidVKeyWitness::InvalidKeySize { error, expected }
+/// # })?;
+/// # ```
+pub fn into_sized_array<const SIZE: usize, E, T>(
+    bytes: T,
+    into_error: impl Fn(TryFromSliceError, usize) -> E,
+) -> Result<[u8; SIZE], E>
+where
+    T: Deref<Target = Bytes>,
+{
+    bytes
+        .deref()
+        .as_slice()
+        .try_into()
+        .map_err(|e| into_error(e, SIZE))
+}
+
 pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::error::Error>> {
     let hrp = bech32::Hrp::parse(hrp)?;
     Ok(bech32::encode::<bech32::Bech32>(hrp, payload)?)
@@ -534,7 +565,70 @@ pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
     }
 }
 
-// Create a new `ExUnits` that is the sum of two `ExUnits`
+pub trait HasAddress {
+    fn address(&self) -> Result<Address, pallas_addresses::Error>;
+}
+
+impl HasAddress for TransactionOutput {
+    fn address(&self) -> Result<Address, pallas_addresses::Error> {
+        match self {
+            PseudoTransactionOutput::Legacy(transaction_output) => {
+                Address::from_bytes(&transaction_output.address)
+            }
+            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
+        }
+    }
+}
+
+pub trait HasKeyHash {
+    fn key_hash(&self) -> Option<Hash<28>>;
+}
+
+impl HasKeyHash for StakeCredential {
+    fn key_hash(&self) -> Option<Hash<28>> {
+        match self {
+            StakeCredential::AddrKeyhash(hash) => Some(*hash),
+            StakeCredential::ScriptHash(_) => None,
+        }
+    }
+}
+
+impl HasKeyHash for Address {
+    fn key_hash(&self) -> Option<Hash<28>> {
+        match self {
+            Address::Shelley(shelley_address) => {
+                let payment = shelley_address.payment();
+                if payment.is_script() {
+                    None
+                } else {
+                    Some(*payment.as_hash())
+                }
+            }
+            Address::Byron(_) => None,
+            Address::Stake(stake_address) => match stake_address.payload() {
+                StakePayload::Stake(hash) => Some(*hash),
+                StakePayload::Script(_) => None,
+            },
+        }
+    }
+}
+
+/// Construct the bootstrap root from a bootstrap witness
+pub fn to_root(witness: &BootstrapWitness) -> Hash<28> {
+    // CBOR header for data that will be encoded
+    let prefix: &[u8] = &[131, 0, 130, 0, 88, 64];
+
+    let mut sha_hasher = Sha3_256::new();
+    sha_hasher.update(prefix);
+    sha_hasher.update(witness.public_key.deref());
+    sha_hasher.update(witness.chain_code.deref());
+    sha_hasher.update(witness.attributes.deref());
+
+    let sha_digest = sha_hasher.finalize();
+    Hasher::<224>::hash(&sha_digest)
+}
+
+/// Create a new `ExUnits` that is the sum of two `ExUnits`
 pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
     ExUnits {
         mem: left.mem + right.mem,

@@ -1,6 +1,6 @@
 use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
 use amaru_ledger::{
-    rules,
+    rules::{self, context, parse_block},
     state::{self, BackwardError},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
@@ -62,9 +62,40 @@ impl<S: Store + Send + Sync> Stage<S> {
         point: Point,
         raw_block: RawBlock,
     ) -> BlockValidationResult {
-        let (_block_header_hash, block) =
-            rules::validate_block(&raw_block[..], ProtocolParameters::default())
-                .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
+        let mut ctx = context::SimpleBlockPreparationContext::new();
+
+        let block = parse_block(&raw_block[..])
+            .unwrap_or_else(|e| panic!("Failed to parse block: {:?}", e));
+
+        rules::prepare_block(&mut ctx, &block);
+
+        // TODO: Eventually move into a separate function, or integrate within the ledger instead
+        // of the current .resolve_inputs; once the latter is no longer needed for the state
+        // construction.
+        let inputs = self
+            .state
+            .resolve_inputs(&Default::default(), ctx.utxo.into_iter())
+            .unwrap_or_else(|e| panic!("Failed to resolve inputs: {e:?}"))
+            .into_iter()
+            // NOTE:
+            // It isn't okay to just fail early here because we may be missing UTxO even on valid
+            // transactions! Indeed, since we only have access to the _current_ volatile DB and the
+            // immutable DB. That means, we can't be aware of UTxO created and used within the block.
+            //
+            // Those will however be produced during the validation, and be tracked by the
+            // validation context.
+            //
+            // Hence, we *must* defer errors here until the moment we do expect the UTxO to be
+            // present.
+            .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
+            .collect();
+
+        rules::validate_block(
+            &mut context::SimpleBlockValidationContext::new(inputs),
+            ProtocolParameters::default(),
+            &block,
+        )
+        .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
 
         let current_span = Span::current();
 

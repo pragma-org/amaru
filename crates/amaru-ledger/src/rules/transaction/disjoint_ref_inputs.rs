@@ -1,10 +1,7 @@
+use crate::rules::TransactionRuleViolation;
 use amaru_kernel::MintedTransactionBody;
 
-use crate::rules::TransactionRuleViolation;
-
-pub fn disjoint_ref_inputs(
-    transaction: &MintedTransactionBody<'_>,
-) -> Result<(), TransactionRuleViolation> {
+pub fn execute(transaction: &MintedTransactionBody<'_>) -> Result<(), TransactionRuleViolation> {
     let intersection = match &transaction.reference_inputs {
         Some(ref_inputs) => ref_inputs
             .iter()
