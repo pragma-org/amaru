@@ -25,9 +25,9 @@ use crate::{
 };
 use amaru_kernel::{
     self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
-    ProposalPointer, Slot, StakeCredential, TransactionInput, TransactionOutput,
-    TransactionPointer, Voter, VotingProcedures, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
-    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    ProposalPointer, Slot, StakeCredential, TransactionInput, TransactionOutput, Voter,
+    VotingProcedures, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
+    STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
@@ -359,10 +359,7 @@ impl<S: Store> State<S> {
                 .enumerate()
                 .for_each(|(pp_ix, pp)| {
                     let key = ProposalPointer {
-                        transaction_pointer: TransactionPointer {
-                            slot: absolute_slot,
-                            transaction_index: ix,
-                        },
+                        transaction: transaction_id,
                         proposal_index: pp_ix,
                     };
                     state

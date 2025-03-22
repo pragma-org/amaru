@@ -23,6 +23,9 @@ use amaru_kernel::{
     Proposal, ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::collections::{BTreeSet, VecDeque};
+use tracing::error;
+
+pub const EVENT_TARGET: &str = "amaru::ledger::state::volatile_db";
 
 // VolatileDB
 // ----------------------------------------------------------------------------
@@ -250,29 +253,70 @@ impl AnchoredVolatileState {
                         (credential, (anchor, deposit, epoch))
                     },
                 ),
-                cc_members: self.state.committee.registered.into_iter().map(
-                    move |(
-                        credential,
-                        Bind {
-                            left: hot_credential,
-                            right: _,
-                            value: epoch,
+                cc_members: self
+                    .state
+                    .committee
+                    .registered
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(
+                        move |(
+                            index,
+                            (
+                                credential,
+                                Bind {
+                                    left: hot_credential,
+                                    right: _,
+                                    value: epoch,
+                                },
+                            ),
+                        )| {
+                            match epoch {
+                                Some(epoch) => Some((credential, (epoch, hot_credential))),
+                                None => {
+                                    error!(
+                                        target: EVENT_TARGET,
+                                        index,
+                                        "add.cc_members.no_epoch",
+                                    );
+                                    None
+                                }
+                            }
                         },
-                    )| {
-                        (credential, (epoch.unwrap_or_default(), hot_credential))
-                        // Never None
-                    },
-                ),
-                proposals: self.state.proposals.registered.into_iter().map(
-                    move |(
-                        proposal_pointer,
-                        Bind {
-                            left: _,
-                            right: _,
-                            value,
+                    ),
+                proposals: self
+                    .state
+                    .proposals
+                    .registered
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(
+                        move |(
+                            index,
+                            (
+                                proposal_pointer,
+                                Bind {
+                                    left: _,
+                                    right: _,
+                                    value,
+                                },
+                            ),
+                        ): (usize, (_, Bind<_, Empty, _>))| {
+                            match value {
+                                Some((epoch, proposal)) => {
+                                    Some((proposal_pointer, (epoch, proposal)))
+                                }
+                                None => {
+                                    error!(
+                                        target: EVENT_TARGET,
+                                        index,
+                                        "add.proposals.no_proposal",
+                                    );
+                                    None
+                                }
+                            }
                         },
-                    ): (_, Bind<_, Empty, _>)| { (proposal_pointer, value) },
-                ),
+                    ),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),

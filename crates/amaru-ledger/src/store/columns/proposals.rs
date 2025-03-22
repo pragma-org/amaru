@@ -20,7 +20,7 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = Option<(Epoch, Proposal)>;
+pub type Value = (Epoch, Proposal);
 
 pub type Key = ProposalPointer;
 

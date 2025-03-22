@@ -197,6 +197,8 @@ impl<'b> Decode<'b, ()> for Point {
     }
 }
 
+pub type TransactionId = Hash<32>;
+
 pub type PoolId = Hash<28>;
 
 pub type Slot = u64;
@@ -371,18 +373,6 @@ pub struct TransactionPointer {
     pub transaction_index: usize,
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
-pub struct CertificatePointer {
-    pub transaction_pointer: TransactionPointer,
-    pub certificate_index: usize,
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
-pub struct ProposalPointer {
-    pub transaction_pointer: TransactionPointer,
-    pub proposal_index: usize,
-}
-
 impl<C> cbor::encode::Encode<C> for TransactionPointer {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -404,6 +394,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
             transaction_index: d.decode_with(ctx)?,
         })
     }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
+pub struct CertificatePointer {
+    pub transaction_pointer: TransactionPointer,
+    pub certificate_index: usize,
 }
 
 impl<C> cbor::encode::Encode<C> for CertificatePointer {
@@ -429,6 +425,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ProposalPointer {
+    pub transaction: TransactionId,
+    pub proposal_index: usize,
+}
+
 impl<C> cbor::encode::Encode<C> for ProposalPointer {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -436,7 +438,7 @@ impl<C> cbor::encode::Encode<C> for ProposalPointer {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
-        e.encode_with(self.transaction_pointer, ctx)?;
+        e.encode_with(self.transaction, ctx)?;
         e.encode_with(self.proposal_index, ctx)?;
         Ok(())
     }
@@ -446,7 +448,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProposalPointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let _len = d.array()?;
         Ok(ProposalPointer {
-            transaction_pointer: d.decode_with(ctx)?,
+            transaction: d.decode_with(ctx)?,
             proposal_index: d.decode_with(ctx)?,
         })
     }

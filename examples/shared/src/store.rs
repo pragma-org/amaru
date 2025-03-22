@@ -224,4 +224,11 @@ impl Store for MemoryStore {
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }
+
+    fn with_proposals(
+        &self,
+        _with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
 }

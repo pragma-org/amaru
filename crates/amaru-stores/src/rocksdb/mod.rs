@@ -530,4 +530,11 @@ impl Store for RocksDB {
     ) -> Result<(), StoreError> {
         with_prefix_iterator(self.db.transaction(), dreps::PREFIX, with)
     }
+
+    fn with_proposals(
+        &self,
+        with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(self.db.transaction(), proposals::PREFIX, with)
+    }
 }

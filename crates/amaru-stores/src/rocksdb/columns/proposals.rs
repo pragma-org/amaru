@@ -14,41 +14,31 @@
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_ledger::store::{
-    columns::proposals::{Key, Row, Value, EVENT_TARGET},
+    columns::proposals::{Key, Row, Value},
     StoreError,
 };
 use rocksdb::Transaction;
-use tracing::error;
 
-/// Name prefixed used for storing DReps entries. UTF-8 encoding for "prop"
+/// Name prefixed used for storing Proposals entries. UTF-8 encoding for "prop"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
 
-/// Register a new DRep.
+/// Register a new Proposal.
 #[allow(clippy::unwrap_used)]
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (proposal_pointer, value) in rows {
+    for (proposal_pointer, (epoch, proposal)) in rows {
         let key = as_key(&PREFIX, proposal_pointer);
-
-        if let Some((epoch, proposal)) = value {
-            let row = Row { epoch, proposal };
-            db.put(key, as_value(row))
-                .map_err(|err| StoreError::Internal(err.into()))?;
-        } else {
-            error!(
-                target: EVENT_TARGET,
-                ?proposal_pointer,
-                "add.no_proposal_nor_epoch",
-            )
-        }
+        let row = Row { epoch, proposal };
+        db.put(key, as_value(row))
+            .map_err(|err| StoreError::Internal(err.into()))?;
     }
 
     Ok(())
 }
 
-/// Clear a DRep registration.
+/// Clear a Proposal registration.
 pub fn remove<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = Key>,

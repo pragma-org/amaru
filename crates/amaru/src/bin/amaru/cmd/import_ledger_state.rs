@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
-    Set, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY,
-    STAKE_CREDENTIAL_DEPOSIT,
+    epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, GovActionId, Lovelace, Point, PoolId,
+    PoolParams, Proposal, ProposalPointer, Set, StakeCredential, TransactionInput,
+    TransactionOutput, TransactionPointer, DREP_EXPIRY, STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
     self,
@@ -36,7 +36,14 @@ use std::{
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
-const DEFAULT_DREP_REGISTERED_AT: u64 = 0;
+
+const DEFAULT_CERTIFICATE_POINTER: CertificatePointer = CertificatePointer {
+    transaction_pointer: TransactionPointer {
+        slot: 0,
+        transaction_index: 0,
+    },
+    certificate_index: 0,
+};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -256,7 +263,27 @@ fn decode_new_epoch_state(
                 fees = d.decode()?;
 
                 // Epoch State / Ledger State / UTxO State / utxosGovState
-                d.skip()?;
+                {
+                    d.array()?;
+
+                    // Proposals
+                    d.array()?;
+                    d.skip()?; // Proposals roots
+                    import_proposals(db, point, d.decode()?)?;
+
+                    // Constitutional committee
+                    d.skip()?;
+                    // Constitution
+                    d.skip()?;
+                    // Current Protocol Params
+                    d.skip()?;
+                    // Previous Protocol Params
+                    d.skip()?;
+                    // Future Protocol Params
+                    d.skip()?;
+                    // DRep Pulsing State
+                    d.skip()?;
+                }
 
                 // Epoch State / Ledger State / UTxO State / utxosStakeDistr
                 d.skip()?;
@@ -410,22 +437,51 @@ fn import_dreps(
                     credential,
                     (
                         Resettable::from(Option::from(state.anchor)),
-                        Some((
-                            state.deposit,
-                            CertificatePointer {
-                                transaction_pointer: TransactionPointer {
-                                    slot: DEFAULT_DREP_REGISTERED_AT,
-                                    transaction_index: 0,
-                                },
-                                certificate_index: 0,
-                            },
-                        )),
+                        Some((state.deposit, DEFAULT_CERTIFICATE_POINTER)),
                         state.expiry - DREP_EXPIRY,
                     ),
                 )
             }),
             cc_members: iter::empty(),
             proposals: iter::empty(),
+        },
+        Default::default(),
+        iter::empty(),
+        BTreeSet::new(),
+    )
+}
+
+fn import_proposals(
+    db: &impl Store,
+    point: &Point,
+    proposals: Vec<ProposalState>,
+) -> Result<(), impl std::error::Error> {
+    db.with_proposals(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })?;
+
+    info!(what = "proposals", size = proposals.len());
+
+    db.save(
+        point,
+        None,
+        store::Columns {
+            utxo: iter::empty(),
+            pools: iter::empty(),
+            accounts: iter::empty(),
+            dreps: iter::empty(),
+            cc_members: iter::empty(),
+            proposals: proposals.into_iter().map(|proposal| {
+                (
+                    ProposalPointer {
+                        transaction: proposal.id.transaction_id,
+                        proposal_index: proposal.id.action_index as usize,
+                    },
+                    (proposal.proposed_in, proposal.procedure),
+                )
+            }),
         },
         Default::default(),
         iter::empty(),
@@ -551,18 +607,10 @@ fn import_accounts(
                     (
                         Resettable::from(Option::<PoolId>::from(pool)),
                         //No slot to retrieve. All registrations coming from snapshot are considered valid.
-                        Resettable::from(Option::<DRep>::from(drep).map(|drep| {
-                            (
-                                drep,
-                                CertificatePointer {
-                                    transaction_pointer: TransactionPointer {
-                                        slot: DEFAULT_DREP_REGISTERED_AT + 1,
-                                        transaction_index: 0,
-                                    },
-                                    certificate_index: 0,
-                                },
-                            )
-                        })),
+                        Resettable::from(
+                            Option::<DRep>::from(drep)
+                                .map(|drep| (drep, DEFAULT_CERTIFICATE_POINTER)),
+                        ),
                         Some(deposit),
                         rewards + rewards_update,
                     ),
@@ -706,6 +754,35 @@ impl<'b, C> cbor::decode::Decode<'b, C> for DRepState {
             anchor: d.decode_with(ctx)?,
             deposit: d.decode_with(ctx)?,
             delegators: d.decode_with(ctx)?,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct ProposalState {
+    id: GovActionId,
+    procedure: Proposal,
+    proposed_in: Epoch,
+    #[allow(dead_code)]
+    expires_after: Epoch,
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for ProposalState {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        let id = d.decode_with(ctx)?;
+        d.skip()?; // CC Votes
+        d.skip()?; // DRep Votes
+        d.skip()?; // SPO Votes
+        let procedure = d.decode_with(ctx)?;
+        let proposed_in = d.decode_with(ctx)?;
+        let expires_after = d.decode_with(ctx)?;
+
+        Ok(ProposalState {
+            id,
+            procedure,
+            proposed_in,
+            expires_after,
         })
     }
 }

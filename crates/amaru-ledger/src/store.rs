@@ -171,6 +171,9 @@ pub trait Store: Snapshot {
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
     fn with_dreps(&self, with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<(), StoreError>;
 
+    /// Provide an access to iterate over dreps, similar to 'with_pools'.
+    fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<(), StoreError>;
+
     #[instrument(level = Level::TRACE, name = "tick.pool", skip_all)]
     fn tick_pools(&self, epoch: Epoch) -> Result<(), StoreError> {
         self.with_pools(|iterator| {
