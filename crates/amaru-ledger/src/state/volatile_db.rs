@@ -141,6 +141,7 @@ pub struct VolatileState {
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
+    pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Epoch>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
     pub fees: Lovelace,
@@ -188,12 +189,14 @@ impl AnchoredVolatileState {
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
+            impl Iterator<Item = (cc_members::Key, cc_members::Value)>,
         >,
         store::Columns<
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
             impl Iterator<Item = dreps::Key>,
+            impl Iterator<Item = cc_members::Key>,
         >,
     > {
         let slot = self.anchor.0.slot_or_default();
@@ -244,12 +247,26 @@ impl AnchoredVolatileState {
                         (credential, (anchor, deposit, epoch))
                     },
                 ),
+                cc_members: self.state.committee.registered.into_iter().map(
+                    move |(
+                        credential,
+                        Bind {
+                            left: hot_credential,
+                            right: _,
+                            value: epoch,
+                        },
+                    )| {
+                        (credential, (epoch.unwrap_or_default(), hot_credential))
+                        // Never None
+                    },
+                ),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),
                 pools: self.state.pools.unregistered.into_iter(),
                 accounts: self.state.accounts.unregistered.into_iter(),
                 dreps: self.state.dreps.unregistered.into_iter(),
+                cc_members: self.state.committee.unregistered.into_iter(),
             },
         }
     }
