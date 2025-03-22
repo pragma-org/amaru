@@ -83,19 +83,12 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::store::columns::tests::any_certificate_pointer;
-
     use super::Row;
-    use amaru_kernel::{from_cbor, to_cbor, DRep, Hash, Lovelace, PoolId};
+    use crate::store::columns::tests::any_certificate_pointer;
+    use amaru_kernel::{prop_cbor_roundtrip, DRep, Hash, Lovelace, PoolId};
     use proptest::{option, prelude::*};
 
-    proptest! {
-        #[test]
-        fn prop_row_roundtrip_cbor(row in any_row()) {
-            let bytes = to_cbor(&row);
-            assert_eq!(Some(row), from_cbor::<Row>(&bytes))
-        }
-    }
+    prop_cbor_roundtrip!(Row, any_row());
 
     prop_compose! {
         fn any_row()(

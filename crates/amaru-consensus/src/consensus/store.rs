@@ -185,8 +185,8 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::test::{hash, include_header};
-    use amaru_kernel::{from_cbor, to_cbor, Header};
+    use crate::test::include_header;
+    use amaru_kernel::{from_cbor, hash, to_cbor, Header};
     use amaru_ouroboros_traits::{IsHeader, Praos};
     use proptest::{prelude::*, prop_compose, proptest};
     use std::{collections::BTreeMap, sync::LazyLock};
