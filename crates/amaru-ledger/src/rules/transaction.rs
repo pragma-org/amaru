@@ -114,13 +114,21 @@ pub fn execute(
 
     outputs::execute(
         protocol_params,
-        mem::take(&mut transaction_body.outputs),
-        &mut |index, output| {
-            if is_valid {
+        mem::take(&mut transaction_body.collateral_return)
+            .map(|x| vec![x])
+            .unwrap_or_default(),
+        &mut |_index, output| {
+            if !is_valid {
+                // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
+                //
+                // NOTE(2): We must process collateral before processing normal outputs, or, store
+                // the output length elsewhere since after having consumed the outputs, the .len()
+                // will always return zero.
+                let offset = transaction_body.outputs.len() as u64;
                 context.produce(
                     TransactionInput {
                         transaction_id,
-                        index,
+                        index: offset,
                     },
                     output,
                 );
@@ -130,18 +138,13 @@ pub fn execute(
 
     outputs::execute(
         protocol_params,
-        mem::take(&mut transaction_body.collateral_return)
-            .map(|x| vec![x])
-            .unwrap_or_default(),
+        mem::take(&mut transaction_body.outputs),
         &mut |index, output| {
-            if !is_valid {
-                // NOTE: Collateral outputs are indexed as if starting at the end of standard
-                // outputs.
-                let offset = transaction_body.outputs.len() as u64;
+            if is_valid {
                 context.produce(
                     TransactionInput {
                         transaction_id,
-                        index: index + offset,
+                        index,
                     },
                     output,
                 );
