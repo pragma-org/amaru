@@ -13,9 +13,8 @@
 // limitations under the License.
 
 pub mod chain_selection;
+/// Block fetch stage
+pub mod fetch;
 pub mod header_validation;
 pub mod store;
 pub mod wiring;
-/// Block fetch stage
-pub mod fetch;
-

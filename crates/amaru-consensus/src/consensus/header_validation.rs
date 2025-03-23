@@ -121,7 +121,7 @@ impl Consensus {
         &mut self,
         peer: &Peer,
         point: &Point,
-        raw_header: &[u8]
+        raw_header: &[u8],
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let minted_header: MintedHeader<'_> = minicbor::decode(raw_header)
             .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
@@ -170,9 +170,7 @@ impl Consensus {
                 rollback_point,
                 tip: _,
                 fork,
-            }) => {
-                self.switch_to_fork(&peer, &rollback_point, fork, &span)
-            },
+            }) => self.switch_to_fork(&peer, &rollback_point, fork, &span),
             chain_selection::ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
                 vec![]
