@@ -40,7 +40,7 @@ pub enum InvalidBootstrapWitnesses {
 }
 
 pub fn execute(
-    context: &impl WitnessSlice,
+    context: &mut impl WitnessSlice,
     transaction_id: TransactionId,
     bootstrap_witnesses: Option<&Vec<BootstrapWitness>>,
 ) -> Result<(), InvalidBootstrapWitnesses> {

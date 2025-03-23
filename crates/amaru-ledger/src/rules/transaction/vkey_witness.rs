@@ -48,7 +48,7 @@ pub enum InvalidVKeyWitness {
 }
 
 pub fn execute(
-    context: &impl WitnessSlice,
+    context: &mut impl WitnessSlice,
     transaction_id: TransactionId,
     vkey_witnesses: Option<&Vec<VKeyWitness>>,
 ) -> Result<(), InvalidVKeyWitness> {

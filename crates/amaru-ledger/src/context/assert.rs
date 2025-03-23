@@ -22,6 +22,7 @@ use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal,
     ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
+use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
 
 // ------------------------------------------------------------------------------------- Preparation
@@ -228,11 +229,11 @@ impl WitnessSlice for AssertValidationContext {
         self.required_bootstrap_signers.insert(root);
     }
 
-    fn required_signers(&self) -> BTreeSet<Hash<28>> {
-        self.required_signers.iter().copied().collect()
+    fn required_signers(&mut self) -> BTreeSet<Hash<28>> {
+        mem::take(&mut self.required_signers)
     }
 
-    fn required_bootstrap_signers(&self) -> BTreeSet<Hash<28>> {
-        self.required_bootstrap_signers.iter().copied().collect()
+    fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>> {
+        mem::take(&mut self.required_bootstrap_signers)
     }
 }

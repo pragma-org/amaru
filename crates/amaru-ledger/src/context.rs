@@ -49,7 +49,7 @@ pub trait PreparationContext<'a>:
 
 #[derive(thiserror::Error, Debug)]
 pub enum RegisterError<ROLE, K> {
-    #[error("unknown entity: {0:?}")] // TODO: Use Display
+    #[error("already registered entity: {0:?}")] // TODO: Use Display
     AlreadyRegistered(PhantomData<ROLE>, K),
 }
 
@@ -262,9 +262,9 @@ pub trait WitnessSlice {
     fn require_bootstrap_witness(&mut self, root: Hash<28>);
 
     /// Obtain the full list of required signers collected while traversing the transaction.
-    fn required_signers(&self) -> BTreeSet<Hash<28>>;
+    fn required_signers(&mut self) -> BTreeSet<Hash<28>>;
 
     /// Obtain the full list of required bootstrap witnesses collected while traversing the
     /// transaction.
-    fn required_bootstrap_signers(&self) -> BTreeSet<Hash<28>>;
+    fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>>;
 }
