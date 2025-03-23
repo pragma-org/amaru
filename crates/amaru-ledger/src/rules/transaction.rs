@@ -162,5 +162,17 @@ pub fn execute(
         transaction_witness_set.bootstrap_witness.as_deref(),
     )?;
 
+    // At last, consume inputs
+    if is_valid {
+        transaction_body.inputs.to_vec()
+    } else {
+        transaction_body
+            .collateral
+            .map(|x| x.to_vec())
+            .unwrap_or_default()
+    }
+    .into_iter()
+    .for_each(|input| context.consume(input));
+
     Ok(())
 }
