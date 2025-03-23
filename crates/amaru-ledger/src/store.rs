@@ -14,8 +14,7 @@
 
 pub mod columns;
 
-use crate::rewards::Pots;
-pub use crate::rewards::{RewardsSummary, StakeDistribution};
+use crate::summary::rewards::{Pots, RewardsSummary};
 use amaru_kernel::{
     cbor, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };

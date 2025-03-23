@@ -1,7 +1,7 @@
 use amaru_kernel::{Epoch, Point, StakeCredential};
 use amaru_ledger::{
-    rewards::Pots,
     store::{Snapshot, Store},
+    summary::rewards::Pots,
 };
 use std::collections::BTreeSet;
 
@@ -27,7 +27,9 @@ impl Snapshot for MemoryStore {
         Ok(None)
     }
 
-    fn pots(&self) -> Result<amaru_ledger::rewards::Pots, amaru_ledger::store::StoreError> {
+    fn pots(
+        &self,
+    ) -> Result<amaru_ledger::summary::rewards::Pots, amaru_ledger::store::StoreError> {
         Ok(Pots {
             fees: 0,
             treasury: 0,
@@ -178,7 +180,7 @@ impl Store for MemoryStore {
     fn next_snapshot(
         &mut self,
         _epoch: Epoch,
-        _rewards_summary: Option<amaru_ledger::store::RewardsSummary>,
+        _rewards_summary: Option<amaru_ledger::summary::rewards::RewardsSummary>,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }

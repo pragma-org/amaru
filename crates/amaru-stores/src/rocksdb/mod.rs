@@ -17,11 +17,10 @@ use amaru_kernel::{
     epoch_from_slot, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
-    rewards::Pots,
     store::{
-        columns as scolumns, Columns, OpenErrorKind, RewardsSummary, Snapshot, Store, StoreError,
-        TipErrorKind,
+        columns as scolumns, Columns, OpenErrorKind, Snapshot, Store, StoreError, TipErrorKind,
     },
+    summary::rewards::{Pots, RewardsSummary},
 };
 use columns::*;
 use common::{as_value, PREFIX_LEN};

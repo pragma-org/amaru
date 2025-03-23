@@ -32,8 +32,7 @@ pub enum BlockValidationResult {
 }
 
 pub mod context;
-pub mod governance;
-pub mod rewards;
 pub mod rules;
 pub mod state;
 pub mod store;
+pub mod summary;

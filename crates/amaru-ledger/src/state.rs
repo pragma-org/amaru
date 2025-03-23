@@ -19,9 +19,9 @@ pub mod transaction;
 pub mod volatile_db;
 
 use crate::{
-    rewards::{RewardsSummary, StakeDistribution},
     state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
     store::{Store, StoreError},
+    summary::rewards::{RewardsSummary, StakeDistribution},
 };
 use amaru_kernel::{
     self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,

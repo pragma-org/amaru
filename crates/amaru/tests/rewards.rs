@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use amaru_ledger::{
-    governance::DRepsSummary,
-    rewards::StakeDistribution,
-    store::{RewardsSummary, Snapshot},
+    store::Snapshot,
+    summary::{
+        governance::DRepsSummary,
+        rewards::{RewardsSummary, StakeDistribution},
+    },
 };
 use amaru_stores::rocksdb::RocksDB;
 use pallas_primitives::Epoch;

@@ -135,7 +135,7 @@ impl serde::Serialize for DRepsSummary {
 ///
 /// ```rust
 /// use amaru_kernel::{DRep, Hash};
-/// use amaru_ledger::governance::into_drep_id;
+/// use amaru_ledger::summary::governance::into_drep_id;
 ///
 /// let key_drep = DRep::Key(Hash::from(
 ///   hex::decode("7a719c71d1bc67d2eb4af19f02fd48e7498843d33a22168111344a34")
