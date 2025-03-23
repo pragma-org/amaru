@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod bootstrap_witness;
+pub mod certificates;
 pub mod inputs;
 pub mod metadata;
 pub mod outputs;

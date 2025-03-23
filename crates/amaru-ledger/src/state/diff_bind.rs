@@ -56,6 +56,7 @@ impl<A> From<Option<A>> for Resettable<A> {
     }
 }
 
+#[derive(Debug)]
 pub struct Empty;
 
 impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
@@ -68,11 +69,15 @@ impl<K: Ord, L, R, V> Default for DiffBind<K, L, R, V> {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum Error {
-    #[error("Key is already registered")]
-    KeyAlreadyRegistered,
-    #[error("Key is already unregistered")]
-    KeyAlreadyUnregistered,
+pub enum RegisterError<K> {
+    #[error("key is already registered")]
+    AlreadyRegistered(K),
+}
+
+#[derive(thiserror::Error, Debug)]
+pub enum BindError<K> {
+    #[error("key is already unregistered")]
+    AlreadyUnregistered(K),
 }
 
 impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
@@ -82,9 +87,9 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
         value: V,
         left: Option<L>,
         right: Option<R>,
-    ) -> Result<(), Error> {
+    ) -> Result<(), RegisterError<K>> {
         if self.registered.contains_key(&key) {
-            return Err(Error::KeyAlreadyRegistered);
+            return Err(RegisterError::AlreadyRegistered(key));
         }
 
         self.unregistered.remove(&key);
@@ -100,9 +105,9 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
         Ok(())
     }
 
-    pub fn bind_left(&mut self, key: K, left: Option<L>) -> Result<(), Error> {
+    pub fn bind_left(&mut self, key: K, left: Option<L>) -> Result<(), BindError<K>> {
         if self.unregistered.contains(&key) {
-            return Err(Error::KeyAlreadyUnregistered);
+            return Err(BindError::AlreadyUnregistered(key));
         }
 
         match self.registered.entry(key) {
@@ -121,9 +126,9 @@ impl<K: Ord, L, R, V> DiffBind<K, L, R, V> {
         Ok(())
     }
 
-    pub fn bind_right(&mut self, key: K, right: Option<R>) -> Result<(), Error> {
+    pub fn bind_right(&mut self, key: K, right: Option<R>) -> Result<(), BindError<K>> {
         if self.unregistered.contains(&key) {
-            return Err(Error::KeyAlreadyUnregistered);
+            return Err(BindError::AlreadyUnregistered(key));
         }
 
         match self.registered.entry(key) {
@@ -297,7 +302,7 @@ mod tests {
         diff_bind.bind_left(1, Some("left")).unwrap();
         assert!(matches!(
             diff_bind.register(1, "value", None, None::<()>),
-            Err(Error::KeyAlreadyRegistered { .. })
+            Err(RegisterError::AlreadyRegistered { .. })
         ));
     }
 
@@ -307,7 +312,7 @@ mod tests {
         diff_bind.bind_right(1, Some("right")).unwrap();
         assert!(matches!(
             diff_bind.register(1, "value", None::<()>, None),
-            Err(Error::KeyAlreadyRegistered { .. })
+            Err(RegisterError::AlreadyRegistered { .. })
         ));
     }
 

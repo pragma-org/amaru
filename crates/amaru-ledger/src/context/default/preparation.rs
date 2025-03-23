@@ -16,7 +16,7 @@ use crate::context::{
     PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice,
     PrepareUtxoSlice,
 };
-use amaru_kernel::{DRep, PoolId, StakeCredential, TransactionInput};
+use amaru_kernel::{PoolId, StakeCredential, TransactionInput};
 use std::collections::BTreeSet;
 
 /// An implementation of the block preparation context that's suitable for use in normal operation.
@@ -59,7 +59,7 @@ impl<'a> PrepareAccountsSlice<'a> for DefaultPreparationContext<'a> {
 }
 
 impl<'a> PrepareDRepsSlice<'a> for DefaultPreparationContext<'a> {
-    fn require_drep(&mut self, _drep: &DRep) {
+    fn require_drep(&mut self, _drep: &StakeCredential) {
         unimplemented!();
     }
 }

@@ -13,13 +13,14 @@
 // limitations under the License.
 
 use crate::context::{
-    AccountState, AccountsSlice, DRepState, DRepsSlice, PoolsSlice, PotsSlice, PreparationContext,
-    PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, UtxoSlice,
+    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice, DelegateError,
+    PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
+    PreparePoolsSlice, PrepareUtxoSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
     ValidationContext,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, PoolId, PoolParams, StakeCredential, TransactionInput,
-    TransactionOutput,
+    Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use std::collections::BTreeMap;
 
@@ -63,7 +64,7 @@ impl PrepareAccountsSlice<'_> for AssertPreparationContext {
 }
 
 impl PrepareDRepsSlice<'_> for AssertPreparationContext {
-    fn require_drep(&mut self, _drep: &DRep) {
+    fn require_drep(&mut self, _drep: &StakeCredential) {
         unimplemented!();
     }
 }
@@ -88,8 +89,8 @@ impl UtxoSlice for AssertValidationContext {
         self.utxo.get(input)
     }
 
-    fn consume(&mut self, input: &TransactionInput) {
-        self.utxo.remove(input);
+    fn consume(&mut self, input: TransactionInput) {
+        self.utxo.remove(&input);
     }
 
     fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
@@ -104,7 +105,7 @@ impl PoolsSlice for AssertValidationContext {
     fn register(&mut self, _params: PoolParams) {
         unimplemented!()
     }
-    fn retire(&mut self, _pool: &PoolId) {
+    fn retire(&mut self, _pool: PoolId, _epoch: Epoch) {
         unimplemented!()
     }
 }
@@ -114,19 +115,32 @@ impl AccountsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn register(&mut self, _credential: StakeCredential, _state: AccountState) {
+    fn register(
+        &mut self,
+        _credential: StakeCredential,
+        _state: AccountState,
+    ) -> Result<(), RegisterError<AccountState, StakeCredential>> {
         unimplemented!()
     }
 
-    fn delegate_pool(&mut self, _pool: PoolId) {
+    fn delegate_pool(
+        &mut self,
+        _credential: StakeCredential,
+        _pool: PoolId,
+    ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
         unimplemented!()
     }
 
-    fn delegate_vote(&mut self, _drep: DRep, _ptr: CertificatePointer) {
+    fn delegate_vote(
+        &mut self,
+        _credential: StakeCredential,
+        _drep: DRep,
+        _pointer: CertificatePointer,
+    ) -> Result<(), DelegateError<StakeCredential, DRep>> {
         unimplemented!()
     }
 
-    fn unregister(&mut self, _credential: &StakeCredential) {
+    fn unregister(&mut self, _credential: StakeCredential) {
         unimplemented!()
     }
 
@@ -136,19 +150,49 @@ impl AccountsSlice for AssertValidationContext {
 }
 
 impl DRepsSlice for AssertValidationContext {
-    fn lookup(&self, _credential: &DRep) -> Option<&DRepState> {
+    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepState> {
         unimplemented!()
     }
-    fn register(&mut self, _drep: DRep, _state: DRepState) {
+
+    fn register(
+        &mut self,
+        _drep: StakeCredential,
+        _state: DRepState,
+    ) -> Result<(), RegisterError<DRepState, StakeCredential>> {
         unimplemented!()
     }
-    fn update(&mut self, _drep: &DRep, _anchor: Option<Anchor>) {
+
+    fn update(
+        &mut self,
+        _drep: StakeCredential,
+        _anchor: Option<Anchor>,
+    ) -> Result<(), UpdateError<StakeCredential>> {
         unimplemented!()
     }
-    fn unregister(&mut self, _drep: &DRep) {
+
+    fn unregister(&mut self, _drep: StakeCredential, _refund: Lovelace) {
         unimplemented!()
     }
-    fn vote(&mut self, _drep: DRep) {
+
+    fn vote(&mut self, _drep: StakeCredential) {
+        unimplemented!()
+    }
+}
+
+impl CommitteeSlice for AssertValidationContext {
+    fn delegate_cold_key(
+        &mut self,
+        _cc_member: StakeCredential,
+        _delegate: StakeCredential,
+    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
+        unimplemented!()
+    }
+
+    fn resign(
+        &mut self,
+        _cc_member: StakeCredential,
+        _anchor: Option<Anchor>,
+    ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
         unimplemented!()
     }
 }

@@ -138,7 +138,7 @@ impl VolatileCache {
 // VolatileState
 // ----------------------------------------------------------------------------
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct VolatileState {
     pub utxo: DiffSet<TransactionInput, TransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,

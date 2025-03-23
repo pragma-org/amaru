@@ -42,6 +42,15 @@ impl<K: Ord, V> DiffSet<K, V> {
         self.produced.extend(other.produced);
     }
 
+    pub fn produce(&mut self, k: K, v: V) {
+        self.produced.insert(k, v);
+    }
+
+    pub fn consume(&mut self, k: K) {
+        self.produced.remove(&k);
+        self.consumed.insert(k);
+    }
+
     pub fn as_ref(&self) -> DiffSet<&K, &V> {
         DiffSet {
             consumed: self.consumed.iter().collect(),
