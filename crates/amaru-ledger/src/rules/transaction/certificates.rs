@@ -115,7 +115,6 @@ where
         }
 
         Certificate::StakeRegistration(credential) => {
-            context.require_witness(credential.clone());
             AccountsSlice::register(
                 context,
                 credential,
