@@ -12,20 +12,26 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::RuleViolation;
 use amaru_kernel::{to_cbor, HeaderBody, MintedBlock};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum InvalidBlockSize {
+    #[error("block body size mismatch: supplied {supplied}, actual {actual}")]
+    SizeMismatch { supplied: usize, actual: usize },
+}
 
 /// This validation checks that the purported block body size matches the actual block body size.
 /// The validation of the bounds happens in the networking layer
 pub fn block_body_size_valid(
     block_header: &HeaderBody,
     block: &MintedBlock<'_>,
-) -> Result<(), RuleViolation> {
+) -> Result<(), InvalidBlockSize> {
     let bh_size = block_header.block_body_size as usize;
     let actual_block_size = calculate_block_body_size(block);
 
     if bh_size != actual_block_size {
-        Err(RuleViolation::BlockBodySizeMismatch {
+        Err(InvalidBlockSize::SizeMismatch {
             supplied: bh_size,
             actual: actual_block_size,
         })
@@ -34,6 +40,7 @@ pub fn block_body_size_valid(
     }
 }
 
+// FIXME: Do not re-serialize block here, but rely on the original bytes.
 fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
     let tx_bodies_raw = to_cbor(&block.transaction_bodies);
     let tx_witness_sets_raw = to_cbor(&block.transaction_witness_sets);

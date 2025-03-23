@@ -15,21 +15,50 @@
 use crate::{
     context::UtxoSlice,
     rules::{
-        traits::requires_vkey_witness::RequiresVkeyWitness, InvalidVKeyWitness, TransactionField,
-        TransactionRuleViolation, WithPosition,
+        format_vec, traits::requires_vkey_witness::RequiresVkeyWitness, verify_ed25519_signature,
+        InvalidEd25519Signature, TransactionField, WithPosition,
     },
 };
 use amaru_kernel::{
-    ed25519, into_sized_array, Address, Bytes, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw,
-    MintedTransactionBody, NonEmptySet, OriginalHash, VKeyWitness,
+    Address, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
+    OriginalHash, VKeyWitness,
 };
 use std::collections::BTreeSet;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum InvalidVKeyWitness {
+    #[error(
+        "missing required signatures: pkhs [{}]",
+        format_vec(missing_key_hashes)
+    )]
+    MissingRequiredVkeyWitnesses { missing_key_hashes: Vec<Hash<28>> },
+
+    #[error(
+        "invalid verification key witnesses: [{}]",
+        format_vec(invalid_witnesses)
+    )]
+    InvalidSignatures {
+        invalid_witnesses: Vec<WithPosition<InvalidEd25519Signature>>,
+    },
+
+    #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
+    MalformedRewardAccount {
+        bytes: Vec<u8>,
+        context: TransactionField,
+        position: usize,
+    },
+
+    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
+    #[error("uncategorized error: {0}")]
+    UncategorizedError(String),
+}
 
 pub fn execute(
     context: &impl UtxoSlice,
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
     vkey_witnesses: &Option<NonEmptySet<VKeyWitness>>,
-) -> Result<(), TransactionRuleViolation> {
+) -> Result<(), InvalidVKeyWitness> {
     let mut required_vkey_hashes: BTreeSet<Hash<28>> = BTreeSet::new();
 
     let empty_vec = vec![];
@@ -41,7 +70,7 @@ pub fn execute(
         match context.lookup(input) {
             Some(output) => {
                 let address = output.address().map_err(|e| {
-                    TransactionRuleViolation::UncategorizedError(format!(
+                    InvalidVKeyWitness::UncategorizedError(format!(
                         "Invalid output address. (error {:?}) output: {:?}",
                         e, output,
                     ))
@@ -75,7 +104,7 @@ pub fn execute(
                         };
                         Ok(())
                     }
-                    _ => Err(TransactionRuleViolation::MalformedRewardAccount {
+                    _ => Err(InvalidVKeyWitness::MalformedRewardAccount {
                         bytes: raw_account.to_vec(),
                         context: TransactionField::Withdrawals,
                         position,
@@ -113,7 +142,7 @@ pub fn execute(
         .collect::<Vec<_>>();
 
     if !missing_key_hashes.is_empty() {
-        return Err(TransactionRuleViolation::MissingRequiredVkeyWitnesses { missing_key_hashes });
+        return Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes });
     }
 
     let mut invalid_witnesses = vec![];
@@ -130,32 +159,8 @@ pub fn execute(
         });
 
     if !invalid_witnesses.is_empty() {
-        return Err(TransactionRuleViolation::InvalidVKeyWitnesses { invalid_witnesses });
+        return Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses });
     }
 
     Ok(())
-}
-
-pub(crate) fn verify_ed25519_signature(
-    vkey: &Bytes,
-    signature: &Bytes,
-    message: &[u8],
-) -> Result<(), InvalidVKeyWitness> {
-    // TODO: vkey should come as sized bytes out of the serialization.
-    // To be fixed upstream in Pallas.
-    let public_key = ed25519::PublicKey::from(into_sized_array(vkey, |error, expected| {
-        InvalidVKeyWitness::InvalidKeySize { error, expected }
-    })?);
-
-    // TODO: signature should come as sized bytes out of the serialization.
-    // To be fixed upstream in Pallas.
-    let signature = ed25519::Signature::from(into_sized_array(signature, |error, expected| {
-        InvalidVKeyWitness::InvalidSignatureSize { error, expected }
-    })?);
-
-    if !public_key.verify(message, &signature) {
-        Err(InvalidVKeyWitness::InvalidSignature)
-    } else {
-        Ok(())
-    }
 }

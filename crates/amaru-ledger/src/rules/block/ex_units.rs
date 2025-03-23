@@ -12,13 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::RuleViolation;
 use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum InvalidExUnits {
+    #[error("too many execution units in block: provided (mem: {}, steps: {}), max (mem: {}, steps: {})", provided.mem, provided.steps, max.mem, max.steps)]
+    TooMany { provided: ExUnits, max: ExUnits },
+}
 
 pub fn block_ex_units_valid(
     ex_units: Vec<ExUnits>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), RuleViolation> {
+) -> Result<(), InvalidExUnits> {
     let pp_max_ex_units = protocol_parameters.max_block_ex_units;
     let ex_units = ex_units
         .into_iter()
@@ -27,7 +33,7 @@ pub fn block_ex_units_valid(
     if ex_units.mem <= pp_max_ex_units.mem && ex_units.steps <= pp_max_ex_units.steps {
         Ok(())
     } else {
-        Err(RuleViolation::TooManyExUnitsBlock {
+        Err(InvalidExUnits::TooMany {
             provided: ex_units,
             max: ExUnits {
                 mem: pp_max_ex_units.mem,

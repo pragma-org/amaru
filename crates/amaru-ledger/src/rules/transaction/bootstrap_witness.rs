@@ -14,20 +14,45 @@
 
 use crate::{
     context::UtxoSlice,
-    rules::{vkey_witness::verify_ed25519_signature, TransactionRuleViolation, WithPosition},
+    rules::{format_vec, verify_ed25519_signature, InvalidEd25519Signature, WithPosition},
 };
 use amaru_kernel::{
-    alonzo::BootstrapWitness, to_root, AddrType, Address, HasAddress, KeepRaw,
-    MintedTransactionBody, NonEmptySet, OriginalHash,
+    to_root, AddrType, Address, BootstrapWitness, HasAddress, Hash, KeepRaw, MintedTransactionBody,
+    NonEmptySet, OriginalHash,
 };
 use std::collections::BTreeSet;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum InvalidBootstrapWitnesses {
+    #[error(
+        "missing required signatures: bootstrap roots [{}]",
+        format_vec(missing_bootstrap_roots)
+    )]
+    MissingRequiredBootstrapWitnesses {
+        missing_bootstrap_roots: Vec<Hash<28>>,
+    },
+
+    #[error(
+        "invalid bootstrap witnesses: indices [{}]",
+        format_vec(invalid_witnesses)
+    )]
+    InvalidSignatures {
+        invalid_witnesses: Vec<WithPosition<InvalidEd25519Signature>>,
+    },
+
+    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
+    #[error("uncategorized error: {0}")]
+    UncategorizedError(String),
+}
 
 pub fn execute(
     context: &impl UtxoSlice,
     transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
     bootstrap_witnesses: &Option<NonEmptySet<BootstrapWitness>>,
-) -> Result<(), TransactionRuleViolation> {
+) -> Result<(), InvalidBootstrapWitnesses> {
     let mut required_bootstrap_roots = BTreeSet::new();
+
     let empty_vec = vec![];
     let collateral = transaction_body.collateral.as_deref().unwrap_or(&empty_vec);
 
@@ -38,7 +63,7 @@ pub fn execute(
         match context.lookup(input) {
             Some(output) => {
                 let address = output.address().map_err(|e| {
-                    TransactionRuleViolation::UncategorizedError(format!(
+                    InvalidBootstrapWitnesses::UncategorizedError(format!(
                         "Invalid output address. (error {:?}) output: {:?}",
                         e, output,
                     ))
@@ -46,7 +71,7 @@ pub fn execute(
 
                 if let Address::Byron(byron_address) = address {
                     let payload = byron_address.decode().map_err(|e| {
-                        TransactionRuleViolation::UncategorizedError(format!(
+                        InvalidBootstrapWitnesses::UncategorizedError(format!(
                             "Invalid byron address payload. (error {:?}) address: {:?}",
                             e, byron_address
                         ))
@@ -74,7 +99,7 @@ pub fn execute(
 
     if !missing_bootstrap_roots.is_empty() {
         return Err(
-            TransactionRuleViolation::MissingRequiredBootstrapWitnesses {
+            InvalidBootstrapWitnesses::MissingRequiredBootstrapWitnesses {
                 missing_bootstrap_roots,
             },
         );
@@ -94,7 +119,7 @@ pub fn execute(
         });
 
     if !invalid_witnesses.is_empty() {
-        return Err(TransactionRuleViolation::InvalidBootstrapWitnesses { invalid_witnesses });
+        return Err(InvalidBootstrapWitnesses::InvalidSignatures { invalid_witnesses });
     }
 
     Ok(())

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::InvalidOutput;
+use super::InvalidOutput;
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, MintedTransactionOutput,
 };
@@ -28,7 +28,7 @@ pub fn execute(
     let given_value = output.lovelace();
 
     if given_value < minimum_value {
-        Err(InvalidOutput::OutputTooSmall {
+        Err(InvalidOutput::TooSmall {
             minimum_value,
             given_value,
         })

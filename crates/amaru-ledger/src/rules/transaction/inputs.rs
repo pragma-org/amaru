@@ -12,10 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::TransactionRuleViolation;
-use amaru_kernel::MintedTransactionBody;
+use amaru_kernel::{MintedTransactionBody, TransactionInput};
+use thiserror::Error;
 
-pub fn execute(transaction: &MintedTransactionBody<'_>) -> Result<(), TransactionRuleViolation> {
+#[derive(Debug, Error)]
+pub enum InvalidInputs {
+    #[error(
+        "inputs included in both reference inputs and spent inputs: intersection [{}]",
+        intersection
+            .iter()
+            .map(|input|
+                format!("{}#{}", input.transaction_id, input.transaction_id)
+            )
+            .collect::<Vec<_>>()
+            .join(", ")
+    )]
+    NonDisjointRefInputs { intersection: Vec<TransactionInput> },
+}
+
+pub fn execute(transaction: &MintedTransactionBody<'_>) -> Result<(), InvalidInputs> {
     let intersection = match &transaction.reference_inputs {
         Some(ref_inputs) => ref_inputs
             .iter()
@@ -26,7 +41,7 @@ pub fn execute(transaction: &MintedTransactionBody<'_>) -> Result<(), Transactio
     };
 
     if !intersection.is_empty() {
-        Err(TransactionRuleViolation::NonDisjointRefInputs { intersection })
+        Err(InvalidInputs::NonDisjointRefInputs { intersection })
     } else {
         Ok(())
     }

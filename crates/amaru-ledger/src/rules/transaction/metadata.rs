@@ -17,11 +17,13 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum InvalidTransactionMetadata {
-    #[error("Missing metadata: auxiliary data hash {0}")]
+    #[error("missing metadata: auxiliary data hash {0}")]
     MissingTransactionMetadata(Bytes),
-    #[error("Missing auxiliary data hash: metadata hash {0}")]
+
+    #[error("missing auxiliary data hash: metadata hash {0}")]
     MissingTransactionAuxiliaryDataHash(Hash<32>),
-    #[error("Metadata hash mismatch: supplied {supplied:?} expected {expected:?}")]
+
+    #[error("metadata hash mismatch: supplied {supplied:?} expected {expected:?}")]
     ConflictingMetadataHash {
         supplied: Hash<32>,
         expected: Hash<32>,

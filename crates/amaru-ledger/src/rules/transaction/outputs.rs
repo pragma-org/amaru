@@ -12,18 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::{TransactionRuleViolation, WithPosition};
+use crate::rules::{format_vec, WithPosition};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, MintedTransactionOutput, TransactionOutput,
+    protocol_parameters::ProtocolParameters, Lovelace, MintedTransactionOutput, TransactionOutput,
 };
+use thiserror::Error;
 
 mod inherent_value;
+
+#[derive(Debug, Error)]
+#[error("invalid transaction outputs: [{}]", format_vec(invalid_outputs))]
+pub struct InvalidOutputs {
+    invalid_outputs: Vec<WithPosition<InvalidOutput>>,
+}
+
+#[derive(Debug, Error)]
+pub enum InvalidOutput {
+    #[error(
+        "output doesn't contain enough Lovelace: minimum: {minimum_value}, given: {given_value}"
+    )]
+    TooSmall {
+        minimum_value: Lovelace,
+        given_value: Lovelace,
+    },
+}
 
 pub fn execute<'a>(
     protocol_parameters: &ProtocolParameters,
     outputs: impl Iterator<Item = &'a MintedTransactionOutput<'a>>,
     yield_output: &mut impl FnMut(u64, TransactionOutput),
-) -> Result<(), TransactionRuleViolation> {
+) -> Result<(), InvalidOutputs> {
     let mut invalid_outputs = Vec::new();
     for (position, output) in outputs.enumerate() {
         inherent_value::execute(protocol_parameters, output)
@@ -34,7 +52,7 @@ pub fn execute<'a>(
     }
 
     if !invalid_outputs.is_empty() {
-        return Err(TransactionRuleViolation::InvalidOutputs { invalid_outputs });
+        return Err(InvalidOutputs { invalid_outputs });
     }
 
     Ok(())

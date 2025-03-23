@@ -16,112 +16,16 @@ mod block;
 mod traits;
 mod transaction;
 
-use crate::{
-    context::{PreparationContext, ValidationContext},
-    rules::transaction::{
-        bootstrap_witness, disjoint_ref_inputs,
-        metadata::{self, InvalidTransactionMetadata},
-        outputs, vkey_witness,
-    },
-    state::FailedTransactions,
-};
-use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, KeepRaw, Lovelace,
-    MintedBlock, MintedTransactionBody, MintedWitnessSet, OriginalHash, Redeemers,
-    TransactionInput,
-};
-use block::{body_size::block_body_size_valid, ex_units::*, header_size::block_header_size_valid};
-use std::{
-    array::TryFromSliceError,
-    fmt,
-    fmt::{Debug, Display},
-    ops::Deref,
-};
+use crate::context::PreparationContext;
+use amaru_kernel::{cbor, ed25519, into_sized_array, Bytes, MintedBlock};
+pub use block::execute as validate_block;
+use std::{array::TryFromSliceError, fmt, fmt::Display};
 use thiserror::Error;
 use tracing::{instrument, Level};
 
-#[derive(Debug, Error)]
-pub enum BlockPreparationError {
-    #[error("Deserialization error")]
-    DeserializationError,
-}
-
-#[derive(Debug, Error)]
-pub enum BlockValidationError {
-    #[error("Deserialization error")]
-    DeserializationError,
-    #[error("Rule Violations: {0:?}")]
-    RuleViolations(Vec<RuleViolation>),
-    #[error("Cascading rule violations: root: {0:?}, resulting error(s): {1:?}")]
-    Composite(RuleViolation, Box<BlockValidationError>),
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("Uncategorized error: {0}")]
-    UncategorizedError(String),
-}
-
-#[derive(Debug, Error)]
-pub enum RuleViolation {
-    #[error("Block body size mismatch: supplied {supplied}, actual {actual}")]
-    BlockBodySizeMismatch { supplied: usize, actual: usize },
-    #[error("Block header size too big: supplied {supplied}, max {max}")]
-    BlockHeaderSizeTooBig { supplied: usize, max: usize },
-    #[error("Too many execution units in block: provided (mem: {}, steps: {}), max (mem: {}, steps: {})", provided.mem, provided.steps, max.mem, max.steps)]
-    TooManyExUnitsBlock { provided: ExUnits, max: ExUnits },
-    #[error(
-        "Invalid transaction (hash: {transaction_hash}, index: {transaction_index}): {violation} "
-    )]
-    InvalidTransaction {
-        transaction_hash: Hash<32>,
-        transaction_index: u32,
-        violation: TransactionRuleViolation,
-    },
-}
-
-#[derive(Debug, Error)]
-pub enum TransactionRuleViolation {
-    #[error("Inputs included in both reference inputs and spent inputs: intersection [{}]", intersection.iter().map(|input| format!("{}#{}", input.transaction_id, input.transaction_id)).collect::<Vec<_>>().join(", "))]
-    NonDisjointRefInputs { intersection: Vec<TransactionInput> },
-    #[error("Invalid transaction outputs: [{}]", format_vec(invalid_outputs))]
-    InvalidOutputs {
-        invalid_outputs: Vec<WithPosition<InvalidOutput>>,
-    },
-    #[error("Invalid transaction metadata: {0}")]
-    InvalidTransactionMetadata(#[from] InvalidTransactionMetadata),
-    #[error(
-        "Missing required signatures: pkhs [{}]",
-        format_vec(missing_key_hashes)
-    )]
-    MissingRequiredVkeyWitnesses { missing_key_hashes: Vec<Hash<28>> },
-    #[error(
-        "Invalid verification key witnesses: [{}]",
-        format_vec(invalid_witnesses)
-    )]
-    InvalidVKeyWitnesses {
-        invalid_witnesses: Vec<WithPosition<InvalidVKeyWitness>>,
-    },
-    #[error(
-        "Missing required signatures: bootstrap roots [{}]",
-        format_vec(missing_bootstrap_roots)
-    )]
-    MissingRequiredBootstrapWitnesses {
-        missing_bootstrap_roots: Vec<Hash<28>>,
-    },
-    #[error(
-        "Invalid bootstrap witnesses: indices [{}]",
-        format_vec(invalid_witnesses)
-    )]
-    InvalidBootstrapWitnesses {
-        invalid_witnesses: Vec<WithPosition<InvalidVKeyWitness>>,
-    },
-    #[error("Unexpected bytes instead of reward account in {context:?} at position {position}")]
-    MalformedRewardAccount {
-        bytes: Vec<u8>,
-        context: TransactionField,
-        position: usize,
-    },
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("Uncategorized error: {0}")]
-    UncategorizedError(String),
+#[derive(Debug)]
+pub enum TransactionField {
+    Withdrawals,
 }
 
 #[derive(Debug)]
@@ -133,44 +37,6 @@ pub struct WithPosition<T: Display> {
 impl<T: Display> Display for WithPosition<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, "#{}: {}", self.position, self.element)
-    }
-}
-
-#[derive(Debug, Error)]
-pub enum InvalidOutput {
-    #[error(
-        "output doesn't contain enough Lovelace: minimum: {minimum_value}, given: {given_value}"
-    )]
-    OutputTooSmall {
-        minimum_value: Lovelace,
-        given_value: Lovelace,
-    },
-}
-
-#[derive(Debug, Error)]
-pub enum InvalidVKeyWitness {
-    #[error("invalid signature size: {error:?}")]
-    InvalidSignatureSize {
-        error: TryFromSliceError,
-        expected: usize,
-    },
-    #[error("invalid verification key size: {error:?}")]
-    InvalidKeySize {
-        error: TryFromSliceError,
-        expected: usize,
-    },
-    #[error("invalid signature for given key")]
-    InvalidSignature,
-}
-
-#[derive(Debug)]
-pub enum TransactionField {
-    Withdrawals,
-}
-
-impl From<Vec<Option<RuleViolation>>> for BlockValidationError {
-    fn from(violations: Vec<Option<RuleViolation>>) -> Self {
-        BlockValidationError::RuleViolations(violations.into_iter().flatten().collect())
     }
 }
 
@@ -203,145 +69,13 @@ pub fn prepare_block<'block>(
     });
 }
 
-#[instrument(level = Level::TRACE, skip_all)]
-pub fn validate_block(
-    context: &mut impl ValidationContext,
-    protocol_params: ProtocolParameters,
-    block: &MintedBlock<'_>,
-) -> Result<(), BlockValidationError> {
-    block_header_size_valid(block.header.raw_cbor(), &protocol_params)
-        .map_err(|err| BlockValidationError::RuleViolations(vec![err]))?;
-
-    block_body_size_valid(&block.header.header_body, block)
-        .map_err(|err| BlockValidationError::RuleViolations(vec![err]))?;
-
-    // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
-    let ex_units = block
-        .transaction_witness_sets
-        .iter()
-        .flat_map(|witness_set| {
-            witness_set
-                .redeemer
-                .iter()
-                .map(|redeemers| match redeemers.deref() {
-                    Redeemers::List(list) => list.iter().map(|r| r.ex_units).collect::<Vec<_>>(),
-                    Redeemers::Map(map) => map.iter().map(|(_, r)| r.ex_units).collect::<Vec<_>>(),
-                })
-        })
-        .flatten()
-        .collect::<Vec<_>>();
-
-    block_ex_units_valid(ex_units, &protocol_params)
-        .map_err(|err| BlockValidationError::RuleViolations(vec![err]))?;
-
-    let transactions = block.transaction_bodies.deref().to_vec();
-
-    let failed_transactions = FailedTransactions::from_block(block);
-
-    let witness_sets = block.transaction_witness_sets.deref().to_vec();
-
-    // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
-    // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
-    for (i, transaction) in (0u32..).zip(transactions.iter()) {
-        let witness_set =
-            witness_sets
-                .get(i as usize)
-                .ok_or(BlockValidationError::UncategorizedError(format!(
-                    "Missing witness set for transaction index {}",
-                    i
-                )))?;
-
-        let auxiliary_data: Option<&AuxiliaryData> = block
-            .auxiliary_data_set
-            .iter()
-            .find(|key_pair| key_pair.0 == i)
-            .map(|key_pair| key_pair.1.deref());
-
-        validate_transaction(
-            context,
-            !failed_transactions.has(i),
-            transaction,
-            witness_set,
-            auxiliary_data,
-            &protocol_params,
-        )
-        .map_err(|err| {
-            BlockValidationError::RuleViolations(vec![RuleViolation::InvalidTransaction {
-                transaction_hash: transaction.original_hash(),
-                transaction_index: i,
-                violation: err,
-            }])
-        })?;
-    }
-
-    Ok(())
-}
-
-pub fn validate_transaction(
-    context: &mut impl ValidationContext,
-    is_valid: bool,
-    transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
-    transaction_witness_set: &MintedWitnessSet<'_>,
-    transaction_auxiliary_data: Option<&AuxiliaryData>,
-    protocol_params: &ProtocolParameters,
-) -> Result<(), TransactionRuleViolation> {
-    let new_output_reference = |index: u64| -> TransactionInput {
-        TransactionInput {
-            transaction_id: transaction_body.original_hash(),
-            index,
-        }
-    };
-
-    metadata::execute(transaction_body, transaction_auxiliary_data)?;
-
-    disjoint_ref_inputs::execute(transaction_body)?;
-
-    outputs::execute(
-        protocol_params,
-        transaction_body.outputs.iter(),
-        &mut |index, output| {
-            if is_valid {
-                context.produce(new_output_reference(index), output);
-            }
-        },
-    )?;
-
-    outputs::execute(
-        protocol_params,
-        transaction_body.collateral_return.iter(),
-        &mut |index, output| {
-            if !is_valid {
-                // NOTE: Collateral outputs are indexed as if starting at the end of standard
-                // outputs.
-                let offset = transaction_body.outputs.len() as u64;
-                context.produce(new_output_reference(index + offset), output);
-            }
-        },
-    )?;
-
-    vkey_witness::execute(
-        context,
-        transaction_body,
-        &transaction_witness_set.vkeywitness,
-    )?;
-
-    bootstrap_witness::execute(
-        context,
-        transaction_body,
-        &transaction_witness_set.bootstrap_witness,
-    )?;
-
-    Ok(())
-}
-
 #[instrument(level = Level::TRACE, skip_all, fields(block.size = bytes.len()))]
-pub fn parse_block(bytes: &[u8]) -> Result<MintedBlock<'_>, BlockPreparationError> {
-    let (_, block): (u16, MintedBlock<'_>) =
-        cbor::decode(bytes).map_err(|_| BlockPreparationError::DeserializationError)?;
+pub fn parse_block(bytes: &[u8]) -> Result<MintedBlock<'_>, cbor::decode::Error> {
+    let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)?;
     Ok(block)
 }
 
-fn format_vec<T: Display>(items: &[T]) -> String {
+pub(crate) fn format_vec<T: Display>(items: &[T]) -> String {
     items
         .iter()
         .map(|item| item.to_string())
@@ -349,11 +83,61 @@ fn format_vec<T: Display>(items: &[T]) -> String {
         .join(", ")
 }
 
+#[derive(Debug, Error)]
+pub enum InvalidEd25519Signature {
+    #[error("invalid signature size: {error:?}")]
+    InvalidSignatureSize {
+        error: TryFromSliceError,
+        expected: usize,
+    },
+    #[error("invalid verification key size: {error:?}")]
+    InvalidKeySize {
+        error: TryFromSliceError,
+        expected: usize,
+    },
+    #[error("invalid signature for given key")]
+    InvalidSignature,
+}
+
+pub(crate) fn verify_ed25519_signature(
+    vkey: &Bytes,
+    signature: &Bytes,
+    message: &[u8],
+) -> Result<(), InvalidEd25519Signature> {
+    // TODO: vkey should come as sized bytes out of the serialization.
+    // To be fixed upstream in Pallas.
+    let public_key = ed25519::PublicKey::from(into_sized_array(vkey, |error, expected| {
+        InvalidEd25519Signature::InvalidKeySize { error, expected }
+    })?);
+
+    // TODO: signature should come as sized bytes out of the serialization.
+    // To be fixed upstream in Pallas.
+    let signature = ed25519::Signature::from(into_sized_array(signature, |error, expected| {
+        InvalidEd25519Signature::InvalidSignatureSize { error, expected }
+    })?);
+
+    if !public_key.verify(message, &signature) {
+        Err(InvalidEd25519Signature::InvalidSignature)
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
-    use amaru_kernel::{Bytes, PostAlonzoTransactionOutput, TransactionOutput, Value};
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        rules,
+        rules::{
+            block::{InvalidBlock, InvalidBlockHeader},
+            transaction::{InvalidTransaction, InvalidVKeyWitness},
+        },
+    };
+    use amaru_kernel::{
+        protocol_parameters::ProtocolParameters, Bytes, Hash, PostAlonzoTransactionOutput,
+        TransactionInput, TransactionOutput, Value,
+    };
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
@@ -410,7 +194,7 @@ mod tests {
 
         prepare_block(&mut ctx, &block);
 
-        let results = validate_block(
+        let results = rules::block::execute(
             &mut AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
             &block,
@@ -421,8 +205,7 @@ mod tests {
 
     #[test]
     fn validate_block_serialization_err() {
-        assert!(parse_block(&MODIFIED_CONWAY_BLOCK)
-            .is_err_and(|e| matches!(e, BlockPreparationError::DeserializationError)),);
+        assert!(parse_block(&MODIFIED_CONWAY_BLOCK).is_err())
     }
 
     #[test]
@@ -442,25 +225,20 @@ mod tests {
 
         prepare_block(&mut ctx, &block);
 
-        assert!(validate_block(
+        assert!(rules::block::execute(
             &mut AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
             &block
         )
-        .is_err_and(|e| match e {
-            BlockValidationError::RuleViolations(violations) => {
-                violations.iter().any(|rule_violation| {
-                    matches!(
-                        rule_violation,
-                        RuleViolation::InvalidTransaction {
-                            violation: TransactionRuleViolation::MissingRequiredVkeyWitnesses { .. },
-                            ..
-                        },
-                    )
-                })
-            }
-            _ => false,
-        }));
+        .is_err_and(|e| matches!(
+            e,
+            InvalidBlock::Transaction {
+                violation: InvalidTransaction::VKeyWitness(
+                    InvalidVKeyWitness::MissingRequiredVkeyWitnesses { .. }
+                ),
+                ..
+            },
+        )));
     }
 
     #[test]
@@ -478,22 +256,14 @@ mod tests {
         prepare_block(&mut ctx, &block);
 
         assert!(
-            validate_block(&mut AssertValidationContext::from(ctx), pp, &block).is_err_and(|e| {
-                match e {
-                    BlockValidationError::RuleViolations(violations) => {
-                        violations.iter().any(|rule_violation| {
-                            matches!(
-                                rule_violation,
-                                RuleViolation::BlockHeaderSizeTooBig {
-                                    supplied: _,
-                                    max: _
-                                }
-                            )
-                        })
-                    }
-                    _ => false,
+            rules::block::execute(&mut AssertValidationContext::from(ctx), pp, &block).is_err_and(
+                |e| {
+                    matches!(
+                        e,
+                        InvalidBlock::Header(InvalidBlockHeader::SizeTooBig { .. })
+                    )
                 }
-            })
+            )
         )
     }
 }

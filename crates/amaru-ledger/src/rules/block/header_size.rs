@@ -12,21 +12,27 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::RuleViolation;
 use amaru_kernel::protocol_parameters::ProtocolParameters;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum InvalidBlockHeader {
+    #[error("block header size too big: supplied {supplied}, max {max}")]
+    SizeTooBig { supplied: usize, max: usize },
+}
 
 #[allow(clippy::panic)]
 pub fn block_header_size_valid(
     header: &[u8],
     protocol_params: &ProtocolParameters,
-) -> Result<(), RuleViolation> {
+) -> Result<(), InvalidBlockHeader> {
     let max_header_size = protocol_params
         .max_header_size
         .try_into()
         .unwrap_or_else(|_| panic!("Failed to convert u32 to usize"));
 
     if header.len() > max_header_size {
-        Err(RuleViolation::BlockHeaderSizeTooBig {
+        Err(InvalidBlockHeader::SizeTooBig {
             supplied: header.len(),
             max: max_header_size,
         })
