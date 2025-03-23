@@ -33,14 +33,16 @@ pub trait PreparationContext<'a>:
 {
 }
 
-// -------------------------------------------------------------------------------------------- Pots
+// Pots
+// -------------------------------------------------------------------------------------------------
 
 /// An interface for interacting with the protocol pots.
 pub trait PotsSlice {
     fn add_fees(&mut self);
 }
 
-// -------------------------------------------------------------------------------------------- UTxO
+// UTxO
+// -------------------------------------------------------------------------------------------------
 
 // An interface for interacting with a subset of the UTxO state.
 pub trait UtxoSlice {
@@ -54,7 +56,8 @@ pub trait PrepareUtxoSlice<'a> {
     fn require_input(&'_ mut self, input: &'a TransactionInput);
 }
 
-// ------------------------------------------------------------------------------------------- Pools
+// Pools
+// ------------------------------------------------------------------------------------------------
 
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
@@ -68,7 +71,8 @@ pub trait PreparePoolsSlice<'a> {
     fn require_pool(&'a mut self, pool: &'a PoolId);
 }
 
-// ---------------------------------------------------------------------------------------- Accounts
+// Accounts
+// ------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct AccountState {
@@ -92,7 +96,8 @@ pub trait PrepareAccountsSlice<'a> {
     fn require_account(&'a mut self, credential: &'a StakeCredential);
 }
 
-// -------------------------------------------------------------------------------------------- DRep
+// DRep
+// -------------------------------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct DRepState {
