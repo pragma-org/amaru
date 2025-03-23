@@ -1,6 +1,7 @@
 use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
 use amaru_ledger::{
-    rules::{self, context, parse_block},
+    context,
+    rules::{self, parse_block},
     state::{self, BackwardError},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
@@ -62,7 +63,7 @@ impl<S: Store + Send + Sync> Stage<S> {
         point: Point,
         raw_block: RawBlock,
     ) -> BlockValidationResult {
-        let mut ctx = context::SimpleBlockPreparationContext::new();
+        let mut ctx = context::DefaultPreparationContext::new();
 
         let block = parse_block(&raw_block[..])
             .unwrap_or_else(|e| panic!("Failed to parse block: {:?}", e));
@@ -91,7 +92,7 @@ impl<S: Store + Send + Sync> Stage<S> {
             .collect();
 
         rules::validate_block(
-            &mut context::SimpleBlockValidationContext::new(inputs),
+            &mut context::DefaultValidationContext::new(inputs),
             ProtocolParameters::default(),
             &block,
         )

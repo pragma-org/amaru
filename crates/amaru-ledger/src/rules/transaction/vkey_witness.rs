@@ -1,6 +1,9 @@
-use crate::rules::{
-    context::UtxoSlice, traits::requires_vkey_witness::RequiresVkeyWitness, InvalidVKeyWitness,
-    TransactionField, TransactionRuleViolation, WithPosition,
+use crate::{
+    context::UtxoSlice,
+    rules::{
+        traits::requires_vkey_witness::RequiresVkeyWitness, InvalidVKeyWitness, TransactionField,
+        TransactionRuleViolation, WithPosition,
+    },
 };
 use amaru_kernel::{
     ed25519, into_sized_array, Address, Bytes, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw,

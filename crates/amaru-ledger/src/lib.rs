@@ -31,6 +31,7 @@ pub enum BlockValidationResult {
     RolledBackTo(Point),
 }
 
+pub mod context;
 pub mod governance;
 pub mod rewards;
 pub mod rules;

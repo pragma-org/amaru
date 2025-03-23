@@ -1,6 +1,6 @@
-use crate::rules::{
-    context::UtxoSlice, vkey_witness::verify_ed25519_signature, TransactionRuleViolation,
-    WithPosition,
+use crate::{
+    context::UtxoSlice,
+    rules::{vkey_witness::verify_ed25519_signature, TransactionRuleViolation, WithPosition},
 };
 use amaru_kernel::{
     alonzo::BootstrapWitness, to_root, AddrType, Address, HasAddress, KeepRaw,

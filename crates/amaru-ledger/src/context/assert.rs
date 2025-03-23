@@ -11,92 +11,78 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use crate::rules::{
-    context::{
-        AccountState, AccountsSlice, DRepState, DRepsSlice, PoolsSlice, PotsSlice,
-        PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, UtxoSlice,
-    },
-    BlockPreparationContext, BlockValidationContext, PrepareUtxoSlice,
+use crate::context::{
+    AccountState, AccountsSlice, DRepState, DRepsSlice, PoolsSlice, PotsSlice, PreparationContext,
+    PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, UtxoSlice,
+    ValidationContext,
 };
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, PoolId, PoolParams, StakeCredential, TransactionInput,
     TransactionOutput,
 };
-use std::{
-    borrow::Cow,
-    collections::{BTreeMap, BTreeSet},
-};
+use std::collections::BTreeMap;
 
-/// An implementation of the block preparation context that's suitable for use in normal operation.
-///
-/// It is for now incomplete, but we'll use eventually bridge the gap between the validations and
-/// the state management so that this fully replaces the current state module and child modules.
-///
-/// For now, there's still a bit of duplication between the modules.
-#[derive(Debug, Default)]
-pub struct SimpleBlockPreparationContext<'a> {
-    pub utxo: BTreeSet<&'a TransactionInput>,
+// ------------------------------------------------------------------------------------- Preparation
+
+/// A Fake block preparation context that can used for testing. The context is expected to be
+/// provided upfront as test data, and all `require` method merely checks that the requested data
+/// pre-exists in the context.
+#[derive(Debug, Clone)]
+pub struct AssertPreparationContext {
+    pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
 }
 
-impl SimpleBlockPreparationContext<'_> {
-    pub fn new() -> Self {
-        Self {
-            utxo: BTreeSet::new(),
+impl From<AssertPreparationContext> for AssertValidationContext {
+    fn from(ctx: AssertPreparationContext) -> AssertValidationContext {
+        AssertValidationContext { utxo: ctx.utxo }
+    }
+}
+
+impl PreparationContext<'_> for AssertPreparationContext {}
+
+impl PrepareUtxoSlice<'_> for AssertPreparationContext {
+    #[allow(clippy::panic)]
+    fn require_input(&mut self, input: &TransactionInput) {
+        if !self.utxo.contains_key(input) {
+            panic!("unknown required input: {input:?}");
         }
     }
 }
 
-impl<'a> BlockPreparationContext<'a> for SimpleBlockPreparationContext<'a> {}
-
-impl<'a> PrepareUtxoSlice<'a> for SimpleBlockPreparationContext<'a> {
-    fn require_input(&'_ mut self, input: &'a TransactionInput) {
-        self.utxo.insert(input);
-    }
-}
-
-impl<'a> PreparePoolsSlice<'a> for SimpleBlockPreparationContext<'a> {
+impl PreparePoolsSlice<'_> for AssertPreparationContext {
     fn require_pool(&mut self, _pool: &PoolId) {
         unimplemented!();
     }
 }
 
-impl<'a> PrepareAccountsSlice<'a> for SimpleBlockPreparationContext<'a> {
+impl PrepareAccountsSlice<'_> for AssertPreparationContext {
     fn require_account(&mut self, _credential: &StakeCredential) {
         unimplemented!();
     }
 }
 
-impl<'a> PrepareDRepsSlice<'a> for SimpleBlockPreparationContext<'a> {
+impl PrepareDRepsSlice<'_> for AssertPreparationContext {
     fn require_drep(&mut self, _drep: &DRep) {
         unimplemented!();
     }
 }
 
+// -------------------------------------------------------------------------------------- Validation
+
 #[derive(Debug)]
-pub struct SimpleBlockValidationContext<'a> {
-    utxo: BTreeMap<Cow<'a, TransactionInput>, TransactionOutput>,
+pub struct AssertValidationContext {
+    utxo: BTreeMap<TransactionInput, TransactionOutput>,
 }
 
-impl<'a> SimpleBlockValidationContext<'a> {
-    pub fn new(utxo: BTreeMap<&'a TransactionInput, TransactionOutput>) -> Self {
-        Self {
-            utxo: utxo
-                .into_iter()
-                .map(|(input, output)| (Cow::Borrowed(input), output))
-                .collect(),
-        }
-    }
-}
+impl ValidationContext for AssertValidationContext {}
 
-impl BlockValidationContext for SimpleBlockValidationContext<'_> {}
-
-impl PotsSlice for SimpleBlockValidationContext<'_> {
+impl PotsSlice for AssertValidationContext {
     fn add_fees(&mut self) {
         unimplemented!()
     }
 }
 
-impl UtxoSlice for SimpleBlockValidationContext<'_> {
+impl UtxoSlice for AssertValidationContext {
     fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
         self.utxo.get(input)
     }
@@ -106,11 +92,11 @@ impl UtxoSlice for SimpleBlockValidationContext<'_> {
     }
 
     fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
-        self.utxo.insert(Cow::Owned(input), output);
+        self.utxo.insert(input, output);
     }
 }
 
-impl PoolsSlice for SimpleBlockValidationContext<'_> {
+impl PoolsSlice for AssertValidationContext {
     fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
         unimplemented!()
     }
@@ -122,7 +108,7 @@ impl PoolsSlice for SimpleBlockValidationContext<'_> {
     }
 }
 
-impl AccountsSlice for SimpleBlockValidationContext<'_> {
+impl AccountsSlice for AssertValidationContext {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
         unimplemented!()
     }
@@ -148,7 +134,7 @@ impl AccountsSlice for SimpleBlockValidationContext<'_> {
     }
 }
 
-impl DRepsSlice for SimpleBlockValidationContext<'_> {
+impl DRepsSlice for AssertValidationContext {
     fn lookup(&self, _credential: &DRep) -> Option<&DRepState> {
         unimplemented!()
     }

@@ -12,31 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+pub use default::*;
+pub(crate) mod assert;
+mod default;
+
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Lovelace, PoolId, PoolParams, StakeCredential,
     TransactionInput, TransactionOutput,
 };
 
-pub use simple::*;
-pub(crate) mod fake;
-mod simple;
-
-/// The BlockValidationContext is a collection of slices needed to validate a block
-pub trait BlockValidationContext:
+/// The ValidationContext is a collection of slices needed to validate a block
+pub trait ValidationContext:
     PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice
 {
 }
 
-/// The BlockPreparationContext is a collection of interfaces needed to prepare a block
-pub trait BlockPreparationContext<'a>:
+/// The PreparationContext is a collection of interfaces needed to prepare a block
+pub trait PreparationContext<'a>:
     PrepareUtxoSlice<'a> + PreparePoolsSlice<'a> + PrepareAccountsSlice<'a> + PrepareDRepsSlice<'a>
 {
 }
+
+// -------------------------------------------------------------------------------------------- Pots
 
 /// An interface for interacting with the protocol pots.
 pub trait PotsSlice {
     fn add_fees(&mut self);
 }
+
+// -------------------------------------------------------------------------------------------- UTxO
 
 // An interface for interacting with a subset of the UTxO state.
 pub trait UtxoSlice {
@@ -50,6 +54,8 @@ pub trait PrepareUtxoSlice<'a> {
     fn require_input(&'_ mut self, input: &'a TransactionInput);
 }
 
+// ------------------------------------------------------------------------------------------- Pools
+
 /// An interface for interacting with a subset of the Pools state.
 pub trait PoolsSlice {
     fn lookup(&self, pool: &PoolId) -> Option<&PoolParams>;
@@ -60,6 +66,15 @@ pub trait PoolsSlice {
 /// An interface to help constructing the concrete PoolsSlice ahead of time.
 pub trait PreparePoolsSlice<'a> {
     fn require_pool(&'a mut self, pool: &'a PoolId);
+}
+
+// ---------------------------------------------------------------------------------------- Accounts
+
+#[derive(Debug)]
+pub struct AccountState {
+    pub deposit: Lovelace,
+    pub pool: Option<PoolId>,
+    pub drep: Option<(DRep, CertificatePointer)>,
 }
 
 /// An interface for interacting with a subset of the Accounts state.
@@ -77,11 +92,13 @@ pub trait PrepareAccountsSlice<'a> {
     fn require_account(&'a mut self, credential: &'a StakeCredential);
 }
 
+// -------------------------------------------------------------------------------------------- DRep
+
 #[derive(Debug)]
-pub struct AccountState {
+pub struct DRepState {
     pub deposit: Lovelace,
-    pub pool: Option<PoolId>,
-    pub drep: Option<(DRep, CertificatePointer)>,
+    pub anchor: Option<Anchor>,
+    pub registered_at: CertificatePointer,
 }
 
 /// An interface for interacting with a subset of the DReps state.
@@ -96,11 +113,4 @@ pub trait DRepsSlice {
 /// An interface to help constructing the concrete DRepsSlice ahead of time.
 pub trait PrepareDRepsSlice<'a> {
     fn require_drep(&'a mut self, credential: &'a DRep);
-}
-
-#[derive(Debug)]
-pub struct DRepState {
-    pub deposit: Lovelace,
-    pub anchor: Option<Anchor>,
-    pub registered_at: CertificatePointer,
 }

@@ -11,78 +11,41 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-use crate::rules::{
-    context::{
-        AccountState, AccountsSlice, DRepState, DRepsSlice, PoolsSlice, PotsSlice,
-        PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, UtxoSlice,
-    },
-    BlockPreparationContext, BlockValidationContext, PrepareUtxoSlice,
+use crate::context::{
+    AccountState, AccountsSlice, DRepState, DRepsSlice, PoolsSlice, PotsSlice, UtxoSlice,
+    ValidationContext,
 };
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, PoolId, PoolParams, StakeCredential, TransactionInput,
     TransactionOutput,
 };
-use std::collections::BTreeMap;
+use std::{borrow::Cow, collections::BTreeMap};
 
-#[derive(Debug, Clone)]
-/// A Fake block preparation context that can used for testing. The context is expected to be
-/// provided upfront as test data, and all `require` method merely checks that the requested data
-/// pre-exists in the context.
-pub struct FakeBlockPreparationContext {
-    pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
+#[derive(Debug)]
+pub struct DefaultValidationContext<'a> {
+    utxo: BTreeMap<Cow<'a, TransactionInput>, TransactionOutput>,
 }
 
-impl From<FakeBlockPreparationContext> for FakeBlockValidationContext {
-    fn from(ctx: FakeBlockPreparationContext) -> FakeBlockValidationContext {
-        FakeBlockValidationContext { utxo: ctx.utxo }
-    }
-}
-
-impl BlockPreparationContext<'_> for FakeBlockPreparationContext {}
-
-impl PrepareUtxoSlice<'_> for FakeBlockPreparationContext {
-    #[allow(clippy::panic)]
-    fn require_input(&mut self, input: &TransactionInput) {
-        if !self.utxo.contains_key(input) {
-            panic!("unknown required input: {input:?}");
+impl<'a> DefaultValidationContext<'a> {
+    pub fn new(utxo: BTreeMap<&'a TransactionInput, TransactionOutput>) -> Self {
+        Self {
+            utxo: utxo
+                .into_iter()
+                .map(|(input, output)| (Cow::Borrowed(input), output))
+                .collect(),
         }
     }
 }
 
-impl PreparePoolsSlice<'_> for FakeBlockPreparationContext {
-    fn require_pool(&mut self, _pool: &PoolId) {
-        unimplemented!();
-    }
-}
+impl ValidationContext for DefaultValidationContext<'_> {}
 
-impl PrepareAccountsSlice<'_> for FakeBlockPreparationContext {
-    fn require_account(&mut self, _credential: &StakeCredential) {
-        unimplemented!();
-    }
-}
-
-impl PrepareDRepsSlice<'_> for FakeBlockPreparationContext {
-    fn require_drep(&mut self, _drep: &DRep) {
-        unimplemented!();
-    }
-}
-
-#[derive(Debug)]
-// TODO: Move into a separate module possibly, or eventually just replace with our _real
-// implementation_.
-pub struct FakeBlockValidationContext {
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
-}
-
-impl BlockValidationContext for FakeBlockValidationContext {}
-
-impl PotsSlice for FakeBlockValidationContext {
+impl PotsSlice for DefaultValidationContext<'_> {
     fn add_fees(&mut self) {
         unimplemented!()
     }
 }
 
-impl UtxoSlice for FakeBlockValidationContext {
+impl UtxoSlice for DefaultValidationContext<'_> {
     fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
         self.utxo.get(input)
     }
@@ -92,11 +55,11 @@ impl UtxoSlice for FakeBlockValidationContext {
     }
 
     fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
-        self.utxo.insert(input, output);
+        self.utxo.insert(Cow::Owned(input), output);
     }
 }
 
-impl PoolsSlice for FakeBlockValidationContext {
+impl PoolsSlice for DefaultValidationContext<'_> {
     fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
         unimplemented!()
     }
@@ -108,7 +71,7 @@ impl PoolsSlice for FakeBlockValidationContext {
     }
 }
 
-impl AccountsSlice for FakeBlockValidationContext {
+impl AccountsSlice for DefaultValidationContext<'_> {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
         unimplemented!()
     }
@@ -134,7 +97,7 @@ impl AccountsSlice for FakeBlockValidationContext {
     }
 }
 
-impl DRepsSlice for FakeBlockValidationContext {
+impl DRepsSlice for DefaultValidationContext<'_> {
     fn lookup(&self, _credential: &DRep) -> Option<&DRepState> {
         unimplemented!()
     }
