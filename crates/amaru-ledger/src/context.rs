@@ -17,8 +17,8 @@ mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, StakeCredential,
-    TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::{collections::BTreeSet, fmt, marker::PhantomData};
 
@@ -26,7 +26,14 @@ pub use default::*;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
-    PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice
+    PotsSlice
+    + UtxoSlice
+    + PoolsSlice
+    + AccountsSlice
+    + DRepsSlice
+    + CommitteeSlice
+    + WitnessSlice
+    + ProposalsSlice
 {
 }
 
@@ -232,6 +239,13 @@ pub trait CommitteeSlice {
         cc_member: StakeCredential,
         anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
+}
+
+// Governance Proposals
+// -------------------------------------------------------------------------------------------------
+
+pub trait ProposalsSlice {
+    fn acknowledge(&mut self, pointer: ProposalPointer, proposal: Proposal);
 }
 
 // Witnesses

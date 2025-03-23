@@ -15,14 +15,14 @@
 use crate::{
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice,
-        DelegateError, PoolsSlice, PotsSlice, RegisterError, UnregisterError, UpdateError,
-        UtxoSlice, ValidationContext, WitnessSlice,
+        DelegateError, PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError,
+        UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
     },
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, StakeCredential,
-    TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::trace;
@@ -195,6 +195,16 @@ impl CommitteeSlice for DefaultValidationContext<'_> {
         trace!(name: "certificate.committee.resign", ?cc_member, ?anchor);
         self.state.committee.unregister(cc_member);
         Ok(())
+    }
+}
+
+impl ProposalsSlice for DefaultValidationContext<'_> {
+    #[allow(clippy::unwrap_used)]
+    fn acknowledge(&mut self, pointer: ProposalPointer, proposal: Proposal) {
+        self.state
+            .proposals
+            .register(pointer, (0, proposal), None, None)
+            .unwrap_or_default(); // Can't happen as by construction key is unique
     }
 }
 

@@ -15,12 +15,12 @@
 use crate::context::{
     AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice, DelegateError,
     Hash, PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
-    PreparePoolsSlice, PrepareUtxoSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
-    ValidationContext, WitnessSlice,
+    PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
+    UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, StakeCredential,
-    TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -199,6 +199,10 @@ impl CommitteeSlice for AssertValidationContext {
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
         unimplemented!()
     }
+}
+
+impl ProposalsSlice for AssertValidationContext {
+    fn acknowledge(&mut self, _pointer: ProposalPointer, _proposal: Proposal) {}
 }
 
 impl WitnessSlice for AssertValidationContext {

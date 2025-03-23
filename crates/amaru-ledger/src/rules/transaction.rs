@@ -17,6 +17,7 @@ use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, MintedTransactionBody,
     MintedWitnessSet, OriginalHash, TransactionInput, TransactionPointer,
 };
+use core::mem;
 use std::ops::Deref;
 use thiserror::Error;
 
@@ -37,6 +38,8 @@ pub use metadata::InvalidTransactionMetadata;
 
 pub mod outputs;
 pub use outputs::InvalidOutputs;
+
+pub mod proposals;
 
 pub mod vkey_witness;
 pub use vkey_witness::InvalidVKeyWitness;
@@ -91,7 +94,7 @@ pub fn execute(
     certificates::execute(
         context,
         pointer,
-        core::mem::take(&mut transaction_body.certificates),
+        mem::take(&mut transaction_body.certificates),
     )?;
 
     fees::execute(
@@ -111,7 +114,7 @@ pub fn execute(
 
     outputs::execute(
         protocol_params,
-        core::mem::take(&mut transaction_body.outputs),
+        mem::take(&mut transaction_body.outputs),
         &mut |index, output| {
             if is_valid {
                 context.produce(
@@ -127,7 +130,7 @@ pub fn execute(
 
     outputs::execute(
         protocol_params,
-        core::mem::take(&mut transaction_body.collateral_return)
+        mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
         &mut |index, output| {
@@ -147,6 +150,12 @@ pub fn execute(
     )?;
 
     withdrawals::execute(context, transaction_body.withdrawals.as_deref())?;
+
+    proposals::execute(
+        context,
+        transaction_id,
+        mem::take(&mut transaction_body.proposal_procedures).map(|xs| xs.to_vec()),
+    );
 
     voting_procedures::execute(context, transaction_body.voting_procedures.as_deref());
 
