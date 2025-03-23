@@ -49,8 +49,8 @@ impl<'a> DefaultValidationContext<'a> {
 impl ValidationContext for DefaultValidationContext<'_> {}
 
 impl PotsSlice for DefaultValidationContext<'_> {
-    fn add_fees(&mut self) {
-        unimplemented!()
+    fn add_fees(&mut self, fees: Lovelace) {
+        self.state.fees += fees;
     }
 }
 

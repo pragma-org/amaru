@@ -85,9 +85,7 @@ pub struct AssertValidationContext {
 impl ValidationContext for AssertValidationContext {}
 
 impl PotsSlice for AssertValidationContext {
-    fn add_fees(&mut self) {
-        unimplemented!()
-    }
+    fn add_fees(&mut self, _fees: Lovelace) {}
 }
 
 impl UtxoSlice for AssertValidationContext {

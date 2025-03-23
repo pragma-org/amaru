@@ -26,6 +26,9 @@ pub use bootstrap_witness::InvalidBootstrapWitnesses;
 pub mod certificates;
 pub use certificates::InvalidCertificates;
 
+pub mod fees;
+pub use fees::InvalidFees;
+
 pub mod inputs;
 pub use inputs::InvalidInputs;
 
@@ -53,6 +56,9 @@ pub enum InvalidTransaction {
 
     #[error("invalid certificates: {0}")]
     Certificates(#[from] InvalidCertificates),
+
+    #[error("invalid fees: {0}")]
+    Fees(#[from] InvalidFees),
 
     #[error("invalid withdrawals: {0}")]
     Withdrawals(#[from] InvalidWithdrawals),
@@ -86,6 +92,14 @@ pub fn execute(
         context,
         pointer,
         core::mem::take(&mut transaction_body.certificates),
+    )?;
+
+    fees::execute(
+        context,
+        is_valid,
+        transaction_body.fee,
+        transaction_body.collateral.as_deref(),
+        transaction_body.collateral_return.as_ref(),
     )?;
 
     inputs::execute(
