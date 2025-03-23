@@ -16,21 +16,23 @@ use crate::{
     context::{
         AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice,
         DelegateError, PoolsSlice, PotsSlice, RegisterError, UnregisterError, UpdateError,
-        UtxoSlice, ValidationContext,
+        UtxoSlice, ValidationContext, WitnessSlice,
     },
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, StakeCredential,
+    Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, StakeCredential,
     TransactionInput, TransactionOutput,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tracing::trace;
 
 #[derive(Debug)]
 pub struct DefaultValidationContext<'a> {
     utxo: BTreeMap<&'a TransactionInput, TransactionOutput>,
     state: VolatileState,
+    required_signers: BTreeSet<Hash<28>>,
+    required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
 impl<'a> DefaultValidationContext<'a> {
@@ -38,6 +40,8 @@ impl<'a> DefaultValidationContext<'a> {
         Self {
             utxo,
             state: VolatileState::default(),
+            required_signers: BTreeSet::default(),
+            required_bootstrap_signers: BTreeSet::default(),
         }
     }
 }
@@ -190,5 +194,31 @@ impl CommitteeSlice for DefaultValidationContext<'_> {
         trace!(name: "certificate.committee.resign", ?cc_member, ?anchor);
         self.state.committee.unregister(cc_member);
         Ok(())
+    }
+}
+
+impl WitnessSlice for DefaultValidationContext<'_> {
+    fn require_witness(&mut self, credential: StakeCredential) {
+        match credential {
+            StakeCredential::AddrKeyhash(vk_hash) => {
+                self.required_signers.insert(vk_hash);
+            }
+            StakeCredential::ScriptHash(..) => {
+                // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
+                // before hand, and here, check whether additional signatures are needed.
+            }
+        }
+    }
+
+    fn require_bootstrap_witness(&mut self, root: Hash<28>) {
+        self.required_bootstrap_signers.insert(root);
+    }
+
+    fn required_signers(&self) -> BTreeSet<Hash<28>> {
+        self.required_signers.iter().copied().collect()
+    }
+
+    fn required_bootstrap_signers(&self) -> BTreeSet<Hash<28>> {
+        self.required_bootstrap_signers.iter().copied().collect()
     }
 }

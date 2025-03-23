@@ -17,16 +17,16 @@ mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, StakeCredential,
+    Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, StakeCredential,
     TransactionInput, TransactionOutput,
 };
-use std::{fmt, marker::PhantomData};
+use std::{collections::BTreeSet, fmt, marker::PhantomData};
 
 pub use default::*;
 
 /// The ValidationContext is a collection of slices needed to validate a block
 pub trait ValidationContext:
-    PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice
+    PotsSlice + UtxoSlice + PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice
 {
 }
 
@@ -232,4 +232,24 @@ pub trait CommitteeSlice {
         cc_member: StakeCredential,
         anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>>;
+}
+
+// Witnesses
+// -------------------------------------------------------------------------------------------------
+
+pub trait WitnessSlice {
+    /// Indicate that a witness is required to be present (and valid) for the corresponding
+    /// set of credentials.
+    fn require_witness(&mut self, credential: StakeCredential);
+
+    /// Indicate that a bootstrap witness is required to be present (and valid) for the corresponding
+    /// root.
+    fn require_bootstrap_witness(&mut self, root: Hash<28>);
+
+    /// Obtain the full list of required signers collected while traversing the transaction.
+    fn required_signers(&self) -> BTreeSet<Hash<28>>;
+
+    /// Obtain the full list of required bootstrap witnesses collected while traversing the
+    /// transaction.
+    fn required_bootstrap_signers(&self) -> BTreeSet<Hash<28>>;
 }

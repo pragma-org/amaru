@@ -14,16 +14,16 @@
 
 use crate::context::{
     AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice, DelegateError,
-    PoolsSlice, RegisterError, UnregisterError, UpdateError,
+    PoolsSlice, RegisterError, UnregisterError, UpdateError, WitnessSlice,
 };
 use amaru_kernel::{
-    Certificate, CertificatePointer, DRep, Lovelace, PoolId, PoolParams, StakeCredential,
-    STAKE_CREDENTIAL_DEPOSIT,
+    Certificate, CertificatePointer, DRep, Lovelace, NonEmptySet, PoolId, PoolParams,
+    StakeCredential, TransactionPointer, STAKE_CREDENTIAL_DEPOSIT,
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum InvalidCertificate {
+pub enum InvalidCertificates {
     #[error("stake credential already registered: {0}")]
     StakeCredentialAlreadyRegistered(#[from] RegisterError<AccountState, StakeCredential>),
 
@@ -46,14 +46,39 @@ pub enum InvalidCertificate {
     CCMemberInvalidDelegation(#[from] DelegateError<StakeCredential, StakeCredential>),
 }
 
-// FIXME: Perform all necessary rules validations down here.
 pub(crate) fn execute<C>(
     context: &mut C,
-    certificate: Certificate,
-    pointer: CertificatePointer,
-) -> Result<(), InvalidCertificate>
+    transaction_pointer: TransactionPointer,
+    certificates: Option<NonEmptySet<Certificate>>,
+) -> Result<(), InvalidCertificates>
 where
-    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice,
+    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice,
+{
+    certificates
+        .map(|xs| xs.to_vec())
+        .unwrap_or_default()
+        .into_iter()
+        .enumerate()
+        .try_for_each(|(certificate_index, certificate)| {
+            execute_one(
+                context,
+                CertificatePointer {
+                    transaction_pointer,
+                    certificate_index,
+                },
+                certificate,
+            )
+        })
+}
+
+// FIXME: Perform all necessary rules validations down here.
+fn execute_one<C>(
+    context: &mut C,
+    pointer: CertificatePointer,
+    certificate: Certificate,
+) -> Result<(), InvalidCertificates>
+where
+    C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice,
 {
     match certificate {
         Certificate::PoolRegistration {
@@ -67,6 +92,7 @@ where
             relays,
             pool_metadata: metadata,
         } => {
+            context.require_witness(StakeCredential::AddrKeyhash(id));
             let params = PoolParams {
                 id,
                 vrf,
@@ -83,11 +109,13 @@ where
         }
 
         Certificate::PoolRetirement(id, epoch) => {
+            context.require_witness(StakeCredential::AddrKeyhash(id));
             PoolsSlice::retire(context, id, epoch);
             Ok(())
         }
 
         Certificate::StakeRegistration(credential) => {
+            context.require_witness(credential.clone());
             AccountsSlice::register(
                 context,
                 credential,
@@ -101,6 +129,15 @@ where
         }
 
         Certificate::Reg(credential, deposit) => {
+            // The "old behavior of not requiring a witness for staking credential registration" is mantained:
+            // - Only during the "transitional period of Conway"
+            // - Only for staking credential registration certificates without a deposit
+            //
+            // See https://github.com/IntersectMBO/cardano-ledger/blob/81637a1c2250225fef47399dd56f80d87384df32/eras/conway/impl/src/Cardano/Ledger/Conway/TxCert.hs#L698
+            if deposit > 0 {
+                context.require_witness(credential.clone());
+            }
+
             AccountsSlice::register(
                 context,
                 credential,
@@ -114,16 +151,19 @@ where
         }
 
         Certificate::StakeDeregistration(credential) | Certificate::UnReg(credential, _) => {
+            context.require_witness(credential.clone());
             AccountsSlice::unregister(context, credential);
             Ok(())
         }
 
         Certificate::StakeDelegation(credential, pool) => {
+            context.require_witness(credential.clone());
             context.delegate_pool(credential, pool)?;
             Ok(())
         }
 
         Certificate::RegDRepCert(drep, deposit, anchor) => {
+            context.require_witness(drep.clone());
             DRepsSlice::register(
                 context,
                 drep,
@@ -137,58 +177,63 @@ where
         }
 
         Certificate::UnRegDRepCert(drep, refund) => {
+            context.require_witness(drep.clone());
             DRepsSlice::unregister(context, drep, refund);
             Ok(())
         }
 
         Certificate::UpdateDRepCert(drep, anchor) => {
+            context.require_witness(drep.clone());
             DRepsSlice::update(context, drep, Option::from(anchor))?;
             Ok(())
         }
 
         Certificate::VoteDeleg(credential, drep) => {
+            context.require_witness(credential.clone());
             AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
             Ok(())
         }
 
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
+            context.require_witness(cold_credential.clone());
             CommitteeSlice::delegate_cold_key(context, cold_credential, hot_credential)?;
             Ok(())
         }
 
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
+            context.require_witness(cold_credential.clone());
             CommitteeSlice::resign(context, cold_credential, Option::from(anchor))?;
             Ok(())
         }
 
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
             let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
-            execute(context, drep_deleg, pointer)?;
+            execute_one(context, pointer, drep_deleg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute(context, pool_deleg, pointer)
+            execute_one(context, pointer, pool_deleg)
         }
 
         Certificate::StakeRegDeleg(credential, pool, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute(context, reg, pointer)?;
+            execute_one(context, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute(context, pool_deleg, pointer)
+            execute_one(context, pointer, pool_deleg)
         }
 
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute(context, reg, pointer)?;
+            execute_one(context, pointer, reg)?;
             let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
-            execute(context, pool_deleg, pointer)?;
+            execute_one(context, pointer, pool_deleg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute(context, drep_deleg, pointer)
+            execute_one(context, pointer, drep_deleg)
         }
 
         Certificate::VoteRegDeleg(credential, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute(context, reg, pointer)?;
+            execute_one(context, pointer, reg)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute(context, drep_deleg, pointer)
+            execute_one(context, pointer, drep_deleg)
         }
     }
 }

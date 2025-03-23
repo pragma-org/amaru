@@ -94,7 +94,7 @@ impl<S: Store + Send + Sync> Stage<S> {
         rules::validate_block(
             &mut context::DefaultValidationContext::new(inputs),
             ProtocolParameters::default(),
-            &block,
+            block.clone(), // TODO: Temporary, while we fully construct the state within validations
         )
         .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
 

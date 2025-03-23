@@ -37,18 +37,18 @@ pub enum InvalidOutput {
     },
 }
 
-pub fn execute<'a>(
+pub fn execute(
     protocol_parameters: &ProtocolParameters,
-    outputs: impl Iterator<Item = &'a MintedTransactionOutput<'a>>,
+    outputs: Vec<MintedTransactionOutput<'_>>,
     yield_output: &mut impl FnMut(u64, TransactionOutput),
 ) -> Result<(), InvalidOutputs> {
     let mut invalid_outputs = Vec::new();
-    for (position, output) in outputs.enumerate() {
-        inherent_value::execute(protocol_parameters, output)
+    for (position, output) in outputs.into_iter().enumerate() {
+        inherent_value::execute(protocol_parameters, &output)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
         // TODO: Ensures the validation context can work from references to avoid cloning data.
-        yield_output(position as u64, TransactionOutput::from(output.clone()));
+        yield_output(position as u64, TransactionOutput::from(output));
     }
 
     if !invalid_outputs.is_empty() {

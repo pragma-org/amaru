@@ -14,15 +14,15 @@
 
 use crate::context::{
     AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice, DelegateError,
-    PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
+    Hash, PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
     PreparePoolsSlice, PrepareUtxoSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
-    ValidationContext,
+    ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, StakeCredential,
     TransactionInput, TransactionOutput,
 };
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 // ------------------------------------------------------------------------------------- Preparation
 
@@ -36,7 +36,11 @@ pub struct AssertPreparationContext {
 
 impl From<AssertPreparationContext> for AssertValidationContext {
     fn from(ctx: AssertPreparationContext) -> AssertValidationContext {
-        AssertValidationContext { utxo: ctx.utxo }
+        AssertValidationContext {
+            utxo: ctx.utxo,
+            required_signers: BTreeSet::default(),
+            required_bootstrap_signers: BTreeSet::default(),
+        }
     }
 }
 
@@ -74,6 +78,8 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 #[derive(Debug)]
 pub struct AssertValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    required_signers: BTreeSet<Hash<28>>,
+    required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
 impl ValidationContext for AssertValidationContext {}
@@ -194,5 +200,31 @@ impl CommitteeSlice for AssertValidationContext {
         _anchor: Option<Anchor>,
     ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
         unimplemented!()
+    }
+}
+
+impl WitnessSlice for AssertValidationContext {
+    fn require_witness(&mut self, credential: StakeCredential) {
+        match credential {
+            StakeCredential::AddrKeyhash(vk_hash) => {
+                self.required_signers.insert(vk_hash);
+            }
+            StakeCredential::ScriptHash(..) => {
+                // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
+                // before hand, and here, check whether additional signatures are needed.
+            }
+        }
+    }
+
+    fn require_bootstrap_witness(&mut self, root: Hash<28>) {
+        self.required_bootstrap_signers.insert(root);
+    }
+
+    fn required_signers(&self) -> BTreeSet<Hash<28>> {
+        self.required_signers.iter().copied().collect()
+    }
+
+    fn required_bootstrap_signers(&self) -> BTreeSet<Hash<28>> {
+        self.required_bootstrap_signers.iter().copied().collect()
     }
 }

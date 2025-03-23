@@ -641,36 +641,42 @@ impl HasAddress for TransactionOutput {
     }
 }
 
-pub trait HasKeyHash {
-    fn key_hash(&self) -> Option<Hash<28>>;
+pub trait HasOwnership {
+    /// Returns ownership credential of a given entity, if any.
+    ///
+    /// TODO: The return type is slightly misleading; we refer to a 'StakeCredential', whereas the
+    /// underlying method mainly targets payment credentials in addresses. The reason for this side
+    /// step is that there's no 'Credential' type in Pallas unforunately, and so we just borrow the
+    /// structure of 'StakeCredential'.
+    fn credential(&self) -> Option<StakeCredential>;
 }
 
-impl HasKeyHash for StakeCredential {
-    fn key_hash(&self) -> Option<Hash<28>> {
+impl HasOwnership for Address {
+    fn credential(&self) -> Option<StakeCredential> {
         match self {
-            StakeCredential::AddrKeyhash(hash) => Some(*hash),
-            StakeCredential::ScriptHash(_) => None,
+            Address::Byron(_) => None,
+            Address::Shelley(shelley_address) => Some(match shelley_address.payment() {
+                ShelleyPaymentPart::Key(hash) => StakeCredential::AddrKeyhash(*hash),
+                ShelleyPaymentPart::Script(hash) => StakeCredential::ScriptHash(*hash),
+            }),
+            Address::Stake(stake_address) => Some(match stake_address.payload() {
+                StakePayload::Stake(hash) => StakeCredential::AddrKeyhash(*hash),
+                StakePayload::Script(hash) => StakeCredential::ScriptHash(*hash),
+            }),
         }
     }
 }
 
-impl HasKeyHash for Address {
-    fn key_hash(&self) -> Option<Hash<28>> {
-        match self {
-            Address::Shelley(shelley_address) => {
-                let payment = shelley_address.payment();
-                if payment.is_script() {
-                    None
-                } else {
-                    Some(*payment.as_hash())
-                }
+impl HasOwnership for Voter {
+    fn credential(&self) -> Option<StakeCredential> {
+        Some(match self {
+            Voter::ConstitutionalCommitteeKey(hash)
+            | Voter::DRepKey(hash)
+            | Voter::StakePoolKey(hash) => StakeCredential::AddrKeyhash(*hash),
+            Voter::ConstitutionalCommitteeScript(hash) | Voter::DRepScript(hash) => {
+                StakeCredential::ScriptHash(*hash)
             }
-            Address::Byron(_) => None,
-            Address::Stake(stake_address) => match stake_address.payload() {
-                StakePayload::Stake(hash) => Some(*hash),
-                StakePayload::Script(_) => None,
-            },
-        }
+        })
     }
 }
 

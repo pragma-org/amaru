@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod block;
-mod traits;
-mod transaction;
-
 use crate::context::PreparationContext;
 use amaru_kernel::{cbor, ed25519, into_sized_array, Bytes, MintedBlock};
-pub use block::execute as validate_block;
 use std::{array::TryFromSliceError, fmt, fmt::Display};
 use thiserror::Error;
 use tracing::{instrument, Level};
+
+pub use block::execute as validate_block;
+
+mod block;
+mod transaction;
 
 #[derive(Debug)]
 pub enum TransactionField {
@@ -197,7 +197,7 @@ mod tests {
         let results = rules::block::execute(
             &mut AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
-            &block,
+            block,
         );
 
         assert!(results.is_ok())
@@ -228,7 +228,7 @@ mod tests {
         assert!(rules::block::execute(
             &mut AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
-            &block
+            block
         )
         .is_err_and(|e| matches!(
             e,
@@ -256,7 +256,7 @@ mod tests {
         prepare_block(&mut ctx, &block);
 
         assert!(
-            rules::block::execute(&mut AssertValidationContext::from(ctx), pp, &block).is_err_and(
+            rules::block::execute(&mut AssertValidationContext::from(ctx), pp, block).is_err_and(
                 |e| {
                     matches!(
                         e,
