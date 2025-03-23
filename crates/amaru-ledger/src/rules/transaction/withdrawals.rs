@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{context::WitnessSlice, rules::TransactionField};
+use crate::{
+    context::{AccountsSlice, WitnessSlice},
+    rules::TransactionField,
+};
 use amaru_kernel::{Address, HasOwnership, Lovelace, RewardAccount};
 use thiserror::Error;
 
@@ -26,10 +29,13 @@ pub enum InvalidWithdrawals {
     },
 }
 
-pub(crate) fn execute(
-    context: &mut impl WitnessSlice,
+pub(crate) fn execute<C>(
+    context: &mut C,
     withdrawals: Option<&Vec<(RewardAccount, Lovelace)>>,
-) -> Result<(), InvalidWithdrawals> {
+) -> Result<(), InvalidWithdrawals>
+where
+    C: WitnessSlice + AccountsSlice,
+{
     if let Some(withdrawals) = withdrawals {
         withdrawals
             .iter()
@@ -37,17 +43,18 @@ pub(crate) fn execute(
             .try_for_each(|(position, (raw_account, _))| {
                 // TODO: This parsing should happen when we first deserialise the block, and
                 // not in the middle of rules validations.
-                let account = Address::from_bytes(raw_account).map_err(|_| {
-                    InvalidWithdrawals::MalformedRewardAccount {
+                let credential = Address::from_bytes(raw_account)
+                    .ok()
+                    .and_then(|account| account.credential())
+                    .ok_or_else(|| InvalidWithdrawals::MalformedRewardAccount {
                         bytes: raw_account.to_vec(),
                         context: TransactionField::Withdrawals,
                         position,
-                    }
-                })?;
+                    })?;
 
-                if let Some(credential) = account.credential() {
-                    context.require_witness(credential)
-                };
+                context.require_witness(credential.clone());
+
+                context.withdraw_from(credential);
 
                 Ok(())
             })?;

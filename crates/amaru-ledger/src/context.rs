@@ -169,7 +169,7 @@ pub trait AccountsSlice {
     // FIXME: Should yield an error when account doesn't exists.
     fn unregister(&mut self, credential: StakeCredential);
 
-    fn withdraw_from(&mut self, credential: &StakeCredential);
+    fn withdraw_from(&mut self, credential: StakeCredential);
 }
 
 /// An interface to help constructing the concrete AccountsSlice ahead of time.

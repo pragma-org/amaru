@@ -12,18 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::WitnessSlice;
-use amaru_kernel::{GovActionId, HasOwnership, NonEmptyKeyValuePairs, Voter, VotingProcedure};
+use crate::context::{DRepsSlice, WitnessSlice};
+use amaru_kernel::{GovActionId, NonEmptyKeyValuePairs, StakeCredential, Voter, VotingProcedure};
 
-pub(crate) fn execute(
-    context: &mut impl WitnessSlice,
+pub(crate) fn execute<C>(
+    context: &mut C,
     voting_procedures: Option<&Vec<(Voter, NonEmptyKeyValuePairs<GovActionId, VotingProcedure>)>>,
-) {
+) where
+    C: WitnessSlice + DRepsSlice,
+{
     if let Some(voting_procedures) = voting_procedures {
         voting_procedures.iter().for_each(|(voter, _)| {
-            if let Some(credential) = voter.credential() {
-                context.require_witness(credential);
-            }
+            let credential = match voter {
+                Voter::ConstitutionalCommitteeKey(hash) | Voter::StakePoolKey(hash) => {
+                    StakeCredential::AddrKeyhash(*hash)
+                }
+                Voter::ConstitutionalCommitteeScript(hash) => StakeCredential::ScriptHash(*hash),
+                Voter::DRepKey(hash) => {
+                    let credential = StakeCredential::AddrKeyhash(*hash);
+                    context.vote(credential.clone());
+                    credential
+                }
+
+                Voter::DRepScript(hash) => {
+                    let credential = StakeCredential::ScriptHash(*hash);
+                    context.vote(credential.clone());
+                    credential
+                }
+            };
+
+            context.require_witness(credential);
         });
     }
 }

@@ -150,7 +150,7 @@ impl AccountsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn withdraw_from(&mut self, _credential: &StakeCredential) {
+    fn withdraw_from(&mut self, _credential: StakeCredential) {
         unimplemented!()
     }
 }

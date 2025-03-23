@@ -130,8 +130,8 @@ impl AccountsSlice for DefaultValidationContext<'_> {
         self.state.accounts.unregister(credential)
     }
 
-    fn withdraw_from(&mut self, _credential: &StakeCredential) {
-        unimplemented!()
+    fn withdraw_from(&mut self, credential: StakeCredential) {
+        self.state.withdrawals.insert(credential);
     }
 }
 
@@ -170,8 +170,9 @@ impl DRepsSlice for DefaultValidationContext<'_> {
         self.state.dreps.unregister(drep)
     }
 
-    fn vote(&mut self, _drep: StakeCredential) {
-        unimplemented!()
+    fn vote(&mut self, drep: StakeCredential) {
+        trace!(?drep, "drep.vote");
+        self.state.voting_dreps.insert(drep);
     }
 }
 
