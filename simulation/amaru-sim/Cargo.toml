@@ -10,6 +10,9 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
+[package.metadata.cargo-machete]
+ignored = ["amaru-consensus", "amaru-kernel", "amaru-ledger", "amaru-ouroboros", "hex", "pallas-codec", "pallas-crypto", "pallas-primitives"]
+
 [dependencies]
 async-trait.workspace = true
 clap = { workspace = true, features = ["derive", "env"] }
