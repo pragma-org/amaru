@@ -82,7 +82,13 @@ pub struct AssertValidationContext {
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
-impl ValidationContext for AssertValidationContext {}
+impl ValidationContext for AssertValidationContext {
+    type FinalState = ();
+}
+
+impl From<AssertValidationContext> for () {
+    fn from(_ctx: AssertValidationContext) {}
+}
 
 impl PotsSlice for AssertValidationContext {
     fn add_fees(&mut self, _fees: Lovelace) {}

@@ -195,7 +195,7 @@ mod tests {
         prepare_block(&mut ctx, &block);
 
         let results = rules::block::execute(
-            &mut AssertValidationContext::from(ctx),
+            AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
             block,
         );
@@ -226,7 +226,7 @@ mod tests {
         prepare_block(&mut ctx, &block);
 
         assert!(rules::block::execute(
-            &mut AssertValidationContext::from(ctx),
+            AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
             block
         )
@@ -256,14 +256,12 @@ mod tests {
         prepare_block(&mut ctx, &block);
 
         assert!(
-            rules::block::execute(&mut AssertValidationContext::from(ctx), pp, block).is_err_and(
-                |e| {
-                    matches!(
-                        e,
-                        InvalidBlock::Header(InvalidBlockHeader::SizeTooBig { .. })
-                    )
-                }
-            )
+            rules::block::execute(AssertValidationContext::from(ctx), pp, block).is_err_and(|e| {
+                matches!(
+                    e,
+                    InvalidBlock::Header(InvalidBlockHeader::SizeTooBig { .. })
+                )
+            })
         )
     }
 }

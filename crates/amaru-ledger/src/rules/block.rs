@@ -58,11 +58,11 @@ pub enum InvalidBlock {
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
-pub fn execute(
-    context: &mut impl ValidationContext,
+pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
+    mut context: C,
     protocol_params: ProtocolParameters,
     block: MintedBlock<'_>,
-) -> Result<(), InvalidBlock> {
+) -> Result<S, InvalidBlock> {
     header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;
 
     body_size::block_body_size_valid(&block.header.header_body, &block)?;
@@ -125,7 +125,7 @@ pub fn execute(
         };
 
         transaction::execute(
-            context,
+            &mut context,
             &protocol_params,
             pointer,
             !failed_transactions.has(i),
@@ -140,5 +140,5 @@ pub fn execute(
         })?;
     }
 
-    Ok(())
+    Ok(context.into())
 }

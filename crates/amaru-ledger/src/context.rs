@@ -35,6 +35,7 @@ pub trait ValidationContext:
     + WitnessSlice
     + ProposalsSlice
 {
+    type FinalState;
 }
 
 /// The PreparationContext is a collection of interfaces needed to prepare a block
