@@ -57,7 +57,6 @@ impl HeaderStage {
     }
 
     async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
-        info!("Handling event: {:?}", unit);
         let events = match unit {
             PullEvent::RollForward(peer, point, raw_header, span) => {
                 // Restore parent span
