@@ -27,7 +27,7 @@ use pallas_codec::minicbor;
 use pallas_math::math::FixedDecimal;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{info, instrument, trace, Level, Span};
+use tracing::{instrument, trace, Level, Span};
 
 use super::fetch::ValidateHeaderEvent;
 
@@ -202,7 +202,7 @@ impl Consensus {
 
         let span = Span::current();
 
-        info!("result: {:?}", result);
+        //info!("result: {:?}", result);
         match result {
             chain_selection::RollbackChainSelection::RollbackTo(hash) => {
                 trace!(target: EVENT_TARGET, %hash, "rollback");

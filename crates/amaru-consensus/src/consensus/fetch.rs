@@ -60,7 +60,7 @@ impl BlockFetchStage {
         }
     }
 
-    #[instrument(level = tracing::Level::TRACE, skip(self))]
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     async fn handle_event(&mut self, unit: &ValidateHeaderEvent) -> Result<(), WorkerError> {
         match unit {
             ValidateHeaderEvent::Validated(peer, point, span) => {
