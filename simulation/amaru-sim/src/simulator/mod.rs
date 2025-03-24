@@ -162,8 +162,6 @@ async fn run_simulator(
                     Err(_) => todo!(),
                 };
 
-                info!("result {:?}", events);
-
                 match events {
                     Ok(events) => {
                         let mut w = output_writer.lock().await;
@@ -189,7 +187,7 @@ async fn write_events(
     let s = store.lock().await;
     for e in events {
         match e {
-            ValidateHeaderEvent::Validated(peer, point, _span) => {
+            ValidateHeaderEvent::Validated(_peer, point, _span) => {
                 let h: Hash<32> = point.into();
                 let hdr = s.load_header(&h).unwrap();
                 let fwd = ChainSyncMessage::Fwd {
@@ -204,7 +202,7 @@ async fn write_events(
                 };
                 let envelope = Envelope {
                     src: "n1".to_string(),
-                    dest: peer.name.clone(),
+                    dest: "c1".to_string(),
                     body: fwd,
                 };
                 msgs.push(envelope);
@@ -220,7 +218,7 @@ async fn write_events(
                 };
                 let envelope = Envelope {
                     src: "n1".to_string(),
-                    dest: "n2".to_string(),
+                    dest: "c1".to_string(),
                     body: fwd,
                 };
                 msgs.push(envelope);
