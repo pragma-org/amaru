@@ -244,13 +244,10 @@ jobs:
       fail-fast: false
       matrix:
         projects:
-          - path: ledger-in-nodejs
-            commands: |
-              rustup target add wasm32-unknown-unknown
-              make
+          - ledger-in-nodejs
     defaults:
       run:
-        working-directory: examples/${{ matrix.projects.path }}
+        working-directory: examples/${{ matrix.projects }}
     timeout-minutes: 30
     runs-on: ubuntu-latest
     steps:
@@ -261,5 +258,5 @@ jobs:
           key: cargo-wasm32-unknown-unknown
           restore-keys: |
             cargo-wasm32-unknown-unknown
-      - name: Run commands
-        run: ${{ matrix.projects.commands }}
+      - name: Run make
+        run: make

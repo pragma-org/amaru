@@ -1,7 +1,10 @@
-all: build run
+all: setup build run
+
+setup:
+	rustup target add wasm32-unknown-unknown
 
 build:
-	cargo build --release --artifact-dir assets
+	cargo build --artifact-dir assets
 
 run:
 	node index.mjs
