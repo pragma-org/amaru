@@ -18,6 +18,7 @@ use amaru_kernel::Point;
 use amaru_ledger::ValidateBlockEvent;
 use gasket::framework::*;
 use tracing::{instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{
     peer::{Peer, PeerSession},
@@ -63,6 +64,7 @@ impl BlockFetchStage {
     async fn handle_event(&mut self, unit: &ValidateHeaderEvent) -> Result<(), WorkerError> {
         match unit {
             ValidateHeaderEvent::Validated(peer, point, span) => {
+                Span::current().set_parent(span.context());
                 let block = self.fetch_block(peer, point.clone()).await.or_panic()?;
                 self.downstream
                     .send(ValidateBlockEvent::Validated(point.clone(), block, span.clone()).into())
