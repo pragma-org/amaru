@@ -6,63 +6,93 @@ This component aims at implementing a _Simulator_ for the Ouroboros Consensus, i
 2. ✅ [Maelstrom](https://github.com/jepsen-io/maelstrom/)-like testing through stdin/stdout interface ignoring network interactions
 3. 🔴 [Jepsen](https://github.com/jepsen-io/jepsen)-like testing through full-blown deployment of a cluster and actual networking stack
 
-## Testing strategy
+## Usage
 
-Ouroboros consensus is a somewhat complex and deceptive beast: While formulating its behaviour is relatively simple and straightforward, there are many corner cases and potential attack vectors one needs to guard against, therefore testing strategy needs to be an integral part of the design and development of a solution.
+The `simulator` executable is a pared-down version of Amaru where network communications are abstracted away and fully controlled by [simulation-testing](https://github.com/pragma-org/simulation-testing) executable(s).
+To run such tests, one needs to:
 
-Furthermore, one of the goals of the Amaru projects is to document and generalise the behaviour of Cardano core components in order to ease comparisons, analysis, investigations, alternative implementations, benchmarks, tests,... without requiring retro-engineering an existing implementation.
+1. compile amaru simulator
+2. compile and run `moskstraumen` components relevant for testing Amaru
 
-The following picture summarizes core ideas of the current testing process for the consensus:
+### Compile simulator
 
-![Testing consensus flow](./testing-consensus.jpg)
+> [!IMPORTANT]
+>
+> As of 2025-03-24, amaru only supports `preprod` network configuration which means that all epoch/slots conversions are hardwired for this network.
+> In order to be able to run a "test" network, one needs to change those functions manually. This is obviously a temporary kludge
+>
+> The following patch can be applied to the repository as a workaround:
+>
+> ```diff
+> diff --git a/crates/amaru-kernel/src/lib.rs b/crates/amaru-kernel/src/lib.rs
+> index 29f0e6b..fe240c1 100644
+> --- a/crates/amaru-kernel/src/lib.rs
+> +++ b/crates/amaru-kernel/src/lib.rs
+> @@ -486,9 +486,8 @@ pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::e
+>
+>  /// Calculate the epoch number corresponding to a given slot on the PreProd network.
+>  // TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
+> -pub fn epoch_from_slot(slot: u64) -> u64 {
+> -    let shelley_slots = slot - BYRON_TOTAL_SLOTS as u64;
+> -    (shelley_slots / SHELLEY_EPOCH_LENGTH as u64) + PREPROD_SHELLEY_TRANSITION_EPOCH as u64
+> +pub fn epoch_from_slot(_slot: u64) -> u64 {
+> +    0
+>  }
+>
+>  /// Obtain the slot number relative to the epoch.
+> @@ -511,10 +510,8 @@ pub fn relative_slot(slot: u64) -> u64 {
+>  /// assert!(next_epoch_first_slot(150) > 63590393);
+>  /// ```
+>  // TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
+> -pub fn next_epoch_first_slot(current_epoch: u64) -> u64 {
+> -    (BYRON_TOTAL_SLOTS as u64)
+> -        + (SHELLEY_EPOCH_LENGTH as u64)
+> -            * (1 + current_epoch - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
+> +pub fn next_epoch_first_slot(_current_epoch: u64) -> u64 {
+> +    100000
+>  }
+> ```
 
-* The overall approach is _Model based_, using _State Machine_ models of the expected behaviour of interacting parts of the system to generate test traces and validate _SUT_'s behaviour
-* A complete chain is generated, possibly with varying characteristics: length of tines, frequency of forks, distance between blocks, etc. This simulates how a node would see the chain progressing,
-* The _Leader_ and _Observer_ are test-only components that are controlled by the _Test Driver_ through a "script" which basically defines their behaviour as a state machines (see below)
-* The _Leader_ and the _SUT_ start at some random point in the generated chain,
-* The _Observer_ plays the role of _downstream_ peers and collect `ChainSync` messages issued by the _SUT_
-* The _Leader_, _SUT_ and _Observer_ are connected through direct channels, abstracting the details of low-level TCP connections, multiplexing, etc.
-* The _Test Driver_ ensures the _SUT_ behaves according to the expectations, and can also drives the _Leader_ and _Observer_ to increase coverage, using _logs_ from the _SUT_
-
-### Chain Sync specification
-
-We would like to have a formal description of the protocol(s) that we can use to drive _Test doubles_. Here is a draft specification loosely based on [spex](https://spex-lang.org) language. Spex is currently very basic and does not allow for guarded transitions like the one we define below, so for the time being we could resort to "fake it" and have this state machine only in code.
+Build the simulator in debug mode (from toplevel Amaru workspace):
 
 ```
--- Chain-sync node-to-node protocol
+cargo build -p amaru-sim
+```
 
-data Chain blk =
-     Genesis
-  |  Chain blk (Chain blk)
+### Compile & Run moskstraumen
 
-node Leader (chain : Chain a, tip : a) where
+**NOTE**: This requires a fully functional Haskell toolchain which one can obtain from [GHCUp](http://ghcup.haskell.org)
 
-  StIdle & Follower?MsgDone & StDone
+Checkout simulation testing project
 
-  StIdle & Follower?MsgFindIntersect(points)
-     , [ points ∩ chain = {p,...} ] Follower!MsgIntersectFound(p, tip) & StIdle
-     | [ points ∩ chain = ∅ ] Follower!MsgIntersectNotFound & StIdle
+```
+git clone https://github.com/pragma-org/simulation-testing
+```
 
-  StIdle & Follower?MsgRequestNext , Follower!MsgRollForward & StIdle
-                                   | Follower!MsgRollBackward & StIdle
-                                   | Follower!MsgAwaitReply & StMustReply
+Change directory to moskstraumen:
 
-  StMustReply & Follower!MsgRollForward & StIdle
-              | Follower!MsgRollBackward & StIdle
+```
+cd simulation-testing/moskstraumen
+```
 
-node Follower where
+Run test against simulator:
 
-  StIdle & Leader!MsgDone & StDone
+```
+cabal run blackbox-test -- ../../amaru/target/debug/simulator amaru 1 1 \
+   --disable-shrinking \
+   --stake-distribution-file data/stake.json \
+   --consensus-context-file data/context.json
+```
 
-  StIdle & Leader!MsgFindIntersect , Leader?MsgIntersectFound & StIdle
-                                   | Leader?MsgIntersectNotFound & StIdle
+The `stake.json` and `context.json` are files extracted from chain generation which one can find in `chain.json`. They are needed to provide enough context to validate "fake" headers.
 
-  StIdle & Leader!MsgRequestNext , Leader?MsgRollForward & StIdle
-                                 | Leader?MsgRollBackward & StIdle
-                                 | Leader?MsgAwaitReply & StMustReply
+If all goes well, one should see something like:
 
-  StMustReply & Leader?MsgRollForward & StIdle
-              | Leader?MsgRollBackward & StIdle
+```
+% cabal run blackbox-test -- ../../amaru/target/debug/simulator amaru 1 1 --disable-shrinking --stake-distribution-file data/stake.json --consensus-context-file data/context.json
+{"timestamp":"2025-03-24T17:24:41.641906Z","level":"INFO","fields":{"message":"using upstream peer addresses: [\"c1\"]"},"target":"amaru_sim::simulator"}
+("TRACEPREDICATE",47,47,2)
+Success!
 ```
 
 ## References

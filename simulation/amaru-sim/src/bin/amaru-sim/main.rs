@@ -12,13 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::simulator::Args;
+use amaru_sim::simulator::{self, Args};
 use clap::Parser;
-
-mod bytes;
-mod ledger;
-mod simulator;
-mod sync;
 
 #[tokio::main]
 async fn main() {
