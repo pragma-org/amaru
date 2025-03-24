@@ -202,7 +202,6 @@ impl Consensus {
 
         let span = Span::current();
 
-        //info!("result: {:?}", result);
         match result {
             chain_selection::RollbackChainSelection::RollbackTo(hash) => {
                 trace!(target: EVENT_TARGET, %hash, "rollback");

@@ -152,12 +152,6 @@ impl Point {
             Point::Specific(slot, _) => *slot,
         }
     }
-    pub fn pretty_point(&self) -> String {
-        match self {
-            Point::Origin => "origin".to_string(),
-            Point::Specific(_slot, hash) => String::from_utf8(hex::encode(hash).into()).unwrap(),
-        }
-    }
 }
 
 impl From<&Point> for Hash<32> {

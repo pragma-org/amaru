@@ -151,7 +151,6 @@ async fn run_simulator(
                 let events = match mk_message(msg, span) {
                     Ok(event) => match event {
                         PullEvent::RollForward(peer, point, raw_header, _span) => {
-                            info!("got forward event {:?}", &point.pretty_point());
                             consensus
                                 .handle_roll_forward(&peer, &point, &raw_header)
                                 .await
