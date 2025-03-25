@@ -5,7 +5,7 @@ use amaru_consensus::{
     IsHeader,
 };
 use amaru_kernel::{from_cbor, network::NetworkName, Header, Point};
-use clap::{builder::TypedValueParser as _, Parser};
+use clap::Parser;
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_network::{
@@ -32,8 +32,6 @@ pub struct Args {
         long,
         value_name = "NETWORK",
         default_value_t = NetworkName::Preprod,
-        value_parser = clap::builder::PossibleValuesParser::new(NetworkName::possible_values())
-            .map(|s| s.parse::<NetworkName>().unwrap()),
     )]
     network: NetworkName,
 

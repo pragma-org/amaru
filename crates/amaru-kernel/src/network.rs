@@ -47,17 +47,16 @@ impl std::str::FromStr for NetworkName {
                     .strip_prefix("testnet<")
                     .and_then(|s| s.strip_suffix(">"))
                     .ok_or(format!("Invalid network name {}", s))?;
-                magic.parse::<u32>().map(NetworkName::Testnet).map_err(|e| e.to_string())
+                magic
+                    .parse::<u32>()
+                    .map(NetworkName::Testnet)
+                    .map_err(|e| e.to_string())
             }
         }
     }
 }
 
 impl NetworkName {
-    pub fn possible_values<'a>() -> &'a [&'a str; 3] {
-        &["mainnet", "preprod", "preview"]
-    }
-
     pub fn to_network_magic(self) -> u32 {
         match self {
             Self::Mainnet => 764824073,
