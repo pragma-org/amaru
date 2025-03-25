@@ -33,6 +33,9 @@ pub struct Args {
     peer_address: Vec<String>,
 
     /// The target network to choose from.
+    ///
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
         value_name = "NETWORK",

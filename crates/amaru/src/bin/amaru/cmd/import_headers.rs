@@ -28,6 +28,9 @@ pub struct Args {
     peer_address: String,
 
     /// Network to use for the connection.
+    ///
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
         value_name = "NETWORK",
