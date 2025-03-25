@@ -9,7 +9,7 @@ pub struct MemoryStore {}
 
 impl Snapshot for MemoryStore {
     fn epoch(&self) -> Epoch {
-        0
+        10
     }
 
     fn pool(

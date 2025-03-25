@@ -13,15 +13,17 @@
 // limitations under the License.
 
 use crate::context::{
-    AccountState, AccountsSlice, DRepState, DRepsSlice, PoolsSlice, PotsSlice, PreparationContext,
-    PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, UtxoSlice,
-    ValidationContext,
+    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice, DelegateError,
+    Hash, PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
+    PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
+    UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, PoolId, PoolParams, StakeCredential, TransactionInput,
-    TransactionOutput,
+    Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
-use std::collections::BTreeMap;
+use core::mem;
+use std::collections::{BTreeMap, BTreeSet};
 
 // ------------------------------------------------------------------------------------- Preparation
 
@@ -35,7 +37,11 @@ pub struct AssertPreparationContext {
 
 impl From<AssertPreparationContext> for AssertValidationContext {
     fn from(ctx: AssertPreparationContext) -> AssertValidationContext {
-        AssertValidationContext { utxo: ctx.utxo }
+        AssertValidationContext {
+            utxo: ctx.utxo,
+            required_signers: BTreeSet::default(),
+            required_bootstrap_signers: BTreeSet::default(),
+        }
     }
 }
 
@@ -63,7 +69,7 @@ impl PrepareAccountsSlice<'_> for AssertPreparationContext {
 }
 
 impl PrepareDRepsSlice<'_> for AssertPreparationContext {
-    fn require_drep(&mut self, _drep: &DRep) {
+    fn require_drep(&mut self, _drep: &StakeCredential) {
         unimplemented!();
     }
 }
@@ -73,14 +79,20 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 #[derive(Debug)]
 pub struct AssertValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    required_signers: BTreeSet<Hash<28>>,
+    required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
-impl ValidationContext for AssertValidationContext {}
+impl ValidationContext for AssertValidationContext {
+    type FinalState = ();
+}
+
+impl From<AssertValidationContext> for () {
+    fn from(_ctx: AssertValidationContext) {}
+}
 
 impl PotsSlice for AssertValidationContext {
-    fn add_fees(&mut self) {
-        unimplemented!()
-    }
+    fn add_fees(&mut self, _fees: Lovelace) {}
 }
 
 impl UtxoSlice for AssertValidationContext {
@@ -88,8 +100,8 @@ impl UtxoSlice for AssertValidationContext {
         self.utxo.get(input)
     }
 
-    fn consume(&mut self, input: &TransactionInput) {
-        self.utxo.remove(input);
+    fn consume(&mut self, input: TransactionInput) {
+        self.utxo.remove(&input);
     }
 
     fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
@@ -104,7 +116,7 @@ impl PoolsSlice for AssertValidationContext {
     fn register(&mut self, _params: PoolParams) {
         unimplemented!()
     }
-    fn retire(&mut self, _pool: &PoolId) {
+    fn retire(&mut self, _pool: PoolId, _epoch: Epoch) {
         unimplemented!()
     }
 }
@@ -114,41 +126,114 @@ impl AccountsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn register(&mut self, _credential: StakeCredential, _state: AccountState) {
+    fn register(
+        &mut self,
+        _credential: StakeCredential,
+        _state: AccountState,
+    ) -> Result<(), RegisterError<AccountState, StakeCredential>> {
         unimplemented!()
     }
 
-    fn delegate_pool(&mut self, _pool: PoolId) {
+    fn delegate_pool(
+        &mut self,
+        _credential: StakeCredential,
+        _pool: PoolId,
+    ) -> Result<(), DelegateError<StakeCredential, PoolId>> {
         unimplemented!()
     }
 
-    fn delegate_vote(&mut self, _drep: DRep, _ptr: CertificatePointer) {
+    fn delegate_vote(
+        &mut self,
+        _credential: StakeCredential,
+        _drep: DRep,
+        _pointer: CertificatePointer,
+    ) -> Result<(), DelegateError<StakeCredential, DRep>> {
         unimplemented!()
     }
 
-    fn unregister(&mut self, _credential: &StakeCredential) {
+    fn unregister(&mut self, _credential: StakeCredential) {
         unimplemented!()
     }
 
-    fn withdraw_from(&mut self, _credential: &StakeCredential) {
+    fn withdraw_from(&mut self, _credential: StakeCredential) {
         unimplemented!()
     }
 }
 
 impl DRepsSlice for AssertValidationContext {
-    fn lookup(&self, _credential: &DRep) -> Option<&DRepState> {
+    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepState> {
         unimplemented!()
     }
-    fn register(&mut self, _drep: DRep, _state: DRepState) {
+
+    fn register(
+        &mut self,
+        _drep: StakeCredential,
+        _state: DRepState,
+    ) -> Result<(), RegisterError<DRepState, StakeCredential>> {
         unimplemented!()
     }
-    fn update(&mut self, _drep: &DRep, _anchor: Option<Anchor>) {
+
+    fn update(
+        &mut self,
+        _drep: StakeCredential,
+        _anchor: Option<Anchor>,
+    ) -> Result<(), UpdateError<StakeCredential>> {
         unimplemented!()
     }
-    fn unregister(&mut self, _drep: &DRep) {
+
+    fn unregister(&mut self, _drep: StakeCredential, _refund: Lovelace) {
         unimplemented!()
     }
-    fn vote(&mut self, _drep: DRep) {
+
+    fn vote(&mut self, _drep: StakeCredential) {
         unimplemented!()
+    }
+}
+
+impl CommitteeSlice for AssertValidationContext {
+    fn delegate_cold_key(
+        &mut self,
+        _cc_member: StakeCredential,
+        _delegate: StakeCredential,
+    ) -> Result<(), DelegateError<StakeCredential, StakeCredential>> {
+        unimplemented!()
+    }
+
+    fn resign(
+        &mut self,
+        _cc_member: StakeCredential,
+        _anchor: Option<Anchor>,
+    ) -> Result<(), UnregisterError<CCMember, StakeCredential>> {
+        unimplemented!()
+    }
+}
+
+impl ProposalsSlice for AssertValidationContext {
+    fn acknowledge(&mut self, _pointer: ProposalPointer, _proposal: Proposal) {}
+}
+
+impl WitnessSlice for AssertValidationContext {
+    fn require_witness(&mut self, credential: StakeCredential) {
+        match credential {
+            StakeCredential::AddrKeyhash(vk_hash) => {
+                self.required_signers.insert(vk_hash);
+            }
+            StakeCredential::ScriptHash(..) => {
+                // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
+                // before hand, and here, check whether additional signatures are needed.
+            }
+        }
+    }
+
+    fn require_bootstrap_witness(&mut self, root: Hash<28>) {
+        self.required_bootstrap_signers.insert(root);
+    }
+
+    fn required_signers(&mut self) -> BTreeSet<Hash<28>> {
+        mem::take(&mut self.required_signers)
+    }
+
+    fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>> {
+        mem::take(&mut self.required_bootstrap_signers)
     }
 }

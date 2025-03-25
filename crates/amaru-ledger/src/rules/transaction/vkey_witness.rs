@@ -13,16 +13,13 @@
 // limitations under the License.
 
 use crate::{
-    context::UtxoSlice,
+    context::WitnessSlice,
     rules::{
-        format_vec, traits::requires_vkey_witness::RequiresVkeyWitness, verify_ed25519_signature,
-        InvalidEd25519Signature, TransactionField, WithPosition,
+        format_vec, verify_ed25519_signature, InvalidEd25519Signature, TransactionField,
+        WithPosition,
     },
 };
-use amaru_kernel::{
-    Address, HasAddress, HasKeyHash, Hash, Hasher, KeepRaw, MintedTransactionBody, NonEmptySet,
-    OriginalHash, VKeyWitness,
-};
+use amaru_kernel::{Hash, Hasher, TransactionId, VKeyWitness};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
@@ -48,95 +45,22 @@ pub enum InvalidVKeyWitness {
         context: TransactionField,
         position: usize,
     },
-
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("uncategorized error: {0}")]
-    UncategorizedError(String),
 }
 
 pub fn execute(
-    context: &impl UtxoSlice,
-    transaction_body: &KeepRaw<'_, MintedTransactionBody<'_>>,
-    vkey_witnesses: &Option<NonEmptySet<VKeyWitness>>,
+    context: &mut impl WitnessSlice,
+    transaction_id: TransactionId,
+    vkey_witnesses: Option<&Vec<VKeyWitness>>,
 ) -> Result<(), InvalidVKeyWitness> {
-    let mut required_vkey_hashes: BTreeSet<Hash<28>> = BTreeSet::new();
-
     let empty_vec = vec![];
-    let collateral = transaction_body.collateral.as_deref().unwrap_or(&empty_vec);
-    for input in [transaction_body.inputs.as_slice(), collateral.as_slice()]
-        .concat()
-        .iter()
-    {
-        match context.lookup(input) {
-            Some(output) => {
-                let address = output.address().map_err(|e| {
-                    InvalidVKeyWitness::UncategorizedError(format!(
-                        "Invalid output address. (error {:?}) output: {:?}",
-                        e, output,
-                    ))
-                })?;
-
-                if let Some(key_hash) = address.key_hash() {
-                    required_vkey_hashes.insert(key_hash);
-                };
-            }
-            None => unimplemented!("failed to lookup input: {input:?}"),
-        }
-    }
-
-    if let Some(required_signers) = &transaction_body.required_signers {
-        required_signers.iter().for_each(|signer| {
-            required_vkey_hashes.insert(*signer);
-        });
-    }
-
-    if let Some(withdrawals) = &transaction_body.withdrawals {
-        withdrawals
-            .iter()
-            .enumerate()
-            .try_for_each(|(position, (raw_account, _))| {
-                match Address::from_bytes(raw_account) {
-                    // TODO: This parsing should happen when we first deserialise the block, and
-                    // not in the middle of rules validations.
-                    Ok(Address::Stake(account)) => {
-                        if let Some(kh) = account.requires_vkey_witness() {
-                            required_vkey_hashes.insert(kh);
-                        };
-                        Ok(())
-                    }
-                    _ => Err(InvalidVKeyWitness::MalformedRewardAccount {
-                        bytes: raw_account.to_vec(),
-                        context: TransactionField::Withdrawals,
-                        position,
-                    }),
-                }
-            })?;
-    }
-
-    if let Some(voting_procedures) = &transaction_body.voting_procedures {
-        voting_procedures.iter().for_each(|(voter, _)| {
-            if let Some(kh) = voter.requires_vkey_witness() {
-                required_vkey_hashes.insert(kh);
-            }
-        });
-    }
-
-    if let Some(certificates) = &transaction_body.certificates {
-        certificates.iter().for_each(|certificate| {
-            if let Some(kh) = certificate.requires_vkey_witness() {
-                required_vkey_hashes.insert(kh);
-            }
-        })
-    }
-
-    let empty_vec = vec![];
-    let vkey_witnesses = vkey_witnesses.as_deref().unwrap_or(&empty_vec);
+    let vkey_witnesses = vkey_witnesses.unwrap_or(&empty_vec);
     let mut provided_vkey_hashes = BTreeSet::new();
     vkey_witnesses.iter().for_each(|witness| {
         provided_vkey_hashes.insert(Hasher::<224>::hash(&witness.vkey));
     });
 
-    let missing_key_hashes = required_vkey_hashes
+    let missing_key_hashes = context
+        .required_signers()
         .difference(&provided_vkey_hashes)
         .copied()
         .collect::<Vec<_>>();
@@ -150,12 +74,10 @@ pub fn execute(
         .iter()
         .enumerate()
         .for_each(|(position, witness)| {
-            verify_ed25519_signature(
-                &witness.vkey,
-                &witness.signature,
-                transaction_body.original_hash().as_slice(),
-            )
-            .unwrap_or_else(|element| invalid_witnesses.push(WithPosition { position, element }))
+            verify_ed25519_signature(&witness.vkey, &witness.signature, transaction_id.as_slice())
+                .unwrap_or_else(|element| {
+                    invalid_witnesses.push(WithPosition { position, element })
+                })
         });
 
     if !invalid_witnesses.is_empty() {

@@ -15,29 +15,29 @@
 pub mod diff_bind;
 pub mod diff_epoch_reg;
 pub mod diff_set;
-pub mod transaction;
 pub mod volatile_db;
 
 use crate::{
-    state::volatile_db::{StoreUpdate, VolatileDB, VolatileState},
+    state::volatile_db::{StoreUpdate, VolatileDB},
     store::{Store, StoreError},
     summary::rewards::{RewardsSummary, StakeDistribution},
 };
 use amaru_kernel::{
-    self, epoch_from_slot, relative_slot, Epoch, Hash, Hasher, MintedBlock, Point, PoolId,
-    ProposalPointer, Slot, StakeCredential, TransactionInput, TransactionOutput, Voter,
-    VotingProcedures, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
-    STABILITY_WINDOW,
+    epoch_from_slot, relative_slot, Epoch, Hash, MintedBlock, Point, PoolId, Slot,
+    TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
+    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use std::{
     borrow::Cow,
-    collections::{BTreeSet, HashSet, VecDeque},
+    collections::{BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
-use tracing::{instrument, trace, Level, Span};
+use tracing::{instrument, trace, Level};
 use volatile_db::AnchoredVolatileState;
+
+pub use volatile_db::VolatileState;
 
 const EVENT_TARGET: &str = "amaru::ledger::state";
 
@@ -84,19 +84,6 @@ where
     /// for each key. On a distribution of 1M+ stake credentials, that's ~26MB of memory per
     /// duplicate.
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
-}
-
-fn select_stake_credentials(voting_procedures: &VotingProcedures) -> HashSet<StakeCredential> {
-    voting_procedures
-        .iter()
-        .filter_map(|(k, _)| match k {
-            Voter::DRepKey(hash) => Some(StakeCredential::AddrKeyhash(*hash)),
-            Voter::DRepScript(hash) => Some(StakeCredential::ScriptHash(*hash)),
-            Voter::ConstitutionalCommitteeKey(..)
-            | Voter::ConstitutionalCommitteeScript(..)
-            | Voter::StakePoolKey(..) => None,
-        })
-        .collect()
 }
 
 impl<S: Store> State<S> {
@@ -259,8 +246,8 @@ impl<S: Store> State<S> {
     /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
     /// the internal state of the ledger.
     #[allow(clippy::unwrap_used)]
-    #[instrument(level = Level::TRACE, skip_all, fields(epoch = epoch_from_slot(point.slot_or_default())))]
-    pub fn forward(&mut self, point: &Point, block: MintedBlock<'_>) -> Result<(), StateError> {
+    #[instrument(level = Level::TRACE, skip_all)]
+    pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
@@ -274,16 +261,12 @@ impl<S: Store> State<S> {
         }
 
         // Once we reach the stability window, compute rewards unless we've already done so.
-        let relative_slot = relative_slot(point.slot_or_default());
+        let relative_slot = relative_slot(next_state.anchor.0.slot_or_default());
         if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
             self.rewards_summary = Some(self.compute_rewards()?);
         }
 
-        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-        let state = self
-            .next_state(point.slot_or_default(), block)
-            .map_err(StateError::Storage)?;
-        self.volatile.push_back(state.anchor(point, issuer));
+        self.volatile.push_back(next_state);
 
         Ok(())
     }
@@ -305,7 +288,7 @@ impl<S: Store> State<S> {
         &'_ self,
         ongoing_state: &VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<(&'a TransactionInput, Option<TransactionOutput>)>, StoreError> {
+    ) -> Result<Vec<(TransactionInput, Option<TransactionOutput>)>, StoreError> {
         let mut result = Vec::new();
 
         // TODO: perform lookup in batch, and possibly within the same transaction as other
@@ -321,86 +304,10 @@ impl<S: Store> State<S> {
                     db.utxo(input)
                 })?;
 
-            result.push((input, output));
+            result.push((input.clone(), output));
         }
 
         Ok(result)
-    }
-
-    /// Process a given block into a series of ledger-state diff (a.k.a events) to apply.
-    #[instrument(level = Level::TRACE, skip_all, fields(transactions.total, transactions.failed, transactions.success))]
-    fn next_state(
-        &self,
-        absolute_slot: Slot,
-        block: MintedBlock<'_>,
-    ) -> Result<VolatileState, StoreError> {
-        let failed_transactions = FailedTransactions::from_block(&block);
-        let transaction_bodies = block.transaction_bodies.to_vec();
-        let total_count = transaction_bodies.len();
-        let failed_count = failed_transactions.inner.len();
-
-        let span = Span::current();
-        span.record("block.transactions.total", total_count);
-        span.record("block.transactions.failed", failed_count);
-        span.record("block.transactions.success", total_count - failed_count);
-
-        let mut state = VolatileState::default();
-
-        for (ix, transaction_body) in transaction_bodies.into_iter().enumerate() {
-            let transaction_id = Hasher::<256>::hash(transaction_body.raw_cbor());
-            let transaction_body = transaction_body.unwrap();
-
-            transaction_body
-                .proposal_procedures
-                .as_ref()
-                .map(|ps| ps.clone().to_vec())
-                .unwrap_or_default()
-                .into_iter()
-                .enumerate()
-                .for_each(|(pp_ix, pp)| {
-                    let key = ProposalPointer {
-                        transaction: transaction_id,
-                        proposal_index: pp_ix,
-                    };
-                    state
-                        .proposals
-                        .register(key, (0, pp), None, None)
-                        .unwrap_or_default(); // Can't happen as by construction key is unique
-                });
-
-            let voting_dreps = transaction_body
-                .voting_procedures
-                .as_ref()
-                .map(select_stake_credentials)
-                .unwrap_or_default();
-            state.voting_dreps.extend(voting_dreps);
-
-            // TODO: Calculate votes for all pending  voting procedures per block ?
-
-            #[allow(clippy::panic)]
-            let resolved_collateral_inputs = match transaction_body.collateral {
-                None => vec![],
-                Some(ref inputs) => self
-                    .resolve_inputs(&state, inputs.iter())?
-                    .into_iter()
-                    .map(|(input, output)| {
-                        output.unwrap_or_else(|| panic!("unknown required input: {input:?}"))
-                    })
-                    .collect(),
-            };
-
-            transaction::apply(
-                &mut state,
-                failed_transactions.has(ix as u32),
-                transaction_id,
-                absolute_slot,
-                ix,
-                transaction_body,
-                resolved_collateral_inputs,
-            );
-        }
-
-        Ok(state)
     }
 }
 

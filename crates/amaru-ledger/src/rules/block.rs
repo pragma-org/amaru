@@ -26,7 +26,7 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryData, Hash, MintedBlock, OriginalHash,
-    Redeemers,
+    Redeemers, StakeCredential, TransactionPointer,
 };
 use std::ops::Deref;
 use thiserror::Error;
@@ -58,13 +58,14 @@ pub enum InvalidBlock {
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
-pub fn execute(
-    context: &mut impl ValidationContext,
+pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
+    mut context: C,
     protocol_params: ProtocolParameters,
-    block: &MintedBlock<'_>,
-) -> Result<(), InvalidBlock> {
+    block: MintedBlock<'_>,
+) -> Result<S, InvalidBlock> {
     header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;
-    body_size::block_body_size_valid(&block.header.header_body, block)?;
+
+    body_size::block_body_size_valid(&block.header.header_body, &block)?;
 
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
     let ex_units = block
@@ -84,15 +85,17 @@ pub fn execute(
 
     ex_units::block_ex_units_valid(ex_units, &protocol_params)?;
 
-    let transactions = block.transaction_bodies.deref().to_vec();
-
-    let failed_transactions = FailedTransactions::from_block(block);
+    let failed_transactions = FailedTransactions::from_block(&block);
 
     let witness_sets = block.transaction_witness_sets.deref().to_vec();
 
+    let transactions = block.transaction_bodies.to_vec();
+
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
-    for (i, transaction) in (0u32..).zip(transactions.iter()) {
+    for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
+        let transaction_hash = transaction.original_hash();
+
         let witness_set = witness_sets
             .get(i as usize)
             .ok_or(InvalidBlock::UncategorizedError(format!(
@@ -106,20 +109,36 @@ pub fn execute(
             .find(|key_pair| key_pair.0 == i)
             .map(|key_pair| key_pair.1.deref());
 
+        transaction
+            .required_signers
+            .as_deref()
+            .map(|x| x.as_slice())
+            .unwrap_or(&[])
+            .iter()
+            .for_each(|vk_hash| {
+                context.require_witness(StakeCredential::AddrKeyhash(*vk_hash));
+            });
+
+        let pointer = TransactionPointer {
+            slot: block.header.header_body.slot,
+            transaction_index: i as usize, // From u32
+        };
+
         transaction::execute(
-            context,
+            &mut context,
+            &protocol_params,
+            pointer,
             !failed_transactions.has(i),
             transaction,
             witness_set,
             auxiliary_data,
-            &protocol_params,
         )
         .map_err(|err| InvalidBlock::Transaction {
-            transaction_hash: transaction.original_hash(),
+            transaction_hash,
             transaction_index: i,
             violation: err,
         })?;
     }
 
-    Ok(())
+    Ok(context.into())
 }

@@ -1,4 +1,4 @@
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Point};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, Hasher, Point};
 use amaru_ledger::{
     context,
     rules::{self, parse_block},
@@ -68,6 +68,8 @@ impl<S: Store + Send + Sync> Stage<S> {
         let block = parse_block(&raw_block[..])
             .unwrap_or_else(|e| panic!("Failed to parse block: {:?}", e));
 
+        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+
         rules::prepare_block(&mut ctx, &block);
 
         // TODO: Eventually move into a separate function, or integrate within the ledger instead
@@ -91,16 +93,17 @@ impl<S: Store + Send + Sync> Stage<S> {
             .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
             .collect();
 
-        rules::validate_block(
-            &mut context::DefaultValidationContext::new(inputs),
+        let state = rules::validate_block(
+            context::DefaultValidationContext::new(inputs),
             ProtocolParameters::default(),
-            &block,
+            block,
         )
-        .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e));
+        .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e))
+        .anchor(&point, issuer);
 
         let current_span = Span::current();
 
-        match self.state.forward(&point, block) {
+        match self.state.forward(state) {
             Ok(()) => BlockValidationResult::BlockValidated(point, current_span),
             Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, current_span),
         }
