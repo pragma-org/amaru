@@ -66,8 +66,8 @@ impl<'b, C> Decode<'b, C> for Bound {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EraParams {
-    epoch_size_slots: u64,
-    slot_length: u64, // Milliseconds
+    pub epoch_size_slots: u64,
+    pub slot_length: u64, // Milliseconds
 }
 
 impl EraParams {

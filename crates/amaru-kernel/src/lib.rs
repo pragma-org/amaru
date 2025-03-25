@@ -21,7 +21,7 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
-use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
+use network::{preprod_era_history, PREPROD_SHELLEY_TRANSITION_EPOCH};
 use num::{rational::Ratio, BigUint};
 pub use pallas_addresses::{byron::AddrType, Address, StakeAddress, StakePayload};
 use pallas_addresses::{Error, *};
@@ -485,9 +485,10 @@ pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::e
 
 /// Calculate the epoch number corresponding to a given slot on the PreProd network.
 // TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
+#[allow(clippy::unwrap_used)]
 pub fn epoch_from_slot(slot: u64) -> u64 {
-    let shelley_slots = slot - BYRON_TOTAL_SLOTS as u64;
-    (shelley_slots / SHELLEY_EPOCH_LENGTH as u64) + PREPROD_SHELLEY_TRANSITION_EPOCH as u64
+    // FIXME: currently hardwired to preprod network
+    preprod_era_history().slot_to_epoch(slot).unwrap()
 }
 
 /// Obtain the slot number relative to the epoch.

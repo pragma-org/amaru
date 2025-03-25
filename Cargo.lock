@@ -108,6 +108,7 @@ dependencies = [
  "proptest",
  "serde",
  "sha3",
+ "slot-arithmetic",
 ]
 
 [[package]]
