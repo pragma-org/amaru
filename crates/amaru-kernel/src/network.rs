@@ -12,21 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#[derive(Debug, Clone, Copy)]
+/// Epoch number in which the PreProd network transitioned to Shelley.
+pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
+
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum NetworkName {
     Mainnet,
     Preprod,
     Preview,
+    Testnet(u32),
 }
 
 impl std::fmt::Display for NetworkName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Mainnet => "mainnet",
-            Self::Preprod => "preprod",
-            Self::Preview => "preview",
+            Self::Mainnet => write!(f, "mainnet"),
+            Self::Preprod => write!(f, "preprod"),
+            Self::Preview => write!(f, "preview"),
+            Self::Testnet(magic) => write!(f, "testnet:{}", magic),
         }
-        .fmt(f)
     }
 }
 
@@ -38,21 +42,55 @@ impl std::str::FromStr for NetworkName {
             "mainnet" => Ok(Self::Mainnet),
             "preprod" => Ok(Self::Preprod),
             "preview" => Ok(Self::Preview),
-            _ => Err(format!("unknown network name: {s}")),
+            _ => {
+                let magic = s
+                    .strip_prefix("testnet:")
+                    .ok_or(format!("Invalid network name {}", s))?;
+
+                magic
+                    .parse::<u32>()
+                    .map(NetworkName::Testnet)
+                    .map_err(|e| e.to_string())
+            }
         }
     }
 }
 
 impl NetworkName {
-    pub fn possible_values<'a>() -> &'a [&'a str; 3] {
-        &["mainnet", "preprod", "preview"]
-    }
-
     pub fn to_network_magic(self) -> u32 {
         match self {
             Self::Mainnet => 764824073,
             Self::Preprod => 1,
             Self::Preview => 2,
+            Self::Testnet(magic) => magic,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NetworkName::{self, *};
+    use proptest::prelude::*;
+    use proptest::{prop_oneof, proptest};
+    use std::str::FromStr;
+
+    fn any_network() -> impl Strategy<Value = NetworkName> {
+        prop_oneof![
+            Just(Mainnet),
+            Just(Preprod),
+            Just(Preview),
+            (3..u32::MAX).prop_map(Testnet)
+        ]
+    }
+
+    proptest! {
+        #[test]
+        fn prop_can_parse_pretty_print_network_name(network in any_network()) {
+            let name = format!("{}", network);
+            assert_eq!(
+                FromStr::from_str(&name),
+                Ok(network),
+            )
         }
     }
 }

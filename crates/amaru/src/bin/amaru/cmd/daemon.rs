@@ -15,7 +15,7 @@
 use crate::metrics::track_system_metrics;
 use amaru::sync::Config;
 use amaru_kernel::network::NetworkName;
-use clap::{builder::TypedValueParser as _, ArgAction, Parser};
+use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc, time::Duration};
@@ -33,12 +33,13 @@ pub struct Args {
     peer_address: Vec<String>,
 
     /// The target network to choose from.
+    ///
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
         value_name = "NETWORK",
         default_value_t = NetworkName::Preprod,
-        value_parser = clap::builder::PossibleValuesParser::new(NetworkName::possible_values())
-            .map(|s| s.parse::<NetworkName>().unwrap()),
     )]
     network: NetworkName,
 

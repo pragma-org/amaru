@@ -5,7 +5,7 @@ use amaru_consensus::{
     IsHeader,
 };
 use amaru_kernel::{from_cbor, network::NetworkName, Header, Point};
-use clap::{builder::TypedValueParser as _, Parser};
+use clap::Parser;
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_network::{
@@ -28,12 +28,13 @@ pub struct Args {
     peer_address: String,
 
     /// Network to use for the connection.
+    ///
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
     #[arg(
         long,
         value_name = "NETWORK",
         default_value_t = NetworkName::Preprod,
-        value_parser = clap::builder::PossibleValuesParser::new(NetworkName::possible_values())
-            .map(|s| s.parse::<NetworkName>().unwrap()),
     )]
     network: NetworkName,
 
