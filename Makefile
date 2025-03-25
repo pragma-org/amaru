@@ -67,3 +67,14 @@ test-e2e: ## Run snapshot tests, assuming snapshots are available.
 
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 	./scripts/demo.sh $(AMARU_PEER_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
+
+build-examples: ## Build all examples
+	@for dir in $(wildcard examples/*/.); do \
+		if [ -f $$dir/Makefile ]; then \
+			echo "Building $$dir"; \
+			$(MAKE) -C $$dir; \
+			if [ $$? != "0" ]; then \
+				exit $$?; \
+			fi; \
+		fi; \
+	done
