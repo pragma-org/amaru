@@ -55,6 +55,7 @@ use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyL
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 
 pub mod macros;
+pub mod network;
 pub mod protocol_parameters;
 
 // Constants
