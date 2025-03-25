@@ -16,14 +16,14 @@ pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
 
 pub struct Stage<S>
 where
-    S: Store + Send + Sync,
+    S: Store + Send,
 {
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S>,
 }
 
-impl<S: Store + Send + Sync> gasket::framework::Stage for Stage<S> {
+impl<S: Store + Send> gasket::framework::Stage for Stage<S> {
     type Unit = ValidateBlockEvent;
     type Worker = Worker;
 
@@ -36,7 +36,7 @@ impl<S: Store + Send + Sync> gasket::framework::Stage for Stage<S> {
     }
 }
 
-impl<S: Store + Send + Sync> Stage<S> {
+impl<S: Store + Send> Stage<S> {
     pub fn new(store: S) -> (Self, Point) {
         let state = state::State::new(Arc::new(std::sync::Mutex::new(store)));
 
@@ -127,7 +127,7 @@ impl<S: Store + Send + Sync> Stage<S> {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl<S: Store + Send + Sync> gasket::framework::Worker<Stage<S>> for Worker {
+impl<S: Store + Send> gasket::framework::Worker<Stage<S>> for Worker {
     async fn bootstrap(_stage: &Stage<S>) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
