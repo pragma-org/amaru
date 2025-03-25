@@ -100,8 +100,14 @@ pub trait Snapshot {
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
 }
 
-pub trait Store: Snapshot {
+pub trait TransactionalContext<'a> {
+    fn commit(self) -> Result<(), StoreError>;
+}
+
+pub trait Store<'a, T: TransactionalContext<'a> + ?Sized>: Snapshot {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
+
+    fn create_transaction(&'a self) -> T;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
     fn tip(&self) -> Result<Point, StoreError>;
@@ -110,6 +116,7 @@ pub trait Store: Snapshot {
     /// on the column type. All updates are atomatic and attached to the given `Point`.
     fn save(
         &self,
+        transactional_context: &T,
         point: &Point,
         issuer: Option<&pools::Key>,
         add: Columns<
@@ -143,6 +150,7 @@ pub trait Store: Snapshot {
     /// decision entirely to the caller owning the store.
     fn next_snapshot(
         &mut self,
+        transactional_context: &T,
         epoch: Epoch,
         rewards_summary: Option<RewardsSummary>,
     ) -> Result<(), StoreError>;
@@ -156,6 +164,7 @@ pub trait Store: Snapshot {
     /// Get current values of the treasury and reserves accounts.
     fn with_pots(
         &self,
+        transactional_context: &T,
         with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>),
     ) -> Result<(), StoreError>;
 
@@ -165,28 +174,28 @@ pub trait Store: Snapshot {
     ///
     /// 2. That all operations are consistent and atomic (the iteration occurs on a snapshot, and
     ///    the mutation apply to the iterated items)
-    fn with_pools(&self, with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), StoreError>;
+    fn with_pools(&self, transactional_context: &T, with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     /// Provide an access to iterate over accounts, similar to 'with_pools'.
-    fn with_accounts(&self, with: impl FnMut(accounts::Iter<'_, '_>)) -> Result<(), StoreError>;
+    fn with_accounts(&self, transactional_context: &T, with: impl FnMut(accounts::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     /// Provide an iterator over slot leaders, similar to 'with_pools'. Note that slot leaders are
     /// stored as a bounded FIFO, so it only make sense to use this function at the end of an epoch
     /// (or at the beginning, before any block is applied, depending on your perspective).
-    fn with_block_issuers(&self, with: impl FnMut(slots::Iter<'_, '_>)) -> Result<(), StoreError>;
+    fn with_block_issuers(&self, transactional_context: &T, with: impl FnMut(slots::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     /// Provide an access to iterate over utxo, similar to 'with_pools'.
-    fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), StoreError>;
+    fn with_utxo(&self, transactional_context: &T, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
-    fn with_dreps(&self, with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<(), StoreError>;
+    fn with_dreps(&self, transactional_context: &T, with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
-    fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<(), StoreError>;
+    fn with_proposals(&self, transactional_context: &T, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     #[instrument(level = Level::TRACE, name = "tick.pool", skip_all)]
-    fn tick_pools(&self, epoch: Epoch) -> Result<(), StoreError> {
-        self.with_pools(|iterator| {
+    fn tick_pools(&self, transactional_context: &T, epoch: Epoch) -> Result<(), StoreError> {
+        self.with_pools(transactional_context, |iterator| {
             for (_, pool) in iterator {
                 pools::Row::tick(pool, epoch)
             }
