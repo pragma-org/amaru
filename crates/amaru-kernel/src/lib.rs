@@ -21,6 +21,7 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
+use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
 use num::{rational::Ratio, BigUint};
 pub use pallas_addresses::{byron::AddrType, Address, StakeAddress, StakePayload};
 use pallas_addresses::{Error, *};
@@ -92,9 +93,6 @@ pub const BYRON_EPOCH_LENGTH: usize = BYRON_EPOCH_LENGTH_SCALE_FACTOR * CONSENSU
 
 /// Number of slots in the Byron era, for PreProd
 pub const BYRON_TOTAL_SLOTS: usize = BYRON_EPOCH_LENGTH * PREPROD_SHELLEY_TRANSITION_EPOCH;
-
-/// Epoch number in which the PreProd network transitioned to Shelley.
-pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
 
 /// Value, in Lovelace, that one must deposit when registering a new stake pool
 pub const STAKE_POOL_DEPOSIT: usize = 500000000;
