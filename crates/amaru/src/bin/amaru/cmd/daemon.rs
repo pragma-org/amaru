@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{config::NetworkName, metrics::track_system_metrics};
+use crate::metrics::track_system_metrics;
 use amaru::sync::Config;
+use amaru_kernel::network::NetworkName;
 use clap::{builder::TypedValueParser as _, ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;

@@ -16,7 +16,6 @@ use clap::{Parser, Subcommand};
 use panic::panic_handler;
 
 mod cmd;
-mod config;
 mod metrics;
 mod observability;
 mod panic;

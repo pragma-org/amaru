@@ -1,11 +1,10 @@
-use crate::config::NetworkName;
 use amaru::sync;
 use amaru_consensus::{
     consensus::store::{rocksdb::RocksDBStore, ChainStore},
     peer::{Peer, PeerSession},
     IsHeader,
 };
-use amaru_kernel::{from_cbor, Header, Point};
+use amaru_kernel::{from_cbor, network::NetworkName, Header, Point};
 use clap::{builder::TypedValueParser as _, Parser};
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
