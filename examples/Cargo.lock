@@ -31,7 +31,10 @@ dependencies = [
  "pallas-primitives",
  "pallas-traverse",
  "serde",
+ "serde_json",
  "sha3",
+ "slot-arithmetic",
+ "thiserror 2.0.11",
 ]
 
 [[package]]
@@ -44,6 +47,7 @@ dependencies = [
  "iter-borrow",
  "num",
  "serde",
+ "slot-arithmetic",
  "thiserror 2.0.11",
  "tracing",
 ]
@@ -496,6 +500,16 @@ checksum = "75872d278a8f37ef87fa0ddbda7802605cb18344497949862c0d4dcb291eba60"
 dependencies = [
  "digest",
  "keccak",
+]
+
+[[package]]
+name = "slot-arithmetic"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "minicbor",
+ "serde",
+ "thiserror 2.0.11",
 ]
 
 [[package]]

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::store::{rocksdb::RocksDBStore, ChainStore, Nonces};
-use amaru_kernel::{epoch_from_slot, Hash, Header, Nonce, Point};
+use amaru_kernel::{network::NetworkName, Hash, Header, Nonce, Point};
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;
@@ -43,17 +43,34 @@ pub struct Args {
     /// The previous epoch last block header hash
     #[arg(long, value_name = "HEADER-HASH", value_parser = super::parse_nonce)]
     tail: Hash<32>,
+
+    /// Network the nonces are imported for
+    ///
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
+    #[arg(
+        long,
+        value_name = "NETWORK",
+        default_value_t = NetworkName::Preprod,
+    )]
+    network: NetworkName,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let mut db = Box::new(RocksDBStore::new(args.chain_dir)?) as Box<dyn ChainStore<Header>>;
+    let era_history = args.network.into();
+    let mut db =
+        Box::new(RocksDBStore::new(args.chain_dir, era_history)?) as Box<dyn ChainStore<Header>>;
 
     let header_hash = Hash::from(&args.at);
 
     info!(point.id = %header_hash, point.slot = args.at.slot_or_default(), "importing nonces");
 
     let nonces = Nonces {
-        epoch: epoch_from_slot(args.at.slot_or_default()),
+        epoch: {
+            let slot = args.at.slot_or_default();
+            // FIXME: currently hardwired to preprod network
+            era_history.slot_to_epoch(slot)?
+        },
         active: args.active,
         evolving: args.evolving,
         candidate: args.candidate,

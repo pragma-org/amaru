@@ -19,8 +19,8 @@ use super::{
 };
 use crate::store::{self, columns::*};
 use amaru_kernel::{
-    epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams,
-    Proposal, ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Proposal,
+    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::collections::{BTreeSet, VecDeque};
 use tracing::error;
@@ -60,15 +60,6 @@ impl VolatileDB {
 
     pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
         self.cache.utxo.produced.get(input)
-    }
-
-    pub fn iter_pools(&self) -> impl Iterator<Item = (Epoch, &DiffEpochReg<PoolId, PoolParams>)> {
-        self.sequence.iter().map(|st| {
-            (
-                epoch_from_slot(st.anchor.0.slot_or_default()),
-                &st.state.pools,
-            )
-        })
     }
 
     pub fn pop_front(&mut self) -> Option<AnchoredVolatileState> {
@@ -186,6 +177,7 @@ impl AnchoredVolatileState {
     #[allow(clippy::type_complexity)]
     pub fn into_store_update(
         self,
+        epoch: Epoch,
     ) -> StoreUpdate<
         impl Iterator<Item = accounts::Key>,
         store::Columns<
@@ -205,8 +197,6 @@ impl AnchoredVolatileState {
             impl Iterator<Item = proposals::Key>,
         >,
     > {
-        let slot = self.anchor.0.slot_or_default();
-        let epoch = epoch_from_slot(slot);
         StoreUpdate {
             point: self.anchor.0,
             issuer: self.anchor.1,

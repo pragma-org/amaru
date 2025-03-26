@@ -1,4 +1,4 @@
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Hasher, Point};
+use amaru_kernel::{network::EraHistory, protocol_parameters::ProtocolParameters, Hasher, Point};
 use amaru_ledger::{
     context,
     rules::{self, parse_block},
@@ -37,8 +37,8 @@ impl<S: Store + Send> gasket::framework::Stage for Stage<S> {
 }
 
 impl<S: Store + Send> Stage<S> {
-    pub fn new(store: S) -> (Self, Point) {
-        let state = state::State::new(Arc::new(std::sync::Mutex::new(store)));
+    pub fn new(store: S, era_history: &EraHistory) -> (Self, Point) {
+        let state = state::State::new(Arc::new(std::sync::Mutex::new(store)), era_history);
 
         let tip = state.tip().into_owned();
 

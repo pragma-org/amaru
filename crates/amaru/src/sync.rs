@@ -24,7 +24,10 @@ use amaru_consensus::{
     peer::{Peer, PeerSession},
     ConsensusError,
 };
-use amaru_kernel::{Hash, Header, Point};
+use amaru_kernel::{
+    network::{EraHistory, NetworkName},
+    Hash, Header, Point,
+};
 use amaru_stores::rocksdb::RocksDB;
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
@@ -45,7 +48,7 @@ pub struct Config {
     pub ledger_dir: PathBuf,
     pub chain_dir: PathBuf,
     pub upstream_peers: Vec<String>,
-    pub network_magic: u32,
+    pub network: NetworkName,
 }
 
 pub fn bootstrap(
@@ -53,8 +56,9 @@ pub fn bootstrap(
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     // FIXME: Take from config / command args
-    let store = RocksDB::new(&config.ledger_dir)?;
-    let (mut ledger, tip) = Stage::new(store);
+    let era_history: &EraHistory = config.network.into();
+    let store = RocksDB::new(&config.ledger_dir, era_history)?;
+    let (mut ledger, tip) = Stage::new(store, era_history);
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -70,7 +74,7 @@ pub fn bootstrap(
         .iter()
         .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
         .collect::<Vec<_>>();
-    let chain_store = RocksDBStore::new(config.chain_dir.clone())?;
+    let chain_store = RocksDBStore::new(config.chain_dir.clone(), era_history)?;
     let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions)?;
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let consensus = Consensus::new(

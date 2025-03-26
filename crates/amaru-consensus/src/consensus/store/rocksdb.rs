@@ -2,16 +2,18 @@ use super::{ChainStore, StoreError};
 use amaru_kernel::{cbor, from_cbor, to_cbor, Hash};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
+use slot_arithmetic::EraHistory;
 use std::path::PathBuf;
 use tracing::{instrument, Level};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
+    era_history: EraHistory,
     db: OptimisticTransactionDB,
 }
 
 impl RocksDBStore {
-    pub fn new(basedir: PathBuf) -> Result<Self, StoreError> {
+    pub fn new(basedir: PathBuf, era_history: &EraHistory) -> Result<Self, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         Ok(Self {
@@ -21,6 +23,7 @@ impl RocksDBStore {
                 }
             })?,
             basedir,
+            era_history: era_history.clone(),
         })
     }
 }
@@ -64,12 +67,17 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
                 error: e.to_string(),
             })
     }
+
+    fn era_history(&self) -> &EraHistory {
+        &self.era_history
+    }
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
     use crate::consensus::chain_selection::tests::random_bytes;
+    use amaru_kernel::network::NetworkName;
     use amaru_ouroboros_traits::is_header::fake::FakeHeader;
     use std::fs::create_dir;
 
@@ -77,8 +85,11 @@ mod test {
     fn rocksdb_chain_store_can_get_what_it_puts() {
         let tempdir = tempfile::tempdir().unwrap();
         let basedir = tempdir.into_path().join("rocksdb_chain_store");
+        let era_history: &EraHistory = NetworkName::Testnet(42).into();
+
         create_dir(&basedir).unwrap();
-        let mut store = RocksDBStore::new(basedir.clone()).expect("fail to initialise RocksDB");
+        let mut store =
+            RocksDBStore::new(basedir.clone(), era_history).expect("fail to initialise RocksDB");
 
         let header = FakeHeader {
             block_number: 1,

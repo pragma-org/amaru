@@ -483,39 +483,6 @@ pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::e
     Ok(bech32::encode::<bech32::Bech32>(hrp, payload)?)
 }
 
-/// Calculate the epoch number corresponding to a given slot on the PreProd network.
-// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
-pub fn epoch_from_slot(slot: u64) -> u64 {
-    let shelley_slots = slot - BYRON_TOTAL_SLOTS as u64;
-    (shelley_slots / SHELLEY_EPOCH_LENGTH as u64) + PREPROD_SHELLEY_TRANSITION_EPOCH as u64
-}
-
-/// Obtain the slot number relative to the epoch.
-// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
-pub fn relative_slot(slot: u64) -> u64 {
-    let shelley_previous_slots = (epoch_from_slot(slot) - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
-        * SHELLEY_EPOCH_LENGTH as u64;
-    slot - shelley_previous_slots - BYRON_TOTAL_SLOTS as u64
-}
-
-/// Get the first slot of the next epoch (i.e. the slot coming straight after the last slot of the
-/// epoch).
-///
-/// ```
-/// use amaru_kernel::next_epoch_first_slot;
-/// assert_eq!(next_epoch_first_slot(3), 86400);
-/// assert!(next_epoch_first_slot(114) <= 48038412);
-/// assert!(next_epoch_first_slot(114) > 48038393);
-/// assert!(next_epoch_first_slot(150) <= 63590410);
-/// assert!(next_epoch_first_slot(150) > 63590393);
-/// ```
-// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
-pub fn next_epoch_first_slot(current_epoch: u64) -> u64 {
-    (BYRON_TOTAL_SLOTS as u64)
-        + (SHELLEY_EPOCH_LENGTH as u64)
-            * (1 + current_epoch - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
-}
-
 /// TODO: Ideally, we should either:
 ///
 /// - Have pallas_traverse or a similar API works directly from base objects instead of KeepRaw

@@ -24,6 +24,7 @@ vrf_dalek.workspace = true
 
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
+slot-arithmetic.workspace = true
 
 [dev-dependencies]
 ctor.workspace = true

@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    epoch_from_slot, Anchor, CertificatePointer, DRep, Epoch, GovActionId, Lovelace, Point, PoolId,
-    PoolParams, Proposal, ProposalPointer, Set, StakeCredential, TransactionInput,
-    TransactionOutput, TransactionPointer, DREP_EXPIRY, STAKE_CREDENTIAL_DEPOSIT,
+    network::{EraHistory, NetworkName},
+    Anchor, CertificatePointer, DRep, Epoch, GovActionId, Lovelace, Point, PoolId, PoolParams,
+    Proposal, ProposalPointer, Set, StakeCredential, TransactionInput, TransactionOutput,
+    TransactionPointer, DREP_EXPIRY, STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
     self,
@@ -69,6 +70,17 @@ pub struct Args {
     /// Path of the ledger on-disk storage.
     #[arg(long, value_name = "DIR", default_value = super::DEFAULT_LEDGER_DB_DIR)]
     ledger_dir: PathBuf,
+
+    /// Network the snapshots are imported from.
+    ///
+    /// Should be one of 'mainnet', 'preprod', 'preview' or 'testnet:<magic>' where
+    /// `magic` is a 32-bits unsigned value denoting a particular testnet.
+    #[arg(
+        long,
+        value_name = "NETWORK",
+        default_value_t = NetworkName::Preprod,
+    )]
+    network: NetworkName,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -80,8 +92,9 @@ enum Error {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let era_history = args.network.into();
     if !args.snapshot.is_empty() {
-        import_all(&args.snapshot, &args.ledger_dir).await
+        import_all(&args.snapshot, &args.ledger_dir, era_history).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
         let mut snapshots = fs::read_dir(snapshot_dir)?
             .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -89,7 +102,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .collect::<Vec<_>>();
         snapshots.sort();
 
-        import_all(&snapshots, &args.ledger_dir).await
+        import_all(&snapshots, &args.ledger_dir, era_history).await
     } else {
         Err(Error::IncorrectUsage.into())
     }
@@ -98,10 +111,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 async fn import_all(
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
+    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
-        import_one(snapshot, ledger_dir).await?;
+        import_one(snapshot, ledger_dir, era_history).await?;
     }
     Ok(())
 }
@@ -110,6 +124,7 @@ async fn import_all(
 async fn import_one(
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
+    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing snapshot {}", snapshot.display());
     let point = super::parse_point(
@@ -122,10 +137,10 @@ async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
-    let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir)?;
+    let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = decode_new_epoch_state(&db, &bytes, &point)?;
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
 
     db.save(
         &point,
@@ -151,6 +166,7 @@ fn decode_new_epoch_state(
     db: &RocksDB,
     bytes: &[u8],
     point: &Point,
+    era_history: &EraHistory,
 ) -> Result<u64, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
 
@@ -158,7 +174,7 @@ fn decode_new_epoch_state(
 
     // EpochNo
     let epoch = d.u64()?;
-    assert_eq!(epoch, epoch_from_slot(point.slot_or_default()));
+    assert_eq!(epoch, era_history.slot_to_epoch(point.slot_or_default())?);
     info!(epoch, "importing_snapshot");
 
     // Previous blocks made

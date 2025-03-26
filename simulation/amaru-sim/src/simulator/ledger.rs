@@ -164,6 +164,7 @@ pub struct ConsensusContext {
 #[cfg(test)]
 mod test {
     use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
+    use amaru_kernel::network::NetworkName;
     use amaru_kernel::Header;
 
     use super::populate_chain_store;
@@ -243,6 +244,10 @@ mod test {
         fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError> {
             self.nonces.insert(*header, nonces);
             Ok(())
+        }
+
+        fn era_history(&self) -> &amaru_kernel::network::EraHistory {
+            NetworkName::Testnet(42).into()
         }
     }
 

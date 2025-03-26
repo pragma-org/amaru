@@ -14,7 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    epoch_from_slot, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+    network::{EraHistory, NetworkName},
+    Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -72,10 +73,13 @@ pub struct RocksDB {
 
     /// An ordered (asc) list of epochs for which we have available snapshots
     snapshots: Vec<Epoch>,
+
+    /// The `EraHistory` of the network this database is tied to
+    era_history: EraHistory,
 }
 
 impl RocksDB {
-    pub fn new(dir: &Path) -> Result<RocksDB, StoreError> {
+    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
         for entry in fs::read_dir(dir)
             .map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?
@@ -117,10 +121,11 @@ impl RocksDB {
             incremental_save: false,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
+            era_history: era_history.clone(), // TODO: remove clone?
         })
     }
 
-    pub fn empty(dir: &Path) -> Result<RocksDB, StoreError> {
+    pub fn empty(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
@@ -130,11 +135,13 @@ impl RocksDB {
             incremental_save: true,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
+            era_history: era_history.clone(),
         })
     }
 
     pub fn for_epoch_with(dir: &Path, epoch: Epoch) -> Result<Self, StoreError> {
         let mut opts = Options::default();
+        let era_history: &EraHistory = NetworkName::Preprod.into();
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
 
         Ok(RocksDB {
@@ -143,6 +150,7 @@ impl RocksDB {
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
                 .map_err(|err| StoreError::Internal(err.into()))?,
+            era_history: era_history.clone(),
         })
     }
 
@@ -412,11 +420,12 @@ impl Store for RocksDB {
                 accounts::reset(&batch, withdrawals)?;
 
                 dreps::add(&batch, add.dreps)?;
-                dreps::tick(
-                    &batch,
-                    voting_dreps,
-                    epoch_from_slot(point.slot_or_default()),
-                )?;
+                dreps::tick(&batch, voting_dreps, {
+                    let slot = point.slot_or_default();
+                    self.era_history
+                        .slot_to_epoch(slot)
+                        .map_err(|err| StoreError::Internal(err.into()))?
+                })?;
                 proposals::add(&batch, add.proposals)?;
 
                 utxo::remove(&batch, remove.utxo)?;

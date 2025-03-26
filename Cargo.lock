@@ -86,6 +86,7 @@ dependencies = [
  "rand",
  "rayon",
  "rocksdb",
+ "slot-arithmetic",
  "tempfile",
  "thiserror 2.0.12",
  "tokio",
@@ -107,7 +108,10 @@ dependencies = [
  "pallas-traverse",
  "proptest",
  "serde",
+ "serde_json",
  "sha3",
+ "slot-arithmetic",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -121,6 +125,7 @@ dependencies = [
  "num",
  "proptest",
  "serde",
+ "slot-arithmetic",
  "thiserror 2.0.12",
  "tracing",
 ]
@@ -153,6 +158,7 @@ dependencies = [
  "rayon",
  "serde",
  "serde_json",
+ "slot-arithmetic",
  "thiserror 2.0.12",
  "tracing-subscriber",
  "vrf_dalek",
@@ -2916,6 +2922,8 @@ dependencies = [
  "hex",
  "minicbor",
  "proptest",
+ "serde",
+ "thiserror 2.0.12",
 ]
 
 [[package]]

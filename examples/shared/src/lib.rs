@@ -1,6 +1,7 @@
 use amaru_kernel::{
     cbor, protocol_parameters::ProtocolParameters, Bytes, Hash, Hasher, MintedBlock, Point,
     PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    network:: {EraHistory, NetworkName}
 };
 use amaru_ledger::{
     context,
@@ -24,8 +25,9 @@ pub fn forward_ledger(raw_block: &str) {
     let bytes = hex::decode(raw_block).unwrap();
 
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
+    let era_history : &EraHistory = NetworkName::Preprod.into();
 
-    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})));
+    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})), era_history);
 
     let point = Point::Specific(
         block.header.header_body.slot,

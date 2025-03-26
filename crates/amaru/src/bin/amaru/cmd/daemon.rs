@@ -62,7 +62,8 @@ pub async fn run(
 
     let mut clients: Vec<(String, Arc<Mutex<PeerClient>>)> = vec![];
     for peer in &config.upstream_peers {
-        let client = PeerClient::connect(peer.clone(), config.network_magic as u64).await?;
+        let client =
+            PeerClient::connect(peer.clone(), config.network.to_network_magic() as u64).await?;
         clients.push((peer.clone(), Arc::new(Mutex::new(client))));
     }
 
@@ -104,6 +105,6 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         ledger_dir: args.ledger_dir,
         chain_dir: args.chain_dir,
         upstream_peers: args.peer_address,
-        network_magic: args.network.to_network_magic(),
+        network: args.network,
     })
 }

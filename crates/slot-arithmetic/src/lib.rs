@@ -13,10 +13,11 @@
 // limitations under the License.
 
 use minicbor::{Decode, Decoder, Encode};
+use serde::{Deserialize, Serialize};
 
 type Slot = u64;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bound {
     pub time_ms: u64, // Milliseconds
     pub slot: Slot,
@@ -64,10 +65,10 @@ impl<'b, C> Decode<'b, C> for Bound {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EraParams {
-    epoch_size_slots: u64,
-    slot_length: u64, // Milliseconds
+    pub epoch_size_slots: u64,
+    pub slot_length: u64, // Milliseconds
 }
 
 impl EraParams {
@@ -114,7 +115,7 @@ impl<'b, C> Decode<'b, C> for EraParams {
 
 // The start is inclusive and the end is exclusive. In a valid EraHistory, the
 // end of each era will equal the start of the next one.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
     pub start: Bound,
     pub end: Bound,
@@ -148,7 +149,7 @@ impl<'b, C> Decode<'b, C> for Summary {
 }
 
 // A complete history of eras that have taken place.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EraHistory {
     pub eras: Vec<Summary>,
 }
@@ -179,9 +180,11 @@ impl<'b, C> Decode<'b, C> for EraHistory {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TimeHorizonError {
+    #[error("slot past time horizon")]
     PastTimeHorizon,
+    #[error("invalid era history")]
     InvalidEraHistory,
 }
 
@@ -248,6 +251,20 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
+    pub fn next_epoch_first_slot(&self, epoch: u64) -> Result<u64, TimeHorizonError> {
+        for era in &self.eras {
+            if era.start.epoch > epoch {
+                return Err(TimeHorizonError::InvalidEraHistory);
+            }
+            if era.end.epoch > epoch {
+                let start_of_next_epoch =
+                    (epoch - era.start.epoch + 1) * era.params.epoch_size_slots + era.start.slot;
+                return Ok(start_of_next_epoch);
+            }
+        }
+        Err(TimeHorizonError::PastTimeHorizon)
+    }
+
     pub fn epoch_bounds(&self, epoch: u64) -> Result<EpochBounds, TimeHorizonError> {
         for era in &self.eras {
             if era.start.epoch > epoch {
@@ -264,6 +281,20 @@ impl EraHistory {
             }
         }
         Err(TimeHorizonError::PastTimeHorizon)
+    }
+
+    /// Computes the relative slot in the epoch given an absolute slot.
+    ///
+    /// Returns the number of slots since the start of the epoch containing the given slot.
+    ///
+    /// # Errors
+    ///
+    /// Returns `TimeHorizonError::PastTimeHorizon` if the slot is beyond the time horizon.
+    /// Returns `TimeHorizonError::InvalidEraHistory` if the era history is invalid.
+    pub fn slot_in_epoch(&self, slot: u64) -> Result<u64, TimeHorizonError> {
+        let epoch = self.slot_to_epoch(slot)?;
+        let bounds = self.epoch_bounds(epoch)?;
+        Ok(slot - bounds.start)
     }
 }
 
@@ -486,6 +517,101 @@ mod tests {
         let eras = one_era();
         let e = eras.slot_to_epoch(864001);
         assert_eq!(e, Err(TimeHorizonError::PastTimeHorizon));
+    }
+
+    #[test]
+    fn next_epoch_first_slot() {
+        let eras = one_era();
+        assert_eq!(eras.next_epoch_first_slot(0), Ok(86400));
+    }
+
+    #[test]
+    fn next_epoch_first_slot_at_eras_boundary() {
+        let eras = two_eras();
+        assert_eq!(eras.next_epoch_first_slot(1), Ok(172800));
+    }
+
+    #[test]
+    fn next_epoch_first_slot_beyond_end_of_history() {
+        let eras = two_eras();
+        assert_eq!(
+            eras.next_epoch_first_slot(2),
+            Err(TimeHorizonError::PastTimeHorizon)
+        );
+    }
+
+    #[test]
+    fn slot_in_epoch_example_1() {
+        let eras = one_era();
+        let relative_slot = eras.slot_in_epoch(0);
+        assert_eq!(relative_slot, Ok(0));
+    }
+
+    #[test]
+    fn slot_in_epoch_example_2() {
+        let eras = one_era();
+        let relative_slot = eras.slot_in_epoch(86400);
+        assert_eq!(relative_slot, Ok(0));
+    }
+
+    #[test]
+    fn slot_in_epoch_example_3() {
+        let eras = one_era();
+        let relative_slot = eras.slot_in_epoch(86401);
+        assert_eq!(relative_slot, Ok(1));
+    }
+
+    #[test]
+    fn slot_in_epoch_example_4() {
+        let eras = one_era();
+        let relative_slot = eras.slot_in_epoch(172799);
+        assert_eq!(relative_slot, Ok(86399));
+    }
+
+    #[test]
+    fn slot_in_epoch_past_time_horizon() {
+        let eras = one_era();
+        let relative_slot = eras.slot_in_epoch(864001);
+        assert_eq!(relative_slot, Err(TimeHorizonError::PastTimeHorizon));
+    }
+
+    #[test]
+    fn slot_in_epoch_invalid_era_history() {
+        // Create an invalid era history where the second era starts at a slot
+        // that is earlier than the first era's start slot
+        let invalid_eras = EraHistory {
+            eras: vec![
+                Summary {
+                    start: Bound {
+                        time_ms: 100000,
+                        slot: 100,
+                        epoch: 1,
+                    },
+                    end: Bound {
+                        time_ms: 186400000,
+                        slot: 86500,
+                        epoch: 2,
+                    },
+                    params: default_params(),
+                },
+                Summary {
+                    start: Bound {
+                        time_ms: 186400000,
+                        slot: 50, // This is invalid - earlier than first era's start
+                        epoch: 2,
+                    },
+                    end: Bound {
+                        time_ms: 272800000,
+                        slot: 86450,
+                        epoch: 3,
+                    },
+                    params: default_params(),
+                },
+            ],
+        };
+
+        let relative_slot = invalid_eras.slot_in_epoch(60);
+        assert_eq!(relative_slot, Err(TimeHorizonError::InvalidEraHistory));
     }
 
     #[test]
