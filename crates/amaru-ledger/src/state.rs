@@ -19,7 +19,7 @@ pub mod volatile_db;
 
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
-    store::{Store, StoreError, TransactionalContext},
+    store::{Store, StoreError},
     summary::{
         governance::GovernanceSummary,
         rewards::{RewardsSummary, StakeDistribution},
@@ -34,7 +34,6 @@ use slot_arithmetic::TimeHorizonError;
 use std::{
     borrow::Cow,
     collections::{BTreeSet, VecDeque},
-    marker::PhantomData,
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
@@ -57,10 +56,9 @@ const EVENT_TARGET: &str = "amaru::ledger::state";
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
-pub struct State<'store, S, T>
+pub struct State<S>
 where
-    S: Store<'store, T>,
-    T: TransactionalContext<'store>,
+    S: Store,
 {
     /// A handle to the stable store, shared across all ledger instances.
     stable: Arc<Mutex<S>>,
@@ -92,11 +90,9 @@ where
 
     /// The era history for the network this store is related to
     era_history: EraHistory,
-
-    _marker: &'store PhantomData<T>,
 }
 
-impl<'store, S: Store<'store, T>, T: TransactionalContext<'store>> State<'store, S, T> {
+impl<S: Store> State<S> {
     #[allow(clippy::unwrap_used)]
     pub fn new(stable: Arc<Mutex<S>>, era_history: &EraHistory) -> Self {
         let db = stable.lock().unwrap();
@@ -148,8 +144,6 @@ impl<'store, S: Store<'store, T>, T: TransactionalContext<'store>> State<'store,
             rewards_summary: None,
 
             stake_distributions: Arc::new(Mutex::new(stake_distributions)),
-
-            _marker: &PhantomData,
 
             era_history: era_history.clone(),
         }
@@ -214,9 +208,8 @@ impl<'store, S: Store<'store, T>, T: TransactionalContext<'store>> State<'store,
             withdrawals,
             voting_dreps,
         } = now_stable.into_store_update(current_epoch);
-        let transactional_context = db.create_transaction();
+        db.start_transaction().map_err(StateError::Storage)?;
         db.save(
-            &transactional_context,
             &stable_point,
             Some(&stable_issuer),
             add,
@@ -225,12 +218,12 @@ impl<'store, S: Store<'store, T>, T: TransactionalContext<'store>> State<'store,
             voting_dreps,
         )
         .and_then(|()| {
-            db.with_pots(&transactional_context, |mut row| {
+            db.with_pots(|mut row| {
                 row.borrow_mut().fees += fees;
             })
         })
         .map_err(StateError::Storage)?;
-        transactional_context.commit().map_err(StateError::Storage)
+        db.commit().map_err(StateError::Storage)
     }
 
     #[allow(clippy::unwrap_used)]
@@ -338,8 +331,8 @@ impl<'store, S: Store<'store, T>, T: TransactionalContext<'store>> State<'store,
 }
 
 #[allow(clippy::panic)]
-fn recover_stake_distribution<'store, T: TransactionalContext<'store>>(
-    db: &impl Store<'store, T>,
+fn recover_stake_distribution(
+    db: &impl Store,
     epoch: Epoch,
 ) -> Result<StakeDistribution, StoreError> {
     let snapshot = db.for_epoch(epoch).unwrap_or_else(|e| {
@@ -353,25 +346,24 @@ fn recover_stake_distribution<'store, T: TransactionalContext<'store>>(
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
-fn epoch_transition<'store, T: TransactionalContext<'store>>(
-    db: &mut impl Store<'store, T>,
+fn epoch_transition(
+    db: &mut impl Store,
     current_epoch: Epoch,
     rewards_summary: Option<RewardsSummary>,
 ) -> Result<(), StateError> {
     // FIXME: All operations below should technically happen in the same database
     // transaction. If we interrupt the application between any of those, we might end
     // up with a corrupted state.
-    let transactional_context = db.create_transaction();
-    db.next_snapshot(&transactional_context, current_epoch - 1, rewards_summary)
+    db.start_transaction().map_err(StateError::Storage)?;
+    db.next_snapshot(current_epoch - 1, rewards_summary)
         .map_err(StateError::Storage)?;
 
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
-    db.tick_pools(&transactional_context, current_epoch)
-        .map_err(StateError::Storage)?;
+    db.tick_pools(current_epoch).map_err(StateError::Storage)?;
 
-    transactional_context.commit().map_err(StateError::Storage)?;
+    db.commit().map_err(StateError::Storage)?;
 
     // Refund deposit for any proposal that has expired.
     db.tick_proposals(current_epoch)
