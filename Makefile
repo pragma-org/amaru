@@ -78,3 +78,9 @@ build-examples: ## Build all examples
 			fi; \
 		fi; \
 	done
+
+all-ci-checks: ## Run all CI checks
+	@cargo fmt-amaru
+	@cargo clippy-amaru
+	@cargo test-amaru
+	@$(MAKE) build-examples
