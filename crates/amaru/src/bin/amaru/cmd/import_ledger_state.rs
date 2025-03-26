@@ -137,7 +137,7 @@ async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
-    let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir, era_history)?;
+    let mut db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
     db.start_transaction()?;
@@ -163,8 +163,8 @@ async fn import_one(
     Ok(())
 }
 
-fn decode_new_epoch_state(
-    db: &RocksDB,
+fn decode_new_epoch_state<'a>(
+    db: &(impl Store + 'static),
     bytes: &[u8],
     point: &Point,
     era_history: &EraHistory,
@@ -228,6 +228,7 @@ fn decode_new_epoch_state(
             // Epoch State / Ledger State / Cert State / Pool State
             {
                 d.array()?;
+
                 import_stake_pools(
                     db,
                     point,
@@ -354,7 +355,7 @@ fn decode_new_epoch_state(
 }
 
 fn import_block_issuers(
-    db: &RocksDB,
+    db: &impl Store,
     blocks: HashMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     db.start_transaction()?;
@@ -591,7 +592,7 @@ fn import_stake_pools(
 }
 
 fn import_pots(
-    db: &RocksDB,
+    db: &impl Store,
     treasury: u64,
     reserves: u64,
     fees: u64,

@@ -27,6 +27,7 @@ use columns::*;
 use common::{as_value, PREFIX_LEN};
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
+use rocksdb::Transaction;
 use std::{
     collections::BTreeSet,
     fmt, fs,
@@ -61,7 +62,7 @@ const DIR_LIVE_DB: &str = "live";
 /// * ========================*=============================================== *
 ///
 /// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
-pub struct RocksDB {
+pub struct RocksDB<'a> {
     /// The working directory where we store the various key/value stores.
     dir: PathBuf,
 
@@ -75,12 +76,15 @@ pub struct RocksDB {
     /// An ordered (asc) list of epochs for which we have available snapshots
     snapshots: Vec<Epoch>,
 
+    #[allow(dead_code)]
+    transaction: Option<Transaction<'a, OptimisticTransactionDB>>,
+
     /// The `EraHistory` of the network this database is tied to
     era_history: EraHistory,
 }
 
-impl RocksDB {
-    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
+impl<'a> RocksDB<'a> {
+    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<RocksDB<'a>, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
         for entry in fs::read_dir(dir)
             .map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?
@@ -122,11 +126,12 @@ impl RocksDB {
             incremental_save: false,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
+            transaction: None,
             era_history: era_history.clone(), // TODO: remove clone?
         })
     }
 
-    pub fn empty(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
+    pub fn empty(dir: &Path, era_history: &EraHistory) -> Result<RocksDB<'a>, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
@@ -136,6 +141,7 @@ impl RocksDB {
             incremental_save: true,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
+            transaction: None,
             era_history: era_history.clone(),
         })
     }
@@ -151,6 +157,7 @@ impl RocksDB {
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
                 .map_err(|err| StoreError::Internal(err.into()))?,
+            transaction: None,
             era_history: era_history.clone(),
         })
     }
@@ -240,7 +247,7 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
     }))
 }
 
-impl Snapshot for RocksDB {
+impl Snapshot for RocksDB<'_> {
     #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         self.snapshots
@@ -336,7 +343,7 @@ fn with_prefix_iterator<
     Ok(())
 }
 
-impl Store for RocksDB {
+impl Store for RocksDB<'_> {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
         Self::for_epoch_with(self.dir.as_path(), epoch)
     }
