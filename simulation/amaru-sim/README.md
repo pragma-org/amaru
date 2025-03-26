@@ -16,43 +16,6 @@ To run such tests, one needs to:
 
 ### Compile simulator
 
-> [!IMPORTANT]
->
-> As of 2025-03-24, amaru only supports `preprod` network configuration which means that all epoch/slots conversions are hardwired for this network.
-> In order to be able to run a "test" network, one needs to change those functions manually. This is obviously a temporary kludge
->
-> The following patch can be applied to the repository as a workaround:
->
-> ```diff
-> diff --git a/crates/amaru-kernel/src/lib.rs b/crates/amaru-kernel/src/lib.rs
-> index 29f0e6b..fe240c1 100644
-> --- a/crates/amaru-kernel/src/lib.rs
-> +++ b/crates/amaru-kernel/src/lib.rs
-> @@ -486,9 +486,8 @@ pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::e
->
->  /// Calculate the epoch number corresponding to a given slot on the PreProd network.
->  // TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
-> -pub fn epoch_from_slot(slot: u64) -> u64 {
-> -    let shelley_slots = slot - BYRON_TOTAL_SLOTS as u64;
-> -    (shelley_slots / SHELLEY_EPOCH_LENGTH as u64) + PREPROD_SHELLEY_TRANSITION_EPOCH as u64
-> +pub fn epoch_from_slot(_slot: u64) -> u64 {
-> +    0
->  }
->
->  /// Obtain the slot number relative to the epoch.
-> @@ -511,10 +510,8 @@ pub fn relative_slot(slot: u64) -> u64 {
->  /// assert!(next_epoch_first_slot(150) > 63590393);
->  /// ```
->  // TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
-> -pub fn next_epoch_first_slot(current_epoch: u64) -> u64 {
-> -    (BYRON_TOTAL_SLOTS as u64)
-> -        + (SHELLEY_EPOCH_LENGTH as u64)
-> -            * (1 + current_epoch - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
-> +pub fn next_epoch_first_slot(_current_epoch: u64) -> u64 {
-> +    100000
->  }
-> ```
-
 Build the simulator in debug mode (from toplevel Amaru workspace):
 
 ```
