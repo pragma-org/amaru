@@ -43,15 +43,19 @@ pub fn evolve<H: IsHeader>(header: &H, current: &Nonce) -> Nonce {
     )
 }
 
-/// Check whether a header is within the stability of the current epoch, and return its epoch for
-/// convenience.
+/// Determines if a header is within the randomness stability window of its epoch.
+///
+/// Returns the header's epoch and a boolean indicating whether the header is within
+/// the stability window (i.e., far enough from the epoch boundary).
 pub fn randomness_stability_window<H: IsHeader>(
     header: &H,
     era_history: &EraHistory,
 ) -> Result<(Epoch, bool), TimeHorizonError> {
-    let epoch = era_history.slot_to_epoch(header.slot())?;
+    let slot = header.slot();
+    let epoch = era_history.slot_to_epoch(slot)?;
+    let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch)?;
 
-    let is_within_stability_window = header.slot() + RANDOMNESS_STABILIZATION_WINDOW
-        < era_history.next_epoch_first_slot(epoch)?;
+    let is_within_stability_window = slot + RANDOMNESS_STABILIZATION_WINDOW < next_epoch_first_slot;
+
     Ok((epoch, is_within_stability_window))
 }
