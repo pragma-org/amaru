@@ -165,7 +165,7 @@ async fn import_one(
     Ok(())
 }
 
-fn decode_new_epoch_state<'a>(
+fn decode_new_epoch_state(
     db: &(impl Store + 'static),
     bytes: &[u8],
     point: &Point,
