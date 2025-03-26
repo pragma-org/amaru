@@ -484,15 +484,6 @@ pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::e
     Ok(bech32::encode::<bech32::Bech32>(hrp, payload)?)
 }
 
-/// Calculate the epoch number corresponding to a given slot on the PreProd network.
-// TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
-#[allow(clippy::unwrap_used)]
-pub fn epoch_from_slot(slot: u64) -> u64 {
-    // FIXME: currently hardwired to preprod network
-    let era_history: &EraHistory = NetworkName::Preprod.into();
-    era_history.slot_to_epoch(slot).unwrap()
-}
-
 /// Obtain the slot number relative to the epoch.
 // TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
 #[allow(clippy::unwrap_used)]

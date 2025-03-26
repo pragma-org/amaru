@@ -23,6 +23,7 @@ use amaru_consensus::consensus::{
     store::{rocksdb::RocksDBStore, ChainStore},
 };
 use amaru_consensus::peer::Peer;
+use amaru_kernel::network::NetworkName;
 use amaru_kernel::to_cbor;
 use amaru_kernel::{
     Header,
@@ -84,14 +85,16 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
 
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
+    let era_history = NetworkName::Testnet(42).into();
 
-    let mut chain_store = RocksDBStore::new(args.chain_dir.clone()).unwrap_or_else(|e| {
-        panic!(
-            "unable to open chain store at {}: {:?}",
-            args.chain_dir.display(),
-            e
-        )
-    });
+    let mut chain_store =
+        RocksDBStore::new(args.chain_dir.clone(), era_history).unwrap_or_else(|e| {
+            panic!(
+                "unable to open chain store at {}: {:?}",
+                args.chain_dir.display(),
+                e
+            )
+        });
 
     populate_chain_store(
         &mut chain_store,

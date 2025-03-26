@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::network::EraHistory;
 use amaru_kernel::{cbor, Epoch, Nonce, Point};
 use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;
+use slot_arithmetic::TimeHorizonError;
 use std::fmt::Display;
 use thiserror::Error;
 
@@ -46,6 +48,8 @@ where
 
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
     fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError>;
+
+    fn era_history(&self) -> &EraHistory;
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -100,6 +104,9 @@ pub enum NoncesError {
 
     #[error("{0}")]
     StoreError(#[from] StoreError),
+
+    #[error("{0}")]
+    EraHistoryError(#[from] TimeHorizonError),
 }
 
 impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
@@ -110,7 +117,9 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
     }
 
     fn evolve_nonce(&mut self, header: &H) -> Result<(), Self::Error> {
-        let (epoch, is_within_stability_window) = nonce::randomness_stability_window(header);
+        let (epoch, is_within_stability_window) =
+            nonce::randomness_stability_window(header, self.era_history())
+                .map_err(NoncesError::EraHistoryError)?;
 
         let parent_hash = header.parent().unwrap_or((&Point::Origin).into());
 
@@ -186,7 +195,7 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
 mod test {
     use super::*;
     use crate::test::include_header;
-    use amaru_kernel::{from_cbor, hash, to_cbor, Header};
+    use amaru_kernel::{from_cbor, hash, network::NetworkName, to_cbor, Header};
     use amaru_ouroboros_traits::{IsHeader, Praos};
     use proptest::{prelude::*, prop_compose, proptest};
     use std::{collections::BTreeMap, sync::LazyLock};
@@ -257,6 +266,10 @@ mod test {
         fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError> {
             self.nonces.insert(*header, nonces.clone());
             Ok(())
+        }
+
+        fn era_history(&self) -> &EraHistory {
+            NetworkName::Preprod.into()
         }
     }
 

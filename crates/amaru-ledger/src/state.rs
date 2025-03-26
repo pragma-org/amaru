@@ -23,11 +23,12 @@ use crate::{
     summary::rewards::{RewardsSummary, StakeDistribution},
 };
 use amaru_kernel::{
-    epoch_from_slot, relative_slot, Epoch, Hash, MintedBlock, Point, PoolId, Slot,
+    network::EraHistory, relative_slot, Epoch, Hash, MintedBlock, Point, PoolId, Slot,
     TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
     SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
+use slot_arithmetic::TimeHorizonError;
 use std::{
     borrow::Cow,
     collections::{BTreeSet, VecDeque},
@@ -84,11 +85,14 @@ where
     /// for each key. On a distribution of 1M+ stake credentials, that's ~26MB of memory per
     /// duplicate.
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
+
+    /// The era history for the network this store is related to
+    era_history: EraHistory,
 }
 
 impl<S: Store> State<S> {
     #[allow(clippy::unwrap_used)]
-    pub fn new(stable: Arc<Mutex<S>>) -> Self {
+    pub fn new(stable: Arc<Mutex<S>>, era_history: &EraHistory) -> Self {
         let db = stable.lock().unwrap();
 
         // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
@@ -138,6 +142,8 @@ impl<S: Store> State<S> {
             rewards_summary: None,
 
             stake_distributions: Arc::new(Mutex::new(stake_distributions)),
+
+            era_history: era_history.clone(),
         }
     }
 
@@ -146,6 +152,7 @@ impl<S: Store> State<S> {
     pub fn view_stake_distribution(&self) -> impl HasStakeDistribution {
         StakeDistributionView {
             view: self.stake_distributions.clone(),
+            era_history: self.era_history.clone(),
         }
     }
 
@@ -170,7 +177,11 @@ impl<S: Store> State<S> {
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all, fields(point.slot = now_stable.anchor.0.slot_or_default()))]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
-        let current_epoch = epoch_from_slot(now_stable.anchor.0.slot_or_default());
+        let start_slot = now_stable.anchor.0.slot_or_default();
+        let current_epoch = self
+            .era_history
+            .slot_to_epoch(start_slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
 
         // Note: the volatile sequence may contain points belonging to two epochs. We diligently
         // make snapshots at the end of each epoch. Thus, as soon as the next stable block is
@@ -186,6 +197,11 @@ impl<S: Store> State<S> {
             epoch_transition(&mut *db, current_epoch, self.rewards_summary.take())?;
         }
 
+        let anchor_slot = now_stable.anchor.0.slot_or_default();
+        let epoch = self
+            .era_history
+            .slot_to_epoch(anchor_slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(anchor_slot, e))?;
         let StoreUpdate {
             point: stable_point,
             issuer: stable_issuer,
@@ -194,7 +210,7 @@ impl<S: Store> State<S> {
             remove,
             withdrawals,
             voting_dreps,
-        } = now_stable.into_store_update();
+        } = now_stable.into_store_update(epoch);
 
         db.save(
             &stable_point,
@@ -351,13 +367,14 @@ fn epoch_transition(
 // consensus in order to decouple both components.
 pub struct StakeDistributionView {
     view: Arc<Mutex<VecDeque<StakeDistribution>>>,
+    era_history: EraHistory,
 }
 
 impl HasStakeDistribution for StakeDistributionView {
     #[allow(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
-        let epoch = epoch_from_slot(slot) - 2;
+        let epoch = self.era_history.slot_to_epoch(slot).ok()? - 2;
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,
@@ -431,4 +448,6 @@ pub enum StateError {
     Storage(#[source] StoreError),
     #[error("no stake distribution available for rewards calculation.")]
     StakeDistributionNotAvailableForRewards,
+    #[error("failed to compute epoch from slot {0}: {1}")]
+    ErrorComputingEpoch(u64, TimeHorizonError),
 }

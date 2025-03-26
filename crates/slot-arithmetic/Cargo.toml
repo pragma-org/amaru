@@ -16,6 +16,7 @@ rust-version.workspace = true
 hex.workspace = true
 minicbor = { workspace = true, features = ["std", "half", "derive"] }
 serde.workspace = true
+thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

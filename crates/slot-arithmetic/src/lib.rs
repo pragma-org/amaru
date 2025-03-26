@@ -180,9 +180,11 @@ impl<'b, C> Decode<'b, C> for EraHistory {
     }
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum TimeHorizonError {
+    #[error("slot past time horizon")]
     PastTimeHorizon,
+    #[error("invalid era history")]
     InvalidEraHistory,
 }
 

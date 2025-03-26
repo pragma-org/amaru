@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    epoch_from_slot, next_epoch_first_slot, Epoch, Hasher, Nonce, RANDOMNESS_STABILIZATION_WINDOW,
+    network::EraHistory, next_epoch_first_slot, Epoch, Hasher, Nonce,
+    RANDOMNESS_STABILIZATION_WINDOW,
 };
 use amaru_ouroboros_traits::IsHeader;
+use slot_arithmetic::TimeHorizonError;
 
 /// Obtain the final nonce at an epoch boundary for the epoch from the stable candidate and the
 /// last block (header) of the previous epoch.
@@ -46,9 +48,13 @@ pub fn evolve<H: IsHeader>(header: &H, current: &Nonce) -> Nonce {
 
 /// Check whether a header is within the stability of the current epoch, and return its epoch for
 /// convenience.
-pub fn randomness_stability_window<H: IsHeader>(header: &H) -> (Epoch, bool) {
-    let epoch = epoch_from_slot(header.slot());
+pub fn randomness_stability_window<H: IsHeader>(
+    header: &H,
+    era_history: &EraHistory,
+) -> Result<(Epoch, bool), TimeHorizonError> {
+    let epoch = era_history.slot_to_epoch(header.slot())?;
+
     let is_within_stability_window =
         header.slot() + RANDOMNESS_STABILIZATION_WINDOW >= next_epoch_first_slot(epoch);
-    (epoch, !is_within_stability_window)
+    Ok((epoch, !is_within_stability_window))
 }

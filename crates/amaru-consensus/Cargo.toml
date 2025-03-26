@@ -30,6 +30,7 @@ amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
+slot-arithmetic.workspace = true
 
 [dev-dependencies]
 envpath.workspace = true
