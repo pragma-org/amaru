@@ -13,6 +13,10 @@
 // limitations under the License.
 
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
+use std::fmt;
+use std::fs::File;
+use std::io::BufReader;
+use std::path::Path;
 use std::sync::OnceLock;
 
 /// Epoch number in which the PreProd network transitioned to Shelley.
@@ -154,6 +158,48 @@ pub fn preprod_era_history() -> &'static EraHistory {
     })
 }
 
+/// A tesnet with a single era spanning 1000 epochs
+const DEFAULT_TESTNET_ERAS: [Summary; 1] = [Summary {
+    start: Bound {
+        time_ms: 0,
+        slot: 0,
+        epoch: 0,
+    },
+    end: Bound {
+        time_ms: 432000000000,
+        slot: 432000000,
+        epoch: 1000,
+    },
+
+    params: EraParams {
+        epoch_size_slots: 432000,
+        slot_length: 1000,
+    },
+}];
+
+/// A default era history for testnets
+///
+/// This default `EraHistory` contains a single era which covers 1000 epochs,
+/// with a slot length of 1 second and epoch size of 432000 slots.
+pub fn testnet_default_era_history() -> &'static EraHistory {
+    static TESTNET_ERA_HISTORY: OnceLock<EraHistory> = OnceLock::new();
+    TESTNET_ERA_HISTORY.get_or_init(|| EraHistory {
+        eras: DEFAULT_TESTNET_ERAS.to_vec(),
+    })
+}
+
+#[allow(clippy::todo)]
+impl From<NetworkName> for &EraHistory {
+    fn from(value: NetworkName) -> Self {
+        match value {
+            NetworkName::Mainnet => todo!(),
+            NetworkName::Preprod => preprod_era_history(),
+            NetworkName::Preview => todo!(),
+            NetworkName::Testnet(_) => testnet_default_era_history(),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone, Copy)]
 pub enum NetworkName {
     Mainnet,
@@ -206,13 +252,71 @@ impl NetworkName {
     }
 }
 
+/// Error type for era history file operations
+#[derive(Debug)]
+pub enum EraHistoryFileError {
+    /// Error when opening the file
+    FileOpenError(std::io::Error),
+    /// Error when parsing the JSON content
+    JsonParseError(serde_json::Error),
+}
+
+impl fmt::Display for EraHistoryFileError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FileOpenError(err) => write!(f, "Failed to open era history file: {}", err),
+            Self::JsonParseError(err) => write!(f, "Failed to parse era history JSON: {}", err),
+        }
+    }
+}
+
+impl std::error::Error for EraHistoryFileError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::FileOpenError(err) => Some(err),
+            Self::JsonParseError(err) => Some(err),
+        }
+    }
+}
+
+/// Load an `EraHistory` from a JSON file.
+///
+/// # Arguments
+///
+/// * `path` - Path to the JSON file containing era history data
+///
+/// # Returns
+///
+/// Returns a Result containing the `EraHistory` if successful, or an `EraHistoryFileError` if the file
+/// cannot be read or parsed.
+///
+/// # Example
+///
+/// ```no_run
+/// use amaru_kernel::network::load_era_history_from_file;
+/// use std::path::Path;
+///
+/// let era_history = load_era_history_from_file(Path::new("era_history.json")).unwrap();
+/// ```
+pub fn load_era_history_from_file(path: &Path) -> Result<EraHistory, EraHistoryFileError> {
+    let file = File::open(path).map_err(EraHistoryFileError::FileOpenError)?;
+    let reader = BufReader::new(file);
+
+    serde_json::from_reader(reader).map_err(EraHistoryFileError::JsonParseError)
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::network::preprod_era_history;
+    use crate::network::{load_era_history_from_file, preprod_era_history};
 
+    use super::EraHistoryFileError;
     use super::NetworkName::{self, *};
     use proptest::prelude::*;
     use proptest::{prop_oneof, proptest};
+    use std::env;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::Path;
     use std::str::FromStr;
 
     fn any_network() -> impl Strategy<Value = NetworkName> {
@@ -240,5 +344,73 @@ mod tests {
         assert_eq!(4, preprod_era_history().slot_to_epoch(86400).unwrap());
         assert_eq!(11, preprod_era_history().slot_to_epoch(3542399).unwrap());
         assert_eq!(12, preprod_era_history().slot_to_epoch(3542400).unwrap());
+    }
+
+    #[test]
+    fn test_era_history_json_serialization() {
+        let original_era_history = preprod_era_history();
+
+        let mut temp_file_path = env::temp_dir();
+        temp_file_path.push("test_era_history.json");
+
+        let json_data = serde_json::to_string_pretty(original_era_history)
+            .expect("Failed to serialize EraHistory to JSON");
+
+        let mut file = File::create(&temp_file_path).expect("Failed to create temporary file");
+
+        file.write_all(json_data.as_bytes())
+            .expect("Failed to write JSON data to file");
+
+        let loaded_era_history = load_era_history_from_file(temp_file_path.as_path())
+            .expect("Failed to load EraHistory from file");
+
+        assert_eq!(
+            *original_era_history, loaded_era_history,
+            "Era histories don't match"
+        );
+
+        // Clean up the temporary file
+        std::fs::remove_file(temp_file_path).ok();
+    }
+
+    #[test]
+    fn test_era_history_file_open_error() {
+        // Test with a non-existent file
+        let non_existent_path = Path::new("non_existent_file.json");
+
+        let result = load_era_history_from_file(non_existent_path);
+
+        match result {
+            Err(EraHistoryFileError::FileOpenError(_)) => {
+                // This is the expected error type
+            }
+            _ => panic!("Expected FileOpenError, got {:?}", result),
+        }
+    }
+
+    #[test]
+    fn test_era_history_json_parse_error() {
+        // Create a temporary file with invalid JSON
+        let mut temp_file_path = env::temp_dir();
+        temp_file_path.push("invalid_era_history.json");
+
+        let invalid_json = r#"{ "eras": [invalid json] }"#;
+
+        let mut file = File::create(&temp_file_path).expect("Failed to create temporary file");
+
+        file.write_all(invalid_json.as_bytes())
+            .expect("Failed to write invalid JSON data to file");
+
+        let result = load_era_history_from_file(temp_file_path.as_path());
+
+        match result {
+            Err(EraHistoryFileError::JsonParseError(_)) => {
+                // This is the expected error type
+            }
+            _ => panic!("Expected JsonParseError, got {:?}", result),
+        }
+
+        // Clean up the temporary file
+        std::fs::remove_file(temp_file_path).ok();
     }
 }

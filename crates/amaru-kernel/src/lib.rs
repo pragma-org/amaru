@@ -493,8 +493,10 @@ pub fn epoch_from_slot(slot: u64) -> u64 {
 
 /// Obtain the slot number relative to the epoch.
 // TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
+#[allow(clippy::unwrap_used)]
 pub fn relative_slot(slot: u64) -> u64 {
-    let shelley_previous_slots = (epoch_from_slot(slot) - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
+    let shelley_previous_slots = (preprod_era_history().slot_to_epoch(slot).unwrap()
+        - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
         * SHELLEY_EPOCH_LENGTH as u64;
     slot - shelley_previous_slots - BYRON_TOTAL_SLOTS as u64
 }

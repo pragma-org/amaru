@@ -13,10 +13,11 @@
 // limitations under the License.
 
 use minicbor::{Decode, Decoder, Encode};
+use serde::{Deserialize, Serialize};
 
 type Slot = u64;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bound {
     pub time_ms: u64, // Milliseconds
     pub slot: Slot,
@@ -64,7 +65,7 @@ impl<'b, C> Decode<'b, C> for Bound {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EraParams {
     pub epoch_size_slots: u64,
     pub slot_length: u64, // Milliseconds
@@ -114,7 +115,7 @@ impl<'b, C> Decode<'b, C> for EraParams {
 
 // The start is inclusive and the end is exclusive. In a valid EraHistory, the
 // end of each era will equal the start of the next one.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Summary {
     pub start: Bound,
     pub end: Bound,
@@ -148,7 +149,7 @@ impl<'b, C> Decode<'b, C> for Summary {
 }
 
 // A complete history of eras that have taken place.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct EraHistory {
     pub eras: Vec<Summary>,
 }

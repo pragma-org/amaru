@@ -107,6 +107,7 @@ dependencies = [
  "pallas-traverse",
  "proptest",
  "serde",
+ "serde_json",
  "sha3",
  "slot-arithmetic",
 ]
@@ -2917,6 +2918,7 @@ dependencies = [
  "hex",
  "minicbor",
  "proptest",
+ "serde",
 ]
 
 [[package]]
