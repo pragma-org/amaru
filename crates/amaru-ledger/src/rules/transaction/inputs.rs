@@ -101,9 +101,19 @@ where
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::cbor;
+    use std::collections::{BTreeMap, BTreeSet};
 
-    use super::*;
+    use crate::{
+        context::{
+            assert::{AssertPreparationContext, AssertValidationContext},
+            WitnessSlice,
+        },
+        test::{fake_input, fake_output},
+    };
+    use amaru_kernel::{
+        cbor, Bytes, HasAddress, HasOwnership, Hash, MintedTransactionBody,
+        PostAlonzoTransactionOutput, StakeCredential, TransactionInput, TransactionOutput, Value,
+    };
 
     #[test]
     fn valid_reference_input_transactions() {
@@ -115,21 +125,291 @@ mod tests {
         let tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a = hex::decode("a500d9010281825820f28e29a115155f1c5557a6568baa34423f3e0d37e979040db0586f79a5b0e14f0d018282583900c9c0b70e66812af4f3d5f3c986841ab51e8c4e78fc51e17805cf01cefd663095e5adc264dc2782d25ed53fc8352f89b47ba337041b5cda58821a00186a00a2581c919e8a1922aaa764b1d66407c6f62244e77081215f385b60a6209149a1494861707079436f696e01581cee1ce9d7560f48a4ba3867037dbec2d8fed776d94dd6b00a35309073a1400182583900679d60c3515a234e4b14ad92b6671ec49bcbe8e2915889f0bc6683a2eb54ea5e1faa92afe966f769d1f6b4d11d68450ca5d1f00e93aec38e821a00823749a2581c919e8a1922aaa764b1d66407c6f62244e77081215f385b60a6209149a1494861707079436f696e03581cee1ce9d7560f48a4ba3867037dbec2d8fed776d94dd6b00a35309073a14003021a0002ac79031a04365e8e0800").expect("failed to decode hex");
         let tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4 = hex::decode("ab008382582085695567ac864322bbf15a234cb1207206e94c9baba7157df49c95a4161b462402825820899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba64015800825820e655f90fd569a0352abe9d55fce2e4d70c570ceecbf205f79129623dd2294e4d020183a300581d703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad01821a001e8480a1581c2b556df9f37c04ef31b8f7f581c4e48174adcf5041e8e52497d81556a1484e6f64654665656401028201d818583cd87a9fd8799f581cbdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3d8799fd8799f1a000540bb1b00000191f25be7a8ffffffff82581d60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e31a0089544082581d60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e31a0062170b021a0009ce9c031a043642c3081a0436424b0b582091b0d6dba1d88661433fb0ed0097faa20ddc563980b6b66039fdb211cc8a30ee0d81825820899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba640158010e81581cbdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e31082581d60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e31a00524801111a00370c3f12818258201a28375b01a8928f21a87598e24165ab5806e7c3e77a5eb4d78c56e3cf07894c00").expect("failed to decode hex");
 
-        let cases: Vec<MintedTransactionBody<'_>> = vec![
-            cbor::decode(&tx_7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b)
+        let cases: Vec<(MintedTransactionBody<'_>, AssertPreparationContext)> = vec![
+            (
+                cbor::decode(&tx_7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b)
+                    .expect("failed to decode tx body cbor"),
+                AssertPreparationContext {
+                    utxo: BTreeMap::from([
+                        (
+                            fake_input!(
+                                "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
+                                2
+                            ),
+                            fake_output!(
+                                "605309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
+                                0
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
+                                1
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
+                                2
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
+                                0
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "b6dcfdc52df91296d060b4fee05c05340c51e89b16ff7033a53a35d2cd7949b0",
+                                0
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "5c6d1dba0f74e55143a751d3f92433bcfbaa63d20b909f5dde8246db9f38144c",
+                                0
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "f0b861a084a983537de82d769ddf50876ef1bbb7b504690f45bc65e65d4de8f2",
+                                0
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "878296eb7662c6a6e600f48941b3eae1e582bc05aacd0d635fcc96448a5e4e26",
+                                0
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "efd8a48f69e5270cb73b438067e1b566d39758329a45e5d6d36755f2c7326184",
+                                0
+                            ),
+                            fake_output!(
+                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596",
+                                1
+                            ),
+                            fake_output!(
+                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
+                                2
+                            ),
+                            fake_output!(
+                                "605309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41"
+                            ),
+                        ),
+                    ]),
+                },
+            ),
+            (
+                cbor::decode(&tx_537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596)
+                    .expect("failed to decode tx body cbor"),
+                AssertPreparationContext {
+                    utxo: BTreeMap::from([
+                        (
+                            fake_input!(
+                                "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
+                                0
+                            ),
+                            fake_output!(
+                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
+                                1
+                            ),
+                            fake_output!(
+                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
+                                2
+                            ),
+                            fake_output!(
+                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
+                                2
+                            ),
+                            fake_output!(
+                                "60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "5ea9e62dc65b61aa05609701157374f00809002278bc992b42a8c7b0ceeb5a1b",
+                                0
+                            ),
+                            fake_output!(
+                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "f82a2aa7fbe10081063a648b30a863efccb003948eed464898343665f5709e81",
+                                0
+                            ),
+                            fake_output!(
+                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "4b61acedca6426ec989ef78a85ed97a8b4ffd47d9c40d4155e453d7e6b25ae58",
+                                0
+                            ),
+                            fake_output!(
+                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
+                                0
+                            ),
+                            fake_output!(
+                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+                            ),
+                        ),
+                        (
+                            fake_input!(
+                                "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
+                                2
+                            ),
+                            fake_output!(
+                                "60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01"
+                            ),
+                        ),
+                    ]),
+                },
+            ),
+            (
+                cbor::decode(&tx_578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6)
+                    .expect("failed to decode tx body cbor"),
+                AssertPreparationContext {
+                utxo: BTreeMap::from([(fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 0), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 1), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 2), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 3), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 4), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 5), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 6), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 7), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 8), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 9), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("4400503506eab02d9213b975ea3ea389144b5130f83872930499cd1e46ae94ed", 1), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("5ef5af924bd28cd59fad83ea88ba64887dc3f48151f430baf78233ad486dddd5", 0), fake_output!("10f2ba646d131759d11cb104624a370fcca1ccdd9d1ba701861f5b2f8a553c5e9d21a649367f0d4c0712ba0d93f27349475d61f0d6765ec1c3")),
+                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 0), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 1), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 2), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 3), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 4), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 5), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 6), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 9), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("c01742f9d6d3eccc9f03ebebf84fb07af0426b40d5c3a6371ff7470ed1302f50", 0), fake_output!("1044376a5f63342097a4f20401088c62da272639e60644a9ec1d70f444358a4e4105c08f59e4779070699c7a72566893332f9857db4e742beb")),
+                (fake_input!("c0832a06efdee5e1172251be0c343488a42463f76b61042d75c58f4d2eb9d896", 0), fake_output!("1044376a5f63342097a4f20401088c62da272639e60644a9ec1d70f444358a4e4105c08f59e4779070699c7a72566893332f9857db4e742beb")),
+                (fake_input!("f128b201daa7b4801445788a376eaba81c356127a09322031132fabfd664efc1", 4), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("f128b201daa7b4801445788a376eaba81c356127a09322031132fabfd664efc1", 7), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                (fake_input!("02a35a2dd4af7f5be380c03fa6f6984705e8cba1ef7e079aa12a534e44290af1", 0), fake_output!("70d0c21d391ee431f3a9f26736af61e3aa635713624120d040e1ed0c27")),
+                (fake_input!("16647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c70482624", 0), fake_output!("70044563a452ddbc0347206d57488108b59ab252af1b76583e6a6595a8")),
+                (fake_input!("16647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c70482624", 1), fake_output!("7051936f3c98a04b6609aa9b5c832ba1182cf43a58e534fcc05db09d69")),
+                (fake_input!("16647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c70482624", 2), fake_output!("7051936f3c98a04b6609aa9b5c832ba1182cf43a58e534fcc05db09d69")),
+                (fake_input!("be6f8dc16d4e8d5aad566ff6b5ffefdda574817a60d503e2a0ea95f773175050", 2), fake_output!("7051936f3c98a04b6609aa9b5c832ba1182cf43a58e534fcc05db09d69")),
+                (fake_input!("2248cd7b673cdb0049cdbb19c599081b1a8561f6743806d0fd0d632acc304717", 0), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
+                ])
+                }
+            ),
+            (cbor::decode(&tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a)
                 .expect("failed to decode tx body cbor"),
-            cbor::decode(&tx_537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596)
+            AssertPreparationContext {
+            utxo: BTreeMap::from([(fake_input!("f28e29a115155f1c5557a6568baa34423f3e0d37e979040db0586f79a5b0e14f", 13),
+                fake_output!("0092529f01b85021f5c9b53b5ec907b6d1cfe539ebc78ae41acf41f7c7eb54ea5e1faa92afe966f769d1f6b4d11d68450ca5d1f00e93aec38e")),
+            ])
+            }
+            ),
+            (cbor::decode(&tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4)
                 .expect("failed to decode tx body cbor"),
-            cbor::decode(&tx_578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6)
-                .expect("failed to decode tx body cbor"),
-            cbor::decode(&tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a)
-                .expect("failed to decode tx body cbor"),
-            cbor::decode(&tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4)
-                .expect("failed to decode tx body cbor"),
+            AssertPreparationContext {
+            utxo: BTreeMap::from([(fake_input!("85695567ac864322bbf15a234cb1207206e94c9baba7157df49c95a4161b4624", 2), fake_output!("60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3")),
+            (fake_input!("899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba640158", 0), fake_output!("703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad")),
+            (fake_input!("e655f90fd569a0352abe9d55fce2e4d70c570ceecbf205f79129623dd2294e4d", 2), fake_output!("60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3")),
+            (fake_input!("1a28375b01a8928f21a87598e24165ab5806e7c3e77a5eb4d78c56e3cf07894c", 0), fake_output!("703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad")),
+            (fake_input!("899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba640158", 1), fake_output!("60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3")),
+            ])
+            }
+            )
         ];
 
-        cases
-            .into_iter()
-            .for_each(|tx| assert!(super::execute(&tx).is_ok()));
+        cases.into_iter().for_each(|(tx, ctx)| {
+            let mut validation_context = AssertValidationContext::from(ctx.clone());
+            assert!(super::execute(
+                &mut validation_context,
+                &tx.inputs,
+                tx.reference_inputs.as_deref(),
+                tx.collateral.as_deref(),
+            )
+            .is_ok());
+
+            let required_keys = ctx
+                .utxo
+                .values()
+                .filter_map(|output| match output.address().unwrap().credential() {
+                    Some(StakeCredential::AddrKeyhash(vk_hash)) => Some(vk_hash),
+                    Some(_) => None,
+                    None => None,
+                })
+                .collect::<BTreeSet<Hash<28>>>();
+
+            assert!(required_keys == validation_context.required_signers())
+        });
     }
 }
