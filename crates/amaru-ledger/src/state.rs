@@ -98,7 +98,7 @@ where
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[allow(clippy::unwrap_used)]
-    pub fn new(stable: Arc<Mutex<S>>, era_history: &EraHistory, snapshots: HS) -> Self {
+    pub fn new(stable: Arc<Mutex<S>>, snapshots: HS, era_history: &EraHistory) -> Self {
         let db = stable.lock().unwrap();
 
         // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the

@@ -427,20 +427,13 @@ impl Store for RocksDB<'_> {
 
                 accounts::reset_many(&batch, withdrawals)?;
 
-                dreps::add(&transaction, add.dreps)?;
-                dreps::tick(&transaction, voting_dreps, {
+                dreps::add(&batch, add.dreps)?;
+                dreps::tick(&batch, voting_dreps, {
                     let slot = point.slot_or_default();
                     self.era_history
                         .slot_to_epoch(slot)
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
-                proposals::add(&batch, add.proposals)?;
-                dreps::add(&batch, add.dreps)?;
-                dreps::tick(
-                    &batch,
-                    voting_dreps,
-                    epoch_from_slot(point.slot_or_default()),
-                )?;
                 proposals::add(&batch, add.proposals)?;
 
                 utxo::remove(&batch, remove.utxo)?;
