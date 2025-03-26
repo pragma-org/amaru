@@ -27,7 +27,7 @@ pub fn forward_ledger(raw_block: &str) {
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
     let era_history : &EraHistory = NetworkName::Preprod.into();
 
-    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})), era_history);
+    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})), era_history, MemoryStore {});
 
     let point = Point::Specific(
         block.header.header_body.slot,
