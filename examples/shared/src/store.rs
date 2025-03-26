@@ -122,6 +122,14 @@ impl Store for MemoryStore {
         Ok(MemoryStore {})
     }
 
+    fn start_transaction(&self) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
+
+    fn commit(&self) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
+
     fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
         Ok(Point::Origin)
     }
