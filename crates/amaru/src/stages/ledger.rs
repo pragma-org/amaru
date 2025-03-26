@@ -40,7 +40,11 @@ impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage for 
 
 impl<S: Store + Send, HS: HistoricalStores + Send> Stage<S, HS> {
     pub fn new(store: S, snapshots: HS, era_history: &EraHistory) -> (Self, Point) {
-        let state = state::State::new(Arc::new(std::sync::Mutex::new(store)), snapshots, era_history);
+        let state = state::State::new(
+            Arc::new(std::sync::Mutex::new(store)),
+            snapshots,
+            era_history,
+        );
 
         let tip = state.tip().into_owned();
 
