@@ -25,7 +25,7 @@ use amaru_ledger::{
         Store, {self},
     },
 };
-use amaru_stores::rocksdb::{columns::*, RocksDB};
+use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_codec::minicbor as cbor;
@@ -140,10 +140,9 @@ async fn import_one(
     let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let transactional_context = db.create_transaction();
-    let epoch = decode_new_epoch_state(&db, &transactional_context, &bytes, &point, era_history)?;
+    db.start_transaction()?;
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
     db.save(
-        &transactional_context,
         &point,
         None,
         Default::default(),
@@ -152,21 +151,20 @@ async fn import_one(
         BTreeSet::new(),
     )?;
 
-    db.next_snapshot(&transactional_context, epoch, None)?;
+    db.next_snapshot(epoch, None)?;
 
-    db.with_pools(&transactional_context, |iterator| {
+    db.with_pools(|iterator| {
         for (_, pool) in iterator {
             amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1)
         }
     })?;
-    transactional_context.commit()?;
+    db.commit()?;
     info!("Imported snapshot for epoch {}", epoch);
     Ok(())
 }
 
 fn decode_new_epoch_state(
     db: &RocksDB,
-    transactional_context: &RocksTransactionalContext,
     bytes: &[u8],
     point: &Point,
     era_history: &EraHistory,
@@ -191,7 +189,7 @@ fn decode_new_epoch_state(
     // the last block of the epoch. We have no intrinsic ways to check that this is the case since
     // we do not know what the last block of an epoch is, and we can't reliably look at the number
     // of blocks either.
-    import_block_issuers(db, transactional_context, d.decode()?)?;
+    import_block_issuers(db, d.decode()?)?;
 
     let accounts: HashMap<StakeCredential, Account>;
     let fees: i64;
@@ -218,7 +216,7 @@ fn decode_new_epoch_state(
             {
                 d.array()?;
 
-                import_dreps(db, transactional_context, point, d.decode()?)?;
+                import_dreps(db, point, d.decode()?)?;
 
                 // Committee
                 d.skip()?;
@@ -232,7 +230,6 @@ fn decode_new_epoch_state(
                 d.array()?;
                 import_stake_pools(
                     db,
-                    transactional_context,
                     point,
                     epoch,
                     // Pools
@@ -275,7 +272,6 @@ fn decode_new_epoch_state(
 
                 import_utxo(
                     db,
-                    transactional_context,
                     point,
                     d.decode::<HashMap<TransactionInput, TransactionOutput>>()?
                         .into_iter()
@@ -293,7 +289,7 @@ fn decode_new_epoch_state(
                     // Proposals
                     d.array()?;
                     d.skip()?; // Proposals roots
-                    import_proposals(db, transactional_context, point, d.decode()?)?;
+                    import_proposals(db, point, d.decode()?)?;
 
                     // Constitutional committee
                     d.skip()?;
@@ -340,7 +336,7 @@ fn decode_new_epoch_state(
         // NonMyopic
         d.skip()?;
 
-        import_accounts(db, transactional_context, point, accounts, &mut rewards)?;
+        import_accounts(db, point, accounts, &mut rewards)?;
 
         let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
             total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
@@ -348,7 +344,6 @@ fn decode_new_epoch_state(
 
         import_pots(
             db,
-            transactional_context,
             (treasury + delta_treasury) as u64 + unclaimed_rewards,
             (reserves - delta_reserves) as u64,
             (fees - delta_fees) as u64,
@@ -360,11 +355,10 @@ fn decode_new_epoch_state(
 
 fn import_block_issuers(
     db: &RocksDB,
-    transactional_context: &RocksDBTransactionalContext,
     blocks: HashMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let batch = db.unsafe_transaction();
-    db.with_block_issuers(transactional_context, |iterator| {
+    db.start_transaction()?;
+    db.with_block_issuers(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
@@ -373,22 +367,31 @@ fn import_block_issuers(
     let mut fake_slot = 0;
     for (pool, mut count) in blocks.into_iter() {
         while count > 0 {
-            slots::put(
-                &batch,
-                &fake_slot,
-                amaru_ledger::store::columns::slots::Row::new(pool),
+            db.save(
+                &Point::Specific(fake_slot, vec![]),
+                Some(&pool),
+                store::Columns {
+                    utxo: iter::empty(),
+                    pools: iter::empty(),
+                    accounts: iter::empty(),
+                    dreps: iter::empty(),
+                    cc_members: iter::empty(),
+                    proposals: iter::empty(),
+                },
+                Default::default(),
+                iter::empty(),
+                BTreeSet::new(),
             )?;
             count -= 1;
             fake_slot += 1;
         }
     }
     info!(what = "block_issuers", count = fake_slot);
-    batch.commit().map_err(Into::into)
+    db.commit().map_err(Into::into)
 }
 
 fn import_utxo(
     db: &impl Store,
-    transactional_context: &RocksDBTransactionalContext,
     point: &Point,
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -398,7 +401,7 @@ fn import_utxo(
         "  Pruning UTxO entries {spinner} {elapsed}",
     )?);
 
-    db.with_utxo(transactional_context, |iterator| {
+    db.with_utxo(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
             progress_delete.tick();
@@ -416,7 +419,6 @@ fn import_utxo(
         let chunk = utxo.drain(0..n);
 
         db.save(
-            transactional_context,
             point,
             None,
             store::Columns {
@@ -442,11 +444,10 @@ fn import_utxo(
 
 fn import_dreps(
     db: &impl Store,
-    transactional_context: &RocksDBTransactionalContext,
     point: &Point,
     dreps: HashMap<StakeCredential, DRepState>,
 ) -> Result<(), impl std::error::Error> {
-    db.with_dreps(transactional_context, |iterator| {
+    db.with_dreps(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
@@ -455,7 +456,6 @@ fn import_dreps(
     info!(what = "dreps", size = dreps.len());
 
     db.save(
-        transactional_context,
         point,
         None,
         store::Columns {
@@ -483,11 +483,10 @@ fn import_dreps(
 
 fn import_proposals(
     db: &impl Store,
-    transactional_context: &RocksDBTransactionalContext,
     point: &Point,
     proposals: Vec<ProposalState>,
 ) -> Result<(), impl std::error::Error> {
-    db.with_proposals(transactional_context, |iterator| {
+    db.with_proposals(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
@@ -496,7 +495,6 @@ fn import_proposals(
     info!(what = "proposals", size = proposals.len());
 
     db.save(
-        transactional_context,
         point,
         None,
         store::Columns {
@@ -522,13 +520,12 @@ fn import_proposals(
         Default::default(),
         iter::empty(),
         BTreeSet::new(),
-    );
-    transactional_context.commit()?
+    )?;
+    db.commit()
 }
 
 fn import_stake_pools(
     db: &impl Store,
-    transactional_context: &RocksDBTransactionalContext,
     point: &Point,
     epoch: Epoch,
     pools: HashMap<PoolId, PoolParams>,
@@ -554,14 +551,13 @@ fn import_stake_pools(
         retiring = state.unregistered.len(),
     );
 
-    db.with_pools(transactional_context, |iterator| {
+    db.with_pools(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
     })?;
 
     db.save(
-        transactional_context,
         point,
         None,
         store::Columns {
@@ -590,34 +586,32 @@ fn import_stake_pools(
         },
         iter::empty(),
         BTreeSet::new(),
-    );
-    transactional_context.commit()?
+    )?;
+    db.commit()
 }
 
 fn import_pots(
     db: &RocksDB,
-    transactional_context: &RocksDBTransactionalContext,
     treasury: u64,
     reserves: u64,
     fees: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    pots::put(
-        &batch,
-        amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees),
-    )?;
-    transactional_context.commit()?;
+    db.with_pots(|mut handle| {
+        *handle.borrow_mut() =
+            amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees);
+    })?;
+    db.commit()?;
     info!(what = "pots", treasury, reserves, fees);
     Ok(())
 }
 
 fn import_accounts(
     db: &impl Store,
-    transactional_context: &RocksDBTransactionalContext,
     point: &Point,
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    db.with_accounts(transactional_context, |iterator| {
+    db.with_accounts(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
@@ -671,7 +665,6 @@ fn import_accounts(
         let chunk = credentials.drain(0..n);
 
         db.save(
-            transactional_context,
             point,
             None,
             store::Columns {
@@ -690,7 +683,7 @@ fn import_accounts(
         progress.inc(n as u64);
     }
 
-    transactional_context.commit()?;
+    db.commit()?;
     progress.finish_and_clear();
 
     Ok(())
