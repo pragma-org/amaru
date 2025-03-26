@@ -1,6 +1,6 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
-    store::{Snapshot, Store},
+    store::{HistoricalStores, Snapshot, Store},
     summary::rewards::Pots,
 };
 use std::collections::BTreeSet;
@@ -242,5 +242,14 @@ impl Store for MemoryStore {
         _with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
+    }
+}
+
+impl HistoricalStores for MemoryStore {
+    fn for_epoch(
+        &self,
+        _epoch: Epoch,
+    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
+        Ok(MemoryStore {})
     }
 }
