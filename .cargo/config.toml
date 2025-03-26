@@ -3,6 +3,7 @@
 [alias]
 fmt-amaru = "fmt --all -- --check"
 clippy-amaru = "clippy --workspace --all-targets --all-features -- -D warnings"
+check-amaru = "check --workspace --all-targets --all-features"
 test-amaru = "test --workspace --all-features"
 deny-amaru = "deny check licenses --config .cargo/deny.toml"
 
