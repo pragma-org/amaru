@@ -23,9 +23,9 @@ use crate::{
     summary::rewards::{RewardsSummary, StakeDistribution},
 };
 use amaru_kernel::{
-    network::EraHistory, relative_slot, Epoch, Hash, MintedBlock, Point, PoolId, Slot,
-    TransactionInput, TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION,
-    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    network::EraHistory, Epoch, Hash, MintedBlock, Point, PoolId, Slot, TransactionInput,
+    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
+    STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -277,7 +277,12 @@ impl<S: Store> State<S> {
         }
 
         // Once we reach the stability window, compute rewards unless we've already done so.
-        let relative_slot = relative_slot(next_state.anchor.0.slot_or_default());
+        let next_state_slot = next_state.anchor.0.slot_or_default();
+        let relative_slot = self
+            .era_history
+            .slot_in_epoch(next_state_slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
+
         if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
             self.rewards_summary = Some(self.compute_rewards()?);
         }
