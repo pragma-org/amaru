@@ -21,7 +21,7 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
-use network::{preprod_era_history, PREPROD_SHELLEY_TRANSITION_EPOCH};
+use network::{NetworkName, PREPROD_SHELLEY_TRANSITION_EPOCH};
 use num::{rational::Ratio, BigUint};
 pub use pallas_addresses::{byron::AddrType, Address, StakeAddress, StakePayload};
 use pallas_addresses::{Error, *};
@@ -51,6 +51,7 @@ pub use pallas_primitives::{
 };
 pub use sha3;
 use sha3::{Digest as _, Sha3_256};
+use slot_arithmetic::EraHistory;
 use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyLock};
 
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -488,14 +489,16 @@ pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::e
 #[allow(clippy::unwrap_used)]
 pub fn epoch_from_slot(slot: u64) -> u64 {
     // FIXME: currently hardwired to preprod network
-    preprod_era_history().slot_to_epoch(slot).unwrap()
+    let era_history: &EraHistory = NetworkName::Preprod.into();
+    era_history.slot_to_epoch(slot).unwrap()
 }
 
 /// Obtain the slot number relative to the epoch.
 // TODO: Design and implement a proper abstraction for slot arithmetic. See https://github.com/pragma-org/amaru/pull/26/files#r1807394364
 #[allow(clippy::unwrap_used)]
 pub fn relative_slot(slot: u64) -> u64 {
-    let shelley_previous_slots = (preprod_era_history().slot_to_epoch(slot).unwrap()
+    let era_history: &EraHistory = NetworkName::Preprod.into();
+    let shelley_previous_slots = (era_history.slot_to_epoch(slot).unwrap()
         - PREPROD_SHELLEY_TRANSITION_EPOCH as u64)
         * SHELLEY_EPOCH_LENGTH as u64;
     slot - shelley_previous_slots - BYRON_TOTAL_SLOTS as u64
