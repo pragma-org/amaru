@@ -133,6 +133,7 @@ mod tests {
             block::{InvalidBlock, InvalidBlockHeader},
             transaction::{InvalidTransaction, InvalidVKeyWitness},
         },
+        test::{fake_input, fake_output},
     };
     use amaru_kernel::{
         protocol_parameters::ProtocolParameters, Bytes, Hash, PostAlonzoTransactionOutput,
@@ -154,37 +155,21 @@ mod tests {
         LazyLock::new(|| AssertPreparationContext {
             utxo: BTreeMap::from([
                 (
-                    fake_input(
+                    fake_input!(
                         "2e6b2226fd74ab0cadc53aaa18759752752bd9b616ea48c0e7b7be77d1af4bf4",
-                        0,
+                        0
                     ),
-                    fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
+                    fake_output!("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
                 ),
                 (
-                    fake_input(
+                    fake_input!(
                         "d5dc99581e5f479d006aca0cd836c2bb7ddcd4a243f8e9485d3c969df66462cb",
-                        0,
+                        0
                     ),
-                    fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
+                    fake_output!("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
                 ),
             ]),
         });
-
-    fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
-        TransactionInput {
-            transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()),
-            index,
-        }
-    }
-
-    fn fake_output(address: &str) -> TransactionOutput {
-        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
-            address: Bytes::from(hex::decode(address).unwrap()),
-            value: Value::Coin(0),
-            datum_option: None,
-            script_ref: None,
-        })
-    }
 
     #[test]
     fn validate_block_success() {
@@ -213,12 +198,12 @@ mod tests {
     fn validate_block_vkey_witness_missing() {
         let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
         ctx.utxo
-            .entry(fake_input(
+            .entry(fake_input!(
                 "2e6b2226fd74ab0cadc53aaa18759752752bd9b616ea48c0e7b7be77d1af4bf4",
-                0,
+                0
             ))
             .and_modify(|o| {
-                *o = fake_output("6100000000000000000000000000000000000000000000000000000000")
+                *o = fake_output!("6100000000000000000000000000000000000000000000000000000000")
             });
 
         let block = parse_block(&CONWAY_BLOCK).unwrap();
