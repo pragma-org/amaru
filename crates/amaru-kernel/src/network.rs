@@ -323,6 +323,14 @@ mod tests {
     }
 
     #[test]
+    fn can_compute_next_epoch_first_slot_for_preprod() {
+        let era_history = &*PREPROD_ERA_HISTORY;
+        assert_eq!(era_history.next_epoch_first_slot(3), Ok(86400));
+        assert_eq!(era_history.next_epoch_first_slot(114), Ok(48038400));
+        assert_eq!(era_history.next_epoch_first_slot(150), Ok(63590400));
+    }
+
+    #[test]
     fn test_era_history_json_serialization() {
         let original_era_history = &*PREPROD_ERA_HISTORY;
 

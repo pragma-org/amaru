@@ -12,10 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    network::EraHistory, next_epoch_first_slot, Epoch, Hasher, Nonce,
-    RANDOMNESS_STABILIZATION_WINDOW,
-};
+use amaru_kernel::{network::EraHistory, Epoch, Hasher, Nonce, RANDOMNESS_STABILIZATION_WINDOW};
 use amaru_ouroboros_traits::IsHeader;
 use slot_arithmetic::TimeHorizonError;
 
@@ -54,7 +51,7 @@ pub fn randomness_stability_window<H: IsHeader>(
 ) -> Result<(Epoch, bool), TimeHorizonError> {
     let epoch = era_history.slot_to_epoch(header.slot())?;
 
-    let is_within_stability_window =
-        header.slot() + RANDOMNESS_STABILIZATION_WINDOW >= next_epoch_first_slot(epoch);
-    Ok((epoch, !is_within_stability_window))
+    let is_within_stability_window = header.slot() + RANDOMNESS_STABILIZATION_WINDOW
+        < era_history.next_epoch_first_slot(epoch)?;
+    Ok((epoch, is_within_stability_window))
 }

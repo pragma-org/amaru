@@ -251,6 +251,20 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
+    pub fn next_epoch_first_slot(&self, epoch: u64) -> Result<u64, TimeHorizonError> {
+        for era in &self.eras {
+            if era.start.epoch > epoch {
+                return Err(TimeHorizonError::InvalidEraHistory);
+            }
+            if era.end.epoch > epoch {
+                let start_of_next_epoch =
+                    (epoch - era.start.epoch + 1) * era.params.epoch_size_slots + era.start.slot;
+                return Ok(start_of_next_epoch);
+            }
+        }
+        Err(TimeHorizonError::PastTimeHorizon)
+    }
+
     pub fn epoch_bounds(&self, epoch: u64) -> Result<EpochBounds, TimeHorizonError> {
         for era in &self.eras {
             if era.start.epoch > epoch {
@@ -489,6 +503,27 @@ mod tests {
         let eras = one_era();
         let e = eras.slot_to_epoch(864001);
         assert_eq!(e, Err(TimeHorizonError::PastTimeHorizon));
+    }
+
+    #[test]
+    fn next_epoch_first_slot() {
+        let eras = one_era();
+        assert_eq!(eras.next_epoch_first_slot(0), Ok(86400));
+    }
+
+    #[test]
+    fn next_epoch_first_slot_at_eras_boundary() {
+        let eras = two_eras();
+        assert_eq!(eras.next_epoch_first_slot(1), Ok(172800));
+    }
+
+    #[test]
+    fn next_epoch_first_slot_beyond_end_of_history() {
+        let eras = two_eras();
+        assert_eq!(
+            eras.next_epoch_first_slot(2),
+            Err(TimeHorizonError::PastTimeHorizon)
+        );
     }
 
     #[test]
