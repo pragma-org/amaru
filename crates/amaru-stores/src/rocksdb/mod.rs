@@ -19,7 +19,8 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     store::{
-        columns as scolumns, Columns, OpenErrorKind, Snapshot, Store, StoreError, TipErrorKind,
+        columns as scolumns, Columns, HistoricalStores, OpenErrorKind, Snapshot, Store, StoreError,
+        TipErrorKind,
     },
     summary::rewards::{Pots, RewardsSummary},
 };
@@ -344,10 +345,6 @@ fn with_prefix_iterator<
 }
 
 impl Store for RocksDB<'_> {
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
-        Self::for_epoch_with(self.dir.as_path(), epoch)
-    }
-
     fn start_transaction(&self) -> Result<(), StoreError> {
         Ok(())
     }
@@ -603,5 +600,102 @@ impl Store for RocksDB<'_> {
         with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
         with_prefix_iterator(&self.db.transaction(), proposals::PREFIX, with)
+    }
+}
+
+pub struct RocksDBHistoricalStores {
+    dir: PathBuf,
+}
+
+impl RocksDBHistoricalStores {
+    pub fn for_epoch_with(dir: &Path, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
+        let mut opts = Options::default();
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+
+        Ok(RocksDBSnapshot {
+            epoch,
+            db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
+                .map_err(|err| StoreError::Internal(err.into()))?,
+        })
+    }
+
+    pub fn new(dir: &Path) -> Self {
+        RocksDBHistoricalStores {
+            dir: dir.to_path_buf(),
+        }
+    }
+}
+
+pub struct RocksDBSnapshot {
+    epoch: Epoch,
+    db: OptimisticTransactionDB,
+}
+
+impl Snapshot for RocksDBSnapshot {
+    #[allow(clippy::panic)]
+    fn epoch(&'_ self) -> Epoch {
+        self.epoch
+    }
+
+    fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
+        pools::get(&self.db, pool)
+    }
+
+    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
+        utxo::get(&self.db, input)
+    }
+
+    fn iter_utxos(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
+    {
+        iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
+    }
+
+    fn pots(&self) -> Result<Pots, StoreError> {
+        pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
+    }
+
+    fn iter_accounts(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
+    {
+        iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX)
+    }
+
+    fn iter_block_issuers(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
+    {
+        iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX)
+    }
+
+    fn iter_pools(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
+    {
+        iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
+    }
+
+    fn iter_dreps(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
+    {
+        iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
+    }
+
+    fn iter_proposals(
+        &self,
+    ) -> Result<
+        impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
+        StoreError,
+    > {
+        iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
+    }
+}
+
+impl HistoricalStores for RocksDBHistoricalStores {
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
+        RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
     }
 }

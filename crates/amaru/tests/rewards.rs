@@ -20,7 +20,7 @@ use amaru_ledger::{
         rewards::{RewardsSummary, StakeDistribution},
     },
 };
-use amaru_stores::rocksdb::RocksDB;
+use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot};
 use pallas_primitives::Epoch;
 use std::{
     collections::BTreeMap,
@@ -31,7 +31,7 @@ use test_case::test_case;
 
 pub static LEDGER_DB: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("../../ledger.db"));
 
-pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDB>>>> =
+pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
 #[allow(clippy::panic)]
@@ -49,7 +49,7 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
         .entry(epoch)
         .or_insert_with(|| {
             Arc::new(
-                RocksDB::for_epoch_with(&LEDGER_DB, epoch).unwrap_or_else(|_| {
+                RocksDBHistoricalStores::for_epoch_with(&LEDGER_DB, epoch).unwrap_or_else(|_| {
                     panic!("Failed to open ledger snapshot for epoch {}", epoch)
                 }),
             )
