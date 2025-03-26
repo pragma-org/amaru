@@ -117,11 +117,6 @@ impl Snapshot for MemoryStore {
 }
 
 impl Store for MemoryStore {
-    #[allow(refining_impl_trait)]
-    fn for_epoch(&self, _epoch: Epoch) -> Result<MemoryStore, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore {})
-    }
-
     fn start_transaction(&self) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }

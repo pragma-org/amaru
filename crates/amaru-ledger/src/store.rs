@@ -96,8 +96,6 @@ pub trait Snapshot {
 }
 
 pub trait Store: Snapshot {
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
-
     fn start_transaction(&self) -> Result<(), StoreError>;
 
     fn commit(&self) -> Result<(), StoreError>;
@@ -185,6 +183,11 @@ pub trait Store: Snapshot {
             }
         })
     }
+}
+
+pub trait HistoricalStores {
+    ///Access a `Snapshot` for a specific `Epoch`
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
 
 // Columns

@@ -19,7 +19,7 @@ pub mod volatile_db;
 
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
-    store::{Store, StoreError},
+    store::{HistoricalStores, Store, StoreError},
     summary::rewards::{RewardsSummary, StakeDistribution},
 };
 use amaru_kernel::{
@@ -54,12 +54,16 @@ const EVENT_TARGET: &str = "amaru::ledger::state";
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
-pub struct State<S>
+pub struct State<S, HS>
 where
     S: Store,
+    HS: HistoricalStores,
 {
     /// A handle to the stable store, shared across all ledger instances.
     stable: Arc<Mutex<S>>,
+
+    /// A handle to the stable store, shared across all ledger instances.
+    snapshots: HS,
 
     /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
@@ -90,9 +94,9 @@ where
     era_history: EraHistory,
 }
 
-impl<S: Store> State<S> {
+impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[allow(clippy::unwrap_used)]
-    pub fn new(stable: Arc<Mutex<S>>, era_history: &EraHistory) -> Self {
+    pub fn new(stable: Arc<Mutex<S>>, era_history: &EraHistory, snapshots: HS) -> Self {
         let db = stable.lock().unwrap();
 
         // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
@@ -111,21 +115,23 @@ impl<S: Store> State<S> {
         let mut stake_distributions = VecDeque::new();
         #[allow(clippy::panic)]
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
-            stake_distributions.push_front(recover_stake_distribution(&*db, epoch).unwrap_or_else(
-                |e| {
+            stake_distributions.push_front(
+                recover_stake_distribution(&snapshots, epoch).unwrap_or_else(|e| {
                     // TODO deal with error
                     panic!(
                         "unable to get stake distribution for (epoch={:?}): {e:?}",
                         epoch
                     )
-                },
-            ));
+                }),
+            );
         }
 
         drop(db);
 
         Self {
             stable,
+
+            snapshots,
 
             // NOTE: At this point, we always restart from an empty volatile state; which means
             // that there needs to be some form of synchronization between the consensus and the
@@ -232,8 +238,6 @@ impl<S: Store> State<S> {
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
     fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
-        let db = self.stable.lock().unwrap();
-
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
         let stake_distribution = stake_distributions
             .pop_back()
@@ -243,7 +247,7 @@ impl<S: Store> State<S> {
 
         #[allow(clippy::panic)]
         let rewards_summary = RewardsSummary::new(
-            &db.for_epoch(epoch).unwrap_or_else(|e| {
+            &self.snapshots.for_epoch(epoch).unwrap_or_else(|e| {
                 panic!(
                     "unable to open database snapshot for epoch {:?}: {:?}",
                     epoch, e
@@ -253,8 +257,9 @@ impl<S: Store> State<S> {
         )
         .map_err(StateError::Storage)?;
 
-        stake_distributions
-            .push_front(recover_stake_distribution(&*db, epoch).map_err(StateError::Storage)?);
+        stake_distributions.push_front(
+            recover_stake_distribution(&self.snapshots, epoch).map_err(StateError::Storage)?,
+        );
 
         Ok(rewards_summary)
     }
@@ -335,10 +340,10 @@ impl<S: Store> State<S> {
 
 #[allow(clippy::panic)]
 fn recover_stake_distribution(
-    db: &impl Store,
+    snapshots: &impl HistoricalStores,
     epoch: Epoch,
 ) -> Result<StakeDistribution, StoreError> {
-    let snapshot = db.for_epoch(epoch).unwrap_or_else(|e| {
+    let snapshot = snapshots.for_epoch(epoch).unwrap_or_else(|e| {
         panic!(
             "unable to open database snapshot for epoch {:?}: {:?}",
             epoch, e
