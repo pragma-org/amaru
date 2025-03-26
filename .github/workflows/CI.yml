@@ -94,8 +94,8 @@ jobs:
         run: |
           set +e
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
-          SCOPE="${{ matrix.environments.packages || '--workspace' }}"
-          COMMAND="${{ matrix.environments.command  || 'test' }}"
+          SCOPE="${{ matrix.environments.packages || '' }}"
+          COMMAND="${{ matrix.environments.command  || 'test-amaru' }}"
           if [[ -n "${{ matrix.environments.setup }}" ]]; then
             echo "Running setup command: ${{ matrix.environments.setup }}"
             ${{ matrix.environments.setup }}
