@@ -486,6 +486,7 @@ fn import_proposals(
     point: &Point,
     proposals: Vec<ProposalState>,
 ) -> Result<(), impl std::error::Error> {
+    db.start_transaction()?;
     db.with_proposals(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
@@ -550,7 +551,7 @@ fn import_stake_pools(
         registered = state.registered.len(),
         retiring = state.unregistered.len(),
     );
-
+    db.start_transaction()?;
     db.with_pools(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
@@ -596,6 +597,7 @@ fn import_pots(
     reserves: u64,
     fees: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    db.start_transaction()?;
     db.with_pots(|mut handle| {
         *handle.borrow_mut() =
             amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees);
@@ -611,6 +613,7 @@ fn import_accounts(
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    db.start_transaction()?;
     db.with_accounts(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
