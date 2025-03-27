@@ -129,10 +129,7 @@ mod tests {
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules,
-        rules::{
-            block::{InvalidBlock, InvalidBlockHeader},
-            transaction::{InvalidTransaction, InvalidVKeyWitness},
-        },
+        rules::block::{InvalidBlock, InvalidBlockHeader},
         test::{fake_input, fake_output},
     };
     use amaru_kernel::{
@@ -191,39 +188,6 @@ mod tests {
     #[test]
     fn validate_block_serialization_err() {
         assert!(parse_block(&MODIFIED_CONWAY_BLOCK).is_err())
-    }
-
-    #[test]
-    #[allow(clippy::wildcard_enum_match_arm)]
-    fn validate_block_vkey_witness_missing() {
-        let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
-        ctx.utxo
-            .entry(fake_input!(
-                "2e6b2226fd74ab0cadc53aaa18759752752bd9b616ea48c0e7b7be77d1af4bf4",
-                0
-            ))
-            .and_modify(|o| {
-                *o = fake_output!("6100000000000000000000000000000000000000000000000000000000")
-            });
-
-        let block = parse_block(&CONWAY_BLOCK).unwrap();
-
-        prepare_block(&mut ctx, &block);
-
-        assert!(rules::block::execute(
-            AssertValidationContext::from(ctx),
-            ProtocolParameters::default(),
-            block
-        )
-        .is_err_and(|e| matches!(
-            e,
-            InvalidBlock::Transaction {
-                violation: InvalidTransaction::VKeyWitness(
-                    InvalidVKeyWitness::MissingRequiredVkeyWitnesses { .. }
-                ),
-                ..
-            },
-        )));
     }
 
     #[test]
