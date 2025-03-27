@@ -74,8 +74,20 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("{");
   stream.write(`\n  "epoch": ${epoch},`);
   stream.write(`\n  "active_stake": ${distr.activeStake},`);
-  encodeCollection(stream, "keys", epochState.keys, false);
-  encodeCollection(stream, "scripts", epochState.scripts, false);
+
+  let accounts = {}
+  Object.keys(epochState.keys)
+    .reduce((accum, key) => {
+      accum[toStakeAddress(key, "verificationKey")] = epochState.keys[key];
+      return accum;
+    }, accounts);
+  Object.keys(epochState.scripts)
+    .reduce((accum, script) => {
+      accum[toStakeAddress(script, "script")] = epochState.scripts[script];
+      return accum;
+    }, accounts);
+  encodeCollection(stream, "accounts", accounts, false);
+
   stream.write(`\n  "pools": {\n`)
   pools.forEach((k, ix) => {
     const totalStake = BigInt(distr.totalStake);
@@ -165,6 +177,18 @@ function toDrepId(str, category) {
     bech32.toWords(
       Buffer.concat([
         Buffer.from([category === "verificationKey" ? 34 : 35]),
+        Buffer.from(str, "hex"),
+      ])
+    )
+  );
+}
+
+function toStakeAddress(str, category) {
+  return bech32.encode(
+    "stake_test",
+    bech32.toWords(
+      Buffer.concat([
+        Buffer.from([category === "verificationKey" ? 0xe0 : 0xf0]),
         Buffer.from(str, "hex"),
       ])
     )
