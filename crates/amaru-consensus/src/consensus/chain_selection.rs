@@ -102,7 +102,7 @@ where
 }
 
 impl<H: IsHeader> Tip<H> {
-    fn is_parent_of(&self, header: &H) -> bool {
+    fn is_parent_of(&self, header: &Tip<H>) -> bool {
         match (header.parent(), self) {
             (None, Tip::Genesis) => true,
             (Some(p), Tip::Hdr(hdr)) => p == hdr.hash(),
@@ -181,7 +181,7 @@ pub struct ChainSelector<H: IsHeader> {
 pub struct Fork<H: IsHeader> {
     pub peer: Peer,
     pub rollback_point: Point,
-    pub tip: H,
+    pub tip: Tip<H>,
     pub fork: Vec<H>,
 }
 
@@ -207,6 +207,9 @@ pub enum RollbackChainSelection<H: IsHeader> {
 
     /// The current best chain has switched to given fork.
     SwitchToFork(Fork<H>),
+
+    /// The current best chain as not changed
+    NoChange,
 }
 
 /// Builder pattern for `ChainSelector`.
@@ -318,6 +321,10 @@ where
 
         let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
+        if best_tip == self.tip {
+            return NoChange;
+        }
+
         let result = if best_peer == *peer {
             RollbackTo(point)
         } else {
@@ -332,19 +339,19 @@ where
             })
         };
 
-        self.tip = Tip::Hdr(best_tip);
+        self.tip = best_tip;
 
         result
     }
 
     #[instrument(level = Level::TRACE, skip_all)]
-    fn find_best_chain(&self) -> Option<(Peer, H)> {
-        let mut best: Option<(Peer, H)> = None;
+    fn find_best_chain(&self) -> Option<(Peer, Tip<H>)> {
+        let mut best: Option<(Peer, Tip<H>)> = None;
         for (peer, fragment) in self.peers_chains.iter() {
             let best_height = best.as_ref().map_or(0, |(_, tip)| tip.block_height());
             match fragment.tip() {
                 Tip::Hdr(header) if fragment.height() > best_height => {
-                    best = Some((peer.clone(), header.clone()));
+                    best = Some((peer.clone(), Tip::Hdr(header.clone())));
                 }
                 Tip::Genesis | Tip::Hdr(_) => (),
             }
@@ -497,7 +504,7 @@ pub(crate) mod tests {
             ForwardChainSelection::SwitchToFork(Fork {
                 peer: bob,
                 rollback_point: Point::Origin,
-                tip: chain2[5],
+                tip: Tip::Hdr(chain2[5]),
                 fork: chain2
             }),
             result.unwrap()
@@ -609,11 +616,37 @@ pub(crate) mod tests {
             RollbackChainSelection::SwitchToFork(Fork {
                 peer: bob,
                 rollback_point: Point::Origin,
-                tip: chain2[5],
+                tip: Tip::Hdr(chain2[5]),
                 fork: chain2
             }),
             result
         );
+    }
+
+    #[test]
+    fn rollback_does_not_switch_chain_given_current_chain_is_longer() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .add_peer(&bob)
+            .build()
+            .unwrap();
+
+        let chain1 = generate_headers_anchored_at(None, 6);
+        let chain2 = generate_headers_anchored_at(None, 5);
+
+        chain1.iter().for_each(|header| {
+            chain_selector.select_roll_forward(&alice, *header);
+        });
+
+        chain2.iter().for_each(|header| {
+            chain_selector.select_roll_forward(&bob, *header);
+        });
+
+        let rollback_point = &chain2[2];
+        let result = chain_selector.select_rollback(&bob, rollback_point.hash());
+        assert_eq!(RollbackChainSelection::NoChange, result);
     }
 
     #[test]
