@@ -251,16 +251,7 @@ impl serde::Serialize for StakeDistribution {
         s.serialize_field("active_stake", &self.active_stake)?;
         s.serialize_field("keys", &self.keys)?;
         s.serialize_field("scripts", &self.scripts)?;
-        let mut pools = self
-            .pools
-            .iter()
-            .map(|(k, v)| (unsafe_encode_pool_id(&k[..]), v))
-            .collect::<Vec<_>>();
-        pools.sort_by(|a, b| a.0.cmp(&b.0));
-        s.serialize_field(
-            "pools",
-            &pools.into_iter().collect::<BTreeMap<String, &PoolState>>(),
-        )?;
+        serialize_map("pools", &mut s, &self.pools, unsafe_encode_pool_id)?;
         s.end()
     }
 }
@@ -292,7 +283,7 @@ impl serde::Serialize for AccountState {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("AccountState", 2)?;
         s.serialize_field("lovelace", &self.lovelace)?;
-        s.serialize_field("pool", &unsafe_encode_pool_id(&self.pool[..]))?;
+        s.serialize_field("pool", &unsafe_encode_pool_id(&self.pool))?;
         s.end()
     }
 }
@@ -575,18 +566,7 @@ impl serde::Serialize for RewardsSummary {
         s.serialize_field("treasury_tax", &self.treasury_tax)?;
         s.serialize_field("available_rewards", &self.available_rewards)?;
         s.serialize_field("pots", &self.pots)?;
-        let mut pools = self
-            .pools
-            .iter()
-            .map(|(k, v)| (unsafe_encode_pool_id(&k[..]), v))
-            .collect::<Vec<_>>();
-        pools.sort_by(|a, b| a.0.cmp(&b.0));
-        s.serialize_field(
-            "pools",
-            &pools
-                .into_iter()
-                .collect::<BTreeMap<String, &PoolRewards>>(),
-        )?;
+        serialize_map("pools", &mut s, &self.pools, unsafe_encode_pool_id)?;
         s.end()
     }
 }
@@ -800,9 +780,23 @@ impl RewardsSummary {
 // -------------------------------------------------------------------- Internal
 
 #[allow(clippy::panic)]
-fn unsafe_encode_pool_id(pool_id: &[u8]) -> String {
-    encode_bech32("pool", pool_id)
+fn unsafe_encode_pool_id(pool_id: &PoolId) -> String {
+    encode_bech32("pool", pool_id.as_slice())
         .unwrap_or_else(|e| panic!("unable to encode pool id ({pool_id:?}) to bech32: {e:?}"))
+}
+
+fn serialize_map<K, V: serde::ser::Serialize, S: serde::ser::SerializeStruct>(
+    field: &'static str,
+    s: &mut S,
+    m: &BTreeMap<K, V>,
+    serialize_key: impl Fn(&K) -> String,
+) -> Result<(), S::Error> {
+    let mut elems = m
+        .iter()
+        .map(|(k, v)| (serialize_key(k), v))
+        .collect::<Vec<_>>();
+    elems.sort_by(|a, b| a.0.cmp(&b.0));
+    s.serialize_field(field, &elems.into_iter().collect::<BTreeMap<String, &V>>())
 }
 
 type SafeRatio = Ratio<BigUint>;
