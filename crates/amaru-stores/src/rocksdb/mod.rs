@@ -434,6 +434,18 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Ok(())
     }
 
+    fn set_pots(
+        &self,
+        treasury: amaru_kernel::Lovelace,
+        reserves: amaru_kernel::Lovelace,
+        fees: amaru_kernel::Lovelace,
+    ) -> Result<(), StoreError> {
+        pots::put(
+            &self.transaction,
+            amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees),
+        )
+    }
+
     fn with_pots<'db>(
         &self,
         mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>),
