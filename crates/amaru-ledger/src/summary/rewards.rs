@@ -99,9 +99,9 @@ certain mutations are applied to the system.
 use crate::store::{columns::*, Snapshot, StoreError};
 use amaru_kernel::{
     encode_bech32, expect_stake_credential, output_stake_credential, Epoch, HasLovelace, Hash,
-    Lovelace, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY,
-    MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH,
-    TREASURY_TAX,
+    Lovelace, Network, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
+    MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
+    SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
 };
 use num::{
     rational::Ratio,
@@ -231,15 +231,26 @@ impl StakeDistribution {
             pools,
         })
     }
+
+    pub fn for_network(&self, network: Network) -> StakeDistributionForNetwork<'_> {
+        StakeDistributionForNetwork(self, network)
+    }
 }
 
-impl serde::Serialize for StakeDistribution {
+/// A temporary struct mainly used for serializing a StakeDistribution. This is needed because we
+/// need the network id in order to serialize stake credentials as stake address and disambiguate
+/// them.
+pub struct StakeDistributionForNetwork<'a>(&'a StakeDistribution, Network);
+
+impl serde::Serialize for StakeDistributionForNetwork<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("StakeDistribution", 4)?;
-        s.serialize_field("epoch", &self.epoch)?;
-        s.serialize_field("active_stake", &self.active_stake)?;
-        serialize_map("accounts", &mut s, &self.accounts, encode_stake_credential)?;
-        serialize_map("pools", &mut s, &self.pools, encode_pool_id)?;
+        s.serialize_field("epoch", &self.0.epoch)?;
+        s.serialize_field("active_stake", &self.0.active_stake)?;
+        serialize_map("accounts", &mut s, &self.0.accounts, |credential| {
+            encode_stake_credential(self.1, credential)
+        })?;
+        serialize_map("pools", &mut s, &self.0.pools, encode_pool_id)?;
         s.end()
     }
 }
@@ -764,12 +775,16 @@ fn encode_pool_id(pool_id: &PoolId) -> String {
 }
 
 #[allow(clippy::panic)]
-fn encode_stake_credential(credential: &StakeCredential) -> String {
+fn encode_stake_credential(network: Network, credential: &StakeCredential) -> String {
     encode_bech32(
         "stake_test",
         &match credential {
-            StakeCredential::AddrKeyhash(hash) => [&[0xe0], hash.as_slice()].concat(),
-            StakeCredential::ScriptHash(hash) => [&[0xf0], hash.as_slice()].concat(),
+            StakeCredential::AddrKeyhash(hash) => {
+                [&[0xe0 | network.value()], hash.as_slice()].concat()
+            }
+            StakeCredential::ScriptHash(hash) => {
+                [&[0xf0 | network.value()], hash.as_slice()].concat()
+            }
         },
     )
     .unwrap_or_else(|_| unreachable!("human-readable part 'stake_test' is okay"))

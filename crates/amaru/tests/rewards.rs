@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::Network;
 use amaru_ledger::{
     store::Snapshot,
     summary::{
@@ -84,7 +85,10 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
     let stake_distr = StakeDistribution::new(db(epoch).as_ref()).unwrap();
-    insta::assert_json_snapshot!(format!("stake_distribution_{}", epoch), stake_distr);
+    insta::assert_json_snapshot!(
+        format!("stake_distribution_{}", epoch),
+        stake_distr.for_network(Network::Testnet),
+    );
 
     let dreps = DRepsSummary::new(db(epoch).as_ref()).unwrap();
     insta::assert_json_snapshot!(format!("dreps_{}", epoch), dreps);
