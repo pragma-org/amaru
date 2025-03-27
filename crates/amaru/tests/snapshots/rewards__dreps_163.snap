@@ -3,13 +3,6 @@ source: crates/amaru/src/ledger/rewards.rs
 expression: dreps
 ---
 {
-  "delegations": {
-    "keys": {
-      "951fcc7230ca42c67077aeb005e041bb428d32f023edbfc3ac77a742": "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74",
-      "edc52808d58a420ce2df3da8c7118c858c7aa136fa7b2b1baa3e81ed": "drep1ytax4rwzvdwamnu67j2uk9z00660lpzcvmlys6266l9kt5c262k7m"
-    },
-    "scripts": {}
-  },
   "dreps": {
     "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74": {
       "mandate": 184,
