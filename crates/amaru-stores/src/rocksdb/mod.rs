@@ -352,6 +352,10 @@ impl Store for RocksDB<'_> {
         Ok(())
     }
 
+    fn rollback(&self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
     fn tip(&self) -> Result<Point, StoreError> {
         self.db
             .get(KEY_TIP)

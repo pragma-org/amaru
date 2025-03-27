@@ -125,6 +125,10 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn rollback(&self) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
+
     fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
         Ok(Point::Origin)
     }
