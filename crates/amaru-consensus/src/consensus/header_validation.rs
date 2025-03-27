@@ -29,7 +29,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, Level, Span};
 
-use super::fetch::ValidateHeaderEvent;
+use super::{chain_selection::RollbackChainSelection, fetch::ValidateHeaderEvent};
 
 const EVENT_TARGET: &str = "amaru::consensus";
 
@@ -203,16 +203,17 @@ impl Consensus {
         let span = Span::current();
 
         match result {
-            chain_selection::RollbackChainSelection::RollbackTo(hash) => {
+            RollbackChainSelection::RollbackTo(hash) => {
                 trace!(target: EVENT_TARGET, %hash, "rollback");
                 Ok(vec![ValidateHeaderEvent::Rollback(rollback.clone())])
             }
-            chain_selection::RollbackChainSelection::SwitchToFork(Fork {
+            RollbackChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 fork,
                 tip: _,
             }) => Ok(self.switch_to_fork(&peer, &rollback_point, fork, &span)),
+            RollbackChainSelection::NoChange => Ok(vec![]),
         }
     }
 }
