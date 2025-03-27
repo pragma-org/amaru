@@ -164,7 +164,6 @@ impl StakeDistribution {
                     .entry(credential)
                     .and_modify(|account| account.lovelace += value);
             }
-            // TODO deal with errors
         });
 
         let mut pools = db
