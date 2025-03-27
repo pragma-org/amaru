@@ -116,8 +116,20 @@ impl Snapshot for MemoryStore {
     }
 }
 
+pub struct RocksDBTransactionalContext<'a> {
+    transaction: Option<Transaction<'a, TransactionDB>>,
+}
+
+impl<'a> TransactionalContext<'a> for RocksDBTransactionalContext<'a> {
+    fn commit(self) -> Result<(), StoreError> {
+        self.transaction
+            .commit()
+            .map_err(|err| StoreError::Internal(err.into()))
+    }
+}
+
 impl Store for MemoryStore {
-    fn start_transaction(&self) -> Result<(), amaru_ledger::store::StoreError> {
+    fn create_transaction(&self) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }
 

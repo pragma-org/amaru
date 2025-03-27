@@ -19,7 +19,7 @@ pub mod volatile_db;
 
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
-    store::{HistoricalStores, Store, StoreError},
+    store::{HistoricalStores, Store, StoreError, TransactionalContext},
     summary::{
         governance::GovernanceSummary,
         rewards::{RewardsSummary, StakeDistribution},
@@ -214,22 +214,23 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             withdrawals,
             voting_dreps,
         } = now_stable.into_store_update(current_epoch);
-        db.start_transaction().map_err(StateError::Storage)?;
-        db.save(
-            &stable_point,
-            Some(&stable_issuer),
-            add,
-            remove,
-            withdrawals,
-            voting_dreps,
-        )
-        .and_then(|()| {
-            db.with_pots(|mut row| {
-                row.borrow_mut().fees += fees;
+        let transaction = db.create_transaction(); //.map_err(StateError::Storage)?;
+        transaction
+            .save(
+                &stable_point,
+                Some(&stable_issuer),
+                add,
+                remove,
+                withdrawals,
+                voting_dreps,
+            )
+            .and_then(|()| {
+                transaction.with_pots(|mut row| {
+                    row.borrow_mut().fees += fees;
+                })
             })
-        })
-        .map_err(StateError::Storage)?;
-        db.commit().map_err(StateError::Storage)
+            .map_err(StateError::Storage)?;
+        transaction.commit().map_err(StateError::Storage)
     }
 
     #[allow(clippy::unwrap_used)]
@@ -351,24 +352,27 @@ fn recover_stake_distribution(
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
-fn epoch_transition(
-    db: &mut impl Store,
+fn epoch_transition<'store>(
+    db: &'store mut impl Store,
     current_epoch: Epoch,
     rewards_summary: Option<RewardsSummary>,
 ) -> Result<(), StateError> {
     // FIXME: All operations below should technically happen in the same database
     // transaction. If we interrupt the application between any of those, we might end
     // up with a corrupted state.
-    db.start_transaction().map_err(StateError::Storage)?;
-    db.next_snapshot(current_epoch - 1, rewards_summary)
+    let mut transaction = db.create_transaction(); //.map_err(StateError::Storage)?;
+    transaction
+        .next_snapshot(current_epoch - 1, rewards_summary)
         .map_err(StateError::Storage)?;
 
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
-    db.tick_pools(current_epoch).map_err(StateError::Storage)?;
+    transaction
+        .tick_pools(current_epoch)
+        .map_err(StateError::Storage)?;
 
-    db.commit().map_err(StateError::Storage)?;
+    transaction.commit().map_err(StateError::Storage)?;
 
     // Refund deposit for any proposal that has expired.
     db.tick_proposals(current_epoch)
