@@ -214,7 +214,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             withdrawals,
             voting_dreps,
         } = now_stable.into_store_update(current_epoch);
-        let transaction = db.create_transaction(); //.map_err(StateError::Storage)?;
+        let transaction = db.create_transaction();
         transaction
             .save(
                 &stable_point,
@@ -360,7 +360,7 @@ fn epoch_transition<'store>(
     // FIXME: All operations below should technically happen in the same database
     // transaction. If we interrupt the application between any of those, we might end
     // up with a corrupted state.
-    let mut transaction = db.create_transaction(); //.map_err(StateError::Storage)?;
+    let mut transaction = db.create_transaction();
     transaction
         .next_snapshot(current_epoch - 1, rewards_summary)
         .map_err(StateError::Storage)?;
