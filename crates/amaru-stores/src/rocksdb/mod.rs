@@ -182,7 +182,7 @@ impl Snapshot for RocksDB {
     #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         RocksDB::snapshots(&self.dir)
-            .unwrap()
+            .unwrap_or_default()
             .last()
             .cloned()
             .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
