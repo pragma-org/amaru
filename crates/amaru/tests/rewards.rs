@@ -84,14 +84,16 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[ignore]
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
-    let stake_distr = StakeDistribution::new(db(epoch).as_ref()).unwrap();
+    let snapshot = db(epoch);
+
+    let dreps = DRepsSummary::new(snapshot.as_ref()).unwrap();
+    insta::assert_json_snapshot!(format!("dreps_{}", epoch), &dreps);
+
+    let stake_distr = StakeDistribution::new(snapshot.as_ref(), &dreps).unwrap();
     insta::assert_json_snapshot!(
         format!("stake_distribution_{}", epoch),
         stake_distr.for_network(Network::Testnet),
     );
-
-    let dreps = DRepsSummary::new(db(epoch).as_ref()).unwrap();
-    insta::assert_json_snapshot!(format!("dreps_{}", epoch), dreps);
 
     // FIXME: remove this condition once we're able to proceed beyond Epoch 173.
     if epoch < 171 {
