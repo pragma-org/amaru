@@ -436,7 +436,7 @@ mod tests {
             cbor::decode(&witness_set_bytes).expect("Failed to cbor decode witness set");
 
         match super::execute(
-            &mut AssertValidationContext::from(ctx),
+            &mut ctx,
             transaction_body.original_hash(),
             witness_set.vkeywitness.as_deref(),
         ) {
