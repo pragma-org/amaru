@@ -599,10 +599,7 @@ fn import_pots(
     fees: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-    transaction.with_pots(|mut handle| {
-        *handle.borrow_mut() =
-            amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees);
-    })?;
+    transaction.set_pots(treasury, reserves, fees)?;
     transaction.commit()?;
     info!(what = "pots", treasury, reserves, fees);
     Ok(())

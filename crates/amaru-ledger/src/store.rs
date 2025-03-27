@@ -16,7 +16,7 @@ pub mod columns;
 
 use crate::summary::rewards::{Pots, RewardsSummary};
 use amaru_kernel::{
-    cbor, expect_stake_credential, Epoch, Lovelace, Point, PoolId, StakeCredential,
+    cbor, expect_stake_credential, Epoch, Lovelace, Lovelace, Point, PoolId, StakeCredential,
     TransactionInput, TransactionOutput,
 };
 use columns::*;
@@ -131,6 +131,13 @@ pub trait TransactionalContext<'a> {
     fn refund(
         &self,
         refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
+    ) -> Result<(), StoreError>;
+
+    fn set_pots(
+        &self,
+        treasury: Lovelace,
+        reserves: Lovelace,
+        fees: Lovelace,
     ) -> Result<(), StoreError>;
 
     /// Get current values of the treasury and reserves accounts.
