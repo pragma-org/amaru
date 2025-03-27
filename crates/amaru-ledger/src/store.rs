@@ -105,6 +105,8 @@ pub trait Store: Snapshot {
 
     fn commit(&self) -> Result<(), StoreError>;
 
+    fn rollback(&self) -> Result<(), StoreError>;
+
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
     fn tip(&self) -> Result<Point, StoreError>;
 
