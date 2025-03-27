@@ -3,18 +3,6 @@ source: crates/amaru/src/ledger/rewards.rs
 expression: dreps
 ---
 {
-  "delegations": {
-    "keys": {
-      "1fab5f9cba03290d7e25379c3df0a43450796895d5dacbb6b255e580": "drep1yfy9wajz7mrc6x5a4s23x5vttztqea6ajx9v83xcr6c5xlqxjx05p",
-      "951fcc7230ca42c67077aeb005e041bb428d32f023edbfc3ac77a742": "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74",
-      "aeb4548104cc2f404a81f77408c00f5f7ca38aa71add0ac6f7f4048c": "drep1ygytfjy863rx34wqlhjs3kpk8sxzehl2dullf7h0kpdajdgrga7lc",
-      "c9e345aa4048ef863333d5dfa3bcdb0f05b905f484049cf1947a7c86": "drep1y2j502uqsjl7ujrg5e73mxc2up2wu963r6eg44zdglzanncytjpxy",
-      "d11b592fcc913605dbc42459d4ae8bb89c848e13926123bac85e2ab5": "drep1yftr2094dxeszxy944y9n5ms5eg3md28adlvk0vqwcn4pgc7kq6wr",
-      "edc52808d58a420ce2df3da8c7118c858c7aa136fa7b2b1baa3e81ed": "drep1ytax4rwzvdwamnu67j2uk9z00660lpzcvmlys6266l9kt5c262k7m",
-      "fd1c740673b5b8840a12cfbbd4e6c5c243bf08bbece4c8b3258194b2": "drep1yf6rudz7w9kz4etshj0njg7fjtd0c4frgsds6f8e6ep47ygl6sw74"
-    },
-    "scripts": {}
-  },
   "dreps": {
     "drep1y2j502uqsjl7ujrg5e73mxc2up2wu963r6eg44zdglzanncytjpxy": {
       "mandate": 184,
