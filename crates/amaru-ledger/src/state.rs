@@ -20,7 +20,10 @@ pub mod volatile_db;
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{Store, StoreError},
-    summary::rewards::{RewardsSummary, StakeDistribution},
+    summary::{
+        governance::DRepsSummary,
+        rewards::{RewardsSummary, StakeDistribution},
+    },
 };
 use amaru_kernel::{
     network::EraHistory, Epoch, Hash, MintedBlock, Point, PoolId, Slot, TransactionInput,
@@ -343,7 +346,8 @@ fn recover_stake_distribution(
             epoch, e
         )
     });
-    StakeDistribution::new(&snapshot)
+
+    StakeDistribution::new(&snapshot, &DRepsSummary::new(&snapshot)?)
 }
 
 #[instrument(level = Level::TRACE, skip_all)]

@@ -15,24 +15,53 @@ Usage:
 
 const $ = JsonBig({ useNativeBigInt: true });
 
+const DREP_TYPES = {
+  "noConfidence": "no_confidence",
+  "abstain": "abstain",
+  "registered": "registered",
+};
+
+const { additionalStakeAddresses } = loadConfig();
 const epochState = load("epoch-state", epoch + 1);
 const blocks = load("rewards-provenance", epoch + 1);
 const distr = load("rewards-provenance", epoch + 3);
-const accounts = load("dreps-delegations", epoch);
+const drepsDelegations = load("dreps-delegations", epoch);
 const drepsInfo = load("dreps", epoch);
 const pots = load("pots", epoch + 3);
-const dreps = Object.keys(accounts)
+const dreps = Object.keys(drepsDelegations)
   .reduce((acc, credential) => {
-    const drep = accounts[credential].delegateRepresentative;
+    const drep = drepsDelegations[credential];
 
-    if (drep === undefined) {
+    const drepId = toDrepId(drep.id, drep.from, drep.type);
+
+    if (drep.type !== "registered") {
+      const isKey = additionalStakeAddresses.includes(toStakeAddress(credential, "verificationKey"));
+      const isScript = additionalStakeAddresses.includes(toStakeAddress(credential, "script"));
+
+      if (isKey && !isScript) {
+        acc.keys[credential] = drepId;
+      }
+
+      if (!isKey && isScript) {
+        acc.scripts[credential] = drepId;
+      }
+
+      if (isKey && isScript) {
+        throw `credential ${credential} is too ambiguious; exists as both key and script!`;
+      }
+
+      if (!isKey && !isScript) {
+        throw `unexpected unknown credential ${credential}`;
+      }
+
       return acc;
     }
 
-    const drepId = toDrepId(drep.id, drep.from);
-
     const info = drepsInfo.find(({ id, from }) => id == drep.id && from == drep.from);
 
+    if (info === undefined) {
+      return acc;
+    }
 
     // TODO: Also add the values of the abstain / no-confidence dreps somewhere?
     if (drep.type === "registered") {
@@ -78,12 +107,12 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
   let accounts = {}
   Object.keys(epochState.keys)
     .reduce((accum, key) => {
-      accum[toStakeAddress(key, "verificationKey")] = epochState.keys[key];
+      accum[toStakeAddress(key, "verificationKey")] = { ...epochState.keys[key], drep: dreps.keys[key] ?? null };
       return accum;
     }, accounts);
   Object.keys(epochState.scripts)
     .reduce((accum, script) => {
-      accum[toStakeAddress(script, "script")] = epochState.scripts[script];
+      accum[toStakeAddress(script, "script")] = { ...epochState.scripts[script], drep: dreps.scripts[script] ?? null };
       return accum;
     }, accounts);
   encodeCollection(stream, "accounts", accounts, false);
@@ -148,17 +177,16 @@ withStream(`rewards__dreps_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
   stream.write(`expression: dreps\n`)
-  stream.write("---\n")
-  stream.write("{")
-  stream.write(`\n  "delegations": {`)
-  encodeCollection(stream, "keys", dreps.keys, false, 4);
-  encodeCollection(stream, "scripts", dreps.scripts, true, 4);
-  stream.write(`\n  },`);
+  stream.write("---\n{")
   encodeCollection(stream, "dreps", dreps.dreps);
   stream.end("\n}");
 });
 
 // ---------- Helpers
+
+function loadConfig() {
+  return $.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
+}
 
 function load(dataset, epoch) {
   return $.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "data", dataset, `${epoch}.json`)));
@@ -171,7 +199,9 @@ function withStream(filename, callback) {
 }
 
 // As per CIP-0129
-function toDrepId(str, category) {
+function toDrepId(str, category, type) {
+  if (type === "abstain") { return "abstain"; }
+  if (type === "noConfidence") { return "no_confidence"; }
   return bech32.encode(
     "drep",
     bech32.toWords(

@@ -21,7 +21,6 @@ use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug)]
 pub struct DRepsSummary {
-    pub delegations: BTreeMap<StakeCredential, DRep>,
     pub dreps: BTreeMap<DRep, DRepState>,
 }
 
@@ -33,8 +32,6 @@ pub struct DRepState {
 
 impl DRepsSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
-        let mut dreps = BTreeMap::new();
-
         let all_proposals_epochs = db
             .iter_proposals()?
             .map(|(_, row)| row.epoch)
@@ -57,13 +54,13 @@ impl DRepsSummary {
             .iter()
             .flat_map(|&value| (value..=value + GOV_ACTION_LIFETIME).collect::<HashSet<_>>())
             .collect::<HashSet<u64>>();
-        let dreps_registrations = db
+
+        let dreps = db
             .iter_dreps()?
             .map(
                 |(
                     k,
                     Row {
-                        registered_at,
                         last_interaction,
                         anchor,
                         ..
@@ -79,58 +76,27 @@ impl DRepsSummary {
                         HashSet::from_iter(last_interaction..=current_epoch) // Total period considered for this DRep
                             .difference(&proposals_activity_periods)
                             .count();
-                    dreps.insert(
-                        drep.clone(),
+
+                    (
+                        drep,
                         DRepState {
                             metadata: anchor,
                             mandate: last_interaction
                                 + DREP_EXPIRY
                                 + epochs_without_active_proposals as u64,
                         },
-                    );
-
-                    (drep, registered_at)
+                    )
                 },
             )
             .collect::<BTreeMap<_, _>>();
 
-        let delegations = db
-            .iter_accounts()?
-            .filter_map(|(credential, account)| {
-                account.drep.and_then(|(drep, since)| {
-                    if let Some(registered_at) = dreps_registrations.get(&drep) {
-                        if since >= *registered_at {
-                            // This is a registration with a previous registration of this DRep, it must be renewed
-                            return Some((credential, drep));
-                        }
-                    }
-                    None
-                })
-            })
-            .collect::<BTreeMap<StakeCredential, DRep>>();
-
-        Ok(DRepsSummary { delegations, dreps })
+        Ok(DRepsSummary { dreps })
     }
 }
 
 impl serde::Serialize for DRepsSummary {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("DRepsSummary", 2)?;
-
-        let mut delegations = BTreeMap::new();
-        let mut keys = BTreeMap::new();
-        let mut scripts = BTreeMap::new();
-        self.delegations.iter().for_each(|(credential, drep)| {
-            if let Some(v) = into_drep_id(drep) {
-                match credential {
-                    StakeCredential::AddrKeyhash(hash) => keys.insert(*hash, v),
-                    StakeCredential::ScriptHash(hash) => scripts.insert(*hash, v),
-                };
-            }
-        });
-        delegations.insert("keys".to_string(), keys);
-        delegations.insert("scripts".to_string(), scripts);
-        s.serialize_field("delegations", &delegations)?;
+        let mut s = serializer.serialize_struct("DRepsSummary", 1)?;
 
         let mut dreps = BTreeMap::new();
         self.dreps.iter().for_each(|(drep, st)| {

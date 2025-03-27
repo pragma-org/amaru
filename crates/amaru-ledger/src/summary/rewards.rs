@@ -96,10 +96,13 @@ the system at a certain point in time. We always take snapshots _at the end of e
 certain mutations are applied to the system.
 */
 
-use crate::store::{columns::*, Snapshot, StoreError};
+use crate::{
+    store::{columns::*, Snapshot, StoreError},
+    summary::governance::DRepsSummary,
+};
 use amaru_kernel::{
-    encode_bech32, expect_stake_credential, output_stake_credential, Epoch, HasLovelace, Hash,
-    Lovelace, Network, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
+    encode_bech32, expect_stake_credential, output_stake_credential, DRep, Epoch, HasLovelace,
+    Hash, Lovelace, Network, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
     MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
     SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
 };
@@ -119,7 +122,7 @@ const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 /// - Leader schedule (in particular the 'pools' field)
 /// - Rewards calculation
 ///
-/// Note that the `keys` and `scripts `field only contains _active_ accounts; that is, accounts
+/// Note that the `accounts` field only contains _active_ accounts; that is, accounts
 /// delegated to a registered stake pool.
 #[derive(Debug)]
 pub struct StakeDistribution {
@@ -143,15 +146,25 @@ impl StakeDistribution {
     /// Compute a new stake distribution snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
-    pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
+    pub fn new(
+        db: &impl Snapshot,
+        DRepsSummary { dreps }: &DRepsSummary,
+    ) -> Result<Self, StoreError> {
         let mut accounts = db
             .iter_accounts()?
             .map(|(credential, account)| {
                 (
                     credential,
                     AccountState {
-                        pool: account.delegatee,
                         lovelace: account.rewards,
+                        pool: account.delegatee,
+                        drep: account.drep.map(|col| col.0).and_then(|drep| match drep {
+                            DRep::Abstain | DRep::NoConfidence => Some(drep),
+                            DRep::Key { .. } | DRep::Script { .. } if dreps.contains_key(&drep) => {
+                                Some(drep)
+                            }
+                            DRep::Key { .. } | DRep::Script { .. } => None,
+                        }),
                     },
                 )
             })
@@ -258,6 +271,7 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
 pub struct AccountState {
     pub lovelace: Lovelace,
     pub pool: Option<PoolId>,
+    pub drep: Option<DRep>,
 }
 
 impl serde::Serialize for AccountState {
@@ -265,6 +279,7 @@ impl serde::Serialize for AccountState {
         let mut s = serializer.serialize_struct("AccountState", 2)?;
         s.serialize_field("lovelace", &self.lovelace)?;
         s.serialize_field("pool", &self.pool.as_ref().map(encode_pool_id))?;
+        s.serialize_field("drep", &self.drep.as_ref().map(encode_drep))?;
         s.end()
     }
 }
@@ -773,7 +788,16 @@ fn encode_pool_id(pool_id: &PoolId) -> String {
         .unwrap_or_else(|_| unreachable!("human-readable part 'pool' is okay"))
 }
 
-#[allow(clippy::panic)]
+fn encode_drep(drep: &DRep) -> String {
+    match drep {
+        DRep::Key(hash) => encode_bech32("drep", &[&[0x22], hash.as_slice()].concat()),
+        DRep::Script(hash) => encode_bech32("drep", &[&[0x23], hash.as_slice()].concat()),
+        DRep::Abstain => Ok("abstain".to_string()),
+        DRep::NoConfidence => Ok("no_confidence".to_string()),
+    }
+    .unwrap_or_else(|_| unreachable!("human-readable part 'drep' is okay"))
+}
+
 fn encode_stake_credential(network: Network, credential: &StakeCredential) -> String {
     encode_bech32(
         "stake_test",
