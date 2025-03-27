@@ -21,9 +21,7 @@ use amaru_kernel::{
 use amaru_ledger::{
     self,
     state::diff_bind::Resettable,
-    store::{
-        Store, {self},
-    },
+    store::{self, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
@@ -137,12 +135,12 @@ async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
-    let mut db = RocksDB::empty(ledger_dir, era_history)?;
+    let db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    db.start_transaction()?;
     let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
-    db.save(
+    let mut transaction = db.create_transaction();
+    transaction.save(
         &point,
         None,
         Default::default(),
@@ -151,14 +149,14 @@ async fn import_one(
         BTreeSet::new(),
     )?;
 
-    db.next_snapshot(epoch, None)?;
+    transaction.next_snapshot(epoch, None)?;
 
-    db.with_pools(|iterator| {
+    transaction.with_pools(|iterator| {
         for (_, pool) in iterator {
             amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1)
         }
     })?;
-    db.commit()?;
+    transaction.commit()?;
     info!("Imported snapshot for epoch {}", epoch);
     Ok(())
 }
@@ -355,8 +353,8 @@ fn import_block_issuers(
     db: &impl Store,
     blocks: HashMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    db.start_transaction()?;
-    db.with_block_issuers(|iterator| {
+    let transaction = db.create_transaction();
+    transaction.with_block_issuers(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
@@ -365,7 +363,7 @@ fn import_block_issuers(
     let mut fake_slot = 0;
     for (pool, mut count) in blocks.into_iter() {
         while count > 0 {
-            db.save(
+            transaction.save(
                 &Point::Specific(fake_slot, vec![]),
                 Some(&pool),
                 store::Columns {
@@ -385,7 +383,7 @@ fn import_block_issuers(
         }
     }
     info!(what = "block_issuers", count = fake_slot);
-    db.commit().map_err(Into::into)
+    transaction.commit().map_err(Into::into)
 }
 
 fn import_utxo(
@@ -399,7 +397,8 @@ fn import_utxo(
         "  Pruning UTxO entries {spinner} {elapsed}",
     )?);
 
-    db.with_utxo(|iterator| {
+    let transaction = db.create_transaction();
+    transaction.with_utxo(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
             progress_delete.tick();
@@ -416,7 +415,7 @@ fn import_utxo(
         let n = std::cmp::min(BATCH_SIZE, utxo.len());
         let chunk = utxo.drain(0..n);
 
-        db.save(
+        transaction.save(
             point,
             None,
             store::Columns {
@@ -434,7 +433,7 @@ fn import_utxo(
 
         progress.inc(n as u64);
     }
-
+    transaction.commit()?;
     progress.finish_and_clear();
 
     Ok(())
@@ -445,7 +444,8 @@ fn import_dreps(
     point: &Point,
     dreps: HashMap<StakeCredential, DRepState>,
 ) -> Result<(), impl std::error::Error> {
-    db.with_dreps(|iterator| {
+    let transaction = db.create_transaction();
+    transaction.with_dreps(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
@@ -453,7 +453,7 @@ fn import_dreps(
 
     info!(what = "dreps", size = dreps.len());
 
-    db.save(
+    transaction.save(
         point,
         None,
         store::Columns {
@@ -476,7 +476,8 @@ fn import_dreps(
         Default::default(),
         iter::empty(),
         BTreeSet::new(),
-    )
+    )?;
+    transaction.commit()
 }
 
 fn import_proposals(
@@ -484,8 +485,8 @@ fn import_proposals(
     point: &Point,
     proposals: Vec<ProposalState>,
 ) -> Result<(), impl std::error::Error> {
-    db.start_transaction()?;
-    db.with_proposals(|iterator| {
+    let transaction = db.create_transaction();
+    transaction.with_proposals(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
@@ -493,7 +494,7 @@ fn import_proposals(
 
     info!(what = "proposals", size = proposals.len());
 
-    db.save(
+    transaction.save(
         point,
         None,
         store::Columns {
@@ -516,7 +517,7 @@ fn import_proposals(
         iter::empty(),
         BTreeSet::new(),
     )?;
-    db.commit()
+    transaction.commit()
 }
 
 fn import_stake_pools(
@@ -545,14 +546,14 @@ fn import_stake_pools(
         registered = state.registered.len(),
         retiring = state.unregistered.len(),
     );
-    db.start_transaction()?;
-    db.with_pools(|iterator| {
+    let transaction = db.create_transaction();
+    transaction.with_pools(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
     })?;
 
-    db.save(
+    transaction.save(
         point,
         None,
         store::Columns {
@@ -582,7 +583,7 @@ fn import_stake_pools(
         iter::empty(),
         BTreeSet::new(),
     )?;
-    db.commit()
+    transaction.commit()
 }
 
 fn import_pots(
@@ -591,12 +592,12 @@ fn import_pots(
     reserves: u64,
     fees: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    db.start_transaction()?;
-    db.with_pots(|mut handle| {
+    let transaction = db.create_transaction();
+    transaction.with_pots(|mut handle| {
         *handle.borrow_mut() =
             amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees);
     })?;
-    db.commit()?;
+    transaction.commit()?;
     info!(what = "pots", treasury, reserves, fees);
     Ok(())
 }
@@ -607,8 +608,8 @@ fn import_accounts(
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    db.start_transaction()?;
-    db.with_accounts(|iterator| {
+    let transaction = db.create_transaction();
+    transaction.with_accounts(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
         }
@@ -661,7 +662,7 @@ fn import_accounts(
         let n = std::cmp::min(BATCH_SIZE, credentials.len());
         let chunk = credentials.drain(0..n);
 
-        db.save(
+        transaction.save(
             point,
             None,
             store::Columns {
@@ -680,7 +681,7 @@ fn import_accounts(
         progress.inc(n as u64);
     }
 
-    db.commit()?;
+    transaction.commit()?;
     progress.finish_and_clear();
 
     Ok(())
