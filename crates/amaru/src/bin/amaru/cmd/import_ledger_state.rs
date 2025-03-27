@@ -141,7 +141,7 @@ async fn import_one(
     let bytes = fs::read(snapshot)?;
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
-    let mut transaction = db.create_transaction();
+    let transaction = db.create_transaction();
     transaction.save(
         &point,
         None,
@@ -150,8 +150,15 @@ async fn import_one(
         iter::empty(),
         BTreeSet::new(),
     )?;
+    transaction.commit()?;
+
+    let mut transaction = db.create_transaction();
 
     transaction.next_snapshot(epoch, None)?;
+
+    transaction.commit()?;
+
+    let transaction = db.create_transaction();
 
     transaction.with_pools(|iterator| {
         for (_, pool) in iterator {
