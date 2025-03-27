@@ -309,10 +309,12 @@ where
 
     /// Rollback the chain to a given point.
     ///
-    /// This function will rollback the chain of the given peer to the given point.
-    /// If the chain of the peer is still the longest, the function will return a
-    /// `RollbackTo` result, otherwise it will return a `NewTip` result with the new
-    /// tip of the chain.
+    /// This function will rollback the chain of the given peer to the
+    /// given point.  If the chain of the peer is still the longest,
+    /// the function will return a `RollbackTo` result, otherwise it
+    /// will either return a `SwitchToFork` result with the new tip of
+    /// the chain, if the best chain has moved to another peer, or
+    /// `NoChange` if the best chain hasn't changed.
     #[allow(clippy::unwrap_used)]
     pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> RollbackChainSelection<H> {
         use RollbackChainSelection::*;
