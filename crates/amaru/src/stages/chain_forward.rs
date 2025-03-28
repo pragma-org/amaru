@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::store::ChainStore;
+use amaru_consensus::consensus::store::ChainStore;
 use amaru_kernel::{Hash, Header};
 use amaru_ledger::BlockValidationResult;
 use gasket::framework::*;

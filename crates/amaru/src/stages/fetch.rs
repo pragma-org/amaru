@@ -14,23 +14,16 @@
 
 use std::collections::HashMap;
 
+use amaru_consensus::{
+    consensus::ValidateHeaderEvent,
+    peer::{Peer, PeerSession},
+    ConsensusError,
+};
 use amaru_kernel::Point;
 use amaru_ledger::ValidateBlockEvent;
 use gasket::framework::*;
 use tracing::{instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-use crate::{
-    peer::{Peer, PeerSession},
-    ConsensusError,
-};
-
-#[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)]
-pub enum ValidateHeaderEvent {
-    Validated(Peer, Point, Span),
-    Rollback(Point),
-}
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;

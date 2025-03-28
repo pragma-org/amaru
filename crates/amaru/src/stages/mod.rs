@@ -13,13 +13,10 @@
 // limitations under the License.
 
 use amaru_consensus::{
-    chain_forward,
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
-        fetch::BlockFetchStage,
         header_validation::Consensus,
         store::ChainStore,
-        wiring::{HeaderStage, PullEvent},
     },
     peer::{Peer, PeerSession},
     ConsensusError,
@@ -29,6 +26,8 @@ use amaru_kernel::{
     Hash, Header, Point,
 };
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
+use chain_forward::ForwardStage;
+use fetch::BlockFetchStage;
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,
@@ -36,9 +35,13 @@ use gasket::{
 use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
+use wiring::{HeaderStage, PullEvent};
 
+pub mod chain_forward;
+pub mod fetch;
 pub mod ledger;
 pub mod pull;
+pub mod wiring;
 
 pub type Slot = u64;
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
@@ -83,7 +86,7 @@ pub fn bootstrap(
     );
 
     let mut consensus_stage = HeaderStage::new(consensus);
-    let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
+    let mut block_forward = ForwardStage::new(chain_ref.clone());
 
     let (to_block_fetch, from_consensus_stage) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);

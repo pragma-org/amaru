@@ -14,8 +14,9 @@
 
 use super::bytes::Bytes;
 use crate::echo::Envelope;
-use amaru_consensus::consensus::fetch::ValidateHeaderEvent;
-use amaru_consensus::{consensus::wiring::PullEvent, peer::Peer};
+use amaru::stages::wiring::PullEvent;
+use amaru_consensus::consensus::ValidateHeaderEvent;
+use amaru_consensus::peer::Peer;
 use amaru_kernel::{self, Point};
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
@@ -213,7 +214,7 @@ mod test {
     use crate::echo::Envelope;
     use crate::simulator::bytes::Bytes;
     use crate::simulator::sync::{parse, read_peer_addresses_from_init, StringMessageReader};
-    use amaru_consensus::consensus::fetch::ValidateHeaderEvent;
+    use amaru_consensus::consensus::ValidateHeaderEvent;
     use amaru_consensus::peer::Peer;
     use amaru_kernel::Point;
     use pallas_codec::minicbor;
