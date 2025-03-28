@@ -23,7 +23,7 @@ While elements are being contributed upstream, they might transiently live in th
 
 use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
 use num::{rational::Ratio, BigUint};
-pub use pallas_addresses::{byron::AddrType, Address, StakeAddress, StakePayload};
+pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 pub use pallas_codec::{
