@@ -364,10 +364,11 @@ fn epoch_transition<'store>(
     transaction
         .next_snapshot(current_epoch - 1, rewards_summary)
         .map_err(StateError::Storage)?;
-
+    transaction.commit().map_err(StateError::Storage)?;
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
+    let transaction = db.create_transaction();
     transaction
         .tick_pools(current_epoch)
         .map_err(StateError::Storage)?;
