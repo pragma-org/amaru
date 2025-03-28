@@ -37,8 +37,7 @@ use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
-use crate::pipeline::Stage;
-
+pub mod ledger;
 pub mod pull;
 
 pub type Slot = u64;
@@ -58,7 +57,7 @@ pub fn bootstrap(
     // FIXME: Take from config / command args
     let era_history: &EraHistory = config.network.into();
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
-    let (mut ledger, tip) = Stage::new(store, era_history);
+    let (mut ledger, tip) = ledger::Stage::new(store, era_history);
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
