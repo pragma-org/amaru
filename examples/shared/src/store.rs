@@ -1,6 +1,6 @@
 use amaru_kernel::{Epoch, Point, StakeCredential};
 use amaru_ledger::{
-    store::{Snapshot, Store},
+    store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::rewards::Pots,
 };
 use std::collections::BTreeSet;
@@ -116,14 +116,12 @@ impl Snapshot for MemoryStore {
     }
 }
 
-impl Store for MemoryStore {
-    #[allow(refining_impl_trait)]
-    fn for_epoch(&self, _epoch: Epoch) -> Result<MemoryStore, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore {})
-    }
+pub struct MemoryTransactionalContext {
+}
 
-    fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
-        Ok(Point::Origin)
+impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
+    fn commit(self) -> Result<(), StoreError> {
+        Ok(())
     }
 
     fn save(
@@ -185,6 +183,15 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn set_pots(
+        &self,
+        _treasury: amaru_kernel::Lovelace,
+        _reserves: amaru_kernel::Lovelace,
+        _fees: amaru_kernel::Lovelace,
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
+
     fn with_pots(
         &self,
         _with: impl FnMut(Box<dyn std::borrow::BorrowMut<amaru_ledger::store::columns::pots::Row> + '_>),
@@ -232,5 +239,24 @@ impl Store for MemoryStore {
         _with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
+    }
+}
+
+impl Store for MemoryStore {
+    fn create_transaction(&self) -> impl TransactionalContext<'_> {
+        MemoryTransactionalContext {}
+    }
+
+    fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
+        Ok(Point::Origin)
+    }
+}
+
+impl HistoricalStores for MemoryStore {
+    fn for_epoch(
+        &self,
+        _epoch: Epoch,
+    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
+        Ok(MemoryStore {})
     }
 }

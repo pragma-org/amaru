@@ -28,7 +28,7 @@ use amaru_kernel::{
     network::{EraHistory, NetworkName},
     Hash, Header, Point,
 };
-use amaru_stores::rocksdb::RocksDB;
+use amaru_stores::rocksdb::{RocksDB, RocksDBHistoricalStores};
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,
@@ -58,7 +58,8 @@ pub fn bootstrap(
     // FIXME: Take from config / command args
     let era_history: &EraHistory = config.network.into();
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
-    let (mut ledger, tip) = Stage::new(store, era_history);
+    let snapshots = RocksDBHistoricalStores::new(&config.ledger_dir);
+    let (mut ledger, tip) = Stage::new(store, snapshots, era_history);
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
