@@ -15,30 +15,8 @@
 /// Installs a panic handler that prints some useful diagnostics and
 /// asks the user to report the issue.
 pub fn panic_handler() {
+    let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        let message = info
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|s| (*s).to_string())
-            .or_else(|| {
-                info.payload()
-                    .downcast_ref::<String>()
-                    .map(|s| s.to_string())
-            })
-            .unwrap_or_else(|| "unknown error".to_string());
-
-        let location = info.location().map_or_else(
-            || "".into(),
-            |location| {
-                format!(
-                    "{}:{}:{}\n\n    ",
-                    location.file(),
-                    location.line(),
-                    location.column(),
-                )
-            },
-        );
-
         // We present the user with a helpful and welcoming error message;
         // Block producing nodes should be considered mission critical software, and so
         // They should endeavor *never* to crash, and should always handle and recover from errors.
@@ -56,14 +34,13 @@ pub fn panic_handler() {
                         In your bug report please provide the information below and if possible the code
                         that produced it.
                         {info}
-
-                        {location}{message}"#,
+                        
+                        "#,
             info = node_info(),
             fatal = "amaru::fatal::error",
-            location = location,
         };
-
         eprintln!("\n{}", indent(&error_message, 3));
+        prev(info);
     }));
 }
 
