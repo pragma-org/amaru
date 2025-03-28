@@ -16,7 +16,7 @@ use amaru_kernel::Network;
 use amaru_ledger::{
     store::Snapshot,
     summary::{
-        governance::DRepsSummary,
+        governance::GovernanceSummary,
         rewards::{RewardsSummary, StakeDistribution},
     },
 };
@@ -86,7 +86,7 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 fn compare_preprod_snapshot(epoch: Epoch) {
     let snapshot = db(epoch);
 
-    let dreps = DRepsSummary::new(snapshot.as_ref()).unwrap();
+    let dreps = GovernanceSummary::new(snapshot.as_ref()).unwrap();
     let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps).unwrap();
     insta::assert_json_snapshot!(
         format!("stake_distribution_{}", epoch),
