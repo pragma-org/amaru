@@ -21,7 +21,7 @@ use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{Store, StoreError},
     summary::{
-        governance::DRepsSummary,
+        governance::GovernanceSummary,
         rewards::{RewardsSummary, StakeDistribution},
     },
 };
@@ -347,7 +347,7 @@ fn recover_stake_distribution(
         )
     });
 
-    StakeDistribution::new(&snapshot, DRepsSummary::new(&snapshot)?)
+    StakeDistribution::new(&snapshot, GovernanceSummary::new(&snapshot)?)
 }
 
 #[instrument(level = Level::TRACE, skip_all)]

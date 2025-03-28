@@ -14,13 +14,15 @@
 
 use crate::store::{columns::dreps::Row, Snapshot, StoreError};
 use amaru_kernel::{
-    Anchor, DRep, Epoch, Lovelace, StakeCredential, DREP_EXPIRY, GOV_ACTION_LIFETIME,
+    expect_stake_credential, Anchor, CertificatePointer, DRep, Epoch, Lovelace, StakeCredential,
+    TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME,
 };
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]
-pub struct DRepsSummary {
+pub struct GovernanceSummary {
     pub dreps: BTreeMap<DRep, DRepState>,
+    pub deposits: BTreeMap<StakeCredential, Lovelace>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -28,15 +30,25 @@ pub struct DRepState {
     pub mandate: Option<Epoch>,
     pub metadata: Option<Anchor>,
     pub stake: Lovelace,
+    #[serde(skip)]
+    pub registered_at: CertificatePointer,
 }
 
-impl DRepsSummary {
+impl GovernanceSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
-        let all_proposals_epochs = db
-            .iter_proposals()?
-            .map(|(_, row)| row.epoch)
-            .collect::<HashSet<_>>();
+        let mut all_proposals_epochs = BTreeSet::new();
+
         // TODO filter out proposals that have been ratified
+        let deposits = db
+            .iter_proposals()?
+            .map(|(_, row)| {
+                all_proposals_epochs.insert(row.epoch);
+                (
+                    expect_stake_credential(&row.proposal.reward_account),
+                    row.proposal.deposit,
+                )
+            })
+            .collect::<BTreeMap<_, _>>();
 
         let current_epoch = db.epoch();
 
@@ -52,8 +64,8 @@ impl DRepsSummary {
         //   [163, 164, 165, 166, 167, 168, 169, 172, 173, 174, 175, 176, 177, 178]
         let proposals_activity_periods = all_proposals_epochs
             .iter()
-            .flat_map(|&value| (value..=value + GOV_ACTION_LIFETIME).collect::<HashSet<_>>())
-            .collect::<HashSet<u64>>();
+            .flat_map(|&value| (value..=value + GOV_ACTION_LIFETIME).collect::<BTreeSet<_>>())
+            .collect::<BTreeSet<u64>>();
 
         let mut dreps = db
             .iter_dreps()?
@@ -61,6 +73,7 @@ impl DRepsSummary {
                 |(
                     k,
                     Row {
+                        registered_at,
                         last_interaction,
                         anchor,
                         ..
@@ -73,13 +86,14 @@ impl DRepsSummary {
 
                     // Each epoch with no active proposals increase the mandate by 1
                     let epochs_without_active_proposals =
-                        HashSet::from_iter(last_interaction..=current_epoch) // Total period considered for this DRep
+                        BTreeSet::from_iter(last_interaction..=current_epoch) // Total period considered for this DRep
                             .difference(&proposals_activity_periods)
                             .count();
 
                     (
                         drep,
                         DRepState {
+                            registered_at,
                             metadata: anchor,
                             mandate: Some(
                                 last_interaction
@@ -94,23 +108,22 @@ impl DRepsSummary {
             )
             .collect::<BTreeMap<_, _>>();
 
-        dreps.insert(
-            DRep::Abstain,
-            DRepState {
-                mandate: None,
-                metadata: None,
-                stake: 0,
+        let default_drep_state = || DRepState {
+            mandate: None,
+            metadata: None,
+            stake: 0,
+            registered_at: CertificatePointer {
+                transaction_pointer: TransactionPointer {
+                    slot: 0,
+                    transaction_index: 0,
+                },
+                certificate_index: 0,
             },
-        );
-        dreps.insert(
-            DRep::NoConfidence,
-            DRepState {
-                mandate: None,
-                metadata: None,
-                stake: 0,
-            },
-        );
+        };
 
-        Ok(DRepsSummary { dreps })
+        dreps.insert(DRep::Abstain, default_drep_state());
+        dreps.insert(DRep::NoConfidence, default_drep_state());
+
+        Ok(GovernanceSummary { dreps, deposits })
     }
 }

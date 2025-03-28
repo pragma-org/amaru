@@ -98,7 +98,7 @@ certain mutations are applied to the system.
 
 use crate::{
     store::{columns::*, Snapshot, StoreError},
-    summary::governance::{DRepState, DRepsSummary},
+    summary::governance::{DRepState, GovernanceSummary},
 };
 use amaru_kernel::{
     encode_bech32, expect_stake_credential, output_stake_credential, DRep, Epoch, HasLovelace,
@@ -151,7 +151,10 @@ impl StakeDistribution {
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(
         db: &impl Snapshot,
-        DRepsSummary { mut dreps }: DRepsSummary,
+        GovernanceSummary {
+            mut dreps,
+            deposits,
+        }: GovernanceSummary,
     ) -> Result<Self, StoreError> {
         let mut accounts = db
             .iter_accounts()?
@@ -161,12 +164,16 @@ impl StakeDistribution {
                     AccountState {
                         lovelace: account.rewards,
                         pool: account.delegatee,
-                        drep: account.drep.map(|col| col.0).and_then(|drep| match drep {
+                        drep: account.drep.and_then(|(drep, since)| match drep {
                             DRep::Abstain | DRep::NoConfidence => Some(drep),
-                            DRep::Key { .. } | DRep::Script { .. } if dreps.contains_key(&drep) => {
-                                Some(drep)
+                            DRep::Key { .. } | DRep::Script { .. } => {
+                                let DRepState { registered_at, .. } = dreps.get(&drep)?;
+                                if &since >= registered_at {
+                                    Some(drep)
+                                } else {
+                                    None
+                                }
                             }
-                            DRep::Key { .. } | DRep::Script { .. } => None,
                         }),
                     },
                 )
@@ -206,11 +213,12 @@ impl StakeDistribution {
         let mut active_stake: Lovelace = 0;
         let accounts = accounts
             .into_iter()
-            .filter(|(_credential, account)| {
+            .filter(|(credential, account)| {
                 if let Some(drep) = &account.drep {
                     if let Some(st) = dreps.get_mut(drep) {
-                        voting_stake += &account.lovelace;
-                        st.stake += &account.lovelace;
+                        let stake = account.lovelace + deposits.get(credential).unwrap_or(&0);
+                        voting_stake += &stake;
+                        st.stake += &stake;
                     }
                 }
 
@@ -220,6 +228,7 @@ impl StakeDistribution {
                         Some(pool) => {
                             active_stake += &account.lovelace;
                             pool.stake += &account.lovelace;
+                            // FIXME: Add deposit to stake pool's voting stake
                             true
                         }
                     };
