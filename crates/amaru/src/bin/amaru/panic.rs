@@ -17,7 +17,6 @@
 pub fn panic_handler() {
     let prev = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-
         // We present the user with a helpful and welcoming error message;
         // Block producing nodes should be considered mission critical software, and so
         // They should endeavor *never* to crash, and should always handle and recover from errors.
