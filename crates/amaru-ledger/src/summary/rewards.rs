@@ -98,7 +98,7 @@ certain mutations are applied to the system.
 
 use crate::{
     store::{columns::*, Snapshot, StoreError},
-    summary::governance::DRepsSummary,
+    summary::governance::{DRepState, DRepsSummary},
 };
 use amaru_kernel::{
     encode_bech32, expect_stake_credential, output_stake_credential, DRep, Epoch, HasLovelace,
@@ -140,6 +140,9 @@ pub struct StakeDistribution {
 
     /// Mapping of pools to their relative stake & parameters
     pub pools: BTreeMap<PoolId, PoolState>,
+
+    /// Mapping of dreps to their relative stake
+    pub dreps: BTreeMap<DRep, DRepState>,
 }
 
 impl StakeDistribution {
@@ -148,7 +151,7 @@ impl StakeDistribution {
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(
         db: &impl Snapshot,
-        DRepsSummary { dreps }: &DRepsSummary,
+        DRepsSummary { mut dreps }: DRepsSummary,
     ) -> Result<Self, StoreError> {
         let mut accounts = db
             .iter_accounts()?
@@ -199,10 +202,18 @@ impl StakeDistribution {
             })
             .collect::<BTreeMap<Hash<28>, PoolState>>();
 
+        let mut voting_stake: Lovelace = 0;
         let mut active_stake: Lovelace = 0;
         let accounts = accounts
             .into_iter()
             .filter(|(_credential, account)| {
+                if let Some(drep) = &account.drep {
+                    if let Some(st) = dreps.get_mut(drep) {
+                        voting_stake += &account.lovelace;
+                        st.stake += &account.lovelace;
+                    }
+                }
+
                 if let Some(pool_id) = account.pool {
                     return match pools.get_mut(&pool_id) {
                         None => false,
@@ -241,6 +252,7 @@ impl StakeDistribution {
             active_stake,
             accounts,
             pools,
+            dreps,
         })
     }
 
@@ -256,13 +268,14 @@ pub struct StakeDistributionForNetwork<'a>(&'a StakeDistribution, Network);
 
 impl serde::Serialize for StakeDistributionForNetwork<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("StakeDistribution", 4)?;
+        let mut s = serializer.serialize_struct("StakeDistribution", 5)?;
         s.serialize_field("epoch", &self.0.epoch)?;
         s.serialize_field("active_stake", &self.0.active_stake)?;
         serialize_map("accounts", &mut s, &self.0.accounts, |credential| {
             encode_stake_credential(self.1, credential)
         })?;
         serialize_map("pools", &mut s, &self.0.pools, encode_pool_id)?;
+        serialize_map("dreps", &mut s, &self.0.dreps, encode_drep)?;
         s.end()
     }
 }
@@ -788,7 +801,46 @@ fn encode_pool_id(pool_id: &PoolId) -> String {
         .unwrap_or_else(|_| unreachable!("human-readable part 'pool' is okay"))
 }
 
-fn encode_drep(drep: &DRep) -> String {
+/// Serialize a (registerd) DRep to bech32, according to [CIP-0129](https://cips.cardano.org/cip/CIP-0129).
+/// The always-Abstain and always-NoConfidence dreps are ignored (i.e. return `None`).
+///
+/// ```rust
+/// use amaru_kernel::{DRep, Hash};
+/// use amaru_ledger::summary::rewards::encode_drep;
+///
+/// let key_drep = DRep::Key(Hash::from(
+///   hex::decode("7a719c71d1bc67d2eb4af19f02fd48e7498843d33a22168111344a34")
+///     .unwrap()
+///     .as_slice()
+/// ));
+///
+/// let script_drep = DRep::Script(Hash::from(
+///   hex::decode("429b12461640cefd3a4a192f7c531d8f6c6d33610b727f481eb22d39")
+///     .unwrap()
+///     .as_slice()
+/// ));
+///
+/// assert_eq!(
+///   encode_drep(&DRep::Abstain).as_str(),
+///   "abstain",
+/// );
+///
+/// assert_eq!(
+///   encode_drep(&DRep::NoConfidence).as_str(),
+///   "no_confidence",
+/// );
+///
+/// assert_eq!(
+///   encode_drep(&key_drep).as_str(),
+///   "drep1yfa8r8r36x7x05htftce7qhafrn5nzzr6vazy95pzy6y5dqac0ss7",
+/// );
+///
+/// assert_eq!(
+///   encode_drep(&script_drep).as_str(),
+///   "drep1ydpfkyjxzeqvalf6fgvj7lznrk8kcmfnvy9hyl6gr6ez6wgsjaelx",
+/// );
+/// ```
+pub fn encode_drep(drep: &DRep) -> String {
     match drep {
         DRep::Key(hash) => encode_bech32("drep", &[&[0x22], hash.as_slice()].concat()),
         DRep::Script(hash) => encode_bech32("drep", &[&[0x23], hash.as_slice()].concat()),

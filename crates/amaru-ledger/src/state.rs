@@ -347,7 +347,7 @@ fn recover_stake_distribution(
         )
     });
 
-    StakeDistribution::new(&snapshot, &DRepsSummary::new(&snapshot)?)
+    StakeDistribution::new(&snapshot, DRepsSummary::new(&snapshot)?)
 }
 
 #[instrument(level = Level::TRACE, skip_all)]

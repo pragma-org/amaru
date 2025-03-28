@@ -27,6 +27,7 @@ const blocks = load("rewards-provenance", epoch + 1);
 const distr = load("rewards-provenance", epoch + 3);
 const drepsDelegations = load("dreps-delegations", epoch);
 const drepsInfo = load("dreps", epoch);
+const drepsStake = load("dreps", epoch + 1);
 const pots = load("pots", epoch + 3);
 const dreps = Object.keys(drepsDelegations)
   .reduce((acc, credential) => {
@@ -76,17 +77,31 @@ const dreps = Object.keys(drepsDelegations)
     keys: {},
     scripts: {},
     dreps: drepsInfo.reduce((acc, drep) => {
-      // TODO: Also add the values of the abstain / no-confidence dreps somewhere?
+      const drepId = toDrepId(drep.id, drep.from, drep.type);
+
+      const stakeInfo = drepsStake.find((future) => drep.id === future.id && drep.from === future.from);
+
       if (drep.type === "registered") {
-        const drepId = toDrepId(drep.id, drep.from);
         acc[drepId] = {
           mandate: drep.mandate.epoch,
           metadata: drep.metadata ? ({ url: drep.metadata.url, content_hash: drep.metadata.hash }) : null,
+	  stake: stakeInfo?.stake.ada.lovelace ?? 0,
         };
       }
 
       return acc;
-    }, {}),
+    }, {
+      abstain: {
+	mandate: null,
+	metadata: null,
+	stake: drepsStake.find((future) => future.type === "abstain")?.stake.ada.lovelace ?? 0,
+      },
+      no_confidence: {
+	mandate: null,
+	metadata: null,
+	stake: drepsStake.find((future) => future.type === "noConfidence")?.stake.ada.lovelace ?? 0,
+      },
+    }),
   });
 
 // Relative source  of the snapshot test in the target crate.
@@ -138,6 +153,8 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
 
     encodeItem(stream, ix, pools.length, [k, params]);
   });
+  stream.write(",");
+  encodeCollection(stream, "dreps", dreps.dreps, true);
   stream.end("\n}");
 })
 
@@ -168,17 +185,6 @@ withStream(`rewards__rewards_summary_${epoch}.snap`, (stream) => {
     };
     encodeItem(stream, ix, pools.length, [k, params]);
   });
-  stream.end("\n}");
-});
-
-// ---------- DRep snapshots
-
-withStream(`rewards__dreps_${epoch}.snap`, (stream) => {
-  stream.write("---\n")
-  stream.write(`source: ${source}\n`)
-  stream.write(`expression: dreps\n`)
-  stream.write("---\n{")
-  encodeCollection(stream, "dreps", dreps.dreps);
   stream.end("\n}");
 });
 

@@ -14,9 +14,8 @@
 
 use crate::store::{columns::dreps::Row, Snapshot, StoreError};
 use amaru_kernel::{
-    encode_bech32, Anchor, DRep, Epoch, StakeCredential, DREP_EXPIRY, GOV_ACTION_LIFETIME,
+    Anchor, DRep, Epoch, Lovelace, StakeCredential, DREP_EXPIRY, GOV_ACTION_LIFETIME,
 };
-use serde::ser::SerializeStruct;
 use std::collections::{BTreeMap, HashSet};
 
 #[derive(Debug)]
@@ -26,8 +25,9 @@ pub struct DRepsSummary {
 
 #[derive(Debug, serde::Serialize)]
 pub struct DRepState {
-    pub mandate: Epoch,
+    pub mandate: Option<Epoch>,
     pub metadata: Option<Anchor>,
+    pub stake: Lovelace,
 }
 
 impl DRepsSummary {
@@ -55,7 +55,7 @@ impl DRepsSummary {
             .flat_map(|&value| (value..=value + GOV_ACTION_LIFETIME).collect::<HashSet<_>>())
             .collect::<HashSet<u64>>();
 
-        let dreps = db
+        let mut dreps = db
             .iter_dreps()?
             .map(
                 |(
@@ -81,72 +81,36 @@ impl DRepsSummary {
                         drep,
                         DRepState {
                             metadata: anchor,
-                            mandate: last_interaction
-                                + DREP_EXPIRY
-                                + epochs_without_active_proposals as u64,
+                            mandate: Some(
+                                last_interaction
+                                    + DREP_EXPIRY
+                                    + epochs_without_active_proposals as u64,
+                            ),
+                            stake: 0, // NOTE: The actual stake is filled later when computing the
+                                      // stake distribution.
                         },
                     )
                 },
             )
             .collect::<BTreeMap<_, _>>();
 
+        dreps.insert(
+            DRep::Abstain,
+            DRepState {
+                mandate: None,
+                metadata: None,
+                stake: 0,
+            },
+        );
+        dreps.insert(
+            DRep::NoConfidence,
+            DRepState {
+                mandate: None,
+                metadata: None,
+                stake: 0,
+            },
+        );
+
         Ok(DRepsSummary { dreps })
-    }
-}
-
-impl serde::Serialize for DRepsSummary {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("DRepsSummary", 1)?;
-
-        let mut dreps = BTreeMap::new();
-        self.dreps.iter().for_each(|(drep, st)| {
-            if let Some(id) = into_drep_id(drep) {
-                dreps.insert(id, st);
-            }
-        });
-        s.serialize_field("dreps", &dreps)?;
-
-        s.end()
-    }
-}
-
-/// Serialize a (registerd) DRep to bech32, according to [CIP-0129](https://cips.cardano.org/cip/CIP-0129).
-/// The always-Abstain and always-NoConfidence dreps are ignored (i.e. return `None`).
-///
-/// ```rust
-/// use amaru_kernel::{DRep, Hash};
-/// use amaru_ledger::summary::governance::into_drep_id;
-///
-/// let key_drep = DRep::Key(Hash::from(
-///   hex::decode("7a719c71d1bc67d2eb4af19f02fd48e7498843d33a22168111344a34")
-///     .unwrap()
-///     .as_slice()
-/// ));
-///
-/// let script_drep = DRep::Script(Hash::from(
-///   hex::decode("429b12461640cefd3a4a192f7c531d8f6c6d33610b727f481eb22d39")
-///     .unwrap()
-///     .as_slice()
-/// ));
-///
-/// assert_eq!(into_drep_id(&DRep::Abstain), None);
-///
-/// assert_eq!(into_drep_id(&DRep::NoConfidence), None);
-///
-/// assert_eq!(
-///   into_drep_id(&key_drep).as_deref(),
-///   Some("drep1yfa8r8r36x7x05htftce7qhafrn5nzzr6vazy95pzy6y5dqac0ss7"),
-/// );
-///
-/// assert_eq!(
-///   into_drep_id(&script_drep).as_deref(),
-///   Some("drep1ydpfkyjxzeqvalf6fgvj7lznrk8kcmfnvy9hyl6gr6ez6wgsjaelx"),
-/// );
-/// ```
-pub fn into_drep_id(drep: &DRep) -> Option<String> {
-    match drep {
-        DRep::Key(hash) => encode_bech32("drep", &[&[34], hash.as_slice()].concat()).ok(),
-        DRep::Script(hash) => encode_bech32("drep", &[&[35], hash.as_slice()].concat()).ok(),
-        DRep::Abstain | DRep::NoConfidence => None,
     }
 }
