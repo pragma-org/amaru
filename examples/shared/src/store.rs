@@ -1,6 +1,6 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
-    store::{HistoricalStores, Snapshot, Store},
+    store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
     summary::rewards::Pots,
 };
 use std::collections::BTreeSet;
@@ -116,33 +116,12 @@ impl Snapshot for MemoryStore {
     }
 }
 
-pub struct RocksDBTransactionalContext<'a> {
-    transaction: Option<Transaction<'a, TransactionDB>>,
+pub struct MemoryTransactionalContext {
 }
 
-impl<'a> TransactionalContext<'a> for RocksDBTransactionalContext<'a> {
+impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
     fn commit(self) -> Result<(), StoreError> {
-        self.transaction
-            .commit()
-            .map_err(|err| StoreError::Internal(err.into()))
-    }
-}
-
-impl Store for MemoryStore {
-    fn create_transaction(&self) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
-    }
-
-    fn commit(&self) -> Result<(), amaru_ledger::store::StoreError> {
-        Ok(())
-    }
-
-    fn rollback(&self) -> Result<(), amaru_ledger::store::StoreError> {
-        Ok(())
-    }
-
-    fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
-        Ok(Point::Origin)
     }
 
     fn refund(
@@ -211,6 +190,15 @@ impl Store for MemoryStore {
         Ok(())
     }
 
+    fn set_pots(
+        &self,
+        _treasury: amaru_kernel::Lovelace,
+        _reserves: amaru_kernel::Lovelace,
+        _fees: amaru_kernel::Lovelace,
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
+
     fn with_pots(
         &self,
         _with: impl FnMut(Box<dyn std::borrow::BorrowMut<amaru_ledger::store::columns::pots::Row> + '_>),
@@ -258,6 +246,16 @@ impl Store for MemoryStore {
         _with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
+    }
+}
+
+impl Store for MemoryStore {
+    fn create_transaction(&self) -> impl TransactionalContext<'_> {
+        MemoryTransactionalContext {}
+    }
+
+    fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
+        Ok(Point::Origin)
     }
 }
 
