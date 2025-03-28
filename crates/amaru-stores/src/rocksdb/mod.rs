@@ -423,7 +423,7 @@ impl Store for RocksDB {
                 dreps::tick(&batch, voting_dreps, {
                     let slot = point.slot_or_default();
                     self.era_history
-                        .slot_to_epoch(slot)
+                        .slot_to_epoch(slot.into())
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
                 proposals::add(&batch, add.proposals)?;

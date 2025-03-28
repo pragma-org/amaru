@@ -180,7 +180,7 @@ impl<S: Store> State<S> {
         let start_slot = now_stable.anchor.0.slot_or_default();
         let current_epoch = self
             .era_history
-            .slot_to_epoch(start_slot)
+            .slot_to_epoch(start_slot.into())
             .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
 
         // Note: the volatile sequence may contain points belonging to two epochs. We diligently
@@ -200,7 +200,7 @@ impl<S: Store> State<S> {
         let anchor_slot = now_stable.anchor.0.slot_or_default();
         let epoch = self
             .era_history
-            .slot_to_epoch(anchor_slot)
+            .slot_to_epoch(anchor_slot.into())
             .map_err(|e| StateError::ErrorComputingEpoch(anchor_slot, e))?;
         let StoreUpdate {
             point: stable_point,
@@ -280,10 +280,10 @@ impl<S: Store> State<S> {
         let next_state_slot = next_state.anchor.0.slot_or_default();
         let relative_slot = self
             .era_history
-            .slot_in_epoch(next_state_slot)
+            .slot_in_epoch(next_state_slot.into())
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
-        if self.rewards_summary.is_none() && relative_slot >= STABILITY_WINDOW as u64 {
+        if self.rewards_summary.is_none() && relative_slot >= (STABILITY_WINDOW as u64).into() {
             self.rewards_summary = Some(self.compute_rewards()?);
         }
 
@@ -379,7 +379,7 @@ impl HasStakeDistribution for StakeDistributionView {
     #[allow(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
-        let epoch = self.era_history.slot_to_epoch(slot).ok()? - 2;
+        let epoch = self.era_history.slot_to_epoch(slot.into()).ok()? - 2;
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
+pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -34,12 +34,12 @@ const PREPROD_ERAS: [Summary; 7] = [
     Summary {
         start: Bound {
             time_ms: 0,
-            slot: 0,
+            slot: Slot { slot: 0 },
             epoch: 0,
         },
         end: Bound {
             time_ms: 1728000000,
-            slot: 86400,
+            slot: Slot { slot: 86400 },
             epoch: 4,
         },
         params: EraParams {
@@ -50,12 +50,12 @@ const PREPROD_ERAS: [Summary; 7] = [
     Summary {
         start: Bound {
             time_ms: 1728000000,
-            slot: 86400,
+            slot: Slot { slot: 86400 },
             epoch: 4,
         },
         end: Bound {
             time_ms: 2160000000,
-            slot: 518400,
+            slot: Slot { slot: 518400 },
             epoch: 5,
         },
         params: EraParams {
@@ -66,12 +66,12 @@ const PREPROD_ERAS: [Summary; 7] = [
     Summary {
         start: Bound {
             time_ms: 2160000000,
-            slot: 518400,
+            slot: Slot { slot: 518400 },
             epoch: 5,
         },
         end: Bound {
             time_ms: 2592000000,
-            slot: 950400,
+            slot: Slot { slot: 950400 },
             epoch: 6,
         },
 
@@ -83,12 +83,12 @@ const PREPROD_ERAS: [Summary; 7] = [
     Summary {
         start: Bound {
             time_ms: 2592000000,
-            slot: 950400,
+            slot: Slot { slot: 950400 },
             epoch: 6,
         },
         end: Bound {
             time_ms: 3024000000,
-            slot: 1382400,
+            slot: Slot { slot: 1382400 },
             epoch: 7,
         },
 
@@ -100,12 +100,12 @@ const PREPROD_ERAS: [Summary; 7] = [
     Summary {
         start: Bound {
             time_ms: 3024000000,
-            slot: 1382400,
+            slot: Slot { slot: 1382400 },
             epoch: 7,
         },
         end: Bound {
             time_ms: 5184000000,
-            slot: 3542400,
+            slot: Slot { slot: 3542400 },
             epoch: 12,
         },
 
@@ -117,12 +117,12 @@ const PREPROD_ERAS: [Summary; 7] = [
     Summary {
         start: Bound {
             time_ms: 5184000000,
-            slot: 3542400,
+            slot: Slot { slot: 3542400 },
             epoch: 12,
         },
         end: Bound {
             time_ms: 70416000000,
-            slot: 68774400,
+            slot: Slot { slot: 68774400 },
             epoch: 163,
         },
 
@@ -134,12 +134,12 @@ const PREPROD_ERAS: [Summary; 7] = [
     Summary {
         start: Bound {
             time_ms: 70416000000,
-            slot: 68774400,
+            slot: Slot { slot: 68774400 },
             epoch: 163,
         },
         end: Bound {
             time_ms: 89424000000,
-            slot: 87782400,
+            slot: Slot { slot: 87782400 },
             epoch: 207,
         },
 
@@ -158,12 +158,12 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| EraHistory {
 const DEFAULT_TESTNET_ERAS: [Summary; 1] = [Summary {
     start: Bound {
         time_ms: 0,
-        slot: 0,
+        slot: Slot { slot: 0 },
         epoch: 0,
     },
     end: Bound {
         time_ms: 432000000000,
-        slot: 432000000,
+        slot: Slot { slot: 432000000 },
         epoch: 1000,
     },
 
@@ -317,17 +317,17 @@ mod tests {
     #[test]
     fn can_compute_slot_to_epoch_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
-        assert_eq!(4, era_history.slot_to_epoch(86400).unwrap());
-        assert_eq!(11, era_history.slot_to_epoch(3542399).unwrap());
-        assert_eq!(12, era_history.slot_to_epoch(3542400).unwrap());
+        assert_eq!(4, era_history.slot_to_epoch(86400.into()).unwrap());
+        assert_eq!(11, era_history.slot_to_epoch(3542399.into()).unwrap());
+        assert_eq!(12, era_history.slot_to_epoch(3542400.into()).unwrap());
     }
 
     #[test]
     fn can_compute_next_epoch_first_slot_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
-        assert_eq!(era_history.next_epoch_first_slot(3), Ok(86400));
-        assert_eq!(era_history.next_epoch_first_slot(114), Ok(48038400));
-        assert_eq!(era_history.next_epoch_first_slot(150), Ok(63590400));
+        assert_eq!(era_history.next_epoch_first_slot(3), Ok(86400.into()));
+        assert_eq!(era_history.next_epoch_first_slot(114), Ok(48038400.into()));
+        assert_eq!(era_history.next_epoch_first_slot(150), Ok(63590400.into()));
     }
 
     #[test]
