@@ -29,7 +29,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, Level, Span};
 
-use super::{chain_selection::RollbackChainSelection, fetch::ValidateHeaderEvent};
+use super::{chain_selection::RollbackChainSelection, ValidateHeaderEvent};
 
 const EVENT_TARGET: &str = "amaru::consensus";
 

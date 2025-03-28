@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::point::{from_network_point, to_network_point};
-use amaru_consensus::{consensus::wiring::PullEvent, peer::PeerSession, RawHeader};
+use amaru_consensus::{peer::PeerSession, RawHeader};
 use amaru_kernel::Point;
 use anyhow::anyhow;
 use gasket::framework::*;
@@ -22,6 +22,8 @@ use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{instrument, Level, Span};
+
+use super::wiring::PullEvent;
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {

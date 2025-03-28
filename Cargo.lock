@@ -75,7 +75,6 @@ dependencies = [
  "amaru-ouroboros-traits",
  "async-trait",
  "envpath",
- "gasket",
  "hex",
  "insta",
  "pallas-codec",
