@@ -26,8 +26,11 @@ use amaru_kernel::{
     Hash, Header, Point,
 };
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
-use chain_forward::ForwardStage;
-use fetch::BlockFetchStage;
+use consensus::{
+    chain_forward::ForwardStage,
+    fetch::BlockFetchStage,
+    header::{HeaderStage, PullEvent},
+};
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,
@@ -35,13 +38,10 @@ use gasket::{
 use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
-use wiring::{HeaderStage, PullEvent};
 
-pub mod chain_forward;
-pub mod fetch;
+pub mod consensus;
 pub mod ledger;
 pub mod pull;
-pub mod wiring;
 
 pub type Slot = u64;
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
