@@ -33,7 +33,7 @@ We will avoid primitive obsession by:
 
 4. **Encapsulating validation logic**: Domain-specific types will encapsulate validation logic to ensure they always represent valid values.
 
-5. **Providing clear conversion methods**: When conversion between types is necessary, we'll provide explicit methods rather than relying on implicit conversions.
+5. **Providing clear conversion methods**: When conversion between types is necessary, we'll provide explicit `From` trait instances.
 
 ## Consequences
 
@@ -58,24 +58,33 @@ Define the newtype using a [transparent](https://doc.rust-lang.org/nomicon/other
 pub struct Slot(u64);
 ```
 
-Provide a `pub const fn new` constructor to allow the use of the newtype in `const` values, as well as dedicated methods to convert and manipulate the newtype.
+Provide dedicated methods to  manipulate the newtype in a domain-specific way.
 
 ```rust
 impl Slot {
-    pub const fn new (slot: u64) -> Self {
-        Slot(slot)
-    }
-
     fn elapsed_from(&self, slot: Slot) -> u64 {
         self.0 - slot.0
     }
 
-    fn add(&self, slots_elapsed: u64) -> Slot {
+    fn offset_by(&self, slots_elapsed: u64) -> Slot {
         Slot(self.0 + slots_elapsed)
     }
+}
+```
 
-    pub fn to_u64(&self) -> u64 {
-        self.0
+Provide common conversions to/from primitives type:
+
+```rust
+
+impl From<u64> for Slot {
+    fn from(slot: u64) -> Slot {
+        Slot(slot)
+    }
+}
+
+impl From<Slot> for u64 {
+    fn from(slot: Slot) -> u64 {
+        slot.0
     }
 }
 ```

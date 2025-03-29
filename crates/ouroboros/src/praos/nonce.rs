@@ -56,7 +56,7 @@ pub fn randomness_stability_window<H: IsHeader>(
     let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch)?;
 
     let is_within_stability_window =
-        slot + RANDOMNESS_STABILIZATION_WINDOW < next_epoch_first_slot.to_u64();
+        slot + RANDOMNESS_STABILIZATION_WINDOW < From::from(next_epoch_first_slot);
 
     Ok((epoch, is_within_stability_window))
 }

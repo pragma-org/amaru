@@ -28,12 +28,20 @@ impl Slot {
         self.0 - slot.0
     }
 
-    fn add(&self, slots_elapsed: u64) -> Slot {
+    fn offset_by(&self, slots_elapsed: u64) -> Slot {
         Slot(self.0 + slots_elapsed)
     }
+}
 
-    pub fn to_u64(&self) -> u64 {
-        self.0
+impl From<u64> for Slot {
+    fn from(slot: u64) -> Slot {
+        Slot(slot)
+    }
+}
+
+impl From<Slot> for u64 {
+    fn from(slot: Slot) -> u64 {
+        slot.0
     }
 }
 
@@ -265,7 +273,7 @@ impl EraHistory {
             if era.end.time_ms >= time {
                 let time_elapsed = time - era.start.time_ms;
                 let slots_elapsed = time_elapsed / era.params.slot_length;
-                let slot = era.start.slot.add(slots_elapsed);
+                let slot = era.start.slot.offset_by(slots_elapsed);
                 return Ok(slot);
             }
         }
@@ -312,8 +320,8 @@ impl EraHistory {
             if era.end.epoch > epoch {
                 let epochs_elapsed = epoch - era.start.epoch;
                 let offset = era.start.slot;
-                let start = offset.add(era.params.epoch_size_slots * epochs_elapsed);
-                let end = offset.add(era.params.epoch_size_slots * (epochs_elapsed + 1));
+                let start = offset.offset_by(era.params.epoch_size_slots * epochs_elapsed);
+                let end = offset.offset_by(era.params.epoch_size_slots * (epochs_elapsed + 1));
                 return Ok(EpochBounds { start, end });
             }
         }
@@ -380,7 +388,7 @@ mod tests {
                 let time_elapsed = slots_elapsed * params.slot_length;
                 let end = Bound {
                     time_ms: start.time_ms + time_elapsed,
-                    slot: start.slot.add(slots_elapsed),
+                    slot: start.slot.offset_by(slots_elapsed),
                     epoch: last_epoch,
                 };
                 Summary { start, end, params }
@@ -421,7 +429,7 @@ mod tests {
                 let time_elapsed = slots_elapsed * prev_era_params.slot_length;
                 let new_bound = Bound {
                     time_ms: prev_bound.time_ms + time_elapsed,
-                    slot: prev_bound.slot.add(slots_elapsed),
+                    slot: prev_bound.slot.offset_by(slots_elapsed),
                     epoch: *boundary,
                 };
 
