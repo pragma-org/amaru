@@ -20,7 +20,7 @@ cargo build --release
 
 > [!IMPORTANT]
 > These instructions assume one starts from scratch, and has access to a running [cardano-node](https://github.com/IntersectMBO/cardano-node/)
-on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network.
+on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network (see bottom of page for more info).
 
 1. Download at least three [ledger snapshots](./data/README.md#cardano-ledger-snapshots):
 
@@ -127,3 +127,22 @@ Amaru is the integration point of several other projects / repositories. Amongst
   |
   <a href="https://discord.gg/3nZYCHW9Ns"><img src=".github/discord.svg" alt="Discord" /> Discord</a>
 </p>
+
+## Spinning up a Cardano node on `preprod`
+
+One option to do this is by using the docker image mentioned above:
+
+```sh
+docker pull ghcr.io/intersectmbo/cardano-node:8.9.1
+```
+
+(you may want to check available versions)
+This image requires two volumes:
+
+- `cardano-data:/data` for the blockchain db
+- `cardano-ipc:/ipc` for IPC with other tools
+
+Since we want to use network connections to interact with this node, you’ll want to expose port 3001, at least on `localhost`.
+
+The final and crucial ingredient is to supply the environment variable `NETWORK=preprod`.
+With this, the node with start up, fetch the required config files, and then start syncing blocks from the network; this will take some time.

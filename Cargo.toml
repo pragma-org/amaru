@@ -15,6 +15,7 @@ default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
+acto = { version = "0.7.2", features = ["tokio"] }
 anyhow = "1.0.95"
 async-trait = "0.1.83"
 bech32 = "0.11.0"
