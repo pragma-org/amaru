@@ -15,6 +15,7 @@ default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
+acto = { version = "0.7.2", features = ["tokio"] }
 anyhow = "1.0.95"
 async-trait = "0.1.83"
 bech32 = "0.11.0"
@@ -51,7 +52,7 @@ tokio-util = "0.7.12"
 tokio-stream = "0.1.17"
 tracing = "0.1.40"
 tracing-opentelemetry = "0.28.0"
-tracing-subscriber = "0.3.18"
+tracing-subscriber = { version = "0.3.18", features = ["env-filter"] }
 
 amaru-consensus = { path = "crates/amaru-consensus" }
 amaru-kernel = { path = "crates/amaru-kernel" }
