@@ -19,13 +19,22 @@ use serde::{Deserialize, Serialize};
 #[repr(transparent)]
 pub struct Slot(u64);
 
+#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+pub enum SlotArithmeticError {
+    #[error("slot arithmetic overflow, substracting {1} from {0}")]
+    Underflow(u64, u64),
+}
+
 impl Slot {
     pub const fn new(slot: u64) -> Self {
         Slot(slot)
     }
 
-    fn elapsed_from(&self, slot: Slot) -> u64 {
-        self.0 - slot.0
+    fn elapsed_from(&self, slot: Slot) -> Result<u64, SlotArithmeticError> {
+        if self.0 < slot.0 {
+            return Err(SlotArithmeticError::Underflow(self.0, slot.0));
+        }
+        Ok(self.0 - slot.0)
     }
 
     fn offset_by(&self, slots_elapsed: u64) -> Slot {
@@ -230,6 +239,8 @@ pub enum TimeHorizonError {
     PastTimeHorizon,
     #[error("invalid era history")]
     InvalidEraHistory,
+    #[error("{0}")]
+    SlotArithmetic(#[from] SlotArithmeticError),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -248,7 +259,9 @@ impl EraHistory {
                 return Err(TimeHorizonError::InvalidEraHistory);
             }
             if era.end.slot >= slot {
-                let slots_elapsed = slot.elapsed_from(era.start.slot);
+                let slots_elapsed = slot
+                    .elapsed_from(era.start.slot)
+                    .map_err(|_| TimeHorizonError::InvalidEraHistory)?;
                 let time_elapsed = era.params.slot_length * slots_elapsed;
                 let relative_time = era.start.time_ms + time_elapsed;
                 return Ok(relative_time);
@@ -286,7 +299,9 @@ impl EraHistory {
                 return Err(TimeHorizonError::InvalidEraHistory);
             }
             if era.end.slot >= slot {
-                let slots_elapsed = slot.elapsed_from(era.start.slot);
+                let slots_elapsed = slot
+                    .elapsed_from(era.start.slot)
+                    .map_err(|_| TimeHorizonError::InvalidEraHistory)?;
                 let epochs_elapsed = slots_elapsed / era.params.epoch_size_slots;
                 let epoch_number = era.start.epoch + epochs_elapsed;
                 return Ok(epoch_number);
@@ -339,7 +354,8 @@ impl EraHistory {
     pub fn slot_in_epoch(&self, slot: Slot) -> Result<Slot, TimeHorizonError> {
         let epoch = self.slot_to_epoch(slot)?;
         let bounds = self.epoch_bounds(epoch)?;
-        Ok(Slot(slot.elapsed_from(bounds.start)))
+        let elapsed = slot.elapsed_from(bounds.start)?;
+        Ok(Slot(elapsed))
     }
 }
 
@@ -657,6 +673,47 @@ mod tests {
 
         let relative_slot = invalid_eras.slot_in_epoch(Slot(60));
         assert_eq!(relative_slot, Err(TimeHorizonError::InvalidEraHistory));
+    }
+
+    #[test]
+    fn slot_in_epoch_underflows_given_era_history_with_gaps() {
+        // Create a custom era history with a gap between epochs
+        let invalid_eras = EraHistory {
+            eras: vec![
+                Summary {
+                    start: Bound {
+                        time_ms: 0,
+                        slot: Slot(0),
+                        epoch: 0,
+                    },
+                    end: Bound {
+                        time_ms: 86400000,
+                        slot: Slot(86400),
+                        epoch: 1,
+                    },
+                    params: default_params(),
+                },
+                Summary {
+                    start: Bound {
+                        time_ms: 86400000,
+                        slot: Slot(186400), // Gap of 100000 slots
+                        epoch: 1,
+                    },
+                    end: Bound {
+                        time_ms: 172800000,
+                        slot: Slot(272800),
+                        epoch: 2,
+                    },
+                    params: default_params(),
+                },
+            ],
+        };
+
+        // A slot in epoch 1 but before the start of epoch 1's slots
+        let problematic_slot = Slot(100000);
+
+        let result = invalid_eras.slot_in_epoch(problematic_slot);
+        assert_eq!(result, Err(TimeHorizonError::InvalidEraHistory));
     }
 
     #[test]
