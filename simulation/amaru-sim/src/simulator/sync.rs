@@ -14,7 +14,7 @@
 
 use super::bytes::Bytes;
 use crate::echo::Envelope;
-use amaru::stages::wiring::PullEvent;
+use amaru::stages::consensus::header::PullEvent;
 use amaru_consensus::consensus::ValidateHeaderEvent;
 use amaru_consensus::peer::Peer;
 use amaru_kernel::{self, Point};

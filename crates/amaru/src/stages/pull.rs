@@ -23,7 +23,7 @@ use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{instrument, Level, Span};
 
-use super::{wiring::PullEvent, PeerSession};
+use super::{consensus::header::PullEvent, PeerSession};
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {

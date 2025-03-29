@@ -21,14 +21,14 @@ use gasket::framework::*;
 use tracing::{instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use super::PeerSession;
+use crate::stages::PeerSession;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 
 #[derive(Stage)]
 #[stage(
-    name = "consensus.header",
+    name = "consensus.fetch",
     unit = "ValidateHeaderEvent",
     worker = "Worker"
 )]
