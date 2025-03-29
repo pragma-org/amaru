@@ -106,13 +106,14 @@ use amaru_kernel::{
     MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
     SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
 };
+use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
     rational::Ratio,
     traits::{One, Zero},
     BigUint,
 };
 use serde::ser::SerializeStruct;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use tracing::info;
 
 const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
@@ -131,6 +132,10 @@ pub struct StakeDistribution {
 
     /// Total stake, in Lovelace, delegated to registered pools
     pub active_stake: Lovelace,
+
+    /// Total voting stake, in Lovelace, corresponding to the total stake assigned to registered
+    /// and active delegate representatives.
+    pub voting_stake: Lovelace,
 
     /// Mapping of accounts' stake credentials to their respective state.
     ///
@@ -156,6 +161,8 @@ impl StakeDistribution {
             deposits,
         }: GovernanceSummary,
     ) -> Result<Self, StoreError> {
+        let epoch = db.epoch();
+
         let mut accounts = db
             .iter_accounts()?
             .map(|(credential, account)| {
@@ -189,13 +196,28 @@ impl StakeDistribution {
             }
         });
 
+        let mut retired_pools = BTreeSet::new();
         let mut pools = db
             .iter_pools()?
             .map(|(pool, row)| {
+                // We need to tick pool as part of the stake distribution calculation, in order to
+                // know whether a pool will retire in the next epoch. This is because, votes
+                // ratification happens *after* pools reaping, and thus, nullify voting power of
+                // pools that are retiring.
+                pools::Row::tick(
+                    Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
+                        if dropped.is_none() {
+                            retired_pools.insert(pool);
+                        }
+                    })),
+                    epoch + 1,
+                );
+
                 (
                     pool,
                     PoolState {
                         stake: 0,
+                        voting_stake: 0,
                         blocks_count: 0,
                         // NOTE: pre-compute margin here (1 - m), which gets used for all
                         // member and leader rewards calculation.
@@ -214,11 +236,12 @@ impl StakeDistribution {
         let accounts = accounts
             .into_iter()
             .filter(|(credential, account)| {
+                let deposit = deposits.get(credential).unwrap_or(&0);
+
                 if let Some(drep) = &account.drep {
                     if let Some(st) = dreps.get_mut(drep) {
-                        let stake = account.lovelace + deposits.get(credential).unwrap_or(&0);
-                        voting_stake += &stake;
-                        st.stake += &stake;
+                        voting_stake += account.lovelace + deposit;
+                        st.stake += account.lovelace + deposit;
                     }
                 }
 
@@ -228,7 +251,9 @@ impl StakeDistribution {
                         Some(pool) => {
                             active_stake += &account.lovelace;
                             pool.stake += &account.lovelace;
-                            // FIXME: Add deposit to stake pool's voting stake
+                            if !retired_pools.contains(&pool_id) {
+                                pool.voting_stake += account.lovelace + deposit;
+                            }
                             true
                         }
                     };
@@ -245,8 +270,6 @@ impl StakeDistribution {
                 .and_modify(|pool| pool.blocks_count += 1);
         });
 
-        let epoch = db.epoch();
-
         info!(
             target: EVENT_TARGET,
             epoch = ?epoch,
@@ -259,6 +282,7 @@ impl StakeDistribution {
         Ok(StakeDistribution {
             epoch,
             active_stake,
+            voting_stake,
             accounts,
             pools,
             dreps,
@@ -280,6 +304,7 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
         let mut s = serializer.serialize_struct("StakeDistribution", 5)?;
         s.serialize_field("epoch", &self.0.epoch)?;
         s.serialize_field("active_stake", &self.0.active_stake)?;
+        s.serialize_field("voting_stake", &self.0.voting_stake)?;
         serialize_map("accounts", &mut s, &self.0.accounts, |credential| {
             encode_stake_credential(self.1, credential)
         })?;
@@ -308,17 +333,33 @@ impl serde::Serialize for AccountState {
 
 #[derive(Debug)]
 pub struct PoolState {
+    /// Number of blocks produced during an epoch by the underlying pool.
     pub blocks_count: u64,
+
+    /// The stake used for verifying the leader-schedule.
     pub stake: Lovelace,
+
+    /// The stake used when counting votes, which includes proposal deposits for proposals whose
+    /// refund address is delegated to the underlying pool.
+    pub voting_stake: Lovelace,
+
+    /// The pool's margin, as define per its last registration certificate.
+    ///
+    /// TODO: The margin is already present within the parameters, but is pre-computed here as a
+    /// SafeRatio to avoid unnecessary recomputations during rewards calculations. Arguably, it
+    /// should just be stored as a `SafeRatio` from within `PoolParams` to begin with!
     pub margin: SafeRatio,
+
+    /// The pool's parameters, as define per its last registration certificate.
     pub parameters: PoolParams,
 }
 
 impl serde::Serialize for PoolState {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("PoolState", 3)?;
-        s.serialize_field("blocksCount", &self.blocks_count)?;
+        let mut s = serializer.serialize_struct("PoolState", 4)?;
+        s.serialize_field("blocks_count", &self.blocks_count)?;
         s.serialize_field("stake", &self.stake)?;
+        s.serialize_field("voting_stake", &self.voting_stake)?;
         s.serialize_field("parameters", &self.parameters)?;
         s.end()
     }

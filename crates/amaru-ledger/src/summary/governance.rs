@@ -38,7 +38,7 @@ impl GovernanceSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
         let mut all_proposals_epochs = BTreeSet::new();
 
-        // TODO filter out proposals that have been ratified
+        // FIXME: filter out proposals that have been ratified
         let deposits = db
             .iter_proposals()?
             .map(|(_, row)| {

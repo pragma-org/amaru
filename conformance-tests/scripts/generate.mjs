@@ -22,6 +22,7 @@ const DREP_TYPES = {
 };
 
 const { additionalStakeAddresses } = loadConfig();
+const pools = load("pools", epoch + 1);
 const epochState = load("epoch-state", epoch + 1);
 const blocks = load("rewards-provenance", epoch + 1);
 const distr = load("rewards-provenance", epoch + 3);
@@ -109,7 +110,7 @@ const source = "crates/amaru/src/ledger/rewards.rs";
 
 // ---------- Rewards summary snapshot
 
-const pools = Object.keys(epochState.stakePoolParameters).sort();
+const poolsParams = Object.keys(epochState.stakePoolParameters).sort();
 withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
@@ -118,6 +119,9 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("{");
   stream.write(`\n  "epoch": ${epoch},`);
   stream.write(`\n  "active_stake": ${distr.activeStake},`);
+
+  const totalVotingStake = Object.values(dreps.dreps).reduce((total, drep) => total + BigInt(drep.stake), 0n);
+  stream.write(`\n  "voting_stake": ${totalVotingStake},`);
 
   let accounts = {}
   Object.keys(epochState.keys)
@@ -133,7 +137,7 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
   encodeCollection(stream, "accounts", accounts, false);
 
   stream.write(`\n  "pools": {\n`)
-  pools.forEach((k, ix) => {
+  poolsParams.forEach((k, ix) => {
     const totalStake = BigInt(distr.totalStake);
     let [num, den] = (distr.pools[k]?.relativeStake || "0/1").split("/");
     den = BigInt(den);
@@ -145,13 +149,16 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
       stake = BigInt(num) * (totalStake / den);
     }
 
+    const voting_stake = pools[k]?.stake.ada.lovelace ?? 0;
+
     const params = {
-      blocksCount: blocks.pools[k]?.blocksMade || 0,
+      blocks_count: blocks.pools[k]?.blocksMade || 0,
       stake,
+      voting_stake,
       parameters: epochState.stakePoolParameters[k],
     };
 
-    encodeItem(stream, ix, pools.length, [k, params]);
+    encodeItem(stream, ix, poolsParams.length, [k, params]);
   });
   stream.write(",");
   encodeCollection(stream, "dreps", dreps.dreps, true);
@@ -178,12 +185,12 @@ withStream(`rewards__rewards_summary_${epoch}.snap`, (stream) => {
     "fees": ${distr["rewardPot"] - distr["ΔR1"]}
   },`);
   stream.write(`\n  "pools": {\n`)
-  pools.forEach((k, ix) => {
+  poolsParams.forEach((k, ix) => {
     const params = {
       pot: distr.pools[k]?.rewardPot || 0n,
       leader: distr.pools[k]?.leaderReward || 0n,
     };
-    encodeItem(stream, ix, pools.length, [k, params]);
+    encodeItem(stream, ix, poolsParams.length, [k, params]);
   });
   stream.end("\n}");
 });

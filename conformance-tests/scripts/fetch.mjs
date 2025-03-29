@@ -93,7 +93,7 @@ if (!result) {
 }
 
 function fetchPools(ws) {
-  return ws.queryLedgerState("rewardsProvenance");
+  return ws.queryLedgerState("stakePools", { includeStake: true });
 }
 
 function fetchDReps(ws) {
