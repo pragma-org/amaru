@@ -61,7 +61,15 @@ impl ClientState {
 
     pub fn add_op(&mut self, op: ClientOp) {
         match op {
-            ClientOp::Backward(_) => todo!(),
+            ClientOp::Backward(point) => {
+                let needle = ClientOp::Backward(point.clone());
+                if let Some(index) = self.ops.iter().rposition(|op| op == &needle) {
+                    self.ops.truncate(index + 1);
+                } else {
+                    self.ops.clear();
+                    self.ops.push_back(ClientOp::Backward(point));
+                }
+            }
             op @ ClientOp::Forward(_) => self.ops.push_back(op),
         }
     }
@@ -107,8 +115,8 @@ pub(super) fn find_headers_between(
         }
     }
 
-    // FIXME: syncing a new node will get to this point, but the procedure should probably use snapshots.
-    None // Reached genesis without finding any matching point
+    // Reached genesis without finding any matching point
+    Some((headers, Tip(Point::Origin, 0)))
 }
 
 pub(super) fn hash_point(point: &Point) -> Hash<32> {
