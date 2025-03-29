@@ -5,6 +5,7 @@ use pallas_network::miniprotocols::{chainsync::Tip, Point};
 use std::{collections::VecDeque, sync::Arc};
 use tokio::sync::Mutex;
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum ClientOp {
     Backward(Point),
@@ -47,7 +48,10 @@ impl ClientState {
             match op {
                 ClientOp::Backward(point) => {
                     let store = self.store.lock().await;
-                    let header = store.load_header(&hash_point(point)).unwrap();
+                    #[allow(clippy::expect_used)]
+                    let header = store
+                        .load_header(&hash_point(point))
+                        .expect("rollback point was not in store");
                     Tip(point.clone(), header.block_height())
                 }
                 ClientOp::Forward(header) => {

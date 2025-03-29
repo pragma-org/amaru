@@ -69,7 +69,9 @@ impl ForwardStage {
         network_magic: u64,
         listen_address: &str,
     ) -> Self {
-        let runtime = AcTokio::new("consensus.forward", 1).unwrap();
+        #[allow(clippy::expect_used)]
+        let runtime =
+            AcTokio::new("consensus.forward", 1).expect("failed to create AcTokio runtime");
         Self {
             store,
             upstream: Default::default(),
@@ -105,7 +107,9 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
         let server = TcpListener::bind(&stage.listen_address).await.or_panic()?;
         if let Some(downstream) = &stage.downstream {
             tracing::debug!("sending listening event");
-            downstream.send(ForwardEvent::Listening(server.local_addr().unwrap().port()));
+            downstream.send(ForwardEvent::Listening(
+                server.local_addr().or_panic()?.port(),
+            ));
         }
 
         let (tx, incoming_peers) = mpsc::channel(10);
@@ -247,6 +251,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 enum ClientMsg {
     Peer(PeerServer, Tip),
     Op(ClientOp),
