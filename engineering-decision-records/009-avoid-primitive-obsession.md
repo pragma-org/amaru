@@ -29,13 +29,78 @@ We will avoid primitive obsession by:
    - `Display`, `Debug` for formatting
    - `Serialize`, `Deserialize` for serialization
    - [derive-more]() could be used for non-standard traits
-   - CBOR `Encode` and `Encode` need to be written manually
+   - CBOR `Encode` and `Decode` need to be written manually
 
 4. **Encapsulating validation logic**: Domain-specific types will encapsulate validation logic to ensure they always represent valid values.
 
 5. **Providing clear conversion methods**: When conversion between types is necessary, we'll provide explicit methods rather than relying on implicit conversions.
 
 ## Consequences
+
+### Guidelines
+
+- A newtype is _required_ for a type that semantically cannot support all operations offered by the primitive Rust type (which also includes permitting only a subset of the possible values).
+- A newtype is _recommended_ where the primitive type has a particular and well-established meaning that exists not only in the local code scope, because this implies that uses of the primitive type will overlap with other semantics that shall remain distinct.
+- A newtype will typically _not be used_ for external inputs that haven’t yet been parsed or validated (like Vec<u8> from files or network sockets).
+
+### Example
+
+Here is a full example of the definition of a newtype for `Slot`.
+
+Define the newtype using a [transparent](https://doc.rust-lang.org/nomicon/other-reprs.html#reprtransparent) representation to reduce runtime overhead, and make single field private.
+
+> ![NOTICE]
+> The newtype's private field is only private for code within modules which not children of the module it is defined in.
+
+```rust
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Eq, Serialize, Deserialize)]
+#[repr(transparent)]
+pub struct Slot(u64);
+```
+
+Provide a `pub const fn new` constructor to allow the use of the newtype in `const` values, as well as dedicated methods to convert and manipulate the newtype.
+
+```rust
+impl Slot {
+    pub const fn new (slot: u64) -> Self {
+        Slot(slot)
+    }
+
+    fn elapsed_from(&self, slot: Slot) -> u64 {
+        self.0 - slot.0
+    }
+
+    fn add(&self, slots_elapsed: u64) -> Slot {
+        Slot(self.0 + slots_elapsed)
+    }
+
+    pub fn to_u64(&self) -> u64 {
+        self.0
+    }
+}
+```
+
+Provide `Encode`/`Decode` implementations to make it easy to use newtype with `to_cbor()` and `from_cbor()` functions.
+
+**NOTE**: This should probably be provided by dedicated macros.
+
+```rust
+impl<C> Encode<C> for Slot {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        self.0.encode(e, ctx)
+    }
+}
+
+impl<'b, C> Decode<'b, C> for Slot {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        d.u64().map(Slot)
+    }
+}
+```
 
 ### Positive Outcomes
 
@@ -48,12 +113,19 @@ We will avoid primitive obsession by:
 ### Negative Outcomes
 
 - **Increased boilerplate**: Creating custom types requires more code than using primitives directly.
-- **Learning curve**: New contributors need to learn the domain-specific types rather than working with familiar primitives.
-- **Potential performance overhead**: In some cases, wrapping primitives might introduce minor performance overhead (though this is usually negligible with Rust's zero-cost abstractions). Wherever possible this should be avoided by using the `#[repr(transparent)]` annotation to ensure compiled representation does not carry with it
+- **Conflicting definitions**: Re-definitions of concepts which are common across the Cardano universe could lead to confusion and require annoying conversions back and forth when depending on libraries which also define those concepts.
+- **Increased coupling across domains**: Dependencies to libraries defining common types and concepts might increase coupling between domains.
+  - When A and B share the definitions of types from C, they implicitly depend on each other: Changes in `C` required by `A` could break `B` or at least require updating dependencies. In the worst case, this could lead to diamond dependency problem.
 
 ## Discussion points
 
 - We should establish guidelines for when a new type is warranted versus when using a primitive is acceptable.
-- We need to balance the benefits of domain-specific types with the additional complexity they introduce.
-- We should consider creating macros or helper functions to reduce the boilerplate associated with creating new types.
-- Integration with existing libraries that expect primitive types, or that already use their custom `newtypes` needs careful consideration.
+- We should consider creating macros or helper functions to reduce the boilerplate associated with creating new types, especially for CBOR encoding/decoding which is non-standard
+- Integration with existing libraries that expect primitive types, or that already use their custom `newtypes` needs careful consideration, eg. `Slot` is [defined](https://github.com/txpipe/pallas/blob/c9913a08f1fbc5880c58b72169167dd32cc1b959/pallas-network/src/miniprotocols/txmonitor/protocol.rs#L3) and [redefined](https://github.com/txpipe/pallas/blob/c9913a08f1fbc5880c58b72169167dd32cc1b959/pallas-addresses/src/lib.rs#L67) in Pallas and amaru:
+
+```
+crates/ouroboros/src/lib.rs:32:pub type Slot = u64;
+crates/amaru-kernel/src/lib.rs:203:pub type Slot = u64;
+crates/amaru/src/sync.rs:44:pub type Slot = u64;
+crates/amaru-ledger/src/store/columns/slots.rs:21:pub type Key = Slot;
+```

@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::store::{rocksdb::RocksDBStore, ChainStore, Nonces};
-use amaru_kernel::{network::NetworkName, Hash, Header, Nonce, Point};
+use amaru_kernel::{
+    network::{NetworkName, Slot},
+    Hash, Header, Nonce, Point,
+};
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;
@@ -69,7 +72,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         epoch: {
             let slot = args.at.slot_or_default();
             // FIXME: currently hardwired to preprod network
-            era_history.slot_to_epoch(slot.into())?
+            era_history.slot_to_epoch(Slot::new(slot))?
         },
         active: args.active,
         evolving: args.evolving,
