@@ -47,6 +47,8 @@ pub struct Config {
     pub chain_dir: PathBuf,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
+    pub network_magic: u32,
+    pub listen_address: String,
 }
 
 /// A session with a peer, including the peer itself and a client to communicate with it.
@@ -95,7 +97,12 @@ pub fn bootstrap(
     );
 
     let mut consensus_stage = HeaderStage::new(consensus);
-    let mut block_forward = ForwardStage::new(chain_ref.clone());
+    let mut block_forward = ForwardStage::new(
+        None,
+        chain_ref.clone(),
+        config.network_magic as u64,
+        &config.listen_address,
+    );
 
     let (to_block_fetch, from_consensus_stage) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);

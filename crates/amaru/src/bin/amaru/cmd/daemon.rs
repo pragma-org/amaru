@@ -50,6 +50,10 @@ pub struct Args {
     /// Path of the chain on-disk storage.
     #[arg(long, value_name = "DIR", default_value = super::DEFAULT_CHAIN_DB_DIR)]
     chain_dir: PathBuf,
+
+    /// The address to listen on for incoming connections.
+    #[arg(long, value_name = "LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS)]
+    listen_address: String,
 }
 
 pub async fn run(
@@ -106,5 +110,7 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         chain_dir: args.chain_dir,
         upstream_peers: args.peer_address,
         network: args.network,
+        network_magic: args.network.to_network_magic(),
+        listen_address: args.listen_address,
     })
 }

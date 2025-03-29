@@ -14,12 +14,14 @@ rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
+acto.workspace = true
 async-trait.workspace = true
 clap.workspace = true
 gasket.workspace = true
 hex.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
+minicbor.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
@@ -28,6 +30,8 @@ pallas-crypto.workspace = true
 pallas-network.workspace = true
 pallas-primitives.workspace = true
 pallas-traverse.workspace = true
+serde_json.workspace = true
+slot-arithmetic.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
