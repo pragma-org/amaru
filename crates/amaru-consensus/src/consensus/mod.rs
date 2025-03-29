@@ -12,9 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::Point;
+use tracing::Span;
+
+use crate::peer::Peer;
+
 pub mod chain_selection;
-/// Block fetch stage
-pub mod fetch;
+
 pub mod header_validation;
 pub mod store;
-pub mod wiring;
+
+#[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum ValidateHeaderEvent {
+    Validated(Peer, Point, Span),
+    Rollback(Point),
+}

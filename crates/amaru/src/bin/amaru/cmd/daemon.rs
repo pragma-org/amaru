@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::metrics::track_system_metrics;
-use amaru::sync::Config;
+use amaru::stages::{bootstrap, Config};
 use amaru_kernel::network::NetworkName;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -67,7 +67,7 @@ pub async fn run(
         clients.push((peer.clone(), Arc::new(Mutex::new(client))));
     }
 
-    let sync = amaru::sync::bootstrap(config, clients)?;
+    let sync = bootstrap(config, clients)?;
 
     let exit = amaru::exit::hook_exit_token();
 

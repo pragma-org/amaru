@@ -12,15 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod pipeline;
-
 pub mod point;
 
 /// Sync pipeline
 ///
 /// The sync pipeline is responsible for fetching blocks from the upstream node and
 /// applying them to the local chain.
-pub mod sync;
+pub mod stages;
 
 /// Generic exit handler
 pub mod exit;
