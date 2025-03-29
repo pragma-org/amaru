@@ -18,7 +18,7 @@ use amaru_consensus::{
         header_validation::Consensus,
         store::ChainStore,
     },
-    peer::{Peer, PeerSession},
+    peer::Peer,
     ConsensusError,
 };
 use amaru_kernel::{
@@ -51,6 +51,19 @@ pub struct Config {
     pub chain_dir: PathBuf,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
+}
+
+/// A session with a peer, including the peer itself and a client to communicate with it.
+#[derive(Clone)]
+pub struct PeerSession {
+    pub peer: Peer,
+    pub peer_client: Arc<Mutex<PeerClient>>,
+}
+
+impl PeerSession {
+    pub async fn lock(&mut self) -> tokio::sync::MutexGuard<'_, PeerClient> {
+        self.peer_client.lock().await
+    }
 }
 
 pub fn bootstrap(

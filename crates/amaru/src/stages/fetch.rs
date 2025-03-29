@@ -14,16 +14,14 @@
 
 use std::collections::HashMap;
 
-use amaru_consensus::{
-    consensus::ValidateHeaderEvent,
-    peer::{Peer, PeerSession},
-    ConsensusError,
-};
+use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::Point;
 use amaru_ledger::ValidateBlockEvent;
 use gasket::framework::*;
 use tracing::{instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use super::PeerSession;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
