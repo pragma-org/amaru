@@ -132,10 +132,7 @@ mod tests {
         rules::block::{InvalidBlock, InvalidBlockHeader},
         test::{fake_input, fake_output},
     };
-    use amaru_kernel::{
-        protocol_parameters::ProtocolParameters, Bytes, Hash, PostAlonzoTransactionOutput,
-        TransactionInput, TransactionOutput, Value,
-    };
+    use amaru_kernel::protocol_parameters::ProtocolParameters;
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
@@ -152,18 +149,18 @@ mod tests {
         LazyLock::new(|| AssertPreparationContext {
             utxo: BTreeMap::from([
                 (
-                    fake_input!(
+                    fake_input(
                         "2e6b2226fd74ab0cadc53aaa18759752752bd9b616ea48c0e7b7be77d1af4bf4",
-                        0
+                        0,
                     ),
-                    fake_output!("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
+                    fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
                 ),
                 (
-                    fake_input!(
+                    fake_input(
                         "d5dc99581e5f479d006aca0cd836c2bb7ddcd4a243f8e9485d3c969df66462cb",
-                        0
+                        0,
                     ),
-                    fake_output!("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
+                    fake_output("61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335"),
                 ),
             ]),
         });

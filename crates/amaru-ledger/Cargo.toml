@@ -16,6 +16,7 @@ rust-version.workspace = true
 hex.workspace = true
 num.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tracing.workspace = true
 thiserror.workspace = true
 

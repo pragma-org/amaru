@@ -101,291 +101,60 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
+    use std::collections::BTreeSet;
 
-    use crate::{
-        context::{
-            assert::{AssertPreparationContext, AssertValidationContext},
-            WitnessSlice,
-        },
-        test::{fake_input, fake_output},
+    use crate::context::{
+        assert::{AssertPreparationContext, AssertValidationContext},
+        WitnessSlice,
     };
     use amaru_kernel::{
-        cbor, Bytes, HasAddress, HasOwnership, Hash, MintedTransactionBody,
-        PostAlonzoTransactionOutput, StakeCredential, TransactionInput, TransactionOutput, Value,
+        cbor, HasAddress, HasOwnership, Hash, MintedTransactionBody, StakeCredential,
     };
+
+    fn load_preperation_context_from_file(
+        path: &str,
+    ) -> Result<AssertPreparationContext, Box<dyn std::error::Error>> {
+        let file = std::fs::File::open(path)?;
+        let reader = std::io::BufReader::new(file);
+        let context = serde_json::from_reader(reader)?;
+        Ok(context)
+    }
 
     #[test]
     fn valid_reference_input_transactions() {
         // The following are transaction bodies with a variable number of inputs and reference inputs from preprod
         // Defining seperately for lifetime purposes. Certainly there's a nicer way to do this...
-        let tx_7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b = hex::decode("ab008482582047a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab02825820b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b200825820b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b201825820b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2020184a300581d704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e74901821a002dc6c0a2581c436941ead56c61dbf9b92b5f566f7d5b9cac08f8c957f28f0bd60d4ba14c5041594d454e54544f4b454e192cb4581c5cf48c225e057f8da0787eae1e2bc62a1cf1d2ee34c7e2a9498b19b5a148416767537461746501028201d81858ead87b9fd8799fd8799f9f581c3f2728ec78ef8b0f356e91a5662ff3124add324a7b7f5aeed69362f4581c17942ff3849b623d24e31ec709c1c94c53b9240311820a9601ad4af0581cba4ab50bdecca85162f3b8114739bc5ba3aaa6490e2b1d15ad0f9c66581c25aa4132c7ce7d8f96ee977cd921cba7681891d114d088449d1d63b2581c5309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41ff1917701a001b77401a001b774018c818641a000927c0d8799f0a140aff021905dcd8799f9f581c1a550d5f572584e1add125b5712f709ac3b9828ad86581a4759022baff01ffffffffa300581d704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e74901821a001e8480a1581c5cf48c225e057f8da0787eae1e2bc62a1cf1d2ee34c7e2a9498b19b5a14a4f7261636c654665656401028201d8185827d8799fd87b9fa3001b0000000dfaa9b200011b00000191f5ced5ba021b00000191f5ea4cfaffffa300581d704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e74901821a002dc6c0a2581c436941ead56c61dbf9b92b5f566f7d5b9cac08f8c957f28f0bd60d4ba14c5041594d454e54544f4b454e1a000a92a0581c5cf48c225e057f8da0787eae1e2bc62a1cf1d2ee34c7e2a9498b19b5a14652657761726401028201d81858d0d87c9fd8799f9fd8799f581c3f2728ec78ef8b0f356e91a5662ff3124add324a7b7f5aeed69362f41a00021118ffd8799f581c17942ff3849b623d24e31ec709c1c94c53b9240311820a9601ad4af01a000233c0ffd8799f581cba4ab50bdecca85162f3b8114739bc5ba3aaa6490e2b1d15ad0f9c661a00021833ffd8799f581c25aa4132c7ce7d8f96ee977cd921cba7681891d114d088449d1d63b21a000221a5ffd8799f581c5309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e411a0001ee15ffff1925dbffff82581d605309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e411a00a229b4021a00175e18031a043724da081a043724620b5820ee8f2ca9b9a3e8cdc86ab2421fe721753bfd9bb2bfbf483a8e0a35d4b7ab28e20d8182582047a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab020e81581c5309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e411082581d605309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e411a00827b8d111a00370c3f128782582047a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab00825820b6dcfdc52df91296d060b4fee05c05340c51e89b16ff7033a53a35d2cd7949b0008258205c6d1dba0f74e55143a751d3f92433bcfbaa63d20b909f5dde8246db9f38144c00825820f0b861a084a983537de82d769ddf50876ef1bbb7b504690f45bc65e65d4de8f200825820878296eb7662c6a6e600f48941b3eae1e582bc05aacd0d635fcc96448a5e4e2600825820efd8a48f69e5270cb73b438067e1b566d39758329a45e5d6d36755f2c732618400825820537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea16559601").expect("failed to decode hex");
-        let tx_537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596 = hex::decode("ab008482582008482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc1450260082582008482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc1450260182582008482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc14502602825820714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1020184a300581d70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec901821a002dc6c0a2581c5e4a2431a465a00dc5d8181aaff63959bb235d97013e7acb50b55bc4a148416767537461746501581cc6f192a236596e2bbaac5900d67e9700dec7c77d9da626c98e0ab2aca14c5061796d656e74546f6b656e1a3af604c0028201d81858b2d87b9fd8799fd8799f9f581ccef7fb5f89a9c76a65acdd746d9e84104d6f824d7dc44f427fcaa1dd581c4ad1571e7df63d4d6c49240c8372eb639f57c0ef669338c0d752f29b581cfc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01ff1917701a001b77401a001b774018c81927101a000493e0d8799f186418c81864ff021905dcd8799f9f581c1a550d5f572584e1add125b5712f709ac3b9828ad86581a4759022baff01ffffffffa300581d70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec901821a001e8480a1581c5e4a2431a465a00dc5d8181aaff63959bb235d97013e7acb50b55bc4a14a4f7261636c654665656401028201d8185823d8799fd87b9fa3001a0056fad0011b00000191f5c9da97021b00000191f5e551d7ffffa300581d70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec901821a002dc6c0a2581c5e4a2431a465a00dc5d8181aaff63959bb235d97013e7acb50b55bc4a14652657761726401581cc6f192a236596e2bbaac5900d67e9700dec7c77d9da626c98e0ab2aca14c5061796d656e74546f6b656e1a0051b2d8028201d8185884d87c9fd8799f9fd8799f581ccef7fb5f89a9c76a65acdd746d9e84104d6f824d7dc44f427fcaa1dd1a001e7094ffd8799f581c4ad1571e7df63d4d6c49240c8372eb639f57c0ef669338c0d752f29b1a001cf9f8ffd8799f581cfc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd011a00011d8cffff1a00152ac0ffff82581d60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd011a006b8bab021a0013fd20031a0437237a081a043723020b58204465d400acd4567400591f7e8067f5dc2d100629b3ded33dcb27ccb1bb9075b40d81825820714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1020e81581cfc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd011082581d60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd011a00487c8c111a00370c3f12848258205ea9e62dc65b61aa05609701157374f00809002278bc992b42a8c7b0ceeb5a1b00825820f82a2aa7fbe10081063a648b30a863efccb003948eed464898343665f5709e81008258204b61acedca6426ec989ef78a85ed97a8b4ffd47d9c40d4155e453d7e6b25ae5800825820714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac100").expect("failed to decode hex");
-        let tx_578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6 = hex::decode("aa00d9010298188258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e008258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e018258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e028258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e038258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e048258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e058258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e068258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e078258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e088258202b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e098258204400503506eab02d9213b975ea3ea389144b5130f83872930499cd1e46ae94ed018258205ef5af924bd28cd59fad83ea88ba64887dc3f48151f430baf78233ad486dddd500825820b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb471100825820b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb471101825820b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb471102825820b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb471103825820b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb471104825820b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb471105825820b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb471106825820b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb471109825820c01742f9d6d3eccc9f03ebebf84fb07af0426b40d5c3a6371ff7470ed1302f5000825820c0832a06efdee5e1172251be0c343488a42463f76b61042d75c58f4d2eb9d89600825820f128b201daa7b4801445788a376eaba81c356127a09322031132fabfd664efc104825820f128b201daa7b4801445788a376eaba81c356127a09322031132fabfd664efc1070188835839001122cd70e2474fdf13d93790298d6739b0b5df0a480700906efdc0a1358a4e4105c08f59e4779070699c7a72566893332f9857db4e742beb821a01058920a1581cc6e65ba7878b2f8ea0ad39287d3e2fd256dc5c4160fc19bdf4c4d87ea1457447454e531a009d49a05820ecd48660573e7fb6885065dee6a56a6affaafe1d3250dfa4a5a2c00b30ac1ff583583910f2ba646d131759d11cb104624a370fcca1ccdd9d1ba701861f5b2f8a553c5e9d21a649367f0d4c0712ba0d93f27349475d61f0d6765ec1c3821b0000000968a82fd7a2581c158f42b49e0841301b45358b87744167f43359cc3785eab8d30893e1a158203c0cfb373d77b062ca7bba608a005a54d949d1839cc4db41ea00adfd2b4008a001581cc6e65ba7878b2f8ea0ad39287d3e2fd256dc5c4160fc19bdf4c4d87ea1457447454e531b0000000221a3594b5820d16089ba5811f2fe6ac11ec97f346ff23a1ec9e882b2aa6c3915268edc81f0338358390025195af85c41b9d97da7f4f215d3e74c9cef7f04739d6ba473ba72a2358a4e4105c08f59e4779070699c7a72566893332f9857db4e742beb1a0e21dbed5820ecaab4d82c069f5723ea5247c2f46b6433fa2afeac6e180382314ecab8da90db8358390025195af85c41b9d97da7f4f215d3e74c9cef7f04739d6ba473ba72a2358a4e4105c08f59e4779070699c7a72566893332f9857db4e742beb1a004dd1e05820c39622593e6992481aa8e22a1f6d732f7a80ffe946ccd46b7b1f6cb37dfc1d9d8258390069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7821a0023f381a1581c8cafc9b387c9f6519cacdce48a8448c062670c810d8da4b232e56313a1446d4e545818a48258390069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7821a00527166a2581c8cafc9b387c9f6519cacdce48a8448c062670c810d8da4b232e56313a1446d4e545818c8581cc6e65ba7878b2f8ea0ad39287d3e2fd256dc5c4160fc19bdf4c4d87ea1457447454e531a000de17c8258390069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7821b000000023d688f93a2581c8cafc9b387c9f6519cacdce48a8448c062670c810d8da4b232e56313a1446d4e545818c8581cc6e65ba7878b2f8ea0ad39287d3e2fd256dc5c4160fc19bdf4c4d87ea1457447454e531a302733918258390069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a71a037bf0e3021a000e873b0758209f7a0691b5cd8c61203de22560c3290776c33d6f4de92717d6ef9a813d92286209a1581c53827a77e4ed3d5c211706708c0aa9b9a3be19db901b1cbf7fa515b8a258201d29982438cd55e970363daac9d258cfb788df195d37cbe03244e8c00165baab205820c10a387ac7e1a66fd9bc39c46d717bcf7f4cfa4d1e30ecaead5dc48eef8574da200b58202c6c071ea7ce43d756e5c1f4e650895260dccbe9018f5a4a2a40b299dfd251230dd90102818258202248cd7b673cdb0049cdbb19c599081b1a8561f6743806d0fd0d632acc30471700108258390069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a71a00368067111a0015cad912d901028582582002a35a2dd4af7f5be380c03fa6f6984705e8cba1ef7e079aa12a534e44290af10082582016647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c704826240082582016647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c704826240182582016647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c7048262402825820be6f8dc16d4e8d5aad566ff6b5ffefdda574817a60d503e2a0ea95f77317505002").expect("failed to decode hex");
-        let tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a = hex::decode("a500d9010281825820f28e29a115155f1c5557a6568baa34423f3e0d37e979040db0586f79a5b0e14f0d018282583900c9c0b70e66812af4f3d5f3c986841ab51e8c4e78fc51e17805cf01cefd663095e5adc264dc2782d25ed53fc8352f89b47ba337041b5cda58821a00186a00a2581c919e8a1922aaa764b1d66407c6f62244e77081215f385b60a6209149a1494861707079436f696e01581cee1ce9d7560f48a4ba3867037dbec2d8fed776d94dd6b00a35309073a1400182583900679d60c3515a234e4b14ad92b6671ec49bcbe8e2915889f0bc6683a2eb54ea5e1faa92afe966f769d1f6b4d11d68450ca5d1f00e93aec38e821a00823749a2581c919e8a1922aaa764b1d66407c6f62244e77081215f385b60a6209149a1494861707079436f696e03581cee1ce9d7560f48a4ba3867037dbec2d8fed776d94dd6b00a35309073a14003021a0002ac79031a04365e8e0800").expect("failed to decode hex");
-        let tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4 = hex::decode("ab008382582085695567ac864322bbf15a234cb1207206e94c9baba7157df49c95a4161b462402825820899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba64015800825820e655f90fd569a0352abe9d55fce2e4d70c570ceecbf205f79129623dd2294e4d020183a300581d703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad01821a001e8480a1581c2b556df9f37c04ef31b8f7f581c4e48174adcf5041e8e52497d81556a1484e6f64654665656401028201d818583cd87a9fd8799f581cbdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3d8799fd8799f1a000540bb1b00000191f25be7a8ffffffff82581d60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e31a0089544082581d60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e31a0062170b021a0009ce9c031a043642c3081a0436424b0b582091b0d6dba1d88661433fb0ed0097faa20ddc563980b6b66039fdb211cc8a30ee0d81825820899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba640158010e81581cbdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e31082581d60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e31a00524801111a00370c3f12818258201a28375b01a8928f21a87598e24165ab5806e7c3e77a5eb4d78c56e3cf07894c00").expect("failed to decode hex");
+        let tx_7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b = include_bytes!("../../../tests/data/transactions/preprod/7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b/tx.cbor");
+        let tx_537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596 = include_bytes!("../../../tests/data/transactions/preprod/537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596/tx.cbor");
+        let tx_578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6 = include_bytes!("../../../tests/data/transactions/preprod/578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6/tx.cbor");
+        let tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a = include_bytes!("../../../tests/data/transactions/preprod/d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a/tx.cbor");
+        let tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4 = include_bytes!("../../../tests/data/transactions/preprod/6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4/tx.cbor");
 
         let cases: Vec<(MintedTransactionBody<'_>, AssertPreparationContext)> = vec![
             (
-                cbor::decode(&tx_7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b)
+                cbor::decode(tx_7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b)
                     .expect("failed to decode tx body cbor"),
-                AssertPreparationContext {
-                    utxo: BTreeMap::from([
-                        (
-                            fake_input!(
-                                "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
-                                2
-                            ),
-                            fake_output!(
-                                "605309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
-                                0
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
-                                1
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
-                                2
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
-                                0
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "b6dcfdc52df91296d060b4fee05c05340c51e89b16ff7033a53a35d2cd7949b0",
-                                0
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "5c6d1dba0f74e55143a751d3f92433bcfbaa63d20b909f5dde8246db9f38144c",
-                                0
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "f0b861a084a983537de82d769ddf50876ef1bbb7b504690f45bc65e65d4de8f2",
-                                0
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "878296eb7662c6a6e600f48941b3eae1e582bc05aacd0d635fcc96448a5e4e26",
-                                0
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "efd8a48f69e5270cb73b438067e1b566d39758329a45e5d6d36755f2c7326184",
-                                0
-                            ),
-                            fake_output!(
-                                "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596",
-                                1
-                            ),
-                            fake_output!(
-                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
-                                2
-                            ),
-                            fake_output!(
-                                "605309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41"
-                            ),
-                        ),
-                    ]),
-                },
+                load_preperation_context_from_file("tests/data/transactions/preprod/7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b/context.json").expect("failed to load prepreation context from file")
             ),
             (
-                cbor::decode(&tx_537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596)
+                cbor::decode(tx_537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596)
                     .expect("failed to decode tx body cbor"),
-                AssertPreparationContext {
-                    utxo: BTreeMap::from([
-                        (
-                            fake_input!(
-                                "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
-                                0
-                            ),
-                            fake_output!(
-                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
-                                1
-                            ),
-                            fake_output!(
-                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
-                                2
-                            ),
-                            fake_output!(
-                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
-                                2
-                            ),
-                            fake_output!(
-                                "60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "5ea9e62dc65b61aa05609701157374f00809002278bc992b42a8c7b0ceeb5a1b",
-                                0
-                            ),
-                            fake_output!(
-                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "f82a2aa7fbe10081063a648b30a863efccb003948eed464898343665f5709e81",
-                                0
-                            ),
-                            fake_output!(
-                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "4b61acedca6426ec989ef78a85ed97a8b4ffd47d9c40d4155e453d7e6b25ae58",
-                                0
-                            ),
-                            fake_output!(
-                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
-                                0
-                            ),
-                            fake_output!(
-                                "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
-                            ),
-                        ),
-                        (
-                            fake_input!(
-                                "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
-                                2
-                            ),
-                            fake_output!(
-                                "60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01"
-                            ),
-                        ),
-                    ]),
-                },
+                load_preperation_context_from_file("tests/data/transactions/preprod/537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596/context.json").expect("failed to load prepreation context from file")
             ),
             (
-                cbor::decode(&tx_578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6)
+                cbor::decode(tx_578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6)
                     .expect("failed to decode tx body cbor"),
-                AssertPreparationContext {
-                utxo: BTreeMap::from([(fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 0), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 1), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 2), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 3), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 4), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 5), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 6), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 7), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 8), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("2b5c2283d6a19c845ec896815f64ea392d006531c9d4a1fbc5838b78d7a84e5e", 9), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("4400503506eab02d9213b975ea3ea389144b5130f83872930499cd1e46ae94ed", 1), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("5ef5af924bd28cd59fad83ea88ba64887dc3f48151f430baf78233ad486dddd5", 0), fake_output!("10f2ba646d131759d11cb104624a370fcca1ccdd9d1ba701861f5b2f8a553c5e9d21a649367f0d4c0712ba0d93f27349475d61f0d6765ec1c3")),
-                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 0), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 1), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 2), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 3), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 4), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 5), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 6), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("b4012335d7b4250e002d00cad0b7b481e9e4f49f9ae966dc410e4b1c74bb4711", 9), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("c01742f9d6d3eccc9f03ebebf84fb07af0426b40d5c3a6371ff7470ed1302f50", 0), fake_output!("1044376a5f63342097a4f20401088c62da272639e60644a9ec1d70f444358a4e4105c08f59e4779070699c7a72566893332f9857db4e742beb")),
-                (fake_input!("c0832a06efdee5e1172251be0c343488a42463f76b61042d75c58f4d2eb9d896", 0), fake_output!("1044376a5f63342097a4f20401088c62da272639e60644a9ec1d70f444358a4e4105c08f59e4779070699c7a72566893332f9857db4e742beb")),
-                (fake_input!("f128b201daa7b4801445788a376eaba81c356127a09322031132fabfd664efc1", 4), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("f128b201daa7b4801445788a376eaba81c356127a09322031132fabfd664efc1", 7), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                (fake_input!("02a35a2dd4af7f5be380c03fa6f6984705e8cba1ef7e079aa12a534e44290af1", 0), fake_output!("70d0c21d391ee431f3a9f26736af61e3aa635713624120d040e1ed0c27")),
-                (fake_input!("16647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c70482624", 0), fake_output!("70044563a452ddbc0347206d57488108b59ab252af1b76583e6a6595a8")),
-                (fake_input!("16647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c70482624", 1), fake_output!("7051936f3c98a04b6609aa9b5c832ba1182cf43a58e534fcc05db09d69")),
-                (fake_input!("16647d6365020555d905d6e0edcf08b90a567886f875b40b3d7cec1c70482624", 2), fake_output!("7051936f3c98a04b6609aa9b5c832ba1182cf43a58e534fcc05db09d69")),
-                (fake_input!("be6f8dc16d4e8d5aad566ff6b5ffefdda574817a60d503e2a0ea95f773175050", 2), fake_output!("7051936f3c98a04b6609aa9b5c832ba1182cf43a58e534fcc05db09d69")),
-                (fake_input!("2248cd7b673cdb0049cdbb19c599081b1a8561f6743806d0fd0d632acc304717", 0), fake_output!("0069d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab030e9e4801eced849e8d62e11ffcde50286ccef02c18f2fea84390a7")),
-                ])
-                }
+                load_preperation_context_from_file("tests/data/transactions/preprod/578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6/context.json").expect("failed to load prepreation context from file")
+
             ),
-            (cbor::decode(&tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a)
+            (cbor::decode(tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a)
                 .expect("failed to decode tx body cbor"),
-            AssertPreparationContext {
-            utxo: BTreeMap::from([(fake_input!("f28e29a115155f1c5557a6568baa34423f3e0d37e979040db0586f79a5b0e14f", 13),
-                fake_output!("0092529f01b85021f5c9b53b5ec907b6d1cfe539ebc78ae41acf41f7c7eb54ea5e1faa92afe966f769d1f6b4d11d68450ca5d1f00e93aec38e")),
-            ])
-            }
+            load_preperation_context_from_file("tests/data/transactions/preprod/d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a/context.json").expect("failed to load prepreation context from file")
             ),
-            (cbor::decode(&tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4)
+            (cbor::decode(tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4)
                 .expect("failed to decode tx body cbor"),
-            AssertPreparationContext {
-            utxo: BTreeMap::from([(fake_input!("85695567ac864322bbf15a234cb1207206e94c9baba7157df49c95a4161b4624", 2), fake_output!("60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3")),
-            (fake_input!("899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba640158", 0), fake_output!("703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad")),
-            (fake_input!("e655f90fd569a0352abe9d55fce2e4d70c570ceecbf205f79129623dd2294e4d", 2), fake_output!("60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3")),
-            (fake_input!("1a28375b01a8928f21a87598e24165ab5806e7c3e77a5eb4d78c56e3cf07894c", 0), fake_output!("703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad")),
-            (fake_input!("899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba640158", 1), fake_output!("60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3")),
-            ])
-            }
+            load_preperation_context_from_file("tests/data/transactions/preprod/6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4/context.json").expect("failed to load prepreation context from file")
+
             )
         ];
 
