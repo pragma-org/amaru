@@ -20,13 +20,14 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 /// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Value = (Epoch, Proposal);
+pub type Value = Row;
 
 pub type Key = ProposalPointer;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    pub epoch: Epoch,
+    pub proposed_in: Epoch,
+    pub valid_until: Epoch,
     pub proposal: Proposal,
 }
 
@@ -48,8 +49,9 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(2)?;
-        e.encode_with(self.epoch, ctx)?;
+        e.array(3)?;
+        e.encode_with(self.proposed_in, ctx)?;
+        e.encode_with(self.valid_until, ctx)?;
         e.encode_with(self.proposal.clone(), ctx)?;
         Ok(())
     }
@@ -59,7 +61,8 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
         Ok(Row {
-            epoch: d.decode_with(ctx)?,
+            proposed_in: d.decode_with(ctx)?,
+            valid_until: d.decode_with(ctx)?,
             proposal: d.decode_with(ctx)?,
         })
     }

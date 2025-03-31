@@ -20,7 +20,7 @@ use super::{
 use crate::store::{self, columns::*};
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Proposal,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput, GOV_ACTION_LIFETIME,
 };
 use std::collections::{BTreeSet, VecDeque};
 use tracing::error;
@@ -138,7 +138,7 @@ pub struct VolatileState {
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
-    pub proposals: DiffBind<ProposalPointer, Empty, Empty, (Epoch, Proposal)>,
+    pub proposals: DiffBind<ProposalPointer, Empty, Empty, Proposal>,
     pub fees: Lovelace,
 }
 
@@ -272,9 +272,14 @@ impl AnchoredVolatileState {
                             ),
                         ): (usize, (_, Bind<_, Empty, _>))| {
                             match value {
-                                Some((epoch, proposal)) => {
-                                    Some((proposal_pointer, (epoch, proposal)))
-                                }
+                                Some(proposal) => Some((
+                                    proposal_pointer,
+                                    proposals::Value {
+                                        proposed_in: epoch,
+                                        valid_until: epoch + GOV_ACTION_LIFETIME,
+                                        proposal,
+                                    },
+                                )),
                                 None => {
                                     error!(
                                         target: EVENT_TARGET,

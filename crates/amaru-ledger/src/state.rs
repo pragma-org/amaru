@@ -365,7 +365,11 @@ fn epoch_transition(
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
-    db.tick_pools(current_epoch).map_err(StateError::Storage)
+    db.tick_pools(current_epoch).map_err(StateError::Storage)?;
+
+    // Refund deposit for any proposal that has expired.
+    db.tick_proposals(current_epoch)
+        .map_err(StateError::Storage)
 }
 
 // HasStakeDistribution

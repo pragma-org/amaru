@@ -22,7 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug)]
 pub struct GovernanceSummary {
     pub dreps: BTreeMap<DRep, DRepState>,
-    pub deposits: BTreeMap<StakeCredential, Lovelace>,
+    pub deposits: BTreeMap<StakeCredential, ProposalState>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -34,19 +34,37 @@ pub struct DRepState {
     pub registered_at: CertificatePointer,
 }
 
+#[derive(Debug, Default, Clone, Copy)]
+pub struct ProposalState {
+    pub deposit: Lovelace,
+    pub valid_until: Epoch,
+}
+
 impl GovernanceSummary {
     pub fn new(db: &impl Snapshot) -> Result<Self, StoreError> {
+        let epoch = db.epoch();
+
         let mut all_proposals_epochs = BTreeSet::new();
 
         // FIXME: filter out proposals that have been ratified
         let deposits = db
             .iter_proposals()?
-            .map(|(_, row)| {
-                all_proposals_epochs.insert(row.epoch);
-                (
-                    expect_stake_credential(&row.proposal.reward_account),
-                    row.proposal.deposit,
-                )
+            .filter_map(|(_, row)| {
+                all_proposals_epochs.insert(row.proposed_in);
+                // NOTE: Proposals are ratified with an epoch of delay always, so deposits count
+                // towards the voting stake of DRep for an extra epoch following the proposal
+                // expiry.
+                if epoch <= row.valid_until + 1 {
+                    Some((
+                        expect_stake_credential(&row.proposal.reward_account),
+                        ProposalState {
+                            deposit: row.proposal.deposit,
+                            valid_until: row.valid_until,
+                        },
+                    ))
+                } else {
+                    None
+                }
             })
             .collect::<BTreeMap<_, _>>();
 

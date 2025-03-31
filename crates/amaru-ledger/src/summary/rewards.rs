@@ -98,7 +98,7 @@ certain mutations are applied to the system.
 
 use crate::{
     store::{columns::*, Snapshot, StoreError},
-    summary::governance::{DRepState, GovernanceSummary},
+    summary::governance::{DRepState, GovernanceSummary, ProposalState},
 };
 use amaru_kernel::{
     encode_bech32, expect_stake_credential, output_stake_credential, DRep, Epoch, HasLovelace,
@@ -187,6 +187,10 @@ impl StakeDistribution {
             })
             .collect::<BTreeMap<StakeCredential, AccountState>>();
 
+        // TODO: This is the most expensive call in this whole function. It could be made
+        // significantly cheaper if we only partially deserialize the UTxOs here. We only need the
+        // output's address and *lovelace* value, so we can skip on deserializing the rest of the value, as
+        // well as the datum and/or script references if any.
         db.iter_utxos()?.for_each(|(_, output)| {
             if let Ok(Some(credential)) = output_stake_credential(&output) {
                 let value = output.lovelace();
@@ -196,18 +200,18 @@ impl StakeDistribution {
             }
         });
 
-        let mut retired_pools = BTreeSet::new();
+        let mut retiring_pools = BTreeSet::new();
         let mut pools = db
             .iter_pools()?
             .map(|(pool, row)| {
-                // We need to tick pool as part of the stake distribution calculation, in order to
-                // know whether a pool will retire in the next epoch. This is because, votes
-                // ratification happens *after* pools reaping, and thus, nullify voting power of
-                // pools that are retiring.
+                // NOTE: We need to tick pool as part of the stake distribution calculation, in
+                // order to know whether a pool will retire in the next epoch. This is because,
+                // votes ratification happens *after* pools reaping, and thus, nullify voting power
+                // of pools that are retiring.
                 pools::Row::tick(
                     Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
                         if dropped.is_none() {
-                            retired_pools.insert(pool);
+                            retiring_pools.insert(pool);
                         }
                     })),
                     epoch + 1,
@@ -236,8 +240,15 @@ impl StakeDistribution {
         let accounts = accounts
             .into_iter()
             .filter(|(credential, account)| {
-                let deposit = deposits.get(credential).unwrap_or(&0);
+                let ProposalState {
+                    deposit,
+                    valid_until,
+                } = deposits
+                    .get(credential)
+                    .copied()
+                    .unwrap_or(ProposalState::default());
 
+                // NOTE: Only accounts delegated to active dreps counts towards the voting stake.
                 if let Some(drep) = &account.drep {
                     if let Some(st) = dreps.get_mut(drep) {
                         voting_stake += account.lovelace + deposit;
@@ -245,14 +256,36 @@ impl StakeDistribution {
                     }
                 }
 
+                // NOTE: Only accounts delegated to active pools counts towards the active stake.
                 if let Some(pool_id) = account.pool {
                     return match pools.get_mut(&pool_id) {
                         None => false,
                         Some(pool) => {
+                            // NOTE: Governance deposits do not count towards the pools' stake.
+                            // They are only counted as part of the voting power.
                             active_stake += &account.lovelace;
                             pool.stake += &account.lovelace;
-                            if !retired_pools.contains(&pool_id) {
-                                pool.voting_stake += account.lovelace + deposit;
+
+                            // NOTE: Because votes are ratified with an epoch delay and using the
+                            // stake distribution _at the beginning of an epoch_ (so, after pool
+                            // reap), any pool retiring in the next epoch is considered having no
+                            // voting power whatsoever.
+                            if !retiring_pools.contains(&pool_id) {
+                                pool.voting_stake += account.lovelace;
+                                // NOTE: This is subtle, but the pool distribution used for
+                                // computing voting power is determined BEFORE refunds or
+                                // withdrawal are processed.
+                                //
+                                // So unlike the DRep voting stake, which already includes those,
+                                // we mustn't include the deposit as part of the pool voting stake
+                                // for the epoch that immediately follows the expiry.
+                                //
+                                // Note that the refund is eventually credited in the following
+                                // epoch so the deposit is effectively missing from the pools'
+                                // voting stake for an entire epoch.
+                                if epoch <= valid_until {
+                                    pool.voting_stake += deposit;
+                                }
                             }
                             true
                         }
@@ -273,9 +306,11 @@ impl StakeDistribution {
         info!(
             target: EVENT_TARGET,
             epoch = ?epoch,
-            active_stake = ?active_stake,
             accounts = ?accounts.len(),
             pools = ?pools.len(),
+            active_stake = ?active_stake,
+            dreps = ?dreps.len(),
+            voting_stake = ?voting_stake,
             "stake_distribution.snapshot",
         );
 

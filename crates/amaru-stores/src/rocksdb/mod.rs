@@ -15,7 +15,7 @@
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
     network::{EraHistory, NetworkName},
-    Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+    Epoch, Lovelace, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -418,7 +418,7 @@ impl Store for RocksDB {
                 accounts::add(&batch, add.accounts)?;
                 cc_members::add(&batch, add.cc_members)?;
 
-                accounts::reset(&batch, withdrawals)?;
+                accounts::reset_many(&batch, withdrawals)?;
 
                 dreps::add(&batch, add.dreps)?;
                 dreps::tick(&batch, voting_dreps, {
@@ -437,6 +437,19 @@ impl Store for RocksDB {
             }
         }
 
+        batch
+            .commit()
+            .map_err(|err| StoreError::Internal(err.into()))
+    }
+
+    fn refund(
+        &self,
+        mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
+    ) -> Result<(), StoreError> {
+        let batch = self.db.transaction();
+        refunds.try_for_each(|(account, deposit)| {
+            accounts::set(&batch, account, |balance| balance + deposit)
+        })?;
         batch
             .commit()
             .map_err(|err| StoreError::Internal(err.into()))
