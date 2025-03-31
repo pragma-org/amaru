@@ -78,7 +78,6 @@ dependencies = [
  "pallas-codec",
  "pallas-crypto",
  "pallas-math",
- "pallas-network",
  "proptest",
  "rand",
  "rayon",
