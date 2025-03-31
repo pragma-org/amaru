@@ -322,3 +322,72 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_bootstrap_signers)
     }
 }
+
+// Deserialization of Validation Context JSON files
+impl<'de> serde::Deserialize<'de> for AssertValidationContext {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let mut map: serde_json::Map<String, serde_json::Value> =
+            serde::Deserialize::deserialize(deserializer)?;
+
+        let utxo_value = map
+            .remove("utxo_slice")
+            .ok_or_else(|| D::Error::custom("missing field `utxo_slice`"))?;
+
+        let entries: Vec<JsonUtxoEntry> = serde_json::from_value(utxo_value)
+            .map_err(|e| D::Error::custom(format!("Failed to parse utxo_slice: {}", e)))?;
+
+        let mut utxo = BTreeMap::new();
+
+        for entry in entries {
+            utxo.insert(
+                entry
+                    .input
+                    .try_into()
+                    .map_err(|_| D::Error::custom("invalid transaction id"))?,
+                entry.output.into(),
+            );
+        }
+
+        let required_signers_value = map
+            .remove("required_signers")
+            .ok_or_else(|| D::Error::custom("missing field `required_signers`"))?;
+
+        let required_signers = serde_json::from_value::<Vec<String>>(required_signers_value)
+            .map_err(|e| D::Error::custom(format!("Failed to parse required_signers: {}", e)))?
+            .into_iter()
+            .map(|hex| {
+                hex::decode(hex)
+                    .map_err(|e| D::Error::custom(format!("Invalid hex string: {}", e)))
+                    .map(|hex| Hash::from(hex.as_slice()))
+            })
+            .collect::<Result<BTreeSet<Hash<28>>, D::Error>>()?;
+
+        let required_bootstrap_signers_value = map
+            .remove("required_bootstrap_signers")
+            .ok_or_else(|| D::Error::custom("missing field `required_bootstrap_signers`"))?;
+
+        let required_bootstrap_signers =
+            serde_json::from_value::<Vec<String>>(required_bootstrap_signers_value)
+                .map_err(|e| {
+                    D::Error::custom(format!("Failed to parse required_bootstrap_signers: {}", e))
+                })?
+                .into_iter()
+                .map(|hex| {
+                    hex::decode(hex)
+                        .map_err(|e| D::Error::custom(format!("Invalid hex string: {}", e)))
+                        .map(|hex| Hash::from(hex.as_slice()))
+                })
+                .collect::<Result<BTreeSet<Hash<28>>, D::Error>>()?;
+
+        Ok(AssertValidationContext {
+            utxo,
+            required_signers,
+            required_bootstrap_signers,
+        })
+    }
+}
