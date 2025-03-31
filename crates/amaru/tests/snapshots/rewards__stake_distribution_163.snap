@@ -5,6 +5,7 @@ expression: stake_distr
 {
   "epoch": 163,
   "active_stake": 331086649066019,
+  "voting_stake": 30090984185,
   "accounts": {
     "stake_test17p09knny0kzwdzy4ehat8fk7wfpy7wh80kl6f637ra8h0ucs6ud6q": {
       "lovelace": 5137889140,
@@ -92974,8 +92975,9 @@ expression: stake_distr
   },
   "pools": {
     "pool107k26e3wrqxwghju2py40ngngx2qcu48ppeg7lk0cm35jl2aenx": {
-      "blocksCount": 291,
+      "blocks_count": 291,
       "stake": 4701154832015,
+      "voting_stake": 4701154832015,
       "parameters": {
         "id": "7facad662e180ce45e5c504957cd1341940c72a708728f7ecfc6e349",
         "vrfVerificationKeyHash": "96c5e6a9fb8315143834eb2e446c06c18d39b61f284c1abf049ae202e19b9992",
@@ -93008,8 +93010,9 @@ expression: stake_distr
       }
     },
     "pool108gvqf4qf6j2cspfuat9c6q6rh3csc34vvhezu05dn38c7xhrt5": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 29842882626,
+      "voting_stake": 29842882626,
       "parameters": {
         "id": "79d0c026a04ea4ac4029e7565c681a1de3886235632f9171f46ce27c",
         "vrfVerificationKeyHash": "9301a7fa53a063f42aa34d41decd52a972370ae31448b05cf504046429314093",
@@ -93042,8 +93045,9 @@ expression: stake_distr
       }
     },
     "pool10aqw4wa8cenqut0mlhrnayfhh4jjv7kyg9zv40426axs793k6nx": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 110468338728,
+      "voting_stake": 110468338728,
       "parameters": {
         "id": "7f40eabba7c6660e2dfbfdc73e9137bd65267ac44144cabeaad74d0f",
         "vrfVerificationKeyHash": "644b57050f8976bb985f0dd049a5a14280d540b996237b2ac44b00959f596086",
@@ -93076,8 +93080,9 @@ expression: stake_distr
       }
     },
     "pool10dtwvn64akqjdtn9d4pd2mnhpxfgp76hvsfkgmfwugrsxef3y2p": {
-      "blocksCount": 83,
+      "blocks_count": 83,
       "stake": 1185717144246,
+      "voting_stake": 1185717144246,
       "parameters": {
         "id": "7b56e64f55ed8126ae656d42d56e77099280fb576413646d2ee20703",
         "vrfVerificationKeyHash": "5a535f3eba19c310e985e90f322c0b2e2cd5bb43a366158e6ff6645709209a98",
@@ -93110,8 +93115,9 @@ expression: stake_distr
       }
     },
     "pool10hmpfez2u96atsf648xhe8jv470qxqn6j432zy20qa3227e8kgk": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "7df614e44ae175d5c13aa9cd7c9e4caf9e03027a9562a1114f0762a5",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -93140,8 +93146,9 @@ expression: stake_distr
       }
     },
     "pool10ny3ruzz9xee4smkpk293e9luvkx9fuf37zzz967uxgaca8ap2v": {
-      "blocksCount": 7,
+      "blocks_count": 7,
       "stake": 1051547233442,
+      "voting_stake": 1051547233442,
       "parameters": {
         "id": "7cc911f04229b39ac3760d9458e4bfe32c62a7898f8421175ee191dc",
         "vrfVerificationKeyHash": "5f81aa94f6b2d9409ac9dd00da8f6e9c93ed4e56e4320aacc1c22ff8eab14276",
@@ -93174,8 +93181,9 @@ expression: stake_distr
       }
     },
     "pool10qlwk6y9hhny4nweukak93yf0txrxk0p4k6c992v2hku6l9clkx": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 70597231384,
+      "voting_stake": 70597231384,
       "parameters": {
         "id": "783eeb6885bde64acdd9e5bb62c4897acc3359e1adb582954c55edcd",
         "vrfVerificationKeyHash": "68d7c5f528ed7b8dabec777a760e3a0f7a8b2b2ab1e39ecb11111f8a559eadd2",
@@ -93208,8 +93216,9 @@ expression: stake_distr
       }
     },
     "pool10t0uux47y60xuvaxlw7e2cau09szp25nly2klkrlyr0a7jv6zlq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 7700000,
+      "voting_stake": 7700000,
       "parameters": {
         "id": "7adfce1abe269e6e33a6fbbd9563bc796020aa93f9156fd87f20dfdf",
         "vrfVerificationKeyHash": "bd436caabca96c88f2d89924f10c1a2e61a885d3912429a8943d7559bd53e742",
@@ -93242,8 +93251,9 @@ expression: stake_distr
       }
     },
     "pool10tcv8rekjzmmsr8a5j3cu9j7vl9ffj77sh006k5fa0cry35wmex": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10311367957,
+      "voting_stake": 10311367957,
       "parameters": {
         "id": "7af0c38f3690b7b80cfda4a38e165e67ca94cbde85defd5a89ebf032",
         "vrfVerificationKeyHash": "bc13433f5ac5dbb4aca15847fcbc08e1e7dcd5385f8123bae74900c1150d7f88",
@@ -93276,8 +93286,9 @@ expression: stake_distr
       }
     },
     "pool10zaylnde5n0uurvcqyrmf2wjrk0hk2zmx0ln990p3alt2gh4mkk": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 26076382,
+      "voting_stake": 26076382,
       "parameters": {
         "id": "78ba4fcdb9a4dfce0d980107b4a9d21d9f7b285b33ff3295e18f7eb5",
         "vrfVerificationKeyHash": "bd7c57d28a9adeb8f0e7ef43c12985b8781e8d4e3fad75ff9d547dda46900aa2",
@@ -93310,8 +93321,9 @@ expression: stake_distr
       }
     },
     "pool124jq2jje25v9gtrjxk8qm34ujrcsa3msy4tm04nl2262j5scclv": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 643037434013,
+      "voting_stake": 643037434013,
       "parameters": {
         "id": "5564054a595518542c72358e0dc6bc90f10ec7702557b7d67f52b4a9",
         "vrfVerificationKeyHash": "7ed694fdfc41c29fce3a9eaa100d0951029c1213ae42a31b2de976ec9a9645e8",
@@ -93344,8 +93356,9 @@ expression: stake_distr
       }
     },
     "pool125tufz3q8ww2he3cwp7cn02lsf44u85tnlycmxq0y6pegz4mhjs": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 32076638562,
+      "voting_stake": 32076638562,
       "parameters": {
         "id": "5517c48a203b9cabe638707d89bd5f826b5e1e8b9fc98d980f268394",
         "vrfVerificationKeyHash": "dcafa3298e1dad6b0c3e78a8330ecffdbab235631dad33f85a5624b4a270e47d",
@@ -93378,8 +93391,9 @@ expression: stake_distr
       }
     },
     "pool128dntpzv0jz9g6r7f39dsjllx2rvjttvnwrzk56eg4z3jcct5jj": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "51db35844c7c8454687e4c4ad84bff3286c92d6c9b862b5359454519",
         "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
@@ -93408,8 +93422,9 @@ expression: stake_distr
       }
     },
     "pool129kx4etdult6t7amdv8hjl6yf3ur95hrhncpt29qk4k9czz8ura": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "516c6ae56de7d7a5fbbb6b0f797f444c7832d2e3bcf015a8a0b56c5c",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -93438,8 +93453,9 @@ expression: stake_distr
       }
     },
     "pool129n0d9zrla7ntfjlwhqrtmn7halem0shcjd5mz5zhfym2auyu05": {
-      "blocksCount": 71,
+      "blocks_count": 71,
       "stake": 1149904552215,
+      "voting_stake": 1149904552215,
       "parameters": {
         "id": "5166f69443ff7d35a65f75c035ee7ebf7f9dbe17c49b4d8a82ba49b5",
         "vrfVerificationKeyHash": "1d6a4fd04eff048548691912fb83b285d8d4bfdaa3f75db6578d2dce268e2588",
@@ -93472,8 +93488,9 @@ expression: stake_distr
       }
     },
     "pool12al62800devlmgdk8x5qpw38tnjsmgyys6lrd88hmfwvka2upuw": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 31490480651,
+      "voting_stake": 31490480651,
       "parameters": {
         "id": "577fa51def6e59fda1b639a800ba275ce50da08486be369cf7da5ccb",
         "vrfVerificationKeyHash": "a686183cc91f514ce836fac5e38c6dd85de47e6a65beb138a99fd75854c6f0fc",
@@ -93506,8 +93523,9 @@ expression: stake_distr
       }
     },
     "pool12dd0mg935mzx6rdaykngqj8aeqxrtjltg5jtdccrt7p0x78rc38": {
-      "blocksCount": 78,
+      "blocks_count": 78,
       "stake": 1093898588709,
+      "voting_stake": 1093898588709,
       "parameters": {
         "id": "535afda0b1a6c46d0dbd25a68048fdc80c35cbeb4524b6e3035f82f3",
         "vrfVerificationKeyHash": "b461214576e2f05b60967af6442c92d0668f3459b0ce887e5d95fc958b33a2c9",
@@ -93540,8 +93558,9 @@ expression: stake_distr
       }
     },
     "pool12efl9gdw55cc7sax8cq5spmrfzj8t57gj2p63s0tfx8mwqrqe4g": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9755070149,
+      "voting_stake": 9755070149,
       "parameters": {
         "id": "5653f2a1aea5318f43a63e0148076348a475d3c89283a8c1eb498fb7",
         "vrfVerificationKeyHash": "db0c1beb7034b656a078e199d27c477b4008e05a341921856bb37866b3c00db2",
@@ -93574,8 +93593,9 @@ expression: stake_distr
       }
     },
     "pool12jthfp4uqah0yndtdu6x2tqaxvgnlpc7h30gvwey3rsrc789tme": {
-      "blocksCount": 50,
+      "blocks_count": 50,
       "stake": 831969087755,
+      "voting_stake": 831969087755,
       "parameters": {
         "id": "54977486bc076ef24dab6f34652c1d33113f871ebc5e863b2488e03c",
         "vrfVerificationKeyHash": "d1b243a8f5b0dadbf54755bd438e199dcf08ef9c6ff6b16add73b4d4da23dff5",
@@ -93613,8 +93633,9 @@ expression: stake_distr
       }
     },
     "pool12krslmkmerf45g4juaartm4hkawkmrh86peyy4hlte6nxyzwcyf": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "55870feedbc8d35a22b2e77a35eeb7b75d6d8ee7d0724256ff5e7533",
         "vrfVerificationKeyHash": "2a906d4e959be8215b626497a36ffff00e5148c14725dbe280287db479259b8e",
@@ -93647,8 +93668,9 @@ expression: stake_distr
       }
     },
     "pool12qj4pk9sr6mxxwnfj9hvujf0r2d8c4t8tkwcafnrjdpxqep69ck": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 20224954342,
+      "voting_stake": 20224954342,
       "parameters": {
         "id": "502550d8b01eb6633a69916ece492f1a9a7c55675d9d8ea663934260",
         "vrfVerificationKeyHash": "5356fe8f3431720db0c470750480d378bebef5f079df2c2c666cf08350860702",
@@ -93681,8 +93703,9 @@ expression: stake_distr
       }
     },
     "pool12r7sxy225v94m6qcpnzt7g85axrmrg9gc05ykplzkwu7um36dns": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 17364754531,
+      "voting_stake": 17364754531,
       "parameters": {
         "id": "50fd03114aa30b5de8180cc4bf20f4e987b1a0a8c3e84b07e2b3b9ee",
         "vrfVerificationKeyHash": "91406fdfd8633050bbd1194358de0ef1f01ae5fb3545b7c159291b67b2d34b13",
@@ -93716,8 +93739,9 @@ expression: stake_distr
       }
     },
     "pool12rg7kqf2y3c7j643dm508xmkjl9ethfphfggtykp6xfyv6zjcge": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 32452290695,
+      "voting_stake": 32452290695,
       "parameters": {
         "id": "50d1eb012a2471e96ab16ee8f39b7697cb95dd21ba508592c1d19246",
         "vrfVerificationKeyHash": "d270e76d074a95fc7f47c9649c58d4712f100cadb8c662e445a9ce5a9226bda7",
@@ -93750,8 +93774,9 @@ expression: stake_distr
       }
     },
     "pool12sa9qn5v62gdcdrnkwnu66c0kdmtq7kwl3vm3v7c8s58299smu5": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "543a504e8cd290dc3473b3a7cd6b0fb376b07acefc59b8b3d83c2875",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -93780,8 +93805,9 @@ expression: stake_distr
       }
     },
     "pool12uvnqe8uq8jfrpk337k63pgfkf0q6lncy0zqcylfdq4zc9n8755": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9512621258,
+      "voting_stake": 9512621258,
       "parameters": {
         "id": "57193064fc01e49186d18fada88509b25e0d7e7823c40c13e9682a2c",
         "vrfVerificationKeyHash": "a59694141bb434387326c280e1964d0068fd07368b0f55b3f5939bdc5410c580",
@@ -93814,8 +93840,9 @@ expression: stake_distr
       }
     },
     "pool12v43sug6avuwn458fwlx0j72lqrjqqcec9nc9ywk24x0wn7ng46": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 229607001607,
+      "voting_stake": 229607001607,
       "parameters": {
         "id": "532b18711aeb38e9d6874bbe67cbcaf807200319c1678291d6554cf7",
         "vrfVerificationKeyHash": "369930b18573def6846a42e35dba9eaad0ad7ee1665a92557b57e263075260db",
@@ -93853,8 +93880,9 @@ expression: stake_distr
       }
     },
     "pool132jxjzyw4awr3s75ltcdx5tv5ecv6m042306l630wqjckhfm32r": {
-      "blocksCount": 737,
+      "blocks_count": 737,
       "stake": 11009939219125,
+      "voting_stake": 11009939219125,
       "parameters": {
         "id": "8aa469088eaf5c38c3d4faf0d3516ca670cd6df5545fafea2f70258b",
         "vrfVerificationKeyHash": "ff9d774cc7e3e85ec1827bfd68c475bc611a9e288e7c9e1fb159fce52d2703fd",
@@ -93892,8 +93920,9 @@ expression: stake_distr
       }
     },
     "pool135dzt5vxn7um8tx3z58zt7x2ut6nu6epfxfandps5radw2zhzf0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 115541993971,
+      "voting_stake": 115541993971,
       "parameters": {
         "id": "8d1a25d1869fb9b3acd1150e25f8cae2f53e6b214993d9b430a0fad7",
         "vrfVerificationKeyHash": "c3043822b3ceafa82d0bec8053910e22b03afe859e9a964ed1980680db739b95",
@@ -93926,8 +93955,9 @@ expression: stake_distr
       }
     },
     "pool13634p85x5duyu6d2ke38032hjry5c6h524l9k9wqa6uv7e29n7e": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11006161103,
+      "voting_stake": 11006161103,
       "parameters": {
         "id": "8ea3509e86a3784e69aab66277c55790c94c6af4557e5b15c0eeb8cf",
         "vrfVerificationKeyHash": "df7f9b548447b4d89cdb02c395cbfaac74ef6be26bc56b23f2f98ecc23379c9b",
@@ -93960,8 +93990,9 @@ expression: stake_distr
       }
     },
     "pool136rx90xnt0xqudmfwsjhadcje0k8zcnykf25furmxch2qc73pas": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1097262357462,
+      "voting_stake": 1097262357462,
       "parameters": {
         "id": "8e8662bcd35bcc0e376974257eb712cbec716264b25544f07b362ea0",
         "vrfVerificationKeyHash": "ccf7bf69fdf21f4e079e1d7d4e20f3b60bb3ef061077a4f6042dcc2c567bb58d",
@@ -93994,8 +94025,9 @@ expression: stake_distr
       }
     },
     "pool136t3ag3gzeftu7dlmxj9dvk5cj2ankuqujaphvn0y6glusap0fd": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11295029694,
+      "voting_stake": 11295029694,
       "parameters": {
         "id": "8e971ea2281652be79bfd9a456b2d4c495d9db80e4ba1bb26f2691fe",
         "vrfVerificationKeyHash": "469993141a082435615a149b27b661046ce704bd34a0ebc92a389044f11f547e",
@@ -94028,8 +94060,9 @@ expression: stake_distr
       }
     },
     "pool13dwtqgl5lnep4z5e8vjv7ef5qqd2095zmlccz3d9805zk423gwz": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 17625780742,
+      "voting_stake": 17625780742,
       "parameters": {
         "id": "8b5cb023f4fcf21a8a993b24cf6534001aa79682dff18145a53be82b",
         "vrfVerificationKeyHash": "d1d1346ab457d10653cd353d40db5e9c07f9f23ec040d8c1f575e5aba01acab6",
@@ -94063,8 +94096,9 @@ expression: stake_distr
       }
     },
     "pool13fmuunlup35sgxt8t2jnjm0e5wxfe5swxeyr6tfyvh8gv9hdz68": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 900711410304,
+      "voting_stake": 900711410304,
       "parameters": {
         "id": "8a77ce4ffc0c690419675aa5396df9a38c9cd20e36483d2d2465ce86",
         "vrfVerificationKeyHash": "ae1dc4303bde5b5e2c024c3bea1544b948546fa75d3e65ee748ecb21b5625243",
@@ -94102,8 +94136,9 @@ expression: stake_distr
       }
     },
     "pool13hgadlyxdg306f43k9k950v6mc5nvanetszj0mxjh6wnuxwm9hd": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 31254688794,
+      "voting_stake": 31254688794,
       "parameters": {
         "id": "8dd1d6fc866a22fd26b1b16c5a3d9ade293676795c0527ecd2be9d3e",
         "vrfVerificationKeyHash": "bc94ae3c7a8196d29055687e5cdc398c6b8be7746fabf796b2ca19c324f3a56c",
@@ -94136,8 +94171,9 @@ expression: stake_distr
       }
     },
     "pool13jm000zz435dewqrwjd5nt4p5fy467yk2ldu2m0yqz8ncejd5ky": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 43116332431,
+      "voting_stake": 43116332431,
       "parameters": {
         "id": "8cb6f7bc42ac68dcb803749b49aea1a2495d789657dbc56de4008f3c",
         "vrfVerificationKeyHash": "8d5389227b0c4cf6f721f7052727c768bbec423bc416adf1bb9db5c31c1add54",
@@ -94170,8 +94206,9 @@ expression: stake_distr
       }
     },
     "pool13la5erny3srx9u4fz9tujtl2490350f89r4w4qjhk0vdjmuv78v": {
-      "blocksCount": 1864,
+      "blocks_count": 1864,
       "stake": 28650248742447,
+      "voting_stake": 28650248742447,
       "parameters": {
         "id": "8ffb4c8e648c0662f2a91157c92feaa95f1a3d2728eaea8257b3d8d9",
         "vrfVerificationKeyHash": "41f661fcc0ee3e16b3c4105f993c169c89846bb77200bfb81ac15cac1eb38c6a",
@@ -94204,8 +94241,9 @@ expression: stake_distr
       }
     },
     "pool13lqm9qxuvsrt6txassazk94jce6a3q63ppm3yej0rney265k07s": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 23572152109,
+      "voting_stake": 23572152109,
       "parameters": {
         "id": "8fc1b280dc6406bd2cdd843a2b16b2c675d88351087712664f1cf245",
         "vrfVerificationKeyHash": "67e37ca470742d8635a9b5a9d17cc5f5f41ff66cbc63488be3c334b991648740",
@@ -94238,8 +94276,9 @@ expression: stake_distr
       }
     },
     "pool13ls4vfl0cznxjh0jm7kmzv5a5wf8e8uh27esucwm2f4mwt40sfv": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 30533339876,
+      "voting_stake": 30533339876,
       "parameters": {
         "id": "8fe15627efc0a6695df2dfadb1329da3927c9f9757b30e61db526bb7",
         "vrfVerificationKeyHash": "92bba123893c09aa8d058ca088285ca475efbdc1825a1a694321c2d8f2c9d1a2",
@@ -94277,8 +94316,9 @@ expression: stake_distr
       }
     },
     "pool13m26ky08vz205232k20u8ft5nrg8u68klhn0xfsk9m4gsqsc44v": {
-      "blocksCount": 3871,
+      "blocks_count": 3871,
       "stake": 57679304769172,
+      "voting_stake": 57679304769172,
       "parameters": {
         "id": "8ed5ab11e76094fa2a2ab29fc3a57498d07e68f6fde6f326162eea88",
         "vrfVerificationKeyHash": "db9c0fd86e9f87990ac47905129fb5a100131875de1a8d089041b97fa7fc9341",
@@ -94316,8 +94356,9 @@ expression: stake_distr
       }
     },
     "pool13qyu46er2x2r6gqatghwlnjdld64kz9e3c4je36hytql7rdm932": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "8809caeb2351943d201d5a2eefce4dfb755b08b98e2b2cc75722c1ff",
         "vrfVerificationKeyHash": "fd09a15c0ca2dc64c8b963aa94f0b72d11d19f6cd5bdb59cb6fa5262835e885f",
@@ -94355,8 +94396,9 @@ expression: stake_distr
       }
     },
     "pool13s22ldduwh07xr3xcesdsl89rujv4pehal6w3gdupv4rul4ntd6": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 37158831785,
+      "voting_stake": 37158831785,
       "parameters": {
         "id": "8c14afb5bc75dfe30e26c660d87ce51f24ca8737eff4e8a1bc0b2a3e",
         "vrfVerificationKeyHash": "464430ccd4568c8ea8f033fd2b1abf2d99223eb196adb402a6f22b1bbe2e6524",
@@ -94389,8 +94431,9 @@ expression: stake_distr
       }
     },
     "pool13wj03r6wj8l2lyalxpg69kshsh9k3l0ejdv3f2auq339gl7un3w": {
-      "blocksCount": 78,
+      "blocks_count": 78,
       "stake": 1023848441558,
+      "voting_stake": 1023848441558,
       "parameters": {
         "id": "8ba4f88f4e91feaf93bf3051a2da1785cb68fdf9935914abbc046254",
         "vrfVerificationKeyHash": "9b88801f629ad9de5ad9141c73ed5359186a01d0afc65c906b8333eb039b353c",
@@ -94428,8 +94471,9 @@ expression: stake_distr
       }
     },
     "pool13x9h4e00xt6vr7z7whr525lk0elzwtvt3z9pzqqrrhep2ztjcmh": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 7997531463,
+      "voting_stake": 7997531463,
       "parameters": {
         "id": "898b7ae5ef32f4c1f85e75c74553f67e7e272d8b888a1100031df215",
         "vrfVerificationKeyHash": "8914fef0cb5f89f6f0f9059ac0f42deddf97f62219ff79869ddfeb56d7920f5f",
@@ -94462,8 +94506,9 @@ expression: stake_distr
       }
     },
     "pool1406426vectppa96tc54p0jpa335zn4793969udppzcj8qlfwech": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "abf5556999c2c21e974bc52a17c83d8c6829d7c589745e3421162470",
         "vrfVerificationKeyHash": "2a9832067ee1acaecfb67ca7abf2368a5f015c5dd5703dba75f445781f8a8f4a",
@@ -94486,8 +94531,9 @@ expression: stake_distr
       }
     },
     "pool140qtx3sfkm0sxlld059xt6vejwcawul6x70la9clml3kxruz6qp": {
-      "blocksCount": 76,
+      "blocks_count": 76,
       "stake": 1170264574734,
+      "voting_stake": 1170264574734,
       "parameters": {
         "id": "abc0b34609b6df037fed7d0a65e99993b1d773fa379ffe971fdfe363",
         "vrfVerificationKeyHash": "bd796083f26dd5a247749ba4c4775976aee473ada07bc28bb5603ac5fb05ad23",
@@ -94520,8 +94566,9 @@ expression: stake_distr
       }
     },
     "pool144pedg8hc3lr660w30te9jqv5zllaesegh8vt3ptft5s7qu45re": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 975125751776,
+      "voting_stake": 975125751776,
       "parameters": {
         "id": "ad4396a0f7c47e3d69ee8bd792c80ca0bffee61945cec5c42b4ae90f",
         "vrfVerificationKeyHash": "ef8b7d8610ec49c189729f32273735d249c302d1ee3c42eca018c3f89fcff822",
@@ -94559,8 +94606,9 @@ expression: stake_distr
       }
     },
     "pool14773v3ddtf363gfcaah8424wtv3uczmk49vvjvhuslj653hfjpt": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1000000,
+      "voting_stake": 1000000,
       "parameters": {
         "id": "afbd1645ad5a63a8a138ef6e7aaaae5b23cc0b76a958c932fc87e5aa",
         "vrfVerificationKeyHash": "6e34a8c124ca2c61bbc99fda29749a44635c31f95cfa8f41f9bb02201d915fb5",
@@ -94593,8 +94641,9 @@ expression: stake_distr
       }
     },
     "pool14eftq7myfpt5zfaa5eeswpf3w6s8jtnsnev806vmypkc5lk6y2m": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 34678225356,
+      "voting_stake": 34678225356,
       "parameters": {
         "id": "ae52b07b6448574127bda67307053176a0792e709e5877e99b206d8a",
         "vrfVerificationKeyHash": "59e45c5e0f13b7b85601ca59335f8890bf35ac9ca4a44b5af7e65d6369166adc",
@@ -94627,8 +94676,9 @@ expression: stake_distr
       }
     },
     "pool14kjc0axlsazplwfz9epvn88s866hgn7mvaya5pzrevnwy5cvj6a": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497427729,
+      "voting_stake": 9497427729,
       "parameters": {
         "id": "ada587f4df87441fb9222e42c99cf03eb5744fdb6749da0443cb26e2",
         "vrfVerificationKeyHash": "23354a5a7079aae6adfdf02477f61bdad7c9e958350e4e9ed6409e0a56d00b07",
@@ -94661,8 +94711,9 @@ expression: stake_distr
       }
     },
     "pool14mvfr40jveuche70n3mtqph783kwxktx02ke2twajuz455e2ul3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9976254273,
+      "voting_stake": 9976254273,
       "parameters": {
         "id": "aed891d5f266798be7cf9c76b006fe3c6ce359667aad952ddd97055a",
         "vrfVerificationKeyHash": "f3ad75d123f439370c80b01ad508a9c6a69f076bdaa7a69a6e737aa8b4a46543",
@@ -94685,8 +94736,9 @@ expression: stake_distr
       }
     },
     "pool14pmq6d9ym3q98z9uw2cgp4vcxar6scpw0c50gksa3kxzw90sd2s": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 20950125763,
+      "voting_stake": 20950125763,
       "parameters": {
         "id": "a8760d34a4dc405388bc72b080d5983747a8602e7e28f45a1d8d8c27",
         "vrfVerificationKeyHash": "e2d1785bbcaface7525993bf81389be01c0426eb617bf5ec14470bbe155aac3e",
@@ -94719,8 +94771,9 @@ expression: stake_distr
       }
     },
     "pool14qayv3w4lyar4lpg07jllrtd73azn7h2vztz0eezwxur2y0rg5h": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "a83a4645d5f93a3afc287fa5ff8d6df47a29faea609627e72271b835",
         "vrfVerificationKeyHash": "682e45e7aa87795e3bed6cc1760c6b1ddbed327b1eb89b2a554a43555c5dceee",
@@ -94748,8 +94801,9 @@ expression: stake_distr
       }
     },
     "pool14qcpfdnxugjl9gdhpdmvkcf72ruu4lrjfxn6v0zvr4al60lrmuc": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11563624113,
+      "voting_stake": 11563624113,
       "parameters": {
         "id": "a83014b666e225f2a1b70b76cb613e50f9cafc7249a7a63c4c1d7bfd",
         "vrfVerificationKeyHash": "6b99c5f19570765a60cade7a265fef6777cda5bc80cd0f99a347aac5633c22db",
@@ -94782,8 +94836,9 @@ expression: stake_distr
       }
     },
     "pool14t88wyzkfeqex34hjtk7e773r8rx3erfxl6s4mckzzhtcdc2egk": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19765649630,
+      "voting_stake": 19765649630,
       "parameters": {
         "id": "aace7710564e419346b792edecfbd119c668e46937f50aef1610aebc",
         "vrfVerificationKeyHash": "b411c7f89e27777667a49667b2c34454e7ef2d4ebd7ccda275e7516841657b2c",
@@ -94816,8 +94871,9 @@ expression: stake_distr
       }
     },
     "pool150an6nge5wnpr9j2pduez0ff2n7wc0gfkmf896vwfmc8kqd7aek": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 25849218338,
+      "voting_stake": 25849218338,
       "parameters": {
         "id": "a3fb3d4d19a3a611964a0b79913d2954fcec3d09b6d272e98e4ef07b",
         "vrfVerificationKeyHash": "d3c247a1f7efbdae20e6fab5176c0a2285e3e72714dfd39d4700dedeb5343555",
@@ -94850,8 +94906,9 @@ expression: stake_distr
       }
     },
     "pool15272x2srkjaqxs8gfuc5guj8jsjuhvja3znulwmh97kr2xwxxvk": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2497634150,
+      "voting_stake": 2497634150,
       "parameters": {
         "id": "a2bca32a03b4ba0340e84f314472479425cbb25d88a7cfbb772fac35",
         "vrfVerificationKeyHash": "dba304517d6cb34a8fcdca6d1003c2f0fe87e988f7e74dbc7cedd4ad1aa8631a",
@@ -94884,8 +94941,9 @@ expression: stake_distr
       }
     },
     "pool152g6nqpmfelr7sq2809e0m5wkq0k0y24uqmdj3efz8r32t4t0gs": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "a291a9803b4e7e3f400a3bcb97ee8eb01f679155e036d9472911c715",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -94914,8 +94972,9 @@ expression: stake_distr
       }
     },
     "pool156a5fugj6xxv8d6vwnk9wmctsrk5p5xff8fsvpwhmraggq56w9k": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 420513258,
+      "voting_stake": 420513258,
       "parameters": {
         "id": "a6bb44f112d18cc3b74c74ec576f0b80ed40d0c949d30605d7d8fa84",
         "vrfVerificationKeyHash": "35c3d9cc508533134583f5e6bed0c4a6fccab18584dff3c7de6145f6c43442a8",
@@ -94943,8 +95002,9 @@ expression: stake_distr
       }
     },
     "pool158e08av7pux9guu574zfuaft90ejakxskqr3n36684g3cs6msmx": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 51316990922,
+      "voting_stake": 51316990922,
       "parameters": {
         "id": "a1f2f3f59e0f0c547394f5449e752b2bf32ed8d0b00719c75a3d511c",
         "vrfVerificationKeyHash": "28fb14cde01f2dd34b440894b1752829728111cd69162fe589ee6764e862b949",
@@ -94977,8 +95037,9 @@ expression: stake_distr
       }
     },
     "pool15dc0n2avq04xltwt8muj9nh58mudcpm8mhr0r5ven93qwcj8478": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 148009075705,
+      "voting_stake": 148009075705,
       "parameters": {
         "id": "a370f9abac03ea6fadcb3ef922cef43ef8dc0767ddc6f1d199996207",
         "vrfVerificationKeyHash": "fc70fe070ae12d059373c1e569ce42056aa3ea454fcec29a08450f281e63f4a1",
@@ -95011,8 +95072,9 @@ expression: stake_distr
       }
     },
     "pool15kkydrvnkqyqq6zmlnjglskqwulka0qr95wgz84a7mzmufrnzj5": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 145330841550,
+      "voting_stake": 145330841550,
       "parameters": {
         "id": "a5ac468d93b00800685bfce48fc2c0773f6ebc032d1c811ebdf6c5be",
         "vrfVerificationKeyHash": "6532b2d79d9d385c7e0d857459221cc3343b5c7e6349d00ba66e7ac3a04d5c4d",
@@ -95045,8 +95107,9 @@ expression: stake_distr
       }
     },
     "pool15lymw44dq5extwwj6kt49xckwj9f6ht8hl8ujxunzzjm2mllclh": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "a7c9b756ad053265b9d2d597529b16748a9d5d67bfcfc91b9310a5b5",
         "vrfVerificationKeyHash": "6213cebc8627177a741b5560117abe13c991568ba52c423db855d8c8e149cd85",
@@ -95079,8 +95142,9 @@ expression: stake_distr
       }
     },
     "pool15mss6pkavrgqe9xg4mwp20tu3pfglsvrt6zk54kte4ukjkf2kuj": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "a6e10d06dd60d00c94c8aedc153d7c88528fc1835e856a56cbcd7969",
         "vrfVerificationKeyHash": "7caa8ef1cf62b344851cdd1b907674e38b9661d75dd0b5b358ade8fbd58a26ad",
@@ -95118,8 +95182,9 @@ expression: stake_distr
       }
     },
     "pool15stacednny2nl2n07p2p6hdlpj8yu49vrpgcnxy4v9swurchv75": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "a417dc65b399153faa6ff0541d5dbf0c8e4e54ac18518998956160ee",
         "vrfVerificationKeyHash": "9586f48442694ef028bcf67605b4ef650ab9f0f1cd81e181d2db8d9d5a387e84",
@@ -95147,8 +95212,9 @@ expression: stake_distr
       }
     },
     "pool15udpynn4qj4sdtlfz400he4narmagth659nzlx83rmklq2773kg": {
-      "blocksCount": 62,
+      "blocks_count": 62,
       "stake": 1180919555985,
+      "voting_stake": 1180919555985,
       "parameters": {
         "id": "a71a124e7504ab06afe9155efbe6b3e8f7d42efaa1662f98f11eedf0",
         "vrfVerificationKeyHash": "143dba888613155a4820ee8d293dfdda563d09d342522e430af84a79c2bf7d2d",
@@ -95181,8 +95247,9 @@ expression: stake_distr
       }
     },
     "pool15uue6svd6kjt9gjplp3a2z2f6sq79m0h7fx3fd3960g6chhudm9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "a7399d418dd5a4b2a241f863d50949d401e2edf7f24d14b625d3d1ac",
         "vrfVerificationKeyHash": "43cb77dce58f642a40bb68b847dcdf07211d5959c0161f670e78efbcefc6459e",
@@ -95215,8 +95282,9 @@ expression: stake_distr
       }
     },
     "pool15w7lejtrpk4868drc8h65cgmm504qlnzhh52e2yndgrs5a9w232": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 22943861929,
+      "voting_stake": 22943861929,
       "parameters": {
         "id": "a3bdfcc9630daa7d1da3c1efaa611bdd1f507e62bde8aca8936a070a",
         "vrfVerificationKeyHash": "53cfce04b70accb948250f2c7b18d07ede4db525464612368f0d34327dafd415",
@@ -95249,8 +95317,9 @@ expression: stake_distr
       }
     },
     "pool15wd2rnaqdcrjqxxrwlred8dvu2rvuxssc25xd9p0rc42y50cl89": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 50415937840,
+      "voting_stake": 50415937840,
       "parameters": {
         "id": "a39aa1cfa06e072018c377c7969dace286ce1a10c2a866942f1e2aa2",
         "vrfVerificationKeyHash": "3a86c6ba8c690895284596bce59e8d9e83a7c0bf31a3abee9bf054156f4b31f5",
@@ -95283,8 +95352,9 @@ expression: stake_distr
       }
     },
     "pool15yv334wn9dzw5njtnzynkpg7967wnf6a4sxvx7tfrzjw2j3m530": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 297634194,
+      "voting_stake": 297634194,
       "parameters": {
         "id": "a11918d5d32b44ea4e4b98893b051e2ebce9a75dac0cc3796918a4e5",
         "vrfVerificationKeyHash": "aac44a04301355152aa0721d5fea6292162555f4e2fb5f15b484dbe000657177",
@@ -95317,8 +95387,9 @@ expression: stake_distr
       }
     },
     "pool160pfyrqp00up4n3t2xmpa7smd38ffd3ephc0a79w6kzkvk2jfu3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "d3c2920c017bf81ace2b51b61efa1b6c4e94b6390df0fef8aed58566",
         "vrfVerificationKeyHash": "5978f8839b9e1575aeb51a88b35047d802b20955d117593ec2b20fbdf3a8a489",
@@ -95351,8 +95422,9 @@ expression: stake_distr
       }
     },
     "pool160u5drqagq5k4mwghps36cvq7e6vcptm5r8tnkpcpkhwvrm2gad": {
-      "blocksCount": 2,
+      "blocks_count": 2,
       "stake": 86965033945,
+      "voting_stake": 86965033945,
       "parameters": {
         "id": "d3f9468c1d40296aedc8b8611d6180f674cc057ba0ceb9d8380daee6",
         "vrfVerificationKeyHash": "fdbe9c5ebad2e3e388de3aa996b5679c09dbdde346cf116f7257b8d36550e1fc",
@@ -95385,8 +95457,9 @@ expression: stake_distr
       }
     },
     "pool169q6y3lmn58xkv05uw7pvxcrjc3qewz4u8vkkh4t0acxgrrjtup": {
-      "blocksCount": 75,
+      "blocks_count": 75,
       "stake": 1193727362641,
+      "voting_stake": 1193727362641,
       "parameters": {
         "id": "d141a247fb9d0e6b31f4e3bc161b0396220cb855e1d96b5eab7f7064",
         "vrfVerificationKeyHash": "372561ee2032dd1ed1b06e2ef0269801f80b4089c24cea7d5a16383fd548c1c2",
@@ -95425,8 +95498,9 @@ expression: stake_distr
       }
     },
     "pool16c0tqycyj7ztuwmnlv2hva76ec7dv3emslevrcjej8ph5lz3e8q": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "d61eb013049784be3b73fb157677dace3cd6473b87f2c1e25991c37a",
         "vrfVerificationKeyHash": "36d89e19e615f6f3f1e1c807ca2d12c69b786492f641eca8f3d3a3219619a823",
@@ -95454,8 +95528,9 @@ expression: stake_distr
       }
     },
     "pool16cefgx8t9re4gy2qaapshxl34my5ya6ks7hje39k3pew2ejlkx7": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2497634150,
+      "voting_stake": 2497634150,
       "parameters": {
         "id": "d6329418eb28f3541140ef430b9bf1aec942775687af2cc4b68872e5",
         "vrfVerificationKeyHash": "33f943a5e3bb4951667829559c656a6c4606a4327624282bf5f7812700f39190",
@@ -95488,8 +95563,9 @@ expression: stake_distr
       }
     },
     "pool16eqe8ngw7vfl4tltw3j2c4kjphu58xl9hwjuzmkwm2akghn9dat": {
-      "blocksCount": 123,
+      "blocks_count": 123,
       "stake": 1608401563879,
+      "voting_stake": 1608401563879,
       "parameters": {
         "id": "d64193cd0ef313faafeb7464ac56d20df9439be5bba5c16ecedabb64",
         "vrfVerificationKeyHash": "7b829f805a3b1cb25cad975efc6806800d165850347c077c3f2321bae7005171",
@@ -95522,8 +95598,9 @@ expression: stake_distr
       }
     },
     "pool16eta2yaat8cp6clzv6e5wt30c944w229xkslx0tq5ce4vg39vwz": {
-      "blocksCount": 120,
+      "blocks_count": 120,
       "stake": 1631119013112,
+      "voting_stake": 1631119013112,
       "parameters": {
         "id": "d657d513bd59f01d63e266b3472e2fc16b57294535a1f33d60a63356",
         "vrfVerificationKeyHash": "8c849426482dd1de48bdace18095953b82bbdcfc099f7dcaf8d52809606ed757",
@@ -95556,8 +95633,9 @@ expression: stake_distr
       }
     },
     "pool16hr6sjve8pcy9yucap0270rfdswsvpwfl2ksy8yp6vl9qk8u6zx": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1403041028841,
+      "voting_stake": 1403041028841,
       "parameters": {
         "id": "d5c7a849993870429398e85eaf3c696c1d0605c9faad021c81d33e50",
         "vrfVerificationKeyHash": "ee7529aa15e3107a9d9a0c82aa796bf56a821b4a07365bbfdc54c61bd6fda7f3",
@@ -95595,8 +95673,9 @@ expression: stake_distr
       }
     },
     "pool16rfj469javk35q62jg69yjsk4v5kw7x6qgd07x3hj3lss9l27ru": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 61007023099,
+      "voting_stake": 61007023099,
       "parameters": {
         "id": "d0d32ae8b2eb2d1a034a9234524a16ab296778da021aff1a37947f08",
         "vrfVerificationKeyHash": "b1a5048ec3096ecc23e28313f3f374f5c6260a33e19c4b2b24c747d3bf41f8d9",
@@ -95629,8 +95708,9 @@ expression: stake_distr
       }
     },
     "pool16x0zwm5j7lv0fvrla0z377sem7rha2lzwkgvsazu7nfzjtn83l8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1054333447820,
+      "voting_stake": 1054333447820,
       "parameters": {
         "id": "d19e276e92f7d8f4b07febc51f7a19df877eabe27590c8745cf4d229",
         "vrfVerificationKeyHash": "cc4fe73ca486c1d9ad7fa5b1f7d73d511cf07aaa1f9c7e7ea83f0f8f60f81fc6",
@@ -95663,8 +95743,9 @@ expression: stake_distr
       }
     },
     "pool170lseazv7knrlu2m7xzj852mngvn075x2vqgmdmdvmd05wwdxpy": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 32673818195,
+      "voting_stake": 32673818195,
       "parameters": {
         "id": "f3ff0cf44cf5a63ff15bf18523d15b9a1937fa8653008db76d66dafa",
         "vrfVerificationKeyHash": "e5fdb4c0b6d7687e14765626f8a56003c8a087520ddd92892d507ced3bef140f",
@@ -95687,8 +95768,9 @@ expression: stake_distr
       }
     },
     "pool175lu3gm2rmvqpsrg6m82zvdmqaaryeqmsvjj7qyvvj20vxunc60": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 21717473789,
+      "voting_stake": 21717473789,
       "parameters": {
         "id": "f53fc8a36a1ed800c068d6cea131bb077a32641b83252f008c6494f6",
         "vrfVerificationKeyHash": "13f0667db7c95327ca6085f6917d80ffc331497ed4948f05f65a5517e1db0fac",
@@ -95721,8 +95803,9 @@ expression: stake_distr
       }
     },
     "pool178l32gz8uve9jfhh9sqz80rf680asc5gaxp4q5tnav0uz85gkj3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 259135809111,
+      "voting_stake": 259135809111,
       "parameters": {
         "id": "f1ff152047e3325926f72c0023bc69d1dfd86288e983505173eb1fc1",
         "vrfVerificationKeyHash": "1e271aea167982bf3e44180436a1e02c218312c14d3b601bd26a503715be5cb3",
@@ -95755,8 +95838,9 @@ expression: stake_distr
       }
     },
     "pool17cl7z0njlda4vl4vra5ef3yns5y0wgmka3mh55empdeuj22uaep": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 283310640,
+      "voting_stake": 283310640,
       "parameters": {
         "id": "f63fe13e72fb7b567eac1f6994c4938508f72376ec777a533b0b73c9",
         "vrfVerificationKeyHash": "694e7120fec3d0ba40bb69df47fe554b4bf4e4981fe5333e04ec95dd06ae455f",
@@ -95779,8 +95863,9 @@ expression: stake_distr
       }
     },
     "pool17hd3fxccyckape0hn2ddpetq3fa6xkx5gnnhse3c285r268t5h9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "f5db149b18262dd0e5f79a9ad0e5608a7ba358d444e778663851e835",
         "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
@@ -95809,8 +95894,9 @@ expression: stake_distr
       }
     },
     "pool17k256w4nlkfxtpapyph4sgpchrw4f0hrqepssqy6k5ts2vgklc3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 25319115642,
+      "voting_stake": 25319115642,
       "parameters": {
         "id": "f5954d3ab3fd926587a1206f582038b8dd54bee3064308009ab51705",
         "vrfVerificationKeyHash": "a200abfe70bf68844f056ede9ed796f243f8990026f29b8464119e426d96615f",
@@ -95843,8 +95929,9 @@ expression: stake_distr
       }
     },
     "pool17lr0zh49w3leg4ya0ndkyea0dmpr8ksnqz5mhdpwn8zxqg56tte": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1082681087437,
+      "voting_stake": 1082681087437,
       "parameters": {
         "id": "f7c6f15ea5747f94549d7cdb6267af6ec233da1300a9bbb42e99c460",
         "vrfVerificationKeyHash": "3df36b1b2b379bd3cca3707fbf8b006235be803c5b74c948fde45e801a6dce2a",
@@ -95877,8 +95964,9 @@ expression: stake_distr
       }
     },
     "pool17mq6lu4ycqq03eq479q0jlfg96y8r0c9pgnfn3l3p8agkdswm7x": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19502757409,
+      "voting_stake": 19502757409,
       "parameters": {
         "id": "f6c1aff2a4c000f8e415f140f97d282e8871bf050a2699c7f109fa8b",
         "vrfVerificationKeyHash": "a6254fe6ad6c49045b9a19a4669d94f0bdebe905a2c55b10e361373a4af7dc97",
@@ -95911,8 +95999,9 @@ expression: stake_distr
       }
     },
     "pool17n848ynu33sprccmef0hpj48tl9g298qut9uadfnhuyd6zwj4jc": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10491759967,
+      "voting_stake": 10491759967,
       "parameters": {
         "id": "f4cf53927c8c6011e31bca5f70caa75fca8514e0e2cbceb533bf08dd",
         "vrfVerificationKeyHash": "531b7e173322568fa7e895a50f71d8a5363681618d401b25342f6fd0666c4dfb",
@@ -95945,8 +96034,9 @@ expression: stake_distr
       }
     },
     "pool1862n3xnc2y49rezae700z423lnewx6k5hj6jk0tl0vz87n0l279": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 6494984394,
+      "voting_stake": 6494984394,
       "parameters": {
         "id": "3e95389a78512a51e45dcf9ef15551fcf2e36ad4bcb52b3d7f7b047f",
         "vrfVerificationKeyHash": "c34765a5722f5ba85d37ce102a32355ef885e35b2924bdca2d4b219d15f3bb69",
@@ -95979,8 +96069,9 @@ expression: stake_distr
       }
     },
     "pool187jmkalfzyz5cdlw4mxz9t9n8plcxpj7ve7a74mk05umvufp7jh": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 25813260878,
+      "voting_stake": 25813260878,
       "parameters": {
         "id": "3fa5bb77e911054c37eeaecc22acb3387f83065e667ddf57767d39b6",
         "vrfVerificationKeyHash": "8cdd948146bd8a9bdc8257193fbb2efa71e07c4f0a6af5d8e5497ffcd0a8cdc8",
@@ -96013,8 +96104,9 @@ expression: stake_distr
       }
     },
     "pool187yqngpdck7j8pa7r9hhp3fpxem478fqw2nklyr59ppkwystqdl": {
-      "blocksCount": 82,
+      "blocks_count": 82,
       "stake": 1038629600872,
+      "voting_stake": 1038629600872,
       "parameters": {
         "id": "3f8809a02dc5bd2387be196f70c52136775f1d2072a76f9074284367",
         "vrfVerificationKeyHash": "eb694599174b268b3dc1f437f5e7413ae0a525eada53443d64539cd8ec553c03",
@@ -96047,8 +96139,9 @@ expression: stake_distr
       }
     },
     "pool188etalcyudyh4xuaa4mjahs62jujem35h3l02ht83zjusqvwdh7": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 336568793624,
+      "voting_stake": 336568793624,
       "parameters": {
         "id": "39f2beff04e3497a9b9ded772ede1a54b92cee34bc7ef55d6788a5c8",
         "vrfVerificationKeyHash": "511c24a6dda793785845563dc70e3f8e20f67968d7d721d1ab6d0fb527dcfa5b",
@@ -96081,8 +96174,9 @@ expression: stake_distr
       }
     },
     "pool188vupfvh4nkd307swe4y02jx36lr7ee5qglavska0ywpxrqu8ra": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 152824753538,
+      "voting_stake": 152824753538,
       "parameters": {
         "id": "39d9c0a597acecd8bfd0766a47aa468ebe3f6734023fd642dd791c13",
         "vrfVerificationKeyHash": "1f2972d18bf671681635996ccaf7a6c5321cf5d8e0617bd12ec6a32083ef6947",
@@ -96115,8 +96209,9 @@ expression: stake_distr
       }
     },
     "pool18aj2dag2cn6xr59mzxhtyyfu9kh0h9266s79z7l9hqlvvf69t4y": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10044893078,
+      "voting_stake": 10044893078,
       "parameters": {
         "id": "3f64a6f50ac4f461d0bb11aeb2113c2daefb955ad43c517be5b83ec6",
         "vrfVerificationKeyHash": "f6807e386b1ca186282ea958de82bb8c3937dc4d7e9c3c543740042670df6620",
@@ -96149,8 +96244,9 @@ expression: stake_distr
       }
     },
     "pool18alum6knwxaz2ku2k7zc78wa6k76w6c5l2l4pxg2j55w6wecdpn": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9494478065,
+      "voting_stake": 9494478065,
       "parameters": {
         "id": "3f7fcdead371ba255b8ab7858f1dddd5bda76b14fabf50990a9528ed",
         "vrfVerificationKeyHash": "0d0d4b2eb794928243ed20fba19c477326e91176558f3801375de2fe498e1412",
@@ -96183,8 +96279,9 @@ expression: stake_distr
       }
     },
     "pool18dx5asa2609c93lk6gawjynpcttum26469u6ljptz97kw00xnpm": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 25115419426,
+      "voting_stake": 25115419426,
       "parameters": {
         "id": "3b4d4ec3aad3cb82c7f6d23ae91261c2d7cdab55d179afc82b117d67",
         "vrfVerificationKeyHash": "38854abeb208891eacf8647b5c0e1a01e46be12848003fecdbabb24a904dcc99",
@@ -96217,8 +96314,9 @@ expression: stake_distr
       }
     },
     "pool18f0ftweczx8kyqv054ld4dpauc92pqy6uvr44wa6x8vhk7tj2m3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 39490536336,
+      "voting_stake": 39490536336,
       "parameters": {
         "id": "3a5e95bb38118f62018fa57edab43de60aa0809ae3075abbba31d97b",
         "vrfVerificationKeyHash": "a35edcc2da5ac7be97fefa7cec9f6f7a1d017fb9ab7eda1007c6d22e59c2111b",
@@ -96252,8 +96350,9 @@ expression: stake_distr
       }
     },
     "pool18jx0kufqqvhcjky7ml6s56lezuzrvxh8vt98ekpj4sz9wrp0q9m": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 5003784709,
+      "voting_stake": 5003784709,
       "parameters": {
         "id": "3c8cfb7120032f89589edff50a6bf91704361ae762ca7cd832ac0457",
         "vrfVerificationKeyHash": "2343e1b21110d3273761fbbe84fe678e7c89e7f74ef88fbe59f48c16c608efac",
@@ -96276,8 +96375,9 @@ expression: stake_distr
       }
     },
     "pool18q5sayzqekqvqyenlkgaarlza5jxzhkyq9akc9qr5ytgczkjh23": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 138950572035,
+      "voting_stake": 138950572035,
       "parameters": {
         "id": "38290e9040cd80c01333fd91de8fe2ed24615ec4017b6c1403a1168c",
         "vrfVerificationKeyHash": "58770d2f69e73502dfcc8afbdaf556fa3f630f3b32b168d2f4cdd4dd46ccb2e1",
@@ -96310,8 +96410,9 @@ expression: stake_distr
       }
     },
     "pool18rygfjne9pgqrx6lxtwm4hhvf4nd7ftg6q8vynzxylawkusrtxl": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 50672034954,
+      "voting_stake": 50672034954,
       "parameters": {
         "id": "38c884ca792850019b5f32ddbadeec4d66df2568d00ec24c4627faeb",
         "vrfVerificationKeyHash": "21c3ae6dd3288f682f8bbe5f5aba125b9e242475099f27cf205db555840e91cd",
@@ -96344,8 +96445,9 @@ expression: stake_distr
       }
     },
     "pool18svpptnxfctewpx7ntnmlazy4w9cr24f4rcq8smkvpggw600ql4": {
-      "blocksCount": 55,
+      "blocks_count": 55,
       "stake": 1051112189847,
+      "voting_stake": 1051112189847,
       "parameters": {
         "id": "3c1810ae664e179704de9ae7bff444ab8b81aaa9a8f003c376605087",
         "vrfVerificationKeyHash": "6b7dbace5b34d52cd4c949f837723325313f1ca0c84269349382a7f50a96464c",
@@ -96374,8 +96476,9 @@ expression: stake_distr
       }
     },
     "pool18uptuw2h2adryvnkhkavj3u2fum0lnemwxaxv9p7exy2vcwhrpe": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "3f02be3957575a323276bdbac9478a4f36ffcf3b71ba66143ec988a6",
         "vrfVerificationKeyHash": "b467b0181e0479d23c15ed69b9ab6be597ac42c875f5e9f9d93f2233287e6f83",
@@ -96408,8 +96511,9 @@ expression: stake_distr
       }
     },
     "pool18ylse5vwz63ahy85zsxuttzy7u7zadnjq9kawpa7yqry7dr9zna": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1084887434054,
+      "voting_stake": 1084887434054,
       "parameters": {
         "id": "393f0cd18e16a3db90f4140dc5ac44f73c2eb672016dd707be20064f",
         "vrfVerificationKeyHash": "f522431f5d1f7562491e4860b4f8e3f036343d439f528094740d3d8ed023d76f",
@@ -96442,8 +96546,9 @@ expression: stake_distr
       }
     },
     "pool1945cfqzmy2qe2z59mfdwm7jwqtucncfee5xkd8f4wu97zr8xuys": {
-      "blocksCount": 59,
+      "blocks_count": 59,
       "stake": 1051373179969,
+      "voting_stake": 1051373179969,
       "parameters": {
         "id": "2d6984805b2281950a85da5aedfa4e02f989e139cd0d669d35770be1",
         "vrfVerificationKeyHash": "0b457270d68610bedab7791baf26e7f7f8b008f8d1bbaefb7275d413c8f4ba80",
@@ -96472,8 +96577,9 @@ expression: stake_distr
       }
     },
     "pool195w26ls6y937srmlk6xpv4pxsaam4zatu4lxp2cca726vt7w4ls": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "2d1cad7e1a2163e80f7fb68c165426877bba8babe57e60ab18ef95a6",
         "vrfVerificationKeyHash": "363105b669c6cc5ce8c8e0c0c15e62aa675d35faba29da9e842e030a6e2dd7bd",
@@ -96506,8 +96612,9 @@ expression: stake_distr
       }
     },
     "pool19658g9m7a6e7vtky76aefcwmm75wegf9xs3t024s38l87rqq4ky": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 265066766821,
+      "voting_stake": 265066766821,
       "parameters": {
         "id": "2ea874177eeeb3e62ec4f6bb94e1dbdfa8eca1253422b7aab089fe7f",
         "vrfVerificationKeyHash": "1f5d91bf32f6c9ca2ea4c039b367ff88f044d6564353f44c01c363a82c5676b5",
@@ -96540,8 +96647,9 @@ expression: stake_distr
       }
     },
     "pool19d8wgkqn7pc33y0uy2t5vx0922nvzv0a5999ejj0fjdyxjxdfve": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 20038979375,
+      "voting_stake": 20038979375,
       "parameters": {
         "id": "2b4ee45813f0711891fc22974619e552a6c131fda14a5cca4f4c9a43",
         "vrfVerificationKeyHash": "8fd17a3a836c3de73e569dfad0eae8a79f49751ee5950b25208aa58fbd66dee8",
@@ -96574,8 +96682,9 @@ expression: stake_distr
       }
     },
     "pool19u5hvwc7hm5wrs0tf5knh7373p88en9gt2tyad5yjfujy29676m": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 39366899236,
+      "voting_stake": 39366899236,
       "parameters": {
         "id": "2f29763b1ebee8e1c1eb4d2d3bfa3e884e7ccca85a964eb684927922",
         "vrfVerificationKeyHash": "c91074e716e52d12cbbb56f31b1877b5774c714b3c62fdd151c7575ddd4baeb7",
@@ -96608,8 +96717,9 @@ expression: stake_distr
       }
     },
     "pool19zdqgm9hmstrjc36jh8wke5sa6t9wjaeyx6u8yza69d52crgvtd": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11013338019,
+      "voting_stake": 11013338019,
       "parameters": {
         "id": "289a046cb7dc1639623a95ceeb6690ee96574bb921b5c3905dd15b45",
         "vrfVerificationKeyHash": "aca403481041eaa2e83b1f019ba98f398e9f997f185f42cba4541ac1ade951a8",
@@ -96642,8 +96752,9 @@ expression: stake_distr
       }
     },
     "pool1a28qxpdfculv8c2q80jfjhy0s385w25uzpmcyzy5dkz9qwgtt35": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "ea8e0305a9c73ec3e1403be4995c8f844f472a9c10778208946d8450",
         "vrfVerificationKeyHash": "67640ad634f19286c356cd892fc0bd2e9f749e550a62afab099ab4dc5713fbac",
@@ -96676,8 +96787,9 @@ expression: stake_distr
       }
     },
     "pool1a2r8szr9hqcrjw0jr0sy8mryqqm5tw4wumc23rqw8t252ah0w4m": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 72064880332,
+      "voting_stake": 72064880332,
       "parameters": {
         "id": "ea86780865b8303939f21be043ec64003745baaee6f0a88c0e3ad545",
         "vrfVerificationKeyHash": "1097f8bca72c088cd01da60b674c1d9cf7df98a46a070ded01a17c9346597d25",
@@ -96710,8 +96822,9 @@ expression: stake_distr
       }
     },
     "pool1a3nhq8gd5c55eye6t5hmmclv4yvtctg72ckcjze8e00eupftylh": {
-      "blocksCount": 1,
+      "blocks_count": 1,
       "stake": 2021612341,
+      "voting_stake": 2021612341,
       "parameters": {
         "id": "ec67701d0da6294c933a5d2fbde3eca918bc2d1e562d890b27cbdf9e",
         "vrfVerificationKeyHash": "8c27e24e706d7b1b7cf08791c72b1bfb315267764de6983ad99adb047de7bf14",
@@ -96749,8 +96862,9 @@ expression: stake_distr
       }
     },
     "pool1a5fy9pzm22r0w9avdu668s60yg3j894prt7ys4yplkpmu9ykv2q": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "ed1242845b5286f717ac6f35a3c34f22232396a11afc485481fd83be",
         "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
@@ -96779,8 +96893,9 @@ expression: stake_distr
       }
     },
     "pool1a9qju4zhpxj5ywt5ez79zzjhszg47kk2dq4stllvs5qywmlv8cj": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 116436519545,
+      "voting_stake": 116436519545,
       "parameters": {
         "id": "e9412e545709a5423974c8bc510a5780915f5aca682b05ffec850047",
         "vrfVerificationKeyHash": "6dbad0b53e034f8dea155e5b403ba74a1e7063683a5215595196ce15ba9a0175",
@@ -96813,8 +96928,9 @@ expression: stake_distr
       }
     },
     "pool1al30ghsq7n335v9zdrnd0dpuva435c9yqtsrvphsfcgjytz3exp": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497625042,
+      "voting_stake": 9497625042,
       "parameters": {
         "id": "efe2f45e00f4e31a30a268e6d7b43c676b1a60a402e03606f04e1122",
         "vrfVerificationKeyHash": "9c722bd83a024b14203272cabe72d7fc119fc5a1e3983f62697c145d2551caac",
@@ -96847,8 +96963,9 @@ expression: stake_distr
       }
     },
     "pool1am8e6xumuc2nyrh6d36586r2yuctha0gsj029vpr8ahqvatwwrq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19495449817,
+      "voting_stake": 19495449817,
       "parameters": {
         "id": "eecf9d1b9be615320efa6c7543e86a2730bbf5e8849ea2b0233f6e06",
         "vrfVerificationKeyHash": "72f2c9657dcf593dab1afbcf529dee4b3d0ebd17cc906b7b8ef5750c2e35b70b",
@@ -96881,8 +96998,9 @@ expression: stake_distr
       }
     },
     "pool1amrnegn99cdwj2zjr90lx2yamxg6s0d7t7vf7phpe94kga9gg86": {
-      "blocksCount": 150,
+      "blocks_count": 150,
       "stake": 1720975149594,
+      "voting_stake": 1720975149594,
       "parameters": {
         "id": "eec73ca2652e1ae92852195ff3289dd991a83dbe5f989f06e1c96b64",
         "vrfVerificationKeyHash": "0cac02dc881b88519077ff88bb0cd06a6d8b22dcec21abde0cd4dc195a7486d0",
@@ -96916,8 +97034,9 @@ expression: stake_distr
       }
     },
     "pool1ausmtj7pg57n49cv6pnm6vakuakya38jwrqde7wgnfk4wqycwu8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "ef21b5cbc1453d3a970cd067bd33b6e76c4ec4f270c0dcf9c89a6d57",
         "vrfVerificationKeyHash": "42cb2e047fa594c18136b9471acbc7ad6911be8b4e8e4557ef02a4fa17a7e244",
@@ -96946,8 +97065,9 @@ expression: stake_distr
       }
     },
     "pool1aw7fkxekw2w28f3ug46rwn8nf8lchyhy2aec3tvaw70r6r2kr0l": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 49553220037,
+      "voting_stake": 49553220037,
       "parameters": {
         "id": "ebbc9b1b36729ca3a63c4574374cf349ff8b92e4577388ad9d779e3d",
         "vrfVerificationKeyHash": "96a5f379eee0b5ec5d822dde0502ec6b43e5da2342421dd6b3deaa9bc5fbefb7",
@@ -96985,8 +97105,9 @@ expression: stake_distr
       }
     },
     "pool1axqjzy6mtr7h0cm6trz36fjn4d33qvlu7a6yxaxf2f6wuarlh2k": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1121635117946,
+      "voting_stake": 1121635117946,
       "parameters": {
         "id": "e98121135b58fd77e37a58c51d2653ab631033fcf7744374c95274ee",
         "vrfVerificationKeyHash": "72b958f4c845f797be208920697869d4372b4d423b50ecdc5e89ef54501d8f22",
@@ -97019,8 +97140,9 @@ expression: stake_distr
       }
     },
     "pool1c2k44smpn99j4xmt8wy2g6rarr5q038hz38wvaaw7nhmq65thre": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 28564034913,
+      "voting_stake": 28564034913,
       "parameters": {
         "id": "c2ad5ac361994b2a9b6b3b88a4687d18e807c4f7144ee677aef4efb0",
         "vrfVerificationKeyHash": "834184944507d8f23585145ab03534c72b28d1b77fa55a49010825a0246cf463",
@@ -97053,8 +97175,9 @@ expression: stake_distr
       }
     },
     "pool1c3ez592g7wp2rf44guwp2cq8cpxnn39mgv0790f9kmjk77p7aat": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 447634194,
+      "voting_stake": 447634194,
       "parameters": {
         "id": "c4722a1548f382a1a6b5471c156007c04d39c4bb431fe2bd25b6e56f",
         "vrfVerificationKeyHash": "6bd63ce0185dbf72548da9c0cf7468afe7a274f490d55afbd651ff65452375c6",
@@ -97087,8 +97210,9 @@ expression: stake_distr
       }
     },
     "pool1c65t3mxfvvxlm5fg3hlw2aakk3r4e9evmgycxjnu6hkyxu5yfmr": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10105963306,
+      "voting_stake": 10105963306,
       "parameters": {
         "id": "c6a8b8ecc9630dfdd1288dfee577b6b4475c972cda09834a7cd5ec43",
         "vrfVerificationKeyHash": "74b57263ee0365811927386b97baec5b35bac5cdab037eaad9da25090f349f2e",
@@ -97121,8 +97245,9 @@ expression: stake_distr
       }
     },
     "pool1c8u8gmxepqu93adxh7c2pgrgutmyufkezpy454h06r24knmt7tk": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19508607305,
+      "voting_stake": 19508607305,
       "parameters": {
         "id": "c1f8746cd9083858f5a6bfb0a0a068e2f64e26d910495a56efd0d55b",
         "vrfVerificationKeyHash": "19d438631224347db1b284b12d497b2ca889cd3bbcd0f414dfc5082bb8783eff",
@@ -97160,8 +97285,9 @@ expression: stake_distr
       }
     },
     "pool1cap99vewanqjy4ejex7z5099hqkqdp0y2fatme9cdcsuy85rq06": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 86379109672,
+      "voting_stake": 86379109672,
       "parameters": {
         "id": "c74252b32eecc1225732c9bc2a3ca5b82c0685e4527abde4b86e21c2",
         "vrfVerificationKeyHash": "bc123e7e22b248d22a2a2baeeec5e9c4fae75539d3c0fa22e142bd568003c25c",
@@ -97194,8 +97320,9 @@ expression: stake_distr
       }
     },
     "pool1cg74u7gq3kx2yjfzrwkrxnsk2kase7z7n6tr5vvdnstukdtjz5z": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 199800000,
+      "voting_stake": 199800000,
       "parameters": {
         "id": "c23d5e79008d8ca249221bac334e1655bb0cf85e9e963a318d9c17cb",
         "vrfVerificationKeyHash": "01734b65cddbb8adf3b2616ef19d4f817c65ca513c56dbde664c5af67def47fc",
@@ -97228,8 +97355,9 @@ expression: stake_distr
       }
     },
     "pool1ch2t32x83w6ncxa6fgv9u0zfsmgrrhv02u5phn83kajcgxw4cd7": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9397642158,
+      "voting_stake": 9397642158,
       "parameters": {
         "id": "c5d4b8a8c78bb53c1bba4a185e3c4986d031dd8f57281bccf1b76584",
         "vrfVerificationKeyHash": "208ea82941a1f41fd3400d190b579591a4ee92ddfb0dd53de8823aa48987e20b",
@@ -97262,8 +97390,9 @@ expression: stake_distr
       }
     },
     "pool1cmkjkxmk8hsf4dwxy6cng06arcvyk5du06jk6nxu2fj7kckv070": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "c6ed2b1b763de09ab5c626b1343f5d1e184b51bc7ea56d4cdc5265eb",
         "vrfVerificationKeyHash": "52514a08ee67b8d9d1d3fcedd2349de7ba63f0b0e6a6aca80125744e9930101e",
@@ -97291,8 +97420,9 @@ expression: stake_distr
       }
     },
     "pool1crsjjsvp9tppqrs4tdjqdxze4xxdj9jsrdxajytrp57s2797uvk": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "c0e12941812ac2100e155b64069859a98cd916501b4dd911630d3d05",
         "vrfVerificationKeyHash": "0a6620fdc2120c25f652bce36350f084cc41d587eaec093c5aad304c9519d963",
@@ -97320,8 +97450,9 @@ expression: stake_distr
       }
     },
     "pool1csef5r4287g2fn6ajvetamd0y4sevuxkdwj9ulwc57crx8u88zq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "c4329a0eaa3f90a4cf5d9332beedaf25619670d66ba45e7dd8a7b033",
         "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
@@ -97350,8 +97481,9 @@ expression: stake_distr
       }
     },
     "pool1d0x6sj6f50h2d4ydzff76nupu24qma4azng7a44ffgxj2hw2jra": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 346924689,
+      "voting_stake": 346924689,
       "parameters": {
         "id": "6bcda84b49a3eea6d48d1253ed4f81e2aa0df6bd14d1eed6a94a0d25",
         "vrfVerificationKeyHash": "a7776069f5243d3376916d6d932ef9c2027254c6dbd4b9b20557b93cfaed5d74",
@@ -97379,8 +97511,9 @@ expression: stake_distr
       }
     },
     "pool1d20fqynupcwz54chju55syfz3nms6h3kazwy9a089ghm2t2lzpg": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1001000000,
+      "voting_stake": 1001000000,
       "parameters": {
         "id": "6a9e90127c0e1c2a571797294811228cf70d5e36e89c42f5e72a2fb5",
         "vrfVerificationKeyHash": "59c0f5d3866a37704fb31a97a2a3caf8795c9bfec993df4540d86cf6deb29d53",
@@ -97413,8 +97546,9 @@ expression: stake_distr
       }
     },
     "pool1dg720fqut6y60phvxzk4pe639wvc2du65mv0yrnm8w6e570ct39": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "6a3ca7a41c5e89a786ec30ad50e7512b9985379aa6d8f20e7b3bb59a",
         "vrfVerificationKeyHash": "5302dc88235165c30f88ab43257ac1a122f2ec38fbe0caf12ba286cc19c3a619",
@@ -97447,8 +97581,9 @@ expression: stake_distr
       }
     },
     "pool1dje2qc5gp7t7sjgd5j6tse9smkwq0kezsccy8jkxr507x0aw4h3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11006161103,
+      "voting_stake": 11006161103,
       "parameters": {
         "id": "6cb2a062880f97e8490da4b4b864b0dd9c07db22863043cac61d1fe3",
         "vrfVerificationKeyHash": "93cf795a9b38606efef38d627cbf89e82048224f62286c1527b1a87f7e8dde92",
@@ -97481,8 +97616,9 @@ expression: stake_distr
       }
     },
     "pool1dmjagfyekz5vpfkdap7axpm8khhshnj658ukuscphgr76m4lef2": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "6ee5d42499b0a8c0a6cde87dd30767b5ef0bce5aa1f96e4301ba07ed",
         "vrfVerificationKeyHash": "9586f48442694ef028bcf67605b4ef650ab9f0f1cd81e181d2db8d9d5a387e84",
@@ -97510,8 +97646,9 @@ expression: stake_distr
       }
     },
     "pool1duwr8s97tsl6qqwwqnul5788ne949mlm5u6d2zq7dwpr2r4sd3t": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 497700000,
+      "voting_stake": 497700000,
       "parameters": {
         "id": "6f1c33c0be5c3fa001ce04f9fa78e79e4b52effba734d5081e6b8235",
         "vrfVerificationKeyHash": "91a00f0d1a788160a979842c52cf43bb3667d22578f6e283626072f1e98b0028",
@@ -97544,8 +97681,9 @@ expression: stake_distr
       }
     },
     "pool1dvwuefdyt53wt54t7hk8lcy4qsdg5jyww9nk08v9nrprs2uwk99": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 44000000,
+      "voting_stake": 44000000,
       "parameters": {
         "id": "6b1dcca5a45d22e5d2abf5ec7fe095041a8a488e7167679d8598c238",
         "vrfVerificationKeyHash": "42ea17e1f4c8e620196a04ed8d0140e563fffa3701abc74a144d6806f6376220",
@@ -97578,8 +97716,9 @@ expression: stake_distr
       }
     },
     "pool1dyy58ustunahrnk6gfmupfxsv99stqnrruxqvj5sjfk7vel02jr": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9995686749,
+      "voting_stake": 9995686749,
       "parameters": {
         "id": "690943f20be4fb71ceda4277c0a4d0614b0582631f0c064a90926de6",
         "vrfVerificationKeyHash": "5b23758976d09efd487835f8143b3171de1529576e9857537e7e8b4a38b28f3b",
@@ -97612,8 +97751,9 @@ expression: stake_distr
       }
     },
     "pool1dzxc7pqsqfs7dru7xdrkvkdf9s3kd4y2tqsdv063d2lfcxw6zmg": {
-      "blocksCount": 80,
+      "blocks_count": 80,
       "stake": 1193419288720,
+      "voting_stake": 1193419288720,
       "parameters": {
         "id": "688d8f04100261e68f9e33476659a92c2366d48a5820d63f516abe9c",
         "vrfVerificationKeyHash": "190e206a35e7275c45b04f8db1b9cd166ab9717f7810840f150edbc556b7dfee",
@@ -97646,8 +97786,9 @@ expression: stake_distr
       }
     },
     "pool1e0arfuamnymdkmjztvkryasxv9d8u8key27ajgc4mquz2nr8mk9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 34792724261148,
+      "voting_stake": 34792724261148,
       "parameters": {
         "id": "cbfa34f3bb9936db6e425b2c327606615a7e1ed922bdd92315d83825",
         "vrfVerificationKeyHash": "850b49ed21d72267fdaa3e593f014637223e0d3dfe6cae2b4ea5c52945f337aa",
@@ -97680,8 +97821,9 @@ expression: stake_distr
       }
     },
     "pool1e0mu44gtaglzv3507aaw34eyhw6jea93d7zjywsr5yfh20h4zv8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 146699553221,
+      "voting_stake": 146699553221,
       "parameters": {
         "id": "cbf7cad50bea3e26468ff77ae8d724bbb52cf4b16f85223a03a11375",
         "vrfVerificationKeyHash": "14af87837b551661fcb10cd63c9dee265f4a792c5185165420b4f305f780a75e",
@@ -97714,8 +97856,9 @@ expression: stake_distr
       }
     },
     "pool1e303tg8cmmgcjd89e30c7u7tz52ct0nguq4w4ryjj4422y99u23": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "cc5f15a0f8ded18934e5cc5f8f73cb151585be68e02aea8c92956aa5",
         "vrfVerificationKeyHash": "1b899257eeabaa82669202a6c64ca69fb70486558ee5e0d7212fda72f17da094",
@@ -97748,8 +97891,9 @@ expression: stake_distr
       }
     },
     "pool1e7vegr50kmr4cffv4jn4fpym997zzs20gq65w5x06snqxxyfgrq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "cf99940e8fb6c75c252caca754849b297c21414f40354750cfd42603",
         "vrfVerificationKeyHash": "7f542059b7106c1affc8f44b5d2080c70d821c198d4819b317f76f6feec719ae",
@@ -97782,8 +97926,9 @@ expression: stake_distr
       }
     },
     "pool1e994rxs8glsefr5rqtagnl0y50e8nrejgqehr7mg4su2gtrvxwn": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1000000,
+      "voting_stake": 1000000,
       "parameters": {
         "id": "c94b519a0747e1948e8302fa89fde4a3f2798f32403371fb68ac38a4",
         "vrfVerificationKeyHash": "9586f48442694ef028bcf67605b4ef650ab9f0f1cd81e181d2db8d9d5a387e84",
@@ -97811,8 +97956,9 @@ expression: stake_distr
       }
     },
     "pool1ece99q865t5u0rmx88z4ev0cut0pqarvqg3mq4zmhde3wqsdhcq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 47141141636,
+      "voting_stake": 47141141636,
       "parameters": {
         "id": "ce325280faa2e9c78f6639c55cb1f8e2de10746c0223b0545bbb7317",
         "vrfVerificationKeyHash": "f6c079878e12b11ecf8c347c4e648a0bc88e2cce772193bae76cbe40c6421741",
@@ -97845,8 +97991,9 @@ expression: stake_distr
       }
     },
     "pool1egfg26w0syqly9qc65hz33gqv2qrzyka8tfue3ccsk3c73a56jp": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2043324452448,
+      "voting_stake": 2043324452448,
       "parameters": {
         "id": "ca128569cf8101f21418d52e28c50062803112dd3ad3ccc71885a38f",
         "vrfVerificationKeyHash": "9ab7a692a1564420e2033122f2a9642247d81033b81c5aff123815803d296797",
@@ -97884,8 +98031,9 @@ expression: stake_distr
       }
     },
     "pool1egu0kaxmv3zu54xd80p9u0dcalnywmfru0qnm43hjvfzqa5zw5x": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 201041740102,
+      "voting_stake": 201041740102,
       "parameters": {
         "id": "ca38fb74db6445ca54cd3bc25e3db8efe6476d23e3c13dd637931220",
         "vrfVerificationKeyHash": "7a2035a6aafad80d255100a0fe72a3cd77d387cd6d39d5f1a470273f62dc9dfe",
@@ -97918,8 +98066,9 @@ expression: stake_distr
       }
     },
     "pool1eudmugh8x6ys05lh8kaaf2y0w0y52lf3s0gx0s70q694ksq6t7y": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497624778,
+      "voting_stake": 9497624778,
       "parameters": {
         "id": "cf1bbe22e7368907d3f73dbbd4a88f73c9457d3183d067c3cf068b5b",
         "vrfVerificationKeyHash": "25be9a38369c04a4f7672cc3532221d4217378cb1afb2198cfac00d35950d55e",
@@ -97952,8 +98101,9 @@ expression: stake_distr
       }
     },
     "pool1ext7qrwjzaxcdfhdnkq5mth59ukuu2atcg6tgqpmevpt7ratkta": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 118353225488,
+      "voting_stake": 118353225488,
       "parameters": {
         "id": "c997e00dd2174d86a6ed9d814daef42f2dce2babc234b4003bcb02bf",
         "vrfVerificationKeyHash": "53904d9cbe59b52d6b54ce29a58090ef45b3e44bffdc6ab7c514a7c3934f2a74",
@@ -97986,8 +98136,9 @@ expression: stake_distr
       }
     },
     "pool1ez2wz52f605j0qd9nc35hw0pund5zp3fwaqtgv2tyzy25kmkr0n": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "c894e15149d3e92781a59e234bb9e1e4db4106297740b4314b2088aa",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -98016,8 +98167,9 @@ expression: stake_distr
       }
     },
     "pool1ezt0htr2q0qjxfv8myeqegfqla5pfxq2guk904jmzf50ya343u0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "c896fbac6a03c1232587d9320ca120ff6814980a472c57d65b1268f2",
         "vrfVerificationKeyHash": "c561c8491825a3355153153d36c6374cf8989b9f4cbdea0fe26e6f12a6923e56",
@@ -98050,8 +98202,9 @@ expression: stake_distr
       }
     },
     "pool1f5d6h7qv4q6kr5v5ymegdgvfp3tyznudq6xugdt7nwd6ga0szem": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 21799144759,
+      "voting_stake": 21799144759,
       "parameters": {
         "id": "4d1babf80ca83561d19426f286a1890c56414f8d068dc4357e9b9ba4",
         "vrfVerificationKeyHash": "c75b8eb9e523c1f58dbd738e5fd0977c77b9c171b3f1c0ede676822edbdaa10b",
@@ -98090,8 +98243,9 @@ expression: stake_distr
       }
     },
     "pool1f8c7lz93ysh00k09lwm8uycrq7plxsz5kqwd7cyq9v6sgvf6cnl": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 31746083203,
+      "voting_stake": 31746083203,
       "parameters": {
         "id": "49f1ef88b1242ef7d9e5fbb67e13030783f34054b01cdf60802b3504",
         "vrfVerificationKeyHash": "937ff1133021fc9ef7ef58248f5b9d9aa0860f358caf72f0f8200dba6cb04485",
@@ -98124,8 +98278,9 @@ expression: stake_distr
       }
     },
     "pool1f9p9jzdvq68dzl9f6svw0ss2e8r7zftfswgytlp2g7zxcf6z89u": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 480792717944,
+      "voting_stake": 480792717944,
       "parameters": {
         "id": "49425909ac068ed17ca9d418e7c20ac9c7e12569839045fc2a47846c",
         "vrfVerificationKeyHash": "f705602de63fe067e4934766dba07f492bd451ed17a514c85f6c04f8cab158f5",
@@ -98159,8 +98314,9 @@ expression: stake_distr
       }
     },
     "pool1fd7g2qs8sysqvysm2vuv4mhlpt5x4gpe4arpgxjp3y072nqnm7q": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9507310995,
+      "voting_stake": 9507310995,
       "parameters": {
         "id": "4b7c850207812006121b5338caeeff0ae86aa039af46141a41891fe5",
         "vrfVerificationKeyHash": "610f8c930093f2537ebc944311ea59ef89ab72e4cc69e85d61f32ffde6f7685b",
@@ -98203,8 +98359,9 @@ expression: stake_distr
       }
     },
     "pool1fec6npl7y4qxt4dwvmlgd48488mm4uu6kcdy2yth7kcskmxry7g": {
-      "blocksCount": 3,
+      "blocks_count": 3,
       "stake": 1000000000000,
+      "voting_stake": 1000000000000,
       "parameters": {
         "id": "4e71a987fe254065d5ae66fe86d4f539f7baf39ab61a451177f5b10b",
         "vrfVerificationKeyHash": "dea2b7646d31ac628fd17256d545c31a776ca47906ca4d41a02572fe4d64767b",
@@ -98252,8 +98409,9 @@ expression: stake_distr
       }
     },
     "pool1fn03vv9hxw5zq0wvc20v5m6d4g4dr6a55m3m068l9a826h0k74y": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 32077359139,
+      "voting_stake": 32077359139,
       "parameters": {
         "id": "4cdf1630b733a8203dccc29eca6f4daa2ad1ebb4a6e3b7e8ff2f4ead",
         "vrfVerificationKeyHash": "d8293349d969542f56ccce844722abec70fe8ebd05ce959d376b1efb89072bec",
@@ -98286,8 +98444,9 @@ expression: stake_distr
       }
     },
     "pool1fq9e09gpyqqanrx02yevnw2kpqf063mlw6adjt2yh4zc79tckhf": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10495391429,
+      "voting_stake": 10495391429,
       "parameters": {
         "id": "480b9795012001d98ccf5132c9b9560812fd477f76bad92d44bd458f",
         "vrfVerificationKeyHash": "802da9a3a11ba81fecb6b9d746469e2e4cf59cd5edae85ea3a10007bb1d820a3",
@@ -98320,8 +98479,9 @@ expression: stake_distr
       }
     },
     "pool1fqq5dr93h874745hyn4kl7mlvq0j9l67j4grxehnpyr3jvmxcym": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10057041250,
+      "voting_stake": 10057041250,
       "parameters": {
         "id": "4801468cb1b9fd5f569724eb6ffb7f601f22ff5e95503366f3090719",
         "vrfVerificationKeyHash": "8f4e243199f44a88fcbdaf6dcd10412bed3b7e9824a9d466348a9365d0eb58f1",
@@ -98359,8 +98519,9 @@ expression: stake_distr
       }
     },
     "pool1frc4f6cr8hwkjraygrhsvkl840xdv0u52g96k05lrd3tyeskmx7": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1148955725000,
+      "voting_stake": 1148955725000,
       "parameters": {
         "id": "48f154eb033ddd690fa440ef065be7abccd63f94520bab3e9f1b62b2",
         "vrfVerificationKeyHash": "cfeacda4975e3296a4712b273ad42c537ac5262a682effbfe598d597a85c9708",
@@ -98393,8 +98554,9 @@ expression: stake_distr
       }
     },
     "pool1fsv7u3actd93792f5nka66080l2m0elu69tuvk74qz8g5sukff0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10060602455,
+      "voting_stake": 10060602455,
       "parameters": {
         "id": "4c19ee47b85b4b1f1549a4eddd69e77fd5b7e7fcd157c65bd5008e8a",
         "vrfVerificationKeyHash": "6117405df9932d2a2a7abae932ca6a9508166ab9188d5532c1b6a6b0d39bf16a",
@@ -98417,8 +98579,9 @@ expression: stake_distr
       }
     },
     "pool1fxqkwkutajp2vr7t3vpvt4sgy7gmlxetgnyh57hkn7ru2rf96a2": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 20015330811,
+      "voting_stake": 20015330811,
       "parameters": {
         "id": "4981675b8bec82a60fcb8b02c5d6082791bf9b2b44c97a7af69f87c5",
         "vrfVerificationKeyHash": "2a4a2a216c389311b2834c9dc217b70b59dce9f84ebdf68048a11affa8593f7b",
@@ -98451,8 +98614,9 @@ expression: stake_distr
       }
     },
     "pool1fyssphxavlclpddydsx4k3zdg04j6rkshkxvf7wedny95tvqyla": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 28461546384,
+      "voting_stake": 28461546384,
       "parameters": {
         "id": "492100dcdd67f1f0b5a46c0d5b444d43eb2d0ed0bd8cc4f9d96cc85a",
         "vrfVerificationKeyHash": "d13143377e43ace128f70a1afe64d6e53f0ca328af78cc4726e04461db54aa46",
@@ -98485,8 +98649,9 @@ expression: stake_distr
       }
     },
     "pool1fz8qe58ywqgyrvph5hwv4veualuwvy6uvwyzg3hajrynzgmcre2": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497445813,
+      "voting_stake": 9497445813,
       "parameters": {
         "id": "488e0cd0e4701041b037a5dccab33ceff8e6135c63882446fd90c931",
         "vrfVerificationKeyHash": "c6d8c43ad68dad68cb9d9f34a386b1c3e6842e53e2ec3639a392c14cce489670",
@@ -98519,8 +98684,9 @@ expression: stake_distr
       }
     },
     "pool1g20peax827vmg9yyqfzj4g8d65fpz9y9uhsuhe70jwmfvaceg2m": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1886323793980,
+      "voting_stake": 1886323793980,
       "parameters": {
         "id": "429e1cf4c75799b4148402452aa0edd512111485e5e1cbe7cf93b696",
         "vrfVerificationKeyHash": "ebf3524ed3f2ca11040828fd3cd9aa369866b078dbee272f832facb5ef1e2658",
@@ -98553,8 +98719,9 @@ expression: stake_distr
       }
     },
     "pool1g2ztg53vvf7233vnz3ff7wedx7lp6qnpp0nwt09kyqygycj0k6n": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "4284b4522c627ca8c59314529f3b2d37be1d02610be6e5bcb6200882",
         "vrfVerificationKeyHash": "8a2745c299d4b7a08aa39b4008dd2dd1accab32e24fe8871c70410e0152f3c3b",
@@ -98577,8 +98744,9 @@ expression: stake_distr
       }
     },
     "pool1g74nu0hezqzd07jdk75gvaf665rrzwqnz2784xe0t5td5pj497p": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 81393858136,
+      "voting_stake": 81393858136,
       "parameters": {
         "id": "47ab3e3ef91004d7fa4db7a886753ad50631381312bc7a9b2f5d16da",
         "vrfVerificationKeyHash": "0026f9f1658ff979b0ba5f9fd9e101884e3aa5a337d6111dbba79139c74eb9b8",
@@ -98611,8 +98779,9 @@ expression: stake_distr
       }
     },
     "pool1g74v33gkx84x94tep4qwrczkwwk8l075sslne2vrmn9jx95rfqa": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "47aac8c51631ea62d5790d40e1e05673ac7fbfd4843f3ca983dccb23",
         "vrfVerificationKeyHash": "f5ef2bcd30ca3569f7a4994da9ff1d129039fc65417168f358886c40599affc8",
@@ -98645,8 +98814,9 @@ expression: stake_distr
       }
     },
     "pool1g8aqrg8u9uufjrsvzt78cnqk3fws4r298p9esw0exd2mqav0yl2": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "41fa01a0fc2f38990e0c12fc7c4c168a5d0a8d45384b9839f93355b0",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -98675,8 +98845,9 @@ expression: stake_distr
       }
     },
     "pool1g8yh6lekmzm7jj5ja86nn5gnszwefnv25tfxtar9uhm82rpy249": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "41c97d7f36d8b7e94a92e9f539d113809d94cd8aa2d265f465e5f675",
         "vrfVerificationKeyHash": "de2df8f55ce0f3b014093ac11ad6dd0fb40822a2a2ba4fb8007e2a56bf03fede",
@@ -98699,8 +98870,9 @@ expression: stake_distr
       }
     },
     "pool1g9gkpj6kdt4gmlhnf7yzv7y9u2qstp3r0tm4f68a47ukztaqe6q": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497624778,
+      "voting_stake": 9497624778,
       "parameters": {
         "id": "415160cb566aea8dfef34f88267885e2810586237af754e8fdafb961",
         "vrfVerificationKeyHash": "04fb50496afb8b50e7fb63f141025306c5ac0ec3a2a2e0200f898993b4904d8d",
@@ -98733,8 +98905,9 @@ expression: stake_distr
       }
     },
     "pool1ga327ax76twamq0zypgxrc2n0g9dvwhsr3rkwf6rfl426mp8m2f": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 27902653740,
+      "voting_stake": 27902653740,
       "parameters": {
         "id": "4762af74ded2dddd81e2205061e1537a0ad63af01c476727434feaad",
         "vrfVerificationKeyHash": "aa05fe7b0bad1690fb6ceac182add0dad9e89d10170efa99d789cc390961211b",
@@ -98761,8 +98934,9 @@ expression: stake_distr
       }
     },
     "pool1gc3u9crwkr4wxk5ctgprxamqusqrscf22lrgkc02hn8rx39mcgg": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10996673809,
+      "voting_stake": 10996673809,
       "parameters": {
         "id": "4623c2e06eb0eae35a985a02337760e40038612a57c68b61eabcce33",
         "vrfVerificationKeyHash": "6a537ad5cdf5f5fc5c0c45c14be73bf1fe7d841c5a661f665a1404d13d7de01e",
@@ -98795,8 +98969,9 @@ expression: stake_distr
       }
     },
     "pool1ggurf2dnv9qh7k8zt9hha2fjtv26v2uy0w23vvf0q7snjqe42mm": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "423834a9b361417f58e2596f7ea9325b15a62b847b9516312f07a139",
         "vrfVerificationKeyHash": "90e78841ee38eedb2f5389afca81e7667516663bb4a18496e4513606739c5e4f",
@@ -98829,8 +99004,9 @@ expression: stake_distr
       }
     },
     "pool1gme3a0y0hqz2kmyvn5kqp6ngf74nw2uzypvw0ynxrfysug6p9fz": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 25559221094,
+      "voting_stake": 25559221094,
       "parameters": {
         "id": "46f31ebc8fb804ab6c8c9d2c00ea684fab372b822058e792661a490e",
         "vrfVerificationKeyHash": "2c65165549af03443db8f69cf28aaf7cd38413b1ffb62314f2bda7b498fe8a72",
@@ -98863,8 +99039,9 @@ expression: stake_distr
       }
     },
     "pool1gmxl4hv5hxh8vagw26r6av0pwhxemye8wv2hl30e2mehvzmzk89": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 408340669,
+      "voting_stake": 408340669,
       "parameters": {
         "id": "46cdfadd94b9ae76750e5687aeb1e175cd9d932773157fc5f956f376",
         "vrfVerificationKeyHash": "53835cc60f193de8435af44c71d07b79904f159a5ddd68434c317d4bd868b262",
@@ -98892,8 +99069,9 @@ expression: stake_distr
       }
     },
     "pool1gnyw5vz8ry8zjhx5zxrtdg0yqc5m0h3x86pj326zumjlw2xu944": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9397280620,
+      "voting_stake": 9397280620,
       "parameters": {
         "id": "44c8ea3047190e295cd41186b6a1e40629b7de263e8328ab42e6e5f7",
         "vrfVerificationKeyHash": "a8e9c0becf6c66f30313a4b0b47be96b239e912ab7f09f379decfdd9aac6bfdf",
@@ -98926,8 +99104,9 @@ expression: stake_distr
       }
     },
     "pool1gvfth5tq0hdy3md9j33ee6wat7k04lnwjq4kmkjpmmrj7l99sxs": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1771072739,
+      "voting_stake": 1771072739,
       "parameters": {
         "id": "4312bbd1607dda48eda594639ce9dd5facfafe6e902b6dda41dec72f",
         "vrfVerificationKeyHash": "c9693a63641a07214c6897d11b5dfe82184470265ac94487b71e37502ac9c76d",
@@ -98960,8 +99139,9 @@ expression: stake_distr
       }
     },
     "pool1gyw5ysgwudxzl9nw0eujm4m3f8vzwx3e3jzy93v3x4jvq42fpux": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9909783894,
+      "voting_stake": 9909783894,
       "parameters": {
         "id": "411d42410ee34c2f966e7e792dd77149d8271a398c8442c5913564c0",
         "vrfVerificationKeyHash": "ca5a2aa989d04fc64a88c97e69b7a969e421b5eec6292a929f6569c50812fa75",
@@ -98984,8 +99164,9 @@ expression: stake_distr
       }
     },
     "pool1h2ag7yej9veur67zhu0gqk7caefsqetl7tq0qaymezfwyzh0ec7": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 8052266231181,
+      "voting_stake": 8052266231181,
       "parameters": {
         "id": "baba8f13322b33c1ebc2bf1e805bd8ee5300657ff2c0f0749bc892e2",
         "vrfVerificationKeyHash": "1be7b843e5bc5fbe16e152e6f4586dc5d9857e6bd40d399061042503a8c053d1",
@@ -99018,8 +99199,9 @@ expression: stake_distr
       }
     },
     "pool1h4c9vz3f4rmkt2hc5y80kt4r5lcajq76hetu7ju29ley7acvclp": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 100434595458,
+      "voting_stake": 100434595458,
       "parameters": {
         "id": "bd70560a29a8f765aaf8a10efb2ea3a7f1d903dabe57cf4b8a2ff24f",
         "vrfVerificationKeyHash": "a08f393ba1d3b5d942f023c89dbc28bf35928994885694956282eb6c65bd296b",
@@ -99054,8 +99236,9 @@ expression: stake_distr
       }
     },
     "pool1h4n2c2g6c5saatezzs0mpe0z7rknmf33txulf8sl2q9v7e72nky": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2800340006418,
+      "voting_stake": 2800340006418,
       "parameters": {
         "id": "bd66ac291ac521deaf22141fb0e5e2f0ed3da63159b9f49e1f500acf",
         "vrfVerificationKeyHash": "469b832bd257b351a82f5b22ae6e1ccc254afebb17b53523654ec7ec765334d7",
@@ -99093,8 +99276,9 @@ expression: stake_distr
       }
     },
     "pool1h4w59hqkzn4l546a8q0yjlf94jz9tv85qjca4pjc9lne58ft7pz": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 45739254506,
+      "voting_stake": 45739254506,
       "parameters": {
         "id": "bd5d42dc1614ebfa575d381e497d25ac8455b0f404b1da86582fe79a",
         "vrfVerificationKeyHash": "dd110b640b5ca45fb9ef69e0e91847697fb7bf73d9be7965b01d4e12c60360e1",
@@ -99127,8 +99311,9 @@ expression: stake_distr
       }
     },
     "pool1h9rvj96leksykmj6v5zdwwc352ln875g5mdqeexzstrwudkddmc": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 80302024248,
+      "voting_stake": 80302024248,
       "parameters": {
         "id": "b946c9175fcda04b6e5a6504d73b11a2bf33fa88a6da0ce4c282c6ee",
         "vrfVerificationKeyHash": "1939ee51832ca305439472f67614bb2a53e2904d34db3ce7bda791c7846d8c55",
@@ -99161,8 +99346,9 @@ expression: stake_distr
       }
     },
     "pool1hfndr5ja3w7ptzhpjsds8f2eye3umg6nj8t7cq6s9vddj9q70k6": {
-      "blocksCount": 82,
+      "blocks_count": 82,
       "stake": 1201198666132,
+      "voting_stake": 1201198666132,
       "parameters": {
         "id": "ba66d1d25d8bbc158ae1941b03a5592663cda35391d7ec03502b1ad9",
         "vrfVerificationKeyHash": "b453a190d187848365cfd7fef885a8e53b93b567fc7eb8c9c05b0a4a6cf4bf1c",
@@ -99195,8 +99381,9 @@ expression: stake_distr
       }
     },
     "pool1hghdaa7chn4hykkf9h0g0yqpz6j93gexvllz0w6p93y72saukmp": {
-      "blocksCount": 18,
+      "blocks_count": 18,
       "stake": 1137483132967,
+      "voting_stake": 1137483132967,
       "parameters": {
         "id": "ba2edef7d8bceb725ac92dde87900116a458a32667fe27bb412c49e5",
         "vrfVerificationKeyHash": "a844e30844acf00049ae40166c4559a345b112d4fda61f0d7b4a12d020aef566",
@@ -99229,8 +99416,9 @@ expression: stake_distr
       }
     },
     "pool1hgsnn5yr0g5rnhqqaf8g26ldsvuhavhkfmyxdjlparr6xvp425n": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 3147699780,
+      "voting_stake": 3147699780,
       "parameters": {
         "id": "ba2139d0837a2839dc00ea4e856bed83397eb2f64ec866cbe1e8c7a3",
         "vrfVerificationKeyHash": "e66967d32e9bfc980bf575209fbd82906acb49a4bca81c58ad3bfa7ae5e2a65a",
@@ -99258,8 +99446,9 @@ expression: stake_distr
       }
     },
     "pool1hlsuxcuylukyjwxv06x5r77mtwwmgyuw3jrljntn0mqcvqy503k": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "bfe1c36384ff2c4938cc7e8d41fbdb5b9db4138e8c87f94d737ec186",
         "vrfVerificationKeyHash": "bc7928b255025e43fa62d668492ae38d63d53cdc7bb840431200490e07f9c6d2",
@@ -99292,8 +99481,9 @@ expression: stake_distr
       }
     },
     "pool1hsxu3tfj0mfp2ncpg67rj3kywwqvu2p3k0cqr8fz0ghnxjfyy55": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10964874523,
+      "voting_stake": 10964874523,
       "parameters": {
         "id": "bc0dc8ad327ed2154f0146bc3946c47380ce2831b3f0019d227a2f33",
         "vrfVerificationKeyHash": "a992b7e2d5daf54b83d9551dcff9a899dac506d7afcbb4f4f7a51e9aa9e9768b",
@@ -99326,8 +99516,9 @@ expression: stake_distr
       }
     },
     "pool1huftf4gt4qm7ckprs3zt8gjeva4hkfmqsk8le9w7rxag6mhxms0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "bf12b4d50ba837ec58238444b3a259676b7b2760858ffc95de19ba8d",
         "vrfVerificationKeyHash": "0376404ffdd54a456d5f041f18ab443931b0e257a04aad2a9204ac83ef78a16d",
@@ -99355,8 +99546,9 @@ expression: stake_distr
       }
     },
     "pool1j20l32n8un5gce4adk44n9zks8cdvnk3amgursud847cwnpgeg4": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19595400000,
+      "voting_stake": 19595400000,
       "parameters": {
         "id": "929ff8aa67e4e88c66bd6dab59945681f0d64ed1eed1c1c38d3d7d87",
         "vrfVerificationKeyHash": "8407af2ef7ac8af07cfa2a7564d6cf8fe338acab3c6391dbc24433c46e9e5455",
@@ -99390,8 +99582,9 @@ expression: stake_distr
       }
     },
     "pool1j55ew47zgftph5jkf6qsuuhxwu0tjf4fvln6259mpqn06xcktvj": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19591803251,
+      "voting_stake": 19591803251,
       "parameters": {
         "id": "95299757c242561bd2564e810e72e6771eb926a967e7a550bb0826fd",
         "vrfVerificationKeyHash": "71cbedd6bd81fe49180de549fc164f5fb91f01bbbca7e101c676d4274e320e7d",
@@ -99424,8 +99617,9 @@ expression: stake_distr
       }
     },
     "pool1j5ykmf5a87myg947w2svnnj8f3evt8dqmvv624kugv9tcwwk8vr": {
-      "blocksCount": 50,
+      "blocks_count": 50,
       "stake": 1408024031968,
+      "voting_stake": 1408024031968,
       "parameters": {
         "id": "95096da69d3fb64416be72a0c9ce474c72c59da0db19a556dc430abc",
         "vrfVerificationKeyHash": "8ecf63e602b53c1e9083ba8454bb1ea72a3df62cc0ef365e496e93999ccf5fb2",
@@ -99458,8 +99652,9 @@ expression: stake_distr
       }
     },
     "pool1j67m773nj49h0h3dha8x7s768d5w4z3t9t8emnlulc8au9tzfvt": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "96bdbf7a33954b77de2dbf4e6f43da3b68ea8a2b2acf9dcffcfe0fde",
         "vrfVerificationKeyHash": "7851806dfdbd4cf9094bdd4a268e1a105b32fae94ec4788cc417fa99fc9a5c59",
@@ -99497,8 +99692,9 @@ expression: stake_distr
       }
     },
     "pool1j8jjj8y07k5kh2ur8usekj5w0y4swl8khd2lgn8ghlfsuwexwf9": {
-      "blocksCount": 87,
+      "blocks_count": 87,
       "stake": 1268046312253,
+      "voting_stake": 1268046312253,
       "parameters": {
         "id": "91e5291c8ff5a96bab833f219b4a8e792b077cf6bb55f44ce8bfd30e",
         "vrfVerificationKeyHash": "31147b4bf3b20ff386c2560e1d181341ede74d58bb5d85557d889bdc0e864305",
@@ -99539,8 +99735,9 @@ expression: stake_distr
       }
     },
     "pool1jaed3q2trl0n6s5mwd0tw8s9k4uheqr7ytpfne034lrh2fj7wd7": {
-      "blocksCount": 82,
+      "blocks_count": 82,
       "stake": 1207484472843,
+      "voting_stake": 1207484472843,
       "parameters": {
         "id": "9772d8814b1fdf3d429b735eb71e05b5797c807e22c299e5f1afc775",
         "vrfVerificationKeyHash": "9f193fd02c28116b5f6bc3d9cecfdc6513dd0dc1930c4b28af33ef0eaa93b85c",
@@ -99573,8 +99770,9 @@ expression: stake_distr
       }
     },
     "pool1jd86ej2sqk5h4d9y0gtd6qquqvpdw0cdhtny7epcyh4rjl8wrsr": {
-      "blocksCount": 126,
+      "blocks_count": 126,
       "stake": 1608527577886,
+      "voting_stake": 1608527577886,
       "parameters": {
         "id": "934facc95005a97ab4a47a16dd001c0302d73f0dbae64f643825ea39",
         "vrfVerificationKeyHash": "321e33def126535d971587edc1a5056ae7e1b85712b282b8b38752809a67b389",
@@ -99607,8 +99805,9 @@ expression: stake_distr
       }
     },
     "pool1je73q7ax8h2ke74n3l93r09p0qshvnyrnp0rlrckn5xjchduktz": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 7833206253,
+      "voting_stake": 7833206253,
       "parameters": {
         "id": "967d107ba63dd56cfab38fcb11bca17821764c83985e3f8f169d0d2c",
         "vrfVerificationKeyHash": "69a24a6d8d41a8d5932532fa23d27fe9111f63a56771b00623e27c3ad018e272",
@@ -99641,8 +99840,9 @@ expression: stake_distr
       }
     },
     "pool1jgl6h9fyy8gqt593ah638kqps4ls7c78d5p00we6qlzycdmhhvq": {
-      "blocksCount": 77,
+      "blocks_count": 77,
       "stake": 1183835507719,
+      "voting_stake": 1183835507719,
       "parameters": {
         "id": "923fab952421d005d0b1edf513d801857f0f63c76d02f7bb3a07c44c",
         "vrfVerificationKeyHash": "ec7f804386fe8ecfed4fa2a78426bd3ca889ce9e9c54e993749aa96c999d59d2",
@@ -99675,8 +99875,9 @@ expression: stake_distr
       }
     },
     "pool1jt6tf4y0eshz0agzww8dc44wqt5kk8ytu730yww37acykezuly7": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497624426,
+      "voting_stake": 9497624426,
       "parameters": {
         "id": "92f4b4d48fcc2e27f502738edc56ae02e96b1c8be7a2f239d1f7704b",
         "vrfVerificationKeyHash": "9a4587a2ec7b5c59b0f8c371affd6844879ac7b11ed9b35d5a6e82292eb9d802",
@@ -99709,8 +99910,9 @@ expression: stake_distr
       }
     },
     "pool1jtsar7k09zne4wzlen5ctmxa8mjuzwmzp9tmdxdul9f2q70074k": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 47929442,
+      "voting_stake": 47929442,
       "parameters": {
         "id": "92e1d1facf28a79ab85fcce985ecdd3ee5c13b620957b699bcf952a0",
         "vrfVerificationKeyHash": "c5af710a4246f43fe273eca12e100026e73e2b6ef4275f7ac1e2e44c928c7179",
@@ -99743,8 +99945,9 @@ expression: stake_distr
       }
     },
     "pool1jv7euu69zch46rl9a3nenaa50pwypjk6g7uzy5qzf3s76tafy72": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11000000,
+      "voting_stake": 11000000,
       "parameters": {
         "id": "933d9e7345162f5d0fe5ec6799f7b4785c40cada47b82250024c61ed",
         "vrfVerificationKeyHash": "86bb65413a91a40129fc23c02a6f8ee4c0d5453980a40385efcba81ca20bbe36",
@@ -99777,8 +99980,9 @@ expression: stake_distr
       }
     },
     "pool1jw898y658nejvaw7slrt5rfjwa7gky8lk6hy24l2gs3kqqesnfr": {
-      "blocksCount": 50,
+      "blocks_count": 50,
       "stake": 1107857427417,
+      "voting_stake": 1107857427417,
       "parameters": {
         "id": "938e5393543cf32675de87c6ba0d32777c8b10ffb6ae4557ea442360",
         "vrfVerificationKeyHash": "a2db8bbbfb7889fe973fa8e6a74380f7fdab8d4fb567904fe5c1d87be748bbb2",
@@ -99811,8 +100015,9 @@ expression: stake_distr
       }
     },
     "pool1k2r9ys5jlj3m0n0ytjj8fhzwaxffksvy53w3tkw888cgjdhqsru": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "b286524292fca3b7cde45ca474dc4ee9929b4184a45d15d9c739f089",
         "vrfVerificationKeyHash": "4209886a8faa0966a117880860a2bb9011bec5a727bbdb9f9efc8574f2cc425a",
@@ -99845,8 +100050,9 @@ expression: stake_distr
       }
     },
     "pool1k4nqdlvd9y3l4rfgj8fm80mcrrgcvgkx732x0n04jqfakxy2dvd": {
-      "blocksCount": 4,
+      "blocks_count": 4,
       "stake": 94535006668,
+      "voting_stake": 94535006668,
       "parameters": {
         "id": "b56606fd8d2923fa8d2891d3b3bf7818d18622c6f45467cdf59013db",
         "vrfVerificationKeyHash": "00bc597a478b92276455a701e9a648544774e57b627a2b0fb4d05e65f174e8f3",
@@ -99879,8 +100085,9 @@ expression: stake_distr
       }
     },
     "pool1k6a0z9xshhar2sltamm7k3qlnpnvupyuct63kp0m7wv4u7f00p4": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 23396113790,
+      "voting_stake": 23396113790,
       "parameters": {
         "id": "b6baf114d0bdfa3543ebeef7eb441f9866ce049cc2f51b05fbf3995e",
         "vrfVerificationKeyHash": "c5e60f8560d0816bb432a31b6a5f141e801d4473b9781d0377fa762d58df4be3",
@@ -99913,8 +100120,9 @@ expression: stake_distr
       }
     },
     "pool1k6nh3ay7u49sr3qfv8q5dhf4nh0n4p9rkh3zye9h76wngxyekz8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "b6a778f49ee54b01c40961c146dd359ddf3a84a3b5e22264b7f69d34",
         "vrfVerificationKeyHash": "eb32ad620d996d4ef87d82ae4a3ee3141b086e9e01d6f42105cec32677a2cbf1",
@@ -99947,8 +100155,9 @@ expression: stake_distr
       }
     },
     "pool1ka0prnwsau3v7mrffw8zlk4gvq7aun2hsymlmxpkens7kkpm5aw": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 118315713458,
+      "voting_stake": 118315713458,
       "parameters": {
         "id": "b75e11cdd0ef22cf6c694b8e2fdaa8603dde4d578137fd9836cce1eb",
         "vrfVerificationKeyHash": "2f2e89bfafc40296464b8decbf72dfff9c5e3a9f4aeb79f53b03ede96d1c3915",
@@ -99981,8 +100190,9 @@ expression: stake_distr
       }
     },
     "pool1ke9h4mggr8ttf45ale5dv4ntkvuw2wkvm6la4mv02688xuy99qp": {
-      "blocksCount": 73,
+      "blocks_count": 73,
       "stake": 1213027143824,
+      "voting_stake": 1213027143824,
       "parameters": {
         "id": "b64b7aed0819d6b4d69dfe68d6566bb338e53accdebfdaed8f568e73",
         "vrfVerificationKeyHash": "d8cd0338d85b63237c25f6747ec35fc652ff18fc9386b4cd2d2aa7bff7029e83",
@@ -100015,8 +100225,9 @@ expression: stake_distr
       }
     },
     "pool1kgzq2g7glzcu76ygcl2llhamjjutcts5vhe2mzglmn5jxt2cnfs": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 188148441192,
+      "voting_stake": 188148441192,
       "parameters": {
         "id": "b2040523c8f8b1cf6888c7d5ffdfbb94b8bc2e1465f2ad891fdce923",
         "vrfVerificationKeyHash": "d17c22f1c3617b5e963be0ce7fcf31e26eeb7b4d38b2276eda858d792cf0880f",
@@ -100049,8 +100260,9 @@ expression: stake_distr
       }
     },
     "pool1km5tjulmhpwyrarkda3dpp3pvp5adcz6djz9sqx8p5pnyvelxgs": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497400000,
+      "voting_stake": 9497400000,
       "parameters": {
         "id": "b6e8b973fbb85c41f4766f62d086216069d6e05a6c845800c70d0332",
         "vrfVerificationKeyHash": "c933e4a9a6e9ac12dbaedcc7fed0ba411d2ec3061937d79f26180f78ae726471",
@@ -100083,8 +100295,9 @@ expression: stake_distr
       }
     },
     "pool1kmmwsywmkus520vhk82k9uvtlx09r50ukn80pn2xr26jjmm6ltc": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19497629970,
+      "voting_stake": 19497629970,
       "parameters": {
         "id": "b6f6e811dbb721453d97b1d562f18bf99e51d1fcb4cef0cd461ab529",
         "vrfVerificationKeyHash": "9c4009296989e882f1a4ab6f9cbb210e1112cd157b60ad7af5452c3f7b2af365",
@@ -100117,8 +100330,9 @@ expression: stake_distr
       }
     },
     "pool1kp6y5wt4ujewtlqy4nqtcemgy3ekkq0qwa6vwg3pqq8gjm6d7j3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 30943174420,
+      "voting_stake": 30943174420,
       "parameters": {
         "id": "b0744a3975e4b2e5fc04acc0bc676824736b01e07774c72221000e89",
         "vrfVerificationKeyHash": "1f00c61a0977e3c544e54b5d2ec45f225c27e3f1fa7494328f94dc8102f1acc3",
@@ -100151,8 +100365,9 @@ expression: stake_distr
       }
     },
     "pool1kxk8w4c5t68dvu9k6xwfy8slamltwwerl0kmqxqkk5yx7ndrfpq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 3620257382,
+      "voting_stake": 3620257382,
       "parameters": {
         "id": "b1ac7757145e8ed670b6d19c921e1feefeb73b23fbedb01816b5086f",
         "vrfVerificationKeyHash": "7a85baebfcb6e66e933505c4a63e4654f9e31d6871765b52eff7bab0253f2acf",
@@ -100185,8 +100400,9 @@ expression: stake_distr
       }
     },
     "pool1kxtrz8evgdrwwrdajhwweng6k8eysjvqgn59r8a5wkqw6rlnvv6": {
-      "blocksCount": 75,
+      "blocks_count": 75,
       "stake": 1051064111783,
+      "voting_stake": 1051064111783,
       "parameters": {
         "id": "b196311f2c4346e70dbd95dceccd1ab1f248498044e8519fb47580ed",
         "vrfVerificationKeyHash": "b8638d4760e70a8a15628dc18fe4b07d33bbd28defe69689bc966cdbc947b245",
@@ -100215,8 +100431,9 @@ expression: stake_distr
       }
     },
     "pool1l8ywwf6nfrfmrg6edj2qjh6rxpuepnzlsq9mhvjk9xr9swkht93": {
-      "blocksCount": 78,
+      "blocks_count": 78,
       "stake": 1200632981154,
+      "voting_stake": 1200632981154,
       "parameters": {
         "id": "f9c8e7275348d3b1a3596c94095f43307990cc5f800bbbb256298658",
         "vrfVerificationKeyHash": "d7870e182046358af23ec33b5382415b7464b09adb8f86f319bd644386c5fbfe",
@@ -100249,8 +100466,9 @@ expression: stake_distr
       }
     },
     "pool1laacstav6s62exgvg2f65c8nhz5qzmn665tyfyu4jl5sckpz52x": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 28831512103,
+      "voting_stake": 28831512103,
       "parameters": {
         "id": "ff7b882facd434ac990c4293aa60f3b8a8016e7ad51644939597e90c",
         "vrfVerificationKeyHash": "de7512f113868d949295667e47e91b5d977e21b46e7abc1a17f895ed69f1c973",
@@ -100283,8 +100501,9 @@ expression: stake_distr
       }
     },
     "pool1ldt5k4gjm0vr26a45n7g9vu4ffk47hlyqxjvzefwss20gppeag3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10011660330,
+      "voting_stake": 10011660330,
       "parameters": {
         "id": "fb574b5512dbd8356bb5a4fc82b3954a6d5f5fe401a4c1652e8414f4",
         "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
@@ -100313,8 +100532,9 @@ expression: stake_distr
       }
     },
     "pool1lec5sxj3hzwz0f0t597r3g52a6lryv0v3vu3n382u6qpuqquhw6": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "fe71481a51b89c27a5eba17c38a28aeebe3231ec8b3919c4eae6801e",
         "vrfVerificationKeyHash": "4d51908683dd91f25462dc73ba37af9479b6aad860981bf66d744c784f0108d6",
@@ -100442,8 +100662,9 @@ expression: stake_distr
       }
     },
     "pool1lenzcfx02maescnpv8mk6gc6c59t0dramqucdgcvr4revw89xpz": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 92322127055,
+      "voting_stake": 92322127055,
       "parameters": {
         "id": "fe662c24cf56fb98626161f76d231ac50ab7b47dd83986a30c1d4796",
         "vrfVerificationKeyHash": "3606737b41e2c53428f1ad224f8a96b5c73c21028daa1269bad32e8eaa39637c",
@@ -100476,8 +100697,9 @@ expression: stake_distr
       }
     },
     "pool1lgd9u8nshsh60asqszepfaalt2c5c5w6fvc85xne9st3g3fwtvm": {
-      "blocksCount": 128,
+      "blocks_count": 128,
       "stake": 1656420148968,
+      "voting_stake": 1656420148968,
       "parameters": {
         "id": "fa1a5e1e70bc2fa7f60080b214f7bf5ab14c51da4b307a1a792c1714",
         "vrfVerificationKeyHash": "cff3dabe703458a1a9edec1ad1314a57a2602f4350d0df1c3b91c22c53b82e58",
@@ -100510,8 +100732,9 @@ expression: stake_distr
       }
     },
     "pool1lhknlva0yzrz6uty8wcct4eyurgz2ghan2y4mmudn3xkq5sdcus": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9804716348,
+      "voting_stake": 9804716348,
       "parameters": {
         "id": "fded3fb3af20862d71643bb185d724e0d02522fd9a895def8d9c4d60",
         "vrfVerificationKeyHash": "16793a985999656ff8c8c6a259c056549dfd20c72ff7bdc2d0931f406d8bddcf",
@@ -100549,8 +100772,9 @@ expression: stake_distr
       }
     },
     "pool1lk6cxjaqd66t4t74q4gd9hymxapd93fvchhxt0uxwwprk9m8v6c": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1149328425755,
+      "voting_stake": 1149328425755,
       "parameters": {
         "id": "fdb5834ba06eb4baafd50550d2dc9b3742d2c52cc5ee65bf8673823b",
         "vrfVerificationKeyHash": "2a6a3d82278a554e9c1777c427bf0397faf5cd7734900752d698e57679cc523f",
@@ -100583,8 +100807,9 @@ expression: stake_distr
       }
     },
     "pool1llsrnl35k82ytcnxv2hnxgc6grsynucszhxtjyefa26r78ky5pd": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 68711461512,
+      "voting_stake": 68711461512,
       "parameters": {
         "id": "ffe039fe34b1d445e26662af33231a40e049f31015ccb91329eab43f",
         "vrfVerificationKeyHash": "6fd0abf5e4f3d5a4eb60f0637120d5aaaa098456ae39efd1f21a52b0a1319f87",
@@ -100617,8 +100842,9 @@ expression: stake_distr
       }
     },
     "pool1lsygahp0r97tdt9ed7dx8g8yx7du96hmvh85q74ccwc0w5zfamj": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 69278250884,
+      "voting_stake": 69278250884,
       "parameters": {
         "id": "fc088edc2f197cb6acb96f9a63a0e4379bc2eafb65cf407ab8c3b0f7",
         "vrfVerificationKeyHash": "75cec5c687a4791b837b5a029290aa88715403463ff7be6534da46eb7d4e718f",
@@ -100651,8 +100877,9 @@ expression: stake_distr
       }
     },
     "pool1lzz7qqyx6g4dycdlppmftswxugyyw86rtzj3y6yyrj7wjl94rcx": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 844960680595,
+      "voting_stake": 844960680595,
       "parameters": {
         "id": "f885e00086d22ad261bf087695c1c6e208471f4358a51268841cbce9",
         "vrfVerificationKeyHash": "37ec26be44375c9c57b9f72b9da8a95e4ca53e73d6e358c531e7327e30896ffa",
@@ -100685,8 +100912,9 @@ expression: stake_distr
       }
     },
     "pool1m3t4nk54p5tnl24gwpakkyej4u4ad4efkf0c9cmspc3p543aqnk": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 22430545,
+      "voting_stake": 22430545,
       "parameters": {
         "id": "dc5759da950d173faaa8707b6b1332af2bd6d729b25f82e3700e221a",
         "vrfVerificationKeyHash": "2343b2cd3b4a81ab68db3f36631fcc2bfb7d2b94531fdf5f7a388607d6462d0c",
@@ -100718,8 +100946,9 @@ expression: stake_distr
       }
     },
     "pool1m7xzrlw358czfundrytv82hw5wksg8sgxa23y9zpgey5j9ns5ph": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9397280268,
+      "voting_stake": 9397280268,
       "parameters": {
         "id": "df8c21fdd1a1f024f26d1916c3aaeea3ad041e083755121441464949",
         "vrfVerificationKeyHash": "f588ee304945d5abf5fe62eef7e103435af0e5bcaab68bde80036b2e8d93cf77",
@@ -100752,8 +100981,9 @@ expression: stake_distr
       }
     },
     "pool1m8crhnqj5k2kyszf5j2scshupystyxc887zdfrpzh6ty6eun4fx": {
-      "blocksCount": 148,
+      "blocks_count": 148,
       "stake": 2054112983753,
+      "voting_stake": 2054112983753,
       "parameters": {
         "id": "d9f03bcc12a595624049a4950c42fc0920b21b073f84d48c22be964d",
         "vrfVerificationKeyHash": "f34925452262b97b3745c2b0bea5a723b37648b021058a044a92eb83feb7b180",
@@ -100791,8 +101021,9 @@ expression: stake_distr
       }
     },
     "pool1ma3z83uxmvpaxxl3gp6zvgqqcdfdvd3spqy2gz8f0094sxtx2zp": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 13194241596,
+      "voting_stake": 13194241596,
       "parameters": {
         "id": "df6223c786db03d31bf14074262000c352d636300808a408e97bcb58",
         "vrfVerificationKeyHash": "701294a9662c0c4443c5037be6202d9076f14aa27d1b992507ca9ac04e39c7bd",
@@ -100831,8 +101062,9 @@ expression: stake_distr
       }
     },
     "pool1maydque4d3nnj5vekfsegymtxh3uauxlywd79mytdav0y3ggfqq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "df48d073356c67395199b26194136b35e3cef0df239be2ec8b6f58f2",
         "vrfVerificationKeyHash": "4da750f5c8ff48d0fb1b98ec6ef643d377ce0a705b311358234a0182d2479f1f",
@@ -100865,8 +101097,9 @@ expression: stake_distr
       }
     },
     "pool1mhmk5qndxhse7xsjectzrrhj44uq9uc4a4x6v9dae4us586g4ww": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "ddf76a026d35e19f1a12ce16218ef2ad7802f315ed4da615bdcd790a",
         "vrfVerificationKeyHash": "d45e6f5e898c40b2fe82dbd0c0de0f81e842903d52f0a7a599cc34e0a3e8dad4",
@@ -100894,8 +101127,9 @@ expression: stake_distr
       }
     },
     "pool1mlse64uvz922nax8s8xv044rr7qv5zv7ppuhrsx8ht4yq845ne8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497622490,
+      "voting_stake": 9497622490,
       "parameters": {
         "id": "dfe19d578c1154a9f4c781ccc7d6a31f80ca099e087971c0c7baea40",
         "vrfVerificationKeyHash": "932aec9ca8dd215e81482104108fbc4749dc8213de2c7453c2c7cd10a8a0e78a",
@@ -100928,8 +101162,9 @@ expression: stake_distr
       }
     },
     "pool1mnp9rma5zcmqutjw57uek6uug5w5espzljtppvcqygutqevuxt8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 345367887,
+      "voting_stake": 345367887,
       "parameters": {
         "id": "dcc251efb416360e2e4ea7b99b6b9c451d4cc022fc9610b3002238b0",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -100958,8 +101193,9 @@ expression: stake_distr
       }
     },
     "pool1mp96jpc2dtaruz0cazmljh03dev0969c4rq3wr6hnc4rjdxn8aw": {
-      "blocksCount": 108,
+      "blocks_count": 108,
       "stake": 2007173768234,
+      "voting_stake": 2007173768234,
       "parameters": {
         "id": "d84ba9070a6afa3e09f8e8b7f95df16e58f2e8b8a8c1170f579e2a39",
         "vrfVerificationKeyHash": "c6962c024307b4b9a46a4cced35cffc0c1e32fc138559ec0daf585f821a73b92",
@@ -100992,8 +101228,9 @@ expression: stake_distr
       }
     },
     "pool1mtyjt95svreuxl46xnww3m09afp0pfggf6m7j8ewa5tc6qmndce": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19485268960,
+      "voting_stake": 19485268960,
       "parameters": {
         "id": "dac925969060f3c37eba34dce8ede5ea42f0a5084eb7e91f2eed178d",
         "vrfVerificationKeyHash": "f590694b260c0516ebc02a46c67da067755b43c5e88998131c4267e69b88d31d",
@@ -101030,8 +101267,9 @@ expression: stake_distr
       }
     },
     "pool1mv0kgwy8pghc0l2kr7dueeaf756a6pvwe0zp0umdpmug565r5hn": {
-      "blocksCount": 68,
+      "blocks_count": 68,
       "stake": 1090644676841,
+      "voting_stake": 1090644676841,
       "parameters": {
         "id": "db1f6438870a2f87fd561f9bcce7a9f535dd058ecbc417f36d0ef88a",
         "vrfVerificationKeyHash": "b8ee0eb5cd8979d6e4ba527839e3e37286aa67d79909cfb6ba95743a841c5631",
@@ -101069,8 +101307,9 @@ expression: stake_distr
       }
     },
     "pool1n4djuwkk8jvcywzh5dzgh5qhs5h0ugvyy5ahfhdc97x3qhnsv5s": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 41982549691,
+      "voting_stake": 41982549691,
       "parameters": {
         "id": "9d5b2e3ad63c99823857a3448bd017852efe2184253b74ddb82f8d10",
         "vrfVerificationKeyHash": "30751ddd38bf7a908b355726429812a800353ca4b67dabb12b304b19a2cf2ab2",
@@ -101103,8 +101342,9 @@ expression: stake_distr
       }
     },
     "pool1n5hmumfnhzpk94cec4kux2gc9rgcq5jqxqp8pvn9ek2kzgqtw7g": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 8997446957,
+      "voting_stake": 8997446957,
       "parameters": {
         "id": "9d2fbe6d33b88362d719c56dc3291828d1805240300270b265cd9561",
         "vrfVerificationKeyHash": "99aca937ddc87201ca9eb6ab8b6b9614c00678a26ce7c452d4825a39b795dc31",
@@ -101142,8 +101382,9 @@ expression: stake_distr
       }
     },
     "pool1n84mel6x3e8sp0jjgmepme0zmv8gkw8chs98sqwxtruvkhhcsg8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 4436742168046,
+      "voting_stake": 4436742168046,
       "parameters": {
         "id": "99ebbcff468e4f00be5246f21de5e2db0e8b38f8bc0a7801c658f8cb",
         "vrfVerificationKeyHash": "141a2392e78ccbf1194c6f4e3ff2e745a52409ba936412e864648903949bf1bd",
@@ -101176,8 +101417,9 @@ expression: stake_distr
       }
     },
     "pool1ndxf966uknq89g8xvurh0cduskr2yq4ua678qt5pkyc4u6eq0mv": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 43271274258,
+      "voting_stake": 43271274258,
       "parameters": {
         "id": "9b4c92eb5cb4c072a0e6670777e1bc8586a202bceebc702e81b1315e",
         "vrfVerificationKeyHash": "4d2d19c498fb963cc65574136220bab441e96af65b7a53cf7feeebfb644e6537",
@@ -101210,8 +101452,9 @@ expression: stake_distr
       }
     },
     "pool1nfn2m3lq52hw6l8lq9nlag4lsdvlav2zdl9saptfelh07arxfc5": {
-      "blocksCount": 77,
+      "blocks_count": 77,
       "stake": 1266193601596,
+      "voting_stake": 1266193601596,
       "parameters": {
         "id": "9a66adc7e0a2aeed7cff0167fea2bf8359feb1426fcb0e8569cfeeff",
         "vrfVerificationKeyHash": "53930c293ea95186ef0dcaf391a11a3cb8ab4c764fe14185b17ca9a884d34216",
@@ -101244,8 +101487,9 @@ expression: stake_distr
       }
     },
     "pool1nfwteq3rsk6uzxwncj7vdaqggkd263n038hf6xhwrj92v0cs48x": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 138485508456,
+      "voting_stake": 138485508456,
       "parameters": {
         "id": "9a5cbc822385b5c119d3c4bcc6f408459aad466f89ee9d1aee1c8aa6",
         "vrfVerificationKeyHash": "78c556f62f90ecd7891a0928e67f9953d14e59a61fdf96bcc650c62738cafc82",
@@ -101280,8 +101524,9 @@ expression: stake_distr
       }
     },
     "pool1nj7z8vrq2m2u052cv58srudcrj2k3na0pqz9evc3n498wvm65a2": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497237896,
+      "voting_stake": 9497237896,
       "parameters": {
         "id": "9cbc23b06056d5c7d158650f01f1b81c9568cfaf08045cb3119d4a77",
         "vrfVerificationKeyHash": "2e11e37002d29dd73424f0a6d45fe05a7ffbf8d4e5b0b83444868f8262014f76",
@@ -101314,8 +101559,9 @@ expression: stake_distr
       }
     },
     "pool1njr03m7t9k808fcav8phxnskacr4v59w5cnqgqsgnug2j2lvn85": {
-      "blocksCount": 17,
+      "blocks_count": 17,
       "stake": 179378662335,
+      "voting_stake": 179378662335,
       "parameters": {
         "id": "9c86f8efcb2d8ef3a71d61c3734e16ee075650aea6260402089f10a9",
         "vrfVerificationKeyHash": "26e4ea63cb761ea932109c71e4eaedeeea1c323688a8601a2795425cadc74742",
@@ -101348,8 +101594,9 @@ expression: stake_distr
       }
     },
     "pool1nkc9txh8rtul3zwncqtc4acdp3hd8kzjtnmu43aq9e8lqs4e5fm": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "9db0559ae71af9f889d3c0178af70d0c6ed3d8525cf7cac7a02e4ff0",
         "vrfVerificationKeyHash": "c36e1883e484938192284195a103994bca9dac9d68ca8ccc5e6f0ac2e674fa28",
@@ -101377,8 +101624,9 @@ expression: stake_distr
       }
     },
     "pool1nkfqdhfhqan2s8p7tsj04vfgjspv47wjkc0tzne7943nglyjkjw": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 29603772827,
+      "voting_stake": 29603772827,
       "parameters": {
         "id": "9d9206dd370766a81c3e5c24fab1289402caf9d2b61eb14f3e2d6334",
         "vrfVerificationKeyHash": "892902db31806a5e35e411c260e63da24246268d100238a65cce6927b7f71f5a",
@@ -101411,8 +101659,9 @@ expression: stake_distr
       }
     },
     "pool1nkzh9k8n3cl9lskzpcga5047pgp0ksxu8mlmmm7ysutw2ux2ygy": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 347634194,
+      "voting_stake": 347634194,
       "parameters": {
         "id": "9d8572d8f38e3e5fc2c20e11da3ebe0a02fb40dc3effbdefc48716e5",
         "vrfVerificationKeyHash": "8c01cb18c5d882ba99aa88a6f41be063697363c1c20bb64d720b1c0c9d53cbc8",
@@ -101445,8 +101694,9 @@ expression: stake_distr
       }
     },
     "pool1nmfr5j5rnqndprtazre802glpc3h865sy50mxdny65kfgf3e5eh": {
-      "blocksCount": 811,
+      "blocks_count": 811,
       "stake": 12297300087784,
+      "voting_stake": 12297300087784,
       "parameters": {
         "id": "9ed23a4a839826d08d7d10f277a91f0e2373ea90251fb33664d52c94",
         "vrfVerificationKeyHash": "8d765404f01f210d1ba5ce1560dfb8252648f2dc74da9931f1350eeb4dd2c52e",
@@ -101484,8 +101734,9 @@ expression: stake_distr
       }
     },
     "pool1nnmpqky7kcy67l0mhvknqu5qpxs0u6xw5cyrer0r92e4k84mthk": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9406628414,
+      "voting_stake": 9406628414,
       "parameters": {
         "id": "9cf610589eb609af7dfbbb2d30728009a0fe68cea6083c8de32ab35b",
         "vrfVerificationKeyHash": "64fd720000d6173140d4c2bb7af12613c2320789d956d65a73891e43385c3083",
@@ -101518,8 +101769,9 @@ expression: stake_distr
       }
     },
     "pool1nprz06vaq28d8kt8tur30v7j4h0drg4538e6uh6agvz6vxnnjfr": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "984627e99d028ed3d9675f0717b3d2added1a2b489f3ae5f5d4305a6",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -101548,8 +101800,9 @@ expression: stake_distr
       }
     },
     "pool1nqcfx7mp2fhsww2xy7qc9xwch0uueqcjlvwsh4fsj488zyvfknj": {
-      "blocksCount": 71,
+      "blocks_count": 71,
       "stake": 1056217720156,
+      "voting_stake": 1056217720156,
       "parameters": {
         "id": "9830937b61526f07394627818299d8bbf9cc8312fb1d0bd530954e71",
         "vrfVerificationKeyHash": "55eae6face01b341780b2016ef36be243483f57e34ee3b824f24da2b09911241",
@@ -101582,8 +101835,9 @@ expression: stake_distr
       }
     },
     "pool1numy3c5kc4a2ju3d54m9ekvvagphfgvwnuq4kc4gxql6jlcny6r": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 247634194,
+      "voting_stake": 247634194,
       "parameters": {
         "id": "9f3648e296c57aa9722da5765cd98cea0374a18e9f015b62a8303fa9",
         "vrfVerificationKeyHash": "ac9850fa821df360cda9468f7253a8f404a32660f7dcc2abeef35cebe078cdf1",
@@ -101616,8 +101870,9 @@ expression: stake_distr
       }
     },
     "pool1nxxa0gyygv8msrfqfww5wq80glxadkda450gavkg00p26p2fqyd": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 16318513738,
+      "voting_stake": 16318513738,
       "parameters": {
         "id": "998dd7a084430fb80d204b9d4700ef47cdd6d9bdad1e8eb2c87bc2ad",
         "vrfVerificationKeyHash": "8f69df116e2d2dc71acbdb62969556a99487b7b818f4c23ecffdfe6f76b8ab3d",
@@ -101650,8 +101905,9 @@ expression: stake_distr
       }
     },
     "pool1p9ldx03yshlzj4dlhlaxd59nukysjd3mldc8cuv5ae897q7ky2z": {
-      "blocksCount": 59,
+      "blocks_count": 59,
       "stake": 1186130158554,
+      "voting_stake": 1186130158554,
       "parameters": {
         "id": "097ed33e2485fe2955bfbffa66d0b3e58909363bfb707c7194ee4e5f",
         "vrfVerificationKeyHash": "7beebed68148073d78d08c3a9c63ae3e3f9dd656e6744766f64e6ede964f5fa0",
@@ -101684,8 +101940,9 @@ expression: stake_distr
       }
     },
     "pool1pdw2tqeg70crgwy3puz4hlffl3u9lr2t5katsz63v2w6jfl0gn2": {
-      "blocksCount": 95,
+      "blocks_count": 95,
       "stake": 1427251807358,
+      "voting_stake": 1427251807358,
       "parameters": {
         "id": "0b5ca58328f3f03438910f055bfd29fc785f8d4ba5bab80b51629da9",
         "vrfVerificationKeyHash": "e442049ed3f9ac3523cf124b1bf45ce7fb3df65078ab2c157b7bc367f147d2f8",
@@ -101718,8 +101975,9 @@ expression: stake_distr
       }
     },
     "pool1pf8d83wvzxsyfnl3dacy2kyvndhkex8hz4qzdgar740jgk68edd": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 17821035,
+      "voting_stake": 17821035,
       "parameters": {
         "id": "0a4ed3c5cc11a044cff16f7045588c9b6f6c98f7154026a3a3f55f24",
         "vrfVerificationKeyHash": "501716aec791657f15746e9ce2ce09171931dbbb69f5a82de95e03252b4b3880",
@@ -101757,8 +102015,9 @@ expression: stake_distr
       }
     },
     "pool1pgy4kgms6kv6xrflv7qq07mdj8wj42zdu66f3kny78ly68upg79": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19698057154,
+      "voting_stake": 19698057154,
       "parameters": {
         "id": "0a095b2370d599a30d3f678007fb6d91dd2aa84de6b498da64f1fe4d",
         "vrfVerificationKeyHash": "2f5f93cc8bd651fa9dbf9b8664cbe11c65cb46c66aea17fdc576b62a5e7febb9",
@@ -101791,8 +102050,9 @@ expression: stake_distr
       }
     },
     "pool1phgtk3jgdyq2ldsqae3d4kap8l8pq8lyadqacvfhcdxpzkpzfpc": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 29497278112,
+      "voting_stake": 29497278112,
       "parameters": {
         "id": "0dd0bb46486900afb600ee62dadba13fce101fe4eb41dc3137c34c11",
         "vrfVerificationKeyHash": "5d2473e39e9575846916aeacab9c7a24c85b6aa1e0f6cc7b143d1b75865031c4",
@@ -101825,8 +102085,9 @@ expression: stake_distr
       }
     },
     "pool1pkvs666cwlra94wqtc3ww0cc2a7zkhxldl6ktzyhu47kyjgue05": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 497634194,
+      "voting_stake": 497634194,
       "parameters": {
         "id": "0d990d6b5877c7d2d5c05e22e73f18577c2b5cdf6ff5658897e57d62",
         "vrfVerificationKeyHash": "d32686eadd4be1b21e8e9da6d0d8193af5dcff7fff088f6ba96c9421fcd386f7",
@@ -101859,8 +102120,9 @@ expression: stake_distr
       }
     },
     "pool1plld4snskqnegqu3dzkuq763e3xnh47kujjju6kvh56ej6suwd0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 99632441,
+      "voting_stake": 99632441,
       "parameters": {
         "id": "0ffedac270b02794039168adc07b51cc4d3bd7d6e4a52e6accbd3599",
         "vrfVerificationKeyHash": "8cb1eddf50e1eaa4dc8058d72cf3746878c9f781b6297a6674f6805cabf5c7b4",
@@ -101893,8 +102155,9 @@ expression: stake_distr
       }
     },
     "pool1pmvsu5kmy9nt82qwqugcsku5772sls8r3x99ww5tnzcwjzpvy4n": {
-      "blocksCount": 95,
+      "blocks_count": 95,
       "stake": 1529813536682,
+      "voting_stake": 1529813536682,
       "parameters": {
         "id": "0ed90e52db2166b3a80e0711885b94f7950fc0e3898a573a8b98b0e9",
         "vrfVerificationKeyHash": "318987874684b0cb053dd445b5562d7cbd65d3ff280f8b8877ab6af1bc3e0c4e",
@@ -101927,8 +102190,9 @@ expression: stake_distr
       }
     },
     "pool1ppmh24gjlhxrc7etpczwatehg9tfhh5v0kk2g3zgpxnsx5et0yy": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "0877755512fdcc3c7b2b0e04eeaf3741569bde8c7daca4444809a703",
         "vrfVerificationKeyHash": "d03c4b25ee6d40bc570e9e10398b6140c792c010b565dc8218a6235f69e0cda2",
@@ -101967,8 +102231,9 @@ expression: stake_distr
       }
     },
     "pool1pq2lsk6vvruptw333j32lgg4qhyt6eljrc6rhzguxq0uvy5vklc": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "0815f85b4c60f815ba318ca2afa11505c8bd67f21e343b891c301fc6",
         "vrfVerificationKeyHash": "6057a3f66c7e3f3e41d290e3f504dcb634424383cdb5ae74712de065c5199f05",
@@ -101996,8 +102261,9 @@ expression: stake_distr
       }
     },
     "pool1pq4f0yt7cq9dz6tj6sj6eqnncem9m66txvuuv6d6m6jrq0wcdgv": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 29495078203,
+      "voting_stake": 29495078203,
       "parameters": {
         "id": "082a97917ec00ad16972d425ac8273c6765deb4b3339c669badea430",
         "vrfVerificationKeyHash": "f1298c4abd6abbd698630439f09c7f154f32edc9b537fbeb4f0ee30938c8d501",
@@ -102030,8 +102296,9 @@ expression: stake_distr
       }
     },
     "pool1ptyjx9c5tq47up4ggz6yy5672xmwcz3zr63cqc2cv8v9qksu695": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 54963077133,
+      "voting_stake": 54963077133,
       "parameters": {
         "id": "0ac9231714582bee06a840b442535e51b6ec0a221ea380615861d850",
         "vrfVerificationKeyHash": "3513a0e5f7df05cecdd9457c8d429dc4846db581e67c6abf760d7bc55c70bbca",
@@ -102064,8 +102331,9 @@ expression: stake_distr
       }
     },
     "pool1pzdqdxrv0k74p4q33y98f2u7vzaz95et7mjeedjcfy0jcgk754f": {
-      "blocksCount": 84,
+      "blocks_count": 84,
       "stake": 1232294132933,
+      "voting_stake": 1232294132933,
       "parameters": {
         "id": "089a06986c7dbd50d411890a74ab9e60ba22d32bf6e59cb658491f2c",
         "vrfVerificationKeyHash": "f7911afe283203d699f80da2606312a7ff0a2e32ae8d368542fd86eaa83611fb",
@@ -102098,8 +102366,9 @@ expression: stake_distr
       }
     },
     "pool1q37r2nxhmj4vlcyxedp9t6ganl0re3hzf6l9r0jz5w66umy0n75": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 13433496590,
+      "voting_stake": 13433496590,
       "parameters": {
         "id": "047c354cd7dcaacfe086cb4255e91d9fde3cc6e24ebe51be42a3b5ae",
         "vrfVerificationKeyHash": "5d7455e7279851aa19266102e34e2c79a0fc96c88014f6130d4bc8b271fd46af",
@@ -102132,8 +102401,9 @@ expression: stake_distr
       }
     },
     "pool1q3gnyefcxdsnldjur0ykd8fluct66efkrv4usjgd2xlwuhne8j2": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 85979626,
+      "voting_stake": 85979626,
       "parameters": {
         "id": "045132653833613fb65c1bc9669d3fe617ad65361b2bc8490d51beee",
         "vrfVerificationKeyHash": "f91aec34939da643299bacaad2bcba7a0a140d6450c593238f8f57cf0d1ff0c7",
@@ -102166,8 +102436,9 @@ expression: stake_distr
       }
     },
     "pool1q4lgjl4snm87782n080vnj0xtylgfvhkv637c8jsx9k2jvnu7ng": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "057e897eb09ecfef1d5379dec9c9e6593e84b2f666a3ec1e50316ca9",
         "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
@@ -102196,8 +102467,9 @@ expression: stake_distr
       }
     },
     "pool1q4qwj2j75r04ctxgus9fafshx2wwypugl35uansl5hk5s5hnt2f": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "0540e92a5ea0df5c2cc8e40a9ea617329ce20788fc69cece1fa5ed48",
         "vrfVerificationKeyHash": "9d3b989642a84c3eea80382e1e5c1209e4e7fd403a3ff40426ee024fffb5f5c5",
@@ -102230,8 +102502,9 @@ expression: stake_distr
       }
     },
     "pool1q60vrsckzetz72m84rsxhny94mdk9dvduxz4nwhw642gjqawcyu": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19497200000,
+      "voting_stake": 19497200000,
       "parameters": {
         "id": "069ec1c31616562f2b67a8e06bcc85aedb62b58de18559baeed55489",
         "vrfVerificationKeyHash": "1e271aea167982bf3e44180436a1e02c218312c14d3b601bd26a503715be5cb3",
@@ -102265,8 +102538,9 @@ expression: stake_distr
       }
     },
     "pool1q8aduy04kxq8y79jm9yp3u2fcx0rzkfrratc7qjkf22mqk8ypgl": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 397634194,
+      "voting_stake": 397634194,
       "parameters": {
         "id": "01fade11f5b1807278b2d94818f149c19e3159231f578f02564a95b0",
         "vrfVerificationKeyHash": "0c2bbcba56f052eb0e216163823cddb446e3f95ed6740d36463b5934d806b689",
@@ -102299,8 +102573,9 @@ expression: stake_distr
       }
     },
     "pool1qata6zlvsd72vz9dqnh3733xdv9qyrdzghh7hn5tdn02vl6evww": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2495976473,
+      "voting_stake": 2495976473,
       "parameters": {
         "id": "0757dd0bec837ca608ad04ef1f46266b0a020da245efebce8b6cdea6",
         "vrfVerificationKeyHash": "247af7ff421764422d7074d158e0506edb6222f72602080e090dc5823834c3b4",
@@ -102333,8 +102608,9 @@ expression: stake_distr
       }
     },
     "pool1qep8gwqux539qqtxhr4h8ea07qyc0jq3aak5jjcxzqyavuet7ya": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 105131628,
+      "voting_stake": 105131628,
       "parameters": {
         "id": "064274381c3522500166b8eb73e7aff00987c811ef6d494b061009d6",
         "vrfVerificationKeyHash": "661ce772dbbb72837df283b8877aecf72db3d8df62f15dac7c98d7da30dddfd7",
@@ -102362,8 +102638,9 @@ expression: stake_distr
       }
     },
     "pool1ql8dn9lm02v5ezdjwrteg4v48rxtyms5zyaweady2rqmw055f8s": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 497700000,
+      "voting_stake": 497700000,
       "parameters": {
         "id": "07ced997fb7a994c89b270d794559538ccb26e14113aecf5a450c1b7",
         "vrfVerificationKeyHash": "b79b19057da1ed15afe4e758e085a34c99febf27c47cadb64aceff4a78ab2772",
@@ -102396,8 +102673,9 @@ expression: stake_distr
       }
     },
     "pool1qp2xfc2eml6ut7xvy20rlvc7vwxej0a5c07emt4v3nr3xju7rw0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1019497632698,
+      "voting_stake": 1019497632698,
       "parameters": {
         "id": "005464e159dff5c5f8cc229e3fb31e638d993fb4c3fd9daeac8cc713",
         "vrfVerificationKeyHash": "9d51934a1a7c4fadc79e7cd3fce098c525d7ea1b8bc6b99f8b6a20cad6c6b66a",
@@ -102430,8 +102708,9 @@ expression: stake_distr
       }
     },
     "pool1qs89kqynhwcg0hnelppxtrydtaxc5y0x3ztvhr5xlmdpv4c20qv": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2825699,
+      "voting_stake": 2825699,
       "parameters": {
         "id": "040e5b0093bbb087de79f842658c8d5f4d8a11e68896cb8e86feda16",
         "vrfVerificationKeyHash": "d8248df62fd894beeed789d29dafdaf61715dc204c0ef179cab7caeb17d3b756",
@@ -102464,8 +102743,9 @@ expression: stake_distr
       }
     },
     "pool1qv4qgv62s3ha74p0643nexee9zvcdydcyahqqnavhj90zheuykz": {
-      "blocksCount": 3,
+      "blocks_count": 3,
       "stake": 44667262969,
+      "voting_stake": 44667262969,
       "parameters": {
         "id": "032a04334a846fdf542fd5633c9b3928998691b8276e004facbc8af1",
         "vrfVerificationKeyHash": "514180cacf6f41cab0801283d5709e7088016a12d3464a8351c00776d271b721",
@@ -102498,8 +102778,9 @@ expression: stake_distr
       }
     },
     "pool1qvfw4r3auysa5mhpr90n7mmdhs55js8gdywh0y2e3sy6568j2wp": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19908946538,
+      "voting_stake": 19908946538,
       "parameters": {
         "id": "0312ea8e3de121da6ee1195f3f6f6dbc294940e8691d7791598c09aa",
         "vrfVerificationKeyHash": "f6eb328b92969855272210fd39ae04bd0f9b257a571669c768484ea35889ba18",
@@ -102532,8 +102813,9 @@ expression: stake_distr
       }
     },
     "pool1r2k8y80zxvqjyvyy3xg8r50892qcewgm38z6pcy3uk8fky4rkl0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "1aac721de23301223084899071d1e72a818cb91b89c5a0e091e58e9b",
         "vrfVerificationKeyHash": "0d97b49f253ed5c18a534d9c9d9d120134e71cd05c713bc6477a05da6315e804",
@@ -102566,8 +102848,9 @@ expression: stake_distr
       }
     },
     "pool1r6zamscm3pqe65je0570rgd07qxajsgr5qgx80hmquwmsxl8mmp": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19995651310,
+      "voting_stake": 19995651310,
       "parameters": {
         "id": "1e85ddc31b88419d52597d3cf1a1aff00dd94103a01063befb071db8",
         "vrfVerificationKeyHash": "9ebf10d003bc8346b471dc2b0e5978ca228ccbc04584d8f8e6ca3b16646bd042",
@@ -102594,8 +102877,9 @@ expression: stake_distr
       }
     },
     "pool1r76nahvpllch9k6u25g6kgmn07qtsk2w3qkqew06zxacw3m55sw": {
-      "blocksCount": 5,
+      "blocks_count": 5,
       "stake": 1000000000000,
+      "voting_stake": 1000000000000,
       "parameters": {
         "id": "1fb53edd81fff172db5c5511ab23737f80b8594e882c0cb9fa11bb87",
         "vrfVerificationKeyHash": "59d3c421422c3fe48a4293c06522e0f1faef4c240b2a07ce6c72ef4e807ab069",
@@ -102643,8 +102927,9 @@ expression: stake_distr
       }
     },
     "pool1r9lez5dne3gxe6yjpe3rl87kqweff9uyx8vkv2kk3yprs2k725u": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "197f9151b3cc506ce8920e623f9fd603b294978431d9662ad6890238",
         "vrfVerificationKeyHash": "74a30c247905792c21c41ade4b3ae09356d790f6d4a2c0fdc3f99da7a4eb256c",
@@ -102667,8 +102952,9 @@ expression: stake_distr
       }
     },
     "pool1rccstu3l9ty3k0a5cd06fl3szsss9r34dcg5j38fqgq9kvng0tg": {
-      "blocksCount": 850,
+      "blocks_count": 850,
       "stake": 12937250932353,
+      "voting_stake": 12937250932353,
       "parameters": {
         "id": "1e3105f23f2ac91b3fb4c35fa4fe301421028e356e114944e902005b",
         "vrfVerificationKeyHash": "4b8a8212336e9e6fdaafa45500a7b375d54a0929844df3871aff933c6f6897d3",
@@ -102706,8 +102992,9 @@ expression: stake_distr
       }
     },
     "pool1rkfs9glmfva3jd0q9vnlqvuhnrflpzj4l07u6sayfx5k7d788us": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 796656984446,
+      "voting_stake": 796656984446,
       "parameters": {
         "id": "1d9302a3fb4b3b1935e02b27f0339798d3f08a55fbfdcd43a449a96f",
         "vrfVerificationKeyHash": "f674517bc620a135812231c7975d862d27ff8b9758fe35032d14ef11770c7c03",
@@ -102740,8 +103027,9 @@ expression: stake_distr
       }
     },
     "pool1rr53gk9vaxqhvm0uuvyu4yzcvuc5zxqktvcl39k9swhewvaf7t2": {
-      "blocksCount": 238,
+      "blocks_count": 238,
       "stake": 3627042200197,
+      "voting_stake": 3627042200197,
       "parameters": {
         "id": "18e91458ace981766dfce309ca905867314118165b31f896c583af97",
         "vrfVerificationKeyHash": "1625fd726aba3fe355a7674bf0b5739276bcfa1799d9d509df930b582b6cd66e",
@@ -102779,8 +103067,9 @@ expression: stake_distr
       }
     },
     "pool1rsrah5my3lns23ghpdhk6wgpxmqucehvsvex7hv55r7nuyyrfel": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 423258256914,
+      "voting_stake": 423258256914,
       "parameters": {
         "id": "1c07dbd3648fe70545170b6f6d390136c1cc66ec83326f5d94a0fd3e",
         "vrfVerificationKeyHash": "322828d4f7cfe86db0f8c3fb385e317b5415a8287963aa58c967eb3643c5ee25",
@@ -102813,8 +103102,9 @@ expression: stake_distr
       }
     },
     "pool1rstkgcnzexnacmv99ycaf6nd7sqxmd9w279v6cmq5dehus8w0aw": {
-      "blocksCount": 85,
+      "blocks_count": 85,
       "stake": 1070853586079,
+      "voting_stake": 1070853586079,
       "parameters": {
         "id": "1c17646262c9a7dc6d852931d4ea6df4006db4ae578acd6360a3737e",
         "vrfVerificationKeyHash": "7c1a3f17f40bf4fd82041fbcc548fd4ceccfc98931e36952aaeb4ca598d7716b",
@@ -102847,8 +103137,9 @@ expression: stake_distr
       }
     },
     "pool1rsx8tp9ntpvzq7r9xtmzmv7p3veyhpgw2t06mrhzlllw5l7ff34": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 8992068173,
+      "voting_stake": 8992068173,
       "parameters": {
         "id": "1c0c7584b3585820786532f62db3c18b324b850e52dfad8ee2fffeea",
         "vrfVerificationKeyHash": "5b96c8ae826dc1087657b294411824b35f410bf4f938b914335ae7b2a095f975",
@@ -102881,8 +103172,9 @@ expression: stake_distr
       }
     },
     "pool1rtseflldkqytw7lm3mpek9g5m04ennkv6ejysxqjj52zyaq46rf": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "1ae194ffedb008b77bfb8ec39b1514dbeb99ceccd664481812951422",
         "vrfVerificationKeyHash": "a6b0f0a6e4e9c6d7477f99a4f3092af753e563b06c9fa8b601cb95695ad8b8b5",
@@ -102915,8 +103207,9 @@ expression: stake_distr
       }
     },
     "pool1rwghc6nncgueexc87t9zc556fdyach66493ndsdvukhakydsa6w": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "1b917c6a73c2399c9b07f2ca2c529a4b49dc5f5aa96336c1ace5afdb",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -102945,8 +103238,9 @@ expression: stake_distr
       }
     },
     "pool1rwrtuuj2cqw6kfhpwragyzkuzzdj35rrgd07aku78uz7wucydjd": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11508189713,
+      "voting_stake": 11508189713,
       "parameters": {
         "id": "1b86be724ac01dab26e170fa820adc109b28d063435feedb9e3f05e7",
         "vrfVerificationKeyHash": "e978f81a055bf3a0bc32aa3b712f5f1acb9bfdf204cac4949756bb502086b8e3",
@@ -102979,8 +103273,9 @@ expression: stake_distr
       }
     },
     "pool1rymgeu3pc4a847sksu8ulxgypeq5ysf0ccywgwkcsgr9cmay57u": {
-      "blocksCount": 88,
+      "blocks_count": 88,
       "stake": 1164523293118,
+      "voting_stake": 1164523293118,
       "parameters": {
         "id": "19368cf221c57a7afa16870fcf99040e4142412fc608e43ad882065c",
         "vrfVerificationKeyHash": "2ba2a5063b0001ae6cafd22cbadd148eef8ae8ad317220c48826f04181059346",
@@ -103018,8 +103313,9 @@ expression: stake_distr
       }
     },
     "pool1s02ue5qr6fw937k5hcfrdwv0wdrsz0e5269p5m6es4m7xyn2kcn": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 387321740,
+      "voting_stake": 387321740,
       "parameters": {
         "id": "83d5ccd003d25c58fad4be1236b98f7347013f34568a1a6f598577e3",
         "vrfVerificationKeyHash": "59056c3c5174b76879e9014eae2dac25c14cf4650fc4e0aff227c3d501b97c8a",
@@ -103047,8 +103343,9 @@ expression: stake_distr
       }
     },
     "pool1s04t5eyvf6p73fwr5zc4pcqrpz54nshp5ruuvfc8kshygahyq3x": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "83eaba648c4e83e8a5c3a0b150e00308a959c2e1a0f9c62707b42e44",
         "vrfVerificationKeyHash": "0b36b32f41de06cc160ea1cc45ca47923fe615faaf418e366b7c289b25540acc",
@@ -103081,8 +103378,9 @@ expression: stake_distr
       }
     },
     "pool1s2drn889wxgszm055z4hj5nvevdtdx9q5lc66lwdvmcl2nvdq9y": {
-      "blocksCount": 84,
+      "blocks_count": 84,
       "stake": 958820514295,
+      "voting_stake": 958820514295,
       "parameters": {
         "id": "829a399ce57191016df4a0ab79526ccb1ab698a0a7f1ad7dcd66f1f5",
         "vrfVerificationKeyHash": "63c6edeaa8e1a26c7cfa2f77fe0d0224534c02643dfb139117340cd1cbd14b01",
@@ -103115,8 +103413,9 @@ expression: stake_distr
       }
     },
     "pool1s7wetfttn723hvdxx3wusz7yrxztzdfu6dm5nu4j6tuj6xcz2sj": {
-      "blocksCount": 48,
+      "blocks_count": 48,
       "stake": 706020991281,
+      "voting_stake": 706020991281,
       "parameters": {
         "id": "879d95a56b9f951bb1a6345dc80bc41984b1353cd37749f2b2d2f92d",
         "vrfVerificationKeyHash": "26fbeedc3c5ca9311bff2582e607cf2865cf70c21364a90c86327cf19a3405e2",
@@ -103149,8 +103448,9 @@ expression: stake_distr
       }
     },
     "pool1scqanlqepaertn4zsr2cuf9pspgpwgrpq7s3zsrkd4hdsz6q7kh": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9495000000,
+      "voting_stake": 9495000000,
       "parameters": {
         "id": "8601d9fc190f7235cea280d58e24a1805017206107a11140766d6ed8",
         "vrfVerificationKeyHash": "acd6562e73d5b350f1599b6608a374e47d1a53ed133f7024a7a359bb8234a891",
@@ -103183,8 +103483,9 @@ expression: stake_distr
       }
     },
     "pool1se43tfl325c0mgmd3lfvleljllsm9hkzmnhr45ujhx0mvgtahw3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 41382872264,
+      "voting_stake": 41382872264,
       "parameters": {
         "id": "866b15a7f15530fda36d8fd2cfe7f2ffe1b2dec2dcee3ad392b99fb6",
         "vrfVerificationKeyHash": "22b8c4f2dc5df797a02f21ec41203bf28f979fb1a461f272517e480a7b639ff8",
@@ -103217,8 +103518,9 @@ expression: stake_distr
       }
     },
     "pool1sew77wmm4ygdn2trm55fgjck895fyqvnnqqgmwuty86q5aukla7": {
-      "blocksCount": 11,
+      "blocks_count": 11,
       "stake": 168819863676,
+      "voting_stake": 168819863676,
       "parameters": {
         "id": "865def3b7ba910d9a963dd28944b16396892019398008dbb8b21f40a",
         "vrfVerificationKeyHash": "660c734079a2519a2f44155595ed76bb464ec5882c362cb4bf4b40f79d17cfe1",
@@ -103251,8 +103553,9 @@ expression: stake_distr
       }
     },
     "pool1sm7h08std605lgr50dhajrxs0dh6jr7wskuj3j9em57w6tw8tuw": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "86fd779e0b6e9f4fa0747b6fd90cd07b6fa90fce85b928c8b9dd3ced",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -103281,8 +103584,9 @@ expression: stake_distr
       }
     },
     "pool1suqa64z86ht04r26lhzd2zdj2329nmt76f5u98djvy99xc9fmjr": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "8701dd5447d5d6fa8d5afdc4d509b2545459ed7ed269c29db2610a53",
         "vrfVerificationKeyHash": "9c2a8cf535e1693bbb205eb4459ea7f4752f44618d2fd955896a0f1656a38e56",
@@ -103315,8 +103619,9 @@ expression: stake_distr
       }
     },
     "pool1t2hm2nqf4ju6ay8nn0h2zgcatdkfpnpawuzz9ru79709q03ajfj": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "5aafb54c09acb9ae90f39beea1231d5b6c90cc3d7704228f9e2f9e50",
         "vrfVerificationKeyHash": "c44df338b1109314cdfe666a976c019dac396ca5009b67579e6a3cd08611acef",
@@ -103349,8 +103654,9 @@ expression: stake_distr
       }
     },
     "pool1t89nwdvpm8zc9whhnkr2mvvzayu3w9m06jc9yrd28w7lvm2r0y3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 368866688,
+      "voting_stake": 368866688,
       "parameters": {
         "id": "59cb373581d9c582baf79d86adb182e93917176fd4b0520daa3bbdf6",
         "vrfVerificationKeyHash": "7fa3765c2f1b44dd27eaf227b36980946000a29632ac12f56d9f9445abee055c",
@@ -103383,8 +103689,9 @@ expression: stake_distr
       }
     },
     "pool1t95f2kval0ratng95m7kqf5xch462gdpde62q9cr4849uehxmqa": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9505974218,
+      "voting_stake": 9505974218,
       "parameters": {
         "id": "596895599dfbc7d5cd05a6fd602686c5eba521a16e74a01703a9ea5e",
         "vrfVerificationKeyHash": "e04d53a822431e99846a876431c1f4c6e1424c17c352829d70df35fa634dee28",
@@ -103417,8 +103724,9 @@ expression: stake_distr
       }
     },
     "pool1tcxnnq73yw07v573w2duesa8d4j40ghfkxg5fn37eveaz20gzs7": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10092033538,
+      "voting_stake": 10092033538,
       "parameters": {
         "id": "5e0d3983d1239fe653d1729bccc3a76d6557a2e9b19144ce3ecb33d1",
         "vrfVerificationKeyHash": "7ec15fb76a7e38f18a676683bb9336e4624ae23c0818580a8b34a583c4f82d05",
@@ -103451,8 +103759,9 @@ expression: stake_distr
       }
     },
     "pool1tdj08vm0ysfe7gq75pewdq495frfm7259dk6v65xtcw9gkh5q0u": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 995616330,
+      "voting_stake": 995616330,
       "parameters": {
         "id": "5b64f3b36f24139f201ea072e682a5a2469df9542b6da66a865e1c54",
         "vrfVerificationKeyHash": "682e45e7aa87795e3bed6cc1760c6b1ddbed327b1eb89b2a554a43555c5dceee",
@@ -103480,8 +103789,9 @@ expression: stake_distr
       }
     },
     "pool1tfqkatkvqujhm98fymsr3jqgz9hlu69dyvqagg7cn40jcm4gnn9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9997649330,
+      "voting_stake": 9997649330,
       "parameters": {
         "id": "5a416eaecc07257d94e926e038c808116ffe68ad2301d423d89d5f2c",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -103510,8 +103820,9 @@ expression: stake_distr
       }
     },
     "pool1thjxx384wxxeznx5a593ejuaqdqx6e0yq5z5f38jzwpfzytu7dc": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11197454238,
+      "voting_stake": 11197454238,
       "parameters": {
         "id": "5de46344f5718d914cd4ed0b1ccb9d03406d65e4050544c4f2138291",
         "vrfVerificationKeyHash": "0d81b60cad78c9c0739478567c698ff69bb19f5889acdc651fbda707b19fa6a7",
@@ -103544,8 +103855,9 @@ expression: stake_distr
       }
     },
     "pool1tjc56tq7adk64nnq2ldu3f4nh6sxkphhmnejlu67ux7acq8y7rx": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 8411038465936,
+      "voting_stake": 8411038465936,
       "parameters": {
         "id": "5cb14d2c1eeb6daace6057dbc8a6b3bea06b06f7dcf32ff35ee1bddc",
         "vrfVerificationKeyHash": "efac1fae097bc9f436f1d10664efa9681152bb457a7bfe63f6f318d8ce3a5cc2",
@@ -103578,8 +103890,9 @@ expression: stake_distr
       }
     },
     "pool1tlpsswg9ev0frsrcgukpz5nsw5gcetldunwg6clrvxyz5sn2xaz": {
-      "blocksCount": 110,
+      "blocks_count": 110,
       "stake": 1607951625992,
+      "voting_stake": 1607951625992,
       "parameters": {
         "id": "5fc3083905cb1e91c078472c11527075118cafede4dc8d63e361882a",
         "vrfVerificationKeyHash": "8335eb6aac88a804c7363b74fe042d41882a61bc28188dbd5ed99647e6ffdbd2",
@@ -103612,8 +103925,9 @@ expression: stake_distr
       }
     },
     "pool1tn9gz0tnqtkptkrkzlrzvkjcujdkalykfk6r38my3n5a506u9ux": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497615010,
+      "voting_stake": 9497615010,
       "parameters": {
         "id": "5cca813d7302ec15d87617c6265a58e49b6efc964db4389f648ce9da",
         "vrfVerificationKeyHash": "1dce64ad48f7ca7db767934039491bf4de89072fcfb82e436f9fadc154806748",
@@ -103648,8 +103962,9 @@ expression: stake_distr
       }
     },
     "pool1traytmq6e7t33ux86fs4uk837ltl56hnv9fkd954ndkrjerkter": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 18495448497,
+      "voting_stake": 18495448497,
       "parameters": {
         "id": "58fa45ec1acf9718f0c7d2615e58f1f7d7fa6af361536696959b6c39",
         "vrfVerificationKeyHash": "241f9ca94ef891d08679759d087c4fae27723c53933e66e17c5a6e1746ba35ec",
@@ -103682,8 +103997,9 @@ expression: stake_distr
       }
     },
     "pool1tttjn80uzcvyzvzw2202r3xm7e5dz60tfjdtrlx6vkpjv78t0j9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19997826911,
+      "voting_stake": 19997826911,
       "parameters": {
         "id": "5ad7299dfc161841304e529ea1c4dbf668d169eb4c9ab1fcda658326",
         "vrfVerificationKeyHash": "039dd84035a9d85f2c7bbd3b1d810e29abe25d22405150902abd1203ab3a9482",
@@ -103721,8 +104037,9 @@ expression: stake_distr
       }
     },
     "pool1tzau4l4xpk4jqh766am0m89np2k27k0p0we424fte9mczrfl49h": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 28521024598,
+      "voting_stake": 28521024598,
       "parameters": {
         "id": "58bbcafea60dab205fdad776fd9cb30aacaf59e17bb355552bc97781",
         "vrfVerificationKeyHash": "1df6ce37b9b6f7e52d4d3409e5060b644c070a523450a7d836c4b36f5acd99f3",
@@ -103755,8 +104072,9 @@ expression: stake_distr
       }
     },
     "pool1u3ltum2lm8jxlnlphr3avk50tng58saxwnzknwn0fzsuvesj45p": {
-      "blocksCount": 6,
+      "blocks_count": 6,
       "stake": 63200000000,
+      "voting_stake": 63200000000,
       "parameters": {
         "id": "e47ebe6d5fd9e46fcfe1b8e3d65a8f5cd143c3a674c569ba6f48a1c6",
         "vrfVerificationKeyHash": "0b41e34cbf7e5556548d4cf7ff1a497aa88fd4b87f1933653a5b74ed5c5fe067",
@@ -103794,8 +104112,9 @@ expression: stake_distr
       }
     },
     "pool1u4x4ly6qyx9fs9k2lt7f9hpa2gftd52fee67jcmuhnt7qqae3x0": {
-      "blocksCount": 698,
+      "blocks_count": 698,
       "stake": 10567261644838,
+      "voting_stake": 10567261644838,
       "parameters": {
         "id": "e54d5f9340218a9816cafafc92dc3d5212b6d149ce75e9637cbcd7e0",
         "vrfVerificationKeyHash": "e4698e1ddfcaf9b71085938c70ee0e999a7fbec360cac6e4f9b5042a62bac795",
@@ -103828,8 +104147,9 @@ expression: stake_distr
       }
     },
     "pool1u6x2xqxpkcqc3fedj0tllvf5c4k8lwxxrjhsal6rwt2866pjtk3": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19590488471,
+      "voting_stake": 19590488471,
       "parameters": {
         "id": "e68ca300c1b60188a72d93d7ffb134c56c7fb8c61caf0eff4372d47d",
         "vrfVerificationKeyHash": "8cf20620c216561d36b51a9ccb1a99857a04dd2212b81c379b07718a78fcfaaf",
@@ -103862,8 +104182,9 @@ expression: stake_distr
       }
     },
     "pool1u997u0wg039euqrsx5fuyy3wktw983xmrxrzc93z3j5azgfk6y6": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 18622427750,
+      "voting_stake": 18622427750,
       "parameters": {
         "id": "e14bee3dc87c4b9e00703513c2122eb2dc53c4db19862c16228ca9d1",
         "vrfVerificationKeyHash": "40983f267a1571ef3a6e300b85b6dd1501af2dfa74e478c56bd366190149a598",
@@ -103896,8 +104217,9 @@ expression: stake_distr
       }
     },
     "pool1uhkxzvt9rj5s9emzr3uklwg2wdt7uky3aatgv9amhn2yz59laey": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 16171042958,
+      "voting_stake": 16171042958,
       "parameters": {
         "id": "e5ec6131651ca902e7621c796fb90a7357ee5891ef568617bbbcd441",
         "vrfVerificationKeyHash": "e880658c9e421f3f13036572576120306f2ec8518dbbc2d1d5b464f002ea89f8",
@@ -103935,8 +104257,9 @@ expression: stake_distr
       }
     },
     "pool1ujafaae6h7quhldzwcs0psxa0mxczx7zay4vnggmu0sacycdgum": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 46639103236,
+      "voting_stake": 46639103236,
       "parameters": {
         "id": "e4ba9ef73abf81cbfda27620f0c0dd7ecd811bc2e92ac9a11be3e1dc",
         "vrfVerificationKeyHash": "b384ef9b2752f155c2129c64aeb58833e35c8c85af5dc4ba28b1c78b1c626ff5",
@@ -103969,8 +104292,9 @@ expression: stake_distr
       }
     },
     "pool1ujajzuj0jjt45t4yafh9uwjr6g5aaprq9h6tcn5fa6m72vv8x2a": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "e4bb21724f94975a2ea4ea6e5e3a43d229de84602df4bc4e89eeb7e5",
         "vrfVerificationKeyHash": "8fbd1a2ebd4813dd095933e495bd60d83cb84ade1cd526e0d73e2d95f58ceaf5",
@@ -103993,8 +104317,9 @@ expression: stake_distr
       }
     },
     "pool1upeknjpwqkemwm2ephx2v94wkk5wlh7ce58xg0w4fxetq25mn2d": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "e07369c82e05b3b76d590dcca616aeb5a8efdfd8cd0e643dd549b2b0",
         "vrfVerificationKeyHash": "728f5634e6b6d33763506bfd444a3d13cf2896202b42ca54eae38c1786fd8b98",
@@ -104027,8 +104352,9 @@ expression: stake_distr
       }
     },
     "pool1upqfyzqpk6wkpsvw90qqrpr9tjyemh484wk4em69anwpu586ehq": {
-      "blocksCount": 1307,
+      "blocks_count": 1307,
       "stake": 19881775333533,
+      "voting_stake": 19881775333533,
       "parameters": {
         "id": "e040920801b69d60c18e2bc00184655c899ddea7abad5cef45ecdc1e",
         "vrfVerificationKeyHash": "ef0decfc0e12c513d6725a5a5addc7fffedb6dcb215b58df32340a73eea8a124",
@@ -104066,8 +104392,9 @@ expression: stake_distr
       }
     },
     "pool1uqkr3aes23dd6t6n6q480tgasy8r2tz9250lhejlnr98cvu8jw9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 192228404390,
+      "voting_stake": 192228404390,
       "parameters": {
         "id": "e02c38f730545add2f53d02a77ad1d810e352c45551ffbe65f98ca7c",
         "vrfVerificationKeyHash": "25819521065c56146327136e2f40c705dba8d95454ebdd4c0580986bd62c50ce",
@@ -104104,8 +104431,9 @@ expression: stake_distr
       }
     },
     "pool1uwg22a2nvattzh8sqydumja5xgh68r9mtdgy80hknm8xk8asj5h": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1795480345,
+      "voting_stake": 1795480345,
       "parameters": {
         "id": "e390a575536756b15cf0011bcdcbb4322fa38cbb5b5043bef69ece6b",
         "vrfVerificationKeyHash": "cba561160445c6a029d66bab39bb08abe97212daa10661dcaf44fec8fbbd8a02",
@@ -104133,8 +104461,9 @@ expression: stake_distr
       }
     },
     "pool1uzsnj4eu37efwm0trm6nggwvq23nl7894wsnpq6pqp2eu0xdm9x": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1020647767200,
+      "voting_stake": 1020647767200,
       "parameters": {
         "id": "e0a139573c8fb2976deb1ef53421cc02a33ff8e5aba130834100559e",
         "vrfVerificationKeyHash": "6dc7ea47625a51b9757c10645374f587931ce1952a55759c595877e3ef2ce7d2",
@@ -104167,8 +104496,9 @@ expression: stake_distr
       }
     },
     "pool1v0mz3r0pkp5evjm62c7vrd6q2327nrw5uhhs8fefqst0yy57mgn": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 5004831243,
+      "voting_stake": 5004831243,
       "parameters": {
         "id": "63f6288de1b069964b7a563cc1b7405455e98dd4e5ef03a7290416f2",
         "vrfVerificationKeyHash": "debb42ed86716907ad081ad8a60b3e7327075bbcce86c2498d7bf97373d5c60a",
@@ -104201,8 +104531,9 @@ expression: stake_distr
       }
     },
     "pool1v3lsp74wauazym2rwkktye9kdw2vyj8h9yvkgzj556t0g390ecw": {
-      "blocksCount": 85,
+      "blocks_count": 85,
       "stake": 1221935236729,
+      "voting_stake": 1221935236729,
       "parameters": {
         "id": "647f00faaeef3a226d4375acb264b66b94c248f72919640a54a696f4",
         "vrfVerificationKeyHash": "fb2a2609018c94cc45d3a401a8635b0907d42e5c32e27a6b41b5415e78f8bf02",
@@ -104235,8 +104566,9 @@ expression: stake_distr
       }
     },
     "pool1v5f89tua4ucmj9s0g4hdjkjtmpsuunxjz6sg5tj97ak0yja4hfl": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2497634150,
+      "voting_stake": 2497634150,
       "parameters": {
         "id": "651272af9daf31b9160f456ed95a4bd861ce4cd216a08a2e45f76cf2",
         "vrfVerificationKeyHash": "231f3006299778878f4762acc451dafe00b4c6389f48e7b30e17e8f175c822ac",
@@ -104269,8 +104601,9 @@ expression: stake_distr
       }
     },
     "pool1v7e8jk6vt2725t3p7w4x33pqwd4lynsragktq7rv8s4n2ngmpdn": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 20499286472,
+      "voting_stake": 20499286472,
       "parameters": {
         "id": "67b2795b4c5abcaa2e21f3aa68c420736bf24e03ea2cb0786c3c2b35",
         "vrfVerificationKeyHash": "762314a09f358d72c0fdc0876ea05a500236ed42c0f0624a39ace3432ee0e20a",
@@ -104303,8 +104636,9 @@ expression: stake_distr
       }
     },
     "pool1vf8ukuvdn7kv0hxgm23utjkkw5ugdhwfdrxy56l2t6wvxezspyu": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1466986384,
+      "voting_stake": 1466986384,
       "parameters": {
         "id": "624fcb718d9facc7dcc8daa3c5cad6753886ddc968cc4a6bea5e9cc3",
         "vrfVerificationKeyHash": "054a8687aae0e7c7cb35b2d6942db21b476369bebb4d55bda44ea6a80fcda1d4",
@@ -104337,8 +104671,9 @@ expression: stake_distr
       }
     },
     "pool1vfqxyyxmfmfzg3egvc42dxkmmeea3he3r8h6q2dnwkaawwd0sv0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 497624998,
+      "voting_stake": 497624998,
       "parameters": {
         "id": "62406210db4ed2244728662aa69adbde73d8df3119efa029b375bbd7",
         "vrfVerificationKeyHash": "daa5db33eb56fa727ebbad92a58ed98e61e54e4e0b14b49ba82e76ae53fa75c5",
@@ -104371,8 +104706,9 @@ expression: stake_distr
       }
     },
     "pool1vgf6hsa6f2ct6jm5p42kdu3kkafsszud02xl8nmxu3atk7l3ec9": {
-      "blocksCount": 78,
+      "blocks_count": 78,
       "stake": 1138446208804,
+      "voting_stake": 1138446208804,
       "parameters": {
         "id": "6213abc3ba4ab0bd4b740d5566f236b753080b8d7a8df3cf66e47abb",
         "vrfVerificationKeyHash": "3893769f1acb7e6003f184e3d1193de4a3d306ed913cc380a2848d0b37ad9916",
@@ -104405,8 +104741,9 @@ expression: stake_distr
       }
     },
     "pool1vhlau0270khmruluxrc7dz6zfj066n9emhl3dtzw2cxtg7eht8g": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "65ffde3d5e7dafb1f3fc30f1e68b424c9fad4cb9ddff16ac4e560cb4",
         "vrfVerificationKeyHash": "9586f48442694ef028bcf67605b4ef650ab9f0f1cd81e181d2db8d9d5a387e84",
@@ -104434,8 +104771,9 @@ expression: stake_distr
       }
     },
     "pool1vknn7dv35hvnwzgee82lgcg88v743czky3kl8ze04pzgwu047f4": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1021304127586,
+      "voting_stake": 1021304127586,
       "parameters": {
         "id": "65a73f3591a5d9370919c9d5f461073b3d58e056246df38b2fa84487",
         "vrfVerificationKeyHash": "f0dacec8bffcc89d5af2b7c08e9a84500232a46f8bfe385058d31a21288b7f5c",
@@ -104468,8 +104806,9 @@ expression: stake_distr
       }
     },
     "pool1vmhgsujfcqyn8n654yxtavlsjggew2a3knrr6smxcleggdwl3pp": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 4497634194,
+      "voting_stake": 4497634194,
       "parameters": {
         "id": "66ee887249c00933cf54a90cbeb3f09211972bb1b4c63d4366c7f284",
         "vrfVerificationKeyHash": "6af61f444d69fdb6d3c3cddf867cb098b99f4e486ddbc2fe5ec1cd693806b812",
@@ -104502,8 +104841,9 @@ expression: stake_distr
       }
     },
     "pool1vntql3yhyzzm3p846mds33nmuzz30jrn56fvjdd3hhu9u5n9d4d": {
-      "blocksCount": 74,
+      "blocks_count": 74,
       "stake": 1362501198374,
+      "voting_stake": 1362501198374,
       "parameters": {
         "id": "64d60fc4972085b884f5d6db08c67be08517c873a692c935b1bdf85e",
         "vrfVerificationKeyHash": "58dfa1a9929ad7169f1f5edbfd2697436e9e479288ab68d273ec9429b34e0360",
@@ -104536,8 +104876,9 @@ expression: stake_distr
       }
     },
     "pool1vtfhwwy868ryf49j3ft58ug3t9lq44t9fdcavyl5pawsx6hlvam": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 643571435,
+      "voting_stake": 643571435,
       "parameters": {
         "id": "62d3773887d1c644d4b28a5743f111597e0ad5654b71d613f40f5d03",
         "vrfVerificationKeyHash": "64d1a739eecd63c32bf303cfbdb384f9f7aabf4cae285f9b840853cae07c0ec3",
@@ -104570,8 +104911,9 @@ expression: stake_distr
       }
     },
     "pool1vtvseq6f76sxwknw5r6mv24x3nxcevenhpsyf35utkk77xljhag": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "62d90c8349f6a0675a6ea0f5b62aa68ccd8cb333b86044c69c5dadef",
         "vrfVerificationKeyHash": "5328d9663a3e3ad74722ff0f6dd922041a03d79429acc58a55e6cd5d5e007302",
@@ -104604,8 +104946,9 @@ expression: stake_distr
       }
     },
     "pool1vvkurfxhajtj4f7x8wjkeet7rg8amz34duy5nux76per5sn3npx": {
-      "blocksCount": 140,
+      "blocks_count": 140,
       "stake": 2008335850034,
+      "voting_stake": 2008335850034,
       "parameters": {
         "id": "632dc1a4d7ec972aa7c63ba56ce57e1a0fdd8a356f0949f0ded0723a",
         "vrfVerificationKeyHash": "cf61fc2de833d55d6f16db3fa0ae28936b775976378de49844f35726a66ab7e7",
@@ -104638,8 +104981,9 @@ expression: stake_distr
       }
     },
     "pool1vw6fr9agt58djrp3w0t0lsn6t329t6eusqxz5ugd9w7ecyedsdv": {
-      "blocksCount": 25,
+      "blocks_count": 25,
       "stake": 1054091948480,
+      "voting_stake": 1054091948480,
       "parameters": {
         "id": "63b49197a85d0ed90c3173d6ffc27a5c5455eb3c800c2a710d2bbd9c",
         "vrfVerificationKeyHash": "32252ba40e5c5773a5f03f979f5cdda7d84a756bba8517ccf3cad46005ef38f8",
@@ -104672,8 +105016,9 @@ expression: stake_distr
       }
     },
     "pool1vztvy9n9daayf8nuk5l9wmg4nlcs4j0f5awdjdnjkfvm7t89znm": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 8496924885,
+      "voting_stake": 8496924885,
       "parameters": {
         "id": "6096c216656f7a449e7cb53e576d159ff10ac9e9a75cd93672b259bf",
         "vrfVerificationKeyHash": "41ac8ec7430b3e3084772bc970d839b0d61803e510ea007c3b176fbadd6bea3d",
@@ -104706,8 +105051,9 @@ expression: stake_distr
       }
     },
     "pool1w5qdxdjh4922f5paxgdej3cefz794hwjlnx3rlpxg6lj7sdgd86": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2001634194,
+      "voting_stake": 2001634194,
       "parameters": {
         "id": "7500d33657a954a4d03d321b99471948bc5addd2fccd11fc2646bf2f",
         "vrfVerificationKeyHash": "98b50790edb080b3f74e1617821d332b268612a0ca93ee149c117d487731d681",
@@ -104740,8 +105086,9 @@ expression: stake_distr
       }
     },
     "pool1wcfnw3cf820z2fqn4rmlaf29yj5enymen4ll085eza4ey4shct9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1674161230,
+      "voting_stake": 1674161230,
       "parameters": {
         "id": "76133747093a9e252413a8f7fea54524a99993799d7ff79e99176b92",
         "vrfVerificationKeyHash": "1452100d8dc4fae7d4d2228f54f54d477b7cf5bf610221b96894a6ed83fc43f2",
@@ -104783,8 +105130,9 @@ expression: stake_distr
       }
     },
     "pool1wcz3mfg76ttd8tl7m54z9ptrs4wpfatx7vwd9ykrsjltwkzvcz9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 549640431,
+      "voting_stake": 549640431,
       "parameters": {
         "id": "76051da51ed2d6d3affedd2a228563855c14f566f31cd292c384beb7",
         "vrfVerificationKeyHash": "86c3eb063f75d3d09052cb8b5e2c9172ef7f8303d2d227b99208bee3ec660944",
@@ -104817,8 +105165,9 @@ expression: stake_distr
       }
     },
     "pool1wd2sv3nhfxd2z5sf5jjtleywqy0d56pe0w337xzpv266jn6mvp9": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19617709847,
+      "voting_stake": 19617709847,
       "parameters": {
         "id": "7355064677499aa15209a4a4bfe48e011eda68397ba31f184162b5a9",
         "vrfVerificationKeyHash": "2547eac27ebaa149a4b114f1a8c07844d259d914dbb646c2b24da919ba2b663c",
@@ -104851,8 +105200,9 @@ expression: stake_distr
       }
     },
     "pool1wf542yl9c85gks2f4y479v2nlqtfr8t06v0td877h5e0qgry4st": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9505580296,
+      "voting_stake": 9505580296,
       "parameters": {
         "id": "72695513e5c1e88b4149a92be2b153f816919d6fd31eb69fdebd32f0",
         "vrfVerificationKeyHash": "f38f44bab67fee3f16fdf1a0e73b2b93ecdcc593dbe8207f55dc8006c60ace65",
@@ -104885,8 +105235,9 @@ expression: stake_distr
       }
     },
     "pool1wf9j0stckxueuxtrkupzug7463el4mdwz3fwxwlsdr98q9292s8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "724b27c178b1b99e1963b7022e23d5d473faedae1452e33bf068ca70",
         "vrfVerificationKeyHash": "9586f48442694ef028bcf67605b4ef650ab9f0f1cd81e181d2db8d9d5a387e84",
@@ -104914,8 +105265,9 @@ expression: stake_distr
       }
     },
     "pool1wmluq6pjne9ndvgl26q52f4lntpjaqkwj6x8u2py9jqfuy5mv8k": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "76ffc068329e4b36b11f56814526bf9ac32e82ce968c7e28242c809e",
         "vrfVerificationKeyHash": "5a8f5a4cfa2a7ab678a538e04e7919579b8c6c20e3ce51a04d3c14e9db5143a0",
@@ -104948,8 +105300,9 @@ expression: stake_distr
       }
     },
     "pool1wn6a6f23ctq06udwhw27ravdpd6zcr7jlut3yez0wzdackz3222": {
-      "blocksCount": 93,
+      "blocks_count": 93,
       "stake": 1541427093838,
+      "voting_stake": 1541427093838,
       "parameters": {
         "id": "74f5dd2551c2c0fd71aebb95e1f58d0b742c0fd2ff1712644f709bdc",
         "vrfVerificationKeyHash": "7cc0d9a8931e434c5632d5a696a2c50483d7ed86f4f2e97e558f14e863a2ccbf",
@@ -104982,8 +105335,9 @@ expression: stake_distr
       }
     },
     "pool1wns664xl66hwsx7wf59lunq5x0t3mr46ew3j5sgm8t5xka32y4m": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2713734815,
+      "voting_stake": 2713734815,
       "parameters": {
         "id": "74e1ad54dfd6aee81bce4d0bfe4c1433d71d8ebacba32a411b3ae86b",
         "vrfVerificationKeyHash": "52d2aaff6f68d53890f9cfdecda9c688ea7f8c96db954e17c7fe6d05db3e1538",
@@ -105021,8 +105375,9 @@ expression: stake_distr
       }
     },
     "pool1ws42l6rawqjv58crs5l32v0eem3qnngpnjfd7epwd4lmjccc5cg": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 251002504991,
+      "voting_stake": 251002504991,
       "parameters": {
         "id": "742aafe87d7024ca1f03853f1531f9cee209cd019c92df642e6d7fb9",
         "vrfVerificationKeyHash": "2db0a696204a8bbef61523723d9c9a99a79cc1549c5e2a0dde3bafe16a272cf7",
@@ -105055,8 +105410,9 @@ expression: stake_distr
       }
     },
     "pool1wyk7r2z9etzevz8yucu4jpamkt95f0rjtew82y3dx3zx5maj92v": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 18494515876,
+      "voting_stake": 18494515876,
       "parameters": {
         "id": "712de1a845cac59608e4e6395907bbb2cb44bc725e5c75122d34446a",
         "vrfVerificationKeyHash": "f354a743c557ae5d4cbfd6d553968944b1bed87c8c68c75f2ab27d39c3941eee",
@@ -105089,8 +105445,9 @@ expression: stake_distr
       }
     },
     "pool1x0rfh56fzs7c9vd2jsss6zx3eh882l0jan85utly6vke5reejt6": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "33c69bd349143d82b1aa94210d08d1cdce757df2eccf4e2fe4d32d9a",
         "vrfVerificationKeyHash": "58b015e17157c3aeae3544fa0f41443ce507ee6772b69108fd8bd89a33ade7eb",
@@ -105123,8 +105480,9 @@ expression: stake_distr
       }
     },
     "pool1x2f7xdre72calxp5j05k5g9hvskztl790v9enggn42js5mdxesn": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 1645747368,
+      "voting_stake": 1645747368,
       "parameters": {
         "id": "3293e33479f2b1df983493e96a20b7642c25ffc57b0b99a113aaa50a",
         "vrfVerificationKeyHash": "1d427e768890f8ef477f83c6e40f78f6aef2d94bb24616e454e51d5df403e61d",
@@ -105152,8 +105510,9 @@ expression: stake_distr
       }
     },
     "pool1x4p3cwemsm356vpxnjwuud7w76jz64hyss729zp7xa6wuey6yr9": {
-      "blocksCount": 87,
+      "blocks_count": 87,
       "stake": 1171622898961,
+      "voting_stake": 1171622898961,
       "parameters": {
         "id": "35431c3b3b86e34d30269c9dce37cef6a42d56e4843ca2883e3774ee",
         "vrfVerificationKeyHash": "bfc661ac04379ab66f11be7762e4aabfd6470755c2d41a1cc488dddca11f0354",
@@ -105186,8 +105545,9 @@ expression: stake_distr
       }
     },
     "pool1x6hwmrf5mz8hd02n5x3ycgsgwsdpfexurdegxfq7s4wsc79df2h": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 122414372967,
+      "voting_stake": 122414372967,
       "parameters": {
         "id": "36aeed8d34d88f76bd53a1a24c2208741a14e4dc1b7283241e855d0c",
         "vrfVerificationKeyHash": "46900e31b23914bca2001a09db61b515e698eb3d10d136cc85234c38123ed373",
@@ -105220,8 +105580,9 @@ expression: stake_distr
       }
     },
     "pool1xa4fq45v0trzvcs507gel3dfrxs6m8kc20s9d5jy7a9kxxqt6wa": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9497631950,
+      "voting_stake": 9497631950,
       "parameters": {
         "id": "376a90568c7ac62662147f919fc5a919a1ad9ed853e056d244f74b63",
         "vrfVerificationKeyHash": "75a3bc13e8f78b5833ab1c0a725d454a7638e3c1741357ca03dc4b628897f83b",
@@ -105254,8 +105615,9 @@ expression: stake_distr
       }
     },
     "pool1xafhfcvhyk2cyr7lprt4luxjcxgh8z87z6fke7d6grvvzljga3l": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 12287095935,
+      "voting_stake": 12287095935,
       "parameters": {
         "id": "375374e1972595820fdf08d75ff0d2c1917388fe16936cf9ba40d8c1",
         "vrfVerificationKeyHash": "27ac1f0c87c2425088fe5e2bda0956a53b2fdf7c1d6a0b26d2b30183169fcbad",
@@ -105288,8 +105650,9 @@ expression: stake_distr
       }
     },
     "pool1xaj5w5m3ra8xypv58h4djvjkm08j94nu9w49nadlyyduqx6h5dp": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 17948753391,
+      "voting_stake": 17948753391,
       "parameters": {
         "id": "37654753711f4e6205943dead93256dbcf22d67c2baa59f5bf211bc0",
         "vrfVerificationKeyHash": "2c326133cee9c5a092e8a3323f3bebc028a6141f3c67a32e7eceadd4e9f515f8",
@@ -105322,8 +105685,9 @@ expression: stake_distr
       }
     },
     "pool1xapempldsxvte845vwxk2flmqm4x7jrhqftj5q3p5qhvynd6smz": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 19497622798,
+      "voting_stake": 19497622798,
       "parameters": {
         "id": "37439d87ed8198bc9eb4638d6527fb06ea6f487702572a0221a02ec2",
         "vrfVerificationKeyHash": "ef2e4b08c7aea7eab832c443d9e6460438192fc55add9b3a507e03f45e155b3a",
@@ -105356,8 +105720,9 @@ expression: stake_distr
       }
     },
     "pool1xgxhm4zgkevltshwk7yezvt9un08anc9rhlutm5yp7jr2etj3x0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 37774370290,
+      "voting_stake": 37774370290,
       "parameters": {
         "id": "320d7dd448b659f5c2eeb789913165e4de7ecf051dffc5ee840fa435",
         "vrfVerificationKeyHash": "550dd49a5f51fb251daacf33dd1b78896a9d98971edce708cd54c7cf1a407347",
@@ -105390,8 +105755,9 @@ expression: stake_distr
       }
     },
     "pool1xk2ml63jn0rjd5958zul47hc790neyngkcz0tqwxrdtn5nn349z": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2997161499,
+      "voting_stake": 2997161499,
       "parameters": {
         "id": "3595bfea329bc726d0b438b9fafaf8f15f3c9268b604f581c61b573a",
         "vrfVerificationKeyHash": "4fd03512a46b4b254951c59fea08eeaf27d261885e4e4e2e91b6c37ae4294152",
@@ -105424,8 +105790,9 @@ expression: stake_distr
       }
     },
     "pool1xm90p8nl7kaqvsskrvtyq60z70rx4afdfj4xex89u9gns62t0er": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 39292611557,
+      "voting_stake": 39292611557,
       "parameters": {
         "id": "36caf09e7ff5ba0642161b164069e2f3c66af52d4caa6c98e5e15138",
         "vrfVerificationKeyHash": "19c130c67e60fc9c6854aea2b9c7fe638ee2cb62bb05d76526e0479b47a22cbb",
@@ -105468,8 +105835,9 @@ expression: stake_distr
       }
     },
     "pool1xqgxjecd9jrf0g9vert2xzdte9rfwptnat03whfz69t4gx4qz4s": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 18394762601,
+      "voting_stake": 18394762601,
       "parameters": {
         "id": "301069670d2c8697a0acc8d6a309abc946970573eadf175d22d15754",
         "vrfVerificationKeyHash": "8a1ada14719d90b62647d982f4bdb2e41ebe2759a05557eacf2198f57a28f4ce",
@@ -105502,8 +105870,9 @@ expression: stake_distr
       }
     },
     "pool1xqhqfj4jnehs5zkmr2py40wkuztvwatx9p7gsdvpesj6x6tsyt2": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 2319695518724,
+      "voting_stake": 2319695518724,
       "parameters": {
         "id": "302e04cab29e6f0a0adb1a824abdd6e096c77566287c883581cc25a3",
         "vrfVerificationKeyHash": "3e38bbc53551fbad86dea15afc28758a2b08de13af54e87f1f3959d7c5ec4895",
@@ -105536,8 +105905,9 @@ expression: stake_distr
       }
     },
     "pool1xrflm7hknav65t3chtcy2ca4s5v64erm2320g23jeuejvw60t7l": {
-      "blocksCount": 9,
+      "blocks_count": 9,
       "stake": 100395360415,
+      "voting_stake": 100395360415,
       "parameters": {
         "id": "30d3fdfaf69f59aa2e38baf04563b58519aae47b5454f42a32cf3326",
         "vrfVerificationKeyHash": "8d323ea855159b9d6616ea8e4018334062c9ed339fe1c99f02f670765e515c6e",
@@ -105570,8 +105940,9 @@ expression: stake_distr
       }
     },
     "pool1xswvfnk5c0a3r7lh722vam7feye8de9wyys6c0e3hmxd54q9aae": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "341cc4ced4c3fb11fbf7f294ceefc9c93276e4ae2121ac3f31beccda",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -105600,8 +105971,9 @@ expression: stake_distr
       }
     },
     "pool1xu8ljtay48mcdmnu4qnd6l9s9qxeu73w0h6l0gpt0097jgs93y4": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 3563106258,
+      "voting_stake": 3563106258,
       "parameters": {
         "id": "370ff92fa4a9f786ee7ca826dd7cb0280d9e7a2e7df5f7a02b7bcbe9",
         "vrfVerificationKeyHash": "30b777be977544e8e1d6491f3ab309263758b9c90f3092dfa3c0865126c5c295",
@@ -105629,8 +106001,9 @@ expression: stake_distr
       }
     },
     "pool1xxnkgjejhd2eqp4gusjd8s2tnq6frwh4z453j5s2vl7axv90n9a": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9373426163,
+      "voting_stake": 9373426163,
       "parameters": {
         "id": "31a7644b32bb559006a8e424d3c14b983491baf5156919520a67fdd3",
         "vrfVerificationKeyHash": "e6d0ffa9b25c5ae25068eb985535f5d91fb02871c26ad5da79b09c2bd3cc8548",
@@ -105664,8 +106037,9 @@ expression: stake_distr
       }
     },
     "pool1xz6xjncxtgfv00qfklfma5ek9c3c4vk5yxgnd8vkc33kvrkey20": {
-      "blocksCount": 123,
+      "blocks_count": 123,
       "stake": 1614655534446,
+      "voting_stake": 1614655534446,
       "parameters": {
         "id": "30b4694f065a12c7bc09b7d3bed3362e238ab2d42191369d96c46366",
         "vrfVerificationKeyHash": "cc3e6e80f372da48bdaa0030e7bbd8520ffb80e9d2ab26d42543a2d683862299",
@@ -105698,8 +106072,9 @@ expression: stake_distr
       }
     },
     "pool1y4jn4em2qht7vq8ve8s4retn4gtw8u0ha82w48sg6ggdvl9mlcq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9496612676,
+      "voting_stake": 9496612676,
       "parameters": {
         "id": "25653ae76a05d7e600ecc9e151e573aa16e3f1f7e9d4ea9e08d210d6",
         "vrfVerificationKeyHash": "8d82425b5259596450306d439c003aa650aeae193a4ac0a2890e1e0a7f74047f",
@@ -105722,8 +106097,9 @@ expression: stake_distr
       }
     },
     "pool1y74f44yeedrls4nj0yf6h5pdl5ythd5ahm73knqf33hfvq9rhaf": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 12307106860,
+      "voting_stake": 12307106860,
       "parameters": {
         "id": "27aa9ad499cb47f856727913abd02dfd08bbb69dbefd1b4c098c6e96",
         "vrfVerificationKeyHash": "5f97dc97196c55b7eca60909b68de9db9bedee4f04a000b27c2df4b95911c5af",
@@ -105756,8 +106132,9 @@ expression: stake_distr
       }
     },
     "pool1y78qthpjc0zvqwu7nfgy7m756226fz83dkkyxargq0juskqy63q": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11496974042,
+      "voting_stake": 11496974042,
       "parameters": {
         "id": "278e05dc32c3c4c03b9e9a504f6fd4d295a488f16dac43746803e5c8",
         "vrfVerificationKeyHash": "81aa05a152f3140bb41b1f6270e54e89421a98236480c2b11a28bfacba438619",
@@ -105790,8 +106167,9 @@ expression: stake_distr
       }
     },
     "pool1y9awaq0evchgpnfjgys53yljunxajzzn590459aeyw74q9xkxzg": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 36393692675,
+      "voting_stake": 36393692675,
       "parameters": {
         "id": "217aee81f9662e80cd3241214893f2e4cdd90853a15f5a17b923bd50",
         "vrfVerificationKeyHash": "63a9e42d61b8abe87b0a0018dbcd1cf41529047423f0e784d86d05566740727b",
@@ -105839,8 +106217,9 @@ expression: stake_distr
       }
     },
     "pool1yaap4p67ltp79m5na7s8qarszyz5d6n7ltqxlmf2apzsxmxlwzq": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 847633270,
+      "voting_stake": 847633270,
       "parameters": {
         "id": "277a1a875efac3e2ee93efa0707470110546ea7efac06fed2ae84503",
         "vrfVerificationKeyHash": "23edf0b044516597a207b37104ec1e50f63c71e9ca5e3b18fbeb2eb93c2c93aa",
@@ -105873,8 +106252,9 @@ expression: stake_distr
       }
     },
     "pool1yfs7qc0frzlkvy5rw6npwyc94ve7pk094ugzxn0678mzsnmqs7f": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 46355813716,
+      "voting_stake": 46355813716,
       "parameters": {
         "id": "2261e061e918bf66128376a6171305ab33e0d9e5af10234dfaf1f628",
         "vrfVerificationKeyHash": "fec4d68e5fc956f041e0adf854369d5ae17f6c11f3b127bf21597a0c94ee4361",
@@ -105907,8 +106287,9 @@ expression: stake_distr
       }
     },
     "pool1yh54ttht6ww74u77xehwm2mfhg27qmm3v56e5ahc2nsrszv0xtn": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "25e955aeebd39deaf3de366eedab69ba15e06f7165359a76f854e038",
         "vrfVerificationKeyHash": "9d2c6703d5691bc3c3b365314038b3822f7f6f2622a121d6798a7d8940acc3de",
@@ -105941,8 +106322,9 @@ expression: stake_distr
       }
     },
     "pool1ymrt98cl9s3zw7hrumyn7dyv8f8zy3aky523237e3r2zyrf3e26": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "26c6b29f1f2c22277ae3e6c93f348c3a4e2247b625151547d988d422",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -105971,8 +106353,9 @@ expression: stake_distr
       }
     },
     "pool1ypmhxlnrmhxpfavklkkt4td4dartxhphdc7shvc5knknur05ta0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 39996297250,
+      "voting_stake": 39996297250,
       "parameters": {
         "id": "2077737e63ddcc14f596fdacbaadb56f46b35c376e3d0bb314b4ed3e",
         "vrfVerificationKeyHash": "915d14be467c71a94713371392df4678216356bcae6a9cd8ec1fa5cbf5d4b03e",
@@ -106010,8 +106393,9 @@ expression: stake_distr
       }
     },
     "pool1yrtux38kfj030vprg4k2f46q8rqkf6ss6yk2yvyeks8k5uk9tss": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 10015471465,
+      "voting_stake": 10015471465,
       "parameters": {
         "id": "20d7c344f64c9f17b023456ca4d74038c164ea10d12ca23099b40f6a",
         "vrfVerificationKeyHash": "086fea47cc050c6550cf51006b48a883997ab84500af866c8240219613608b85",
@@ -106049,8 +106433,9 @@ expression: stake_distr
       }
     },
     "pool1ys9lst64mzprj7u029klxvjnsx0qs7hz9n7gn4ju2q6zz7tye3p": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 37931921938,
+      "voting_stake": 37931921938,
       "parameters": {
         "id": "240bf82f55d882397b8f516df33253819e087ae22cfc89d65c503421",
         "vrfVerificationKeyHash": "20a7d6e1a40dbd1eaa9e301e0a3a2e656cfb57f6919ef915344a1597bd673ee0",
@@ -106083,8 +106468,9 @@ expression: stake_distr
       }
     },
     "pool1yy4cemccmnk6m6adcnxedzy4dvrlw95djln4pctg0jpq5x7gczh": {
-      "blocksCount": 69,
+      "blocks_count": 69,
       "stake": 1161376626824,
+      "voting_stake": 1161376626824,
       "parameters": {
         "id": "212b8cef18dcedadebadc4cd9688956b07f7168d97e750e1687c820a",
         "vrfVerificationKeyHash": "9efed2a94449a34fa73ef8b81a36da1e7eda38c8f925664b242f502f547c26cf",
@@ -106117,8 +106503,9 @@ expression: stake_distr
       }
     },
     "pool1yzwxetclm2l48xzvmnwwf6x48a5qze0nx4t6glz5k8wk50xl006": {
-      "blocksCount": 74,
+      "blocks_count": 74,
       "stake": 1287266992325,
+      "voting_stake": 1287266992325,
       "parameters": {
         "id": "209c6caf1fdabf53984cdcdce4e8d53f680165f33557a47c54b1dd6a",
         "vrfVerificationKeyHash": "49098bd366f34906068f55b09e019e25cc60af0663b1411ab58c366f7eca037e",
@@ -106151,8 +106538,9 @@ expression: stake_distr
       }
     },
     "pool1z05xqzuxnpl8kg8u2wwg8ftng0fwtdluv3h20ruryfqc5gc3efl": {
-      "blocksCount": 285,
+      "blocks_count": 285,
       "stake": 6966463081364,
+      "voting_stake": 6966463081364,
       "parameters": {
         "id": "13e8600b86987e7b20fc539c83a57343d2e5b7fc646ea78f8322418a",
         "vrfVerificationKeyHash": "725a83b4d070792fb1675f3dd9b784268bd785123b10efb5f91c3e03813cd1e1",
@@ -106190,8 +106578,9 @@ expression: stake_distr
       }
     },
     "pool1z063uemr7k9zzg95ymz0gfqnfv5k58et8xrnk6ynfyqdgjjw0e7": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 4000838472805,
+      "voting_stake": 4000838472805,
       "parameters": {
         "id": "13f51e6763f58a2120b426c4f424134b296a1f2b39873b68934900d4",
         "vrfVerificationKeyHash": "6e2bb310995535b6fb89118b9fcec3e4aaf5d74517579b1a45c2d3d6df73753c",
@@ -106224,8 +106613,9 @@ expression: stake_distr
       }
     },
     "pool1z7kuc2r7jgfmvuw0fazqzs8phcgfl64kmdmcsq7z440v578ekw8": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 3623134729,
+      "voting_stake": 3623134729,
       "parameters": {
         "id": "17adcc287e9213b671cf4f440140e1be109feab6db778803c2ad5eca",
         "vrfVerificationKeyHash": "53835cc60f193de8435af44c71d07b79904f159a5ddd68434c317d4bd868b262",
@@ -106253,8 +106643,9 @@ expression: stake_distr
       }
     },
     "pool1zg484cf3hdphs7cmmtp6j88k5jxx5zz5wwssh5fxgpkn2lf8wa0": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 29200517481,
+      "voting_stake": 29200517481,
       "parameters": {
         "id": "122a7ae131bb43787b1bdac3a91cf6a48c6a085473a10bd126406d35",
         "vrfVerificationKeyHash": "1a4c7d44da8f5c0fd2c39f7d221234a891022fe2368ea5a9c7837efcfee50b1c",
@@ -106292,8 +106683,9 @@ expression: stake_distr
       }
     },
     "pool1zgxyrg92crhawjeux2pavqde3c2a0fgs0kgmeckknj0m7wmpcvl": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 7944153185,
+      "voting_stake": 7944153185,
       "parameters": {
         "id": "120c41a0aac0efd74b3c3283d601b98e15d7a5107d91bce2d69c9fbf",
         "vrfVerificationKeyHash": "93e62af0ba8b8bf7831a9326bbb1e9cc633de02d855bd6406d77e8984882a95c",
@@ -106326,8 +106718,9 @@ expression: stake_distr
       }
     },
     "pool1zjxgjy4x9v9yrs9g3d2v7srg0yl8cl08nw338rhl0axgcqh2ftf": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "148c8912a62b0a41c0a88b54cf4068793e7c7de79ba3138eff7f4c8c",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -106356,8 +106749,9 @@ expression: stake_distr
       }
     },
     "pool1zl79v96hz9fn9rhjepxa3mpnk4gsw85fjkze35vpvarmv03ngw6": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "17fc5617571153328ef2c84dd8ec33b551071e89958598d1816747b6",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -106386,8 +106780,9 @@ expression: stake_distr
       }
     },
     "pool1zpyuuv8wus56cpmvr0c88njsnzcsf3qeaw4vyny6q6pd5x7vme5": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 0,
+      "voting_stake": 0,
       "parameters": {
         "id": "1049ce30eee429ac076c1bf073ce5098b104c419ebaac24c9a0682da",
         "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -106416,8 +106811,9 @@ expression: stake_distr
       }
     },
     "pool1zr907nmfsq5kalxdjju349nwg6f03lyfmcjfqcz52jf45gcgh03": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 15068711225,
+      "voting_stake": 15068711225,
       "parameters": {
         "id": "10caff4f6980296efccd94b91a966e4692f8fc89de2490605454935a",
         "vrfVerificationKeyHash": "ed6b09ed118264f29bad9af7b785a48d562998924e2d0a98e9356fcf0a5a01f1",
@@ -106450,8 +106846,9 @@ expression: stake_distr
       }
     },
     "pool1zuhgh090ejafvztegmxx9h26cdk3eutuur07379vysuhxtr8qdy": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 9598100000,
+      "voting_stake": 9598100000,
       "parameters": {
         "id": "172e8bbcafccba96097946cc62dd5ac36d1cf17ce0dfe8f8ac243973",
         "vrfVerificationKeyHash": "358489d708fcb72dd9e6625cec8846a29937f2c6c08b7b6a5e4026b5b35ec06d",
@@ -106484,8 +106881,9 @@ expression: stake_distr
       }
     },
     "pool1zv0ldgrpp2pwzr39vjwcyfz57e8mlff3229wyykt5pmsjt95jhc": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 11093944923,
+      "voting_stake": 11093944923,
       "parameters": {
         "id": "131ff6a0610a82e10e25649d822454f64fbfa531528ae212cba07709",
         "vrfVerificationKeyHash": "392d334b0670323093e6cf60edf36961e4005de35b2c86f01e41ce2f7428837a",
@@ -106518,8 +106916,9 @@ expression: stake_distr
       }
     },
     "pool1zwmkuyzj8wykfdq98g28stkpq28k0f3l2xse384re5yfwap80ca": {
-      "blocksCount": 0,
+      "blocks_count": 0,
       "stake": 353617127519,
+      "voting_stake": 353617127519,
       "parameters": {
         "id": "13b76e10523b8964b4053a14782ec1028f67a63f51a1989ea3cd0897",
         "vrfVerificationKeyHash": "0e2a3dc4f89bba916aa39d61ac90789f53913a7aa6abd2dcabbc9063983038a2",
