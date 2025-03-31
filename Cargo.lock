@@ -125,6 +125,7 @@ dependencies = [
  "num",
  "proptest",
  "serde",
+ "serde_json",
  "slot-arithmetic",
  "thiserror 2.0.12",
  "tracing",

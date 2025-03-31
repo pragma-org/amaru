@@ -45,34 +45,23 @@ pub(crate) mod test {
     /// ```
     /// use amaru_kernel::{Hash, TransactionInput};
     /// ```
-    macro_rules! fake_input {
-        ($transaction_id:expr, $index:expr) => {
-            TransactionInput {
-                transaction_id: Hash::from(hex::decode($transaction_id).unwrap().as_slice()),
-                index: $index,
-            }
-        };
+    use amaru_kernel::{
+        Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    };
+
+    pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
+        TransactionInput {
+            transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()),
+            index,
+        }
     }
 
-    /// Creates a transaction output with no value, datum, or script ref with a specified address
-    ///
-    /// ## Required Imports
-    /// ```
-    ///     use amaru_kernel::{
-    ///    Bytes, PostAlonzoTransactionOutput, TransactionOutput, Value,
-    /// };
-    /// ```
-    macro_rules! fake_output {
-        ($address:expr) => {
-            TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
-                address: Bytes::from(hex::decode($address).expect("Invalid hex address")),
-                value: Value::Coin(0),
-                datum_option: None,
-                script_ref: None,
-            })
-        };
+    pub(crate) fn fake_output(address: &str) -> TransactionOutput {
+        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
+            address: Bytes::from(hex::decode(address).expect("Invalid hex address")),
+            value: Value::Coin(0),
+            datum_option: None,
+            script_ref: None,
+        })
     }
-
-    pub(crate) use fake_input;
-    pub(crate) use fake_output;
 }

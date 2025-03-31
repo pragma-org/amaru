@@ -19,8 +19,9 @@ use crate::context::{
     UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    Anchor, Bytes, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams,
+    PostAlonzoTransactionOutput, Proposal, ProposalPointer, StakeCredential, TransactionInput,
+    TransactionOutput, Value,
 };
 use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
@@ -71,6 +72,90 @@ impl PrepareAccountsSlice<'_> for AssertPreparationContext {
 impl PrepareDRepsSlice<'_> for AssertPreparationContext {
     fn require_drep(&mut self, _drep: &StakeCredential) {
         unimplemented!();
+    }
+}
+
+//  Deserialization of Prepreation Context JSON files
+
+#[derive(serde::Deserialize, Debug)]
+struct JsonUtxoEntry {
+    input: JsonInput,
+    output: JsonOutput,
+}
+
+#[derive(serde::Deserialize, Debug)]
+struct JsonInput {
+    transaction_id: String,
+    index: u64,
+}
+#[derive(serde::Deserialize, Debug)]
+struct JsonOutput {
+    #[serde(deserialize_with = "deserialize_hex_to_vec")]
+    address: Vec<u8>,
+    // TODO: expand this
+}
+
+// TODO: Should this live somewhere else?
+fn deserialize_hex_to_vec<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let s: String = serde::Deserialize::deserialize(deserializer)?;
+    hex::decode(s).map_err(serde::de::Error::custom)
+}
+
+impl From<JsonOutput> for TransactionOutput {
+    fn from(json: JsonOutput) -> TransactionOutput {
+        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
+            address: Bytes::from(json.address),
+            value: Value::Coin(0),
+            datum_option: None,
+            script_ref: None,
+        })
+    }
+}
+
+impl TryFrom<JsonInput> for TransactionInput {
+    type Error = hex::FromHexError;
+
+    fn try_from(value: JsonInput) -> Result<Self, Self::Error> {
+        Ok(TransactionInput {
+            transaction_id: value.transaction_id.parse()?,
+            index: value.index,
+        })
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for AssertPreparationContext {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error;
+
+        let mut map: serde_json::Map<String, serde_json::Value> =
+            serde::Deserialize::deserialize(deserializer)?;
+
+        let utxo_value = map
+            .remove("utxo_slice")
+            .ok_or_else(|| D::Error::custom("missing field `utxo_slice`"))?;
+
+        let entries: Vec<JsonUtxoEntry> = serde_json::from_value(utxo_value)
+            .map_err(|e| D::Error::custom(format!("Failed to parse utxo_slice: {}", e)))?;
+
+        let mut utxo = BTreeMap::new();
+
+        for entry in entries {
+            utxo.insert(
+                entry
+                    .input
+                    .try_into()
+                    .map_err(|_| D::Error::custom("invalid transaction id"))?,
+                entry.output.into(),
+            );
+        }
+
+        Ok(AssertPreparationContext { utxo })
     }
 }
 
