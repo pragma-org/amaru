@@ -20,7 +20,6 @@ pallas-crypto.workspace = true
 pallas-math.workspace = true
 pallas-network.workspace = true
 rayon.workspace = true
-rocksdb.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

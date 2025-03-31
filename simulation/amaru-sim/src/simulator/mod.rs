@@ -20,7 +20,7 @@ use amaru_consensus::consensus::wiring::PullEvent;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     header_validation::Consensus,
-    store::{rocksdb::RocksDBStore, ChainStore},
+    store::ChainStore,
 };
 use amaru_consensus::peer::Peer;
 use amaru_kernel::network::NetworkName;
@@ -29,6 +29,7 @@ use amaru_kernel::{
     Header,
     Point::{self, *},
 };
+use amaru_stores::rocksdb::consensus::RocksDBStore;
 use bytes::Bytes;
 use clap::Parser;
 use ledger::{populate_chain_store, FakeStakeDistribution};

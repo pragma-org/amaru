@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::store::{rocksdb::RocksDBStore, ChainStore, Nonces};
+use amaru_consensus::consensus::store::{ChainStore, Nonces};
 use amaru_kernel::{network::NetworkName, Hash, Header, Nonce, Point};
+use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;

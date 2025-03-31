@@ -36,6 +36,7 @@ use tracing::{info, instrument, trace, warn, Level};
 
 pub mod columns;
 pub mod common;
+pub mod consensus;
 
 const EVENT_TARGET: &str = "amaru::ledger::store";
 

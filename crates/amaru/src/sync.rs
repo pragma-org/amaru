@@ -18,7 +18,7 @@ use amaru_consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         fetch::BlockFetchStage,
         header_validation::Consensus,
-        store::{rocksdb::RocksDBStore, ChainStore},
+        store::ChainStore,
         wiring::{HeaderStage, PullEvent},
     },
     peer::{Peer, PeerSession},
@@ -28,7 +28,7 @@ use amaru_kernel::{
     network::{EraHistory, NetworkName},
     Hash, Header, Point,
 };
-use amaru_stores::rocksdb::RocksDB;
+use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,

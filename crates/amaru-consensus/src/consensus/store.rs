@@ -21,8 +21,6 @@ use slot_arithmetic::TimeHorizonError;
 use std::fmt::Display;
 use thiserror::Error;
 
-pub mod rocksdb;
-
 #[derive(Error, Debug)]
 pub enum StoreError {
     WriteError { error: String },

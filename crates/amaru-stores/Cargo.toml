@@ -17,10 +17,15 @@ hex.workspace = true
 pallas-codec.workspace = true
 rocksdb.workspace = true
 tracing.workspace = true
+rand.workspace = true
 
-iter-borrow.workspace = true
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
+amaru-consensus.workspace = true
+amaru-ouroboros-traits.workspace = true
+iter-borrow.workspace = true
+slot-arithmetic.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+tempfile.workspace = true

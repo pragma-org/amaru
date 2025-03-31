@@ -1,10 +1,11 @@
 use amaru::sync;
 use amaru_consensus::{
-    consensus::store::{rocksdb::RocksDBStore, ChainStore},
+    consensus::store::ChainStore,
     peer::{Peer, PeerSession},
     IsHeader,
 };
 use amaru_kernel::{from_cbor, network::NetworkName, Header, Point};
+use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
