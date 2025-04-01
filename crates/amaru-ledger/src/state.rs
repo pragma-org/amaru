@@ -199,10 +199,63 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         //
         // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
         // we must snapshot the one _just before_.
-        let mut db = self.stable.lock().unwrap();
+        let db = self.stable.lock().unwrap();
 
+        let transaction = db.create_transaction();
         if current_epoch > db.epoch() + 1 {
-            epoch_transition(&mut *db, current_epoch, self.rewards_summary.take())?;
+            // TODO check that doesn't exist
+
+            if let Some(mut rewards_summary) = self.rewards_summary.take() {
+                let transaction = db.create_transaction();
+                transaction
+                    .with_accounts(|iterator| {
+                        for (account, mut row) in iterator {
+                            if let Some(rewards) = rewards_summary.extract_rewards(&account) {
+                                if rewards > 0 {
+                                    if let Some(account) = row.borrow_mut() {
+                                        account.rewards += rewards;
+                                    }
+                                }
+                            }
+                        }
+                    })
+                    .map_err(StateError::Storage)?;
+
+                transaction
+                    .with_pots(|mut row| {
+                        let pots = row.borrow_mut();
+                        pots.treasury +=
+                            rewards_summary.delta_treasury() + rewards_summary.unclaimed_rewards();
+                        pots.reserves -= rewards_summary.delta_reserves();
+                    })
+                    .map_err(StateError::Storage)?;
+
+                transaction.commit().map_err(StateError::Storage)?;
+            }
+
+            db.next_snapshot(current_epoch - 1)
+                .map_err(StateError::Storage)?;
+
+            transaction
+                .with_block_issuers(|iterator| {
+                    for (_, mut row) in iterator {
+                        *row.borrow_mut() = None;
+                    }
+                })
+                .map_err(StateError::Storage)?;
+
+            transaction
+                .with_pots(|mut row| {
+                    row.borrow_mut().fees = 0;
+                })
+                .map_err(StateError::Storage)?;
+
+            // Then we, can tick pools to compute their new state at the epoch boundary. Notice
+            // how we tick with the _current epoch_ however, but we take the snapshot before
+            // the tick since the actions are only effective once the epoch is crossed.
+            transaction
+                .tick_pools(current_epoch)
+                .map_err(StateError::Storage)?;
         }
 
         let StoreUpdate {

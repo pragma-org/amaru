@@ -152,11 +152,7 @@ async fn import_one(
     )?;
     transaction.commit()?;
 
-    let mut transaction = db.create_transaction();
-
-    transaction.next_snapshot(epoch, None)?;
-
-    transaction.commit()?;
+    db.next_snapshot(epoch)?;
 
     let transaction = db.create_transaction();
 

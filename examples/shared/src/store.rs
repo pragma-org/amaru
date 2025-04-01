@@ -182,14 +182,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         Ok(())
     }
 
-    fn next_snapshot(
-        &mut self,
-        _epoch: Epoch,
-        _rewards_summary: Option<amaru_ledger::summary::rewards::RewardsSummary>,
-    ) -> Result<(), amaru_ledger::store::StoreError> {
-        Ok(())
-    }
-
     fn set_pots(
         &self,
         _treasury: amaru_kernel::Lovelace,
@@ -256,6 +248,13 @@ impl Store for MemoryStore {
 
     fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
         Ok(Point::Origin)
+    }
+
+    fn next_snapshot(
+        &self,
+        _epoch: Epoch,
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
     }
 }
 
