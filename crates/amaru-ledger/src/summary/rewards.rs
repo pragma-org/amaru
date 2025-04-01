@@ -60,21 +60,32 @@ moment from the perspective of the stake movement in epoch `e`, each step is in 
 each epoch (related to different snapshots) since it is a continuous cycle.
 
 
-                                                            Computing rewards[^1] using:
-                                                            │ - snapshot(e + 2) for
-                                                            │     - pool performances
-                                                            │     - treasury & reserves
-                   Stake is delegated                       │ - snapshot(e) for:
-                   │                                        │     - stake distribution
-                   │                                        │     - pool parameters
-                   │                 Using snapshot(e)      │
-                   │                 for leader schedule    │                 Distributing rewards
-                   │                 │                      │                 earned from (e)
-                   │                 │                      │                 │
-    snapshot(e)    │ snapshot(e+1)   │    snapshot(e + 2)   │                 │snapshot(e + 3)
-              ╽    ╽             ╽   ╽                  ╽   ╽                 ╽╽
-━━━━━━━━━━━━╸╸╸╋━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━━━━━━━━╸╸╸╋╸╸╸━━━━━━━━>
-     e                e + 1                 e + 2                 e + 3              e + 4
+                                    Pruning retired        Computing rewards[^1] using:
+                                    pools                  │ - snapshot(e + 2) for
+                                    │                      │     - pool performances
+                    Stake is        │                      │     - treasury & reserves
+                    delegated       │                      │ - snapshot(e) for:
+                    │               │                      │     - stake distribution
+                    │               │                      │     - pool parameters
+                    │               │Using snapshot(e)     │
+                    │               │for leader schedule   │                  Distributing rewards
+                    │               ││                     │                  earned from (e)
+                    │               ││                     │                  │
+    snapshot(e)     │ snapshot(e+1) ││     snapshot(e + 2) │                  │snapshot(e + 3)
+              ╽     ╽             ╽ ╽╽                   ╽ ╽                  ╽╽
+━━━━━━━━━━━━╸╸╸╋━██━██━██━██━██━╸╸╸╋╸╸╸━██━██━██━██━██━╸╸╸╋╸╸╸━██━██━██━██━██━╸╸╋╸╸╸━██━██━██━>
+     e                e + 1          ╿      e + 2 ╿         ╿       e + 3             e + 4
+                                     │            │         │
+                                     │            Cast vote │
+                                     │                      │
+                                     │                      Ratifying proposals
+                                     │                      using voting power
+                                     │                      of (e + 1)
+                                     │
+                                     Computing voting power for
+                                     (e + 1) using state from
+                                     beginning of (e + 2)
+
 
 [^1]: Technically, we need to wait a few slots for the snapshot (e + 1) to stabilise; otherwise
 we risk doing an expensive computation which may be rolled back. In practice, the calculation
