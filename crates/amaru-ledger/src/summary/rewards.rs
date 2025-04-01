@@ -104,7 +104,7 @@ use amaru_kernel::{
     encode_bech32, expect_stake_credential, output_stake_credential, DRep, Epoch, HasLovelace,
     Hash, Lovelace, Network, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
     MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
-    SHELLEY_EPOCH_LENGTH, TREASURY_TAX,
+    SHELLEY_EPOCH_LENGTH, STAKE_POOL_DEPOSIT, TREASURY_TAX,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
@@ -201,9 +201,12 @@ impl StakeDistribution {
         });
 
         let mut retiring_pools = BTreeSet::new();
+        let mut refunds = BTreeMap::new();
         let mut pools = db
             .iter_pools()?
             .map(|(pool, row)| {
+                let reward_account = expect_stake_credential(&row.current_params.reward_account);
+
                 // NOTE: We need to tick pool as part of the stake distribution calculation, in
                 // order to know whether a pool will retire in the next epoch. This is because,
                 // votes ratification happens *after* pools reaping, and thus, nullify voting power
@@ -212,6 +215,9 @@ impl StakeDistribution {
                     Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
                         if dropped.is_none() {
                             retiring_pools.insert(pool);
+                            // FIXME: Store the deposit with the pool, and ensures the same deposit
+                            // it returned back.
+                            refunds.insert(reward_account, STAKE_POOL_DEPOSIT as Lovelace);
                         }
                     })),
                     epoch + 1,
@@ -248,11 +254,13 @@ impl StakeDistribution {
                     .copied()
                     .unwrap_or(ProposalState::default());
 
+                let refund = refunds.get(credential).copied().unwrap_or_default();
+
                 // NOTE: Only accounts delegated to active dreps counts towards the voting stake.
                 if let Some(drep) = &account.drep {
                     if let Some(st) = dreps.get_mut(drep) {
-                        voting_stake += account.lovelace + deposit;
-                        st.stake += account.lovelace + deposit;
+                        voting_stake += account.lovelace + deposit + refund;
+                        st.stake += account.lovelace + deposit + refund;
                     }
                 }
 
@@ -272,6 +280,7 @@ impl StakeDistribution {
                             // voting power whatsoever.
                             if !retiring_pools.contains(&pool_id) {
                                 pool.voting_stake += account.lovelace;
+
                                 // NOTE: This is subtle, but the pool distribution used for
                                 // computing voting power is determined BEFORE refunds or
                                 // withdrawal are processed.
