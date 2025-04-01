@@ -14,7 +14,7 @@
 
 pub mod columns;
 
-use crate::summary::rewards::{Pots, RewardsSummary};
+use crate::summary::rewards::Pots;
 use amaru_kernel::{
     cbor, expect_stake_credential, Epoch, Lovelace, Lovelace, Point, PoolId, StakeCredential,
     TransactionInput, TransactionOutput,
@@ -180,6 +180,15 @@ pub trait TransactionalContext<'a> {
         })
     }
 
+    fn commit(self) -> Result<(), StoreError>;
+}
+
+pub trait Store: Snapshot {
+    fn create_transaction(&self) -> impl TransactionalContext<'_>;
+
+    /// Access the tip of the stable store, corresponding to the latest point that was saved.
+    fn tip(&self) -> Result<Point, StoreError>;
+
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when
     /// there's no existing snapshot and, to ensure that snapshots are taken in order.
     ///
@@ -189,20 +198,7 @@ pub trait TransactionalContext<'a> {
     /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
     /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
     /// decision entirely to the caller owning the store.
-    fn next_snapshot(
-        &mut self,
-        epoch: Epoch,
-        rewards_summary: Option<RewardsSummary>,
-    ) -> Result<(), StoreError>;
-
-    fn commit(self) -> Result<(), StoreError>;
-}
-
-pub trait Store: Snapshot {
-    fn create_transaction(&self) -> impl TransactionalContext<'_>;
-
-    /// Access the tip of the stable store, corresponding to the latest point that was saved.
-    fn tip(&self) -> Result<Point, StoreError>;
+    fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError>;
 
     fn tick_proposals(&self, epoch: Epoch) -> Result<(), StoreError> {
         info!(epoch, "tick proposal");
