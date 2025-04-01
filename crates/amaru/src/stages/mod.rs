@@ -22,7 +22,10 @@ use amaru_consensus::{
     ConsensusError,
 };
 use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header, Point};
-use amaru_stores::rocksdb::{consensus::RocksDBStore, {RocksDB, RocksDBHistoricalStores}};
+use amaru_stores::rocksdb::{
+    consensus::RocksDBStore,
+    {RocksDB, RocksDBHistoricalStores},
+};
 use consensus::{
     chain_forward::ForwardStage,
     fetch::BlockFetchStage,
