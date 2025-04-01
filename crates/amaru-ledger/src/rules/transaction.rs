@@ -186,7 +186,5 @@ pub fn execute(
     .into_iter()
     .for_each(|input| context.consume(input));
 
-    println!("transaction valid: {}", transaction_id);
-
     Ok(())
 }

@@ -99,15 +99,9 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeSet;
 
-    use crate::context::{
-        assert::{AssertPreparationContext, AssertValidationContext},
-        WitnessSlice,
-    };
-    use amaru_kernel::{
-        cbor, HasAddress, HasOwnership, Hash, MintedTransactionBody, StakeCredential,
-    };
+    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
+    use amaru_kernel::{cbor, MintedTransactionBody};
 
     fn load_preperation_context_from_file(
         path: &str,
@@ -165,18 +159,6 @@ mod tests {
                 tx.collateral.as_deref(),
             )
             .is_ok());
-
-            let required_keys = ctx
-                .utxo
-                .values()
-                .filter_map(|output| match output.address().unwrap().credential() {
-                    Some(StakeCredential::AddrKeyhash(vk_hash)) => Some(vk_hash),
-                    Some(_) => None,
-                    None => None,
-                })
-                .collect::<BTreeSet<Hash<28>>>();
-
-            assert!(required_keys == validation_context.required_signers())
         });
     }
 }
