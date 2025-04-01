@@ -212,7 +212,7 @@ impl ProposalsSlice for DefaultValidationContext {
     fn acknowledge(&mut self, pointer: ProposalPointer, proposal: Proposal) {
         self.state
             .proposals
-            .register(pointer, (0, proposal), None, None)
+            .register(pointer, proposal, None, None)
             .unwrap_or_default(); // Can't happen as by construction key is unique
     }
 }

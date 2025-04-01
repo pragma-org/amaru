@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use amaru_kernel::Lovelace;
 use amaru_ledger::store::StoreError;
 use rocksdb::Transaction;
-use tracing::error;
+use tracing::{error, info};
 
 use amaru_ledger::store::columns::accounts::{Key, Row, Value, EVENT_TARGET};
 
@@ -72,7 +73,7 @@ pub fn add<DB>(
 }
 
 /// Reset rewards counter of many accounts.
-pub fn reset<DB>(
+pub fn reset_many<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = Key>,
 ) -> Result<(), StoreError> {
@@ -97,6 +98,35 @@ pub fn reset<DB>(
     }
 
     Ok(())
+}
+
+/// Alter balance of a specific account. If the account did not exist, returns the leftovers
+/// amount that couldn't be allocated to the account.
+pub fn set<DB>(
+    db: &Transaction<'_, DB>,
+    credential: Key,
+    with_rewards: impl FnOnce(Lovelace) -> Lovelace,
+) -> Result<Lovelace, StoreError> {
+    let key = as_key(&PREFIX, &credential);
+
+    if let Some(mut row) = db
+        .get(&key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(Row::unsafe_decode)
+    {
+        row.rewards = with_rewards(row.rewards);
+        db.put(key, as_value(row))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        return Ok(0);
+    }
+
+    info!(
+        target: EVENT_TARGET,
+        ?credential,
+        "set.no_account",
+    );
+
+    Ok(with_rewards(0))
 }
 
 /// Clear a stake credential registration.

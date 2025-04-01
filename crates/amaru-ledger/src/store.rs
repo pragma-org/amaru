@@ -16,12 +16,17 @@ pub mod columns;
 
 use crate::summary::rewards::{Pots, RewardsSummary};
 use amaru_kernel::{
-    cbor, Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+    cbor, expect_stake_credential, Epoch, Lovelace, Point, PoolId, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use columns::*;
-use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
+use std::{
+    borrow::BorrowMut,
+    collections::{BTreeMap, BTreeSet},
+    io, iter,
+};
 use thiserror::Error;
-use tracing::{instrument, Level};
+use tracing::{info, instrument, Level};
 
 #[derive(Debug, Error)]
 #[error(transparent)]
@@ -142,6 +147,12 @@ pub trait Store: Snapshot {
         rewards_summary: Option<RewardsSummary>,
     ) -> Result<(), StoreError>;
 
+    /// Return deposits back to reward accounts.
+    fn refund(
+        &self,
+        refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
+    ) -> Result<(), StoreError>;
+
     /// Get current values of the treasury and reserves accounts.
     fn with_pots(
         &self,
@@ -180,6 +191,27 @@ pub trait Store: Snapshot {
                 pools::Row::tick(pool, epoch)
             }
         })
+    }
+
+    fn tick_proposals(&self, epoch: Epoch) -> Result<(), StoreError> {
+        info!(epoch, "tick proposal");
+
+        let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+
+        self.with_proposals(|iterator| {
+            for (_, item) in iterator {
+                if let Some(row) = item.borrow() {
+                    if epoch == row.valid_until + 2 {
+                        refunds.insert(
+                            expect_stake_credential(&row.proposal.reward_account),
+                            row.proposal.deposit,
+                        );
+                    }
+                }
+            }
+        })?;
+
+        self.refund(refunds.into_iter())
     }
 }
 

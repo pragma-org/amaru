@@ -13,11 +13,12 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_ledger::store::{
+use rocksdb::Transaction;
+
+pub use amaru_ledger::store::{
     columns::proposals::{Key, Row, Value},
     StoreError,
 };
-use rocksdb::Transaction;
 
 /// Name prefixed used for storing Proposals entries. UTF-8 encoding for "prop"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
@@ -28,9 +29,8 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (proposal_pointer, (epoch, proposal)) in rows {
+    for (proposal_pointer, row) in rows {
         let key = as_key(&PREFIX, proposal_pointer);
-        let row = Row { epoch, proposal };
         db.put(key, as_value(row))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }

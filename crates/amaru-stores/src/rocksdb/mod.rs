@@ -15,7 +15,7 @@
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
     network::{EraHistory, NetworkName},
-    Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+    Epoch, Lovelace, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -418,7 +418,7 @@ impl Store for RocksDB {
                 accounts::add(&batch, add.accounts)?;
                 cc_members::add(&batch, add.cc_members)?;
 
-                accounts::reset(&batch, withdrawals)?;
+                accounts::reset_many(&batch, withdrawals)?;
 
                 dreps::add(&batch, add.dreps)?;
                 dreps::tick(&batch, voting_dreps, {
@@ -435,6 +435,30 @@ impl Store for RocksDB {
                 dreps::remove(&batch, remove.dreps)?;
                 proposals::remove(&batch, remove.proposals)?;
             }
+        }
+
+        batch
+            .commit()
+            .map_err(|err| StoreError::Internal(err.into()))
+    }
+
+    fn refund(
+        &self,
+        mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
+    ) -> Result<(), StoreError> {
+        let batch = self.db.transaction();
+
+        let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
+            0,
+            |leftovers, (account, deposit)| {
+                Ok(leftovers + accounts::set(&batch, account, |balance| balance + deposit)?)
+            },
+        )?;
+
+        if leftovers > 0 {
+            let mut pots = pots::get(&batch)?;
+            pots.treasury += leftovers;
+            pots::put(&batch, pots)?;
         }
 
         batch

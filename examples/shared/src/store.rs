@@ -1,4 +1,4 @@
-use amaru_kernel::{Epoch, Point, StakeCredential};
+use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
     store::{Snapshot, Store},
     summary::rewards::Pots,
@@ -124,6 +124,13 @@ impl Store for MemoryStore {
 
     fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
         Ok(Point::Origin)
+    }
+
+    fn refund(
+        &self,
+        _refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
     }
 
     fn save(

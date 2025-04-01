@@ -196,9 +196,9 @@ jobs:
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
           # (i.e. Full bootstrap below)
-          key: ${{ runner.OS }}-ledger-cache-v4-${{ steps.timestamp.outputs.value }}
+          key: ${{ runner.OS }}-ledger-cache-v5-${{ steps.timestamp.outputs.value }}
           restore-keys: |
-            ${{ runner.OS }}-ledger-cache-v4
+            ${{ runner.OS }}-ledger-cache-v5
 
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''

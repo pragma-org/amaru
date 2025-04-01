@@ -15,24 +15,55 @@ Usage:
 
 const $ = JsonBig({ useNativeBigInt: true });
 
+const DREP_TYPES = {
+  "noConfidence": "no_confidence",
+  "abstain": "abstain",
+  "registered": "registered",
+};
+
+const { additionalStakeAddresses } = loadConfig();
+const pools = load("pools", epoch + 1);
 const epochState = load("epoch-state", epoch + 1);
 const blocks = load("rewards-provenance", epoch + 1);
 const distr = load("rewards-provenance", epoch + 3);
-const accounts = load("dreps-delegations", epoch);
+const drepsDelegations = load("dreps-delegations", epoch);
 const drepsInfo = load("dreps", epoch);
+const drepsStake = load("dreps", epoch + 1);
 const pots = load("pots", epoch + 3);
-const dreps = Object.keys(accounts)
+const dreps = Object.keys(drepsDelegations)
   .reduce((acc, credential) => {
-    const drep = accounts[credential].delegateRepresentative;
+    const drep = drepsDelegations[credential];
 
-    if (drep === undefined) {
+    const drepId = toDrepId(drep.id, drep.from, drep.type);
+
+    if (drep.type !== "registered") {
+      const isKey = additionalStakeAddresses.includes(toStakeAddress(credential, "verificationKey"));
+      const isScript = additionalStakeAddresses.includes(toStakeAddress(credential, "script"));
+
+      if (isKey && !isScript) {
+        acc.keys[credential] = drepId;
+      }
+
+      if (!isKey && isScript) {
+        acc.scripts[credential] = drepId;
+      }
+
+      if (isKey && isScript) {
+        throw `credential ${credential} is too ambiguious; exists as both key and script!`;
+      }
+
+      if (!isKey && !isScript) {
+        throw `unexpected unknown credential ${credential}`;
+      }
+
       return acc;
     }
 
-    const drepId = toDrepId(drep.id, drep.from);
-
     const info = drepsInfo.find(({ id, from }) => id == drep.id && from == drep.from);
 
+    if (info === undefined) {
+      return acc;
+    }
 
     // TODO: Also add the values of the abstain / no-confidence dreps somewhere?
     if (drep.type === "registered") {
@@ -47,17 +78,31 @@ const dreps = Object.keys(accounts)
     keys: {},
     scripts: {},
     dreps: drepsInfo.reduce((acc, drep) => {
-      // TODO: Also add the values of the abstain / no-confidence dreps somewhere?
+      const drepId = toDrepId(drep.id, drep.from, drep.type);
+
+      const stakeInfo = drepsStake.find((future) => drep.id === future.id && drep.from === future.from);
+
       if (drep.type === "registered") {
-        const drepId = toDrepId(drep.id, drep.from);
         acc[drepId] = {
           mandate: drep.mandate.epoch,
           metadata: drep.metadata ? ({ url: drep.metadata.url, content_hash: drep.metadata.hash }) : null,
+	  stake: stakeInfo?.stake.ada.lovelace ?? 0,
         };
       }
 
       return acc;
-    }, {}),
+    }, {
+      abstain: {
+	mandate: null,
+	metadata: null,
+	stake: drepsStake.find((future) => future.type === "abstain")?.stake.ada.lovelace ?? 0,
+      },
+      no_confidence: {
+	mandate: null,
+	metadata: null,
+	stake: drepsStake.find((future) => future.type === "noConfidence")?.stake.ada.lovelace ?? 0,
+      },
+    }),
   });
 
 // Relative source  of the snapshot test in the target crate.
@@ -65,7 +110,7 @@ const source = "crates/amaru/src/ledger/rewards.rs";
 
 // ---------- Rewards summary snapshot
 
-const pools = Object.keys(epochState.stakePoolParameters).sort();
+const poolsParams = Object.keys(epochState.stakePoolParameters).sort();
 withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
@@ -74,10 +119,25 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("{");
   stream.write(`\n  "epoch": ${epoch},`);
   stream.write(`\n  "active_stake": ${distr.activeStake},`);
-  encodeCollection(stream, "keys", epochState.keys, false);
-  encodeCollection(stream, "scripts", epochState.scripts, false);
+
+  const totalVotingStake = Object.values(dreps.dreps).reduce((total, drep) => total + BigInt(drep.stake), 0n);
+  stream.write(`\n  "voting_stake": ${totalVotingStake},`);
+
+  let accounts = {}
+  Object.keys(epochState.keys)
+    .reduce((accum, key) => {
+      accum[toStakeAddress(key, "verificationKey")] = { ...epochState.keys[key], drep: dreps.keys[key] ?? null };
+      return accum;
+    }, accounts);
+  Object.keys(epochState.scripts)
+    .reduce((accum, script) => {
+      accum[toStakeAddress(script, "script")] = { ...epochState.scripts[script], drep: dreps.scripts[script] ?? null };
+      return accum;
+    }, accounts);
+  encodeCollection(stream, "accounts", accounts, false);
+
   stream.write(`\n  "pools": {\n`)
-  pools.forEach((k, ix) => {
+  poolsParams.forEach((k, ix) => {
     const totalStake = BigInt(distr.totalStake);
     let [num, den] = (distr.pools[k]?.relativeStake || "0/1").split("/");
     den = BigInt(den);
@@ -89,14 +149,19 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
       stake = BigInt(num) * (totalStake / den);
     }
 
+    const voting_stake = pools[k]?.stake.ada.lovelace ?? 0;
+
     const params = {
-      blocksCount: blocks.pools[k]?.blocksMade || 0,
+      blocks_count: blocks.pools[k]?.blocksMade || 0,
       stake,
+      voting_stake,
       parameters: epochState.stakePoolParameters[k],
     };
 
-    encodeItem(stream, ix, pools.length, [k, params]);
+    encodeItem(stream, ix, poolsParams.length, [k, params]);
   });
+  stream.write(",");
+  encodeCollection(stream, "dreps", dreps.dreps, true);
   stream.end("\n}");
 })
 
@@ -120,33 +185,21 @@ withStream(`rewards__rewards_summary_${epoch}.snap`, (stream) => {
     "fees": ${distr["rewardPot"] - distr["ΔR1"]}
   },`);
   stream.write(`\n  "pools": {\n`)
-  pools.forEach((k, ix) => {
+  poolsParams.forEach((k, ix) => {
     const params = {
       pot: distr.pools[k]?.rewardPot || 0n,
       leader: distr.pools[k]?.leaderReward || 0n,
     };
-    encodeItem(stream, ix, pools.length, [k, params]);
+    encodeItem(stream, ix, poolsParams.length, [k, params]);
   });
   stream.end("\n}");
 });
 
-// ---------- DRep snapshots
-
-withStream(`rewards__dreps_${epoch}.snap`, (stream) => {
-  stream.write("---\n")
-  stream.write(`source: ${source}\n`)
-  stream.write(`expression: dreps\n`)
-  stream.write("---\n")
-  stream.write("{")
-  stream.write(`\n  "delegations": {`)
-  encodeCollection(stream, "keys", dreps.keys, false, 4);
-  encodeCollection(stream, "scripts", dreps.scripts, true, 4);
-  stream.write(`\n  },`);
-  encodeCollection(stream, "dreps", dreps.dreps);
-  stream.end("\n}");
-});
-
 // ---------- Helpers
+
+function loadConfig() {
+  return $.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
+}
 
 function load(dataset, epoch) {
   return $.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "data", dataset, `${epoch}.json`)));
@@ -159,12 +212,26 @@ function withStream(filename, callback) {
 }
 
 // As per CIP-0129
-function toDrepId(str, category) {
+function toDrepId(str, category, type) {
+  if (type === "abstain") { return "abstain"; }
+  if (type === "noConfidence") { return "no_confidence"; }
   return bech32.encode(
     "drep",
     bech32.toWords(
       Buffer.concat([
         Buffer.from([category === "verificationKey" ? 34 : 35]),
+        Buffer.from(str, "hex"),
+      ])
+    )
+  );
+}
+
+function toStakeAddress(str, category) {
+  return bech32.encode(
+    "stake_test",
+    bech32.toWords(
+      Buffer.concat([
+        Buffer.from([category === "verificationKey" ? 0xe0 : 0xf0]),
         Buffer.from(str, "hex"),
       ])
     )

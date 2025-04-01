@@ -3,7 +3,7 @@ import * as path from "node:path";
 import { ogmios, Json } from "@cardano-ogmios/mdk";
 
 // Each point corresponds to the last point of the associated epoch.
-const { points } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
+const { points, additionalStakeAddresses } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
 
 function outDir(prefix, point) {
   return path.join(import.meta.dirname, "..", "data", prefix, `${point.epoch}.json`);
@@ -93,7 +93,7 @@ if (!result) {
 }
 
 function fetchPools(ws) {
-  return ws.queryLedgerState("rewardsProvenance");
+  return ws.queryLedgerState("stakePools", { includeStake: true });
 }
 
 function fetchDReps(ws) {
@@ -114,10 +114,18 @@ async function fetchDRepsDelegations(ws) {
     return accum;
   }, { keys: new Set(), scripts: new Set() });
 
-  return ws.queryLedgerState("rewardAccountSummaries", {
-    keys: Array.from(keys),
+  const summaries = await ws.queryLedgerState("rewardAccountSummaries", {
+    keys: Array.from(keys).concat(additionalStakeAddresses),
     scripts: Array.from(scripts),
   });
+
+  return Object.keys(summaries).reduce((accum, k) => {
+    const summary = summaries[k].delegateRepresentative;
+    if (summary !== undefined) {
+      accum[k] = summary;
+    }
+    return accum;
+  }, {});
 }
 
 function fetchPots(ws) {

@@ -16,7 +16,7 @@ use amaru_kernel::{
     network::{EraHistory, NetworkName},
     Anchor, CertificatePointer, DRep, Epoch, GovActionId, Lovelace, Point, PoolId, PoolParams,
     Proposal, ProposalPointer, Set, StakeCredential, TransactionInput, TransactionOutput,
-    TransactionPointer, DREP_EXPIRY, STAKE_CREDENTIAL_DEPOSIT,
+    TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME, STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
     self,
@@ -495,7 +495,11 @@ fn import_proposals(
                         transaction: proposal.id.transaction_id,
                         proposal_index: proposal.id.action_index as usize,
                     },
-                    (proposal.proposed_in, proposal.procedure),
+                    proposals::Value {
+                        proposed_in: proposal.proposed_in,
+                        valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
+                        proposal: proposal.procedure,
+                    },
                 )
             }),
         },
