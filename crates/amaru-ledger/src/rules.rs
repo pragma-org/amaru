@@ -130,7 +130,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules,
         rules::block::{InvalidBlock, InvalidBlockHeader},
-        test::{fake_input, fake_output},
+        tests::{fake_input, fake_output},
     };
     use amaru_kernel::protocol_parameters::ProtocolParameters;
     use std::{collections::BTreeMap, sync::LazyLock};

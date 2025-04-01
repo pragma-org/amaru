@@ -37,13 +37,7 @@ pub mod store;
 pub mod summary;
 
 #[cfg(test)]
-pub(crate) mod test {
-    /// Creates a transaction input from a transaction hash str and an index.
-    ///
-    /// ## Required Imports
-    /// ```
-    /// use amaru_kernel::{Hash, TransactionInput};
-    /// ```
+pub(crate) mod tests {
     use amaru_kernel::{
         Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
     };

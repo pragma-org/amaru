@@ -334,12 +334,11 @@ impl<'de> serde::Deserialize<'de> for AssertValidationContext {
         let mut map: serde_json::Map<String, serde_json::Value> =
             serde::Deserialize::deserialize(deserializer)?;
 
-        let utxo_value = map
-            .remove("utxo_slice")
-            .ok_or_else(|| D::Error::custom("missing field `utxo_slice`"))?;
-
-        let entries: Vec<JsonUtxoEntry> = serde_json::from_value(utxo_value)
-            .map_err(|e| D::Error::custom(format!("Failed to parse utxo_slice: {}", e)))?;
+        let entries: Vec<JsonUtxoEntry> = match map.remove("utxo_slice") {
+            Some(utxo_value) => serde_json::from_value(utxo_value)
+                .map_err(|e| D::Error::custom(format!("Failed to parse utxo_slice: {}", e)))?,
+            None => vec![],
+        };
 
         let mut utxo = BTreeMap::new();
 
@@ -353,36 +352,42 @@ impl<'de> serde::Deserialize<'de> for AssertValidationContext {
             );
         }
 
-        let required_signers_value = map
-            .remove("required_signers")
-            .ok_or_else(|| D::Error::custom("missing field `required_signers`"))?;
+        let required_signers = match map.remove("required_signers") {
+            Some(required_signers_value) => {
+                serde_json::from_value::<Vec<String>>(required_signers_value)
+                    .map_err(|e| {
+                        D::Error::custom(format!("Failed to parse required_signers: {}", e))
+                    })?
+                    .into_iter()
+                    .map(|hex| {
+                        hex::decode(hex)
+                            .map_err(|e| D::Error::custom(format!("Invalid hex string: {}", e)))
+                            .map(|hex| Hash::from(hex.as_slice()))
+                    })
+                    .collect::<Result<BTreeSet<Hash<28>>, D::Error>>()?
+            }
+            None => BTreeSet::new(),
+        };
 
-        let required_signers = serde_json::from_value::<Vec<String>>(required_signers_value)
-            .map_err(|e| D::Error::custom(format!("Failed to parse required_signers: {}", e)))?
-            .into_iter()
-            .map(|hex| {
-                hex::decode(hex)
-                    .map_err(|e| D::Error::custom(format!("Invalid hex string: {}", e)))
-                    .map(|hex| Hash::from(hex.as_slice()))
-            })
-            .collect::<Result<BTreeSet<Hash<28>>, D::Error>>()?;
-
-        let required_bootstrap_signers_value = map
-            .remove("required_bootstrap_signers")
-            .ok_or_else(|| D::Error::custom("missing field `required_bootstrap_signers`"))?;
-
-        let required_bootstrap_signers =
-            serde_json::from_value::<Vec<String>>(required_bootstrap_signers_value)
-                .map_err(|e| {
-                    D::Error::custom(format!("Failed to parse required_bootstrap_signers: {}", e))
-                })?
-                .into_iter()
-                .map(|hex| {
-                    hex::decode(hex)
-                        .map_err(|e| D::Error::custom(format!("Invalid hex string: {}", e)))
-                        .map(|hex| Hash::from(hex.as_slice()))
-                })
-                .collect::<Result<BTreeSet<Hash<28>>, D::Error>>()?;
+        let required_bootstrap_signers = match map.remove("required_bootstrap_signers") {
+            Some(required_bootstrap_signers_value) => {
+                serde_json::from_value::<Vec<String>>(required_bootstrap_signers_value)
+                    .map_err(|e| {
+                        D::Error::custom(format!(
+                            "Failed to parse required_bootstrap_signers: {}",
+                            e
+                        ))
+                    })?
+                    .into_iter()
+                    .map(|hex| {
+                        hex::decode(hex)
+                            .map_err(|e| D::Error::custom(format!("Invalid hex string: {}", e)))
+                            .map(|hex| Hash::from(hex.as_slice()))
+                    })
+                    .collect::<Result<BTreeSet<Hash<28>>, D::Error>>()?
+            }
+            None => BTreeSet::new(),
+        };
 
         Ok(AssertValidationContext {
             utxo,
