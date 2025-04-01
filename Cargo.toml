@@ -46,7 +46,7 @@ serde_json = { version = "1.0.128", default-features = false }
 sha3 = "0.10.8"
 sysinfo = "0.33.1"
 thiserror = "2.0.3"
-tokio = "1.40.0"
+tokio = { version = "1.40.0", features = ["sync"] }
 tokio-util = "0.7.12"
 tokio-stream = "0.1.17"
 tracing = "0.1.40"

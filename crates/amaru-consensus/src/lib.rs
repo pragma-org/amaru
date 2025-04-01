@@ -25,9 +25,6 @@ pub mod consensus;
 
 pub mod peer;
 
-/// Chain forward stage
-pub mod chain_forward;
-
 pub type RawHeader = Vec<u8>;
 
 #[derive(Error, Debug)]

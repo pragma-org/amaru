@@ -1,9 +1,5 @@
-use amaru::sync;
-use amaru_consensus::{
-    consensus::store::ChainStore,
-    peer::{Peer, PeerSession},
-    IsHeader,
-};
+use amaru::stages::{pull, PeerSession};
+use amaru_consensus::{consensus::store::ChainStore, peer::Peer, IsHeader};
 use amaru_kernel::{from_cbor, network::NetworkName, Header, Point};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
@@ -84,7 +80,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         peer_client,
     };
 
-    let mut pull = sync::pull::Stage::new(peer_session.clone(), vec![args.starting_point.clone()]);
+    let mut pull = pull::Stage::new(peer_session.clone(), vec![args.starting_point.clone()]);
 
     pull.find_intersection().await?;
 

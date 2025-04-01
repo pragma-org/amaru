@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,16 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// A single peer in the network, with a unique identifier.
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
-pub struct Peer {
-    pub name: String,
-}
-
-impl Peer {
-    pub fn new(name: &str) -> Peer {
-        Peer {
-            name: name.to_string(),
-        }
-    }
-}
+pub mod chain_forward;
+pub mod fetch;
+pub mod header;

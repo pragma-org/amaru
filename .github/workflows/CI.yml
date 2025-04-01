@@ -49,7 +49,7 @@ jobs:
             command: test --profile dev-debug
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
-            packages: -p amaru-ledger -p amaru-ouroboros -p slot-arithmetic
+            packages: -p amaru-consensus -p amaru-ledger -p amaru-ouroboros -p slot-arithmetic
             command: build
             setup: rustup target add wasm32-unknown-unknown
           - runner: ubuntu-latest

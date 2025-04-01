@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{peer::Peer, ConsensusError, Point};
+use amaru_consensus::{
+    consensus::{header_validation::Consensus, ValidateHeaderEvent},
+    peer::Peer,
+    ConsensusError,
+};
+use amaru_kernel::Point;
 use gasket::framework::*;
 use tracing::{instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-use super::{fetch::ValidateHeaderEvent, header_validation::Consensus};
 
 #[derive(Clone, Debug)]
 pub enum PullEvent {

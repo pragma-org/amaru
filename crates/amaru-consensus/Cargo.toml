@@ -13,20 +13,15 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-async-trait.workspace = true
-gasket = { workspace = true, features = [ "derive" ] }
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
-pallas-network.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
-tracing-opentelemetry.workspace = true
 
 amaru-kernel.workspace = true
-amaru-ledger.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 slot-arithmetic.workspace = true

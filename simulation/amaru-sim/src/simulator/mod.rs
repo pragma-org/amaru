@@ -15,12 +15,12 @@
 use std::{path::PathBuf, sync::Arc};
 
 use super::echo::Envelope;
-use amaru_consensus::consensus::fetch::ValidateHeaderEvent;
-use amaru_consensus::consensus::wiring::PullEvent;
+use amaru::stages::consensus::header::PullEvent;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     header_validation::Consensus,
     store::ChainStore,
+    ValidateHeaderEvent,
 };
 use amaru_consensus::peer::Peer;
 use amaru_kernel::network::NetworkName;

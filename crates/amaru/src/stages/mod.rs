@@ -13,15 +13,12 @@
 // limitations under the License.
 
 use amaru_consensus::{
-    chain_forward,
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
-        fetch::BlockFetchStage,
         header_validation::Consensus,
         store::ChainStore,
-        wiring::{HeaderStage, PullEvent},
     },
-    peer::{Peer, PeerSession},
+    peer::Peer,
     ConsensusError,
 };
 use amaru_kernel::{
@@ -29,6 +26,11 @@ use amaru_kernel::{
     Hash, Header, Point,
 };
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
+use consensus::{
+    chain_forward::ForwardStage,
+    fetch::BlockFetchStage,
+    header::{HeaderStage, PullEvent},
+};
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,
@@ -37,8 +39,8 @@ use pallas_network::facades::PeerClient;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
-use crate::pipeline::Stage;
-
+pub mod consensus;
+pub mod ledger;
 pub mod pull;
 
 pub type Slot = u64;
@@ -51,6 +53,19 @@ pub struct Config {
     pub network: NetworkName,
 }
 
+/// A session with a peer, including the peer itself and a client to communicate with it.
+#[derive(Clone)]
+pub struct PeerSession {
+    pub peer: Peer,
+    pub peer_client: Arc<Mutex<PeerClient>>,
+}
+
+impl PeerSession {
+    pub async fn lock(&mut self) -> tokio::sync::MutexGuard<'_, PeerClient> {
+        self.peer_client.lock().await
+    }
+}
+
 pub fn bootstrap(
     config: Config,
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
@@ -58,7 +73,7 @@ pub fn bootstrap(
     // FIXME: Take from config / command args
     let era_history: &EraHistory = config.network.into();
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
-    let (mut ledger, tip) = Stage::new(store, era_history);
+    let (mut ledger, tip) = ledger::Stage::new(store, era_history);
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -84,7 +99,7 @@ pub fn bootstrap(
     );
 
     let mut consensus_stage = HeaderStage::new(consensus);
-    let mut block_forward = chain_forward::ForwardStage::new(chain_ref.clone());
+    let mut block_forward = ForwardStage::new(chain_ref.clone());
 
     let (to_block_fetch, from_consensus_stage) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
