@@ -447,9 +447,20 @@ impl Store for RocksDB {
         mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
     ) -> Result<(), StoreError> {
         let batch = self.db.transaction();
-        refunds.try_for_each(|(account, deposit)| {
-            accounts::set(&batch, account, |balance| balance + deposit)
-        })?;
+
+        let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
+            0,
+            |leftovers, (account, deposit)| {
+                Ok(leftovers + accounts::set(&batch, account, |balance| balance + deposit)?)
+            },
+        )?;
+
+        if leftovers > 0 {
+            let mut pots = pots::get(&batch)?;
+            pots.treasury += leftovers;
+            pots::put(&batch, pots)?;
+        }
+
         batch
             .commit()
             .map_err(|err| StoreError::Internal(err.into()))
