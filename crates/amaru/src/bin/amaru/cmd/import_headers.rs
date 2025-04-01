@@ -1,9 +1,5 @@
 use amaru::stages::{pull, PeerSession};
-use amaru_consensus::{
-    consensus::store::ChainStore,
-    peer::Peer,
-    IsHeader,
-};
+use amaru_consensus::{consensus::store::ChainStore, peer::Peer, IsHeader};
 use amaru_kernel::{from_cbor, network::NetworkName, Header, Point};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
