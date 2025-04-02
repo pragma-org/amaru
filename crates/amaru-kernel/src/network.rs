@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
+pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -30,155 +30,158 @@ pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
 ///  -d '{"jsonrpc":"2.0","method":"queryLedgerState/eraSummaries"}' | jq -c '.result'
 /// ```
 ///
-const PREPROD_ERAS: [Summary; 7] = [
-    Summary {
-        start: Bound {
-            time_ms: 0,
-            slot: 0,
-            epoch: 0,
+static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
+    let preprod_eras: [Summary; 7] = [
+        Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: From::from(0),
+                epoch: 0,
+            },
+            end: Bound {
+                time_ms: 1728000000,
+                slot: From::from(86400),
+                epoch: 4,
+            },
+            params: EraParams {
+                epoch_size_slots: 21600,
+                slot_length: 20000,
+            },
         },
-        end: Bound {
-            time_ms: 1728000000,
-            slot: 86400,
-            epoch: 4,
+        Summary {
+            start: Bound {
+                time_ms: 1728000000,
+                slot: From::from(86400),
+                epoch: 4,
+            },
+            end: Bound {
+                time_ms: 2160000000,
+                slot: From::from(518400),
+                epoch: 5,
+            },
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
         },
-        params: EraParams {
-            epoch_size_slots: 21600,
-            slot_length: 20000,
-        },
-    },
-    Summary {
-        start: Bound {
-            time_ms: 1728000000,
-            slot: 86400,
-            epoch: 4,
-        },
-        end: Bound {
-            time_ms: 2160000000,
-            slot: 518400,
-            epoch: 5,
-        },
-        params: EraParams {
-            epoch_size_slots: 432000,
-            slot_length: 1000,
-        },
-    },
-    Summary {
-        start: Bound {
-            time_ms: 2160000000,
-            slot: 518400,
-            epoch: 5,
-        },
-        end: Bound {
-            time_ms: 2592000000,
-            slot: 950400,
-            epoch: 6,
-        },
+        Summary {
+            start: Bound {
+                time_ms: 2160000000,
+                slot: From::from(518400),
+                epoch: 5,
+            },
+            end: Bound {
+                time_ms: 2592000000,
+                slot: From::from(950400),
+                epoch: 6,
+            },
 
-        params: EraParams {
-            epoch_size_slots: 432000,
-            slot_length: 1000,
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
         },
-    },
-    Summary {
-        start: Bound {
-            time_ms: 2592000000,
-            slot: 950400,
-            epoch: 6,
-        },
-        end: Bound {
-            time_ms: 3024000000,
-            slot: 1382400,
-            epoch: 7,
-        },
+        Summary {
+            start: Bound {
+                time_ms: 2592000000,
+                slot: From::from(950400),
+                epoch: 6,
+            },
+            end: Bound {
+                time_ms: 3024000000,
+                slot: From::from(1382400),
+                epoch: 7,
+            },
 
-        params: EraParams {
-            epoch_size_slots: 432000,
-            slot_length: 1000,
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
         },
-    },
-    Summary {
-        start: Bound {
-            time_ms: 3024000000,
-            slot: 1382400,
-            epoch: 7,
-        },
-        end: Bound {
-            time_ms: 5184000000,
-            slot: 3542400,
-            epoch: 12,
-        },
+        Summary {
+            start: Bound {
+                time_ms: 3024000000,
+                slot: From::from(1382400),
+                epoch: 7,
+            },
+            end: Bound {
+                time_ms: 5184000000,
+                slot: From::from(3542400),
+                epoch: 12,
+            },
 
-        params: EraParams {
-            epoch_size_slots: 432000,
-            slot_length: 1000,
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
         },
-    },
-    Summary {
-        start: Bound {
-            time_ms: 5184000000,
-            slot: 3542400,
-            epoch: 12,
-        },
-        end: Bound {
-            time_ms: 70416000000,
-            slot: 68774400,
-            epoch: 163,
-        },
+        Summary {
+            start: Bound {
+                time_ms: 5184000000,
+                slot: From::from(3542400),
+                epoch: 12,
+            },
+            end: Bound {
+                time_ms: 70416000000,
+                slot: From::from(68774400),
+                epoch: 163,
+            },
 
-        params: EraParams {
-            epoch_size_slots: 432000,
-            slot_length: 1000,
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
         },
-    },
-    Summary {
-        start: Bound {
-            time_ms: 70416000000,
-            slot: 68774400,
-            epoch: 163,
-        },
-        end: Bound {
-            time_ms: 89424000000,
-            slot: 87782400,
-            epoch: 207,
-        },
+        Summary {
+            start: Bound {
+                time_ms: 70416000000,
+                slot: From::from(68774400),
+                epoch: 163,
+            },
+            end: Bound {
+                time_ms: 89424000000,
+                slot: From::from(87782400),
+                epoch: 207,
+            },
 
-        params: EraParams {
-            epoch_size_slots: 432000,
-            slot_length: 1000,
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
         },
-    },
-];
+    ];
 
-static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| EraHistory {
-    eras: PREPROD_ERAS.to_vec(),
+    EraHistory {
+        eras: preprod_eras.to_vec(),
+    }
 });
-
-/// A tesnet with a single era spanning 1000 epochs
-const DEFAULT_TESTNET_ERAS: [Summary; 1] = [Summary {
-    start: Bound {
-        time_ms: 0,
-        slot: 0,
-        epoch: 0,
-    },
-    end: Bound {
-        time_ms: 432000000000,
-        slot: 432000000,
-        epoch: 1000,
-    },
-
-    params: EraParams {
-        epoch_size_slots: 432000,
-        slot_length: 1000,
-    },
-}];
 
 /// A default era history for testnets
 ///
 /// This default `EraHistory` contains a single era which covers 1000 epochs,
 /// with a slot length of 1 second and epoch size of 432000 slots.
-static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| EraHistory {
-    eras: DEFAULT_TESTNET_ERAS.to_vec(),
+static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
+    let default_testnet_eras: [Summary; 1] = [Summary {
+        start: Bound {
+            time_ms: 0,
+            slot: From::from(0),
+            epoch: 0,
+        },
+        end: Bound {
+            time_ms: 432000000000,
+            slot: From::from(432000000),
+            epoch: 1000,
+        },
+
+        params: EraParams {
+            epoch_size_slots: 432000,
+            slot_length: 1000,
+        },
+    }];
+
+    EraHistory {
+        eras: default_testnet_eras.to_vec(),
+    }
 });
 
 #[allow(clippy::todo)]
@@ -317,17 +320,23 @@ mod tests {
     #[test]
     fn can_compute_slot_to_epoch_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
-        assert_eq!(4, era_history.slot_to_epoch(86400).unwrap());
-        assert_eq!(11, era_history.slot_to_epoch(3542399).unwrap());
-        assert_eq!(12, era_history.slot_to_epoch(3542400).unwrap());
+        assert_eq!(4, era_history.slot_to_epoch(From::from(86400)).unwrap());
+        assert_eq!(11, era_history.slot_to_epoch(From::from(3542399)).unwrap());
+        assert_eq!(12, era_history.slot_to_epoch(From::from(3542400)).unwrap());
     }
 
     #[test]
     fn can_compute_next_epoch_first_slot_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
-        assert_eq!(era_history.next_epoch_first_slot(3), Ok(86400));
-        assert_eq!(era_history.next_epoch_first_slot(114), Ok(48038400));
-        assert_eq!(era_history.next_epoch_first_slot(150), Ok(63590400));
+        assert_eq!(era_history.next_epoch_first_slot(3), Ok(From::from(86400)));
+        assert_eq!(
+            era_history.next_epoch_first_slot(114),
+            Ok(From::from(48038400))
+        );
+        assert_eq!(
+            era_history.next_epoch_first_slot(150),
+            Ok(From::from(63590400))
+        );
     }
 
     #[test]

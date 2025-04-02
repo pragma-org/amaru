@@ -174,7 +174,10 @@ fn decode_new_epoch_state(
 
     // EpochNo
     let epoch = d.u64()?;
-    assert_eq!(epoch, era_history.slot_to_epoch(point.slot_or_default())?);
+    assert_eq!(
+        epoch,
+        era_history.slot_to_epoch(From::from(point.slot_or_default()))?
+    );
     info!(epoch, "importing_snapshot");
 
     // Previous blocks made

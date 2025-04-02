@@ -52,10 +52,11 @@ pub fn randomness_stability_window<H: IsHeader>(
     era_history: &EraHistory,
 ) -> Result<(Epoch, bool), TimeHorizonError> {
     let slot = header.slot();
-    let epoch = era_history.slot_to_epoch(slot)?;
+    let epoch = era_history.slot_to_epoch(From::from(slot))?;
     let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch)?;
 
-    let is_within_stability_window = slot + RANDOMNESS_STABILIZATION_WINDOW < next_epoch_first_slot;
+    let is_within_stability_window =
+        slot + RANDOMNESS_STABILIZATION_WINDOW < From::from(next_epoch_first_slot);
 
     Ok((epoch, is_within_stability_window))
 }

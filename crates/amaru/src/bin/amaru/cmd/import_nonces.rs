@@ -70,7 +70,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
         epoch: {
             let slot = args.at.slot_or_default();
             // FIXME: currently hardwired to preprod network
-            era_history.slot_to_epoch(slot)?
+            era_history.slot_to_epoch(From::from(slot))?
         },
         active: args.active,
         evolving: args.evolving,
