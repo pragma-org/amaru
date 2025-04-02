@@ -438,45 +438,21 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         &self,
         mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
     ) -> Result<(), StoreError> {
-        let batch = self.db.transaction();
-
         let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
             0,
             |leftovers, (account, deposit)| {
-                Ok(leftovers + accounts::set(&batch, account, |balance| balance + deposit)?)
+                Ok(leftovers
+                    + accounts::set(&self.transaction, account, |balance| balance + deposit)?)
             },
         )?;
 
         if leftovers > 0 {
-            let mut pots = pots::get(&batch)?;
+            let mut pots = pots::get(&self.transaction)?;
             pots.treasury += leftovers;
-            pots::put(&batch, pots)?;
+            pots::put(&self.transaction, pots)?;
         }
+
         Ok(())
-    }
-
-    fn refund(
-        &self,
-        mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
-    ) -> Result<(), StoreError> {
-        let batch = self.db.transaction();
-
-        let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
-            0,
-            |leftovers, (account, deposit)| {
-                Ok(leftovers + accounts::set(&batch, account, |balance| balance + deposit)?)
-            },
-        )?;
-
-        if leftovers > 0 {
-            let mut pots = pots::get(&batch)?;
-            pots.treasury += leftovers;
-            pots::put(&batch, pots)?;
-        }
-
-        batch
-            .commit()
-            .map_err(|err| StoreError::Internal(err.into()))
     }
 
     fn set_pots(

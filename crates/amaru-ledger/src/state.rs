@@ -201,13 +201,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // we must snapshot the one _just before_.
         let db = self.stable.lock().unwrap();
 
-        let transaction = db.create_transaction();
+        let mut transaction = db.create_transaction();
         if current_epoch > db.epoch() + 1 {
             // TODO check that doesn't exist
 
             if let Some(mut rewards_summary) = self.rewards_summary.take() {
-                let transaction = db.create_transaction();
-                transaction
+                let transaction2 = db.create_transaction();
+                transaction2
                     .with_accounts(|iterator| {
                         for (account, mut row) in iterator {
                             if let Some(rewards) = rewards_summary.extract_rewards(&account) {
@@ -221,7 +221,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     })
                     .map_err(StateError::Storage)?;
 
-                transaction
+                transaction2
                     .with_pots(|mut row| {
                         let pots = row.borrow_mut();
                         pots.treasury +=
@@ -230,32 +230,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     })
                     .map_err(StateError::Storage)?;
 
-                transaction.commit().map_err(StateError::Storage)?;
+                transaction2.commit().map_err(StateError::Storage)?;
             }
 
             db.next_snapshot(current_epoch - 1)
                 .map_err(StateError::Storage)?;
 
-            transaction
-                .with_block_issuers(|iterator| {
-                    for (_, mut row) in iterator {
-                        *row.borrow_mut() = None;
-                    }
-                })
-                .map_err(StateError::Storage)?;
-
-            transaction
-                .with_pots(|mut row| {
-                    row.borrow_mut().fees = 0;
-                })
-                .map_err(StateError::Storage)?;
-
-            // Then we, can tick pools to compute their new state at the epoch boundary. Notice
-            // how we tick with the _current epoch_ however, but we take the snapshot before
-            // the tick since the actions are only effective once the epoch is crossed.
-            transaction
-                .tick_pools(current_epoch)
-                .map_err(StateError::Storage)?;
+            epoch_transition(&mut transaction, current_epoch)?;
         }
 
         let StoreUpdate {
@@ -406,31 +387,40 @@ fn recover_stake_distribution(
 
 #[instrument(level = Level::TRACE, skip_all)]
 fn epoch_transition<'store>(
-    db: &'store mut impl Store,
+    transaction: &mut impl TransactionalContext<'store>,
     current_epoch: Epoch,
-    rewards_summary: Option<RewardsSummary>,
 ) -> Result<(), StateError> {
-    // FIXME: All operations below should technically happen in the same database
-    // transaction. If we interrupt the application between any of those, we might end
-    // up with a corrupted state.
-    let mut transaction = db.create_transaction();
+
     transaction
-        .next_snapshot(current_epoch - 1, rewards_summary)
+        .with_block_issuers(|iterator| {
+            for (_, mut row) in iterator {
+                *row.borrow_mut() = None;
+            }
+        })
         .map_err(StateError::Storage)?;
-    transaction.commit().map_err(StateError::Storage)?;
+
+    transaction
+        .with_pots(|mut row| {
+            row.borrow_mut().fees = 0;
+        })
+        .map_err(StateError::Storage)?;
+
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
-    let transaction = db.create_transaction();
     transaction
         .tick_pools(current_epoch)
         .map_err(StateError::Storage)?;
 
-    transaction.commit().map_err(StateError::Storage)?;
-
     // Refund deposit for any proposal that has expired.
-    db.tick_proposals(current_epoch)
-        .map_err(StateError::Storage)
+    transaction
+        .tick_proposals(current_epoch)
+        .map_err(StateError::Storage)?;
+
+    // Then we, can tick pools to compute their new state at the epoch boundary. Notice
+    // how we tick with the _current epoch_ however, but we take the snapshot before
+    // the tick since the actions are only effective once the epoch is crossed.
+    Ok(())
 }
 
 // HasStakeDistribution
