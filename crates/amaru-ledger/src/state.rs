@@ -390,7 +390,6 @@ fn epoch_transition<'store>(
     transaction: &mut impl TransactionalContext<'store>,
     current_epoch: Epoch,
 ) -> Result<(), StateError> {
-
     transaction
         .with_block_issuers(|iterator| {
             for (_, mut row) in iterator {

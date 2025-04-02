@@ -418,7 +418,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 dreps::add(&self.transaction, add.dreps)?;
                 dreps::tick(&self.transaction, voting_dreps, {
                     let slot = point.slot_or_default();
-                    self.era_history
+                    self.db
+                        .era_history
                         .slot_to_epoch(slot)
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
