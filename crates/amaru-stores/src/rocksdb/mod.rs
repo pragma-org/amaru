@@ -14,7 +14,7 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    network::{EraHistory, NetworkName, Slot},
+    network::{EraHistory, NetworkName},
     Epoch, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
@@ -423,7 +423,7 @@ impl Store for RocksDB {
                 dreps::tick(&batch, voting_dreps, {
                     let slot = point.slot_or_default();
                     self.era_history
-                        .slot_to_epoch(Slot::new(slot))
+                        .slot_to_epoch(From::from(slot))
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
                 proposals::add(&batch, add.proposals)?;

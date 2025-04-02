@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::{EraHistory, NetworkName, Slot},
+    network::{EraHistory, NetworkName},
     Anchor, CertificatePointer, DRep, Epoch, GovActionId, Lovelace, Point, PoolId, PoolParams,
     Proposal, ProposalPointer, Set, StakeCredential, TransactionInput, TransactionOutput,
     TransactionPointer, DREP_EXPIRY, STAKE_CREDENTIAL_DEPOSIT,
@@ -176,7 +176,7 @@ fn decode_new_epoch_state(
     let epoch = d.u64()?;
     assert_eq!(
         epoch,
-        era_history.slot_to_epoch(Slot::new(point.slot_or_default()))?
+        era_history.slot_to_epoch(From::from(point.slot_or_default()))?
     );
     info!(epoch, "importing_snapshot");
 
