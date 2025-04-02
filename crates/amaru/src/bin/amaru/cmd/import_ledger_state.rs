@@ -21,7 +21,7 @@ use amaru_kernel::{
 use amaru_ledger::{
     self,
     state::diff_bind::Resettable,
-    store::{self, Store, TransactionalContext},
+    store::{self, columns::proposals, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
