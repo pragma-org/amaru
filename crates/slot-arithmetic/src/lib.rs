@@ -26,10 +26,6 @@ pub enum SlotArithmeticError {
 }
 
 impl Slot {
-    pub const fn new(slot: u64) -> Self {
-        Slot(slot)
-    }
-
     fn elapsed_from(&self, slot: Slot) -> Result<u64, SlotArithmeticError> {
         if self.0 < slot.0 {
             return Err(SlotArithmeticError::Underflow(self.0, slot.0));
