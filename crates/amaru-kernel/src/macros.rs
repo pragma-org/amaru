@@ -58,6 +58,6 @@ macro_rules! hash {
                 panic!("invalid hash literal length");
             }
         };
-        amaru_kernel::Hash::from(hex::decode($str).unwrap().as_slice())
+        $crate::Hash::from(hex::decode($str).unwrap().as_slice())
     }};
 }

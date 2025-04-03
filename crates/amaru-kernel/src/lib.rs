@@ -672,6 +672,7 @@ pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
 #[cfg(test)]
 mod test {
     use super::*;
+    use test_case::test_case;
 
     #[test]
     fn test_equal_pointers() {
@@ -751,39 +752,36 @@ mod test {
         assert!(pointer < pointer_after);
     }
 
-    #[test]
-    fn to_root_key_hash() {
-        // The following are bootstrap witnesses and their expected roots (decoded the byron address).
-        // The hash in the comment above it is the preprod transaction they are pulled from
-        let cases: Vec<(BootstrapWitness, Vec<u8>)> = vec![
-            (
-                // 49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a
-                cbor::decode(hex::decode("845820D59EC5ED32F67079F20D0E0D4146D7F19DB515836ADEB3956A739B62FF9D489F5840E232BC6ACF5AF5CEE10AF8224D5B0B18990239589B00885309EFABE5AF47FF659FE5BAE54991F7BA6FEA0C32A445BBF52AAF47B6387E849E51EE150468855D085820B3DB22D54DF4D54B96CB2CF7C731D643559CD7DDF351943DE2E417AEF2069D815825A201581E581C66E1B3A99EB32C018EE2FFB3DE7A95F38CBB131E29701348138511E0024101").expect("failed to decode bootstrap witness").as_slice()).expect("failed to decode bootstrap witness cbor"),
-                hex::decode("65B1FE57F0ED455254AACF1486C448D7F34038C4C445FA905DE33D8E").expect("Failed to decode root")
-            ),
-            (
-                // f93b6be2a0b021c592213184c255d08020a6e9d61701fb42ab2eda65c7025334
-                cbor::decode(hex::decode("845820B546350F727EA033B3A71F7F3D1F490381E6C08AE42654CCD4C5C928D5E136815840DC8D717FC5EE4530E8A688865502C912FDDD630D8A53CED563EC8C70C6AD0B1B9639774BC71784176B87062CC3E6C3AE2A55F5EE4157A5606251C555C8951D025820E621E9CC4FCD59E3321452113DF5EEC8C42214D13CBCD2E886674F0D7B30ECF85825A201581E581C22C0BE3476E5BCC19C53A28B944B1DE988C4A9098428A1F9CBAED86E024101").expect("failed to decode bootstrap witness").as_slice()).expect("failed to decode bootstrap witness cbor"),    hex::decode("323EA3DD5B510B1BD5380B413477179DF9A6DE89027FD817207F32C6").expect("Failed to decode root")
-            ),
-            (
-                // 22e306257262c338dd442936e4dfa84b65b852c60f22bf1224c9a322d13a953e
-                cbor::decode(hex::decode("845820A092633EC3F70B65F7BE2B52134643115E8E848491D1EB074F858FAD9178BE3C584087A5285E3FCBF2B2F118FB6507E83215E8FB4F986071C69232FF9FAD1CAEE7AE30023FC7C42A8AEE87C86DBF33762DF9AAB074014D11323572B9BBF5C744BA0658202B6DD4B0A30410E370E22D6B50A92B30085C3CD920468E660D5977E5008829A844A1024101").expect("failed to decode bootstrap witness").as_slice()).expect("failed to decode bootstrap witness cbor"),
-                hex::decode("232B6238656C07529E08B152F669507E58E2CB7491D0B586D9DBE425").expect("Failed to decode root")
-            ),
-            (
-                // c4b115df82f104e71c173b4f73fd4efc03d87f4e81d6e8b0f2bb67b3ddc90235
-                cbor::decode(hex::decode("845820A6B764333F98CD288DA07626EBCF9D6C6D44C7BE73804030AE704821224D9E515840D0877153B391900CFB82FAEF05194F47D8793610EEDDA6B61C2DA451860E43329B159D4518FE93C9024829F4633C11CED09018258DA8CCC16AD33F9257AC3C0858205755653623B74D85A70B61A3F6B5F8D04701FCF80DBE3C4FADE7B6B554C8754B5825A201581E581C22C0BE3476E5BCE310D2B28B5D21DB7A536889A23C4D3E21F5B35016024101").expect("failed to decode bootstrap witness").as_slice()).expect("failed to decode bootstrap witness cbor"),
-                hex::decode("A5A8B29A838CE9525CE6C329C99DC89A31A7D8AE36A844EEF55D7EB9").expect("Failed to decode root")
-            ),
-            (
-                // 17d3497083063ef23d25280a64657a0efa0b53cc369cc5ef430941f5cc91c94e
-                cbor::decode(hex::decode("8458202B13CBA22AAD6A2B775FDA17F85E7BC74A5CEDB21DDE1D2BE14EC23BE2C9B3C2584006883DEDFFF9C6AF6B4422A81D4D6904C8372E4571D8610007473653722CC07841D5FFA7E427818DD6B9323DE629CF452C5EA08FEA90B2E33E577E26AD8BEF0F58209422C0D6AA61D186C40A0D562911311578463F91C26FA56F3FECD8BBEC0E3A1544A1024101").expect("failed to decode bootstrap witness").as_slice()).expect("failed to decode bootstrap witness cbor"),
-                hex::decode("59F44FD32EE319BCEA9A51E7B84D7C4CB86F7B9B12F337F6CA9E9C85").expect("Failed to decode root")
-            ),
-        ];
+    static BOOTSTRAP_WITNESSES: LazyLock<[(BootstrapWitness, Hash<28>); 5]> = LazyLock::new(|| {
+        macro_rules! import_bootstrap_witness {
+            ($hash:literal) => {
+                (
+                    from_cbor(include_bytes!(concat!(
+                        "../tests/data/bootstrap_witnesses/",
+                        $hash,
+                        ".cbor"
+                    )))
+                    .unwrap(),
+                    hash!($hash),
+                )
+            };
+        }
 
-        cases.into_iter().for_each(|(witness, expected_root)| {
-            assert_eq!(to_root(&witness).to_vec(), expected_root)
-        });
+        [
+            import_bootstrap_witness!("232b6238656c07529e08b152f669507e58e2cb7491d0b586d9dbe425"),
+            import_bootstrap_witness!("323ea3dd5b510b1bd5380b413477179df9a6de89027fd817207f32c6"),
+            import_bootstrap_witness!("59f44fd32ee319bcea9a51e7b84d7c4cb86f7b9b12f337f6ca9e9c85"),
+            import_bootstrap_witness!("65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8e"),
+            import_bootstrap_witness!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"),
+        ]
+    });
+
+    #[test_case(&BOOTSTRAP_WITNESSES[0])]
+    #[test_case(&BOOTSTRAP_WITNESSES[1])]
+    #[test_case(&BOOTSTRAP_WITNESSES[2])]
+    #[test_case(&BOOTSTRAP_WITNESSES[3])]
+    #[test_case(&BOOTSTRAP_WITNESSES[4])]
+    fn to_root_key_hash((bootstrap_witness, root): &(BootstrapWitness, Hash<28>)) {
+        assert_eq!(to_root(bootstrap_witness).as_slice(), root.as_slice())
     }
 }

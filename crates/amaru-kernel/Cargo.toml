@@ -30,3 +30,4 @@ slot-arithmetic.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, default-features = true }
+test-case.workspace = true
