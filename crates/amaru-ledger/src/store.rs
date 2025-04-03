@@ -62,6 +62,7 @@ pub enum StoreError {
 // ----------------------------------------------------------------------------
 
 pub trait Snapshot {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
     fn epoch(&self) -> Epoch;
@@ -101,6 +102,25 @@ pub trait Snapshot {
 }
 
 pub trait TransactionalContext<'a> {
+    /*#[instrument(
+        level = Level::TRACE,
+        name = "snapshot.applying_rewards",
+        skip_all,
+    )]
+    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
+        self.with_accounts(|iterator| {
+            for (account, mut row) in iterator {
+                if let Some(rewards) = rewards_summary.extract_rewards(&account) {
+                    if rewards > 0 {
+                        if let Some(account) = row.borrow_mut() {
+                            account.rewards += rewards;
+                        }
+                    }
+                }
+            }
+        })
+    }*/
+
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
     fn save(

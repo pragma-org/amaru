@@ -179,6 +179,9 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 }
 
 impl Snapshot for RocksDB {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        RocksDB::snapshots(&self.dir)
+    }
     #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         RocksDB::snapshots(&self.dir)
@@ -286,7 +289,7 @@ impl RocksDBTransactionalContext<'_> {
         name = "snapshot.applying_rewards",
         skip_all,
     )]
-    fn apply_rewards<'db>(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
+    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
         self.with_accounts(|iterator| {
             for (account, mut row) in iterator {
                 if let Some(rewards) = rewards_summary.extract_rewards(&account) {
@@ -604,6 +607,9 @@ pub struct RocksDBSnapshot {
 }
 
 impl Snapshot for RocksDBSnapshot {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![])
+    }
     #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         self.epoch
