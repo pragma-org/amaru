@@ -1,13 +1,13 @@
 {
-  "utxo_slice": [
-    {
-      "input": {
+  "utxo": [
+    [
+      {
         "transaction_id": "f28e29a115155f1c5557a6568baa34423f3e0d37e979040db0586f79a5b0e14f",
         "index": 13
       },
-      "output": {
+      {
         "address": "0092529f01b85021f5c9b53b5ec907b6d1cfe539ebc78ae41acf41f7c7eb54ea5e1faa92afe966f769d1f6b4d11d68450ca5d1f00e93aec38e"
       }
-    }
+    ]
   ]
 }

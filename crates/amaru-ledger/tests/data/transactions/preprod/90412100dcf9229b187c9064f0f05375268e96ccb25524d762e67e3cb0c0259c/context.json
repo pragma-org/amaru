@@ -1,5 +1,5 @@
 {
-  "utxo_slice": [],
+  "utxo": [],
   "required_signers": [
     "cd886de6de6312f4831d84e358888ab6415cc80b691f11a6baf32001",
     "2ba45f0b60fc8be9384b5188656f9ac3048bd465f3de14dde7853fdc",

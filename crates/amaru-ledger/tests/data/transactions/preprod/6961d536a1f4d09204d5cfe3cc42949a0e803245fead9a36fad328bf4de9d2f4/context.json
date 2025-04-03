@@ -1,49 +1,49 @@
 {
-  "utxo_slice": [
-    {
-      "input": {
+  "utxo": [
+    [
+      {
         "transaction_id": "85695567ac864322bbf15a234cb1207206e94c9baba7157df49c95a4161b4624",
         "index": 2
       },
-      "output": {
+      {
         "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba640158",
         "index": 0
       },
-      "output": {
+      {
         "address": "703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "e655f90fd569a0352abe9d55fce2e4d70c570ceecbf205f79129623dd2294e4d",
         "index": 2
       },
-      "output": {
+      {
         "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "1a28375b01a8928f21a87598e24165ab5806e7c3e77a5eb4d78c56e3cf07894c",
         "index": 0
       },
-      "output": {
+      {
         "address": "703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "899f5ecb1151a49aee8c3b0f09b7784434abea71d4d37da11602663fba640158",
         "index": 1
       },
-      "output": {
+      {
         "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3"
       }
-    }
+    ]
   ]
 }
