@@ -52,6 +52,17 @@ pub(crate) mod tests {
             )))
             .unwrap()
         };
+        ($test_directory:literal, $hash:literal, $test_variant:literal) => {
+            cbor::decode::<KeepRaw<'_, MintedTransactionBody<'_>>>(include_bytes!(concat!(
+                $test_directory,
+                "/data/transactions/preprod/",
+                $hash,
+                "/",
+                $test_variant,
+                "/tx.cbor"
+            )))
+            .unwrap()
+        };
     }
 
     macro_rules! include_witness_set {
