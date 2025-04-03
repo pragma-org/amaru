@@ -43,6 +43,44 @@ pub(crate) mod tests {
         Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
     };
 
+    macro_rules! include_transaction_body {
+        ($test_directory:literal, $hash:literal) => {
+            cbor::decode::<KeepRaw<'_, MintedTransactionBody<'_>>>(include_bytes!(concat!(
+                $test_directory,
+                "/data/transactions/preprod/",
+                $hash,
+                "/tx.cbor"
+            )))
+            .unwrap()
+        };
+    }
+
+    macro_rules! include_witness_set {
+        ($test_directory:literal, $hash:literal, $test_variant:literal) => {
+            from_cbor::<WitnessSet>(include_bytes!(concat!(
+                $test_directory,
+                "/data/transactions/preprod/",
+                $hash,
+                "/",
+                $test_variant,
+                "/witness.cbor"
+            )))
+            .unwrap()
+        };
+        ($test_directory:literal, $hash:literal) => {
+            from_cbor::<WitnessSet>(include_bytes!(concat!(
+                $test_directory,
+                "/data/transactions/preprod/",
+                $hash,
+                "/witness.cbor"
+            )))
+            .unwrap()
+        };
+    }
+
+    pub(crate) use include_transaction_body;
+    pub(crate) use include_witness_set;
+
     pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
         TransactionInput {
             transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()),
