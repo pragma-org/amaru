@@ -88,7 +88,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
                 Ok(())
             }
             BlockValidationResult::BlockValidationFailed(invalid_block) => {
-                warn!(
+                trace!(
                     target: EVENT_TARGET,
                     invalid_block = ?invalid_block,
                     "forward.block_validation_failed"
