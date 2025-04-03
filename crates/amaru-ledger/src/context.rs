@@ -47,7 +47,7 @@ pub trait PreparationContext<'a>:
 // Errors
 // -------------------------------------------------------------------------------------------------
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum RegisterError<ROLE, K> {
     #[error("already registered entity: {0:?}")] // TODO: Use Display
     AlreadyRegistered(PhantomData<ROLE>, K),
@@ -61,7 +61,7 @@ impl<ROLE, K: fmt::Debug> From<diff_bind::RegisterError<K>> for RegisterError<RO
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum UnregisterError<ROLE, K> {
     #[error("unknown entity: {0:?}")] // TODO: Use Display
     Unknown(PhantomData<ROLE>, K),
@@ -73,7 +73,7 @@ impl<ROLE, K: fmt::Debug> From<diff_bind::BindError<K>> for UnregisterError<ROLE
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum DelegateError<S, T> {
     #[error("unknown source entity: {0:?}")] // TODO: Use Display
     UnknownSource(S),
@@ -88,7 +88,7 @@ impl<S: fmt::Debug, T: fmt::Debug> From<diff_bind::BindError<S>> for DelegateErr
     }
 }
 
-#[derive(thiserror::Error, Debug)]
+#[derive(thiserror::Error, Debug, Clone)]
 pub enum UpdateError<S> {
     #[error("unknown source entity: {0:?}")] // TODO: Use Display
     UnknownSource(S),
@@ -144,7 +144,7 @@ pub trait PreparePoolsSlice<'a> {
 // Accounts
 // ------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AccountState {
     pub deposit: Lovelace,
     pub pool: Option<PoolId>,
@@ -188,7 +188,7 @@ pub trait PrepareAccountsSlice<'a> {
 // DRep
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct DRepState {
     pub deposit: Lovelace,
     pub anchor: Option<Anchor>,
@@ -224,7 +224,7 @@ pub trait PrepareDRepsSlice<'a> {
 // Constitutional Committee
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct CCMember {}
 
 /// An interface for interacting with a subset of the Constitutional Committee members state.

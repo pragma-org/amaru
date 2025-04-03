@@ -16,8 +16,10 @@ use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{AddrType, Address, HasAddress, HasOwnership, TransactionInput};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum InvalidInputs {
+    #[error("Unknown input")]
+    UnknownInput,
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
         intersection
@@ -90,7 +92,7 @@ where
                     };
                 };
             }
-            None => unimplemented!("failed to lookup input: {input:?}"),
+            None => Err(InvalidInputs::UnknownInput)?,
         }
     }
 

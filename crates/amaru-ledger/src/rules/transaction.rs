@@ -49,7 +49,7 @@ pub mod voting_procedures;
 pub mod withdrawals;
 pub use withdrawals::InvalidWithdrawals;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum InvalidTransaction {
     #[error("invalid inputs: {0}")]
     Inputs(#[from] InvalidInputs),

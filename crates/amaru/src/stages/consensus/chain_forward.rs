@@ -87,6 +87,15 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
 
                 Ok(())
             }
+            BlockValidationResult::BlockValidationFailed(invalid_block) => {
+                warn!(
+                    target: EVENT_TARGET,
+                    invalid_block = ?invalid_block,
+                    "forward.block_validation_failed"
+                );
+
+                Err(WorkerError::Panic)
+            }
             BlockValidationResult::BlockForwardStorageFailed(point, span) => {
                 let _span = error_span!(
                     target: EVENT_TARGET,

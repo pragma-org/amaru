@@ -93,13 +93,16 @@ impl<S: Store + Send> Stage<S> {
             .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
             .collect();
 
-        let state = rules::validate_block(
+        let state = match rules::validate_block(
             context::DefaultValidationContext::new(inputs),
             ProtocolParameters::default(),
             block,
-        )
-        .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e))
-        .anchor(&point, issuer);
+        ) {
+            Ok(validation_result) => validation_result.anchor(&point, issuer),
+            Err(e) => {
+                return BlockValidationResult::BlockValidationFailed(e);
+            }
+        };
 
         let current_span = Span::current();
 

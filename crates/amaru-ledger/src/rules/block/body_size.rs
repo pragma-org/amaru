@@ -15,7 +15,7 @@
 use amaru_kernel::{to_cbor, HeaderBody, MintedBlock};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum InvalidBlockSize {
     #[error("block body size mismatch: supplied {supplied}, actual {actual}")]
     SizeMismatch { supplied: usize, actual: usize },

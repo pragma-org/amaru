@@ -15,7 +15,7 @@
 use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum InvalidExUnits {
     #[error("too many execution units in block: provided (mem: {}, steps: {}), max (mem: {}, steps: {})", provided.mem, provided.steps, max.mem, max.steps)]
     TooMany { provided: ExUnits, max: ExUnits },

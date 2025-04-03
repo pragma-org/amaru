@@ -20,13 +20,13 @@ use thiserror::Error;
 
 mod inherent_value;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 #[error("invalid transaction outputs: [{}]", format_vec(invalid_outputs))]
 pub struct InvalidOutputs {
     invalid_outputs: Vec<WithPosition<InvalidOutput>>,
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum InvalidOutput {
     #[error(
         "output doesn't contain enough Lovelace: minimum: {minimum_value}, given: {given_value}"

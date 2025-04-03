@@ -20,15 +20,15 @@ use tracing::{instrument, Level};
 
 pub use block::execute as validate_block;
 
-mod block;
+pub mod block;
 mod transaction;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TransactionField {
     Withdrawals,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct WithPosition<T: Display> {
     pub position: usize,
     pub element: T,
@@ -83,7 +83,7 @@ pub(crate) fn format_vec<T: Display>(items: &[T]) -> String {
         .join(", ")
 }
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum InvalidEd25519Signature {
     #[error("invalid signature size: {error:?}")]
     InvalidSignatureSize {
