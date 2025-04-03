@@ -100,24 +100,44 @@ mod tests {
         tests::{include_transaction_body, include_witness_set},
     };
 
-    fn load_validation_context_from_file(
-        path: &str,
-    ) -> Result<AssertValidationContext, Box<dyn std::error::Error>> {
-        let file = std::fs::File::open(path)?;
-        let reader = std::io::BufReader::new(file);
-        let context = serde_json::from_reader(reader)?;
-        Ok(context)
+    macro_rules! include_test_data {
+        ($test_dir:literal, $hash:literal) => {
+            (
+                serde_json::from_reader(std::io::BufReader::new(
+                    std::fs::File::open(concat!(
+                        "tests/data/transactions/preprod/",
+                        $hash,
+                        "/context.json"
+                    ))
+                    .unwrap(),
+                ))
+                .unwrap(),
+                include_transaction_body!($test_dir, $hash),
+                include_witness_set!($test_dir, $hash),
+            )
+        };
+        ($test_dir:literal, $hash:literal, $test_variant:literal) => {
+            (
+                serde_json::from_reader(std::io::BufReader::new(
+                    std::fs::File::open(concat!(
+                        "tests/data/transactions/preprod/",
+                        $hash,
+                        "/",
+                        $test_variant,
+                        "/context.json"
+                    ))
+                    .unwrap(),
+                ))
+                .unwrap(),
+                include_transaction_body!($test_dir, $hash),
+                include_witness_set!($test_dir, $hash, $test_variant),
+            )
+        };
     }
 
     #[test]
     fn valid_vkey_witnesses() {
-        let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c/context.json").expect("Failed to load context");
-
-        let transaction_body = include_transaction_body!(
-            "../../../tests",
-            "90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c"
-        );
-        let witness_set = include_witness_set!(
+        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
             "../../../tests",
             "90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c"
         );
@@ -135,12 +155,7 @@ mod tests {
     fn invalid_signature() {
         // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
         // The witness set is modified to include an invalid signature
-        let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-signature/context.json").expect("failed to laod validation context");
-        let transaction_body = include_transaction_body!(
-            "../../../tests",
-            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca"
-        );
-        let witness_set = include_witness_set!(
+        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
             "../../../tests",
             "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
             "invalid-signature"
@@ -170,12 +185,7 @@ mod tests {
     fn invalid_signature_length() {
         // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
         // The witness set is modified to include an invalid signature (due to length)
-        let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-signature-length/context.json").expect("failed to laod validation context");
-        let transaction_body = include_transaction_body!(
-            "../../../tests",
-            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca"
-        );
-        let witness_set = include_witness_set!(
+        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
             "../../../tests",
             "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
             "invalid-signature-length"
@@ -208,12 +218,7 @@ mod tests {
     fn invalid_key_length() {
         // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
         // The witness set is modified to include an invalid signature (key length)
-        let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-key-length/context.json").expect("failed to laod validation context");
-        let transaction_body = include_transaction_body!(
-            "../../../tests",
-            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca"
-        );
-        let witness_set = include_witness_set!(
+        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
             "../../../tests",
             "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
             "invalid-key-length"
@@ -246,12 +251,7 @@ mod tests {
     fn missing_spending_vkey() {
         // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
         // The context is modified to require a different signer than what is in the witness (and what is actually required on Preprod)
-        let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/missing-spending-vkey/context.json").expect("failed to laod validation context");
-        let transaction_body = include_transaction_body!(
-            "../../../tests",
-            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca"
-        );
-        let witness_set = include_witness_set!(
+        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
             "../../../tests",
             "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
             "missing-spending-vkey"
@@ -279,14 +279,7 @@ mod tests {
 
     #[test]
     fn missing_required_signer_vkey() {
-        // The following test relies on a handrolled transaction based off of a Preprod transaction (806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb).
-        // It's been modified to only include the bare minimum to meet this test requirements
-        let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb/context.json").expect("failed to laod validation context");
-        let transaction_body = include_transaction_body!(
-            "../../../tests",
-            "806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb"
-        );
-        let witness_set = include_witness_set!(
+        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
             "../../../tests",
             "806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb"
         );
@@ -315,17 +308,11 @@ mod tests {
 
     #[test]
     fn missing_withdraw_vkey() {
-        // The following test relies on a handrolled transaction based off of a Preprod transaction (bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca).
-        // It's been modified to only include the bare minimum to meet this test requirements
-        let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca/context.json").expect("failed to laod validation context");
-        let transaction_body = include_transaction_body!(
+        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
             "../../../tests",
             "bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca"
         );
-        let witness_set = include_witness_set!(
-            "../../../tests",
-            "bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca"
-        );
+
         match super::execute(
             &mut ctx,
             transaction_body.original_hash(),
@@ -351,12 +338,7 @@ mod tests {
     fn missing_certificate_vkey() {
         // The following test relies on a handrolled transaction based off of a Preprod transaction (4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2)
         // The witness set has been modified to exclude the witness assosciated with the certificate
-        let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2/context.json").expect("failed to laod validation context");
-        let transaction_body = include_transaction_body!(
-            "../../../tests",
-            "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"
-        );
-        let witness_set = include_witness_set!(
+        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
             "../../../tests",
             "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"
         );
