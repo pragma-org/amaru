@@ -1,121 +1,121 @@
 {
-  "utxo_slice": [
-    {
-      "input": {
+  "utxo": [
+    [
+      {
         "transaction_id": "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
         "index": 2
       },
-      "output": {
+      {
         "address": "605309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
         "index": 0
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
         "index": 0
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
         "index": 1
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "b185c756bf483fa7223967947f93e7f6e4e351782591467d99979908b6a2f6b2",
         "index": 2
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
         "index": 0
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "b6dcfdc52df91296d060b4fee05c05340c51e89b16ff7033a53a35d2cd7949b0",
         "index": 0
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "5c6d1dba0f74e55143a751d3f92433bcfbaa63d20b909f5dde8246db9f38144c",
         "index": 0
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "f0b861a084a983537de82d769ddf50876ef1bbb7b504690f45bc65e65d4de8f2",
         "index": 0
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "878296eb7662c6a6e600f48941b3eae1e582bc05aacd0d635fcc96448a5e4e26",
         "index": 0
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "efd8a48f69e5270cb73b438067e1b566d39758329a45e5d6d36755f2c7326184",
         "index": 0
       },
-      "output": {
+      {
         "address": "704e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596",
         "index": 1
       },
-      "output": {
+      {
         "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab",
         "index": 2
       },
-      "output": {
+      {
         "address": "605309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41"
       }
-    }
+    ]
   ]
 }

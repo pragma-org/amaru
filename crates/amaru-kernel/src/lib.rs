@@ -58,6 +58,7 @@ pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub mod macros;
 pub mod network;
 pub mod protocol_parameters;
+pub mod serde_utils;
 
 // Constants
 // ----------------------------------------------------------------------------

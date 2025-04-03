@@ -1,76 +1,76 @@
 {
-  "utxo_slice": [
-    {
-      "input": {
+  "utxo": [
+    [
+      {
         "transaction_id": "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
         "index": 0
       },
-      "output": {
+      {
         "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
         "index": 1
       },
-      "output": {
+      {
         "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
         "index": 2
       },
-      "output": {
+      {
         "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
         "index": 2
       },
-      "output": {
+      {
         "address": "60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "5ea9e62dc65b61aa05609701157374f00809002278bc992b42a8c7b0ceeb5a1b",
         "index": 0
       },
-      "output": {
+      {
         "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "f82a2aa7fbe10081063a648b30a863efccb003948eed464898343665f5709e81",
         "index": 0
       },
-      "output": {
+      {
         "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "4b61acedca6426ec989ef78a85ed97a8b4ffd47d9c40d4155e453d7e6b25ae58",
         "index": 0
       },
-      "output": {
+      {
         "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
       }
-    },
-    {
-      "input": {
+    ],
+    [
+      {
         "transaction_id": "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
         "index": 2
       },
-      "output": {
+      {
         "address": "60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01"
       }
-    }
+    ]
   ]
 }

@@ -19,9 +19,8 @@ use crate::context::{
     UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    Anchor, Bytes, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams,
-    PostAlonzoTransactionOutput, Proposal, ProposalPointer, StakeCredential, TransactionInput,
-    TransactionOutput, Value,
+    serde_utils, Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
@@ -31,8 +30,9 @@ use std::collections::{BTreeMap, BTreeSet};
 /// A Fake block preparation context that can used for testing. The context is expected to be
 /// provided upfront as test data, and all `require` method merely checks that the requested data
 /// pre-exists in the context.
-#[derive(Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct AssertPreparationContext {
+    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
     pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
 }
 
@@ -75,94 +75,11 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
     }
 }
 
-//  Deserialization of Prepreation Context JSON files
-
-#[derive(serde::Deserialize, Debug)]
-struct JsonUtxoEntry {
-    input: JsonInput,
-    output: JsonOutput,
-}
-
-#[derive(serde::Deserialize, Debug)]
-struct JsonInput {
-    transaction_id: String,
-    index: u64,
-}
-#[derive(serde::Deserialize, Debug)]
-struct JsonOutput {
-    #[serde(deserialize_with = "deserialize_hex_to_vec")]
-    address: Vec<u8>,
-    // TODO: expand this
-}
-
-// TODO: Should this live somewhere else?
-fn deserialize_hex_to_vec<'de, D>(deserializer: D) -> Result<Vec<u8>, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: String = serde::Deserialize::deserialize(deserializer)?;
-    hex::decode(s).map_err(serde::de::Error::custom)
-}
-
-impl From<JsonOutput> for TransactionOutput {
-    fn from(json: JsonOutput) -> TransactionOutput {
-        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
-            address: Bytes::from(json.address),
-            value: Value::Coin(0),
-            datum_option: None,
-            script_ref: None,
-        })
-    }
-}
-
-impl TryFrom<JsonInput> for TransactionInput {
-    type Error = hex::FromHexError;
-
-    fn try_from(value: JsonInput) -> Result<Self, Self::Error> {
-        Ok(TransactionInput {
-            transaction_id: value.transaction_id.parse()?,
-            index: value.index,
-        })
-    }
-}
-
-impl<'de> serde::Deserialize<'de> for AssertPreparationContext {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Error;
-
-        let mut map: serde_json::Map<String, serde_json::Value> =
-            serde::Deserialize::deserialize(deserializer)?;
-
-        let utxo_value = map
-            .remove("utxo_slice")
-            .ok_or_else(|| D::Error::custom("missing field `utxo_slice`"))?;
-
-        let entries: Vec<JsonUtxoEntry> = serde_json::from_value(utxo_value)
-            .map_err(|e| D::Error::custom(format!("Failed to parse utxo_slice: {}", e)))?;
-
-        let mut utxo = BTreeMap::new();
-
-        for entry in entries {
-            utxo.insert(
-                entry
-                    .input
-                    .try_into()
-                    .map_err(|_| D::Error::custom("invalid transaction id"))?,
-                entry.output.into(),
-            );
-        }
-
-        Ok(AssertPreparationContext { utxo })
-    }
-}
-
 // -------------------------------------------------------------------------------------- Validation
 
-#[derive(Debug)]
+#[derive(Debug, serde::Deserialize)]
 pub struct AssertValidationContext {
+    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     required_signers: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
@@ -320,79 +237,5 @@ impl WitnessSlice for AssertValidationContext {
 
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>> {
         mem::take(&mut self.required_bootstrap_signers)
-    }
-}
-
-// Deserialization of Validation Context JSON files
-impl<'de> serde::Deserialize<'de> for AssertValidationContext {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Error;
-
-        let mut map: serde_json::Map<String, serde_json::Value> =
-            serde::Deserialize::deserialize(deserializer)?;
-
-        let entries: Vec<JsonUtxoEntry> = match map.remove("utxo_slice") {
-            Some(utxo_value) => serde_json::from_value(utxo_value)
-                .map_err(|e| D::Error::custom(format!("Failed to parse utxo_slice: {}", e)))?,
-            None => vec![],
-        };
-
-        let mut utxo = BTreeMap::new();
-
-        for entry in entries {
-            utxo.insert(
-                entry
-                    .input
-                    .try_into()
-                    .map_err(|_| D::Error::custom("invalid transaction id"))?,
-                entry.output.into(),
-            );
-        }
-
-        let required_signers = match map.remove("required_signers") {
-            Some(required_signers_value) => {
-                serde_json::from_value::<Vec<String>>(required_signers_value)
-                    .map_err(|e| {
-                        D::Error::custom(format!("Failed to parse required_signers: {}", e))
-                    })?
-                    .into_iter()
-                    .map(|hex| {
-                        hex::decode(hex)
-                            .map_err(|e| D::Error::custom(format!("Invalid hex string: {}", e)))
-                            .map(|hex| Hash::from(hex.as_slice()))
-                    })
-                    .collect::<Result<BTreeSet<Hash<28>>, D::Error>>()?
-            }
-            None => BTreeSet::new(),
-        };
-
-        let required_bootstrap_signers = match map.remove("required_bootstrap_signers") {
-            Some(required_bootstrap_signers_value) => {
-                serde_json::from_value::<Vec<String>>(required_bootstrap_signers_value)
-                    .map_err(|e| {
-                        D::Error::custom(format!(
-                            "Failed to parse required_bootstrap_signers: {}",
-                            e
-                        ))
-                    })?
-                    .into_iter()
-                    .map(|hex| {
-                        hex::decode(hex)
-                            .map_err(|e| D::Error::custom(format!("Invalid hex string: {}", e)))
-                            .map(|hex| Hash::from(hex.as_slice()))
-                    })
-                    .collect::<Result<BTreeSet<Hash<28>>, D::Error>>()?
-            }
-            None => BTreeSet::new(),
-        };
-
-        Ok(AssertValidationContext {
-            utxo,
-            required_signers,
-            required_bootstrap_signers,
-        })
     }
 }
