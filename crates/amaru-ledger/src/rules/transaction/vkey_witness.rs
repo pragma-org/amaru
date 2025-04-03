@@ -91,9 +91,14 @@ pub fn execute(
 mod tests {
     use super::*;
 
-    use amaru_kernel::{cbor, Hash, KeepRaw, MintedTransactionBody, OriginalHash, WitnessSet};
+    use amaru_kernel::{
+        cbor, from_cbor, Hash, KeepRaw, MintedTransactionBody, OriginalHash, WitnessSet,
+    };
 
-    use crate::context::assert::AssertValidationContext;
+    use crate::{
+        context::assert::AssertValidationContext,
+        tests::{include_transaction_body, include_witness_set},
+    };
 
     fn load_validation_context_from_file(
         path: &str,
@@ -108,13 +113,14 @@ mod tests {
     fn valid_vkey_witnesses() {
         let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c/context.json").expect("Failed to load context");
 
-        let tx_bytes = include_bytes!("../../../tests/data/transactions/preprod/90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c/tx.cbor");
-        let transaction_body: KeepRaw<'_, MintedTransactionBody<'_>> =
-            cbor::decode(tx_bytes).expect("Failed to cbor decode transaction body");
-
-        let witness_set_bytes = include_bytes!("../../../tests/data/transactions/preprod/90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c/witness.cbor");
-        let witness_set: WitnessSet =
-            cbor::decode(witness_set_bytes).expect("Failed to cbor decode witness set");
+        let transaction_body = include_transaction_body!(
+            "../../../tests",
+            "90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c"
+        );
+        let witness_set = include_witness_set!(
+            "../../../tests",
+            "90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c"
+        );
 
         assert!(matches!(
             super::execute(
@@ -130,12 +136,15 @@ mod tests {
         // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
         // The witness set is modified to include an invalid signature
         let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-signature/context.json").expect("failed to laod validation context");
-        let tx_bytes = include_bytes!("../../../tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/tx.cbor");
-        let transaction_body: KeepRaw<'_, MintedTransactionBody<'_>> =
-            cbor::decode(tx_bytes).expect("Failed to cbor decode transaction body");
-        let witness_set_bytes = include_bytes!("../../../tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-signature/witness.cbor");
-        let witness_set: WitnessSet =
-            cbor::decode(witness_set_bytes).expect("Failed to cbor decode witness set");
+        let transaction_body = include_transaction_body!(
+            "../../../tests",
+            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca"
+        );
+        let witness_set = include_witness_set!(
+            "../../../tests",
+            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
+            "invalid-signature"
+        );
 
         match super::execute(
             &mut ctx,
@@ -162,12 +171,15 @@ mod tests {
         // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
         // The witness set is modified to include an invalid signature (due to length)
         let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-signature-length/context.json").expect("failed to laod validation context");
-        let tx_bytes = include_bytes!("../../../tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/tx.cbor");
-        let transaction_body: KeepRaw<'_, MintedTransactionBody<'_>> =
-            cbor::decode(tx_bytes).expect("Failed to cbor decode transaction body");
-        let witness_set_bytes = include_bytes!("../../../tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-signature-length/witness.cbor");
-        let witness_set: WitnessSet =
-            cbor::decode(witness_set_bytes).expect("Failed to cbor decode witness set");
+        let transaction_body = include_transaction_body!(
+            "../../../tests",
+            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca"
+        );
+        let witness_set = include_witness_set!(
+            "../../../tests",
+            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
+            "invalid-signature-length"
+        );
 
         match super::execute(
             &mut ctx,
@@ -197,13 +209,15 @@ mod tests {
         // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
         // The witness set is modified to include an invalid signature (key length)
         let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-key-length/context.json").expect("failed to laod validation context");
-
-        let tx_bytes = include_bytes!("../../../tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/tx.cbor");
-        let transaction_body: KeepRaw<'_, MintedTransactionBody<'_>> =
-            cbor::decode(tx_bytes).expect("Failed to cbor decode transaction body");
-        let witness_set_bytes = include_bytes!("../../../tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/invalid-key-length/witness.cbor");
-        let witness_set: WitnessSet =
-            cbor::decode(witness_set_bytes).expect("Failed to cbor decode witness set");
+        let transaction_body = include_transaction_body!(
+            "../../../tests",
+            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca"
+        );
+        let witness_set = include_witness_set!(
+            "../../../tests",
+            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
+            "invalid-key-length"
+        );
 
         match super::execute(
             &mut ctx,
@@ -233,13 +247,15 @@ mod tests {
         // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
         // The context is modified to require a different signer than what is in the witness (and what is actually required on Preprod)
         let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/missing-spending-vkey/context.json").expect("failed to laod validation context");
-
-        let tx_bytes = include_bytes!("../../../tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/tx.cbor");
-        let transaction_body: KeepRaw<'_, MintedTransactionBody<'_>> =
-            cbor::decode(tx_bytes).expect("Failed to cbor decode transaction body");
-        let witness_set_bytes = include_bytes!("../../../tests/data/transactions/preprod/44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca/missing-spending-vkey/witness.cbor");
-        let witness_set: WitnessSet =
-            cbor::decode(witness_set_bytes).expect("Failed to cbor decode witness set");
+        let transaction_body = include_transaction_body!(
+            "../../../tests",
+            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca"
+        );
+        let witness_set = include_witness_set!(
+            "../../../tests",
+            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
+            "missing-spending-vkey"
+        );
 
         match super::execute(
             &mut ctx,
@@ -266,13 +282,14 @@ mod tests {
         // The following test relies on a handrolled transaction based off of a Preprod transaction (806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb).
         // It's been modified to only include the bare minimum to meet this test requirements
         let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb/context.json").expect("failed to laod validation context");
-
-        let tx_bytes = include_bytes!("../../../tests/data/transactions/preprod/806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb/tx.cbor");
-        let transaction_body: KeepRaw<'_, MintedTransactionBody<'_>> =
-            cbor::decode(tx_bytes).expect("Failed to cbor decode transaction body");
-        let witness_set_bytes = include_bytes!("../../../tests/data/transactions/preprod/806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb/witness.cbor");
-        let witness_set: WitnessSet =
-            cbor::decode(witness_set_bytes).expect("Failed to cbor decode witness set");
+        let transaction_body = include_transaction_body!(
+            "../../../tests",
+            "806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb"
+        );
+        let witness_set = include_witness_set!(
+            "../../../tests",
+            "806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb"
+        );
 
         match super::execute(
             &mut ctx,
@@ -301,14 +318,14 @@ mod tests {
         // The following test relies on a handrolled transaction based off of a Preprod transaction (bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca).
         // It's been modified to only include the bare minimum to meet this test requirements
         let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca/context.json").expect("failed to laod validation context");
-
-        let tx_bytes = include_bytes!("../../../tests/data/transactions/preprod/bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca/tx.cbor");
-        let transaction_body: KeepRaw<'_, MintedTransactionBody<'_>> =
-            cbor::decode(tx_bytes).expect("Failed to cbor decode transaction body");
-        let witness_set_bytes = include_bytes!("../../../tests/data/transactions/preprod/bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca/witness.cbor");
-        let witness_set: WitnessSet =
-            cbor::decode(witness_set_bytes).expect("Failed to cbor decode witness set");
-
+        let transaction_body = include_transaction_body!(
+            "../../../tests",
+            "bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca"
+        );
+        let witness_set = include_witness_set!(
+            "../../../tests",
+            "bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca"
+        );
         match super::execute(
             &mut ctx,
             transaction_body.original_hash(),
@@ -335,13 +352,14 @@ mod tests {
         // The following test relies on a handrolled transaction based off of a Preprod transaction (4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2)
         // The witness set has been modified to exclude the witness assosciated with the certificate
         let mut ctx: AssertValidationContext = load_validation_context_from_file("tests/data/transactions/preprod/4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2/context.json").expect("failed to laod validation context");
-
-        let tx_bytes = include_bytes!("../../../tests/data/transactions/preprod/4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2/tx.cbor");
-        let transaction_body: KeepRaw<'_, MintedTransactionBody<'_>> =
-            cbor::decode(tx_bytes).expect("Failed to cbor decode transaction body");
-        let witness_set_bytes = include_bytes!("../../../tests/data/transactions/preprod/4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2/witness.cbor");
-        let witness_set: WitnessSet =
-            cbor::decode(witness_set_bytes).expect("Failed to cbor decode witness set");
+        let transaction_body = include_transaction_body!(
+            "../../../tests",
+            "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"
+        );
+        let witness_set = include_witness_set!(
+            "../../../tests",
+            "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"
+        );
 
         match super::execute(
             &mut ctx,
