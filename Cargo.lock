@@ -105,6 +105,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "slot-arithmetic",
+ "test-case",
  "thiserror 2.0.12",
 ]
 
