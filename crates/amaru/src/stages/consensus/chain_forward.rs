@@ -18,7 +18,7 @@ use amaru_ledger::BlockValidationResult;
 use gasket::framework::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{error_span, info, trace_span, warn};
+use tracing::{error_span, info, trace, trace_span, warn};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
