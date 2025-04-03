@@ -100,65 +100,102 @@ where
 #[cfg(test)]
 mod tests {
 
-    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
-    use amaru_kernel::{cbor, MintedTransactionBody};
+    use std::sync::LazyLock;
+    use test_case::test_case;
 
-    fn load_preperation_context_from_file(
-        path: &str,
-    ) -> Result<AssertPreparationContext, Box<dyn std::error::Error>> {
-        let file = std::fs::File::open(path)?;
-        let reader = std::io::BufReader::new(file);
-        let context = serde_json::from_reader(reader)?;
-        Ok(context)
-    }
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        tests::include_transaction_body,
+    };
+    use amaru_kernel::{cbor, KeepRaw, MintedTransactionBody};
 
-    #[test]
-    fn valid_reference_input_transactions() {
-        // The following are transaction bodies with a variable number of inputs and reference inputs from preprod
-        // Defining seperately for lifetime purposes. Certainly there's a nicer way to do this...
-        let tx_7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b = include_bytes!("../../../tests/data/transactions/preprod/7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b/tx.cbor");
-        let tx_537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596 = include_bytes!("../../../tests/data/transactions/preprod/537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596/tx.cbor");
-        let tx_578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6 = include_bytes!("../../../tests/data/transactions/preprod/578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6/tx.cbor");
-        let tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a = include_bytes!("../../../tests/data/transactions/preprod/d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a/tx.cbor");
-        let tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4 = include_bytes!("../../../tests/data/transactions/preprod/6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4/tx.cbor");
+    static TEST_CASES: LazyLock<
+        [(
+            KeepRaw<'_, MintedTransactionBody<'_>>,
+            AssertPreparationContext,
+        ); 5],
+    > = LazyLock::new(|| {
+        macro_rules! include_preperation_context {
+            ($hash:literal) => {
+                serde_json::from_reader(std::io::BufReader::new(
+                    std::fs::File::open(concat!(
+                        "tests/data/transactions/preprod/",
+                        $hash,
+                        "/context.json"
+                    ))
+                    .unwrap(),
+                ))
+                .unwrap()
+            };
+        }
 
-        let cases: Vec<(MintedTransactionBody<'_>, AssertPreparationContext)> = vec![
+        [
             (
-                cbor::decode(tx_7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b)
-                    .expect("failed to decode tx body cbor"),
-                load_preperation_context_from_file("tests/data/transactions/preprod/7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b/context.json").expect("failed to load prepreation context from file")
+                include_transaction_body!(
+                    "../../../tests",
+                    "7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b"
+                ),
+                include_preperation_context!(
+                    "7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b"
+                ),
             ),
             (
-                cbor::decode(tx_537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596)
-                    .expect("failed to decode tx body cbor"),
-                load_preperation_context_from_file("tests/data/transactions/preprod/537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596/context.json").expect("failed to load prepreation context from file")
+                include_transaction_body!(
+                    "../../../tests",
+                    "537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596"
+                ),
+                include_preperation_context!(
+                    "537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596"
+                ),
             ),
             (
-                cbor::decode(tx_578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6)
-                    .expect("failed to decode tx body cbor"),
-                load_preperation_context_from_file("tests/data/transactions/preprod/578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6/context.json").expect("failed to load prepreation context from file")
-
+                include_transaction_body!(
+                    "../../../tests",
+                    "578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"
+                ),
+                include_preperation_context!(
+                    "578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"
+                ),
             ),
-            (cbor::decode(tx_d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a)
-                .expect("failed to decode tx body cbor"),
-            load_preperation_context_from_file("tests/data/transactions/preprod/d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a/context.json").expect("failed to load prepreation context from file")
+            (
+                include_transaction_body!(
+                    "../../../tests",
+                    "d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a"
+                ),
+                include_preperation_context!(
+                    "d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a"
+                ),
             ),
-            (cbor::decode(tx_6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4)
-                .expect("failed to decode tx body cbor"),
-            load_preperation_context_from_file("tests/data/transactions/preprod/6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4/context.json").expect("failed to load prepreation context from file")
+            (
+                include_transaction_body!(
+                    "../../../tests",
+                    "6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4"
+                ),
+                include_preperation_context!(
+                    "6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4"
+                ),
+            ),
+        ]
+    });
 
-            )
-        ];
-
-        cases.into_iter().for_each(|(tx, ctx)| {
-            let mut validation_context = AssertValidationContext::from(ctx.clone());
-            assert!(super::execute(
-                &mut validation_context,
-                &tx.inputs,
-                tx.reference_inputs.as_deref(),
-                tx.collateral.as_deref(),
-            )
-            .is_ok());
-        });
+    #[test_case(&TEST_CASES[0])]
+    #[test_case(&TEST_CASES[1])]
+    #[test_case(&TEST_CASES[2])]
+    #[test_case(&TEST_CASES[3])]
+    #[test_case(&TEST_CASES[4])]
+    fn valid_reference_input_transactions(
+        (tx, ctx): &(
+            KeepRaw<'_, MintedTransactionBody<'_>>,
+            AssertPreparationContext,
+        ),
+    ) {
+        let mut validation_context = AssertValidationContext::from(ctx.clone());
+        assert!(super::execute(
+            &mut validation_context,
+            &tx.inputs,
+            tx.reference_inputs.as_deref(),
+            tx.collateral.as_deref(),
+        )
+        .is_ok());
     }
 }
