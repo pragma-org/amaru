@@ -19,7 +19,7 @@ use thiserror::Error;
 #[derive(Debug, Error, Clone)]
 pub enum InvalidInputs {
     #[error("Unknown input")]
-    UnknownInput,
+    UnknownInput(TransactionInput),
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
         intersection
@@ -92,7 +92,7 @@ where
                     };
                 };
             }
-            None => Err(InvalidInputs::UnknownInput)?,
+            None => Err(InvalidInputs::UnknownInput(input.clone()))?,
         }
     }
 
