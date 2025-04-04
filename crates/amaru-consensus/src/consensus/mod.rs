@@ -26,5 +26,5 @@ pub mod store;
 #[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
     Validated(Peer, Point, Span),
-    Rollback(Point),
+    Rollback(Point, Span),
 }

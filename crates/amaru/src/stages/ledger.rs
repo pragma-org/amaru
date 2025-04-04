@@ -160,7 +160,11 @@ impl<S: Store + Send> gasket::framework::Worker<Stage<S>> for Worker {
                 stage.roll_forward(point.clone(), raw_block.to_vec()).await
             }
 
-            ValidateBlockEvent::Rollback(point) => stage.rollback_to(point.clone()).await,
+            ValidateBlockEvent::Rollback(point, span) => {
+                // Restore parent span
+                Span::current().set_parent(span.context());
+                stage.rollback_to(point.clone()).await
+            }
         };
 
         Ok(stage.downstream.send(result.into()).await.or_panic()?)

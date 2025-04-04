@@ -62,9 +62,9 @@ impl BlockFetchStage {
                     .await
                     .or_panic()?;
             }
-            ValidateHeaderEvent::Rollback(point) => {
+            ValidateHeaderEvent::Rollback(point, span) => {
                 self.downstream
-                    .send(ValidateBlockEvent::Rollback(point.clone()).into())
+                    .send(ValidateBlockEvent::Rollback(point.clone(), span.clone()).into())
                     .await
                     .or_panic()?;
             }

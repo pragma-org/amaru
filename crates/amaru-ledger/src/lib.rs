@@ -21,7 +21,7 @@ pub type RawBlock = Vec<u8>;
 #[derive(Clone, Debug)]
 pub enum ValidateBlockEvent {
     Validated(Point, RawBlock, Span),
-    Rollback(Point),
+    Rollback(Point, Span),
 }
 
 #[derive(Debug, Clone)]

@@ -173,7 +173,7 @@ impl From<&ValidateHeaderEvent> for ChainSyncMessage {
                     header: Bytes { bytes: vec![] }, // FIXME: vec is the full body not the header
                 }
             }
-            ValidateHeaderEvent::Rollback(_point) => todo!(),
+            ValidateHeaderEvent::Rollback(_point, _span) => todo!(),
         }
     }
 }
