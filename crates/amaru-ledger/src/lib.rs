@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use amaru_kernel::Point;
-use rules::block::InvalidBlock;
 use tracing::Span;
 
 pub type RawBlock = Vec<u8>;
@@ -27,10 +26,8 @@ pub enum ValidateBlockEvent {
 #[derive(Debug, Clone)]
 pub enum BlockValidationResult {
     BlockValidated(Point, Span),
-    BlockValidationFailed(InvalidBlock),
-    BlockForwardStorageFailed(Point, Span),
-    InvalidRollbackPoint(Point),
-    RolledBackTo(Point),
+    BlockValidationFailed(Point, Span),
+    RolledBackTo(Point, Span),
 }
 
 pub mod context;

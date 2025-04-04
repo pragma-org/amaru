@@ -49,7 +49,7 @@ pub enum TipErrorKind {
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
-    Internal(#[from] Box<dyn std::error::Error>),
+    Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("error sending work unit through output port")]
     Send,
     #[error("error opening the store")]
