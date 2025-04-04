@@ -15,7 +15,7 @@
 use amaru_kernel::{AuxiliaryData, Bytes, ComputeHash, Hash, MintedTransactionBody};
 use thiserror::Error;
 
-#[derive(Error, Debug, Clone)]
+#[derive(Error, Debug)]
 pub enum InvalidTransactionMetadata {
     #[error("missing metadata: auxiliary data hash {0}")]
     MissingTransactionMetadata(Bytes),

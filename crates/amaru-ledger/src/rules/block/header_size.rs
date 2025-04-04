@@ -15,7 +15,7 @@
 use amaru_kernel::protocol_parameters::ProtocolParameters;
 use thiserror::Error;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum InvalidBlockHeader {
     #[error("block header size too big: supplied {supplied}, max {max}")]
     SizeTooBig { supplied: usize, max: usize },

@@ -22,7 +22,7 @@ use amaru_kernel::{
 };
 use thiserror::Error;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum InvalidCertificates {
     #[error("stake credential already registered: {0}")]
     StakeCredentialAlreadyRegistered(#[from] RegisterError<AccountState, StakeCredential>),

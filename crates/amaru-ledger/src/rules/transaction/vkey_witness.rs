@@ -23,7 +23,7 @@ use amaru_kernel::{Hash, Hasher, TransactionId, VKeyWitness};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum InvalidVKeyWitness {
     #[error(
         "missing required signatures: pkhs [{}]",

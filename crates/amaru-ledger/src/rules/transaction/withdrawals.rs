@@ -19,7 +19,7 @@ use crate::{
 use amaru_kernel::{Address, HasOwnership, Lovelace, RewardAccount};
 use thiserror::Error;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum InvalidWithdrawals {
     #[error("unexpected bytes instead of reward account in {context:?} at position {position}")]
     MalformedRewardAccount {

@@ -17,7 +17,7 @@ use tracing::Span;
 
 pub type RawBlock = Vec<u8>;
 
-#[derive(Clone, Debug)]
+#[derive(Debug, Clone)]
 pub enum ValidateBlockEvent {
     Validated(Point, RawBlock, Span),
     Rollback(Point, Span),

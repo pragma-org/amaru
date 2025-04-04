@@ -16,7 +16,7 @@ use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{AddrType, Address, HasAddress, HasOwnership, TransactionInput};
 use thiserror::Error;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum InvalidInputs {
     #[error("Unknown input")]
     UnknownInput(TransactionInput),

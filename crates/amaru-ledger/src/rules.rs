@@ -23,12 +23,12 @@ pub use block::execute as validate_block;
 pub mod block;
 mod transaction;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum TransactionField {
     Withdrawals,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct WithPosition<T: Display> {
     pub position: usize,
     pub element: T,
@@ -83,7 +83,7 @@ pub(crate) fn format_vec<T: Display>(items: &[T]) -> String {
         .join(", ")
 }
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum InvalidEd25519Signature {
     #[error("invalid signature size: {error:?}")]
     InvalidSignatureSize {

@@ -20,7 +20,7 @@ use amaru_kernel::{to_root, BootstrapWitness, Hash, TransactionId};
 use std::collections::BTreeSet;
 use thiserror::Error;
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum InvalidBootstrapWitnesses {
     #[error(
         "missing required signatures: bootstrap roots [{}]",

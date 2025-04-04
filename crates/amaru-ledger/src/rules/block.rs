@@ -32,7 +32,7 @@ use std::ops::Deref;
 use thiserror::Error;
 use tracing::{instrument, Level};
 
-#[derive(Debug, Error, Clone)]
+#[derive(Debug, Error)]
 pub enum InvalidBlock {
     #[error("Invalid block's size: {0}")]
     Size(#[from] InvalidBlockSize),
