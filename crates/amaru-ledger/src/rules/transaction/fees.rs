@@ -15,7 +15,7 @@
 use crate::context::{PotsSlice, UtxoSlice};
 use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionInput};
 
-#[derive(Debug, thiserror::Error, Clone)]
+#[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {
     #[error("unknown collateral input at position {position}")]
     UnknownCollateralInput { position: usize },
