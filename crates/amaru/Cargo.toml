@@ -20,9 +20,9 @@ gasket = { workspace = true, features = ["derive"] }
 hex.workspace = true
 indicatif.workspace = true
 indoc.workspace = true
-opentelemetry-otlp = { workspace = true, features = [ "grpc-tonic", "http-proto", "reqwest-client" ] }
+opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
-opentelemetry_sdk = { workspace = true, features = ["async-std", "rt-tokio"] }
+opentelemetry_sdk.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-network.workspace = true
@@ -33,7 +33,7 @@ thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal"] }
 tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
+tracing-subscriber.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 

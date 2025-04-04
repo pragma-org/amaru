@@ -25,7 +25,7 @@ pallas-primitives.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal", "io-util"] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
+tracing-subscriber.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true
