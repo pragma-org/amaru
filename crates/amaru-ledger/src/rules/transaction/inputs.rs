@@ -75,7 +75,7 @@ where
 
                 if let Some(credential) = address.credential() {
                     context.require_witness(credential);
-                };
+                }
 
                 if let Address::Byron(byron_address) = address {
                     let payload = byron_address.decode().map_err(|e| {
@@ -105,7 +105,7 @@ mod tests {
 
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
-        tests::{include_transaction_body, with_tracing},
+        tests::{include_transaction_body, verify_traces, with_tracing},
     };
     use amaru_kernel::{cbor, KeepRaw, MintedTransactionBody};
 
@@ -113,6 +113,7 @@ mod tests {
         [(
             KeepRaw<'_, MintedTransactionBody<'_>>,
             AssertPreparationContext,
+            &str,
         ); 5],
     > = LazyLock::new(|| {
         macro_rules! include_preperation_context {
@@ -129,67 +130,62 @@ mod tests {
             };
         }
 
+        macro_rules! include_expected_traces {
+            ($hash:literal) => {
+                include_str!(concat!(
+                    "../../../tests/data/transactions/preprod/",
+                    $hash,
+                    "/expected.traces"
+                ))
+            };
+        }
+
+        macro_rules! include_test_data {
+            ($path:literal, $hash:literal) => {
+                (
+                    include_transaction_body!($path, $hash),
+                    include_preperation_context!($hash),
+                    include_expected_traces!($hash),
+                )
+            };
+        }
+
         [
-            (
-                include_transaction_body!(
-                    "../../../tests",
-                    "7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b"
-                ),
-                include_preperation_context!(
-                    "7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b"
-                ),
+            include_test_data!(
+                "../../../tests",
+                "7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b"
             ),
-            (
-                include_transaction_body!(
-                    "../../../tests",
-                    "537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596"
-                ),
-                include_preperation_context!(
-                    "537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596"
-                ),
+            include_test_data!(
+                "../../../tests",
+                "537de728655d2da5fc21e57953a8650b25db8fc84e7dc51d85ebf6b8ea165596"
             ),
-            (
-                include_transaction_body!(
-                    "../../../tests",
-                    "578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"
-                ),
-                include_preperation_context!(
-                    "578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"
-                ),
+            include_test_data!(
+                "../../../tests",
+                "578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"
             ),
-            (
-                include_transaction_body!(
-                    "../../../tests",
-                    "d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a"
-                ),
-                include_preperation_context!(
-                    "d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a"
-                ),
+            include_test_data!(
+                "../../../tests",
+                "d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a"
             ),
-            (
-                include_transaction_body!(
-                    "../../../tests",
-                    "6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4"
-                ),
-                include_preperation_context!(
-                    "6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4"
-                ),
+            include_test_data!(
+                "../../../tests",
+                "6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4"
             ),
         ]
     });
-
     #[test_case(&TEST_CASES[0])]
     #[test_case(&TEST_CASES[1])]
     #[test_case(&TEST_CASES[2])]
     #[test_case(&TEST_CASES[3])]
     #[test_case(&TEST_CASES[4])]
     fn valid_reference_input_transactions(
-        (tx, ctx): &(
+        (tx, ctx, expected_traces): &(
             KeepRaw<'_, MintedTransactionBody<'_>>,
             AssertPreparationContext,
+            &str,
         ),
     ) {
-        with_tracing(|_collector| {
+        with_tracing(|collector| {
             let mut validation_context = AssertValidationContext::from(ctx.clone());
             assert!(super::execute(
                 &mut validation_context,
@@ -198,6 +194,12 @@ mod tests {
                 tx.collateral.as_deref(),
             )
             .is_ok());
+
+            let actual_traces = collector.lines.lock().unwrap();
+            match verify_traces(actual_traces.clone(), expected_traces) {
+                Ok(_) => {}
+                Err(e) => panic!("{:?}", e),
+            }
         })
     }
 }
