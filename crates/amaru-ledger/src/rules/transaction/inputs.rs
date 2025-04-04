@@ -18,14 +18,14 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
-    #[error("Unknown input")]
+    #[error("Unknown input: {}#{}", .0.index, .0.transaction_id)]
     UnknownInput(TransactionInput),
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
         intersection
             .iter()
             .map(|input|
-                format!("{}#{}", input.transaction_id, input.transaction_id)
+                format!("{}#{}", input.index, input.transaction_id)
             )
             .collect::<Vec<_>>()
             .join(", ")
