@@ -107,7 +107,7 @@ mod tests {
 
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
-        tests::{include_transaction_body, verify_traces, with_tracing},
+        tests::{include_expected_traces, include_transaction_body, verify_traces, with_tracing},
     };
     use amaru_kernel::{cbor, KeepRaw, MintedTransactionBody};
 
@@ -132,22 +132,12 @@ mod tests {
             };
         }
 
-        macro_rules! include_expected_traces {
-            ($hash:literal) => {
-                include_str!(concat!(
-                    "../../../tests/data/transactions/preprod/",
-                    $hash,
-                    "/expected.traces"
-                ))
-            };
-        }
-
         macro_rules! include_test_data {
             ($path:literal, $hash:literal) => {
                 (
                     include_transaction_body!($path, $hash),
                     include_preperation_context!($hash),
-                    include_expected_traces!($hash),
+                    include_expected_traces!($path, $hash),
                 )
             };
         }

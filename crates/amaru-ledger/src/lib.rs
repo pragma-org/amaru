@@ -102,6 +102,18 @@ pub(crate) mod tests {
         };
     }
 
+    macro_rules! include_expected_traces {
+        ($path:literal, $hash:literal) => {
+            include_str!(concat!(
+                $path,
+                "/data/transactions/preprod/",
+                $hash,
+                "/expected.traces"
+            ))
+        };
+    }
+
+    pub(crate) use include_expected_traces;
     pub(crate) use include_transaction_body;
     pub(crate) use include_witness_set;
 

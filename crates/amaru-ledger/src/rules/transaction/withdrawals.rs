@@ -62,3 +62,56 @@ where
 
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use std::sync::LazyLock;
+
+    use amaru_kernel::{cbor, KeepRaw, MintedTransactionBody};
+    use test_case::test_case;
+
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        tests::{include_expected_traces, include_transaction_body, verify_traces, with_tracing},
+    };
+
+    static TEST_CASES: LazyLock<[(KeepRaw<'_, MintedTransactionBody<'_>>, &str); 2]> =
+        LazyLock::new(|| {
+            macro_rules! include_testing_data {
+                ($path:literal, $hash:literal) => {
+                    (
+                        include_transaction_body!($path, $hash),
+                        include_expected_traces!($path, $hash),
+                    )
+                };
+            }
+
+            [
+                include_testing_data!(
+                    "../../../tests",
+                    "f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7"
+                ),
+                include_testing_data!(
+                    "../../../tests",
+                    "a81147b58650b80f08986b29dad7f5efedd53ff215c17659f9dd0596e9a3d227"
+                ),
+            ]
+        });
+
+    #[test_case(&TEST_CASES[0])]
+    #[test_case(&TEST_CASES[1])]
+    fn valid_withdrawal((tx, expected_traces): &(KeepRaw<'_, MintedTransactionBody<'_>>, &str)) {
+        with_tracing(|collector| {
+            let mut context = AssertValidationContext::from(AssertPreparationContext {
+                utxo: Default::default(),
+            });
+
+            assert!(super::execute(&mut context, tx.withdrawals.as_deref()).is_ok());
+
+            match verify_traces(collector.lines.lock().unwrap().clone(), expected_traces) {
+                Ok(_) => {}
+                Err(e) => panic!("{:?}", e),
+            }
+        });
+    }
+}
