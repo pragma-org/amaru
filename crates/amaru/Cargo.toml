@@ -15,8 +15,8 @@ build = "build.rs"
 
 [dependencies]
 async-trait.workspace = true
-clap = { workspace = true, features = ["derive", "env"] }
-gasket = { workspace = true, features = ["derive"] }
+clap.workspace = true
+gasket.workspace = true
 hex.workspace = true
 indicatif.workspace = true
 indoc.workspace = true

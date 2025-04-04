@@ -18,9 +18,9 @@ resolver = "2"
 anyhow = "1.0.95"
 async-trait = "0.1.83"
 bech32 = "0.11.0"
-clap = "4.5.35"
+clap = { version = "4.5.35", features = ["derive", "env"] }
 futures-util = "0.3.31"
-gasket = "0.9.0"
+gasket = { version = "0.9.0", features = ["derive"] }
 hex = "0.4.3"
 indicatif = "0.17.9"
 indoc = "2.0"
@@ -28,7 +28,7 @@ minicbor = "0.25.1"
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.29.1"
 opentelemetry-otlp = { version = "0.29.0", features = [ "grpc-tonic", "http-proto", "reqwest-blocking-client" ] }
-opentelemetry_sdk = { version = "0.29.0", features = [] }
+opentelemetry_sdk = "0.29.0"
 pallas-addresses = "0.32.0"
 pallas-codec = "0.32.0" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v0.32.0/pallas-codec/Cargo.toml#L22)
 pallas-crypto = "0.32.0"

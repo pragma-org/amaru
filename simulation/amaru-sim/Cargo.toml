@@ -15,9 +15,9 @@ ignored = ["amaru-consensus", "amaru-kernel", "amaru-ledger", "amaru-ouroboros",
 
 [dependencies]
 async-trait.workspace = true
-clap = { workspace = true, features = ["derive", "env"] }
+clap.workspace = true
 futures-util.workspace = true
-gasket = { workspace = true, features = ["derive"] }
+gasket.workspace = true
 hex.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
