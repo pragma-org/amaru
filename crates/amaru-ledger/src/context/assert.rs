@@ -158,8 +158,23 @@ impl AccountsSlice for AssertValidationContext {
         unimplemented!()
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            credential.hash_type = match &_credential {
+                StakeCredential::ScriptHash(_) => "ScriptHash",
+                StakeCredential::AddrKeyhash(_) => "AddrKeyhash",
+            },
+            credential.hash = match &_credential {
+                    StakeCredential::ScriptHash(hash) => hex::encode(hash),
+                    StakeCredential::AddrKeyhash(hash) => hex::encode(hash),
+            }
+        ),
+        skip_all,
+        name = "withdraw_from"
+    )]
     fn withdraw_from(&mut self, _credential: StakeCredential) {
-        unimplemented!()
+        // We don't actually do any VolatileState updates here
     }
 }
 

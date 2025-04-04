@@ -85,6 +85,14 @@ pub fn execute(
     transaction_witness_set: &MintedWitnessSet<'_>,
     transaction_auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<(), InvalidTransaction> {
+    if let Some(withdrawals) = &transaction_body.withdrawals {
+        println!(
+            "Withdrawal Count: {:?}\ntx: {}\n{}",
+            withdrawals.len(),
+            transaction_body.original_hash(),
+            hex::encode(transaction_body.raw_cbor())
+        )
+    }
     let transaction_id = transaction_body.original_hash();
 
     let mut transaction_body = transaction_body.unwrap();
