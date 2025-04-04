@@ -223,12 +223,9 @@ impl WitnessSlice for AssertValidationContext {
                 StakeCredential::ScriptHash(_) => "ScriptHash",
                 StakeCredential::AddrKeyhash(_) => "AddrKeyhash",
             },
-            credential.hash = {
-                let hex_string = match &credential {
+            credential.hash = match &credential {
                     StakeCredential::ScriptHash(hash) => hex::encode(hash),
                     StakeCredential::AddrKeyhash(hash) => hex::encode(hash),
-                };
-                hex_string
             }
         ),
         skip_all,

@@ -173,6 +173,61 @@ pub(crate) mod tests {
     // Test Helpers
     // -----------------------------------------------------------------------------
 
+    #[derive(Debug)]
+    // This is just to provide additional context when a test fails due to invalid tracing
+    // Not actually used in code (except for Debug), so we have to allow dead_code
+    #[allow(dead_code)]
+    pub(crate) enum InvalidTrace {
+        TraceLengthMismatch {
+            expected: usize,
+            actual: usize,
+        },
+        InvalidTrace {
+            expected: String,
+            actual: String,
+            index: usize,
+        },
+    }
+
+    pub(crate) fn verify_traces(
+        collected_traces: Vec<String>,
+        expected_traces: &str,
+    ) -> Result<(), InvalidTrace> {
+        let expected_traces: Vec<String> = expected_traces
+            .lines()
+            .filter_map(|line| {
+                if line.trim().is_empty() {
+                    None
+                } else {
+                    Some(line.to_string())
+                }
+            })
+            .collect();
+
+        if collected_traces.len() != expected_traces.len() {
+            return Err(InvalidTrace::TraceLengthMismatch {
+                expected: expected_traces.len(),
+                actual: collected_traces.len(),
+            });
+        }
+
+        for (index, (actual, expected)) in collected_traces
+            .into_iter()
+            .zip(expected_traces.into_iter())
+            .enumerate()
+        {
+            if actual != expected {
+                return Err(InvalidTrace::InvalidTrace {
+                    expected,
+                    actual,
+                    index,
+                });
+            }
+        }
+
+        Ok(())
+    }
+
     pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
         TransactionInput {
             transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()),
