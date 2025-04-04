@@ -380,7 +380,7 @@ pub(crate) mod tests {
 
     /// Very simple function to generate random sequence of bytes of given length.
     pub fn random_bytes(arg: u32) -> Vec<u8> {
-        let mut rng = StdRng::from_entropy();
+        let mut rng = StdRng::from_os_rng();
         let mut buffer = vec![0; arg as usize];
         rng.fill_bytes(&mut buffer);
         buffer

@@ -18,9 +18,9 @@ resolver = "2"
 anyhow = "1.0.95"
 async-trait = "0.1.83"
 bech32 = "0.11.0"
-clap = "4.5.20"
+clap = "4.5.35"
 futures-util = "0.3.31"
-gasket = "0.8.0"
+gasket = "0.9.0"
 hex = "0.4.3"
 indicatif = "0.17.9"
 indoc = "2.0"
@@ -44,8 +44,8 @@ rocksdb = { version = "0.23.0", default-features = false, features = [
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0.128", default-features = false }
 sha3 = "0.10.8"
-sysinfo = "0.33.1"
-thiserror = "2.0.3"
+sysinfo = "0.34.2"
+thiserror = "2.0.12"
 tokio = { version = "1.40.0", features = ["sync"] }
 tokio-util = "0.7.12"
 tokio-stream = "0.1.17"
@@ -68,9 +68,9 @@ vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c24
 kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
 
 # dev-dependencies
-ctor = "0.3.6"
+ctor = "0.4.1"
 tempfile = "3.15.0"
-rand = "0.8"
+rand = "0.9.0"
 proptest = { version = "1.5.0", default-features = false, features = ["alloc"] }
 insta = "1.41.1"
 envpath = "0.0.1-beta.3"
