@@ -99,7 +99,10 @@ impl Consensus {
         fork: Vec<Header>,
         span: &Span,
     ) -> Vec<ValidateHeaderEvent> {
-        let mut result = vec![ValidateHeaderEvent::Rollback(rollback_point.clone())];
+        let mut result = vec![ValidateHeaderEvent::Rollback(
+            rollback_point.clone(),
+            span.clone(),
+        )];
 
         for header in fork {
             result.push(self.forward_block(peer, &header, span));
@@ -205,7 +208,7 @@ impl Consensus {
         match result {
             RollbackChainSelection::RollbackTo(hash) => {
                 trace!(target: EVENT_TARGET, %hash, "rollback");
-                Ok(vec![ValidateHeaderEvent::Rollback(rollback.clone())])
+                Ok(vec![ValidateHeaderEvent::Rollback(rollback.clone(), span)])
             }
             RollbackChainSelection::SwitchToFork(Fork {
                 peer,

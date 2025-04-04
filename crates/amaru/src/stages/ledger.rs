@@ -6,6 +6,7 @@ use amaru_ledger::{
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
+use anyhow::Context;
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
 use std::sync::Arc;
 use tracing::{instrument, Level, Span};
@@ -52,21 +53,10 @@ impl<S: Store + Send> Stage<S> {
         )
     }
 
-    #[allow(clippy::panic)]
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "ledger.roll_forward"
-    )]
-    pub async fn roll_forward(
-        &mut self,
-        point: Point,
-        raw_block: RawBlock,
-    ) -> BlockValidationResult {
+    fn roll_forward_impl(&mut self, point: Point, raw_block: RawBlock) -> anyhow::Result<()> {
         let mut ctx = context::DefaultPreparationContext::new();
 
-        let block = parse_block(&raw_block[..])
-            .unwrap_or_else(|e| panic!("Failed to parse block: {:?}", e));
+        let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
 
         let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
 
@@ -78,7 +68,7 @@ impl<S: Store + Send> Stage<S> {
         let inputs = self
             .state
             .resolve_inputs(&Default::default(), ctx.utxo.into_iter())
-            .unwrap_or_else(|e| panic!("Failed to resolve inputs: {e:?}"))
+            .context("Failed to resolve inputs")?
             .into_iter()
             // NOTE:
             // It isn't okay to just fail early here because we may be missing UTxO even on valid
@@ -97,15 +87,27 @@ impl<S: Store + Send> Stage<S> {
             context::DefaultValidationContext::new(inputs),
             ProtocolParameters::default(),
             block,
-        )
-        .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e))
-        .anchor(&point, issuer);
+        )?;
 
-        let current_span = Span::current();
+        self.state.forward(state.anchor(&point, issuer))?;
 
-        match self.state.forward(state) {
-            Ok(()) => BlockValidationResult::BlockValidated(point, current_span),
-            Err(_) => BlockValidationResult::BlockForwardStorageFailed(point, current_span),
+        Ok(())
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "ledger.roll_forward"
+    )]
+    pub fn roll_forward(
+        &mut self,
+        point: Point,
+        raw_block: RawBlock,
+        span: Span,
+    ) -> BlockValidationResult {
+        match self.roll_forward_impl(point.clone(), raw_block) {
+            Ok(_) => BlockValidationResult::BlockValidated(point, span),
+            Err(_) => BlockValidationResult::BlockValidationFailed(point, span),
         }
     }
 
@@ -114,11 +116,11 @@ impl<S: Store + Send> Stage<S> {
         skip_all,
         name = "ledger.roll_backward",
     )]
-    pub async fn rollback_to(&mut self, point: Point) -> BlockValidationResult {
+    pub async fn rollback_to(&mut self, point: Point, span: Span) -> BlockValidationResult {
         match self.state.backward(&point) {
-            Ok(_) => BlockValidationResult::RolledBackTo(point),
+            Ok(_) => BlockValidationResult::RolledBackTo(point, span),
             Err(BackwardError::UnknownRollbackPoint(_)) => {
-                BlockValidationResult::InvalidRollbackPoint(point)
+                BlockValidationResult::BlockValidationFailed(point, span)
             }
         }
     }
@@ -153,11 +155,17 @@ impl<S: Store + Send> gasket::framework::Worker<Stage<S>> for Worker {
         let result = match unit {
             ValidateBlockEvent::Validated(point, raw_block, parent_span) => {
                 // Restore parent span
-                Span::current().set_parent(parent_span.context());
-                stage.roll_forward(point.clone(), raw_block.to_vec()).await
+                let span = Span::current();
+                span.set_parent(parent_span.context());
+                stage.roll_forward(point.clone(), raw_block.to_vec(), span)
             }
 
-            ValidateBlockEvent::Rollback(point) => stage.rollback_to(point.clone()).await,
+            ValidateBlockEvent::Rollback(point, parent_span) => {
+                // Restore parent span
+                let span = Span::current();
+                span.set_parent(parent_span.context());
+                stage.rollback_to(point.clone(), span).await
+            }
         };
 
         Ok(stage.downstream.send(result.into()).await.or_panic()?)

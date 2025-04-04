@@ -20,7 +20,7 @@ use tracing::{instrument, Level};
 
 pub use block::execute as validate_block;
 
-mod block;
+pub mod block;
 mod transaction;
 
 #[derive(Debug)]

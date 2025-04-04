@@ -18,7 +18,7 @@ use amaru_ledger::BlockValidationResult;
 use gasket::framework::*;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{error_span, info, trace_span, warn};
+use tracing::trace_span;
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
@@ -87,33 +87,26 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
 
                 Ok(())
             }
-            BlockValidationResult::BlockForwardStorageFailed(point, span) => {
-                let _span = error_span!(
+            BlockValidationResult::BlockValidationFailed(point, span) => {
+                let _span = trace_span!(
                     target: EVENT_TARGET,
                     parent: span,
-                    "forward.storage_failed",
+                    "forward.block_validation_failed",
                     slot = ?point.slot_or_default(),
                     hash = %Hash::<32>::from(point),
                 );
 
                 Err(WorkerError::Panic)
             }
-            BlockValidationResult::InvalidRollbackPoint(point) => {
-                warn!(
+            BlockValidationResult::RolledBackTo(point, span) => {
+                let _span = trace_span!(
                     target: EVENT_TARGET,
-                    slot = point.slot_or_default(),
+                    parent: span,
+                    "rolled_back_to",
+                    slot = ?point.slot_or_default(),
                     hash = %Hash::<32>::from(point),
-                    "invalid_rollback_point"
                 );
-                Ok(())
-            }
-            BlockValidationResult::RolledBackTo(point) => {
-                info!(
-                    target: EVENT_TARGET,
-                    slot = point.slot_or_default(),
-                    hash = %Hash::<32>::from(point),
-                    "rolled_back_to"
-                );
+
                 Ok(())
             }
         }

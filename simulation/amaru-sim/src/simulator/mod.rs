@@ -211,7 +211,7 @@ async fn write_events(
                 };
                 msgs.push(envelope);
             }
-            ValidateHeaderEvent::Rollback(point) => {
+            ValidateHeaderEvent::Rollback(point, _span) => {
                 let h: Hash<32> = point.into();
                 let fwd = ChainSyncMessage::Bck {
                     msg_id: 0, // FIXME
