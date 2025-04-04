@@ -39,10 +39,24 @@ pub mod summary;
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::{
+        io::Write,
+        sync::{Arc, Mutex},
+    };
+
     use amaru_kernel::{
         Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
     };
 
+    use tracing::Dispatch;
+    use tracing_subscriber::{
+        fmt::{self, format::FmtSpan},
+        layer::SubscriberExt,
+    };
+
+    // -----------------------------------------------------------------------------
+    // Testing Macros
+    // -----------------------------------------------------------------------------
     macro_rules! include_transaction_body {
         ($test_directory:literal, $hash:literal) => {
             cbor::decode::<KeepRaw<'_, MintedTransactionBody<'_>>>(include_bytes!(concat!(
@@ -91,6 +105,74 @@ pub(crate) mod tests {
 
     pub(crate) use include_transaction_body;
     pub(crate) use include_witness_set;
+
+    // -----------------------------------------------------------------------------
+    // Tracing for Tests
+    // -----------------------------------------------------------------------------
+
+    #[derive(Clone)]
+    pub(crate) struct TestingTraceCollector {
+        pub lines: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl TestingTraceCollector {
+        pub fn new() -> Self {
+            TestingTraceCollector {
+                lines: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+        pub fn clear(&mut self) {
+            self.lines.lock().unwrap().clear();
+        }
+    }
+
+    impl Write for TestingTraceCollector {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            if let Ok(s) = std::str::from_utf8(buf) {
+                for line in s.lines() {
+                    if !line.is_empty() {
+                        self.lines.lock().unwrap().push(line.to_string());
+                    }
+                }
+            }
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+
+    pub(crate) fn with_tracing<F, R>(test_fn: F) -> R
+    where
+        F: FnOnce(&TestingTraceCollector) -> R,
+    {
+        let mut collector = TestingTraceCollector::new();
+        collector.clear();
+        let collector_clone = collector.clone();
+        let format_layer = fmt::layer()
+            .with_writer(move || collector_clone.clone())
+            .json()
+            .with_span_events(FmtSpan::ENTER)
+            .without_time()
+            .with_level(false)
+            .with_target(false)
+            .with_thread_ids(false)
+            .with_thread_names(false)
+            .with_ansi(false)
+            .compact();
+
+        let subscriber = tracing_subscriber::registry().with(format_layer);
+
+        let dispatch = Dispatch::new(subscriber);
+        // explicit variable here to ensure it survives the lifetime of the test function
+        let _guard = tracing::dispatcher::set_default(&dispatch);
+        test_fn(&collector)
+    }
+
+    // -----------------------------------------------------------------------------
+    // Test Helpers
+    // -----------------------------------------------------------------------------
 
     pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
         TransactionInput {

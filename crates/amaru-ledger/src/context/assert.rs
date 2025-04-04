@@ -24,6 +24,7 @@ use amaru_kernel::{
 };
 use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
+use tracing::{instrument, Level};
 
 // ------------------------------------------------------------------------------------- Preparation
 
@@ -215,6 +216,24 @@ impl ProposalsSlice for AssertValidationContext {
 }
 
 impl WitnessSlice for AssertValidationContext {
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            credential.hash_type = match &credential {
+                StakeCredential::ScriptHash(_) => "ScriptHash",
+                StakeCredential::AddrKeyhash(_) => "AddrKeyhash",
+            },
+            credential.hash = {
+                let hex_string = match &credential {
+                    StakeCredential::ScriptHash(hash) => hex::encode(hash),
+                    StakeCredential::AddrKeyhash(hash) => hex::encode(hash),
+                };
+                hex_string
+            }
+        ),
+        skip_all,
+        name = "require_witness"
+    )]
     fn require_witness(&mut self, credential: StakeCredential) {
         match credential {
             StakeCredential::AddrKeyhash(vk_hash) => {

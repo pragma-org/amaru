@@ -105,7 +105,7 @@ mod tests {
 
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
-        tests::include_transaction_body,
+        tests::{include_transaction_body, with_tracing},
     };
     use amaru_kernel::{cbor, KeepRaw, MintedTransactionBody};
 
@@ -189,13 +189,15 @@ mod tests {
             AssertPreparationContext,
         ),
     ) {
-        let mut validation_context = AssertValidationContext::from(ctx.clone());
-        assert!(super::execute(
-            &mut validation_context,
-            &tx.inputs,
-            tx.reference_inputs.as_deref(),
-            tx.collateral.as_deref(),
-        )
-        .is_ok());
+        with_tracing(|_collector| {
+            let mut validation_context = AssertValidationContext::from(ctx.clone());
+            assert!(super::execute(
+                &mut validation_context,
+                &tx.inputs,
+                tx.reference_inputs.as_deref(),
+                tx.collateral.as_deref(),
+            )
+            .is_ok());
+        })
     }
 }
