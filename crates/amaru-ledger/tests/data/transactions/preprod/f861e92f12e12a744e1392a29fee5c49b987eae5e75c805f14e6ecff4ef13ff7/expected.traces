@@ -1,2 +1,3 @@
-require_witness: {"message":"enter"} {"credential.hash":"8d663bd0357c221f1d5eaae50239046a1a3b21c7ee50f69a135604c2","credential.hash_type":"AddrKeyhash"}
-withdraw_from: {"message":"enter"} {"credential.hash":"8d663bd0357c221f1d5eaae50239046a1a3b21c7ee50f69a135604c2","credential.hash_type":"AddrKeyhash"}
+[ "require_witness: {\"message\":\"enter\"} {\"credential.hash\":\"8d663bd0357c221f1d5eaae50239046a1a3b21c7ee50f69a135604c2\",\"credential.hash_type\":\"AddrKeyhash\"}"
+, "withdraw_from: {\"message\":\"enter\"} {\"credential.hash\":\"8d663bd0357c221f1d5eaae50239046a1a3b21c7ee50f69a135604c2\",\"credential.hash_type\":\"AddrKeyhash\"}"
+]

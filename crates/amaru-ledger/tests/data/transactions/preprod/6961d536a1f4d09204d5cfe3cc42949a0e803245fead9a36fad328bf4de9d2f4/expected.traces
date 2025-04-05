@@ -1,4 +1,5 @@
-require_witness: {"message":"enter"} {"credential.hash":"bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3","credential.hash_type":"AddrKeyhash"}
-require_witness: {"message":"enter"} {"credential.hash":"3f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad","credential.hash_type":"ScriptHash"}
-require_witness: {"message":"enter"} {"credential.hash":"bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3","credential.hash_type":"AddrKeyhash"}
-require_witness: {"message":"enter"} {"credential.hash":"bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3","credential.hash_type":"AddrKeyhash"}
+[ "require_witness: {\"message\":\"enter\"} {\"credential.hash\":\"bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3\",\"credential.hash_type\":\"AddrKeyhash\"}"
+, "require_witness: {\"message\":\"enter\"} {\"credential.hash\":\"3f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad\",\"credential.hash_type\":\"ScriptHash\"}"
+, "require_witness: {\"message\":\"enter\"} {\"credential.hash\":\"bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3\",\"credential.hash_type\":\"AddrKeyhash\"}"
+, "require_witness: {\"message\":\"enter\"} {\"credential.hash\":\"bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3\",\"credential.hash_type\":\"AddrKeyhash\"}"
+]

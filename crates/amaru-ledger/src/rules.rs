@@ -124,7 +124,7 @@ pub(crate) fn verify_ed25519_signature(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
@@ -188,7 +188,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::wildcard_enum_match_arm)]
     fn validate_block_header_size_too_big() {
         let pp = ProtocolParameters {
             max_header_size: 1,
@@ -210,4 +209,20 @@ mod tests {
             })
         )
     }
+
+    macro_rules! fixture_context {
+        ($hash:literal) => {
+            include_json!(concat!("transactions/preprod/", $hash, "/context.json"))
+        };
+        ($hash:literal, $variant:literal) => {
+            include_json!(concat!(
+                "transactions/preprod/",
+                $hash,
+                "/",
+                $variant,
+                "/context.json"
+            ))
+        };
+    }
+    pub(crate) use fixture_context;
 }

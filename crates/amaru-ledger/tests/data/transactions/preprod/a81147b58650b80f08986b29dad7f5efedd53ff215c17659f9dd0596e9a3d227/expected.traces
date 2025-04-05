@@ -1,4 +1,5 @@
-require_witness: {"message":"enter"} {"credential.hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae","credential.hash_type":"ScriptHash"}
-withdraw_from: {"message":"enter"} {"credential.hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae","credential.hash_type":"ScriptHash"}
-require_witness: {"message":"enter"} {"credential.hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774","credential.hash_type":"ScriptHash"}
-withdraw_from: {"message":"enter"} {"credential.hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774","credential.hash_type":"ScriptHash"}
+[ "require_witness: {\"message\":\"enter\"} {\"credential.hash\":\"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae\",\"credential.hash_type\":\"ScriptHash\"}"
+, "withdraw_from: {\"message\":\"enter\"} {\"credential.hash\":\"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae\",\"credential.hash_type\":\"ScriptHash\"}"
+, "require_witness: {\"message\":\"enter\"} {\"credential.hash\":\"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774\",\"credential.hash_type\":\"ScriptHash\"}"
+, "withdraw_from: {\"message\":\"enter\"} {\"credential.hash\":\"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774\",\"credential.hash_type\":\"ScriptHash\"}"
+]

@@ -62,103 +62,64 @@ pub fn execute(
 
 #[cfg(test)]
 mod tests {
-    use crate::tests::include_transaction_body;
-    use amaru_kernel::{cbor, from_cbor, AuxiliaryData, Hash, KeepRaw, MintedTransactionBody};
-
     use super::InvalidTransactionMetadata;
+    use amaru_kernel::{include_cbor, AuxiliaryData, MintedTransactionBody};
+    use test_case::test_case;
 
-    macro_rules! include_auxiliary_data {
-        ($hash:literal) => {
-            from_cbor::<AuxiliaryData>(include_bytes!(concat!(
-                "../../../tests/data/transactions/preprod/",
-                $hash,
+    macro_rules! fixture_tx {
+        ($title:expr) => {
+            include_cbor!(concat!("transactions/preprod/", $title, "/tx.cbor"))
+        };
+    }
+
+    macro_rules! fixture_aux_data {
+        ($title:literal) => {
+            include_cbor!(concat!(
+                "transactions/preprod/",
+                $title,
                 "/auxiliary-data.cbor"
-            )))
-            .unwrap()
-        };
-        ($hash:literal, $test_variant:literal) => {
-            from_cbor::<AuxiliaryData>(include_bytes!(concat!(
-                "../../../tests/data/transactions/preprod/",
-                $hash,
-                "/",
-                $test_variant,
-                "/auxiliary_data.cbor"
-            )))
-            .unwrap()
+            ))
         };
     }
 
-    #[test]
-    fn valid_metadata() {
-        let tx_body = include_transaction_body!(
-            "../../../tests",
-            "a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7"
-        );
-        let auxiliary_data = include_auxiliary_data!(
-            "a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7"
-        );
-
-        let result = super::execute(&tx_body, Some(&auxiliary_data));
-        assert!(result.is_ok());
+    macro_rules! fixture {
+        ($hash:literal) => {
+            (fixture_tx!($hash), Some(fixture_aux_data!($hash)))
+        };
+        ($hash:literal, $variant:literal) => {
+            (
+                fixture_tx!(concat!($hash, "/", $variant)),
+                Some(fixture_aux_data!($hash)),
+            )
+        };
+        ($hash:literal, $pat:pat) => {
+            (fixture_tx!($hash), None)
+        };
     }
 
-    #[test]
-    fn missing_auxiliary_data_hash() {
-        let tx_body = include_transaction_body!(
-            "../../../tests",
-            "a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7",
-            "missing-adh"
-        );
-        let auxiliary_data = include_auxiliary_data!(
-            "a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7"
-        );
-        let expected_adh: Hash<32> = Hash::from(*include_bytes!("../../../tests/data/transactions/preprod/a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7/adh.bytes"));
-
-        let result = super::execute(&tx_body, Some(&auxiliary_data));
-        match result {
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash)) => {
-                assert_eq!(hash, expected_adh);
-            }
-            Err(_) => panic!("Expected MissingTransactionAuxiliaryDataHash error"),
-        }
-    }
-
-    #[test]
-    fn missing_auxiliary_data() {
-        let tx_body = include_transaction_body!(
-            "../../../tests",
-            "a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7"
-        );
-
-        let result = super::execute(&tx_body, None);
-        match result {
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(InvalidTransactionMetadata::MissingTransactionMetadata(_)) => {}
-            Err(_) => panic!("Expected MissingTransactionMetadata error"),
-        }
-    }
-
-    #[test]
-    fn conflicting_auxiliary_data_hash() {
-        let tx_body = include_transaction_body!(
-            "../../../tests",
-            "a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7",
-            "conflicting-adh"
-        );
-
-        let auxiliary_data = include_auxiliary_data!(
-            "a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7"
-        );
-
-        let result = super::execute(&tx_body, Some(&auxiliary_data));
-        match result {
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(InvalidTransactionMetadata::ConflictingMetadataHash {
-                supplied: _,
-                expected: _,
-            }) => {}
-            Err(_) => panic!("Expected MissingTransactionMetadata error"),
-        }
+    #[test_case(
+        fixture!("a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7");
+        "valid")
+    ]
+    #[test_case(
+        fixture!("a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7", "missing-adh") =>
+        matches Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash))
+            if &hash.to_string() == "880443667460ae3b3016366d5bf66aca62c8149d67a53e94dde37120adffa624";
+        "missing data hash"
+    )]
+    #[test_case(
+        fixture!("a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7", "conflicting-adh") =>
+        matches Err(InvalidTransactionMetadata::ConflictingMetadataHash{..});
+        "hash mismatch"
+    )]
+    #[test_case(
+        fixture!("a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7", None) =>
+        matches Err(InvalidTransactionMetadata::MissingTransactionMetadata{..});
+        "missing auxiliary data"
+    )]
+    fn test_metadata(
+        (transaction, auxiliary_data): (MintedTransactionBody<'_>, Option<AuxiliaryData>),
+    ) -> Result<(), InvalidTransactionMetadata> {
+        super::execute(&transaction, auxiliary_data.as_ref())
     }
 }

@@ -23,9 +23,12 @@ While elements are being contributed upstream, they might transiently live in th
 
 use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
 use num::{rational::Ratio, BigUint};
-pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
+use sha3::{Digest as _, Sha3_256};
+use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyLock};
+
+pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
     minicbor as cbor,
     utils::{Bytes, NonEmptyKeyValuePairs, Nullable, Set},
@@ -49,11 +52,9 @@ pub use pallas_primitives::{
         VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
-pub use sha3;
-use sha3::{Digest as _, Sha3_256};
-use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyLock};
-
 pub use pallas_traverse::{ComputeHash, OriginalHash};
+pub use serde_json as json;
+pub use sha3;
 
 pub mod macros;
 pub mod network;
@@ -675,114 +676,41 @@ mod test {
     use super::*;
     use test_case::test_case;
 
-    #[test]
-    fn test_equal_pointers() {
-        let pointer = CertificatePointer {
+    #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
+    #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
+    #[test_case((42, 0, 0), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
+    #[test_case((42, 0, 0), (42, 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
+    #[test_case((42, 0, 5), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
+    fn test_pointers(
+        left: (Slot, usize, usize),
+        right: (Slot, usize, usize),
+    ) -> (CertificatePointer, CertificatePointer) {
+        let new_pointer = |args: (Slot, usize, usize)| CertificatePointer {
             transaction_pointer: TransactionPointer {
-                slot: 42,
-                transaction_index: 0,
+                slot: args.0,
+                transaction_index: args.1,
             },
-            certificate_index: 0,
+            certificate_index: args.2,
         };
-        assert_eq!(pointer, pointer);
+
+        (new_pointer(left), new_pointer(right))
     }
 
-    #[test]
-    fn test_pointer_accross_slots() {
-        let pointer = CertificatePointer {
-            transaction_pointer: TransactionPointer {
-                slot: 42,
-                transaction_index: 0,
-            },
-            certificate_index: 0,
+    macro_rules! fixture {
+        ($hash:literal) => {
+            (
+                include_cbor!(concat!("bootstrap_witnesses/", $hash, ".cbor")),
+                hash!($hash),
+            )
         };
-        let pointer_after = CertificatePointer {
-            transaction_pointer: TransactionPointer {
-                slot: 43,
-                transaction_index: 0,
-            },
-            certificate_index: 0,
-        };
-        assert!(pointer < pointer_after);
     }
 
-    #[test]
-    fn test_pointer_accross_transactions() {
-        let pointer = CertificatePointer {
-            transaction_pointer: TransactionPointer {
-                slot: 42,
-                transaction_index: 0,
-            },
-            certificate_index: 0,
-        };
-        let pointer_after = CertificatePointer {
-            transaction_pointer: TransactionPointer {
-                slot: 42,
-                transaction_index: 1,
-            },
-            certificate_index: 0,
-        };
-        assert!(pointer < pointer_after);
-
-        let pointer_between = CertificatePointer {
-            transaction_pointer: TransactionPointer {
-                slot: 42,
-                transaction_index: 0,
-            },
-            certificate_index: 5,
-        };
-        assert!(pointer_between < pointer_after);
-    }
-
-    #[test]
-    fn test_pointer_accross_certificates() {
-        let pointer = CertificatePointer {
-            transaction_pointer: TransactionPointer {
-                slot: 42,
-                transaction_index: 0,
-            },
-            certificate_index: 0,
-        };
-        let pointer_after = CertificatePointer {
-            transaction_pointer: TransactionPointer {
-                slot: 42,
-                transaction_index: 0,
-            },
-            certificate_index: 1,
-        };
-        assert!(pointer < pointer_after);
-    }
-
-    static BOOTSTRAP_WITNESSES: LazyLock<[(BootstrapWitness, Hash<28>); 5]> = LazyLock::new(|| {
-        macro_rules! import_bootstrap_witness {
-            ($hash:literal) => {
-                (
-                    from_cbor(include_bytes!(concat!(
-                        "../tests/data/bootstrap_witnesses/",
-                        $hash,
-                        ".cbor"
-                    )))
-                    .unwrap(),
-                    hash!($hash),
-                )
-            };
-        }
-
-        [
-            import_bootstrap_witness!("232b6238656c07529e08b152f669507e58e2cb7491d0b586d9dbe425"),
-            import_bootstrap_witness!("323ea3dd5b510b1bd5380b413477179df9a6de89027fd817207f32c6"),
-            import_bootstrap_witness!("59f44fd32ee319bcea9a51e7b84d7c4cb86f7b9b12f337f6ca9e9c85"),
-            import_bootstrap_witness!("65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8e"),
-            import_bootstrap_witness!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"),
-        ]
-    });
-
-    #[test_case(&BOOTSTRAP_WITNESSES[0])]
-    #[test_case(&BOOTSTRAP_WITNESSES[1])]
-    #[test_case(&BOOTSTRAP_WITNESSES[2])]
-    #[test_case(&BOOTSTRAP_WITNESSES[3])]
-    #[test_case(&BOOTSTRAP_WITNESSES[4])]
-    fn to_root_key_hash((bootstrap_witness, root): &(BootstrapWitness, Hash<28>)) {
-        assert_eq!(to_root(bootstrap_witness).as_slice(), root.as_slice())
+    #[test_case(fixture!("232b6238656c07529e08b152f669507e58e2cb7491d0b586d9dbe425"))]
+    #[test_case(fixture!("323ea3dd5b510b1bd5380b413477179df9a6de89027fd817207f32c6"))]
+    #[test_case(fixture!("59f44fd32ee319bcea9a51e7b84d7c4cb86f7b9b12f337f6ca9e9c85"))]
+    #[test_case(fixture!("65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8e"))]
+    #[test_case(fixture!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"))]
+    fn to_root_key_hash((bootstrap_witness, root): (BootstrapWitness, Hash<28>)) {
+        assert_eq!(to_root(&bootstrap_witness).as_slice(), root.as_slice())
     }
 }

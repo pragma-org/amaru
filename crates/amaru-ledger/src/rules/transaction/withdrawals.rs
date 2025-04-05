@@ -65,42 +65,27 @@ where
 
 #[cfg(test)]
 mod test {
-    use std::sync::LazyLock;
-
-    use amaru_kernel::{cbor, KeepRaw, MintedTransactionBody};
-    use test_case::test_case;
-
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
-        tests::{include_expected_traces, include_transaction_body, verify_traces, with_tracing},
+        tests::{verify_traces, with_tracing},
     };
+    use amaru_kernel::{include_cbor, include_json, KeepRaw, MintedTransactionBody};
+    use test_case::test_case;
 
-    static TEST_CASES: LazyLock<[(KeepRaw<'_, MintedTransactionBody<'_>>, &str); 2]> =
-        LazyLock::new(|| {
-            macro_rules! include_testing_data {
-                ($path:literal, $hash:literal) => {
-                    (
-                        include_transaction_body!($path, $hash),
-                        include_expected_traces!($path, $hash),
-                    )
-                };
-            }
+    macro_rules! fixture {
+        ($hash:literal) => {
+            (
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+            )
+        };
+    }
 
-            [
-                include_testing_data!(
-                    "../../../tests",
-                    "f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7"
-                ),
-                include_testing_data!(
-                    "../../../tests",
-                    "a81147b58650b80f08986b29dad7f5efedd53ff215c17659f9dd0596e9a3d227"
-                ),
-            ]
-        });
-
-    #[test_case(&TEST_CASES[0])]
-    #[test_case(&TEST_CASES[1])]
-    fn valid_withdrawal((tx, expected_traces): &(KeepRaw<'_, MintedTransactionBody<'_>>, &str)) {
+    #[test_case(fixture!("f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7"))]
+    #[test_case(fixture!("a81147b58650b80f08986b29dad7f5efedd53ff215c17659f9dd0596e9a3d227"))]
+    fn valid_withdrawal(
+        (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<String>),
+    ) {
         with_tracing(|collector| {
             let mut context = AssertValidationContext::from(AssertPreparationContext {
                 utxo: Default::default(),

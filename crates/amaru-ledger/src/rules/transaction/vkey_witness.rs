@@ -90,276 +90,97 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
+    use amaru_kernel::{hash, include_cbor, include_json, WitnessSet};
+    use test_case::test_case;
 
-    use amaru_kernel::{
-        cbor, from_cbor, Hash, KeepRaw, MintedTransactionBody, OriginalHash, WitnessSet,
-    };
-
-    use crate::{
-        context::assert::AssertValidationContext,
-        tests::{include_transaction_body, include_witness_set},
-    };
-
-    macro_rules! include_test_data {
-        ($test_dir:literal, $hash:literal) => {
+    macro_rules! fixture {
+        ($hash:literal) => {
             (
-                serde_json::from_reader(std::io::BufReader::new(
-                    std::fs::File::open(concat!(
-                        "tests/data/transactions/preprod/",
-                        $hash,
-                        "/context.json"
-                    ))
-                    .unwrap(),
-                ))
-                .unwrap(),
-                include_transaction_body!($test_dir, $hash),
-                include_witness_set!($test_dir, $hash),
+                fixture_context!($hash),
+                hash!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
             )
         };
-        ($test_dir:literal, $hash:literal, $test_variant:literal) => {
+        ($hash:literal, $variant:literal) => {
             (
-                serde_json::from_reader(std::io::BufReader::new(
-                    std::fs::File::open(concat!(
-                        "tests/data/transactions/preprod/",
-                        $hash,
-                        "/",
-                        $test_variant,
-                        "/context.json"
-                    ))
-                    .unwrap(),
-                ))
-                .unwrap(),
-                include_transaction_body!($test_dir, $hash),
-                include_witness_set!($test_dir, $hash, $test_variant),
+                fixture_context!($hash, $variant),
+                hash!($hash),
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/witness.cbor"
+                )),
             )
         };
-    }
-
-    #[test]
-    fn valid_vkey_witnesses() {
-        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
-            "../../../tests",
-            "90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c"
-        );
-
-        assert!(matches!(
-            super::execute(
-                &mut ctx,
-                transaction_body.original_hash(),
-                witness_set.vkeywitness.as_deref(),
-            ),
-            Ok(())
-        ));
-    }
-    #[test]
-    fn invalid_signature() {
-        // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
-        // The witness set is modified to include an invalid signature
-        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
-            "../../../tests",
-            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
-            "invalid-signature"
-        );
-
-        match super::execute(
-            &mut ctx,
-            transaction_body.original_hash(),
-            witness_set.vkeywitness.as_deref(),
-        ) {
-            Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses }) => {
-                assert!(invalid_witnesses.len() == 1);
-                assert!(
-                    invalid_witnesses[0].position == 0
-                        && matches!(
-                            invalid_witnesses[0].element,
-                            InvalidEd25519Signature::InvalidSignature
-                        )
-                );
-            }
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(e) => panic!("Unexpected error variant: {:?}", e),
-        }
-    }
-
-    #[test]
-    fn invalid_signature_length() {
-        // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
-        // The witness set is modified to include an invalid signature (due to length)
-        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
-            "../../../tests",
-            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
-            "invalid-signature-length"
-        );
-
-        match super::execute(
-            &mut ctx,
-            transaction_body.original_hash(),
-            witness_set.vkeywitness.as_deref(),
-        ) {
-            Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses }) => {
-                assert!(invalid_witnesses.len() == 1);
-                assert!(
-                    invalid_witnesses[0].position == 0
-                        && matches!(
-                            invalid_witnesses[0].element,
-                            InvalidEd25519Signature::InvalidSignatureSize {
-                                error: _,
-                                expected: 64
-                            }
-                        )
-                );
-            }
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(e) => panic!("Unexpected error variant: {:?}", e),
-        }
-    }
-
-    #[test]
-    fn invalid_key_length() {
-        // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
-        // The witness set is modified to include an invalid signature (key length)
-        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
-            "../../../tests",
-            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
-            "invalid-key-length"
-        );
-
-        match super::execute(
-            &mut ctx,
-            transaction_body.original_hash(),
-            witness_set.vkeywitness.as_deref(),
-        ) {
-            Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses }) => {
-                assert!(invalid_witnesses.len() == 1);
-                assert!(
-                    invalid_witnesses[0].position == 1
-                        && matches!(
-                            invalid_witnesses[0].element,
-                            InvalidEd25519Signature::InvalidKeySize {
-                                error: _,
-                                expected: 32
-                            }
-                        )
-                );
-            }
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(e) => panic!("Unexpected error variant: {:?}", e),
-        }
-    }
-
-    #[test]
-    fn missing_spending_vkey() {
-        // The following test relies on a real tranasction found on Preprod (44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca)
-        // The context is modified to require a different signer than what is in the witness (and what is actually required on Preprod)
-        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
-            "../../../tests",
-            "44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca",
-            "missing-spending-vkey"
-        );
-
-        match super::execute(
-            &mut ctx,
-            transaction_body.original_hash(),
-            witness_set.vkeywitness.as_deref(),
-        ) {
-            Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes }) => {
-                assert_eq!(
-                    missing_key_hashes,
-                    vec![Hash::from(
-                        hex::decode("00000000000000000000000000000000000000000000000000000000")
-                            .expect("failed to decode hex key")
-                            .as_slice(),
-                    )]
-                )
-            }
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(e) => panic!("Unexpected error variant: {:?}", e),
-        }
-    }
-
-    #[test]
-    fn missing_required_signer_vkey() {
-        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
-            "../../../tests",
-            "806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb"
-        );
-
-        match super::execute(
-            &mut ctx,
-            transaction_body.original_hash(),
-            witness_set.vkeywitness.as_deref(),
-        ) {
-            Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes }) => {
-                assert_eq!(
-                    missing_key_hashes,
-                    vec![Hash::from(
-                        hex::decode("00000000000000000000000000000000000000000000000000000000")
-                            .expect("failed to decode missing key hash")
-                            .as_slice(),
-                    )]
-                )
-            }
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(e) => panic!("Unexpected error variant: {:?}", e),
-        }
     }
 
     // TODO: add tests for voting procedures
-
-    #[test]
-    fn missing_withdraw_vkey() {
-        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
-            "../../../tests",
-            "bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca"
-        );
-
-        match super::execute(
-            &mut ctx,
-            transaction_body.original_hash(),
-            witness_set.vkeywitness.as_deref(),
-        ) {
-            Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes }) => {
-                assert_eq!(
-                    missing_key_hashes,
-                    vec![Hash::from(
-                        hex::decode("61C083BA69CA5E6946E8DDFE34034CE84817C1B6A806B112706109DA")
-                            .expect("failed to decode")
-                            .as_slice(),
-                    )]
-                )
-            }
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(e) => panic!("Unexpected error variant: {:?}", e),
-        }
-    }
-
     // TODO: include more certificate variants
-    #[test]
-    fn missing_certificate_vkey() {
-        // The following test relies on a handrolled transaction based off of a Preprod transaction (4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2)
-        // The witness set has been modified to exclude the witness assosciated with the certificate
-        let (mut ctx, transaction_body, witness_set): (AssertValidationContext, _, _) = include_test_data!(
-            "../../../tests",
-            "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"
-        );
-
-        match super::execute(
-            &mut ctx,
-            transaction_body.original_hash(),
-            witness_set.vkeywitness.as_deref(),
-        ) {
-            Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes }) => {
-                assert_eq!(
-                    missing_key_hashes,
-                    vec![Hash::from(
-                        hex::decode("112909208360fb65678272a1d6ff45cf5cccbcbb52bcb0c59bb74862")
-                            .expect("failed to decode")
-                            .as_slice(),
-                    )]
-                )
-            }
-            Ok(_) => panic!("Expected Err, got Ok"),
-            Err(e) => panic!("Unexpected error variant: {:?}", e),
-        }
+    #[test_case(
+        fixture!("90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c");
+        "valid"
+    )]
+    #[test_case(
+        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-signature") =>
+        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
+            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 0 && matches!(
+                invalid_witnesses[0].element,
+                InvalidEd25519Signature::InvalidSignature
+            );
+        "invalid signature"
+    )]
+    #[test_case(
+        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-signature-length") =>
+        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
+            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 0 && matches!(
+                invalid_witnesses[0].element,
+                InvalidEd25519Signature::InvalidSignatureSize { expected: 64, .. }
+            );
+        "invalid signature size"
+    )]
+    #[test_case(
+        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-key-length") =>
+        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
+            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 1 && matches!(
+                invalid_witnesses[0].element,
+                InvalidEd25519Signature::InvalidKeySize { expected: 32, .. }
+            );
+        "invalid key size"
+    )]
+    #[test_case(
+        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "missing-spending-vkey") =>
+        matches Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes })
+            if missing_key_hashes[..] == [hash!("00000000000000000000000000000000000000000000000000000000")];
+        "missing required witness"
+    )]
+    #[test_case(
+        fixture!("806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb") =>
+        matches Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes })
+            if missing_key_hashes[..] == [hash!("00000000000000000000000000000000000000000000000000000000")];
+        "missing required signer"
+    )]
+    #[test_case(
+        fixture!("bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca") =>
+        matches Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes })
+            if missing_key_hashes[..] == [hash!("61c083ba69ca5e6946e8ddfe34034ce84817c1b6a806b112706109da")];
+        "missing withdraw vkey"
+    )]
+    #[test_case(
+        fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2") =>
+        matches Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes })
+            if missing_key_hashes[..] == [hash!("112909208360fb65678272a1d6ff45cf5cccbcbb52bcb0c59bb74862")];
+        "missing certificate vkey"
+    )]
+    fn test_vkey_witness(
+        (mut ctx, transaction_id, witness_set): (
+            AssertValidationContext,
+            TransactionId,
+            WitnessSet,
+        ),
+    ) -> Result<(), InvalidVKeyWitness> {
+        super::execute(&mut ctx, transaction_id, witness_set.vkeywitness.as_deref())
     }
 }

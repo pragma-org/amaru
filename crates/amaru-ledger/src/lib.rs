@@ -38,84 +38,18 @@ pub mod summary;
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use amaru_kernel::{
+        Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    };
     use std::{
         io::Write,
         sync::{Arc, Mutex},
     };
-
-    use amaru_kernel::{
-        Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
-    };
-
     use tracing::Dispatch;
     use tracing_subscriber::{
         fmt::{self, format::FmtSpan},
         layer::SubscriberExt,
     };
-
-    // -----------------------------------------------------------------------------
-    // Testing Macros
-    // -----------------------------------------------------------------------------
-    macro_rules! include_transaction_body {
-        ($test_directory:literal, $hash:literal) => {
-            cbor::decode::<KeepRaw<'_, MintedTransactionBody<'_>>>(include_bytes!(concat!(
-                $test_directory,
-                "/data/transactions/preprod/",
-                $hash,
-                "/tx.cbor"
-            )))
-            .unwrap()
-        };
-        ($test_directory:literal, $hash:literal, $test_variant:literal) => {
-            cbor::decode::<KeepRaw<'_, MintedTransactionBody<'_>>>(include_bytes!(concat!(
-                $test_directory,
-                "/data/transactions/preprod/",
-                $hash,
-                "/",
-                $test_variant,
-                "/tx.cbor"
-            )))
-            .unwrap()
-        };
-    }
-
-    macro_rules! include_witness_set {
-        ($test_directory:literal, $hash:literal, $test_variant:literal) => {
-            from_cbor::<WitnessSet>(include_bytes!(concat!(
-                $test_directory,
-                "/data/transactions/preprod/",
-                $hash,
-                "/",
-                $test_variant,
-                "/witness.cbor"
-            )))
-            .unwrap()
-        };
-        ($test_directory:literal, $hash:literal) => {
-            from_cbor::<WitnessSet>(include_bytes!(concat!(
-                $test_directory,
-                "/data/transactions/preprod/",
-                $hash,
-                "/witness.cbor"
-            )))
-            .unwrap()
-        };
-    }
-
-    macro_rules! include_expected_traces {
-        ($path:literal, $hash:literal) => {
-            include_str!(concat!(
-                $path,
-                "/data/transactions/preprod/",
-                $hash,
-                "/expected.traces"
-            ))
-        };
-    }
-
-    pub(crate) use include_expected_traces;
-    pub(crate) use include_transaction_body;
-    pub(crate) use include_witness_set;
 
     // -----------------------------------------------------------------------------
     // Tracing for Tests
@@ -203,10 +137,10 @@ pub(crate) mod tests {
 
     pub(crate) fn verify_traces(
         collected_traces: Vec<String>,
-        expected_traces: &str,
+        expected_traces: Vec<String>,
     ) -> Result<(), InvalidTrace> {
         let expected_traces: Vec<String> = expected_traces
-            .lines()
+            .into_iter()
             .filter_map(|line| {
                 if line.trim().is_empty() {
                     None
