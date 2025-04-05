@@ -19,19 +19,22 @@ use crate::context::{
     UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    serde_utils, stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep,
+    Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
+use tracing::{instrument, Level};
 
 // ------------------------------------------------------------------------------------- Preparation
 
 /// A Fake block preparation context that can used for testing. The context is expected to be
 /// provided upfront as test data, and all `require` method merely checks that the requested data
 /// pre-exists in the context.
-#[derive(Debug, Clone)]
+#[derive(serde::Deserialize, Debug, Clone)]
 pub struct AssertPreparationContext {
+    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
     pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
 }
 
@@ -76,8 +79,9 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 
 // -------------------------------------------------------------------------------------- Validation
 
-#[derive(Debug)]
+#[derive(Debug, serde::Deserialize)]
 pub struct AssertValidationContext {
+    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     required_signers: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
@@ -155,8 +159,17 @@ impl AccountsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn withdraw_from(&mut self, _credential: StakeCredential) {
-        unimplemented!()
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            credential.type = %stake_credential_type(&credential),
+            credential.hash = %stake_credential_hash(&credential),
+        )
+        skip_all,
+        name = "withdraw_from"
+    )]
+    fn withdraw_from(&mut self, credential: StakeCredential) {
+        // We don't actually do any VolatileState updates here
     }
 }
 
@@ -213,6 +226,15 @@ impl ProposalsSlice for AssertValidationContext {
 }
 
 impl WitnessSlice for AssertValidationContext {
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            credential.type = %stake_credential_type(&credential),
+            credential.hash = %stake_credential_hash(&credential),
+        )
+        skip_all,
+        name = "require_witness"
+    )]
     fn require_witness(&mut self, credential: StakeCredential) {
         match credential {
             StakeCredential::AddrKeyhash(vk_hash) => {

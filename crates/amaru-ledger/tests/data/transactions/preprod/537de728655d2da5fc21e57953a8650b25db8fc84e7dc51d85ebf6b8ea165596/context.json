@@ -1,0 +1,40 @@
+{
+  "utxo": [
+    [
+      {
+        "transaction_id": "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
+        "index": 0
+      },
+      {
+        "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+      }
+    ],
+    [
+      {
+        "transaction_id": "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
+        "index": 1
+      },
+      {
+        "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+      }
+    ],
+    [
+      {
+        "transaction_id": "08482b008bcff01635da743bdfb12c9b0529741eb58649ef9ecad977cc145026",
+        "index": 2
+      },
+      {
+        "address": "70f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9"
+      }
+    ],
+    [
+      {
+        "transaction_id": "714fdbf5df2f4aa875a4b98e5446d9419c5fd18680b9edcdba9195d31539aac1",
+        "index": 2
+      },
+      {
+        "address": "60fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01"
+      }
+    ]
+  ]
+}

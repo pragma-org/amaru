@@ -124,20 +124,15 @@ pub(crate) fn verify_ed25519_signature(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules,
-        rules::{
-            block::{InvalidBlock, InvalidBlockHeader},
-            transaction::{InvalidTransaction, InvalidVKeyWitness},
-        },
+        rules::block::{InvalidBlock, InvalidBlockHeader},
+        tests::{fake_input, fake_output},
     };
-    use amaru_kernel::{
-        protocol_parameters::ProtocolParameters, Bytes, Hash, PostAlonzoTransactionOutput,
-        TransactionInput, TransactionOutput, Value,
-    };
+    use amaru_kernel::protocol_parameters::ProtocolParameters;
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
@@ -170,22 +165,6 @@ mod tests {
             ]),
         });
 
-    fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
-        TransactionInput {
-            transaction_id: Hash::from(hex::decode(transaction_id).unwrap().as_slice()),
-            index,
-        }
-    }
-
-    fn fake_output(address: &str) -> TransactionOutput {
-        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
-            address: Bytes::from(hex::decode(address).unwrap()),
-            value: Value::Coin(0),
-            datum_option: None,
-            script_ref: None,
-        })
-    }
-
     #[test]
     fn validate_block_success() {
         let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
@@ -209,40 +188,6 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::wildcard_enum_match_arm)]
-    fn validate_block_vkey_witness_missing() {
-        let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();
-        ctx.utxo
-            .entry(fake_input(
-                "2e6b2226fd74ab0cadc53aaa18759752752bd9b616ea48c0e7b7be77d1af4bf4",
-                0,
-            ))
-            .and_modify(|o| {
-                *o = fake_output("6100000000000000000000000000000000000000000000000000000000")
-            });
-
-        let block = parse_block(&CONWAY_BLOCK).unwrap();
-
-        prepare_block(&mut ctx, &block);
-
-        assert!(rules::block::execute(
-            AssertValidationContext::from(ctx),
-            ProtocolParameters::default(),
-            block
-        )
-        .is_err_and(|e| matches!(
-            e,
-            InvalidBlock::Transaction {
-                violation: InvalidTransaction::VKeyWitness(
-                    InvalidVKeyWitness::MissingRequiredVkeyWitnesses { .. }
-                ),
-                ..
-            },
-        )));
-    }
-
-    #[test]
-    #[allow(clippy::wildcard_enum_match_arm)]
     fn validate_block_header_size_too_big() {
         let pp = ProtocolParameters {
             max_header_size: 1,
@@ -264,4 +209,20 @@ mod tests {
             })
         )
     }
+
+    macro_rules! fixture_context {
+        ($hash:literal) => {
+            include_json!(concat!("transactions/preprod/", $hash, "/context.json"))
+        };
+        ($hash:literal, $variant:literal) => {
+            include_json!(concat!(
+                "transactions/preprod/",
+                $hash,
+                "/",
+                $variant,
+                "/context.json"
+            ))
+        };
+    }
+    pub(crate) use fixture_context;
 }

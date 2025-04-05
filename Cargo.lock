@@ -105,6 +105,7 @@ dependencies = [
  "serde_json",
  "sha3",
  "slot-arithmetic",
+ "test-case",
  "thiserror 2.0.12",
 ]
 
@@ -119,9 +120,12 @@ dependencies = [
  "num",
  "proptest",
  "serde",
+ "serde_json",
  "slot-arithmetic",
+ "test-case",
  "thiserror 2.0.12",
  "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

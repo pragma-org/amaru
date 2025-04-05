@@ -62,3 +62,41 @@ where
 
     Ok(())
 }
+
+#[cfg(test)]
+mod test {
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        tests::{verify_traces, with_tracing},
+    };
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use test_case::test_case;
+
+    macro_rules! fixture {
+        ($hash:literal) => {
+            (
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+            )
+        };
+    }
+
+    #[test_case(fixture!("f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7"))]
+    #[test_case(fixture!("a81147b58650b80f08986b29dad7f5efedd53ff215c17659f9dd0596e9a3d227"))]
+    fn valid_withdrawal(
+        (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
+    ) {
+        with_tracing(|collector| {
+            let mut context = AssertValidationContext::from(AssertPreparationContext {
+                utxo: Default::default(),
+            });
+
+            assert!(super::execute(&mut context, tx.withdrawals.as_deref()).is_ok());
+
+            match verify_traces(collector.lines.lock().unwrap().clone(), expected_traces) {
+                Ok(_) => {}
+                Err(e) => panic!("{:?}", e),
+            }
+        });
+    }
+}

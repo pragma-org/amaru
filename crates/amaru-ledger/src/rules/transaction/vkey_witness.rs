@@ -86,3 +86,101 @@ pub fn execute(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
+    use amaru_kernel::{hash, include_cbor, include_json, WitnessSet};
+    use test_case::test_case;
+
+    macro_rules! fixture {
+        ($hash:literal) => {
+            (
+                fixture_context!($hash),
+                hash!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+            )
+        };
+        ($hash:literal, $variant:literal) => {
+            (
+                fixture_context!($hash, $variant),
+                hash!($hash),
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/witness.cbor"
+                )),
+            )
+        };
+    }
+
+    // TODO: add tests for voting procedures
+    // TODO: include more certificate variants
+    #[test_case(
+        fixture!("90412100dcf9229b187c9064f0f05375268e96ccb25524d762e67e3cb0c0259c");
+        "valid"
+    )]
+    #[test_case(
+        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-signature") =>
+        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
+            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 0 && matches!(
+                invalid_witnesses[0].element,
+                InvalidEd25519Signature::InvalidSignature
+            );
+        "invalid signature"
+    )]
+    #[test_case(
+        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-signature-length") =>
+        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
+            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 0 && matches!(
+                invalid_witnesses[0].element,
+                InvalidEd25519Signature::InvalidSignatureSize { expected: 64, .. }
+            );
+        "invalid signature size"
+    )]
+    #[test_case(
+        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "invalid-key-length") =>
+        matches Err(InvalidVKeyWitness::InvalidSignatures { invalid_witnesses })
+            if invalid_witnesses.len() == 1 && invalid_witnesses[0].position == 1 && matches!(
+                invalid_witnesses[0].element,
+                InvalidEd25519Signature::InvalidKeySize { expected: 32, .. }
+            );
+        "invalid key size"
+    )]
+    #[test_case(
+        fixture!("44762542f8e2f66da2fa0d4fdf2eb82cc1d24ae689c1d19ffd7e57d038f50bca", "missing-spending-vkey") =>
+        matches Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes })
+            if missing_key_hashes[..] == [hash!("00000000000000000000000000000000000000000000000000000000")];
+        "missing required witness"
+    )]
+    #[test_case(
+        fixture!("806aef9b20b9fcf2b3ee49b4aa20ebdfae6e0a32a2d8ce877aba8769e96c26bb") =>
+        matches Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes })
+            if missing_key_hashes[..] == [hash!("00000000000000000000000000000000000000000000000000000000")];
+        "missing required signer"
+    )]
+    #[test_case(
+        fixture!("bd7aee1f39142e1064dd0f504e2b2d57268c3ea9521aca514592e0d831bd5aca") =>
+        matches Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes })
+            if missing_key_hashes[..] == [hash!("61c083ba69ca5e6946e8ddfe34034ce84817c1b6a806b112706109da")];
+        "missing withdraw vkey"
+    )]
+    #[test_case(
+        fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2") =>
+        matches Err(InvalidVKeyWitness::MissingRequiredVkeyWitnesses { missing_key_hashes })
+            if missing_key_hashes[..] == [hash!("112909208360fb65678272a1d6ff45cf5cccbcbb52bcb0c59bb74862")];
+        "missing certificate vkey"
+    )]
+    fn test_vkey_witness(
+        (mut ctx, transaction_id, witness_set): (
+            AssertValidationContext,
+            TransactionId,
+            WitnessSet,
+        ),
+    ) -> Result<(), InvalidVKeyWitness> {
+        super::execute(&mut ctx, transaction_id, witness_set.vkeywitness.as_deref())
+    }
+}

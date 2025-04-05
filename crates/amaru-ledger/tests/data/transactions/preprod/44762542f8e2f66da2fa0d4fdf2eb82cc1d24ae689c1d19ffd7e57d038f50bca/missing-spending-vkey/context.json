@@ -1,0 +1,7 @@
+{
+  "utxo": [],
+  "required_signers": [
+    "00000000000000000000000000000000000000000000000000000000"
+  ],
+  "required_bootstrap_signers": []
+}
