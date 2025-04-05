@@ -127,9 +127,9 @@ impl Input {
     #[cfg(test)]
     /// Generate an arbitrary input challenge filled with random bytes.
     pub fn arbitrary() -> Self {
-        use rand::{thread_rng, Rng};
+        use rand::{rng, Rng};
         let mut challenge = [0u8; Self::SIZE];
-        thread_rng().fill(&mut challenge);
+        rng().fill(&mut challenge);
         Input(challenge.into())
     }
 }

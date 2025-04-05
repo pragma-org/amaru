@@ -15,9 +15,9 @@ ignored = ["amaru-consensus", "amaru-kernel", "amaru-ledger", "amaru-ouroboros",
 
 [dependencies]
 async-trait.workspace = true
-clap = { workspace = true, features = ["derive", "env"] }
+clap.workspace = true
 futures-util.workspace = true
-gasket = { workspace = true, features = ["derive"] }
+gasket.workspace = true
 hex.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
@@ -25,7 +25,7 @@ pallas-primitives.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal", "io-util"] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
-tracing-subscriber = { workspace = true, features = ["env-filter", "std", "json"] }
+tracing-subscriber.workspace = true
 tracing.workspace = true
 serde.workspace = true
 serde_json.workspace = true

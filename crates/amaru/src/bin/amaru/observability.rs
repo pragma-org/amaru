@@ -1,4 +1,5 @@
-use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::TracerProvider};
+use opentelemetry::trace::TracerProvider;
+use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
 use std::{
     env,
     io::{self},
@@ -182,20 +183,21 @@ impl Default for OpenTelemetryHandle {
 
 #[allow(clippy::panic)]
 pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> OpenTelemetryHandle {
-    use opentelemetry::{trace::TracerProvider as _, KeyValue};
+    use opentelemetry::KeyValue;
     use opentelemetry_sdk::{metrics::Temporality, Resource};
 
-    let resource = Resource::new(vec![KeyValue::new("service.name", SERVICE_NAME)]);
+    let resource = Resource::builder()
+        .with_attribute(KeyValue::new("service.name", SERVICE_NAME))
+        .build();
 
     // Traces & span
-    let opentelemetry_provider = opentelemetry_sdk::trace::TracerProvider::builder()
+    let opentelemetry_provider = SdkTracerProvider::builder()
         .with_resource(resource.clone())
         .with_batch_exporter(
             opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
                 .build()
                 .unwrap_or_else(|e| panic!("failed to setup opentelemetry span exporter: {e}")),
-            opentelemetry_sdk::runtime::Tokio,
         )
         .build();
 
@@ -208,11 +210,8 @@ pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> Ope
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
 
-    let metric_reader = opentelemetry_sdk::metrics::PeriodicReader::builder(
-        metric_exporter,
-        opentelemetry_sdk::runtime::Tokio,
-    )
-    .build();
+    let metric_reader =
+        opentelemetry_sdk::metrics::PeriodicReader::builder(metric_exporter).build();
 
     let metrics_provider = opentelemetry_sdk::metrics::SdkMeterProvider::builder()
         .with_reader(metric_reader)
@@ -236,22 +235,13 @@ pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> Ope
 }
 
 fn teardown_open_telemetry(
-    tracing: TracerProvider,
+    tracing: SdkTracerProvider,
     metrics: SdkMeterProvider,
 ) -> Result<(), Box<dyn std::error::Error>> {
     // Shut down the providers so that it flushes any remaining spans
     // TODO: we might also want to wrap this in a timeout, so we don't hold the process open forever?
     tracing.shutdown()?;
     metrics.shutdown()?;
-
-    // This appears to be a deprecated method that will be removed soon
-    // and just *releases* a reference to it, but doesn't actually call shutdown
-    // still, we call it just in case until it gets removed
-    // See:
-    // https://github.com/tokio-rs/tracing-opentelemetry/issues/159
-    // https://github.com/tokio-rs/tracing-opentelemetry/pull/175
-    // https://github.com/open-telemetry/opentelemetry-rust/issues/1961
-    opentelemetry::global::shutdown_tracer_provider();
 
     Ok(())
 }

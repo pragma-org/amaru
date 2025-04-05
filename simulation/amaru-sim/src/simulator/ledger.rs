@@ -177,7 +177,7 @@ mod test {
 
     /// FIXME: already exists in chain_selection test module
     pub fn random_bytes(arg: u32) -> Vec<u8> {
-        let mut rng = StdRng::from_entropy();
+        let mut rng = StdRng::from_os_rng();
         let mut buffer = vec![0; arg as usize];
         rng.fill_bytes(&mut buffer);
         buffer
