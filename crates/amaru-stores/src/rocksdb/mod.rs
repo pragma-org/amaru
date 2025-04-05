@@ -19,7 +19,8 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     store::{
-        columns as scolumns, Columns, OpenErrorKind, Snapshot, Store, StoreError, TipErrorKind,
+        columns as scolumns, Columns, HistoricalStores, OpenErrorKind, Snapshot, Store, StoreError,
+        TipErrorKind, TransactionalContext,
     },
     summary::rewards::{Pots, RewardsSummary},
 };
@@ -27,6 +28,7 @@ use columns::*;
 use common::{as_value, PREFIX_LEN};
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
+use rocksdb::Transaction;
 use std::{
     collections::BTreeSet,
     fmt, fs,
@@ -72,15 +74,12 @@ pub struct RocksDB {
     /// An instance of RocksDB.
     db: OptimisticTransactionDB,
 
-    /// An ordered (asc) list of epochs for which we have available snapshots
-    snapshots: Vec<Epoch>,
-
     /// The `EraHistory` of the network this database is tied to
     era_history: EraHistory,
 }
 
 impl RocksDB {
-    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
+    pub fn snapshots(dir: &Path) -> Result<Vec<Epoch>, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
         for entry in fs::read_dir(dir)
             .map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?
@@ -105,19 +104,23 @@ impl RocksDB {
         }
 
         snapshots.sort();
+        Ok(snapshots)
+    }
+
+    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
+        let snapshots = RocksDB::snapshots(dir)?;
 
         info!(target: EVENT_TARGET, snapshots = ?snapshots, "new.known_snapshots");
-
-        let mut opts = Options::default();
-        opts.create_if_missing(true);
-        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
 
         if snapshots.is_empty() {
             return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
         }
 
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+
         Ok(RocksDB {
-            snapshots,
             dir: dir.to_path_buf(),
             incremental_save: false,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
@@ -131,7 +134,6 @@ impl RocksDB {
         opts.create_if_missing(true);
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
         Ok(RocksDB {
-            snapshots: vec![],
             dir: dir.to_path_buf(),
             incremental_save: true,
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
@@ -146,79 +148,11 @@ impl RocksDB {
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
 
         Ok(RocksDB {
-            snapshots: vec![epoch],
             incremental_save: false,
             dir: dir.to_path_buf(),
             db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
                 .map_err(|err| StoreError::Internal(err.into()))?,
             era_history: era_history.clone(),
-        })
-    }
-
-    pub fn unsafe_transaction(&self) -> rocksdb::Transaction<'_, OptimisticTransactionDB> {
-        self.db.transaction()
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        name = "snapshot.applying_rewards",
-        skip_all,
-    )]
-    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
-        self.with_accounts(|iterator| {
-            for (account, mut row) in iterator {
-                if let Some(rewards) = rewards_summary.extract_rewards(&account) {
-                    if rewards > 0 {
-                        if let Some(account) = row.borrow_mut() {
-                            account.rewards += rewards;
-                        }
-                    }
-                }
-            }
-        })
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        name= "snapshot.adjusting_pots",
-        skip_all,
-    )]
-    fn adjust_pots(
-        &self,
-        delta_treasury: u64,
-        delta_reserves: u64,
-        unclaimed_rewards: u64,
-    ) -> Result<(), StoreError> {
-        self.with_pots(|mut row| {
-            let pots = row.borrow_mut();
-            pots.treasury += delta_treasury + unclaimed_rewards;
-            pots.reserves -= delta_reserves;
-        })
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-    )]
-    fn reset_fees(&self) -> Result<(), StoreError> {
-        self.with_pots(|mut row| {
-            row.borrow_mut().fees = 0;
-        })
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        name = "reset.blocks_count",
-        skip_all,
-    )]
-    fn reset_blocks_count(&self) -> Result<(), StoreError> {
-        // TODO: If necessary, come up with a more efficient way of dropping a "table".
-        // RocksDB does support batch-removing of key ranges, but somehow, not in a
-        // transactional way. So it isn't as trivial to implement as it may seem.
-        self.with_block_issuers(|iterator| {
-            for (_, mut row) in iterator {
-                *row.borrow_mut() = None;
-            }
         })
     }
 }
@@ -245,9 +179,13 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 }
 
 impl Snapshot for RocksDB {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        RocksDB::snapshots(&self.dir)
+    }
     #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
-        self.snapshots
+        RocksDB::snapshots(&self.dir)
+            .unwrap_or_default()
             .last()
             .cloned()
             .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
@@ -317,7 +255,7 @@ fn with_prefix_iterator<
     V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
     DB,
 >(
-    db: rocksdb::Transaction<'_, DB>,
+    db: &rocksdb::Transaction<'_, DB>,
     prefix: [u8; PREFIX_LEN],
     mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
 ) -> Result<(), StoreError> {
@@ -337,23 +275,84 @@ fn with_prefix_iterator<
         }
         .map_err(|err| StoreError::Internal(err.into()))?;
     }
-
-    db.commit().map_err(|err| StoreError::Internal(err.into()))
+    Ok(())
 }
 
-impl Store for RocksDB {
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
-        Self::for_epoch_with(self.dir.as_path(), epoch)
+struct RocksDBTransactionalContext<'a> {
+    db: &'a RocksDB,
+    transaction: Transaction<'a, OptimisticTransactionDB>,
+}
+
+impl RocksDBTransactionalContext<'_> {
+    #[instrument(
+        level = Level::TRACE,
+        name = "snapshot.applying_rewards",
+        skip_all,
+    )]
+    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
+        self.with_accounts(|iterator| {
+            for (account, mut row) in iterator {
+                if let Some(rewards) = rewards_summary.extract_rewards(&account) {
+                    if rewards > 0 {
+                        if let Some(account) = row.borrow_mut() {
+                            account.rewards += rewards;
+                        }
+                    }
+                }
+            }
+        })
     }
 
-    fn tip(&self) -> Result<Point, StoreError> {
-        self.db
-            .get(KEY_TIP)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|bytes| cbor::decode(&bytes))
-            .transpose()
-            .map_err(|err| StoreError::Tip(TipErrorKind::Undecodable(err)))?
-            .ok_or(StoreError::Tip(TipErrorKind::Missing))
+    #[instrument(
+        level = Level::TRACE,
+        name= "snapshot.adjusting_pots",
+        skip_all,
+    )]
+    fn adjust_pots(
+        &self,
+        delta_treasury: u64,
+        delta_reserves: u64,
+        unclaimed_rewards: u64,
+    ) -> Result<(), StoreError> {
+        self.with_pots(|mut row| {
+            let pots = row.borrow_mut();
+            pots.treasury += delta_treasury + unclaimed_rewards;
+            pots.reserves -= delta_reserves;
+        })
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+    )]
+    fn reset_fees(&self) -> Result<(), StoreError> {
+        self.with_pots(|mut row| {
+            row.borrow_mut().fees = 0;
+        })
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        name = "reset.blocks_count",
+        skip_all,
+    )]
+    fn reset_blocks_count(&self) -> Result<(), StoreError> {
+        // TODO: If necessary, come up with a more efficient way of dropping a "table".
+        // RocksDB does support batch-removing of key ranges, but somehow, not in a
+        // transactional way. So it isn't as trivial to implement as it may seem.
+        self.with_block_issuers(|iterator| {
+            for (_, mut row) in iterator {
+                *row.borrow_mut() = None;
+            }
+        })
+    }
+}
+
+impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
+    fn commit(self) -> Result<(), StoreError> {
+        self.transaction
+            .commit()
+            .map_err(|err| StoreError::Internal(err.into()))
     }
 
     fn save(
@@ -379,9 +378,8 @@ impl Store for RocksDB {
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
-        let batch = self.db.transaction();
-
-        let tip: Option<Point> = batch
+        let tip: Option<Point> = self
+            .transaction
             .get(KEY_TIP)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| {
@@ -396,133 +394,97 @@ impl Store for RocksDB {
 
         match (point, tip) {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
-                if *new <= current && !self.incremental_save =>
+                if *new <= current && !self.db.incremental_save =>
             {
                 trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
-                batch
+                self.transaction
                     .put(KEY_TIP, as_value(point))
                     .map_err(|err| StoreError::Internal(err.into()))?;
 
                 if let Some(issuer) = issuer {
                     slots::put(
-                        &batch,
+                        &self.transaction,
                         &point.slot_or_default(),
                         scolumns::slots::Row::new(*issuer),
                     )?;
                 }
 
-                utxo::add(&batch, add.utxo)?;
-                pools::add(&batch, add.pools)?;
-                accounts::add(&batch, add.accounts)?;
-                cc_members::add(&batch, add.cc_members)?;
+                utxo::add(&self.transaction, add.utxo)?;
+                pools::add(&self.transaction, add.pools)?;
+                accounts::add(&self.transaction, add.accounts)?;
+                cc_members::add(&self.transaction, add.cc_members)?;
 
-                accounts::reset_many(&batch, withdrawals)?;
+                accounts::reset_many(&self.transaction, withdrawals)?;
 
-                dreps::add(&batch, add.dreps)?;
-                dreps::tick(&batch, voting_dreps, {
+                dreps::add(&self.transaction, add.dreps)?;
+                dreps::tick(&self.transaction, voting_dreps, {
                     let slot = point.slot_or_default();
-                    self.era_history
+                    self.db
+                        .era_history
                         .slot_to_epoch(From::from(slot))
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
-                proposals::add(&batch, add.proposals)?;
+                proposals::add(&self.transaction, add.proposals)?;
 
-                utxo::remove(&batch, remove.utxo)?;
-                pools::remove(&batch, remove.pools)?;
-                accounts::remove(&batch, remove.accounts)?;
-                dreps::remove(&batch, remove.dreps)?;
-                proposals::remove(&batch, remove.proposals)?;
+                utxo::remove(&self.transaction, remove.utxo)?;
+                pools::remove(&self.transaction, remove.pools)?;
+                accounts::remove(&self.transaction, remove.accounts)?;
+                dreps::remove(&self.transaction, remove.dreps)?;
+                proposals::remove(&self.transaction, remove.proposals)?;
             }
         }
-
-        batch
-            .commit()
-            .map_err(|err| StoreError::Internal(err.into()))
+        Ok(())
     }
 
     fn refund(
         &self,
         mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
     ) -> Result<(), StoreError> {
-        let batch = self.db.transaction();
-
         let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
             0,
             |leftovers, (account, deposit)| {
-                Ok(leftovers + accounts::set(&batch, account, |balance| balance + deposit)?)
+                Ok(leftovers
+                    + accounts::set(&self.transaction, account, |balance| balance + deposit)?)
             },
         )?;
 
         if leftovers > 0 {
-            let mut pots = pots::get(&batch)?;
+            let mut pots = pots::get(&self.transaction)?;
             pots.treasury += leftovers;
-            pots::put(&batch, pots)?;
-        }
-
-        batch
-            .commit()
-            .map_err(|err| StoreError::Internal(err.into()))
-    }
-
-    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
-    fn next_snapshot(
-        &'_ mut self,
-        epoch: Epoch,
-        rewards_summary: Option<RewardsSummary>,
-    ) -> Result<(), StoreError> {
-        let snapshot = self.snapshots.last().map(|s| s + 1).unwrap_or(epoch);
-        if snapshot == epoch {
-            if let Some(mut rewards_summary) = rewards_summary {
-                self.apply_rewards(&mut rewards_summary)?;
-
-                self.adjust_pots(
-                    rewards_summary.delta_treasury(),
-                    rewards_summary.delta_reserves(),
-                    rewards_summary.unclaimed_rewards(),
-                )?;
-            }
-
-            let path = self.dir.join(snapshot.to_string());
-            if path.exists() {
-                // RocksDB error can't be created externally, so panic instead
-                // It might be better to come up with a global error type
-                fs::remove_dir_all(&path).map_err(|_| {
-                    StoreError::Internal("Unable to remove existing snapshot directory".into())
-                })?;
-            }
-            checkpoint::Checkpoint::new(&self.db)
-                .map_err(|err| StoreError::Internal(err.into()))?
-                .create_checkpoint(path)
-                .map_err(|err| StoreError::Internal(err.into()))?;
-
-            self.reset_blocks_count()?;
-
-            self.reset_fees()?;
-
-            self.snapshots.push(snapshot);
-        } else {
-            trace!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
+            pots::put(&self.transaction, pots)?;
         }
 
         Ok(())
     }
 
-    fn with_pots(
+    fn set_pots(
+        &self,
+        treasury: amaru_kernel::Lovelace,
+        reserves: amaru_kernel::Lovelace,
+        fees: amaru_kernel::Lovelace,
+    ) -> Result<(), StoreError> {
+        pots::put(
+            &self.transaction,
+            amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees),
+        )
+    }
+
+    fn with_pots<'db>(
         &self,
         mut with: impl FnMut(Box<dyn std::borrow::BorrowMut<scolumns::pots::Row> + '_>),
     ) -> Result<(), StoreError> {
-        let db = self.db.transaction();
-
         let mut err = None;
-        let proxy = Box::new(BorrowableProxy::new(pots::get(&db)?, |pots| {
-            let put = pots::put(&db, pots)
-                .and_then(|_| db.commit().map_err(|err| StoreError::Internal(err.into())));
-            if let Err(e) = put {
-                err = Some(e);
-            }
-        }));
+        let proxy = Box::new(BorrowableProxy::new(
+            pots::get(&self.transaction)?,
+            |pots| {
+                let put = pots::put(&self.transaction, pots);
+                if let Err(e) = put {
+                    err = Some(e);
+                }
+            },
+        ));
 
         with(proxy);
 
@@ -533,41 +495,185 @@ impl Store for RocksDB {
     }
 
     fn with_utxo(&self, with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(self.db.transaction(), utxo::PREFIX, with)
+        with_prefix_iterator(&self.transaction, utxo::PREFIX, with)
     }
 
     fn with_pools(
         &self,
         with: impl FnMut(scolumns::pools::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(self.db.transaction(), pools::PREFIX, with)
+        with_prefix_iterator(&self.transaction, pools::PREFIX, with)
     }
 
     fn with_accounts(
         &self,
         with: impl FnMut(scolumns::accounts::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(self.db.transaction(), accounts::PREFIX, with)
+        with_prefix_iterator(&self.transaction, accounts::PREFIX, with)
     }
 
     fn with_block_issuers(
         &self,
         with: impl FnMut(scolumns::slots::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(self.db.transaction(), slots::PREFIX, with)
+        with_prefix_iterator(&self.transaction, slots::PREFIX, with)
     }
 
     fn with_dreps(
         &self,
         with: impl FnMut(scolumns::dreps::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(self.db.transaction(), dreps::PREFIX, with)
+        with_prefix_iterator(&self.transaction, dreps::PREFIX, with)
     }
 
     fn with_proposals(
         &self,
         with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(self.db.transaction(), proposals::PREFIX, with)
+        with_prefix_iterator(&self.transaction, proposals::PREFIX, with)
+    }
+}
+
+impl Store for RocksDB {
+    fn create_transaction(&self) -> impl TransactionalContext<'_> {
+        RocksDBTransactionalContext {
+            db: self,
+            transaction: self.db.transaction(),
+        }
+    }
+
+    fn tip(&self) -> Result<Point, StoreError> {
+        self.db
+            .get(KEY_TIP)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .map(|bytes| cbor::decode(&bytes))
+            .transpose()
+            .map_err(|err| StoreError::Tip(TipErrorKind::Undecodable(err)))?
+            .ok_or(StoreError::Tip(TipErrorKind::Missing))
+    }
+
+    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
+    fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError> {
+        let snapshot = RocksDB::snapshots(&self.dir)?
+            .last()
+            .map(|s| s + 1)
+            .unwrap_or(epoch);
+        if snapshot == epoch {
+            let path = self.dir.join(snapshot.to_string());
+            if path.exists() {
+                fs::remove_dir_all(&path).map_err(|_| {
+                    StoreError::Internal("Unable to remove existing snapshot directory".into())
+                })?;
+            }
+
+            checkpoint::Checkpoint::new(&self.db)
+                .map_err(|err| StoreError::Internal(err.into()))?
+                .create_checkpoint(path)
+                .map_err(|err| StoreError::Internal(err.into()))?;
+        } else {
+            trace!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
+        }
+
+        Ok(())
+    }
+}
+
+pub struct RocksDBHistoricalStores {
+    dir: PathBuf,
+}
+
+impl RocksDBHistoricalStores {
+    pub fn for_epoch_with(dir: &Path, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
+        let mut opts = Options::default();
+        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+
+        Ok(RocksDBSnapshot {
+            epoch,
+            db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
+                .map_err(|err| StoreError::Internal(err.into()))?,
+        })
+    }
+
+    pub fn new(dir: &Path) -> Self {
+        RocksDBHistoricalStores {
+            dir: dir.to_path_buf(),
+        }
+    }
+}
+
+pub struct RocksDBSnapshot {
+    epoch: Epoch,
+    db: OptimisticTransactionDB,
+}
+
+impl Snapshot for RocksDBSnapshot {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![])
+    }
+    #[allow(clippy::panic)]
+    fn epoch(&'_ self) -> Epoch {
+        self.epoch
+    }
+
+    fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
+        pools::get(&self.db, pool)
+    }
+
+    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
+        utxo::get(&self.db, input)
+    }
+
+    fn iter_utxos(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
+    {
+        iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
+    }
+
+    fn pots(&self) -> Result<Pots, StoreError> {
+        pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
+    }
+
+    fn iter_accounts(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
+    {
+        iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX)
+    }
+
+    fn iter_block_issuers(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
+    {
+        iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX)
+    }
+
+    fn iter_pools(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
+    {
+        iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
+    }
+
+    fn iter_dreps(
+        &self,
+    ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
+    {
+        iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
+    }
+
+    fn iter_proposals(
+        &self,
+    ) -> Result<
+        impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
+        StoreError,
+    > {
+        iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
+    }
+}
+
+impl HistoricalStores for RocksDBHistoricalStores {
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
+        RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
     }
 }
