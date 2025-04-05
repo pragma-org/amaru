@@ -554,6 +554,38 @@ pub fn output_stake_credential(
     })
 }
 
+// StakeCredential
+// ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum StakeCredentialType {
+    VerificationKey,
+    Script,
+}
+
+impl std::fmt::Display for StakeCredentialType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            StakeCredentialType::VerificationKey => "verification_key",
+            StakeCredentialType::Script => "script",
+        })
+    }
+}
+
+pub fn stake_credential_type(credential: &StakeCredential) -> StakeCredentialType {
+    match credential {
+        StakeCredential::AddrKeyhash(..) => StakeCredentialType::VerificationKey,
+        StakeCredential::ScriptHash(..) => StakeCredentialType::Script,
+    }
+}
+
+pub fn stake_credential_hash(credential: &StakeCredential) -> Hash<28> {
+    match credential {
+        StakeCredential::AddrKeyhash(hash) => *hash,
+        StakeCredential::ScriptHash(hash) => *hash,
+    }
+}
+
 // This function shouldn't exist and pallas should provide a RewardAccount = (Network,
 // StakeCredential) out of the box instead of row bytes.
 pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<StakeCredential> {

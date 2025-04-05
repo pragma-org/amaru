@@ -30,7 +30,6 @@ slot-arithmetic.workspace = true
 proptest = { workspace = true, features = ["std"] }
 test-case.workspace = true
 
-
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [
     "alloc",

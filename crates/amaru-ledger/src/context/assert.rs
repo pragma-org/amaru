@@ -19,8 +19,9 @@ use crate::context::{
     UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    serde_utils, Anchor, CertificatePointer, DRep, Epoch, Lovelace, PoolId, PoolParams, Proposal,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    serde_utils, stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep,
+    Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
@@ -161,19 +162,13 @@ impl AccountsSlice for AssertValidationContext {
     #[instrument(
         level = Level::TRACE,
         fields(
-            credential.hash_type = match &_credential {
-                StakeCredential::ScriptHash(_) => "ScriptHash",
-                StakeCredential::AddrKeyhash(_) => "AddrKeyhash",
-            },
-            credential.hash = match &_credential {
-                    StakeCredential::ScriptHash(hash) => hex::encode(hash),
-                    StakeCredential::AddrKeyhash(hash) => hex::encode(hash),
-            }
-        ),
+            credential.type = %stake_credential_type(&credential),
+            credential.hash = %stake_credential_hash(&credential),
+        )
         skip_all,
         name = "withdraw_from"
     )]
-    fn withdraw_from(&mut self, _credential: StakeCredential) {
+    fn withdraw_from(&mut self, credential: StakeCredential) {
         // We don't actually do any VolatileState updates here
     }
 }
@@ -234,15 +229,9 @@ impl WitnessSlice for AssertValidationContext {
     #[instrument(
         level = Level::TRACE,
         fields(
-            credential.hash_type = match &credential {
-                StakeCredential::ScriptHash(_) => "ScriptHash",
-                StakeCredential::AddrKeyhash(_) => "AddrKeyhash",
-            },
-            credential.hash = match &credential {
-                    StakeCredential::ScriptHash(hash) => hex::encode(hash),
-                    StakeCredential::AddrKeyhash(hash) => hex::encode(hash),
-            }
-        ),
+            credential.type = %stake_credential_type(&credential),
+            credential.hash = %stake_credential_hash(&credential),
+        )
         skip_all,
         name = "require_witness"
     )]

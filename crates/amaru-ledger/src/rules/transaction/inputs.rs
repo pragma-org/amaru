@@ -106,7 +106,7 @@ mod tests {
         rules::tests::fixture_context,
         tests::{verify_traces, with_tracing},
     };
-    use amaru_kernel::{include_cbor, include_json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
     use test_case::test_case;
 
     macro_rules! fixture {
@@ -128,7 +128,7 @@ mod tests {
         (ctx, tx, expected_traces): (
             AssertPreparationContext,
             KeepRaw<'_, MintedTransactionBody<'_>>,
-            Vec<String>,
+            Vec<json::Value>,
         ),
     ) {
         with_tracing(|collector| {

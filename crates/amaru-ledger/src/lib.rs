@@ -39,7 +39,7 @@ pub mod summary;
 #[cfg(test)]
 pub(crate) mod tests {
     use amaru_kernel::{
-        Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+        json, Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
     };
     use std::{
         io::Write,
@@ -97,7 +97,6 @@ pub(crate) mod tests {
         let collector_clone = collector.clone();
         let format_layer = fmt::layer()
             .with_writer(move || collector_clone.clone())
-            .json()
             .with_span_events(FmtSpan::ENTER)
             .without_time()
             .with_level(false)
@@ -105,7 +104,7 @@ pub(crate) mod tests {
             .with_thread_ids(false)
             .with_thread_names(false)
             .with_ansi(false)
-            .compact();
+            .json();
 
         let subscriber = tracing_subscriber::registry().with(format_layer);
 
@@ -129,27 +128,16 @@ pub(crate) mod tests {
             actual: usize,
         },
         InvalidTrace {
-            expected: String,
-            actual: String,
+            expected: serde_json::Value,
+            actual: serde_json::Value,
             index: usize,
         },
     }
 
     pub(crate) fn verify_traces(
         collected_traces: Vec<String>,
-        expected_traces: Vec<String>,
+        expected_traces: Vec<json::Value>,
     ) -> Result<(), InvalidTrace> {
-        let expected_traces: Vec<String> = expected_traces
-            .into_iter()
-            .filter_map(|line| {
-                if line.trim().is_empty() {
-                    None
-                } else {
-                    Some(line.to_string())
-                }
-            })
-            .collect();
-
         if collected_traces.len() != expected_traces.len() {
             return Err(InvalidTrace::TraceLengthMismatch {
                 expected: expected_traces.len(),
@@ -162,6 +150,10 @@ pub(crate) mod tests {
             .zip(expected_traces.into_iter())
             .enumerate()
         {
+            let actual: json::Value = json::from_str::<json::Value>(actual.as_str())
+                .expect("generated invalid JSON trace!")["span"]
+                .to_owned();
+
             if actual != expected {
                 return Err(InvalidTrace::InvalidTrace {
                     expected,
