@@ -21,7 +21,7 @@ use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{Store, StoreError},
     summary::{
-        governance::GovernanceSummary,
+        governance::{self, GovernanceSummary},
         rewards::{RewardsSummary, StakeDistribution},
     },
 };
@@ -113,15 +113,15 @@ impl<S: Store> State<S> {
         let mut stake_distributions = VecDeque::new();
         #[allow(clippy::panic)]
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
-            stake_distributions.push_front(recover_stake_distribution(&*db, epoch).unwrap_or_else(
-                |e| {
+            stake_distributions.push_front(
+                recover_stake_distribution(&*db, epoch, era_history).unwrap_or_else(|e| {
                     // TODO deal with error
                     panic!(
                         "unable to get stake distribution for (epoch={:?}): {e:?}",
                         epoch
                     )
-                },
-            ));
+                }),
+            );
         }
 
         drop(db);
@@ -249,8 +249,7 @@ impl<S: Store> State<S> {
         )
         .map_err(StateError::Storage)?;
 
-        stake_distributions
-            .push_front(recover_stake_distribution(&*db, epoch).map_err(StateError::Storage)?);
+        stake_distributions.push_front(recover_stake_distribution(&*db, epoch, &self.era_history)?);
 
         Ok(rewards_summary)
     }
@@ -333,7 +332,8 @@ impl<S: Store> State<S> {
 fn recover_stake_distribution(
     db: &impl Store,
     epoch: Epoch,
-) -> Result<StakeDistribution, StoreError> {
+    era_history: &EraHistory,
+) -> Result<StakeDistribution, StateError> {
     let snapshot = db.for_epoch(epoch).unwrap_or_else(|e| {
         panic!(
             "unable to open database snapshot for epoch {:?}: {:?}",
@@ -341,7 +341,8 @@ fn recover_stake_distribution(
         )
     });
 
-    StakeDistribution::new(&snapshot, GovernanceSummary::new(&snapshot)?)
+    StakeDistribution::new(&snapshot, GovernanceSummary::new(&snapshot, era_history)?)
+        .map_err(StateError::Storage)
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
@@ -457,4 +458,15 @@ pub enum StateError {
     StakeDistributionNotAvailableForRewards,
     #[error("failed to compute epoch from slot {0:?}: {1}")]
     ErrorComputingEpoch(Slot, TimeHorizonError),
+}
+
+impl From<governance::Error> for StateError {
+    fn from(origin: governance::Error) -> Self {
+        match origin {
+            governance::Error::TimeHorizonError(slot, err) => {
+                StateError::ErrorComputingEpoch(slot, err)
+            }
+            governance::Error::StoreError(err) => StateError::Storage(err),
+        }
+    }
 }
