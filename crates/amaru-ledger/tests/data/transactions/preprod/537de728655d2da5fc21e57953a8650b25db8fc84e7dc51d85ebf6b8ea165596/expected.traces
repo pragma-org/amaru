@@ -1,6 +1,6 @@
-[ {"name":"require_witness","credential.hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9","credential.type":"script"}
-, {"name":"require_witness","credential.hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9","credential.type":"script"}
-, {"name":"require_witness","credential.hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9","credential.type":"script"}
-, {"name":"require_witness","credential.hash":"fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01","credential.type":"verification_key"}
-, {"name":"require_witness","credential.hash":"fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01","credential.type":"verification_key"}
+[ {"name":"require_witness","credential": {"hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9","type":"script"}}
+, {"name":"require_witness","credential": {"hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9","type":"script"}}
+, {"name":"require_witness","credential": {"hash":"f5542fa9d9c61b4dbccd71654cc5a72a9fddc9d563f503682e772ec9","type":"script"}}
+, {"name":"require_witness","credential": {"hash":"fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01","type":"verification_key"}}
+, {"name":"require_witness","credential": {"hash":"fc8d65bf083804fdea0c86ac09e3685cd733e38df3d880c6ce9ddd01","type":"verification_key"}}
 ]

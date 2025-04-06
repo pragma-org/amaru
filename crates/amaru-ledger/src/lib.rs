@@ -41,15 +41,9 @@ pub(crate) mod tests {
     use amaru_kernel::{
         json, Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
     };
-    use std::{
-        io::Write,
-        sync::{Arc, Mutex},
-    };
+    use std::sync::{Arc, Mutex};
     use tracing::Dispatch;
-    use tracing_subscriber::{
-        fmt::{self, format::FmtSpan},
-        layer::SubscriberExt,
-    };
+    use tracing_subscriber::layer::SubscriberExt;
 
     // -----------------------------------------------------------------------------
     // Tracing for Tests
@@ -57,7 +51,7 @@ pub(crate) mod tests {
 
     #[derive(Clone)]
     pub(crate) struct TestingTraceCollector {
-        pub lines: Arc<Mutex<Vec<String>>>,
+        lines: Arc<Mutex<Vec<json::Value>>>,
     }
 
     impl TestingTraceCollector {
@@ -66,25 +60,152 @@ pub(crate) mod tests {
                 lines: Arc::new(Mutex::new(Vec::new())),
             }
         }
+
         pub fn clear(&mut self) {
             self.lines.lock().unwrap().clear();
         }
-    }
 
-    impl Write for TestingTraceCollector {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            if let Ok(s) = std::str::from_utf8(buf) {
-                for line in s.lines() {
-                    if !line.is_empty() {
-                        self.lines.lock().unwrap().push(line.to_string());
-                    }
-                }
-            }
-            Ok(buf.len())
+        fn insert(&self, value: json::Value) {
+            self.lines.lock().unwrap().push(value);
         }
 
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
+        pub fn get_traces(&self) -> Vec<json::Value> {
+            self.lines.lock().unwrap().clone()
+        }
+    }
+
+    #[derive(Default)]
+    struct JsonVisitor {
+        fields: json::Map<String, json::Value>,
+    }
+
+    impl JsonVisitor {
+        fn add_field(&mut self, json_path: &str, value: json::Value) {
+            let steps = json_path.split('.').collect::<Vec<_>>();
+
+            if steps.len() == 1 {
+                self.fields.insert(json_path.to_string(), value);
+                return;
+            }
+
+            let (root, children) = steps.split_first().unwrap();
+
+            let mut current_value = self
+                .fields
+                .entry(root.to_string())
+                .or_insert_with(|| json::json!({}));
+
+            for &key in children.iter().take(children.len() - 1) {
+                if !current_value.is_object() {
+                    *current_value = json::json!({});
+                }
+
+                let current_object = current_value.as_object_mut().unwrap();
+                if !current_object.contains_key(key) {
+                    current_object.insert(key.to_string(), json::json!({}));
+                }
+
+                current_value = current_object.get_mut(key).unwrap()
+            }
+
+            if let Some(last) = children.last() {
+                current_value
+                    .as_object_mut()
+                    .unwrap()
+                    .insert(last.to_string(), value);
+            }
+        }
+    }
+
+    impl tracing::field::Visit for JsonVisitor {
+        fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
+            self.add_field(field.name(), json::json!(value));
+        }
+
+        fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
+            self.add_field(field.name(), json::json!(value));
+        }
+
+        fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+            self.add_field(field.name(), json::json!(value));
+        }
+
+        fn record_i128(&mut self, field: &tracing::field::Field, value: i128) {
+            self.add_field(field.name(), json::json!(value));
+        }
+
+        fn record_u128(&mut self, field: &tracing::field::Field, value: u128) {
+            self.add_field(field.name(), json::json!(value));
+        }
+
+        fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
+            self.add_field(field.name(), json::json!(value));
+        }
+
+        fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+            self.add_field(field.name(), json::json!(value));
+        }
+
+        fn record_bytes(&mut self, field: &tracing::field::Field, value: &[u8]) {
+            self.add_field(field.name(), json::json!(hex::encode(value)));
+        }
+
+        fn record_error(
+            &mut self,
+            field: &tracing::field::Field,
+            value: &(dyn std::error::Error + 'static),
+        ) {
+            self.add_field(field.name(), json::json!(format!("{}", value)))
+        }
+
+        fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+            self.add_field(field.name(), json::json!(format!("{:?}", value)))
+        }
+    }
+
+    struct JsonLayer {
+        collector: TestingTraceCollector,
+    }
+    impl JsonLayer {
+        pub fn new(collector: TestingTraceCollector) -> Self {
+            Self { collector }
+        }
+    }
+
+    impl<S> tracing_subscriber::Layer<S> for JsonLayer
+    where
+        S: tracing::Subscriber + for<'a> tracing_subscriber::registry::LookupSpan<'a>,
+    {
+        fn on_new_span(
+            &self,
+            attrs: &tracing::span::Attributes<'_>,
+            id: &tracing::span::Id,
+            ctx: tracing_subscriber::layer::Context<'_, S>,
+        ) {
+            let mut visitor = JsonVisitor::default();
+            attrs.record(&mut visitor);
+
+            if let Some(span) = ctx.span(id) {
+                // Store the fields in the span for later use
+                let mut extensions = span.extensions_mut();
+                extensions.insert(visitor.fields);
+            }
+        }
+
+        fn on_enter(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
+            if let Some(span) = ctx.span(id) {
+                let mut span_json = json::json!({
+                    "name": span.name(),
+                });
+
+                if let Some(fields) = span.extensions().get::<json::Map<String, json::Value>>() {
+                    for (key, value) in fields {
+                        span_json[key] = value.clone();
+                    }
+                }
+
+                self.collector.insert(span_json);
+            }
         }
     }
 
@@ -94,22 +215,10 @@ pub(crate) mod tests {
     {
         let mut collector = TestingTraceCollector::new();
         collector.clear();
-        let collector_clone = collector.clone();
-        let format_layer = fmt::layer()
-            .with_writer(move || collector_clone.clone())
-            .with_span_events(FmtSpan::ENTER)
-            .without_time()
-            .with_level(false)
-            .with_target(false)
-            .with_thread_ids(false)
-            .with_thread_names(false)
-            .with_ansi(false)
-            .json();
 
-        let subscriber = tracing_subscriber::registry().with(format_layer);
-
+        let layer = JsonLayer::new(collector.clone());
+        let subscriber = tracing_subscriber::registry().with(layer);
         let dispatch = Dispatch::new(subscriber);
-        // explicit variable here to ensure it survives the lifetime of the test function
         let _guard = tracing::dispatcher::set_default(&dispatch);
         test_fn(&collector)
     }
@@ -135,25 +244,21 @@ pub(crate) mod tests {
     }
 
     pub(crate) fn verify_traces(
-        collected_traces: Vec<String>,
+        actual_traces: Vec<json::Value>,
         expected_traces: Vec<json::Value>,
     ) -> Result<(), InvalidTrace> {
-        if collected_traces.len() != expected_traces.len() {
+        if actual_traces.len() != expected_traces.len() {
             return Err(InvalidTrace::TraceLengthMismatch {
                 expected: expected_traces.len(),
-                actual: collected_traces.len(),
+                actual: actual_traces.len(),
             });
         }
 
-        for (index, (actual, expected)) in collected_traces
+        for (index, (actual, expected)) in actual_traces
             .into_iter()
             .zip(expected_traces.into_iter())
             .enumerate()
         {
-            let actual: json::Value = json::from_str::<json::Value>(actual.as_str())
-                .expect("generated invalid JSON trace!")["span"]
-                .to_owned();
-
             if actual != expected {
                 return Err(InvalidTrace::InvalidTrace {
                     expected,

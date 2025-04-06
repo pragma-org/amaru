@@ -1,2 +1,2 @@
-[ {"name":"require_witness","credential.hash":"92529f01b85021f5c9b53b5ec907b6d1cfe539ebc78ae41acf41f7c7","credential.type":"verification_key"}
+[ {"name":"require_witness","credential": {"hash":"92529f01b85021f5c9b53b5ec907b6d1cfe539ebc78ae41acf41f7c7","type":"verification_key"}}
 ]

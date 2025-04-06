@@ -141,8 +141,7 @@ mod tests {
             )
             .is_ok());
 
-            let actual_traces = collector.lines.lock().unwrap();
-            match verify_traces(actual_traces.clone(), expected_traces) {
+            match verify_traces(collector.get_traces(), expected_traces) {
                 Ok(_) => {}
                 Err(e) => panic!("{:?}", e),
             }
