@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Network;
+use amaru_kernel::{network::NetworkName, Network};
 use amaru_ledger::{
     store::Snapshot,
     summary::{
@@ -86,7 +86,7 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 fn compare_preprod_snapshot(epoch: Epoch) {
     let snapshot = db(epoch);
 
-    let dreps = GovernanceSummary::new(snapshot.as_ref()).unwrap();
+    let dreps = GovernanceSummary::new(snapshot.as_ref(), NetworkName::Preprod.into()).unwrap();
     let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps).unwrap();
     insta::assert_json_snapshot!(
         format!("stake_distribution_{}", epoch),
