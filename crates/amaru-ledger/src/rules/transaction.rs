@@ -156,7 +156,7 @@ pub fn execute(
 
     proposals::execute(
         context,
-        transaction_id,
+        (transaction_id, pointer),
         mem::take(&mut transaction_body.proposal_procedures).map(|xs| xs.to_vec()),
     );
 

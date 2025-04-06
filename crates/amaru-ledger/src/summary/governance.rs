@@ -53,38 +53,41 @@ pub enum Error {
 
 impl GovernanceSummary {
     pub fn new(db: &impl Snapshot, era_history: &EraHistory) -> Result<Self, Error> {
-        let epoch = db.epoch();
-
-        let mut all_proposals_epochs = BTreeSet::new();
+        let mut proposals = BTreeSet::new();
 
         // FIXME: filter out proposals that have been ratified
-        let deposits = db
-            .iter_proposals()?
-            .filter_map(|(_, row)| {
-                all_proposals_epochs.insert(row.proposed_in);
+        let mut deposits = BTreeMap::new();
+
+        db.iter_proposals()?
+            .try_for_each(|(_, row)| -> Result<(), Error> {
+                let epoch = era_history
+                    .slot_to_epoch(Slot::from(row.proposed_in.transaction.slot))
+                    .map_err(|e| Error::TimeHorizonError(row.proposed_in.transaction.slot, e))?;
+
+                proposals.insert((row.proposed_in.transaction, epoch));
+
                 // NOTE: Proposals are ratified with an epoch of delay always, so deposits count
                 // towards the voting stake of DRep for an extra epoch following the proposal
                 // expiry.
                 if epoch <= row.valid_until + 1 {
-                    Some((
+                    deposits.insert(
                         expect_stake_credential(&row.proposal.reward_account),
                         ProposalState {
                             deposit: row.proposal.deposit,
                             valid_until: row.valid_until,
                         },
-                    ))
-                } else {
-                    None
+                    );
                 }
-            })
-            .collect::<BTreeMap<_, _>>();
+
+                Ok(())
+            })?;
 
         let mandate = drep_mandate_calculator(
             // FIXME: Obtain protocol version from arguments, passed from block header.
             (9, 0),
             GOV_ACTION_LIFETIME,
             DREP_EXPIRY,
-            all_proposals_epochs,
+            proposals,
         );
 
         let mut dreps = db
@@ -104,7 +107,7 @@ impl GovernanceSummary {
                         StakeCredential::ScriptHash(hash) => DRep::Script(hash),
                     };
 
-                    let registration_slot = registered_at.transaction_pointer.slot;
+                    let registration_slot = registered_at.transaction.slot;
 
                     Ok((
                         drep,
@@ -133,7 +136,7 @@ impl GovernanceSummary {
             metadata: None,
             stake: 0,
             registered_at: CertificatePointer {
-                transaction_pointer: TransactionPointer {
+                transaction: TransactionPointer {
                     slot: 0,
                     transaction_index: 0,
                 },
@@ -152,7 +155,7 @@ fn drep_mandate_calculator(
     protocol_version: ProtocolVersion,
     governance_action_lifetime: Epoch,
     drep_expiry: Epoch,
-    proposals: BTreeSet<Epoch>,
+    proposals: BTreeSet<(TransactionPointer, Epoch)>,
 ) -> impl Fn(Epoch, Epoch) -> u64 {
     // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
     // e.g.
@@ -166,7 +169,9 @@ fn drep_mandate_calculator(
     //   [163, 164, 165, 166, 167, 168, 169, 172, 173, 174, 175, 176, 177, 178]
     let proposals_activity_periods = proposals
         .iter()
-        .flat_map(|&value| (value..=value + governance_action_lifetime).collect::<BTreeSet<_>>())
+        .flat_map(|(_pointer, start)| {
+            (*start..=*start + governance_action_lifetime).collect::<BTreeSet<_>>()
+        })
         .collect::<BTreeSet<Epoch>>();
 
     let most_recent_epoch = proposals_activity_periods.iter().max().copied();
@@ -185,44 +190,75 @@ fn drep_mandate_calculator(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amaru_kernel::network::{Bound, EraParams, NetworkName, Summary};
+    use std::sync::LazyLock;
     use test_case::test_case;
 
     const VERSION_9: ProtocolVersion = (9, 0);
     const VERSION_10: ProtocolVersion = (10, 0);
 
+    static ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| EraHistory {
+        eras: vec![Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: From::from(0),
+                epoch: 0,
+            },
+            end: Bound {
+                time_ms: 1000000,
+                slot: From::from(1000),
+                epoch: 100,
+            },
+            params: EraParams {
+                epoch_size_slots: 10,
+                slot_length: 1000,
+            },
+        }],
+    });
+
+    fn ptr(slot: u64, transaction_index: usize) -> (TransactionPointer, Epoch) {
+        (
+            TransactionPointer {
+                slot,
+                transaction_index,
+            },
+            ERA_HISTORY.slot_to_epoch(Slot::from(slot)).unwrap(),
+        )
+    }
+
     #[test_case(
-        VERSION_10, 3, 10, vec![168], 168, 168 => 178;
-        "no dormant period, no interaction"
+        VERSION_10, 3, 10, vec![ptr(85, 0)], 8, 8 => 18;
+        "VERSION=10 no dormant period, no interaction"
     )]
     #[test_case(
-        VERSION_10, 3, 10, vec![168], 168, 169 => 179;
-        "no dormant period, one interaction"
+        VERSION_10, 3, 10, vec![ptr(85, 0)], 8, 9 => 19;
+        "VERSION=10 no dormant period, one recent interaction"
     )]
     #[test_case(
-        VERSION_10, 3, 10, vec![168, 174], 168, 169 => 181;
-        "single 2-epoch dormant period, one old interaction"
+        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(145, 0)], 5, 9 => 21;
+        "VERSION=10 single 2-epoch dormant period, one old interaction"
     )]
     #[test_case(
-        VERSION_10, 3, 10, vec![168, 174], 168, 174 => 184;
-        "single 2-epoch dormant period, one recent interaction"
+        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 13, 13 => 26;
+        "VERSION=10 4-epoch cumulative dormant period, no interaction, early registration"
     )]
     #[test_case(
-        VERSION_10, 3, 10, vec![168, 173, 180], 168, 168 => 182;
-        "4-epoch cumulative dormant period, no interaction"
+        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 20, 20 => 30;
+        "VERSION=10 4-epoch cumulative dormant period, no interaction, late registration"
     )]
     #[test_case(
-        VERSION_10, 3, 10, vec![168, 173, 180], 168, 175 => 188;
-        "4-epoch cumulative dormant period, some interactions"
+        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 12, 15 => 28;
+        "VERSION=10 4-epoch cumulative dormant period, some interactions"
     )]
     #[test_case(
-        VERSION_10, 3, 10, vec![168, 172, 175], 168, 173 => 183;
-        "no dormant period, some interactions"
+        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(125, 0), ptr(155, 0)], 8, 13 => 23;
+        "VERSION=10 no dormant period, some interactions"
     )]
     fn test_drep_mandate(
         protocol_version: ProtocolVersion,
         governance_action_lifetime: Epoch,
         drep_expiry: Epoch,
-        proposals: Vec<Epoch>,
+        proposals: Vec<(TransactionPointer, Epoch)>,
         registered_at: Epoch,
         last_interaction: Epoch,
     ) -> Epoch {

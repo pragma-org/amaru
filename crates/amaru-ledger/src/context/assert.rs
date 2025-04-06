@@ -20,7 +20,7 @@ use crate::context::{
 };
 use amaru_kernel::{
     serde_utils, stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep,
-    Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential,
+    Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential,
     TransactionInput, TransactionOutput,
 };
 use core::mem;
@@ -222,7 +222,7 @@ impl CommitteeSlice for AssertValidationContext {
 }
 
 impl ProposalsSlice for AssertValidationContext {
-    fn acknowledge(&mut self, _pointer: ProposalPointer, _proposal: Proposal) {}
+    fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
 }
 
 impl WitnessSlice for AssertValidationContext {

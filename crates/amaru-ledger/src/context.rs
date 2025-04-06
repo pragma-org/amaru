@@ -18,7 +18,7 @@ mod default;
 use crate::state::diff_bind;
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, Proposal,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    ProposalId, ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use std::{collections::BTreeSet, fmt, marker::PhantomData};
 
@@ -246,7 +246,7 @@ pub trait CommitteeSlice {
 // -------------------------------------------------------------------------------------------------
 
 pub trait ProposalsSlice {
-    fn acknowledge(&mut self, pointer: ProposalPointer, proposal: Proposal);
+    fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
 }
 
 // Witnesses

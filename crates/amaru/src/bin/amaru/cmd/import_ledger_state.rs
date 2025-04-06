@@ -14,8 +14,8 @@
 
 use amaru_kernel::{
     network::{EraHistory, NetworkName},
-    Anchor, CertificatePointer, DRep, Epoch, GovActionId, Lovelace, Point, PoolId, PoolParams,
-    Proposal, ProposalPointer, Set, StakeCredential, TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, Set, StakeCredential, TransactionInput, TransactionOutput,
     TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME, STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
@@ -39,7 +39,7 @@ use tracing::info;
 const BATCH_SIZE: usize = 5000;
 
 const DEFAULT_CERTIFICATE_POINTER: CertificatePointer = CertificatePointer {
-    transaction_pointer: TransactionPointer {
+    transaction: TransactionPointer {
         slot: 0,
         transaction_index: 0,
     },
@@ -493,13 +493,17 @@ fn import_proposals(
             dreps: iter::empty(),
             cc_members: iter::empty(),
             proposals: proposals.into_iter().map(|proposal| {
+                let proposal_index = proposal.id.action_index as usize;
                 (
-                    ProposalPointer {
-                        transaction: proposal.id.transaction_id,
-                        proposal_index: proposal.id.action_index as usize,
-                    },
+                    proposal.id,
                     proposals::Value {
-                        proposed_in: proposal.proposed_in,
+                        proposed_in: ProposalPointer {
+                            transaction: TransactionPointer {
+                                slot: point.slot_or_default(),
+                                transaction_index: 0,
+                            },
+                            proposal_index,
+                        },
                         valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
                         proposal: proposal.procedure,
                     },
@@ -783,7 +787,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for DRepState {
 
 #[derive(Debug)]
 struct ProposalState {
-    id: GovActionId,
+    id: ProposalId,
     procedure: Proposal,
     proposed_in: Epoch,
     #[allow(dead_code)]
