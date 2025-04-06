@@ -20,25 +20,3 @@ pub mod pots;
 pub mod proposals;
 pub mod slots;
 pub mod utxo;
-
-#[cfg(test)]
-pub mod tests {
-    use amaru_kernel::{CertificatePointer, Slot, TransactionPointer};
-    use proptest::prelude::*;
-
-    prop_compose! {
-        pub fn any_certificate_pointer()(
-            slot in any::<Slot>(),
-            transaction_index in any::<usize>(),
-            certificate_index in any::<usize>(),
-        ) -> CertificatePointer {
-            CertificatePointer {
-                transaction_pointer: TransactionPointer {
-                    slot,
-                    transaction_index,
-                },
-                certificate_index,
-            }
-        }
-    }
-}
