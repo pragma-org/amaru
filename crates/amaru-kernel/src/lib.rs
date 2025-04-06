@@ -32,7 +32,7 @@ use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyL
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{Bytes, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
@@ -44,13 +44,15 @@ pub use pallas_primitives::{
     alonzo,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, DRep,
-        Epoch, ExUnits, GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
+        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
+        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, Epoch, ExUnitPrices,
+        ExUnits, GovAction, GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
         MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet, PoolMetadata,
-        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, PseudoTransactionOutput,
-        RationalNumber, Redeemers, Relay, RewardAccount, StakeCredential, TransactionBody,
-        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter,
-        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
+        ProtocolParamUpdate, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
+        RewardAccount, ScriptHash, StakeCredential, TransactionBody, TransactionInput,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -594,6 +596,28 @@ pub fn output_stake_credential(
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
     })
+}
+
+// StakeAddress
+// ----------------------------------------------------------------------------
+
+// TODO: Required because Pallas doesn't export any contructors for StakeAddress directly. Should
+// be fixed there.
+#[allow(clippy::expect_used)]
+pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddress {
+    let fake_payment_part = ShelleyPaymentPart::Key(Hash::new([
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    ]));
+    let delegation_part = match payload {
+        StakePayload::Stake(hash) => ShelleyDelegationPart::Key(hash),
+        StakePayload::Script(hash) => ShelleyDelegationPart::Script(hash),
+    };
+    StakeAddress::try_from(ShelleyAddress::new(
+        network,
+        fake_payment_part,
+        delegation_part,
+    ))
+    .expect("has non-empty delegation part")
 }
 
 // StakeCredential
