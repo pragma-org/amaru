@@ -27,7 +27,9 @@ use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::conway::{Redeemer, RedeemersKey, RedeemersValue};
 use sha3::{Digest as _, Sha3_256};
-use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyLock};
+use std::{
+    array::TryFromSliceError, cmp::Ordering, convert::Infallible, ops::Deref, sync::LazyLock,
+};
 
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
@@ -46,13 +48,13 @@ pub use pallas_primitives::{
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, Epoch, ExUnitPrices,
-        ExUnits, GovAction, GovActionId, HeaderBody, KeepRaw, MintedBlock, MintedTransactionBody,
-        MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet, PoolMetadata,
-        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
-        ProtocolParamUpdate, ProtocolVersion, PseudoTransactionOutput, RationalNumber, Redeemers,
-        Relay, RewardAccount, ScriptHash, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
+        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet,
+        PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
+        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion,
+        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, ScriptHash,
+        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
+        VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -443,7 +445,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
 pub struct CertificatePointer {
-    pub transaction_pointer: TransactionPointer,
+    pub transaction: TransactionPointer,
     pub certificate_index: usize,
 }
 
@@ -454,7 +456,7 @@ impl<C> cbor::encode::Encode<C> for CertificatePointer {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.array(2)?;
-        e.encode_with(self.transaction_pointer, ctx)?;
+        e.encode_with(self.transaction, ctx)?;
         e.encode_with(self.certificate_index, ctx)?;
         Ok(())
     }
@@ -464,7 +466,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let _len = d.array()?;
         Ok(CertificatePointer {
-            transaction_pointer: d.decode_with(ctx)?,
+            transaction: d.decode_with(ctx)?,
             certificate_index: d.decode_with(ctx)?,
         })
     }
@@ -472,7 +474,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProposalPointer {
-    pub transaction: TransactionId,
+    pub transaction: TransactionPointer,
     pub proposal_index: usize,
 }
 
@@ -618,6 +620,43 @@ pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddres
         delegation_part,
     ))
     .expect("has non-empty delegation part")
+}
+
+// ProposalId
+// ----------------------------------------------------------------------------
+
+#[derive(Debug, Eq, PartialEq)]
+// TODO: This type shouldn't exist, and `Ord` / `PartialOrd` should be derived in Pallas on
+// 'GovActionId' already.
+pub struct ComparableProposalId {
+    pub inner: ProposalId,
+}
+
+impl From<ProposalId> for ComparableProposalId {
+    fn from(inner: ProposalId) -> Self {
+        Self { inner }
+    }
+}
+
+impl From<ComparableProposalId> for ProposalId {
+    fn from(comparable: ComparableProposalId) -> ProposalId {
+        comparable.inner
+    }
+}
+
+impl PartialOrd for ComparableProposalId {
+    fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
+        Some(self.cmp(rhs))
+    }
+}
+
+impl Ord for ComparableProposalId {
+    fn cmp(&self, rhs: &Self) -> Ordering {
+        match self.inner.transaction_id.cmp(&rhs.inner.transaction_id) {
+            Ordering::Equal => self.inner.action_index.cmp(&rhs.inner.action_index),
+            ordering @ Ordering::Less | ordering @ Ordering::Greater => ordering,
+        }
+    }
 }
 
 // StakeCredential
@@ -798,7 +837,7 @@ mod test {
         right: (u64, usize, usize),
     ) -> (CertificatePointer, CertificatePointer) {
         let new_pointer = |args: (Slot, usize, usize)| CertificatePointer {
-            transaction_pointer: TransactionPointer {
+            transaction: TransactionPointer {
                 slot: args.0,
                 transaction_index: args.1,
             },

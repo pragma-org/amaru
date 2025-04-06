@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory, GovActionId,
-    Lovelace, Point, PoolId, PoolParams, Proposal, ProposalPointer, Set, StakeCredential,
+    network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory, Lovelace, Point,
+    PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential,
     TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME,
     STAKE_CREDENTIAL_DEPOSIT,
 };
@@ -41,8 +41,8 @@ const BATCH_SIZE: usize = 5000;
 
 static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
     LazyLock::new(|| CertificatePointer {
-        transaction_pointer: TransactionPointer {
-            slot: From::from(0),
+        transaction: TransactionPointer {
+            slot: Slot::from(0),
             transaction_index: 0,
         },
         certificate_index: 0,
@@ -492,13 +492,17 @@ fn import_proposals(
             dreps: iter::empty(),
             cc_members: iter::empty(),
             proposals: proposals.into_iter().map(|proposal| {
+                let proposal_index = proposal.id.action_index as usize;
                 (
-                    ProposalPointer {
-                        transaction: proposal.id.transaction_id,
-                        proposal_index: proposal.id.action_index as usize,
-                    },
+                    proposal.id,
                     proposals::Value {
-                        proposed_in: proposal.proposed_in,
+                        proposed_in: ProposalPointer {
+                            transaction: TransactionPointer {
+                                slot: point.slot_or_default(),
+                                transaction_index: 0,
+                            },
+                            proposal_index,
+                        },
                         valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
                         proposal: proposal.procedure,
                     },
@@ -782,7 +786,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for DRepState {
 
 #[derive(Debug)]
 struct ProposalState {
-    id: GovActionId,
+    id: ProposalId,
     procedure: Proposal,
     proposed_in: Epoch,
     #[allow(dead_code)]

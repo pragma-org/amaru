@@ -104,16 +104,24 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_certificate_pointer()(
+        pub(crate) fn any_transaction_pointer()(
             slot in any::<u64>(),
             transaction_index in any::<usize>(),
+        ) -> TransactionPointer {
+            TransactionPointer {
+                slot: Slot::from(slot),
+                transaction_index,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn any_certificate_pointer()(
+            transaction in any_transaction_pointer(),
             certificate_index in any::<usize>(),
         ) -> CertificatePointer {
             CertificatePointer {
-                transaction_pointer: TransactionPointer {
-                    slot: Slot::from(slot),
-                    transaction_index,
-                },
+                transaction,
                 certificate_index,
             }
         }

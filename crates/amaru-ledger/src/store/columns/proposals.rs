@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Epoch, Proposal, ProposalPointer};
+use amaru_kernel::{cbor, Epoch, Proposal, ProposalId, ProposalPointer};
 use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
@@ -22,11 +22,11 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Value = Row;
 
-pub type Key = ProposalPointer;
+pub type Key = ProposalId;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Row {
-    pub proposed_in: Epoch,
+    pub proposed_in: ProposalPointer,
     pub valid_until: Epoch,
     pub proposal: Proposal,
 }
@@ -71,23 +71,28 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use crate::store::{accounts::test::any_stake_credential, columns::dreps::tests::any_anchor};
+    use crate::store::{
+        accounts::test::any_stake_credential,
+        columns::dreps::tests::{any_anchor, any_transaction_pointer},
+    };
     use amaru_kernel::{
         new_stake_address, prop_cbor_roundtrip, Bytes, Constitution, CostModel, CostModels,
-        DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, GovActionId, Hash, KeyValuePairs,
-        Lovelace, Network, Nullable, PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion,
+        DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, Hash, KeyValuePairs, Lovelace,
+        Network, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolVersion,
         RewardAccount, ScriptHash, Set, StakeCredential, StakePayload, UnitInterval,
     };
     use proptest::{option, prelude::*};
 
-    prop_cbor_roundtrip!(Row, any_row());
+    prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row());
+
+    prop_cbor_roundtrip!(prop_cbor_roundtrip_key, Key, any_proposal_id());
 
     prop_compose! {
-        pub(crate) fn any_gov_action_id()(
+        pub(crate) fn any_proposal_id()(
             transaction_id in any::<[u8; 32]>(),
             action_index in any::<u32>(),
-        ) -> GovActionId {
-            GovActionId {
+        ) -> ProposalId {
+            ProposalId {
                 transaction_id: Hash::new(transaction_id),
                 action_index,
             }
@@ -316,29 +321,29 @@ pub(crate) mod tests {
 
     pub(crate) fn any_gov_action() -> impl Strategy<Value = GovAction> {
         prop_compose! {
-            fn any_parent_action_id()(
-                action_id in option::of(any_gov_action_id()),
-            ) -> Nullable<GovActionId> {
-                Nullable::from(action_id)
+            fn any_parent_proposal_id()(
+                proposal_id in option::of(any_proposal_id()),
+            ) -> Nullable<ProposalId> {
+                Nullable::from(proposal_id)
             }
         }
 
         prop_compose! {
             fn any_action_parameter_change()(
-                parent_action_id in any_parent_action_id(),
+                parent_proposal_id in any_parent_proposal_id(),
                 pparams in any_protocol_params_update(),
                 guardrails in any_guardrails_script(),
             ) -> GovAction {
-                GovAction::ParameterChange(parent_action_id, Box::new(pparams), guardrails)
+                GovAction::ParameterChange(parent_proposal_id, Box::new(pparams), guardrails)
             }
         }
 
         prop_compose! {
             fn any_hardfork_initiation()(
-                parent_action_id in any_parent_action_id(),
+                parent_proposal_id in any_parent_proposal_id(),
                 protocol_version in any_protocol_version(),
             ) -> GovAction {
-                GovAction::HardForkInitiation(parent_action_id, protocol_version)
+                GovAction::HardForkInitiation(parent_proposal_id, protocol_version)
             }
         }
 
@@ -361,9 +366,9 @@ pub(crate) mod tests {
 
         prop_compose! {
             fn any_no_confidence()(
-                parent_action_id in any_parent_action_id(),
+                parent_proposal_id in any_parent_proposal_id(),
             ) -> GovAction {
-                GovAction::NoConfidence(parent_action_id)
+                GovAction::NoConfidence(parent_proposal_id)
             }
         }
 
@@ -378,14 +383,14 @@ pub(crate) mod tests {
 
         prop_compose! {
             fn any_committee_update()(
-                parent_action_id in any_parent_action_id(),
+                parent_proposal_id in any_parent_proposal_id(),
                 to_remove in prop::collection::btree_set(any_stake_credential(), 0..3),
                 to_add in prop::collection::vec(any_committee_registration(), 0..3),
                 is_definite in any::<bool>(),
                 quorum in any_unit_interval(),
             ) -> GovAction {
                 GovAction::UpdateCommittee(
-                    parent_action_id,
+                    parent_proposal_id,
                     Set::from(to_remove.into_iter().collect::<Vec<_>>()),
                     if is_definite {
                         KeyValuePairs::Def(to_add)
@@ -399,10 +404,10 @@ pub(crate) mod tests {
 
         prop_compose! {
             fn any_new_constitution()(
-                parent_action_id in any_parent_action_id(),
+                parent_proposal_id in any_parent_proposal_id(),
                 constitution in any_constitution(),
             ) -> GovAction {
-                GovAction::NewConstitution(parent_action_id, constitution)
+                GovAction::NewConstitution(parent_proposal_id, constitution)
             }
         }
 
@@ -467,8 +472,20 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
+        pub(crate) fn any_proposal_pointer()(
+            transaction in any_transaction_pointer(),
+            proposal_index in any::<usize>(),
+        ) -> ProposalPointer {
+            ProposalPointer {
+                transaction,
+                proposal_index,
+            }
+        }
+    }
+
+    prop_compose! {
         pub(crate) fn any_row()(
-            proposed_in in any::<Epoch>(),
+            proposed_in in any_proposal_pointer(),
             valid_until in any::<Epoch>(),
             proposal in any_proposal(),
         ) -> Row {

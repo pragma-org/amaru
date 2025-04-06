@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fs::File;
-use std::io::BufReader;
-use std::path::Path;
-use std::sync::LazyLock;
+use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
-use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
+pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
 
 /// Epoch number in which the PreProd network transitioned to Shelley.
 pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
@@ -288,15 +285,12 @@ pub fn load_era_history_from_file(path: &Path) -> Result<EraHistory, EraHistoryF
 mod tests {
     use crate::network::{load_era_history_from_file, PREPROD_ERA_HISTORY};
 
-    use super::EraHistoryFileError;
-    use super::NetworkName::{self, *};
-    use proptest::prelude::*;
-    use proptest::{prop_oneof, proptest};
-    use std::env;
-    use std::fs::File;
-    use std::io::Write;
-    use std::path::Path;
-    use std::str::FromStr;
+    use super::{
+        EraHistoryFileError,
+        NetworkName::{self, *},
+    };
+    use proptest::{prelude::*, prop_oneof, proptest};
+    use std::{env, fs::File, io::Write, path::Path, str::FromStr};
 
     fn any_network() -> impl Strategy<Value = NetworkName> {
         prop_oneof![
