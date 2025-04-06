@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::store::{columns::dreps::Row, Snapshot, StoreError};
+use crate::store::{columns::dreps, Snapshot, StoreError};
 use amaru_kernel::{
     expect_stake_credential, Anchor, CertificatePointer, DRep, Epoch, Lovelace, StakeCredential,
     TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME,
@@ -68,29 +68,15 @@ impl GovernanceSummary {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let current_epoch = db.epoch();
-
-        // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
-        // e.g.
-        //
-        // Considering a proposal created at epoch 163, it is valid until epoch 163 + GOV_ACTION_LIFETIME
-        //
-        // for epochs 163 and 165, with GOV_ACTION_LIFETIME = 6, proposals_activity_periods would equal
-        //   [163, 164, 165, 166, 167, 168, 169, 170, 171]
-        //
-        // for epochs 163 and 172, with GOV_ACTION_LIFETIME = 6, proposals_activity_periods would equal
-        //   [163, 164, 165, 166, 167, 168, 169, 172, 173, 174, 175, 176, 177, 178]
-        let proposals_activity_periods = all_proposals_epochs
-            .iter()
-            .flat_map(|&value| (value..=value + GOV_ACTION_LIFETIME).collect::<BTreeSet<_>>())
-            .collect::<BTreeSet<u64>>();
+        let mandate =
+            drep_mandate_calculator(GOV_ACTION_LIFETIME, DREP_EXPIRY, all_proposals_epochs);
 
         let mut dreps = db
             .iter_dreps()?
             .map(
                 |(
                     k,
-                    Row {
+                    dreps::Row {
                         registered_at,
                         last_interaction,
                         anchor,
@@ -102,22 +88,12 @@ impl GovernanceSummary {
                         StakeCredential::ScriptHash(hash) => DRep::Script(hash),
                     };
 
-                    // Each epoch with no active proposals increase the mandate by 1
-                    let epochs_without_active_proposals =
-                        BTreeSet::from_iter(last_interaction..=current_epoch) // Total period considered for this DRep
-                            .difference(&proposals_activity_periods)
-                            .count();
-
                     (
                         drep,
                         DRepState {
                             registered_at,
                             metadata: anchor,
-                            mandate: Some(
-                                last_interaction
-                                    + DREP_EXPIRY
-                                    + epochs_without_active_proposals as u64,
-                            ),
+                            mandate: Some(mandate(last_interaction)),
                             stake: 0, // NOTE: The actual stake is filled later when computing the
                                       // stake distribution.
                         },
@@ -143,5 +119,85 @@ impl GovernanceSummary {
         dreps.insert(DRep::NoConfidence, default_drep_state());
 
         Ok(GovernanceSummary { dreps, deposits })
+    }
+}
+
+fn drep_mandate_calculator(
+    governance_action_lifetime: Epoch,
+    drep_expiry: Epoch,
+    proposals: BTreeSet<Epoch>,
+) -> impl Fn(Epoch) -> u64 {
+    // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
+    // e.g.
+    //
+    // Considering a proposal created at epoch 163, it is valid until epoch 163 + GOV_ACTION_LIFETIME
+    //
+    // for epochs 163 and 165, with GOV_ACTION_LIFETIME = 6, proposals_activity_periods would equal
+    //   [163, 164, 165, 166, 167, 168, 169, 170, 171]
+    //
+    // for epochs 163 and 172, with GOV_ACTION_LIFETIME = 6, proposals_activity_periods would equal
+    //   [163, 164, 165, 166, 167, 168, 169, 172, 173, 174, 175, 176, 177, 178]
+    let proposals_activity_periods = proposals
+        .iter()
+        .flat_map(|&value| (value..=value + governance_action_lifetime).collect::<BTreeSet<_>>())
+        .collect::<BTreeSet<Epoch>>();
+
+    let most_recent_epoch = proposals_activity_periods.iter().max().copied();
+
+    move |last_interaction| {
+        // Each epoch with no active proposals increase the mandate by 1
+        let dormant_epochs =
+            BTreeSet::from_iter(last_interaction..=most_recent_epoch.unwrap_or(last_interaction)) // Total period considered for this DRep
+                .difference(&proposals_activity_periods)
+                .count() as u64;
+
+        last_interaction + drep_expiry + dormant_epochs
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use test_case::test_case;
+
+    #[test_case(
+        3, 10, vec![168], 0 => 178;
+        "no dormant period, no interaction"
+    )]
+    #[test_case(
+        3, 10, vec![168], 169 => 179;
+        "no dormant period, one interaction"
+    )]
+    #[test_case(
+        3, 10, vec![168, 174], 169 => 181;
+        "single 2-epoch dormant period, one old interaction"
+    )]
+    #[test_case(
+        3, 10, vec![168, 174], 174 => 184;
+        "single 2-epoch dormant period, one recent interaction"
+    )]
+    #[test_case(
+        3, 10, vec![168, 173, 180], 168 => 182;
+        "4-epoch cumulative dormant period, no interaction"
+    )]
+    #[test_case(
+        3, 10, vec![168, 173, 180], 175 => 188;
+        "4-epoch cumulative dormant period, some interactions"
+    )]
+    #[test_case(
+        3, 10, vec![168, 172, 175], 173 => 183;
+        "no dormant period, some interactions"
+    )]
+    fn test_drep_mandate(
+        governance_action_lifetime: Epoch,
+        drep_expiry: Epoch,
+        proposals: Vec<Epoch>,
+        last_interaction: Epoch,
+    ) -> Epoch {
+        drep_mandate_calculator(
+            governance_action_lifetime,
+            drep_expiry,
+            proposals.into_iter().collect::<BTreeSet<_>>(),
+        )(last_interaction)
     }
 }
