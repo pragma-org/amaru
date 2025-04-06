@@ -73,11 +73,10 @@ pub(crate) mod tests {
     use super::*;
     use crate::store::{accounts::test::any_stake_credential, columns::dreps::tests::any_anchor};
     use amaru_kernel::{
-        alonzo::ProtocolVersion, new_stake_address, prop_cbor_roundtrip, Bytes, Constitution,
-        CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, GovActionId,
-        Hash, KeyValuePairs, Lovelace, Network, Nullable, PoolVotingThresholds,
-        ProtocolParamUpdate, RewardAccount, ScriptHash, Set, StakeCredential, StakePayload,
-        UnitInterval,
+        new_stake_address, prop_cbor_roundtrip, Bytes, Constitution, CostModel, CostModels,
+        DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, GovActionId, Hash, KeyValuePairs,
+        Lovelace, Network, Nullable, PoolVotingThresholds, ProtocolParamUpdate, ProtocolVersion,
+        RewardAccount, ScriptHash, Set, StakeCredential, StakePayload, UnitInterval,
     };
     use proptest::{option, prelude::*};
 
