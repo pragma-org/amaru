@@ -107,7 +107,7 @@ impl GovernanceSummary {
                         StakeCredential::ScriptHash(hash) => DRep::Script(hash),
                     };
 
-                    let registration_slot = registered_at.transaction.slot;
+                    let registration_slot = Slot::from(registered_at.transaction.slot);
 
                     Ok((
                         drep,
@@ -118,9 +118,12 @@ impl GovernanceSummary {
                                 // TODO: The map_err to include the slot as context shouldn't be
                                 // necessary. Instead, the slot_arithmetic library should return
                                 // better errors.
-                                era_history
-                                    .slot_to_epoch(Slot::from(registration_slot))
-                                    .map_err(|e| Error::TimeHorizonError(registration_slot, e))?,
+                                (
+                                    registration_slot,
+                                    era_history.slot_to_epoch(registration_slot).map_err(|e| {
+                                        Error::TimeHorizonError(u64::from(registration_slot), e)
+                                    })?,
+                                ),
                                 last_interaction,
                             )),
                             stake: 0, // NOTE: The actual stake is filled later when computing the
@@ -156,7 +159,7 @@ fn drep_mandate_calculator(
     governance_action_lifetime: Epoch,
     drep_expiry: Epoch,
     proposals: BTreeSet<(TransactionPointer, Epoch)>,
-) -> impl Fn(Epoch, Epoch) -> u64 {
+) -> impl Fn((Slot, Epoch), Epoch) -> u64 {
     // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
     // e.g.
     //
@@ -190,7 +193,7 @@ fn drep_mandate_calculator(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::network::{Bound, EraParams, NetworkName, Summary};
+    use amaru_kernel::network::{Bound, EraParams, Summary};
     use std::sync::LazyLock;
     use test_case::test_case;
 
@@ -226,47 +229,32 @@ mod tests {
         )
     }
 
-    #[test_case(
-        VERSION_10, 3, 10, vec![ptr(85, 0)], 8, 8 => 18;
-        "VERSION=10 no dormant period, no interaction"
-    )]
-    #[test_case(
-        VERSION_10, 3, 10, vec![ptr(85, 0)], 8, 9 => 19;
-        "VERSION=10 no dormant period, one recent interaction"
-    )]
-    #[test_case(
-        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(145, 0)], 5, 9 => 21;
-        "VERSION=10 single 2-epoch dormant period, one old interaction"
-    )]
-    #[test_case(
-        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 13, 13 => 26;
-        "VERSION=10 4-epoch cumulative dormant period, no interaction, early registration"
-    )]
-    #[test_case(
-        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 20, 20 => 30;
-        "VERSION=10 4-epoch cumulative dormant period, no interaction, late registration"
-    )]
-    #[test_case(
-        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 12, 15 => 28;
-        "VERSION=10 4-epoch cumulative dormant period, some interactions"
-    )]
-    #[test_case(
-        VERSION_10, 3, 10, vec![ptr(85, 0), ptr(125, 0), ptr(155, 0)], 8, 13 => 23;
-        "VERSION=10 no dormant period, some interactions"
-    )]
+    #[test_case(VERSION_9, 3, 10, vec![ptr(85, 0)], 85, 8 => 18)]
+    #[test_case(VERSION_10, 3, 10, vec![ptr(85, 0)], 85, 8 => 18)]
+    #[test_case(VERSION_9, 3, 10, vec![ptr(85, 0)], 85, 9 => 19)]
+    #[test_case(VERSION_10, 3, 10, vec![ptr(85, 0)], 85, 9 => 19)]
+    #[test_case(VERSION_9, 3, 10, vec![ptr(85, 0), ptr(145, 0)], 55, 9 => 21)]
+    #[test_case(VERSION_9, 3, 10, vec![ptr(85, 0), ptr(145, 0)], 55, 9 => 21)]
+    #[test_case(VERSION_10, 3, 10, vec![ptr(85, 0), ptr(145, 0)], 55, 9 => 21)]
+    #[test_case(VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 135, 13 => 26)]
+    #[test_case(VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 205, 20 => 30)]
+    #[test_case(VERSION_10, 3, 10, vec![ptr(85, 0), ptr(135, 0), ptr(205, 0)], 125, 15 => 28)]
+    #[test_case(VERSION_10, 3, 10, vec![ptr(85, 0), ptr(125, 0), ptr(155, 0)], 85, 13 => 23)]
     fn test_drep_mandate(
         protocol_version: ProtocolVersion,
         governance_action_lifetime: Epoch,
         drep_expiry: Epoch,
         proposals: Vec<(TransactionPointer, Epoch)>,
-        registered_at: Epoch,
+        registered_at: u64,
         last_interaction: Epoch,
     ) -> Epoch {
+        let registration_slot = Slot::from(registered_at);
+        let registration_epoch = ERA_HISTORY.slot_to_epoch(registration_slot).unwrap();
         drep_mandate_calculator(
             protocol_version,
             governance_action_lifetime,
             drep_expiry,
             proposals.into_iter().collect::<BTreeSet<_>>(),
-        )(registered_at, last_interaction)
+        )((registration_slot, registration_epoch), last_interaction)
     }
 }
