@@ -26,7 +26,7 @@ use std::{
     io, iter,
 };
 use thiserror::Error;
-use tracing::{info, instrument, Level};
+use tracing::{instrument, Level};
 
 #[derive(Debug, Error)]
 #[error(transparent)]
@@ -40,8 +40,6 @@ pub enum OpenErrorKind {
 #[derive(Debug, Error)]
 #[error(transparent)]
 pub enum TipErrorKind {
-    #[error("unable to decode database's tip")]
-    Undecodable(#[from] cbor::decode::Error),
     #[error("no database tip. Did you forget to 'import' a snapshot first?")]
     Missing,
 }
@@ -50,6 +48,8 @@ pub enum TipErrorKind {
 pub enum StoreError {
     #[error(transparent)]
     Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
+    #[error("unable to decode database's value")]
+    Undecodable(#[from] cbor::decode::Error),
     #[error("error sending work unit through output port")]
     Send,
     #[error("error opening the store")]
@@ -184,7 +184,7 @@ pub trait Store: Snapshot {
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
     fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<(), StoreError>;
 
-    #[instrument(level = Level::TRACE, name = "tick.pool", skip_all)]
+    #[instrument(level = Level::INFO, name = "tick.pool", skip_all)]
     fn tick_pools(&self, epoch: Epoch) -> Result<(), StoreError> {
         self.with_pools(|iterator| {
             for (_, pool) in iterator {
@@ -193,14 +193,34 @@ pub trait Store: Snapshot {
         })
     }
 
+    #[instrument(level = Level::INFO, name = "tick.proposals", skip_all)]
     fn tick_proposals(&self, epoch: Epoch) -> Result<(), StoreError> {
-        info!(epoch, "tick proposal");
-
         let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
         self.with_proposals(|iterator| {
-            for (_, item) in iterator {
+            for (_key, item) in iterator {
                 if let Some(row) = item.borrow() {
+                    // This '+2' is worthy of an explanation.
+                    //
+                    // - `epoch` here designates the _next_ epoch we are transitioning into.
+                    //
+                    // - So, `epoch - 1` points at the epoch that _just ended_.
+                    //
+                    // - Proposals "valid_until" epoch `e` means that they expire during the
+                    //   transition from `e` to `e + 1`  (they can still be voted on in `e`!)
+                    //
+                    // - Proposals are processed with an epoch of delay; so a proposal that expires
+                    //   in `e` will not be refunded in the transition from `e` to `e+1` but in the
+                    //   one from `e+1` to `e+2`.
+                    //
+                    // So, putting it all together:
+                    //
+                    // 1. A proposal that is valid until `e` must be refunded in the transition
+                    //   from `e+1` to `e+2`;
+                    //
+                    // 2. `epoch` designates the arrival epoch (i.e. `e+2`);
+                    //
+                    // Hence: epoch == valid_until + 2
                     if epoch == row.valid_until + 2 {
                         refunds.insert(
                             expect_stake_credential(&row.proposal.reward_account),

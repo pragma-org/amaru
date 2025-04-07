@@ -238,10 +238,10 @@ impl AnchoredVolatileState {
                         Bind {
                             left: anchor,
                             right: _,
-                            value: deposit,
+                            value: registration,
                         },
                     ): (_, Bind<_, Empty, _>)| {
-                        (credential, (anchor, deposit, epoch))
+                        (credential, (anchor, registration, epoch))
                     },
                 ),
                 cc_members: self.state.committee.registered.into_iter().map(

@@ -24,6 +24,7 @@ chain.db
 
 # Files downloaded for the demo
 snapshots/
+!crates/amaru/tests/snapshots
 
 # Files for local coverage reports
 coverage/

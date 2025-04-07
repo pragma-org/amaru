@@ -29,22 +29,21 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (proposal_pointer, row) in rows {
-        let key = as_key(&PREFIX, proposal_pointer);
-        db.put(key, as_value(row))
+    for (key, value) in rows {
+        db.put(as_key(&PREFIX, key), as_value(value))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }
 
     Ok(())
 }
 
-/// Clear a Proposal registration.
+/// Remove an expired or enacted proposal.
 pub fn remove<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = Key>,
 ) -> Result<(), StoreError> {
-    for proposal_pointer in rows {
-        db.delete(as_key(&PREFIX, proposal_pointer))
+    for key in rows {
+        db.delete(as_key(&PREFIX, key))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }
 

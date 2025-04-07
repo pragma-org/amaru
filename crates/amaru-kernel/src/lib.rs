@@ -449,6 +449,12 @@ pub struct CertificatePointer {
     pub certificate_index: usize,
 }
 
+impl CertificatePointer {
+    pub fn slot(&self) -> Slot {
+        self.transaction.slot
+    }
+}
+
 impl<C> cbor::encode::Encode<C> for CertificatePointer {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -476,6 +482,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
 pub struct ProposalPointer {
     pub transaction: TransactionPointer,
     pub proposal_index: usize,
+}
+
+impl ProposalPointer {
+    pub fn slot(&self) -> Slot {
+        self.transaction.slot
+    }
 }
 
 impl<C> cbor::encode::Encode<C> for ProposalPointer {

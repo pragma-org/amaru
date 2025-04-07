@@ -159,8 +159,21 @@ impl RocksDB {
         self.db.transaction()
     }
 
+    fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, StoreError> {
+        self.db
+            .get(key)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .map(|bytes| cbor::decode(&bytes))
+            .transpose()
+            .map_err(StoreError::Undecodable)
+    }
+
     #[instrument(
         level = Level::TRACE,
+        target = EVENT_TARGET,
         name = "snapshot.applying_rewards",
         skip_all,
     )]
@@ -180,6 +193,7 @@ impl RocksDB {
 
     #[instrument(
         level = Level::TRACE,
+        target = EVENT_TARGET,
         name= "snapshot.adjusting_pots",
         skip_all,
     )]
@@ -198,6 +212,8 @@ impl RocksDB {
 
     #[instrument(
         level = Level::TRACE,
+        target = EVENT_TARGET,
+        name = "reset.fees",
         skip_all,
     )]
     fn reset_fees(&self) -> Result<(), StoreError> {
@@ -208,6 +224,7 @@ impl RocksDB {
 
     #[instrument(
         level = Level::TRACE,
+        target = EVENT_TARGET,
         name = "reset.blocks_count",
         skip_all,
     )]
@@ -347,12 +364,7 @@ impl Store for RocksDB {
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
-        self.db
-            .get(KEY_TIP)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|bytes| cbor::decode(&bytes))
-            .transpose()
-            .map_err(|err| StoreError::Tip(TipErrorKind::Undecodable(err)))?
+        self.get(KEY_TIP)?
             .ok_or(StoreError::Tip(TipErrorKind::Missing))
     }
 
@@ -415,19 +427,18 @@ impl Store for RocksDB {
 
                 utxo::add(&batch, add.utxo)?;
                 pools::add(&batch, add.pools)?;
+                dreps::add(&batch, add.dreps)?;
                 accounts::add(&batch, add.accounts)?;
                 cc_members::add(&batch, add.cc_members)?;
+                proposals::add(&batch, add.proposals)?;
 
                 accounts::reset_many(&batch, withdrawals)?;
-
-                dreps::add(&batch, add.dreps)?;
                 dreps::tick(&batch, voting_dreps, {
                     let slot = point.slot_or_default();
                     self.era_history
                         .slot_to_epoch(slot)
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
-                proposals::add(&batch, add.proposals)?;
 
                 utxo::remove(&batch, remove.utxo)?;
                 pools::remove(&batch, remove.pools)?;
@@ -451,11 +462,13 @@ impl Store for RocksDB {
         let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
             0,
             |leftovers, (account, deposit)| {
+                info!(target: EVENT_TARGET, ?account, ?deposit, "refund");
                 Ok(leftovers + accounts::set(&batch, account, |balance| balance + deposit)?)
             },
         )?;
 
         if leftovers > 0 {
+            info!(target: EVENT_TARGET, ?leftovers, "refund");
             let mut pots = pots::get(&batch)?;
             pots.treasury += leftovers;
             pots::put(&batch, pots)?;
@@ -466,7 +479,13 @@ impl Store for RocksDB {
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
-    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
+    #[instrument(
+        level = Level::INFO,
+        target = EVENT_TARGET,
+        name = "snapshot",
+        skip_all,
+        fields(epoch = epoch)
+    )]
     fn next_snapshot(
         &'_ mut self,
         epoch: Epoch,

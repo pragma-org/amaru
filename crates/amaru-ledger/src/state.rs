@@ -345,7 +345,7 @@ fn recover_stake_distribution(
         .map_err(StateError::Storage)
 }
 
-#[instrument(level = Level::TRACE, skip_all)]
+#[instrument(level = Level::INFO, skip_all, fields(epoch = current_epoch - 1))]
 fn epoch_transition(
     db: &mut impl Store,
     current_epoch: Epoch,
@@ -360,6 +360,11 @@ fn epoch_transition(
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
+    //
+    // FIXME: We also need a mechanism to remove any remaining delegation to pools retired by this
+    // step. The accounts are already filtered out when computing rewards, but if any retired pool
+    // were to re-register, they would automatically be granted the stake associated to their past
+    // delegates.
     db.tick_pools(current_epoch).map_err(StateError::Storage)?;
 
     // Refund deposit for any proposal that has expired.

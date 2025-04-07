@@ -71,10 +71,9 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[test_case(170)]
 #[test_case(171)]
 #[test_case(172)]
-// FIXME: re-enable once governance is implemented, we must be able to track proposal refunds in
-// order to get those snapshots right.
-//
-// #[test_case(173)]
+#[test_case(173)]
+// FIXME
+// Re-enable as state divergences get addressed.
 // #[test_case(174)]
 // #[test_case(175)]
 // #[test_case(176)]
@@ -94,7 +93,7 @@ fn compare_preprod_snapshot(epoch: Epoch) {
     );
 
     // FIXME: remove this condition once we're able to proceed beyond Epoch 173.
-    if epoch < 171 {
+    if epoch <= 171 {
         let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), stake_distr).unwrap();
         insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
     }

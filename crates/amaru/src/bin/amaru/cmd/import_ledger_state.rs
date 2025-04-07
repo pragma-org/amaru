@@ -287,7 +287,7 @@ fn decode_new_epoch_state(
                     // Proposals
                     d.array()?;
                     d.skip()?; // Proposals roots
-                    import_proposals(db, point, d.decode()?)?;
+                    import_proposals(db, point, era_history, d.decode()?)?;
 
                     // Constitutional committee
                     d.skip()?;
@@ -472,8 +472,9 @@ fn import_dreps(
 fn import_proposals(
     db: &impl Store,
     point: &Point,
+    era_history: &EraHistory,
     proposals: Vec<ProposalState>,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), Box<dyn std::error::Error>> {
     db.with_proposals(|iterator| {
         for (_, mut handle) in iterator {
             *handle.borrow_mut() = None;
@@ -491,28 +492,34 @@ fn import_proposals(
             accounts: iter::empty(),
             dreps: iter::empty(),
             cc_members: iter::empty(),
-            proposals: proposals.into_iter().map(|proposal| {
-                let proposal_index = proposal.id.action_index as usize;
-                (
-                    proposal.id,
-                    proposals::Value {
-                        proposed_in: ProposalPointer {
-                            transaction: TransactionPointer {
-                                slot: point.slot_or_default(),
-                                transaction_index: 0,
+            proposals: proposals
+                .into_iter()
+                .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
+                    let proposal_index = proposal.id.action_index as usize;
+                    Ok((
+                        proposal.id,
+                        proposals::Value {
+                            proposed_in: ProposalPointer {
+                                transaction: TransactionPointer {
+                                    slot: era_history.epoch_bounds(proposal.proposed_in)?.start,
+                                    transaction_index: 0,
+                                },
+                                proposal_index,
                             },
-                            proposal_index,
+                            valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
+                            proposal: proposal.procedure,
                         },
-                        valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
-                        proposal: proposal.procedure,
-                    },
-                )
-            }),
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter(),
         },
         Default::default(),
         iter::empty(),
         BTreeSet::new(),
-    )
+    )?;
+
+    Ok(())
 }
 
 fn import_stake_pools(
