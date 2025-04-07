@@ -155,7 +155,6 @@ impl RocksDB {
             era_history: era_history.clone(),
         })
     }
-
 }
 
 #[allow(clippy::panic)]
@@ -550,16 +549,16 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             }
 
             let path = self.db.dir.join(snapshot.to_string());
-            if path.exists() {	
-                // RocksDB error can't be created externally, so panic instead	
-                // It might be better to come up with a global error type	
+            if path.exists() {
+                // RocksDB error can't be created externally, so panic instead
+                // It might be better to come up with a global error type
                 fs::remove_dir_all(&path).map_err(|_| {
-                    StoreError::Internal("Unable to remove existing snapshot directory".into())	
-                })?;	
-            }	
+                    StoreError::Internal("Unable to remove existing snapshot directory".into())
+                })?;
+            }
             checkpoint::Checkpoint::new(&self.db.db)
-                .map_err(|err| StoreError::Internal(err.into()))?	
-                .create_checkpoint(path)	
+                .map_err(|err| StoreError::Internal(err.into()))?
+                .create_checkpoint(path)
                 .map_err(|err| StoreError::Internal(err.into()))?;
 
             self.reset_blocks_count()?;
