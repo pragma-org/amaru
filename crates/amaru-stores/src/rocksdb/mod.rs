@@ -289,7 +289,7 @@ impl RocksDBTransactionalContext<'_> {
         name = "snapshot.applying_rewards",
         skip_all,
     )]
-    fn apply_rewards<'db>(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
+    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
         self.with_accounts(|iterator| {
             for (account, mut row) in iterator {
                 if let Some(rewards) = rewards_summary.extract_rewards(&account) {
