@@ -100,6 +100,20 @@ pub trait Snapshot {
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
 }
 
+pub trait Store: Snapshot {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
+
+    fn create_transaction(&self) -> impl TransactionalContext<'_>;
+
+    /// Access the tip of the stable store, corresponding to the latest point that was saved.
+    fn tip(&self) -> Result<Point, StoreError>;
+}
+
+pub trait HistoricalStores {
+    ///Access a `Snapshot` for a specific `Epoch`
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
+}
+
 pub trait TransactionalContext<'a> {
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
@@ -125,6 +139,21 @@ pub trait TransactionalContext<'a> {
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
+    ) -> Result<(), StoreError>;
+
+    /// Construct and save on-disk a snapshot of the store. The epoch number is used when
+    /// there's no existing snapshot and, to ensure that snapshots are taken in order.
+    ///
+    /// Idempotent
+    ///
+    /// /!\ IMPORTANT /!\
+    /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
+    /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
+    /// decision entirely to the caller owning the store.
+    fn next_snapshot(
+        &self,
+        epoch: Epoch,
+        rewards_summary: Option<RewardsSummary>,
     ) -> Result<(), StoreError>;
 
     /// Return deposits back to reward accounts.
@@ -201,36 +230,7 @@ pub trait TransactionalContext<'a> {
         self.refund(refunds.into_iter())
     }
 
-    /// Construct and save on-disk a snapshot of the store. The epoch number is used when
-    /// there's no existing snapshot and, to ensure that snapshots are taken in order.
-    ///
-    /// Idempotent
-    ///
-    /// /!\ IMPORTANT /!\
-    /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
-    /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
-    /// decision entirely to the caller owning the store.
-    fn next_snapshot(
-        &self,
-        epoch: Epoch,
-        rewards_summary: Option<RewardsSummary>,
-    ) -> Result<(), StoreError>;
-
     fn commit(self) -> Result<(), StoreError>;
-}
-
-pub trait Store: Snapshot {
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
-
-    fn create_transaction(&self) -> impl TransactionalContext<'_>;
-
-    /// Access the tip of the stable store, corresponding to the latest point that was saved.
-    fn tip(&self) -> Result<Point, StoreError>;
-}
-
-pub trait HistoricalStores {
-    ///Access a `Snapshot` for a specific `Epoch`
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
 
 // Columns

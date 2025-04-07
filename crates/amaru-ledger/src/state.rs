@@ -199,7 +199,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         //
         // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
         // we must snapshot the one _just before_.
-        let db: std::sync::MutexGuard<'_, S> = self.stable.lock().unwrap();
+        let db = self.stable.lock().unwrap();
 
         let mut transaction = db.create_transaction();
         if current_epoch > db.epoch() + 1 {
@@ -215,7 +215,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             withdrawals,
             voting_dreps,
         } = now_stable.into_store_update(current_epoch);
-        let transaction = db.create_transaction();
         transaction
             .save(
                 &stable_point,
