@@ -156,21 +156,6 @@ impl RocksDB {
         })
     }
 
-    fn checkpoint(&self, epoch: Epoch) -> Result<(), StoreError> {
-        let path = self.dir.join(epoch.to_string());
-        if path.exists() {
-            fs::remove_dir_all(&path).map_err(|_| {
-                StoreError::Internal("Unable to remove existing snapshot directory".into())
-            })?;
-        }
-
-        checkpoint::Checkpoint::new(&self.db)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .create_checkpoint(path)
-            .map_err(|err| StoreError::Internal(err.into()))?;
-
-        Ok(())
-    }
 }
 
 #[allow(clippy::panic)]
@@ -564,7 +549,18 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 )?;
             }
 
-            self.db.checkpoint(epoch)?;
+            let path = self.db.dir.join(snapshot.to_string());
+            if path.exists() {	
+                // RocksDB error can't be created externally, so panic instead	
+                // It might be better to come up with a global error type	
+                fs::remove_dir_all(&path).map_err(|_| {
+                    StoreError::Internal("Unable to remove existing snapshot directory".into())	
+                })?;	
+            }	
+            checkpoint::Checkpoint::new(&self.db.db)
+                .map_err(|err| StoreError::Internal(err.into()))?	
+                .create_checkpoint(path)	
+                .map_err(|err| StoreError::Internal(err.into()))?;
 
             self.reset_blocks_count()?;
 
