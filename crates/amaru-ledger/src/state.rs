@@ -200,11 +200,6 @@ impl<S: Store> State<S> {
             epoch_transition(&mut *db, current_epoch, self.rewards_summary.take())?;
         }
 
-        let anchor_slot = now_stable.anchor.0.slot_or_default();
-        let epoch = self
-            .era_history
-            .slot_to_epoch(From::from(anchor_slot))
-            .map_err(|e| StateError::ErrorComputingEpoch(anchor_slot, e))?;
         let StoreUpdate {
             point: stable_point,
             issuer: stable_issuer,
@@ -213,7 +208,7 @@ impl<S: Store> State<S> {
             remove,
             withdrawals,
             voting_dreps,
-        } = now_stable.into_store_update(epoch);
+        } = now_stable.into_store_update(current_epoch);
 
         db.save(
             &stable_point,

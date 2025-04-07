@@ -22,6 +22,9 @@ chain.db
 # Insta not-yet reviewed snapshots
 *.snap.new
 
+# Files downloaded for the demo
+snapshots/
+
 # RustRover
 #  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
 #  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
