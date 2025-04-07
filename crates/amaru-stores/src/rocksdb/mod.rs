@@ -155,6 +155,22 @@ impl RocksDB {
             era_history: era_history.clone(),
         })
     }
+
+    fn checkpoint(&self, epoch: Epoch) -> Result<(), StoreError> {
+        let path = self.dir.join(epoch.to_string());
+        if path.exists() {
+            fs::remove_dir_all(&path).map_err(|_| {
+                StoreError::Internal("Unable to remove existing snapshot directory".into())
+            })?;
+        }
+
+        checkpoint::Checkpoint::new(&self.db)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .create_checkpoint(path)
+            .map_err(|err| StoreError::Internal(err.into()))?;
+
+        Ok(())
+    }
 }
 
 #[allow(clippy::panic)]
@@ -529,6 +545,36 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     ) -> Result<(), StoreError> {
         with_prefix_iterator(&self.transaction, proposals::PREFIX, with)
     }
+
+    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
+    fn next_snapshot(
+        &'_ self,
+        epoch: Epoch,
+        rewards_summary: Option<RewardsSummary>,
+    ) -> Result<(), StoreError> {
+        let snapshot = self.db.snapshots()?.last().map(|s| s + 1).unwrap_or(epoch);
+        if snapshot == epoch {
+            if let Some(mut rewards_summary) = rewards_summary {
+                self.apply_rewards(&mut rewards_summary)?;
+
+                self.adjust_pots(
+                    rewards_summary.delta_treasury(),
+                    rewards_summary.delta_reserves(),
+                    rewards_summary.unclaimed_rewards(),
+                )?;
+            }
+
+            self.db.checkpoint(epoch)?;
+
+            self.reset_blocks_count()?;
+
+            self.reset_fees()?;
+        } else {
+            trace!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
+        }
+
+        Ok(())
+    }
 }
 
 impl Store for RocksDB {
@@ -550,31 +596,6 @@ impl Store for RocksDB {
             .transpose()
             .map_err(|err| StoreError::Tip(TipErrorKind::Undecodable(err)))?
             .ok_or(StoreError::Tip(TipErrorKind::Missing))
-    }
-
-    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
-    fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError> {
-        let snapshot = RocksDB::snapshots(&self.dir)?
-            .last()
-            .map(|s| s + 1)
-            .unwrap_or(epoch);
-        if snapshot == epoch {
-            let path = self.dir.join(snapshot.to_string());
-            if path.exists() {
-                fs::remove_dir_all(&path).map_err(|_| {
-                    StoreError::Internal("Unable to remove existing snapshot directory".into())
-                })?;
-            }
-
-            checkpoint::Checkpoint::new(&self.db)
-                .map_err(|err| StoreError::Internal(err.into()))?
-                .create_checkpoint(path)
-                .map_err(|err| StoreError::Internal(err.into()))?;
-        } else {
-            trace!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
-        }
-
-        Ok(())
     }
 }
 

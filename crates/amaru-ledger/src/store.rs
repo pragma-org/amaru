@@ -14,7 +14,7 @@
 
 pub mod columns;
 
-use crate::summary::rewards::Pots;
+use crate::summary::rewards::{Pots, RewardsSummary};
 use amaru_kernel::{
     cbor, expect_stake_credential, Epoch, Lovelace, Point, PoolId, StakeCredential,
     TransactionInput, TransactionOutput,
@@ -201,6 +201,21 @@ pub trait TransactionalContext<'a> {
         self.refund(refunds.into_iter())
     }
 
+    /// Construct and save on-disk a snapshot of the store. The epoch number is used when
+    /// there's no existing snapshot and, to ensure that snapshots are taken in order.
+    ///
+    /// Idempotent
+    ///
+    /// /!\ IMPORTANT /!\
+    /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
+    /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
+    /// decision entirely to the caller owning the store.
+    fn next_snapshot(
+        &self,
+        epoch: Epoch,
+        rewards_summary: Option<RewardsSummary>,
+    ) -> Result<(), StoreError>;
+
     fn commit(self) -> Result<(), StoreError>;
 }
 
@@ -211,17 +226,6 @@ pub trait Store: Snapshot {
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
     fn tip(&self) -> Result<Point, StoreError>;
-
-    /// Construct and save on-disk a snapshot of the store. The epoch number is used when
-    /// there's no existing snapshot and, to ensure that snapshots are taken in order.
-    ///
-    /// Idempotent
-    ///
-    /// /!\ IMPORTANT /!\
-    /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
-    /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
-    /// decision entirely to the caller owning the store.
-    fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError>;
 }
 
 pub trait HistoricalStores {

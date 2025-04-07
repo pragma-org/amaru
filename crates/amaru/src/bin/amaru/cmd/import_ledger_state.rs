@@ -150,10 +150,10 @@ async fn import_one(
         iter::empty(),
         BTreeSet::new(),
     )?;
+
+    transaction.next_snapshot(epoch, None)?;
+
     transaction.commit()?;
-
-    db.next_snapshot(epoch)?;
-
     let transaction = db.create_transaction();
 
     transaction.with_pools(|iterator| {

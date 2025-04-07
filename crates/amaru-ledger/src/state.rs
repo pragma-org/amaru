@@ -203,64 +203,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let mut transaction = db.create_transaction();
         if current_epoch > db.epoch() + 1 {
-            let previous_epoch = current_epoch - 1;
-            let snapshot = db
-                .snapshots()
-                .map_err(StateError::Storage)?
-                .last()
-                .map(|s| s + 1)
-                .unwrap_or(previous_epoch);
-            if snapshot == previous_epoch {
-                if let Some(mut rewards_summary) = self.rewards_summary.take() {
-                    // apply rewards
-                    let transaction2 = db.create_transaction();
-                    transaction2
-                        .with_accounts(|iterator| {
-                            for (account, mut row) in iterator {
-                                if let Some(rewards) = rewards_summary.extract_rewards(&account) {
-                                    if rewards > 0 {
-                                        if let Some(account) = row.borrow_mut() {
-                                            account.rewards += rewards;
-                                        }
-                                    }
-                                }
-                            }
-                        })
-                        .map_err(StateError::Storage)?;
-
-                    // adjust pots
-                    transaction2
-                        .with_pots(|mut row| {
-                            let pots = row.borrow_mut();
-                            pots.treasury += rewards_summary.delta_treasury()
-                                + rewards_summary.unclaimed_rewards();
-                            pots.reserves -= rewards_summary.delta_reserves();
-                        })
-                        .map_err(StateError::Storage)?;
-
-                    transaction2.commit().map_err(StateError::Storage)?;
-                }
-
-                db.next_snapshot(previous_epoch)
-                    .map_err(StateError::Storage)?;
-
-                // reset block counts
-                transaction
-                    .with_block_issuers(|iterator| {
-                        for (_, mut row) in iterator {
-                            *row.borrow_mut() = None;
-                        }
-                    })
-                    .map_err(StateError::Storage)?;
-                // reset fees
-                transaction
-                    .with_pots(|mut row| {
-                        row.borrow_mut().fees = 0;
-                    })
-                    .map_err(StateError::Storage)?;
-            }
-
-            epoch_transition(&mut transaction, current_epoch)?;
+            epoch_transition(&mut transaction, current_epoch, self.rewards_summary.take())?;
         }
 
         let StoreUpdate {
@@ -413,21 +356,11 @@ fn recover_stake_distribution(
 fn epoch_transition<'store>(
     transaction: &mut impl TransactionalContext<'store>,
     current_epoch: Epoch,
+    rewards_summary: Option<RewardsSummary>,
 ) -> Result<(), StateError> {
-    /*transaction
-            .with_block_issuers(|iterator| {
-                for (_, mut row) in iterator {
-                    *row.borrow_mut() = None;
-                }
-            })
-            .map_err(StateError::Storage)?;
-
-        transaction
-            .with_pots(|mut row| {
-                row.borrow_mut().fees = 0;
-            })
-            .map_err(StateError::Storage)?;
-    */
+    transaction
+        .next_snapshot(current_epoch - 1, rewards_summary)
+        .map_err(StateError::Storage)?;
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
@@ -439,10 +372,6 @@ fn epoch_transition<'store>(
     transaction
         .tick_proposals(current_epoch)
         .map_err(StateError::Storage)?;
-
-    // Then we, can tick pools to compute their new state at the epoch boundary. Notice
-    // how we tick with the _current epoch_ however, but we take the snapshot before
-    // the tick since the actions are only effective once the epoch is crossed.
     Ok(())
 }
 

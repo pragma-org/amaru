@@ -1,7 +1,7 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
     store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
-    summary::rewards::Pots,
+    summary::rewards::{Pots, RewardsSummary},
 };
 use std::collections::BTreeSet;
 
@@ -239,6 +239,13 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }
+    fn next_snapshot(
+        &self,
+        _epoch: Epoch,
+        _rewards_summary: Option<RewardsSummary>,
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
 }
 
 impl Store for MemoryStore {
@@ -251,13 +258,6 @@ impl Store for MemoryStore {
 
     fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
         Ok(Point::Origin)
-    }
-
-    fn next_snapshot(
-        &self,
-        _epoch: Epoch,
-    ) -> Result<(), amaru_ledger::store::StoreError> {
-        Ok(())
     }
 }
 
