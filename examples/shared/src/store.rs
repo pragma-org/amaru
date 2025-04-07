@@ -8,10 +8,6 @@ use std::collections::BTreeSet;
 pub struct MemoryStore {}
 
 impl Snapshot for MemoryStore {
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        Ok(vec![])
-    }
-
     fn epoch(&self) -> Epoch {
         10
     }
@@ -246,6 +242,9 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
 }
 
 impl Store for MemoryStore {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![])
+    }
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
         MemoryTransactionalContext {}
     }
