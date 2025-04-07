@@ -150,12 +150,12 @@ async fn import_one(
         iter::empty(),
         BTreeSet::new(),
     )?;
+    transaction.commit()?;
 
+    let transaction = db.create_transaction();
     transaction.next_snapshot(epoch, None)?;
-
     transaction.commit()?;
     let transaction = db.create_transaction();
-
     transaction.with_pools(|iterator| {
         for (_, pool) in iterator {
             amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1)
@@ -228,7 +228,6 @@ fn decode_new_epoch_state(
             // Epoch State / Ledger State / Cert State / Pool State
             {
                 d.array()?;
-
                 import_stake_pools(
                     db,
                     point,
@@ -364,7 +363,9 @@ fn import_block_issuers(
             *handle.borrow_mut() = None;
         }
     })?;
+    transaction.commit()?;
 
+    let transaction = db.create_transaction();
     let mut fake_slot = 0;
     for (pool, mut count) in blocks.into_iter() {
         while count > 0 {
@@ -561,7 +562,9 @@ fn import_stake_pools(
             *handle.borrow_mut() = None;
         }
     })?;
+    transaction.commit()?;
 
+    let transaction = db.create_transaction();
     transaction.save(
         point,
         None,
