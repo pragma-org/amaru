@@ -8,6 +8,10 @@ use std::collections::BTreeSet;
 pub struct MemoryStore {}
 
 impl Snapshot for MemoryStore {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![])
+    }
+
     fn epoch(&self) -> Epoch {
         10
     }

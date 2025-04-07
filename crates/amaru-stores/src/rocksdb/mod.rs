@@ -179,6 +179,9 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 }
 
 impl Snapshot for RocksDB {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        RocksDB::snapshots(&self.dir)
+    }
     #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         RocksDB::snapshots(&self.dir)
@@ -604,6 +607,9 @@ pub struct RocksDBSnapshot {
 }
 
 impl Snapshot for RocksDBSnapshot {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![])
+    }
     #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         self.epoch
