@@ -62,6 +62,7 @@ pub enum StoreError {
 // ----------------------------------------------------------------------------
 
 pub trait Snapshot {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
     fn epoch(&self) -> Epoch;
