@@ -62,7 +62,6 @@ pub enum StoreError {
 // ----------------------------------------------------------------------------
 
 pub trait Snapshot {
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
     fn epoch(&self) -> Epoch;
@@ -206,6 +205,8 @@ pub trait TransactionalContext<'a> {
 }
 
 pub trait Store: Snapshot {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
+
     fn create_transaction(&self) -> impl TransactionalContext<'_>;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
