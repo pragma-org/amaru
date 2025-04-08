@@ -205,51 +205,66 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             //epoch_transition(&mut transaction, current_epoch, self.rewards_summary.take())?;
 
             let previous_epoch = current_epoch - 1;
-            let snapshot = db.snapshots().map_err(StateError::Storage)?.last().map(|s| s + 1).unwrap_or(previous_epoch);
+            let snapshot = db
+                .snapshots()
+                .map_err(StateError::Storage)?
+                .last()
+                .map(|s| s + 1)
+                .unwrap_or(previous_epoch);
             if snapshot == previous_epoch {
                 if let Some(mut rewards_summary) = self.rewards_summary.take() {
                     let transaction = db.create_transaction();
                     //transaction.apply_rewards(&mut rewards_summary).map_err(StateError::Storage)?;
-                    transaction.with_accounts(|iterator| {
-                        for (account, mut row) in iterator {
-                            if let Some(rewards) = rewards_summary.extract_rewards(&account) {
-                                if rewards > 0 {
-                                    if let Some(account) = row.borrow_mut() {
-                                        account.rewards += rewards;
+                    transaction
+                        .with_accounts(|iterator| {
+                            for (account, mut row) in iterator {
+                                if let Some(rewards) = rewards_summary.extract_rewards(&account) {
+                                    if rewards > 0 {
+                                        if let Some(account) = row.borrow_mut() {
+                                            account.rewards += rewards;
+                                        }
                                     }
                                 }
                             }
-                        }
-                    }).map_err(StateError::Storage)?;
-    
+                        })
+                        .map_err(StateError::Storage)?;
+
                     /*transaction.adjust_pots(
                         rewards_summary.delta_treasury(),
                         rewards_summary.delta_reserves(),
                         rewards_summary.unclaimed_rewards(),
                     ).map_err(StateError::Storage)?;*/
-                    transaction.with_pots(|mut row| {
-                        let pots = row.borrow_mut();
-                        pots.treasury += rewards_summary.delta_treasury() + rewards_summary.unclaimed_rewards();
-                        pots.reserves -= rewards_summary.delta_reserves();
-                    }).map_err(StateError::Storage)?;
+                    transaction
+                        .with_pots(|mut row| {
+                            let pots = row.borrow_mut();
+                            pots.treasury += rewards_summary.delta_treasury()
+                                + rewards_summary.unclaimed_rewards();
+                            pots.reserves -= rewards_summary.delta_reserves();
+                        })
+                        .map_err(StateError::Storage)?;
 
                     transaction.commit().map_err(StateError::Storage)?;
                 }
-    
-                db.next_snapshot(previous_epoch).map_err(StateError::Storage)?;
-    
+
+                db.next_snapshot(previous_epoch)
+                    .map_err(StateError::Storage)?;
+
                 let transaction = db.create_transaction();
                 //self.reset_blocks_count()?;
-                transaction.with_block_issuers(|iterator| {
-                    for (_, mut row) in iterator {
-                        *row.borrow_mut() = None;
-                    }
-                }).map_err(StateError::Storage)?;
-    
+                transaction
+                    .with_block_issuers(|iterator| {
+                        for (_, mut row) in iterator {
+                            *row.borrow_mut() = None;
+                        }
+                    })
+                    .map_err(StateError::Storage)?;
+
                 //self.reset_fees()?;
-                transaction.with_pots(|mut row| {
-                    row.borrow_mut().fees = 0;
-                }).map_err(StateError::Storage)?;
+                transaction
+                    .with_pots(|mut row| {
+                        row.borrow_mut().fees = 0;
+                    })
+                    .map_err(StateError::Storage)?;
                 transaction.commit().map_err(StateError::Storage)?;
             } else {
                 trace!(target: EVENT_TARGET, %previous_epoch, "next_snapshot.already_known");
@@ -265,7 +280,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             transaction
                 .tick_pools(current_epoch)
                 .map_err(StateError::Storage)?;
-        
+
             // Refund deposit for any proposal that has expired.
             transaction
                 .tick_proposals(current_epoch)
@@ -424,11 +439,11 @@ fn recover_stake_distribution(
 fn epoch_transition<'store>(
     transaction: &mut impl TransactionalContext<'store>,
     current_epoch: Epoch,
-    rewards_summary: Option<RewardsSummary>,
+    _rewards_summary: Option<RewardsSummary>,
 ) -> Result<(), StateError> {
-//    transaction
-//        .next_snapshot(current_epoch - 1, rewards_summary)
-//        .map_err(StateError::Storage)?;
+    //    transaction
+    //        .next_snapshot(current_epoch - 1, rewards_summary)
+    //        .map_err(StateError::Storage)?;
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.

@@ -14,7 +14,7 @@
 
 pub mod columns;
 
-use crate::summary::rewards::{Pots, RewardsSummary};
+use crate::summary::rewards::Pots;
 use amaru_kernel::{
     cbor, expect_stake_credential, Epoch, Lovelace, Point, PoolId, StakeCredential,
     TransactionInput, TransactionOutput,
@@ -112,10 +112,7 @@ pub trait Store: Snapshot {
     /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
     /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
     /// decision entirely to the caller owning the store.
-    fn next_snapshot(
-        &self,
-        epoch: Epoch,
-    ) -> Result<(), StoreError>;
+    fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError>;
 
     fn create_transaction(&self) -> impl TransactionalContext<'_>;
 

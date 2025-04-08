@@ -578,12 +578,9 @@ impl Store for RocksDB {
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
         RocksDB::snapshots(&self.dir)
     }
-    
+
     #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
-    fn next_snapshot(
-        &'_ self,
-        epoch: Epoch,
-    ) -> Result<(), StoreError> {
+    fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
         if path.exists() {
             // RocksDB error can't be created externally, so panic instead
