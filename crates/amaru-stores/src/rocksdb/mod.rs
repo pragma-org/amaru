@@ -530,7 +530,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         with_prefix_iterator(&self.transaction, proposals::PREFIX, with)
     }
 
-    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
+    /*#[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
     fn next_snapshot(
         &'_ self,
         epoch: Epoch,
@@ -539,6 +539,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         let snapshot = self.db.snapshots()?.last().map(|s| s + 1).unwrap_or(epoch);
         if snapshot == epoch {
             if let Some(mut rewards_summary) = rewards_summary {
+                let transaction = self.db.create_transaction();
                 self.apply_rewards(&mut rewards_summary)?;
 
                 self.adjust_pots(
@@ -546,6 +547,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                     rewards_summary.delta_reserves(),
                     rewards_summary.unclaimed_rewards(),
                 )?;
+                transaction.commit()?;
             }
 
             let path = self.db.dir.join(snapshot.to_string());
@@ -569,12 +571,33 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         }
 
         Ok(())
-    }
+    }*/
 }
 
 impl Store for RocksDB {
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
         RocksDB::snapshots(&self.dir)
+    }
+    
+    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
+    fn next_snapshot(
+        &'_ self,
+        epoch: Epoch,
+    ) -> Result<(), StoreError> {
+        let path = self.dir.join(epoch.to_string());
+        if path.exists() {
+            // RocksDB error can't be created externally, so panic instead
+            // It might be better to come up with a global error type
+            fs::remove_dir_all(&path).map_err(|_| {
+                StoreError::Internal("Unable to remove existing snapshot directory".into())
+            })?;
+        }
+        checkpoint::Checkpoint::new(&self.db)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .create_checkpoint(path)
+            .map_err(|err| StoreError::Internal(err.into()))?;
+
+        Ok(())
     }
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
         RocksDBTransactionalContext {
