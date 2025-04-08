@@ -104,8 +104,10 @@ mod tests {
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
-        tests::{verify_traces, with_tracing},
     };
+
+    use tracing_json::{verify_traces, with_tracing};
+
     use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
     use test_case::test_case;
 

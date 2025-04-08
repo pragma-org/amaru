@@ -125,14 +125,8 @@ dependencies = [
  "test-case",
  "thiserror 2.0.12",
  "tracing",
+ "tracing-json",
  "tracing-subscriber",
-]
-
-[[package]]
-name = "amaru-mempool"
-version = "0.1.0"
-dependencies = [
- "amaru-kernel",
 ]
 
 [[package]]
@@ -2954,6 +2948,16 @@ checksum = "e672c95779cf947c5311f83787af4fa8fffd12fb27e4993211a84bdfd9610f9c"
 dependencies = [
  "once_cell",
  "valuable",
+]
+
+[[package]]
+name = "tracing-json"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "serde_json",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
