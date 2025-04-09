@@ -1,6 +1,6 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
-    store::{HistoricalStores, Snapshot, Store, StoreError, TransactionalContext},
+    store::{HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::rewards::Pots,
 };
 use std::collections::BTreeSet;
@@ -11,7 +11,9 @@ impl Snapshot for MemoryStore {
     fn epoch(&self) -> Epoch {
         10
     }
+}
 
+impl ReadOnlyStore for MemoryStore {
     fn pool(
         &self,
         _pool: &amaru_kernel::PoolId,
@@ -243,13 +245,13 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
 
 impl Store for MemoryStore {
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        Ok(vec![])
+        Ok(vec![3])
     }
     fn next_snapshot(
         &self,
         _epoch: Epoch,
-    ) -> Result<(), amaru_ledger::store::StoreError> {
-        Ok(())
+    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
+        Ok(MemoryStore {})
     }
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
         MemoryTransactionalContext {}
@@ -264,7 +266,7 @@ impl HistoricalStores for MemoryStore {
     fn for_epoch(
         &self,
         _epoch: Epoch,
-    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore {})
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
     }
 }
