@@ -179,61 +179,61 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 macro_rules! impl_ReadOnlyStore {
     (for $($s:ty),+) => {
         $(impl ReadOnlyStore for $s {
-    fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
-        pools::get(&self.db, pool)
-    }
+            fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
+                pools::get(&self.db, pool)
+            }
 
-    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
-        utxo::get(&self.db, input)
-    }
+            fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
+                utxo::get(&self.db, input)
+            }
 
-    fn iter_utxos(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
-    {
-        iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
-    }
+            fn iter_utxos(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
+            {
+                iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
+            }
 
-    fn pots(&self) -> Result<Pots, StoreError> {
-        pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
-    }
+            fn pots(&self) -> Result<Pots, StoreError> {
+                pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
+            }
 
-    fn iter_accounts(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
-    {
-        iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX)
-    }
+            fn iter_accounts(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
+            {
+                iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX)
+            }
 
-    fn iter_block_issuers(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
-    {
-        iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX)
-    }
+            fn iter_block_issuers(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
+            {
+                iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX)
+            }
 
-    fn iter_pools(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
-    {
-        iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
-    }
+            fn iter_pools(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
+            {
+                iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
+            }
 
-    fn iter_dreps(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
-    {
-        iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
-    }
+            fn iter_dreps(
+                &self,
+            ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
+            {
+                iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
+            }
 
-    fn iter_proposals(
-        &self,
-    ) -> Result<
-        impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
-        StoreError,
-    > {
-        iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
-    }
+            fn iter_proposals(
+                &self,
+            ) -> Result<
+                impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
+                StoreError,
+            > {
+                iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
+            }
         })*
     }
 }
@@ -373,21 +373,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError> {
-        let tip: Option<Point> = self
-            .transaction
-            .get(KEY_TIP)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|bytes| {
-                #[allow(clippy::panic)]
-                cbor::decode(&bytes).unwrap_or_else(|e| {
-                    panic!(
-                        "unable to decode database tip ({}): {e:?}",
-                        hex::encode(&bytes)
-                    )
-                })
-            });
-
-        match (point, tip) {
+        match (point, self.db.tip().ok()) {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
                 if *new <= current && !self.db.incremental_save =>
             {
@@ -635,7 +621,7 @@ impl RocksDBHistoricalStores {
                 &opts,
                 base_dir.join(PathBuf::from(format!("{epoch:?}"))),
             )
-                .map_err(|err| StoreError::Internal(err.into()))?,
+            .map_err(|err| StoreError::Internal(err.into()))?,
         })
     }
 
