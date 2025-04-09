@@ -103,13 +103,8 @@ pub trait Snapshot: ReadOnlyStore {
 pub trait Store: ReadOnlyStore {
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
-    #[allow(clippy::panic)]
-    fn most_recent_snapshot(&self) -> Epoch {
-        self.snapshots()
-            .unwrap_or_default()
-            .last()
-            .cloned()
-            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
+    fn most_recent_snapshot(&self) -> Option<Epoch> {
+        self.snapshots().unwrap_or_default().last().cloned()
     }
 
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
