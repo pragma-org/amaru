@@ -33,6 +33,10 @@ use std::{
     collections::BTreeSet,
     fmt, fs,
     path::{Path, PathBuf},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 use tracing::{info, instrument, trace, warn, Level};
 
@@ -76,6 +80,8 @@ pub struct RocksDB {
 
     /// The `EraHistory` of the network this database is tied to
     era_history: EraHistory,
+
+    ongoing_transaction: Arc<AtomicBool>,
 }
 
 impl RocksDB {
@@ -126,6 +132,7 @@ impl RocksDB {
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
             era_history: era_history.clone(), // TODO: remove clone?
+            ongoing_transaction: AtomicBool::new(false).into(),
         })
     }
 
@@ -139,21 +146,12 @@ impl RocksDB {
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
             era_history: era_history.clone(),
+            ongoing_transaction: AtomicBool::new(false).into(),
         })
     }
 
-    pub fn for_epoch_with(dir: &Path, epoch: Epoch) -> Result<Self, StoreError> {
-        let mut opts = Options::default();
-        let era_history: &EraHistory = NetworkName::Preprod.into();
-        opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
-
-        Ok(RocksDB {
-            incremental_save: false,
-            dir: dir.to_path_buf(),
-            db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
-                .map_err(|err| StoreError::Internal(err.into()))?,
-            era_history: era_history.clone(),
-        })
+    fn transaction_committed(&self) {
+        self.ongoing_transaction.store(false, Ordering::SeqCst);
     }
 }
 
@@ -345,9 +343,11 @@ impl RocksDBTransactionalContext<'_> {
 
 impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn commit(self) -> Result<(), StoreError> {
-        self.transaction
+        let res = self.transaction
             .commit()
-            .map_err(|err| StoreError::Internal(err.into()))
+            .map_err(|err| StoreError::Internal(err.into()));
+        self.db.transaction_committed();
+        res
     }
 
     fn save(
@@ -594,10 +594,18 @@ impl Store for RocksDB {
 
         RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
     }
+
+    #[allow(clippy::panic)]
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
+        if self.ongoing_transaction.load(Ordering::SeqCst) {
+            // Thats a bug in the code, we should never have two transactions at the same time
+            panic!("RocksDB already has an ongoing transaction");
+        }
+        let transaction = self.db.transaction();
+        self.ongoing_transaction.store(true, Ordering::SeqCst);
         RocksDBTransactionalContext {
+            transaction,
             db: self,
-            transaction: self.db.transaction(),
         }
     }
 
@@ -617,13 +625,16 @@ pub struct RocksDBHistoricalStores {
 }
 
 impl RocksDBHistoricalStores {
-    pub fn for_epoch_with(dir: &Path, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
+    pub fn for_epoch_with(base_dir: &Path, epoch: Epoch) -> Result<RocksDBSnapshot, StoreError> {
         let mut opts = Options::default();
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
 
         Ok(RocksDBSnapshot {
             epoch,
-            db: OptimisticTransactionDB::open(&opts, dir.join(PathBuf::from(format!("{epoch:?}"))))
+            db: OptimisticTransactionDB::open(
+                &opts,
+                base_dir.join(PathBuf::from(format!("{epoch:?}"))),
+            )
                 .map_err(|err| StoreError::Internal(err.into()))?,
         })
     }
