@@ -19,8 +19,8 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     store::{
-        columns as scolumns, Columns, HistoricalStores, OpenErrorKind, Snapshot, Store, StoreError,
-        TipErrorKind, TransactionalContext,
+        columns as scolumns, Columns, HistoricalStores, OpenErrorKind, ReadOnlyStore, Snapshot,
+        Store, StoreError, TipErrorKind, TransactionalContext,
     },
     summary::rewards::{Pots, RewardsSummary},
 };
@@ -178,16 +178,9 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
     }))
 }
 
-impl Snapshot for RocksDB {
-    #[allow(clippy::panic)]
-    fn epoch(&'_ self) -> Epoch {
-        RocksDB::snapshots(&self.dir)
-            .unwrap_or_default()
-            .last()
-            .cloned()
-            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
-    }
-
+macro_rules! impl_ReadOnlyStore {
+    (for $($s:ty),+) => {
+        $(impl ReadOnlyStore for $s {
     fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
         pools::get(&self.db, pool)
     }
@@ -243,7 +236,12 @@ impl Snapshot for RocksDB {
     > {
         iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
     }
+        })*
+    }
 }
+
+// For now RocksDB and RocksDBSnapshot share their implementation of ReadOnlyStore
+impl_ReadOnlyStore!(for RocksDB, RocksDBSnapshot);
 
 /// An generic column iterator, provided that rows from the column are (de)serialisable.
 #[allow(clippy::panic)]
@@ -646,62 +644,6 @@ impl Snapshot for RocksDBSnapshot {
     #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         self.epoch
-    }
-
-    fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
-        pools::get(&self.db, pool)
-    }
-
-    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
-        utxo::get(&self.db, input)
-    }
-
-    fn iter_utxos(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
-    {
-        iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
-    }
-
-    fn pots(&self) -> Result<Pots, StoreError> {
-        pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
-    }
-
-    fn iter_accounts(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
-    {
-        iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX)
-    }
-
-    fn iter_block_issuers(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
-    {
-        iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX)
-    }
-
-    fn iter_pools(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
-    {
-        iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
-    }
-
-    fn iter_dreps(
-        &self,
-    ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
-    {
-        iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
-    }
-
-    fn iter_proposals(
-        &self,
-    ) -> Result<
-        impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
-        StoreError,
-    > {
-        iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
     }
 }
 

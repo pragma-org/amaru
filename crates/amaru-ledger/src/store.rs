@@ -61,11 +61,7 @@ pub enum StoreError {
 // Store
 // ----------------------------------------------------------------------------
 
-pub trait Snapshot {
-    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
-    /// snapshot available.
-    fn epoch(&self) -> Epoch;
-
+pub trait ReadOnlyStore {
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
 
@@ -100,7 +96,22 @@ pub trait Snapshot {
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
 }
 
-pub trait Store: Snapshot {
+pub trait Snapshot: ReadOnlyStore {
+    fn epoch(&self) -> Epoch;
+}
+
+pub trait Store: ReadOnlyStore {
+    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    #[allow(clippy::panic)]
+    fn most_recent_snapshot(&self) -> Epoch {
+        self.snapshots()
+            .unwrap_or_default()
+            .last()
+            .cloned()
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
+    }
+
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
 
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when

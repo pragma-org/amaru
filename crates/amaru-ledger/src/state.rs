@@ -112,7 +112,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         //
         // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
         // the ongoing epoch, not yet finished (and so, not available as snapshot).
-        let latest_epoch = db.epoch();
+        let latest_epoch = db.most_recent_snapshot();
 
         let mut stake_distributions = VecDeque::new();
         #[allow(clippy::panic)]
@@ -201,7 +201,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // we must snapshot the one _just before_.
         let db = self.stable.lock().unwrap();
 
-        if current_epoch > db.epoch() + 1 {
+        if current_epoch > db.most_recent_snapshot() + 1 {
             //epoch_transition(&mut transaction, current_epoch, self.rewards_summary.take())?;
 
             let previous_epoch = current_epoch - 1;
