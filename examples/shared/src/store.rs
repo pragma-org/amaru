@@ -266,7 +266,7 @@ impl HistoricalStores for MemoryStore {
     fn for_epoch(
         &self,
         _epoch: Epoch,
-    ) -> Result<(), amaru_ledger::store::StoreError> {
-        Ok(())
+    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
+        Ok(MemoryStore {})
     }
 }
