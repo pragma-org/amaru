@@ -98,6 +98,7 @@ where
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[allow(clippy::unwrap_used)]
+    #[allow(clippy::panic)]
     pub fn new(stable: Arc<Mutex<S>>, snapshots: HS, era_history: &EraHistory) -> Self {
         let db = stable.lock().unwrap();
 
@@ -112,10 +113,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         //
         // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
         // the ongoing epoch, not yet finished (and so, not available as snapshot).
-        let latest_epoch = db.most_recent_snapshot();
+        let latest_epoch = db
+            .most_recent_snapshot()
+            .unwrap_or_else(|| panic!("No snapshot found"));
 
         let mut stake_distributions = VecDeque::new();
-        #[allow(clippy::panic)]
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
             stake_distributions.push_front(
                 recover_stake_distribution(&snapshots, epoch).unwrap_or_else(|e| {
@@ -200,17 +202,12 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
         // we must snapshot the one _just before_.
         let db = self.stable.lock().unwrap();
+        let previous_epoch = current_epoch - 1;
+        let most_recent_snapshot = db.most_recent_snapshot().unwrap_or(previous_epoch);
 
-        if current_epoch > db.most_recent_snapshot() + 1 {
+        if current_epoch > most_recent_snapshot + 1 {
             //epoch_transition(&mut transaction, current_epoch, self.rewards_summary.take())?;
-
-            let previous_epoch = current_epoch - 1;
-            let snapshot = db
-                .snapshots()
-                .map_err(StateError::Storage)?
-                .last()
-                .map(|s| s + 1)
-                .unwrap_or(previous_epoch);
+            let snapshot = most_recent_snapshot + 1;
             if snapshot == previous_epoch {
                 if let Some(mut rewards_summary) = self.rewards_summary.take() {
                     let transaction = db.create_transaction();

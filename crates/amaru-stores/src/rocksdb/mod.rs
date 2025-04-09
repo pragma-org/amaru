@@ -343,7 +343,8 @@ impl RocksDBTransactionalContext<'_> {
 
 impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn commit(self) -> Result<(), StoreError> {
-        let res = self.transaction
+        let res = self
+            .transaction
             .commit()
             .map_err(|err| StoreError::Internal(err.into()));
         self.db.transaction_committed();
