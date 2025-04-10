@@ -19,7 +19,7 @@ pub mod volatile_db;
 
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
-    store::{Store, StoreError},
+    store::{HistoricalStores, Store, StoreError, TransactionalContext},
     summary::{
         governance::GovernanceSummary,
         rewards::{RewardsSummary, StakeDistribution},
@@ -57,12 +57,16 @@ const EVENT_TARGET: &str = "amaru::ledger::state";
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
-pub struct State<S>
+pub struct State<S, HS>
 where
     S: Store,
+    HS: HistoricalStores,
 {
     /// A handle to the stable store, shared across all ledger instances.
     stable: Arc<Mutex<S>>,
+
+    /// A handle to the stable store, shared across all ledger instances.
+    snapshots: HS,
 
     /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
     volatile: VolatileDB,
@@ -93,9 +97,10 @@ where
     era_history: EraHistory,
 }
 
-impl<S: Store> State<S> {
+impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[allow(clippy::unwrap_used)]
-    pub fn new(stable: Arc<Mutex<S>>, era_history: &EraHistory) -> Self {
+    #[allow(clippy::panic)]
+    pub fn new(stable: Arc<Mutex<S>>, snapshots: HS, era_history: &EraHistory) -> Self {
         let db = stable.lock().unwrap();
 
         // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
@@ -109,26 +114,29 @@ impl<S: Store> State<S> {
         //
         // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
         // the ongoing epoch, not yet finished (and so, not available as snapshot).
-        let latest_epoch = db.epoch();
+        let latest_epoch = db
+            .most_recent_snapshot()
+            .unwrap_or_else(|| panic!("No snapshot found"));
 
         let mut stake_distributions = VecDeque::new();
-        #[allow(clippy::panic)]
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
-            stake_distributions.push_front(recover_stake_distribution(&*db, epoch).unwrap_or_else(
-                |e| {
+            stake_distributions.push_front(
+                recover_stake_distribution(&snapshots, epoch).unwrap_or_else(|e| {
                     // TODO deal with error
                     panic!(
                         "unable to get stake distribution for (epoch={:?}): {e:?}",
                         epoch
                     )
-                },
-            ));
+                }),
+            );
         }
 
         drop(db);
 
         Self {
             stable,
+
+            snapshots,
 
             // NOTE: At this point, we always restart from an empty volatile state; which means
             // that there needs to be some form of synchronization between the consensus and the
@@ -194,11 +202,60 @@ impl<S: Store> State<S> {
         //
         // However, 'current_epoch' here refers to the _ongoing_ epoch in the volatile db. So
         // we must snapshot the one _just before_.
-        let mut db = self.stable.lock().unwrap();
+        let db = self.stable.lock().unwrap();
+        let previous_epoch = current_epoch - 1;
+        let most_recent_snapshot_epoch = db.most_recent_snapshot().unwrap_or(previous_epoch);
+        let next_snapshot_epoch = most_recent_snapshot_epoch + 1;
+        let epoch_boundary_crossed = current_epoch > next_snapshot_epoch;
+        let must_snapshot = next_snapshot_epoch == previous_epoch;
 
-        if current_epoch > db.epoch() + 1 {
-            epoch_transition(&mut *db, current_epoch, self.rewards_summary.take())?;
+        if epoch_boundary_crossed {
+            if must_snapshot {
+                if let Some(mut rewards_summary) = self.rewards_summary.take() {
+                    // TODO move at the end of block processing??
+                    let transaction = db.create_transaction();
+                    transaction
+                        .apply_rewards(&mut rewards_summary)
+                        .map_err(StateError::Storage)?;
+
+                    transaction
+                        .adjust_pots(
+                            rewards_summary.delta_treasury(),
+                            rewards_summary.delta_reserves(),
+                            rewards_summary.unclaimed_rewards(),
+                        )
+                        .map_err(StateError::Storage)?;
+
+                    transaction.commit().map_err(StateError::Storage)?;
+                }
+
+                db.next_snapshot(previous_epoch)
+                    .map_err(StateError::Storage)?;
+            } else {
+                trace!(target: EVENT_TARGET, %previous_epoch, "next_snapshot.already_known");
+            }
         }
+
+        // Wrap all changes from this block in a transaction.
+        // If the process crashes right before after the snapshot creation (and associated mutations to the current store)
+        // but before this transaction commits, then the same block will be re-executed again.
+        // This doesn't lead to any inconsistencies, since the snapshot exists and re-execution of the block will bypass those mutations.
+        // TODO deal with failure during snapshot creation
+
+        let mut transaction = db.create_transaction();
+        if epoch_boundary_crossed {
+            if must_snapshot {
+                transaction
+                    .reset_blocks_count()
+                    .map_err(StateError::Storage)?;
+
+                transaction.reset_fees().map_err(StateError::Storage)?;
+            }
+
+            epoch_transition(&mut transaction, current_epoch)?
+        }
+
+        // Persist changes for this block
 
         let StoreUpdate {
             point: stable_point,
@@ -209,28 +266,27 @@ impl<S: Store> State<S> {
             withdrawals,
             voting_dreps,
         } = now_stable.into_store_update(current_epoch);
-
-        db.save(
-            &stable_point,
-            Some(&stable_issuer),
-            add,
-            remove,
-            withdrawals,
-            voting_dreps,
-        )
-        .and_then(|()| {
-            db.with_pots(|mut row| {
-                row.borrow_mut().fees += fees;
+        transaction
+            .save(
+                &stable_point,
+                Some(&stable_issuer),
+                add,
+                remove,
+                withdrawals,
+                voting_dreps,
+            )
+            .and_then(|()| {
+                transaction.with_pots(|mut row| {
+                    row.borrow_mut().fees += fees;
+                })
             })
-        })
-        .map_err(StateError::Storage)
+            .map_err(StateError::Storage)?;
+        transaction.commit().map_err(StateError::Storage)
     }
 
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
     fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
-        let db = self.stable.lock().unwrap();
-
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
         let stake_distribution = stake_distributions
             .pop_back()
@@ -240,7 +296,7 @@ impl<S: Store> State<S> {
 
         #[allow(clippy::panic)]
         let rewards_summary = RewardsSummary::new(
-            &db.for_epoch(epoch).unwrap_or_else(|e| {
+            &self.snapshots.for_epoch(epoch).unwrap_or_else(|e| {
                 panic!(
                     "unable to open database snapshot for epoch {:?}: {:?}",
                     epoch, e
@@ -250,8 +306,9 @@ impl<S: Store> State<S> {
         )
         .map_err(StateError::Storage)?;
 
-        stake_distributions
-            .push_front(recover_stake_distribution(&*db, epoch).map_err(StateError::Storage)?);
+        stake_distributions.push_front(
+            recover_stake_distribution(&self.snapshots, epoch).map_err(StateError::Storage)?,
+        );
 
         Ok(rewards_summary)
     }
@@ -332,10 +389,10 @@ impl<S: Store> State<S> {
 
 #[allow(clippy::panic)]
 fn recover_stake_distribution(
-    db: &impl Store,
+    snapshots: &impl HistoricalStores,
     epoch: Epoch,
 ) -> Result<StakeDistribution, StoreError> {
-    let snapshot = db.for_epoch(epoch).unwrap_or_else(|e| {
+    let snapshot = snapshots.for_epoch(epoch).unwrap_or_else(|e| {
         panic!(
             "unable to open database snapshot for epoch {:?}: {:?}",
             epoch, e
@@ -346,25 +403,25 @@ fn recover_stake_distribution(
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
-fn epoch_transition(
-    db: &mut impl Store,
+fn epoch_transition<'store>(
+    transaction: &mut impl TransactionalContext<'store>,
     current_epoch: Epoch,
-    rewards_summary: Option<RewardsSummary>,
 ) -> Result<(), StateError> {
-    // FIXME: All operations below should technically happen in the same database
-    // transaction. If we interrupt the application between any of those, we might end
-    // up with a corrupted state.
-    db.next_snapshot(current_epoch - 1, rewards_summary)
-        .map_err(StateError::Storage)?;
-
+    //    transaction
+    //        .next_snapshot(current_epoch - 1, rewards_summary)
+    //        .map_err(StateError::Storage)?;
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
-    db.tick_pools(current_epoch).map_err(StateError::Storage)?;
+    transaction
+        .tick_pools(current_epoch)
+        .map_err(StateError::Storage)?;
 
     // Refund deposit for any proposal that has expired.
-    db.tick_proposals(current_epoch)
-        .map_err(StateError::Storage)
+    transaction
+        .tick_proposals(current_epoch)
+        .map_err(StateError::Storage)?;
+    Ok(())
 }
 
 // HasStakeDistribution
