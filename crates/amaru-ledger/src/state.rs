@@ -211,6 +211,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         if epoch_boundary_crossed {
             if must_snapshot {
                 if let Some(mut rewards_summary) = self.rewards_summary.take() {
+                    // TODO move at the end of block processing??
                     let transaction = db.create_transaction();
                     transaction
                         .apply_rewards(&mut rewards_summary)
