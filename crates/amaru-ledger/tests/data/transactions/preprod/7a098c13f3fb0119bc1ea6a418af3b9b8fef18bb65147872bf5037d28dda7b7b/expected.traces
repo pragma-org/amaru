@@ -1,6 +1,6 @@
-[ {"name":"require_witness","credential.hash":"5309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41","credential.type":"verification_key"}
-, {"name":"require_witness","credential.hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","credential.type":"script"}
-, {"name":"require_witness","credential.hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","credential.type":"script"}
-, {"name":"require_witness","credential.hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","credential.type":"script"}
-, {"name":"require_witness","credential.hash":"5309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41","credential.type":"verification_key"}
+[ {"name":"require_witness","credential": {"hash":"5309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41","type":"verification_key"}}
+, {"name":"require_witness","credential": {"hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","type":"script"}}
+, {"name":"require_witness","credential": {"hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","type":"script"}}
+, {"name":"require_witness","credential": {"hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","type":"script"}}
+, {"name":"require_witness","credential": {"hash":"5309fa786856c1262d095b89adf64fe8a5255ad19142c9c537359e41","type":"verification_key"}}
 ]

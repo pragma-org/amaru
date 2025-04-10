@@ -1,5 +1,5 @@
-[ {"name":"require_witness","credential.hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae","credential.type":"script"}
-, {"name":"withdraw_from","credential.hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae","credential.type":"script"}
-, {"name":"require_witness","credential.hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774","credential.type":"script"}
-, {"name":"withdraw_from","credential.hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774","credential.type":"script"}
+[ {"name":"require_witness","credential": {"hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae","type":"script"}}
+, {"name":"withdraw_from","credential":{"hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae","type":"script"}}
+, {"name":"require_witness","credential":{"hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774","type":"script"}}
+, {"name":"withdraw_from","credential":{"hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774","type":"script"}}
 ]

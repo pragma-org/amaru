@@ -25,6 +25,7 @@ iter-borrow.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 slot-arithmetic.workspace = true
+tracing-json.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = ["std"] }

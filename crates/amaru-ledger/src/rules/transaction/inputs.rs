@@ -104,8 +104,10 @@ mod tests {
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
-        tests::{verify_traces, with_tracing},
     };
+
+    use tracing_json::{verify_traces, with_tracing};
+
     use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
     use test_case::test_case;
 
@@ -141,8 +143,7 @@ mod tests {
             )
             .is_ok());
 
-            let actual_traces = collector.lines.lock().unwrap();
-            match verify_traces(actual_traces.clone(), expected_traces) {
+            match verify_traces(collector.get_traces(), expected_traces) {
                 Ok(_) => {}
                 Err(e) => panic!("{:?}", e),
             }

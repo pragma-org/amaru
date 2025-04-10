@@ -65,12 +65,10 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
-        tests::{verify_traces, with_tracing},
-    };
+    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
     use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
     use test_case::test_case;
+    use tracing_json::{verify_traces, with_tracing};
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -93,7 +91,7 @@ mod test {
 
             assert!(super::execute(&mut context, tx.withdrawals.as_deref()).is_ok());
 
-            match verify_traces(collector.lines.lock().unwrap().clone(), expected_traces) {
+            match verify_traces(collector.get_traces(), expected_traces) {
                 Ok(_) => {}
                 Err(e) => panic!("{:?}", e),
             }
