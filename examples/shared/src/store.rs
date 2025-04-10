@@ -250,8 +250,8 @@ impl Store for MemoryStore {
     fn next_snapshot(
         &self,
         _epoch: Epoch,
-    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore {})
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
     }
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
         MemoryTransactionalContext {}

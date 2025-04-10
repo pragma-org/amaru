@@ -203,12 +203,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // we must snapshot the one _just before_.
         let db = self.stable.lock().unwrap();
         let previous_epoch = current_epoch - 1;
-        let most_recent_snapshot = db.most_recent_snapshot().unwrap_or(previous_epoch);
+        let most_recent_snapshot_epoch = db.most_recent_snapshot().unwrap_or(previous_epoch);
+        let next_snapshot_epoch = most_recent_snapshot_epoch + 1;
+        let epoch_boundary_crossed = current_epoch > next_snapshot_epoch;
+        let must_snapshot = next_snapshot_epoch == previous_epoch;
 
-        if current_epoch > most_recent_snapshot + 1 {
+        if epoch_boundary_crossed {
             //epoch_transition(&mut transaction, current_epoch, self.rewards_summary.take())?;
-            let snapshot = most_recent_snapshot + 1;
-            if snapshot == previous_epoch {
+            if must_snapshot {
                 if let Some(mut rewards_summary) = self.rewards_summary.take() {
                     let transaction = db.create_transaction();
                     //transaction.apply_rewards(&mut rewards_summary).map_err(StateError::Storage)?;
@@ -246,7 +248,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 db.next_snapshot(previous_epoch)
                     .map_err(StateError::Storage)?;
 
-                let transaction = db.create_transaction();
+            } else {
+                trace!(target: EVENT_TARGET, %previous_epoch, "next_snapshot.already_known");
+            }
+        }
+
+        // Wrap all changes from this block in a transaction.
+        // If the process crashes right before after the snapshot creation (and associated mutations to the current store)
+        // but before this transaction commits, then the same block will be re-executed again.
+        // This doesn't lead to any inconsistencies, since the snapshot exists and re-execution of the block will bypass those mutations.
+        // TODO deal with failure during snapshot creation
+
+        let transaction = db.create_transaction();
+        if epoch_boundary_crossed {
+            if must_snapshot {
                 //self.reset_blocks_count()?;
                 transaction
                     .with_block_issuers(|iterator| {
@@ -262,15 +277,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                         row.borrow_mut().fees = 0;
                     })
                     .map_err(StateError::Storage)?;
-                transaction.commit().map_err(StateError::Storage)?;
-            } else {
-                trace!(target: EVENT_TARGET, %previous_epoch, "next_snapshot.already_known");
             }
-            /*transaction
-                .next_snapshot(current_epoch - 1, self.rewards_summary.take())
-                .map_err(StateError::Storage)?;
-            */
-            let transaction = db.create_transaction();
+            
             // Then we, can tick pools to compute their new state at the epoch boundary. Notice
             // how we tick with the _current epoch_ however, but we take the snapshot before
             // the tick since the actions are only effective once the epoch is crossed.
@@ -283,8 +291,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 .tick_proposals(current_epoch)
                 .map_err(StateError::Storage)?;
 
-            transaction.commit().map_err(StateError::Storage)?;
         }
+
+        // Persist changes for this block
 
         let StoreUpdate {
             point: stable_point,
@@ -295,7 +304,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             withdrawals,
             voting_dreps,
         } = now_stable.into_store_update(current_epoch);
-        let transaction = db.create_transaction();
         transaction
             .save(
                 &stable_point,
