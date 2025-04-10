@@ -68,8 +68,6 @@ impl GovernanceSummary {
             })
             .collect::<BTreeMap<_, _>>();
 
-        let current_epoch = db.epoch();
-
         // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
         // e.g.
         //
@@ -104,7 +102,7 @@ impl GovernanceSummary {
 
                     // Each epoch with no active proposals increase the mandate by 1
                     let epochs_without_active_proposals =
-                        BTreeSet::from_iter(last_interaction..=current_epoch) // Total period considered for this DRep
+                        BTreeSet::from_iter(last_interaction..=epoch) // Total period considered for this DRep
                             .difference(&proposals_activity_periods)
                             .count();
 
