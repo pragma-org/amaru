@@ -1,7 +1,7 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
     store::{HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
-    summary::rewards::Pots,
+    summary::rewards::{Pots, RewardsSummary},
 };
 use std::collections::BTreeSet;
 
@@ -123,6 +123,27 @@ pub struct MemoryTransactionalContext {
 
 impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
     fn commit(self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn reset_fees(&self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn reset_blocks_count(&self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn apply_rewards(&self, _rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn adjust_pots(
+        &self,
+        _delta_treasury: u64,
+        _delta_reserves: u64,
+        _unclaimed_rewards: u64,
+    ) -> Result<(), StoreError> {
         Ok(())
     }
 
