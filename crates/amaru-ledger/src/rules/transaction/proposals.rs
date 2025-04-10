@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::context::ProposalsSlice;
-use amaru_kernel::{Proposal, ProposalPointer, TransactionId};
+use amaru_kernel::{Proposal, ProposalId, ProposalPointer, TransactionId, TransactionPointer};
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    transaction: TransactionId,
+    transaction: (TransactionId, TransactionPointer),
     proposals: Option<Vec<Proposal>>,
 ) where
     C: ProposalsSlice,
@@ -28,9 +28,13 @@ pub(crate) fn execute<C>(
         .enumerate()
         .for_each(|(proposal_index, proposal)| {
             let pointer = ProposalPointer {
-                transaction,
+                transaction: transaction.1,
                 proposal_index,
             };
-            context.acknowledge(pointer, proposal)
+            let id = ProposalId {
+                transaction_id: transaction.0,
+                action_index: proposal_index as u32,
+            };
+            context.acknowledge(id, pointer, proposal)
         });
 }

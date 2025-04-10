@@ -225,14 +225,22 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use amaru_kernel::{prop_cbor_roundtrip, Hash, Nullable, RationalNumber};
     use proptest::prelude::*;
 
     prop_compose! {
-        fn any_pool_params()(
-            id in any::<[u8; 28]>(),
+        pub(crate) fn any_pool_id()(
+            bytes in any::<[u8; 28]>(),
+        ) -> PoolId {
+            Hash::from(bytes)
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn any_pool_params()(
+            id in any_pool_id(),
             vrf in any::<[u8; 32]>(),
             pledge in any::<u64>(),
             cost in any::<u64>(),
@@ -240,7 +248,7 @@ mod tests {
             reward_account in any::<[u8; 28]>(),
         ) -> PoolParams {
             PoolParams {
-                id: Hash::new(id),
+                id,
                 vrf: Hash::new(vrf),
                 pledge,
                 cost,
