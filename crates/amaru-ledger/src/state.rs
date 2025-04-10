@@ -209,37 +209,19 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let must_snapshot = next_snapshot_epoch == previous_epoch;
 
         if epoch_boundary_crossed {
-            //epoch_transition(&mut transaction, current_epoch, self.rewards_summary.take())?;
             if must_snapshot {
                 if let Some(mut rewards_summary) = self.rewards_summary.take() {
                     let transaction = db.create_transaction();
-                    //transaction.apply_rewards(&mut rewards_summary).map_err(StateError::Storage)?;
                     transaction
-                        .with_accounts(|iterator| {
-                            for (account, mut row) in iterator {
-                                if let Some(rewards) = rewards_summary.extract_rewards(&account) {
-                                    if rewards > 0 {
-                                        if let Some(account) = row.borrow_mut() {
-                                            account.rewards += rewards;
-                                        }
-                                    }
-                                }
-                            }
-                        })
+                        .apply_rewards(&mut rewards_summary)
                         .map_err(StateError::Storage)?;
 
-                    /*transaction.adjust_pots(
-                        rewards_summary.delta_treasury(),
-                        rewards_summary.delta_reserves(),
-                        rewards_summary.unclaimed_rewards(),
-                    ).map_err(StateError::Storage)?;*/
                     transaction
-                        .with_pots(|mut row| {
-                            let pots = row.borrow_mut();
-                            pots.treasury += rewards_summary.delta_treasury()
-                                + rewards_summary.unclaimed_rewards();
-                            pots.reserves -= rewards_summary.delta_reserves();
-                        })
+                        .adjust_pots(
+                            rewards_summary.delta_treasury(),
+                            rewards_summary.delta_reserves(),
+                            rewards_summary.unclaimed_rewards(),
+                        )
                         .map_err(StateError::Storage)?;
 
                     transaction.commit().map_err(StateError::Storage)?;
@@ -247,7 +229,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 db.next_snapshot(previous_epoch)
                     .map_err(StateError::Storage)?;
-
             } else {
                 trace!(target: EVENT_TARGET, %previous_epoch, "next_snapshot.already_known");
             }
@@ -259,38 +240,17 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // This doesn't lead to any inconsistencies, since the snapshot exists and re-execution of the block will bypass those mutations.
         // TODO deal with failure during snapshot creation
 
-        let transaction = db.create_transaction();
+        let mut transaction = db.create_transaction();
         if epoch_boundary_crossed {
             if must_snapshot {
-                //self.reset_blocks_count()?;
                 transaction
-                    .with_block_issuers(|iterator| {
-                        for (_, mut row) in iterator {
-                            *row.borrow_mut() = None;
-                        }
-                    })
+                    .reset_blocks_count()
                     .map_err(StateError::Storage)?;
 
-                //self.reset_fees()?;
-                transaction
-                    .with_pots(|mut row| {
-                        row.borrow_mut().fees = 0;
-                    })
-                    .map_err(StateError::Storage)?;
+                transaction.reset_fees().map_err(StateError::Storage)?;
             }
-            
-            // Then we, can tick pools to compute their new state at the epoch boundary. Notice
-            // how we tick with the _current epoch_ however, but we take the snapshot before
-            // the tick since the actions are only effective once the epoch is crossed.
-            transaction
-                .tick_pools(current_epoch)
-                .map_err(StateError::Storage)?;
 
-            // Refund deposit for any proposal that has expired.
-            transaction
-                .tick_proposals(current_epoch)
-                .map_err(StateError::Storage)?;
-
+            epoch_transition(&mut transaction, current_epoch)?
         }
 
         // Persist changes for this block
@@ -444,7 +404,6 @@ fn recover_stake_distribution(
 fn epoch_transition<'store>(
     transaction: &mut impl TransactionalContext<'store>,
     current_epoch: Epoch,
-    _rewards_summary: Option<RewardsSummary>,
 ) -> Result<(), StateError> {
     //    transaction
     //        .next_snapshot(current_epoch - 1, rewards_summary)

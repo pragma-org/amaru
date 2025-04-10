@@ -155,17 +155,9 @@ async fn import_one(
     let snapshot = db.snapshots()?.last().map(|s| s + 1).unwrap_or(epoch);
     db.next_snapshot(snapshot)?;
     let transaction = db.create_transaction();
-    //self.reset_blocks_count()?;
-    transaction.with_block_issuers(|iterator| {
-        for (_, mut row) in iterator {
-            *row.borrow_mut() = None;
-        }
-    })?;
+    transaction.reset_blocks_count()?;
 
-    //self.reset_fees()?;
-    transaction.with_pots(|mut row| {
-        row.borrow_mut().fees = 0;
-    })?;
+    transaction.reset_fees()?;
     transaction.commit()?;
     let transaction = db.create_transaction();
     transaction.with_pools(|iterator| {

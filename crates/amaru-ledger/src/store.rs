@@ -14,7 +14,7 @@
 
 pub mod columns;
 
-use crate::summary::rewards::Pots;
+use crate::summary::rewards::{Pots, RewardsSummary};
 use amaru_kernel::{
     cbor, expect_stake_credential, Epoch, Lovelace, Point, PoolId, StakeCredential,
     TransactionInput, TransactionOutput,
@@ -132,6 +132,19 @@ pub trait HistoricalStores {
 }
 
 pub trait TransactionalContext<'a> {
+    fn reset_fees(&self) -> Result<(), StoreError>;
+
+    fn reset_blocks_count(&self) -> Result<(), StoreError>;
+
+    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError>;
+
+    fn adjust_pots(
+        &self,
+        delta_treasury: u64,
+        delta_reserves: u64,
+        unclaimed_rewards: u64,
+    ) -> Result<(), StoreError>;
+
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
     fn save(

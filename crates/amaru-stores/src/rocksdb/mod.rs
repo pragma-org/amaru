@@ -276,7 +276,42 @@ struct RocksDBTransactionalContext<'a> {
     transaction: Transaction<'a, OptimisticTransactionDB>,
 }
 
-impl RocksDBTransactionalContext<'_> {
+impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
+    fn commit(self) -> Result<(), StoreError> {
+        let res = self
+            .transaction
+            .commit()
+            .map_err(|err| StoreError::Internal(err.into()));
+        self.db.transaction_committed();
+        res
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+    )]
+    fn reset_fees(&self) -> Result<(), StoreError> {
+        self.with_pots(|mut row| {
+            row.borrow_mut().fees = 0;
+        })
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        name = "reset.blocks_count",
+        skip_all,
+    )]
+    fn reset_blocks_count(&self) -> Result<(), StoreError> {
+        // TODO: If necessary, come up with a more efficient way of dropping a "table".
+        // RocksDB does support batch-removing of key ranges, but somehow, not in a
+        // transactional way. So it isn't as trivial to implement as it may seem.
+        self.with_block_issuers(|iterator| {
+            for (_, mut row) in iterator {
+                *row.borrow_mut() = None;
+            }
+        })
+    }
+
     #[instrument(
         level = Level::TRACE,
         name = "snapshot.applying_rewards",
@@ -312,43 +347,6 @@ impl RocksDBTransactionalContext<'_> {
             pots.treasury += delta_treasury + unclaimed_rewards;
             pots.reserves -= delta_reserves;
         })
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-    )]
-    fn reset_fees(&self) -> Result<(), StoreError> {
-        self.with_pots(|mut row| {
-            row.borrow_mut().fees = 0;
-        })
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        name = "reset.blocks_count",
-        skip_all,
-    )]
-    fn reset_blocks_count(&self) -> Result<(), StoreError> {
-        // TODO: If necessary, come up with a more efficient way of dropping a "table".
-        // RocksDB does support batch-removing of key ranges, but somehow, not in a
-        // transactional way. So it isn't as trivial to implement as it may seem.
-        self.with_block_issuers(|iterator| {
-            for (_, mut row) in iterator {
-                *row.borrow_mut() = None;
-            }
-        })
-    }
-}
-
-impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
-    fn commit(self) -> Result<(), StoreError> {
-        let res = self
-            .transaction
-            .commit()
-            .map_err(|err| StoreError::Internal(err.into()));
-        self.db.transaction_committed();
-        res
     }
 
     fn save(
@@ -514,49 +512,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     ) -> Result<(), StoreError> {
         with_prefix_iterator(&self.transaction, proposals::PREFIX, with)
     }
-
-    /*#[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
-    fn next_snapshot(
-        &'_ self,
-        epoch: Epoch,
-        rewards_summary: Option<RewardsSummary>,
-    ) -> Result<(), StoreError> {
-        let snapshot = self.db.snapshots()?.last().map(|s| s + 1).unwrap_or(epoch);
-        if snapshot == epoch {
-            if let Some(mut rewards_summary) = rewards_summary {
-                let transaction = self.db.create_transaction();
-                self.apply_rewards(&mut rewards_summary)?;
-
-                self.adjust_pots(
-                    rewards_summary.delta_treasury(),
-                    rewards_summary.delta_reserves(),
-                    rewards_summary.unclaimed_rewards(),
-                )?;
-                transaction.commit()?;
-            }
-
-            let path = self.db.dir.join(snapshot.to_string());
-            if path.exists() {
-                // RocksDB error can't be created externally, so panic instead
-                // It might be better to come up with a global error type
-                fs::remove_dir_all(&path).map_err(|_| {
-                    StoreError::Internal("Unable to remove existing snapshot directory".into())
-                })?;
-            }
-            checkpoint::Checkpoint::new(&self.db.db)
-                .map_err(|err| StoreError::Internal(err.into()))?
-                .create_checkpoint(path)
-                .map_err(|err| StoreError::Internal(err.into()))?;
-
-            self.reset_blocks_count()?;
-
-            self.reset_fees()?;
-        } else {
-            trace!(target: EVENT_TARGET, %epoch, "next_snapshot.already_known");
-        }
-
-        Ok(())
-    }*/
 }
 
 impl Store for RocksDB {
