@@ -1,7 +1,7 @@
 use amaru_kernel::{network::EraHistory, protocol_parameters::ProtocolParameters, Hasher, Point};
 use amaru_ledger::{
     context,
-    rules::{self, parse_block},
+    rules::{self, block::InvalidBlock, parse_block},
     state::{self, BackwardError},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
@@ -53,7 +53,7 @@ impl<S: Store + Send> Stage<S> {
         )
     }
 
-    fn roll_forward_impl(&mut self, point: Point, raw_block: RawBlock) -> anyhow::Result<()> {
+    pub fn roll_forward(&mut self, point: Point, raw_block: RawBlock) -> anyhow::Result<()> {
         let mut ctx = context::DefaultPreparationContext::new();
 
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
@@ -99,15 +99,23 @@ impl<S: Store + Send> Stage<S> {
         skip_all,
         name = "ledger.roll_forward"
     )]
-    pub fn roll_forward(
+    pub fn roll_forward_wrapper(
         &mut self,
         point: Point,
         raw_block: RawBlock,
         span: Span,
-    ) -> BlockValidationResult {
-        match self.roll_forward_impl(point.clone(), raw_block) {
-            Ok(_) => BlockValidationResult::BlockValidated(point, span),
-            Err(_) => BlockValidationResult::BlockValidationFailed(point, span),
+    ) -> anyhow::Result<BlockValidationResult> {
+        match self.roll_forward(point.clone(), raw_block) {
+            Ok(_) => {
+                // TODO Make sure `roll_forward` returns a structured object encapsulating validation errors
+                // Err should be used for unexpected errors only and stop block processing
+
+                Ok(BlockValidationResult::BlockValidated(point, span))
+            }
+            Err(err) => match err.downcast_ref::<InvalidBlock>() {
+                Some(_err) => Ok(BlockValidationResult::BlockValidationFailed(point, span)),
+                None => Err(err),
+            },
         }
     }
 
@@ -157,7 +165,9 @@ impl<S: Store + Send> gasket::framework::Worker<Stage<S>> for Worker {
                 // Restore parent span
                 let span = Span::current();
                 span.set_parent(parent_span.context());
-                stage.roll_forward(point.clone(), raw_block.to_vec(), span)
+                stage
+                    .roll_forward_wrapper(point.clone(), raw_block.to_vec(), span)
+                    .or_panic()?
             }
 
             ValidateBlockEvent::Rollback(point, parent_span) => {
