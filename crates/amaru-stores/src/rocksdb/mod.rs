@@ -565,7 +565,7 @@ impl Store for RocksDB {
     }
 
     #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
-    fn next_snapshot(&'_ self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
+    fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
         if path.exists() {
             // RocksDB error can't be created externally, so panic instead
@@ -579,7 +579,7 @@ impl Store for RocksDB {
             .create_checkpoint(path)
             .map_err(|err| StoreError::Internal(err.into()))?;
 
-        RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
+        Ok(())
     }
 
     #[allow(clippy::panic)]
