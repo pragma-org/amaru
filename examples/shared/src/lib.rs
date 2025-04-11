@@ -5,8 +5,8 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     context,
-    rules::{self},
-    state::State,
+    rules::{self, block::BlockValidation},
+    state::{State, VolatileState},
 };
 use std::{
     collections::BTreeMap,
@@ -52,7 +52,7 @@ pub fn forward_ledger(raw_block: &str) {
         })
     }
 
-    let utxos = BTreeMap::from([
+    let inputs = BTreeMap::from([
         (
             create_input(
                 "2e6b2226fd74ab0cadc53aaa18759752752bd9b616ea48c0e7b7be77d1af4bf4",
@@ -69,13 +69,16 @@ pub fn forward_ledger(raw_block: &str) {
         ),
     ]);
 
-    let step = rules::validate_block(
-        context::DefaultValidationContext::new(utxos),
+    let volatile_state: VolatileState = match rules::validate_block(
+        context::DefaultValidationContext::new(inputs),
         ProtocolParameters::default(),
         block,
-    )
-    .unwrap_or_else(|e| panic!("Failed to validate block: {:?}", e))
-    .anchor(&point, issuer);
+    ) {
+        BlockValidation::Valid(state) => state.into(),
+        BlockValidation::Invalid(err) => {
+            panic!("Failed to validate block: {:?}", err)
+        }
+    };
 
-    state.forward(step).unwrap()
+    state.forward(volatile_state.anchor(&point, issuer)).unwrap()
 }

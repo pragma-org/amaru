@@ -57,15 +57,26 @@ pub enum InvalidBlock {
     UncategorizedError(String),
 }
 
+pub enum BlockValidation<C: ValidationContext<FinalState = S>, S: From<C>> {
+    Valid(C),
+    Invalid(InvalidBlock),
+}
+
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     mut context: C,
     protocol_params: ProtocolParameters,
     block: MintedBlock<'_>,
-) -> Result<S, InvalidBlock> {
-    header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;
+) -> BlockValidation<C, S> {
+    if let Err(err) =
+        header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)
+    {
+        return BlockValidation::Invalid(err.into());
+    };
 
-    body_size::block_body_size_valid(&block.header.header_body, &block)?;
+    if let Err(err) = body_size::block_body_size_valid(&block.header.header_body, &block) {
+        return BlockValidation::Invalid(err.into());
+    };
 
     ex_units::block_ex_units_valid(block.ex_units(), &protocol_params)?;
 
@@ -80,12 +91,15 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
         let transaction_hash = transaction.original_hash();
 
-        let witness_set = witness_sets
-            .get(i as usize)
-            .ok_or(InvalidBlock::UncategorizedError(format!(
-                "Missing witness set for transaction index {}",
-                i
-            )))?;
+        let witness_set = match witness_sets.get(i as usize) {
+            Some(witness_set) => witness_set,
+            None => {
+                return BlockValidation::Invalid(InvalidBlock::UncategorizedError(format!(
+                    "Witness set not found for transaction index {}",
+                    i
+                )));
+            }
+        };
 
         let auxiliary_data: Option<&AuxiliaryData> = block
             .auxiliary_data_set
@@ -108,7 +122,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             transaction_index: i as usize, // From u32
         };
 
-        transaction::execute(
+        if let Err(err) = transaction::execute(
             &mut context,
             &protocol_params,
             pointer,
@@ -116,13 +130,14 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             transaction,
             witness_set,
             auxiliary_data,
-        )
-        .map_err(|err| InvalidBlock::Transaction {
-            transaction_hash,
-            transaction_index: i,
-            violation: err,
-        })?;
+        ) {
+            return BlockValidation::Invalid(InvalidBlock::Transaction {
+                transaction_hash,
+                transaction_index: i,
+                violation: err,
+            });
+        }
     }
 
-    Ok(context.into())
+    BlockValidation::Valid(context)
 }
