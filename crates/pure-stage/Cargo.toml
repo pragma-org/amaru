@@ -1,0 +1,22 @@
+[package]
+name = "pure-stage"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+amaru-consensus.workspace = true
+amaru-kernel.workspace = true
+anyhow.workspace = true
+either = "1.15.0"
+pallas-network.workspace = true
+tokio.workspace = true
+
+[lints]
+workspace = true

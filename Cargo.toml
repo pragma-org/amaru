@@ -7,7 +7,7 @@ authors = ["Amaru Maintainers <amaru@pragma.builders>"]
 repository = "https://github.com/pragma-org/amaru"
 homepage = "https://github.com/pragma-org/amaru"
 documentation = "https://docs.rs/amaru"
-rust-version = "1.84"                                    # ⚠️ Also change in .cargo/rust-toolchain.toml
+rust-version = "1.85"                                    # ⚠️ Also change in .cargo/rust-toolchain.toml
 
 [workspace]
 members = ["crates/*", "simulation/*"]

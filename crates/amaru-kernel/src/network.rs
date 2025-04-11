@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
+use slot_arithmetic::Slot;
+pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
@@ -40,7 +41,7 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             },
             end: Bound {
                 time_ms: 1728000000,
-                slot: From::from(86400),
+                slot: Slot::from(86400),
                 epoch: 4,
             },
             params: EraParams {
@@ -164,12 +165,12 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     let default_testnet_eras: [Summary; 1] = [Summary {
         start: Bound {
             time_ms: 0,
-            slot: From::from(0),
+            slot: Slot::from(0),
             epoch: 0,
         },
         end: Bound {
             time_ms: 432000000000,
-            slot: From::from(432000000),
+            slot: Slot::from(432000000),
             epoch: 1000,
         },
 
@@ -291,6 +292,7 @@ mod tests {
     use super::NetworkName::{self, *};
     use proptest::prelude::*;
     use proptest::{prop_oneof, proptest};
+    use slot_arithmetic::Slot;
     use std::env;
     use std::fs::File;
     use std::io::Write;
@@ -320,22 +322,22 @@ mod tests {
     #[test]
     fn can_compute_slot_to_epoch_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
-        assert_eq!(4, era_history.slot_to_epoch(From::from(86400)).unwrap());
-        assert_eq!(11, era_history.slot_to_epoch(From::from(3542399)).unwrap());
-        assert_eq!(12, era_history.slot_to_epoch(From::from(3542400)).unwrap());
+        assert_eq!(4, era_history.slot_to_epoch(Slot::from(86400)).unwrap());
+        assert_eq!(11, era_history.slot_to_epoch(Slot::from(3542399)).unwrap());
+        assert_eq!(12, era_history.slot_to_epoch(Slot::from(3542400)).unwrap());
     }
 
     #[test]
     fn can_compute_next_epoch_first_slot_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
-        assert_eq!(era_history.next_epoch_first_slot(3), Ok(From::from(86400)));
+        assert_eq!(era_history.next_epoch_first_slot(3), Ok(Slot::from(86400)));
         assert_eq!(
             era_history.next_epoch_first_slot(114),
-            Ok(From::from(48038400))
+            Ok(Slot::from(48038400))
         );
         assert_eq!(
             era_history.next_epoch_first_slot(150),
-            Ok(From::from(63590400))
+            Ok(Slot::from(63590400))
         );
     }
 
