@@ -117,26 +117,6 @@ impl<S: Store + Send> Stage<S> {
         Ok(RollResult::Valid)
     }
 
-    pub fn roll_forward_wrapper(
-        &mut self,
-        point: Point,
-        raw_block: RawBlock,
-        span: Span,
-    ) -> anyhow::Result<BlockValidationResult> {
-        match self.roll_forward(point.clone(), raw_block) {
-            Ok(_) => {
-                // TODO Make sure `roll_forward` returns a structured object encapsulating validation errors
-                // Err should be used for unexpected errors only and stop block processing
-
-                Ok(BlockValidationResult::BlockValidated(point, span))
-            }
-            Err(err) => match err.downcast_ref::<InvalidBlock>() {
-                Some(_err) => Ok(BlockValidationResult::BlockValidationFailed(point, span)),
-                None => Err(err),
-            },
-        }
-    }
-
     #[instrument(
         level = Level::TRACE,
         skip_all,
@@ -183,8 +163,17 @@ impl<S: Store + Send> gasket::framework::Worker<Stage<S>> for Worker {
                 // Restore parent span
                 let span = Span::current();
                 span.set_parent(parent_span.context());
+
                 stage
-                    .roll_forward_wrapper(point.clone(), raw_block.to_vec(), span)
+                    .roll_forward(point.clone(), raw_block.to_vec())
+                    .map(|res| match res {
+                        RollResult::Valid => {
+                            BlockValidationResult::BlockValidated(point.clone(), span)
+                        }
+                        RollResult::Invalid(_err) => {
+                            BlockValidationResult::BlockValidationFailed(point.clone(), span)
+                        }
+                    })
                     .or_panic()?
             }
 
