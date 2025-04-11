@@ -194,7 +194,9 @@ mod test {
                 .as_slice(),
         );
 
-        assert!(stake_distribution.get_pool(42, &pool_id).is_some())
+        assert!(stake_distribution
+            .get_pool(From::from(42), &pool_id)
+            .is_some())
     }
 
     #[test]
@@ -211,7 +213,7 @@ mod test {
         assert_eq!(
             Some(1250000000000000),
             stake_distribution
-                .get_pool(42, &pool_id)
+                .get_pool(From::from(42), &pool_id)
                 .map(|p| p.active_stake)
         )
     }
@@ -246,7 +248,7 @@ mod test {
             Ok(())
         }
 
-        fn era_history(&self) -> &amaru_kernel::network::EraHistory {
+        fn era_history(&self) -> &amaru_kernel::EraHistory {
             NetworkName::Testnet(42).into()
         }
     }

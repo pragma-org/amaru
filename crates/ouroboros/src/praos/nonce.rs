@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{network::EraHistory, Epoch, Hasher, Nonce, RANDOMNESS_STABILIZATION_WINDOW};
+use amaru_kernel::{Epoch, EraHistory, Hasher, Nonce, RANDOMNESS_STABILIZATION_WINDOW};
 use amaru_ouroboros_traits::IsHeader;
 use slot_arithmetic::TimeHorizonError;
 

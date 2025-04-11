@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 use std::fs::File;
 use std::io::BufReader;
 use std::path::Path;
 use std::sync::LazyLock;
+
+use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
 
 /// Epoch number in which the PreProd network transitioned to Shelley.
 pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;

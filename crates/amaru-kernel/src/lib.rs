@@ -55,6 +55,7 @@ pub use pallas_primitives::{
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 pub use sha3;
+pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 
 pub mod macros;
 pub mod network;
@@ -147,10 +148,10 @@ pub enum Point {
 }
 
 impl Point {
-    pub fn slot_or_default(&self) -> u64 {
+    pub fn slot_or_default(&self) -> Slot {
         match self {
-            Point::Origin => 0,
-            Point::Specific(slot, _) => *slot,
+            Point::Origin => From::from(0),
+            Point::Specific(slot, _) => From::from(*slot),
         }
     }
 }
@@ -201,8 +202,6 @@ impl<'b> Decode<'b, ()> for Point {
 pub type TransactionId = Hash<32>;
 
 pub type PoolId = Hash<28>;
-
-pub type Slot = u64;
 
 pub type Nonce = Hash<32>;
 
@@ -708,11 +707,11 @@ mod test {
     use super::*;
     use test_case::test_case;
 
-    #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
-    #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
-    #[test_case((42, 0, 0), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
-    #[test_case((42, 0, 0), (42, 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
-    #[test_case((42, 0, 5), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
+    #[test_case((From::from(42), 0, 0), (From::from(42), 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
+    #[test_case((From::from(42), 0, 0), (From::from(43), 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
+    #[test_case((From::from(42), 0, 0), (From::from(42), 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
+    #[test_case((From::from(42), 0, 0), (From::from(42), 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
+    #[test_case((From::from(42), 0, 5), (From::from(42), 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
     fn test_pointers(
         left: (Slot, usize, usize),
         right: (Slot, usize, usize),

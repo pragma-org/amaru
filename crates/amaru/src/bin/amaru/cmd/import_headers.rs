@@ -87,7 +87,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let mut peer_client = pull.peer_session.lock().await;
     let mut count = 0;
     let max = args.count;
-    let start = args.starting_point.slot_or_default();
+    let start = args.starting_point.slot_or_default().into();
 
     let client = (*peer_client).chainsync();
 

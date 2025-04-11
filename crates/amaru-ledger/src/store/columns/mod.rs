@@ -23,18 +23,18 @@ pub mod utxo;
 
 #[cfg(test)]
 pub mod tests {
-    use amaru_kernel::{CertificatePointer, Slot, TransactionPointer};
+    use amaru_kernel::{CertificatePointer, TransactionPointer};
     use proptest::prelude::*;
 
     prop_compose! {
         pub fn any_certificate_pointer()(
-            slot in any::<Slot>(),
+            slot in any::<u64>(),
             transaction_index in any::<usize>(),
             certificate_index in any::<usize>(),
         ) -> CertificatePointer {
             CertificatePointer {
                 transaction_pointer: TransactionPointer {
-                    slot,
+                    slot: From::from(slot),
                     transaction_index,
                 },
                 certificate_index,

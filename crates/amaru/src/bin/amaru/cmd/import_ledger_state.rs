@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::{EraHistory, NetworkName},
-    Anchor, CertificatePointer, DRep, Epoch, GovActionId, Lovelace, Point, PoolId, PoolParams,
-    Proposal, ProposalPointer, Set, StakeCredential, TransactionInput, TransactionOutput,
-    TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME, STAKE_CREDENTIAL_DEPOSIT,
+    network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory, GovActionId,
+    Lovelace, Point, PoolId, PoolParams, Proposal, ProposalPointer, Set, StakeCredential,
+    TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME,
+    STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
     self,
@@ -33,18 +33,20 @@ use std::{
     collections::{BTreeSet, HashMap},
     fs, iter,
     path::PathBuf,
+    sync::LazyLock,
 };
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
 
-const DEFAULT_CERTIFICATE_POINTER: CertificatePointer = CertificatePointer {
-    transaction_pointer: TransactionPointer {
-        slot: 0,
-        transaction_index: 0,
-    },
-    certificate_index: 0,
-};
+static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
+    LazyLock::new(|| CertificatePointer {
+        transaction_pointer: TransactionPointer {
+            slot: From::from(0),
+            transaction_index: 0,
+        },
+        certificate_index: 0,
+    });
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -174,10 +176,7 @@ fn decode_new_epoch_state(
 
     // EpochNo
     let epoch = d.u64()?;
-    assert_eq!(
-        epoch,
-        era_history.slot_to_epoch(From::from(point.slot_or_default()))?
-    );
+    assert_eq!(epoch, era_history.slot_to_epoch(point.slot_or_default())?);
     info!(epoch, "importing_snapshot");
 
     // Previous blocks made
@@ -368,7 +367,7 @@ fn import_block_issuers(
         while count > 0 {
             slots::put(
                 &batch,
-                &fake_slot,
+                &From::from(fake_slot),
                 amaru_ledger::store::columns::slots::Row::new(pool),
             )?;
             count -= 1;
@@ -456,7 +455,7 @@ fn import_dreps(
                     credential,
                     (
                         Resettable::from(Option::from(state.anchor)),
-                        Some((state.deposit, DEFAULT_CERTIFICATE_POINTER)),
+                        Some((state.deposit, *DEFAULT_CERTIFICATE_POINTER)),
                         state.expiry - DREP_EXPIRY,
                     ),
                 )
@@ -632,7 +631,7 @@ fn import_accounts(
                         //No slot to retrieve. All registrations coming from snapshot are considered valid.
                         Resettable::from(
                             Option::<DRep>::from(drep)
-                                .map(|drep| (drep, DEFAULT_CERTIFICATE_POINTER)),
+                                .map(|drep| (drep, *DEFAULT_CERTIFICATE_POINTER)),
                         ),
                         Some(deposit),
                         rewards + rewards_update,
