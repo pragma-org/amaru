@@ -1,5 +1,5 @@
 use either::Either;
-use std::future::Future;
+use std::{future::Future, marker::PhantomData};
 
 pub struct Zero;
 pub struct Succ<T: Nat>(T);
@@ -116,13 +116,16 @@ impl Network {
         _left_out: L,
         _right: &Stage<RIn, ROut>,
         _right_in: R,
-    ) where
+    ) -> Wire<<BiasedInput<RIn> as InputExt<R>>::Output>
+    where
         BiasedInput<RIn>: InputExt<R>,
         Output<LOut>: OutputExt<L, Input = <BiasedInput<RIn> as InputExt<R>>::Output>,
     {
         todo!()
     }
 }
+
+pub struct Wire<T>(PhantomData<T>);
 
 #[cfg(test)]
 mod tests {
@@ -264,7 +267,7 @@ mod tests {
         let dump_string = network.stage(dump_string);
         let dump_client_response = network.stage(dump_client_response);
 
-        network.wire(&chain_sync, _1, &dump_string, _0);
-        network.wire(&chain_sync, _0, &dump_client_response, _0);
+        let _: Wire<String> = network.wire(&chain_sync, _1, &dump_string, _0);
+        let _: Wire<ClientResponse> = network.wire(&chain_sync, _0, &dump_client_response, _0);
     }
 }
