@@ -64,13 +64,13 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let header_hash = Hash::from(&args.at);
 
-    info!(point.id = %header_hash, point.slot = args.at.slot_or_default(), "importing nonces");
+    info!(point.id = %header_hash, point.slot = ?args.at.slot_or_default(), "importing nonces");
 
     let nonces = Nonces {
         epoch: {
             let slot = args.at.slot_or_default();
             // FIXME: currently hardwired to preprod network
-            era_history.slot_to_epoch(From::from(slot))?
+            era_history.slot_to_epoch(slot)?
         },
         active: args.active,
         evolving: args.evolving,

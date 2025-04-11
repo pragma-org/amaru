@@ -1,7 +1,7 @@
 use amaru_kernel::{
     cbor, protocol_parameters::ProtocolParameters, Bytes, Hash, Hasher, MintedBlock, Point,
-    PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
-    network:: {EraHistory, NetworkName}
+    PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, EraHistory,
+    network::NetworkName
 };
 use amaru_ledger::{
     context,

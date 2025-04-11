@@ -21,10 +21,7 @@ use amaru_consensus::{
     peer::Peer,
     ConsensusError,
 };
-use amaru_kernel::{
-    network::{EraHistory, NetworkName},
-    Hash, Header, Point,
-};
+use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header, Point};
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
 use consensus::{
     chain_forward::ForwardStage,
@@ -43,7 +40,6 @@ pub mod consensus;
 pub mod ledger;
 pub mod pull;
 
-pub type Slot = u64;
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
 
 pub struct Config {

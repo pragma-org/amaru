@@ -15,7 +15,7 @@
 use minicbor::{Decode, Decoder, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize, Default)]
 #[repr(transparent)]
 pub struct Slot(u64);
 

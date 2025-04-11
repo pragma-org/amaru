@@ -1,4 +1,4 @@
-use amaru_kernel::{network::EraHistory, protocol_parameters::ProtocolParameters, Hasher, Point};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, EraHistory, Hasher, Point};
 use amaru_ledger::{
     context,
     rules::{self, block::InvalidBlock, parse_block},

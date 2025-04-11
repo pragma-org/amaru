@@ -17,7 +17,7 @@ use crate::echo::Envelope;
 use amaru::stages::consensus::header::PullEvent;
 use amaru_consensus::consensus::ValidateHeaderEvent;
 use amaru_consensus::peer::Peer;
-use amaru_kernel::{self, Point};
+use amaru_kernel::{self, Point, Slot};
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};
@@ -146,13 +146,13 @@ pub enum ChainSyncMessage {
     },
     Fwd {
         msg_id: u64,
-        slot: u64,
+        slot: Slot,
         hash: Bytes,
         header: Bytes,
     },
     Bck {
         msg_id: u64,
-        slot: u64,
+        slot: Slot,
         hash: Bytes,
     },
 }
@@ -191,7 +191,7 @@ pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent
             header,
         } => Ok(PullEvent::RollForward(
             peer,
-            Point::Specific(slot, hash.into()),
+            Point::Specific(slot.into(), hash.into()),
             header.into(),
             span,
         )),
@@ -201,7 +201,7 @@ pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent
             hash,
         } => Ok(PullEvent::Rollback(
             peer,
-            Point::Specific(slot, hash.into()),
+            Point::Specific(slot.into(), hash.into()),
         )),
         _ => Err(WorkerError::Recv),
     }
@@ -243,7 +243,7 @@ mod test {
         let header_hash = Hasher::<256>::hash(header.raw_cbor());
         Fwd {
             msg_id: 1,
-            slot: 1234,
+            slot: From::from(1234),
             hash: header_hash.to_vec().into(),
             header: header_bytes.into(),
         }
@@ -266,7 +266,7 @@ mod test {
         match event {
             super::PullEvent::RollForward(peer, point, header, _) => {
                 assert_eq!(peer.name, "peer1");
-                assert_eq!(point.slot_or_default(), 1234);
+                assert_eq!(point.slot_or_default(), From::from(1234));
                 assert_eq!(Hash::from(&point), expected_hash);
                 assert_eq!(header, hex::decode(TEST_HEADER).unwrap());
             }
@@ -321,14 +321,14 @@ mod test {
             (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| {
                 ChainSyncMessage::Fwd {
                     msg_id,
-                    slot,
+                    slot: From::from(slot),
                     hash: hash.to_vec().into(),
                     header: Bytes { bytes: vec![] },
                 }
             }),
             (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| Bck {
                 msg_id,
-                slot,
+                slot: From::from(slot),
                 hash: hash.to_vec().into()
             })
         ]

@@ -26,9 +26,8 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    network::EraHistory, Epoch, Hash, MintedBlock, Point, PoolId, Slot, TransactionInput,
-    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD,
-    STABILITY_WINDOW,
+    Epoch, EraHistory, Hash, MintedBlock, Point, PoolId, Slot, TransactionInput, TransactionOutput,
+    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -178,12 +177,12 @@ impl<S: Store> State<S> {
     }
 
     #[allow(clippy::unwrap_used)]
-    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = now_stable.anchor.0.slot_or_default()))]
+    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = ?now_stable.anchor.0.slot_or_default()))]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
         let start_slot = now_stable.anchor.0.slot_or_default();
         let current_epoch = self
             .era_history
-            .slot_to_epoch(From::from(start_slot))
+            .slot_to_epoch(start_slot)
             .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
 
         // Note: the volatile sequence may contain points belonging to two epochs. We diligently
@@ -278,7 +277,7 @@ impl<S: Store> State<S> {
         let next_state_slot = next_state.anchor.0.slot_or_default();
         let relative_slot = self
             .era_history
-            .slot_in_epoch(From::from(next_state_slot))
+            .slot_in_epoch(next_state_slot)
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
         if self.rewards_summary.is_none() && relative_slot >= From::from(STABILITY_WINDOW as u64) {
@@ -382,7 +381,7 @@ impl HasStakeDistribution for StakeDistributionView {
     #[allow(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
-        let epoch = self.era_history.slot_to_epoch(From::from(slot)).ok()? - 2;
+        let epoch = self.era_history.slot_to_epoch(slot).ok()? - 2;
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,
@@ -456,6 +455,6 @@ pub enum StateError {
     Storage(#[source] StoreError),
     #[error("no stake distribution available for rewards calculation.")]
     StakeDistributionNotAvailableForRewards,
-    #[error("failed to compute epoch from slot {0}: {1}")]
-    ErrorComputingEpoch(u64, TimeHorizonError),
+    #[error("failed to compute epoch from slot {0:?}: {1}")]
+    ErrorComputingEpoch(Slot, TimeHorizonError),
 }

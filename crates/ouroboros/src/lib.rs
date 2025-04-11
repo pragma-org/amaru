@@ -29,8 +29,6 @@ pub type PoolId = Hash<28>;
 
 pub type Lovelace = u64;
 
-pub type Slot = u64;
-
 /// The node's cold vkey is hashed with blake2b224 to create the pool id
 pub fn issuer_to_pool_id(issuer: &ed25519::PublicKey) -> PoolId {
     Hasher::<224>::hash(issuer.as_ref())
