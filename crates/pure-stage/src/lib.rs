@@ -71,7 +71,7 @@ pub trait OutputExt<N: Nat> {
 
 impl<T, U: List> OutputExt<Zero> for Output<Either<T, U>> {
     type Input = T;
-    fn send(&self, _n: Zero, msg: Self::Input) -> impl Future<Output = ()> {
+    fn send(&self, _n: Zero, _msg: Self::Input) -> impl Future<Output = ()> {
         async { todo!() }
     }
 }
@@ -81,7 +81,7 @@ where
     Output<U>: OutputExt<N>,
 {
     type Input = <Output<U> as OutputExt<N>>::Input;
-    fn send(&self, n: Succ<N>, msg: Self::Input) -> impl Future<Output = ()> {
+    fn send(&self, _n: Succ<N>, _msg: Self::Input) -> impl Future<Output = ()> {
         async { todo!() }
     }
 }
@@ -96,7 +96,7 @@ pub struct Stage<In, Out> {
     _ph: std::marker::PhantomData<(In, Out)>,
 }
 
-struct Network();
+pub struct Network();
 
 impl Network {
     pub fn new() -> Self {
@@ -105,17 +105,17 @@ impl Network {
 
     pub fn stage<In: List, Out: List, Aux>(
         &mut self,
-        f: impl std::ops::AsyncFn(BiasedInput<In>, Output<Out>, Aux) -> anyhow::Result<()>,
+        _f: impl std::ops::AsyncFn(BiasedInput<In>, Output<Out>, Aux) -> anyhow::Result<()>,
     ) -> Stage<In, Out> {
         todo!()
     }
 
     pub fn wire<LIn, LOut: List, L: Nat, RIn: List, ROut, R: Nat>(
         &mut self,
-        left: &Stage<LIn, LOut>,
-        left_out: L,
-        right: &Stage<RIn, ROut>,
-        right_in: R,
+        _left: &Stage<LIn, LOut>,
+        _left_out: L,
+        _right: &Stage<RIn, ROut>,
+        _right_in: R,
     ) where
         BiasedInput<RIn>: InputExt<R>,
         Output<LOut>: OutputExt<L, Input = <BiasedInput<RIn> as InputExt<R>>::Output>,
@@ -133,10 +133,39 @@ mod tests {
     #[allow(dead_code)]
     #[test]
     fn it_works() {
+        #[derive(Debug, Clone)]
         struct Point();
+        #[derive(Debug, Clone)]
+        struct Tip(Point, u32);
+        struct Header();
+        trait ChainStore<H> {}
+        struct ClientState(Arc<dyn ChainStore<Header>>, Tip, Point);
+
+        impl ClientState {
+            fn new(store: Arc<dyn ChainStore<Header>>, tip: Tip, point: Point) -> Self {
+                Self(store, tip, point)
+            }
+            pub fn next_op(&mut self) -> Option<BlockOp> {
+                todo!()
+            }
+            pub fn add_op(&mut self, _op: BlockOp) {
+                todo!()
+            }
+            pub fn tip(&self) -> Tip {
+                todo!()
+            }
+        }
+
+        fn find_headers_between(
+            _store: &dyn ChainStore<Header>,
+            _tip: &Tip,
+            _points: &[Point],
+        ) -> (Point, Tip) {
+            todo!()
+        }
 
         enum BlockOp {
-            Forward(Point, Header),
+            Forward(Point),
             Backward(Point),
         }
 
@@ -148,6 +177,8 @@ mod tests {
 
         enum ClientResponse {
             IntersectFound(Point, Tip),
+            SendOp(BlockOp, Tip),
+            Wait,
         }
 
         fn get_tip_from_point(_point: Point, _store: &dyn ChainStore<Header>) -> Tip {
@@ -175,17 +206,36 @@ mod tests {
                         )
                         .await;
                     output.send(_1, "hello".to_owned()).await;
-                    // ClientState::new(store, intersection.into(), client_at)
-                    todo!()
+                    ClientState::new(store, client_at, intersection)
                 }
                 ClientReq::RequestNext => return Err(anyhow::anyhow!("RequestNext")),
             };
 
+            let mut waiting = false;
             while let Some(msg) = input.read_biased().await {
                 match msg {
-                    Either::Left(BlockOp::Forward(..)) => todo!(),
-                    Either::Left(BlockOp::Backward(..)) => todo!(),
-                    Either::Right(ClientReq::RequestNext) => todo!(),
+                    Either::Left(op) => {
+                        state.add_op(op);
+                        tip = state.tip();
+                        if waiting {
+                            if let Some(op) = state.next_op() {
+                                waiting = false;
+                                output
+                                    .send(_0, ClientResponse::SendOp(op, tip.clone()))
+                                    .await;
+                            }
+                        }
+                    }
+                    Either::Right(ClientReq::RequestNext) => {
+                        if let Some(op) = state.next_op() {
+                            output
+                                .send(_0, ClientResponse::SendOp(op, tip.clone()))
+                                .await;
+                        } else {
+                            waiting = true;
+                            output.send(_0, ClientResponse::Wait).await;
+                        }
+                    }
                     Either::Right(req) => return Err(anyhow::anyhow!("ClientReqError: {req:?}")),
                 }
             }
@@ -193,17 +243,17 @@ mod tests {
         }
 
         async fn dump_string(
-            input: BiasedInput<Just<String>>,
-            output: Output<()>,
-            aux: (),
+            _input: BiasedInput<Just<String>>,
+            _output: Output<()>,
+            _aux: (),
         ) -> anyhow::Result<()> {
             todo!()
         }
 
         async fn dump_client_response(
-            input: BiasedInput<Just<ClientResponse>>,
-            output: Output<()>,
-            aux: (),
+            _input: BiasedInput<Just<ClientResponse>>,
+            _output: Output<()>,
+            _aux: (),
         ) -> anyhow::Result<()> {
             todo!()
         }
@@ -216,13 +266,5 @@ mod tests {
 
         network.wire(&chain_sync, _1, &dump_string, _0);
         network.wire(&chain_sync, _0, &dump_client_response, _0);
-    }
-
-    fn find_headers_between(
-        store: &dyn ChainStore<Header>,
-        tip: &Tip,
-        points: &[Point],
-    ) -> (Point, Tip) {
-        todo!()
     }
 }
