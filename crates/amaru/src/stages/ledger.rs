@@ -1,8 +1,12 @@
 use amaru_kernel::{network::EraHistory, protocol_parameters::ProtocolParameters, Hasher, Point};
 use amaru_ledger::{
     context,
-    rules::{self, block::InvalidBlock, parse_block},
-    state::{self, BackwardError},
+    rules::{
+        self,
+        block::{BlockValidation, InvalidBlock},
+        parse_block,
+    },
+    state::{self, BackwardError, VolatileState},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
@@ -14,6 +18,11 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
+
+pub enum RollResult {
+    Valid,
+    Invalid(InvalidBlock),
+}
 
 pub struct Stage<S>
 where
@@ -53,7 +62,16 @@ impl<S: Store + Send> Stage<S> {
         )
     }
 
-    pub fn roll_forward(&mut self, point: Point, raw_block: RawBlock) -> anyhow::Result<()> {
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "ledger.roll_forward"
+    )]
+    pub fn roll_forward(
+        &mut self,
+        point: Point,
+        raw_block: RawBlock,
+    ) -> anyhow::Result<RollResult> {
         let mut ctx = context::DefaultPreparationContext::new();
 
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
@@ -83,40 +101,20 @@ impl<S: Store + Send> Stage<S> {
             .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
             .collect();
 
-        let state = rules::validate_block(
+        let state: VolatileState = match rules::validate_block(
             context::DefaultValidationContext::new(inputs),
             ProtocolParameters::default(),
             block,
-        )?;
+        ) {
+            BlockValidation::Valid(state) => state.into(),
+            BlockValidation::Invalid(err) => {
+                return Ok(RollResult::Invalid(err));
+            }
+        };
 
         self.state.forward(state.anchor(&point, issuer))?;
 
-        Ok(())
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "ledger.roll_forward"
-    )]
-    pub fn roll_forward_wrapper(
-        &mut self,
-        point: Point,
-        raw_block: RawBlock,
-        span: Span,
-    ) -> anyhow::Result<BlockValidationResult> {
-        match self.roll_forward(point.clone(), raw_block) {
-            Ok(_) => {
-                // TODO Make sure `roll_forward` returns a structured object encapsulating validation errors
-                // Err should be used for unexpected errors only and stop block processing
-
-                Ok(BlockValidationResult::BlockValidated(point, span))
-            }
-            Err(err) => match err.downcast_ref::<InvalidBlock>() {
-                Some(_err) => Ok(BlockValidationResult::BlockValidationFailed(point, span)),
-                None => Err(err),
-            },
-        }
+        Ok(RollResult::Valid)
     }
 
     #[instrument(
@@ -165,8 +163,17 @@ impl<S: Store + Send> gasket::framework::Worker<Stage<S>> for Worker {
                 // Restore parent span
                 let span = Span::current();
                 span.set_parent(parent_span.context());
+
                 stage
-                    .roll_forward_wrapper(point.clone(), raw_block.to_vec(), span)
+                    .roll_forward(point.clone(), raw_block.to_vec())
+                    .map(|res| match res {
+                        RollResult::Valid => {
+                            BlockValidationResult::BlockValidated(point.clone(), span)
+                        }
+                        RollResult::Invalid(_err) => {
+                            BlockValidationResult::BlockValidationFailed(point.clone(), span)
+                        }
+                    })
                     .or_panic()?
             }
 
