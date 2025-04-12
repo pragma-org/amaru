@@ -256,23 +256,13 @@ impl<S: Store> State<S> {
         Ok(rewards_summary)
     }
 
-    /// Roll the ledger forward with the given block by applying transactions one by one, in
-    /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
-    /// the internal state of the ledger.
-    #[allow(clippy::unwrap_used)]
-    #[instrument(level = Level::TRACE, skip_all)]
-    pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
-        // Persist the next now-immutable block, which may not quite exist when we just
-        // bootstrapped the system
-        if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
-            let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
-                unreachable!("pre-condition: self.volatile.len() >= CONSENSUS_SECURITY_PARAM")
-            });
 
-            self.apply_block(now_stable)?;
-        } else {
-            trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
-        }
+    fn forward_nominal(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
+        let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
+            unreachable!("pre-condition: self.volatile.len() >= CONSENSUS_SECURITY_PARAM")
+        });
+
+        self.apply_block(now_stable)?;
 
         // Once we reach the stability window, compute rewards unless we've already done so.
         let next_state_slot = next_state.anchor.0.slot_or_default();
@@ -288,6 +278,25 @@ impl<S: Store> State<S> {
         self.volatile.push_back(next_state);
 
         Ok(())
+    }
+
+    /// Roll the ledger forward with the given block by applying transactions one by one, in
+    /// sequence. The update stops at the first invalid transaction, if any. Otherwise, it updates
+    /// the internal state of the ledger.
+    #[allow(clippy::unwrap_used)]
+    #[instrument(level = Level::TRACE, skip_all)]
+    pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
+        // Persist the next now-immutable block, which may not quite exist when we just
+        // bootstrapped the system
+        if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
+            self.forward_nominal(next_state)
+        } else {
+            trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
+        
+            self.volatile.push_back(next_state);
+
+            Ok(())
+        }
     }
 
     pub fn backward(&mut self, to: &Point) -> Result<(), BackwardError> {
