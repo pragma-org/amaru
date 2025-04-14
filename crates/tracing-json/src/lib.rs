@@ -219,12 +219,8 @@ pub fn verify_traces(
     actual_traces: Vec<json::Value>,
     expected_traces: Vec<json::Value>,
 ) -> Result<(), InvalidTrace> {
-    if actual_traces.len() != expected_traces.len() {
-        return Err(InvalidTrace::TraceLengthMismatch {
-            expected: expected_traces.len(),
-            actual: actual_traces.len(),
-        });
-    }
+    let actual_len = actual_traces.len();
+    let expected_len = expected_traces.len();
 
     for (index, (actual, expected)) in actual_traces
         .into_iter()
@@ -238,6 +234,13 @@ pub fn verify_traces(
                 index,
             });
         }
+    }
+
+    if actual_len != expected_len {
+        return Err(InvalidTrace::TraceLengthMismatch {
+            expected: expected_len,
+            actual: actual_len,
+        });
     }
 
     Ok(())
