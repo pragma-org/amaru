@@ -707,14 +707,14 @@ mod test {
     use super::*;
     use test_case::test_case;
 
-    #[test_case((From::from(42), 0, 0), (From::from(42), 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
-    #[test_case((From::from(42), 0, 0), (From::from(43), 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
-    #[test_case((From::from(42), 0, 0), (From::from(42), 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
-    #[test_case((From::from(42), 0, 0), (From::from(42), 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
-    #[test_case((From::from(42), 0, 5), (From::from(42), 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
+    #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
+    #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
+    #[test_case((42, 0, 0), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
+    #[test_case((42, 0, 0), (42, 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
+    #[test_case((42, 0, 5), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
     fn test_pointers(
-        left: (Slot, usize, usize),
-        right: (Slot, usize, usize),
+        left: (u64, usize, usize),
+        right: (u64, usize, usize),
     ) -> (CertificatePointer, CertificatePointer) {
         let new_pointer = |args: (Slot, usize, usize)| CertificatePointer {
             transaction_pointer: TransactionPointer {
@@ -724,7 +724,10 @@ mod test {
             certificate_index: args.2,
         };
 
-        (new_pointer(left), new_pointer(right))
+        (
+            new_pointer((From::from(left.0), left.1, left.2)),
+            new_pointer((From::from(right.0), right.1, right.2)),
+        )
     }
 
     macro_rules! fixture {
