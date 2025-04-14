@@ -1,30 +1,39 @@
 use serde_json as json;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard};
 use tracing::Dispatch;
 use tracing_subscriber::layer::SubscriberExt;
 
 #[derive(Clone)]
-pub struct TestingTraceCollector {
-    lines: Arc<Mutex<Vec<json::Value>>>,
+pub struct JsonTraceCollector {
+    lines: Arc<RwLock<Vec<json::Value>>>,
 }
 
-impl TestingTraceCollector {
+impl JsonTraceCollector {
     pub fn new() -> Self {
-        TestingTraceCollector {
-            lines: Arc::new(Mutex::new(Vec::new())),
+        JsonTraceCollector {
+            lines: Arc::new(RwLock::new(Vec::new())),
         }
     }
 
-    pub fn clear(&mut self) {
-        self.lines.lock().unwrap().clear();
-    }
-
     fn insert(&self, value: json::Value) {
-        self.lines.lock().unwrap().push(value);
+        if let Ok(mut lines) = self.lines.write() {
+            lines.push(value);
+        }
     }
 
-    pub fn get_traces(&self) -> Vec<json::Value> {
-        self.lines.lock().unwrap().clone()
+    pub fn get_traces(
+        &self,
+    ) -> Result<
+        RwLockReadGuard<'_, Vec<json::Value>>,
+        PoisonError<RwLockReadGuard<'_, Vec<json::Value>>>,
+    > {
+        self.lines.read()
+    }
+}
+
+impl Default for JsonTraceCollector {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -34,14 +43,20 @@ struct JsonVisitor {
 }
 
 impl JsonVisitor {
+    #[allow(clippy::unwrap_used)]
     fn add_field(&mut self, json_path: &str, value: json::Value) {
         let steps = json_path.split('.').collect::<Vec<_>>();
+
+        if steps.is_empty() {
+            return;
+        }
 
         if steps.len() == 1 {
             self.fields.insert(json_path.to_string(), value);
             return;
         }
 
+        // Safe because we just ensured steps is never empty
         let (root, children) = steps.split_first().unwrap();
 
         let mut current_value = self
@@ -54,15 +69,23 @@ impl JsonVisitor {
                 *current_value = json::json!({});
             }
 
+            // Safe because we just ensured current_value is an object
             let current_object = current_value.as_object_mut().unwrap();
+
             if !current_object.contains_key(key) {
                 current_object.insert(key.to_string(), json::json!({}));
             }
 
+            // Safe because we just inserted the key if it didn't exist
             current_value = current_object.get_mut(key).unwrap()
         }
 
         if let Some(last) = children.last() {
+            if !current_value.is_object() {
+                *current_value = json::json!({});
+            }
+
+            // Safe because we just ensured that current_value is always an object
             current_value
                 .as_object_mut()
                 .unwrap()
@@ -118,10 +141,10 @@ impl tracing::field::Visit for JsonVisitor {
 }
 
 struct JsonLayer {
-    collector: TestingTraceCollector,
+    collector: JsonTraceCollector,
 }
 impl JsonLayer {
-    pub fn new(collector: TestingTraceCollector) -> Self {
+    pub fn new(collector: JsonTraceCollector) -> Self {
         Self { collector }
     }
 }
@@ -165,10 +188,9 @@ where
 
 pub fn with_tracing<F, R>(test_fn: F) -> R
 where
-    F: FnOnce(&TestingTraceCollector) -> R,
+    F: FnOnce(&JsonTraceCollector) -> R,
 {
-    let mut collector = TestingTraceCollector::new();
-    collector.clear();
+    let collector = JsonTraceCollector::new();
 
     let layer = JsonLayer::new(collector.clone());
     let subscriber = tracing_subscriber::registry().with(layer);

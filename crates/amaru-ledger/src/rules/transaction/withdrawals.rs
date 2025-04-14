@@ -91,7 +91,12 @@ mod test {
 
             assert!(super::execute(&mut context, tx.withdrawals.as_deref()).is_ok());
 
-            match verify_traces(collector.get_traces(), expected_traces) {
+            let actual_traces = match collector.get_traces() {
+                Ok(traces) => traces.clone(),
+                Err(poisoned_traces) => poisoned_traces.into_inner().clone(),
+            };
+
+            match verify_traces(actual_traces, expected_traces) {
                 Ok(_) => {}
                 Err(e) => panic!("{:?}", e),
             }
