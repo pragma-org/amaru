@@ -81,34 +81,26 @@ impl JsonVisitor {
     }
 }
 
+macro_rules! record_t {
+    ($title:ident, $ty:ty) => {
+        fn $title(&mut self, field: &tracing::field::Field, value: $ty) {
+            self.add_field(field.name(), json::json!(value));
+        }
+    };
+}
+
 impl tracing::field::Visit for JsonVisitor {
-    fn record_f64(&mut self, field: &tracing::field::Field, value: f64) {
-        self.add_field(field.name(), json::json!(value));
+    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
+        self.add_field(field.name(), json::json!(format!("{:?}", value)))
     }
 
-    fn record_i64(&mut self, field: &tracing::field::Field, value: i64) {
-        self.add_field(field.name(), json::json!(value));
-    }
-
-    fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
-        self.add_field(field.name(), json::json!(value));
-    }
-
-    fn record_i128(&mut self, field: &tracing::field::Field, value: i128) {
-        self.add_field(field.name(), json::json!(value));
-    }
-
-    fn record_u128(&mut self, field: &tracing::field::Field, value: u128) {
-        self.add_field(field.name(), json::json!(value));
-    }
-
-    fn record_bool(&mut self, field: &tracing::field::Field, value: bool) {
-        self.add_field(field.name(), json::json!(value));
-    }
-
-    fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-        self.add_field(field.name(), json::json!(value));
-    }
+    record_t!(record_f64, f64);
+    record_t!(record_i64, i64);
+    record_t!(record_u64, u64);
+    record_t!(record_i128, i128);
+    record_t!(record_u128, u128);
+    record_t!(record_bool, bool);
+    record_t!(record_str, &str);
 
     fn record_bytes(&mut self, field: &tracing::field::Field, value: &[u8]) {
         self.add_field(field.name(), json::json!(hex::encode(value)));
@@ -120,10 +112,6 @@ impl tracing::field::Visit for JsonVisitor {
         value: &(dyn std::error::Error + 'static),
     ) {
         self.add_field(field.name(), json::json!(format!("{}", value)))
-    }
-
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        self.add_field(field.name(), json::json!(format!("{:?}", value)))
     }
 }
 
