@@ -19,7 +19,7 @@ pub mod volatile_db;
 
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
-    store::{HistoricalStores, Store, StoreError, TransactionalContext},
+    store::{HistoricalStores, Progress, Store, StoreError, TransactionalContext},
     summary::{
         governance::GovernanceSummary,
         rewards::{RewardsSummary, StakeDistribution},
@@ -211,19 +211,29 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         if epoch_boundary_crossed {
             if must_snapshot {
                 if let Some(mut rewards_summary) = self.rewards_summary.take() {
-                    // TODO move at the end of block processing??
                     let transaction = db.create_transaction();
-                    transaction
-                        .apply_rewards(&mut rewards_summary)
-                        .map_err(StateError::Storage)?;
+                    let previous_progress = transaction
+                        .update_progress(Progress::Snapshot)
+                        .map_err(StateError::Storage)?
+                        // First time the full logic is executed
+                        .unwrap_or(Progress::BlockProcessed);
+                    if previous_progress == Progress::BlockProcessed {
+                        // snapshot and save are done in sequence
+                        // If previous progress is not BlockProcessed,
+                        // it means that the block processing crash in between both transactions
+                        // therefore the rewards summary mutation is not to be re-applied
+                        transaction
+                            .apply_rewards(&mut rewards_summary)
+                            .map_err(StateError::Storage)?;
 
-                    transaction
-                        .adjust_pots(
-                            rewards_summary.delta_treasury(),
-                            rewards_summary.delta_reserves(),
-                            rewards_summary.unclaimed_rewards(),
-                        )
-                        .map_err(StateError::Storage)?;
+                        transaction
+                            .adjust_pots(
+                                rewards_summary.delta_treasury(),
+                                rewards_summary.delta_reserves(),
+                                rewards_summary.unclaimed_rewards(),
+                            )
+                            .map_err(StateError::Storage)?;
+                    }
 
                     transaction.commit().map_err(StateError::Storage)?;
                 }
@@ -238,8 +248,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // Wrap all changes from this block in a transaction.
         // If the process crashes right before after the snapshot creation (and associated mutations to the current store)
         // but before this transaction commits, then the same block will be re-executed again.
-        // This doesn't lead to any inconsistencies, since the snapshot exists and re-execution of the block will bypass those mutations.
-        // TODO deal with failure during snapshot creation
 
         let mut transaction = db.create_transaction();
         if epoch_boundary_crossed {
@@ -265,6 +273,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             withdrawals,
             voting_dreps,
         } = now_stable.into_store_update(current_epoch);
+        transaction
+            .update_progress(Progress::BlockProcessed)
+            .map_err(StateError::Storage)?;
         transaction
             .save(
                 &stable_point,

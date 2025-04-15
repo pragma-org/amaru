@@ -1,6 +1,6 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
-    store::{HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
+    store::{HistoricalStores, Progress, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::rewards::{Pots, RewardsSummary},
 };
 use std::collections::BTreeSet;
@@ -132,6 +132,10 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
 
     fn reset_blocks_count(&self) -> Result<(), StoreError> {
         Ok(())
+    }
+
+    fn update_progress(&self, _new_progress: Progress) -> Result<Option<Progress>, StoreError> {
+        Ok(None)
     }
 
     fn apply_rewards(&self, _rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {

@@ -131,7 +131,40 @@ pub trait HistoricalStores {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum Progress {
+    Snapshot,
+    BlockProcessed,
+}
+
+impl<C> cbor::encode::Encode<C> for Progress {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        match self {
+            Progress::Snapshot => e.encode_with(0, ctx),
+            Progress::BlockProcessed => e.encode_with(1, ctx),
+        }?;
+        Ok(())
+    }
+}
+
+impl<'a, C> cbor::decode::Decode<'a, C> for Progress {
+    fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.decode_with(ctx).map(|v: u8| match v {
+            0 => Progress::Snapshot,
+            1 => Progress::BlockProcessed,
+            _ => unreachable!("invalid progress value"),
+        })
+    }
+}
+
 pub trait TransactionalContext<'a> {
+    /// Update the block processing process to State. Used to
+    fn update_progress(&self, new_progress: Progress) -> Result<Option<Progress>, StoreError>;
+
     fn reset_fees(&self) -> Result<(), StoreError>;
 
     fn reset_blocks_count(&self) -> Result<(), StoreError>;

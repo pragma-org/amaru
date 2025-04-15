@@ -19,8 +19,8 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     store::{
-        columns as scolumns, Columns, HistoricalStores, OpenErrorKind, ReadOnlyStore, Snapshot,
-        Store, StoreError, TipErrorKind, TransactionalContext,
+        columns as scolumns, Columns, HistoricalStores, OpenErrorKind, Progress, ReadOnlyStore,
+        Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
     },
     summary::rewards::{Pots, RewardsSummary},
 };
@@ -49,6 +49,9 @@ const EVENT_TARGET: &str = "amaru::ledger::store";
 /// Special key where we store the tip of the database (most recently applied delta)
 const KEY_TIP: &str = "tip";
 
+/// Special key where we store the progress of the database
+const KEY_PROGRESS: &str = "progress";
+
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
@@ -59,6 +62,7 @@ const DIR_LIVE_DB: &str = "live";
 /// * key                     * value                                          *
 /// * ========================*=============================================== *
 /// * 'tip'                   * Point                                          *
+/// * 'progress'              * Progress                                       *
 /// * 'pots'                  * (Lovelace, Lovelace, Lovelace)                 *
 /// * 'utxo:'TransactionInput * TransactionOutput                              *
 /// * 'pool:'PoolId           * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
@@ -284,6 +288,26 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             .map_err(|err| StoreError::Internal(err.into()));
         self.db.transaction_committed();
         res
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+    )]
+    fn update_progress(&self, progress: Progress) -> Result<Option<Progress>, StoreError> {
+        let previous_progress = self
+            .transaction
+            .get(KEY_PROGRESS)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .map(|bytes| cbor::decode(&bytes))
+            .transpose()
+            .map_err(|err| StoreError::Internal(err.into()));
+        let mut buffer = Vec::new();
+        cbor::encode(progress, &mut buffer).map_err(|err| StoreError::Internal(err.into()))?;
+        self.transaction
+            .put(KEY_PROGRESS, buffer)
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        previous_progress
     }
 
     #[instrument(
