@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    network::NetworkName, Epoch, EraHistory, Lovelace, Point, PoolId, StakeCredential,
-    TransactionInput, TransactionOutput,
+    Epoch, EraHistory, Lovelace, Point, PoolId, StakeCredential, TransactionInput,
+    TransactionOutput,
 };
 use amaru_ledger::{
     store::{
