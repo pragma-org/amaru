@@ -149,7 +149,7 @@ where
     fn on_enter(&self, id: &tracing::span::Id, ctx: tracing_subscriber::layer::Context<'_, S>) {
         if let Some(span) = ctx.span(id) {
             let mut span_json = json::json!({
-                "name": span.name(),
+                "name": span.name().to_string() + "_span",
             });
 
             if let Some(fields) = span.extensions().get::<json::Map<String, json::Value>>() {
@@ -160,6 +160,31 @@ where
 
             self.0.insert(span_json);
         }
+    }
+
+    fn on_event(
+        &self,
+        event: &tracing::Event<'_>,
+        _ctx: tracing_subscriber::layer::Context<'_, S>,
+    ) {
+        let mut visitor = JsonVisitor::default();
+        event.record(&mut visitor);
+
+        let name = visitor
+            .fields
+            .remove("message")
+            .and_then(|value| value.as_str().map(|s| s.to_string()))
+            .unwrap_or_default();
+
+        let mut event_json = json::json!({
+            "name": name + "_event",
+        });
+
+        for (key, value) in visitor.fields {
+            event_json[key] = value.clone();
+        }
+
+        self.0.insert(event_json);
     }
 }
 
@@ -192,7 +217,7 @@ mod tests {
         assert_eq!(
             assert_trace(
                 || {
-                    info_span!("foo_span").in_scope(|| {
+                    info_span!("foo").in_scope(|| {
                         info!(a = 1, "basic");
                         info!(a.foo = 1, a.bar = 2, "nested_fields");
                         "result"

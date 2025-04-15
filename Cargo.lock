@@ -130,6 +130,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-mempool"
+version = "0.1.0"
+dependencies = [
+ "amaru-kernel",
+]
+
+[[package]]
 name = "amaru-ouroboros"
 version = "0.1.0"
 dependencies = [
