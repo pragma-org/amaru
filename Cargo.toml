@@ -27,7 +27,11 @@ indoc = "2.0"
 minicbor = "0.25.1"
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.29.1"
-opentelemetry-otlp = { version = "0.29.0", features = [ "grpc-tonic", "http-proto", "reqwest-blocking-client" ] }
+opentelemetry-otlp = { version = "0.29.0", features = [
+    "grpc-tonic",
+    "http-proto",
+    "reqwest-blocking-client",
+] }
 opentelemetry_sdk = "0.29.0"
 pallas-addresses = "0.32.0"
 pallas-codec = "0.32.0" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v0.32.0/pallas-codec/Cargo.toml#L22)
@@ -51,7 +55,11 @@ tokio-util = "0.7.12"
 tokio-stream = "0.1.17"
 tracing = "0.1.40"
 tracing-opentelemetry = "0.30.0"
-tracing-subscriber = { version = "0.3.18", features = ["env-filter", "std", "json"] }
+tracing-subscriber = { version = "0.3.18", features = [
+    "env-filter",
+    "std",
+    "json",
+] }
 
 amaru-consensus = { path = "crates/amaru-consensus" }
 amaru-kernel = { path = "crates/amaru-kernel" }
@@ -62,6 +70,7 @@ amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
 amaru-stores = { path = "crates/amaru-stores" }
 iter-borrow = { path = "crates/iter-borrow" }
 slot-arithmetic = { path = "crates/slot-arithmetic" }
+tracing-json = { path = "crates/tracing-json" }
 
 # The vrf crate has not been fully tested in production environments and still has several upstream issues that are open PRs but not merged yet.
 vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c2471fc5c4d441f13086676" }
