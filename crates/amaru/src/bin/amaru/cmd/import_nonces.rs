@@ -64,7 +64,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
     let header_hash = Hash::from(&args.at);
 
-    info!(point.id = %header_hash, point.slot = ?args.at.slot_or_default(), "importing nonces");
+    info!(point.id = %header_hash, point.slot = %args.at.slot_or_default(), "importing nonces");
 
     let nonces = Nonces {
         epoch: {
