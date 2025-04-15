@@ -42,3 +42,64 @@ pub fn block_ex_units_valid(
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::ops::Deref;
+
+    use super::InvalidExUnits;
+    use amaru_kernel::{
+        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, MintedBlock, Redeemers,
+    };
+    use test_case::test_case;
+
+    macro_rules! fixture {
+        ($number:literal) => {
+            (
+                include_cbor!(concat!("blocks/preprod/", $number, "/valid.cbor")),
+                ProtocolParameters::default(),
+            )
+        };
+        ($number:literal, $pp:expr) => {
+            (
+                include_cbor!(concat!("blocks/preprod/", $number, "/valid.cbor")),
+                $pp,
+            )
+        };
+    }
+
+    #[test_case(fixture!("2667657"); "valid ex units")]
+    #[test_case(fixture!("2667657", ProtocolParameters {
+        max_block_ex_units: ExUnits {
+            mem: 0,
+            steps: 0
+        },
+        ..Default::default()
+    }) => matches Err(InvalidExUnits::TooMany{provided, max: _})
+        if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
+    fn test_ex_units(
+        (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
+    ) -> Result<(), InvalidExUnits> {
+        // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
+        let ex_units = block
+            .transaction_witness_sets
+            .iter()
+            .flat_map(|witness_set| {
+                witness_set
+                    .redeemer
+                    .iter()
+                    .map(|redeemers| match redeemers.deref() {
+                        Redeemers::List(list) => {
+                            list.iter().map(|r| r.ex_units).collect::<Vec<_>>()
+                        }
+                        Redeemers::Map(map) => {
+                            map.iter().map(|(_, r)| r.ex_units).collect::<Vec<_>>()
+                        }
+                    })
+            })
+            .flatten()
+            .collect::<Vec<_>>();
+
+        super::block_ex_units_valid(ex_units, &protocol_parameters)
+    }
+}
