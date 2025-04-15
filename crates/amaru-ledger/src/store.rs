@@ -107,6 +107,7 @@ pub trait Store: ReadOnlyStore {
         self.snapshots().unwrap_or_default().last().cloned()
     }
 
+    /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
 
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when
@@ -120,6 +121,7 @@ pub trait Store: ReadOnlyStore {
     /// decision entirely to the caller owning the store.
     fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError>;
 
+    /// Create a new transaction context. This is used to perform updates on the store.
     fn create_transaction(&self) -> impl TransactionalContext<'_>;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
@@ -161,8 +163,9 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Progress {
     }
 }
 
+/// A trait that provides a handle to perform atomic updates on the store.
 pub trait TransactionalContext<'a> {
-    /// Update the block processing process to State. Used to
+    /// Update the block processing process to State
     fn update_progress(&self, new_progress: Progress) -> Result<Option<Progress>, StoreError>;
 
     fn reset_fees(&self) -> Result<(), StoreError>;
@@ -278,6 +281,7 @@ pub trait TransactionalContext<'a> {
         self.refund(refunds.into_iter())
     }
 
+    /// Commit the transaction. This will persist all changes to the store.
     fn commit(self) -> Result<(), StoreError>;
 }
 
