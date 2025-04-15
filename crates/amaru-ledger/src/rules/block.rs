@@ -57,7 +57,7 @@ pub enum InvalidBlock {
     UncategorizedError(String),
 }
 
-pub enum BlockValidation<C: ValidationContext<FinalState = S>, S: From<C>> {
+pub enum BlockValidation<C: ValidationContext> {
     Valid(C),
     Invalid(InvalidBlock),
 }
@@ -67,7 +67,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     mut context: C,
     protocol_params: ProtocolParameters,
     block: MintedBlock<'_>,
-) -> BlockValidation<C, S> {
+) -> BlockValidation<C> {
     if let Err(err) =
         header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)
     {
