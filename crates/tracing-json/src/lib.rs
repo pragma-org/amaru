@@ -1,5 +1,6 @@
+use assert_json_diff::assert_json_eq;
 use serde_json as json;
-use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard};
+use std::sync::{Arc, RwLock};
 use tracing::Dispatch;
 use tracing_subscriber::layer::SubscriberExt;
 
@@ -14,13 +15,15 @@ impl JsonTraceCollector {
         }
     }
 
-    pub fn get_traces(
-        &self,
-    ) -> Result<
-        RwLockReadGuard<'_, Vec<json::Value>>,
-        PoisonError<RwLockReadGuard<'_, Vec<json::Value>>>,
-    > {
-        self.0.read()
+    pub fn flush(&self) -> Vec<json::Value> {
+        match self.0.read() {
+            Ok(traces) => traces.clone(),
+            // The RwLock can only get poisoned should the thread panic while pushing a new line
+            // onto the stack. In case this happen, we'll likely be missing traces which should be
+            // caught by assertions down the line anyway. So it is fine here to simply return the
+            // 'possibly corrupted' data.
+            Err(err) => err.into_inner().clone(),
+        }
     }
 }
 
@@ -160,61 +163,48 @@ where
     }
 }
 
-pub fn with_tracing<F, R>(test_fn: F) -> R
+/// TODO: Write some documentation on expectations and usage.
+pub fn assert_trace<F, R>(run: F, expected: Vec<json::Value>) -> R
 where
-    F: FnOnce(&JsonTraceCollector) -> R,
+    F: FnOnce() -> R,
 {
     let collector = JsonTraceCollector::default();
     let layer = JsonLayer::new(collector.clone());
     let subscriber = tracing_subscriber::registry().with(layer);
     let dispatch = Dispatch::new(subscriber);
     let _guard = tracing::dispatcher::set_default(&dispatch);
-    test_fn(&collector)
+    let result = run();
+    assert_json_eq!(
+        json::Value::Array(collector.flush()),
+        json::Value::Array(expected)
+    );
+    result
 }
 
-#[derive(Debug)]
-// This is just to provide additional context when a test fails due to invalid tracing
-// Not actually used in code (except for Debug), so we have to allow dead_code
-#[allow(dead_code)]
-pub enum InvalidTrace {
-    TraceLengthMismatch {
-        expected: usize,
-        actual: usize,
-    },
-    InvalidTrace {
-        expected: serde_json::Value,
-        actual: serde_json::Value,
-        index: usize,
-    },
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+    use tracing::{info, info_span};
 
-pub fn verify_traces(
-    actual_traces: Vec<json::Value>,
-    expected_traces: Vec<json::Value>,
-) -> Result<(), InvalidTrace> {
-    let actual_len = actual_traces.len();
-    let expected_len = expected_traces.len();
-
-    for (index, (actual, expected)) in actual_traces
-        .into_iter()
-        .zip(expected_traces.into_iter())
-        .enumerate()
-    {
-        if actual != expected {
-            return Err(InvalidTrace::InvalidTrace {
-                expected,
-                actual,
-                index,
-            });
-        }
+    #[test]
+    fn assert_simple_tracing() {
+        assert_eq!(
+            assert_trace(
+                || {
+                    info_span!("foo_span").in_scope(|| {
+                        info!(a = 1, "basic");
+                        info!(a.foo = 1, a.bar = 2, "nested_fields");
+                        "result"
+                    })
+                },
+                vec![
+                    json!({ "name": "foo_span" }),
+                    json!({ "name": "basic_event", "a": 1 }),
+                    json!({ "name": "nested_fields_event", "a": { "foo": 1, "bar": 2 } }),
+                ],
+            ),
+            "result"
+        );
     }
-
-    if actual_len != expected_len {
-        return Err(InvalidTrace::TraceLengthMismatch {
-            expected: expected_len,
-            actual: actual_len,
-        });
-    }
-
-    Ok(())
 }

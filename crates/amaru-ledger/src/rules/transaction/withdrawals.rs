@@ -68,7 +68,7 @@ mod test {
     use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
     use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
     use test_case::test_case;
-    use tracing_json::{verify_traces, with_tracing};
+    use tracing_json::assert_trace;
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -84,22 +84,15 @@ mod test {
     fn valid_withdrawal(
         (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
     ) {
-        with_tracing(|collector| {
-            let mut context = AssertValidationContext::from(AssertPreparationContext {
-                utxo: Default::default(),
-            });
+        assert_trace(
+            || {
+                let mut context = AssertValidationContext::from(AssertPreparationContext {
+                    utxo: Default::default(),
+                });
 
-            assert!(super::execute(&mut context, tx.withdrawals.as_deref()).is_ok());
-
-            let actual_traces = match collector.get_traces() {
-                Ok(traces) => traces.clone(),
-                Err(poisoned_traces) => poisoned_traces.into_inner().clone(),
-            };
-
-            match verify_traces(actual_traces, expected_traces) {
-                Ok(_) => {}
-                Err(e) => panic!("{:?}", e),
-            }
-        });
+                assert!(super::execute(&mut context, tx.withdrawals.as_deref()).is_ok());
+            },
+            expected_traces,
+        );
     }
 }

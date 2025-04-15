@@ -105,11 +105,9 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-
-    use tracing_json::{verify_traces, with_tracing};
-
     use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
     use test_case::test_case;
+    use tracing_json::assert_trace;
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -133,25 +131,18 @@ mod tests {
             Vec<json::Value>,
         ),
     ) {
-        with_tracing(|collector| {
-            let mut validation_context = AssertValidationContext::from(ctx.clone());
-            assert!(super::execute(
-                &mut validation_context,
-                &tx.inputs,
-                tx.reference_inputs.as_deref(),
-                tx.collateral.as_deref(),
-            )
-            .is_ok());
-
-            let actual_traces = match collector.get_traces() {
-                Ok(traces) => traces.clone(),
-                Err(poisoned_traces) => poisoned_traces.into_inner().clone(),
-            };
-
-            match verify_traces(actual_traces, expected_traces) {
-                Ok(_) => {}
-                Err(e) => panic!("{:?}", e),
-            }
-        })
+        assert_trace(
+            || {
+                let mut validation_context = AssertValidationContext::from(ctx.clone());
+                assert!(super::execute(
+                    &mut validation_context,
+                    &tx.inputs,
+                    tx.reference_inputs.as_deref(),
+                    tx.collateral.as_deref(),
+                )
+                .is_ok());
+            },
+            expected_traces,
+        )
     }
 }

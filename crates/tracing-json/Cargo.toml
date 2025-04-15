@@ -17,3 +17,4 @@ serde_json.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["json"] }
 hex.workspace = true
+assert-json-diff = "2.0.2"
