@@ -12,8 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::network::EraHistory;
-use amaru_kernel::{cbor, Epoch, Nonce, Point};
+use amaru_kernel::{cbor, Epoch, EraHistory, Nonce, Point};
 use amaru_ouroboros::praos::nonce;
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;

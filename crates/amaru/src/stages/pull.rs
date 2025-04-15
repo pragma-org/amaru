@@ -72,7 +72,7 @@ impl Stage {
         skip_all,
         fields(
             peer = self.peer_session.peer.name,
-            intersection.slot = self.intersection.last().unwrap().slot_or_default(),
+            intersection.slot = %self.intersection.last().unwrap().slot_or_default(),
         ),
     )]
     #[allow(clippy::unwrap_used)]

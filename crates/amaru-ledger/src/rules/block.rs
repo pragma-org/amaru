@@ -120,7 +120,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             });
 
         let pointer = TransactionPointer {
-            slot: block.header.header_body.slot,
+            slot: From::from(block.header.header_body.slot),
             transaction_index: i as usize, // From u32
         };
 

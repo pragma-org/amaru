@@ -12,12 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::Display;
+
 use minicbor::{Decode, Decoder, Encode};
 use serde::{Deserialize, Serialize};
 
-#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize, Default)]
 #[repr(transparent)]
 pub struct Slot(u64);
+
+impl Display for Slot {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 #[derive(Debug, PartialEq, Eq, thiserror::Error)]
 pub enum SlotArithmeticError {

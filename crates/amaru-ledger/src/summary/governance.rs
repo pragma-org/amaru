@@ -132,7 +132,7 @@ impl GovernanceSummary {
             stake: 0,
             registered_at: CertificatePointer {
                 transaction_pointer: TransactionPointer {
-                    slot: 0,
+                    slot: From::from(0),
                     transaction_index: 0,
                 },
                 certificate_index: 0,

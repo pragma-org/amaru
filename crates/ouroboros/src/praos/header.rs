@@ -80,7 +80,7 @@ pub fn assert_all<'a>(
         Hash<{ vrf::PublicKey::HASH_SIZE }>,
         FixedDecimal,
     ) = ledger_state
-        .get_pool(absolute_slot, &pool)
+        .get_pool(From::from(absolute_slot), &pool)
         .map(|pool| {
             (
                 pool.vrf,

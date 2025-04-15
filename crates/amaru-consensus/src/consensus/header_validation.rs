@@ -116,7 +116,7 @@ impl Consensus {
         skip_all,
         name = "consensus.roll_forward",
         fields(
-            point.slot = point.slot_or_default(),
+            point.slot = %point.slot_or_default(),
             point.hash = %Hash::<32>::from(point),
         )
     )]
@@ -188,7 +188,7 @@ impl Consensus {
         skip_all,
         name = "consensus.roll_backward",
         fields(
-            point.slot = rollback.slot_or_default(),
+            point.slot = %rollback.slot_or_default(),
             point.hash = %Hash::<32>::from(rollback),
         )
     )]
