@@ -147,20 +147,28 @@ In this representation you can find the following types of links featured:
 - PL (Published Language): part of the domain that is exposed by the upstream member
 
 This fuelled our discussion on which part to dedicate a team for our project and we came up with the following independent teams (that might be subject to change as the project evolves):
+![2025_04_13_Amaru_Scopes](https://github.com/user-attachments/assets/9e9a0fee-7032-40c6-a4a6-d0d0a7108ace)
 
-![2024_11_26_Bounded_Context_v2](https://github.com/user-attachments/assets/0f61fd51-24aa-4283-89fc-70bc5e300ee2)
+
+In this representation the blue scopes are considered scope owners of the project, they are part of the Maintainer Committee and have decision each a voice for development decision making and integration.  
 
 For each scope identified, we nominated an owner that has the responsibility of managing the interfaces and the coherence of its scope:
 - Amaru integration: Amaru Maintainers Committee (with final deciding member: [Matthias Benkort](https://github.com/ktorz))
 - Ledger owner: [Matthias Benkort](https://github.com/ktorz)
-- Consensus owner: [Arnaud Bailly](https://github.com/abailly)
-- Mempool owner: [Andrew Westberg](https://github.com/AndrewWestberg)
+- Ouroboros Consensus owner: [Arnaud Bailly](https://github.com/abailly)
+- Mempool and block forge owner: [Pi Lanningham](https://github.com/Quantumplation)
 - Peer 2 peer (P2P) owner: [Santiago Carmuega](https://github.com/scarmuega)
-- Testnet facilitator owner: [Chris Gianelloni](https://github.com/wolf31o2)
-- UTxO RPC owner: [Chris Gianelloni](https://github.com/wolf31o2)
+- Operator Interface Management: refining the scope content and timeline, no owner yet nominated
 
-The products that we will have a close relationship with also have the equivalent of an owner but since we won't be building anything for them (yet) we will only identify the person that manages that scope:
-- Dolos owner: [Santiago Carmuega](https://github.com/scarmuega)
-- GO Node owner: [Chris Gianelloni](https://github.com/wolf31o2)
+> [!TIP]
+> The mentioned owners are decision makers for the technical progress of the project and the integration of the various scopes into Amaru.  
+> For the decision making on "paid contributors" and allocation of our budget please refer to the Amaru treasury proposal.
 
-This will be updated when we have start delivering and better understand the product and our project environment.
+For each of the scopes that are linked with our project but aren't hosted in the Amaru repo we identified a "go to" contact for each interface that impacts our development:
+- Dingo (GO Node) owner: [Chris Gianelloni](https://github.com/wolf31o2) see: [Dingo Github](https://github.com/blinklabs-io/dingo)
+- Dolos owner: [Santiago Carmuega](https://github.com/scarmuega) see: [Dolos Github](https://github.com/txpipe/dolos)  [Dolos proposal](https://gov.tools/budget_discussion/39)
+- UTxO RPC owner: [Santiago Carmuega](https://github.com/scarmuega) see: [UTxO RPC Github](https://github.com/utxorpc) [UTxO RPC proposal](https://gov.tools/budget_discussion/40) 
+- Pallas owner: [Santiago Carmuega](https://github.com/scarmuega) see: [Pallas Github](https://github.com/txpipe/pallas) [Pallas proposal](https://gov.tools/budget_discussion/41)
+- UPLC VM owner: [Lucas Rosa](https://github.com/rvcas) see: [UPLC Github](https://github.com/pragma-org/uplc)
+
+This will be updated when we better understand the product and our project environment after each delivery step.
