@@ -3,20 +3,13 @@ use std::sync::{Arc, PoisonError, RwLock, RwLockReadGuard};
 use tracing::Dispatch;
 use tracing_subscriber::layer::SubscriberExt;
 
-#[derive(Clone)]
-pub struct JsonTraceCollector {
-    lines: Arc<RwLock<Vec<json::Value>>>,
-}
+#[repr(transparent)]
+#[derive(Clone, Default)]
+pub struct JsonTraceCollector(Arc<RwLock<Vec<json::Value>>>);
 
 impl JsonTraceCollector {
-    pub fn new() -> Self {
-        JsonTraceCollector {
-            lines: Arc::new(RwLock::new(Vec::new())),
-        }
-    }
-
     fn insert(&self, value: json::Value) {
-        if let Ok(mut lines) = self.lines.write() {
+        if let Ok(mut lines) = self.0.write() {
             lines.push(value);
         }
     }
@@ -27,13 +20,7 @@ impl JsonTraceCollector {
         RwLockReadGuard<'_, Vec<json::Value>>,
         PoisonError<RwLockReadGuard<'_, Vec<json::Value>>>,
     > {
-        self.lines.read()
-    }
-}
-
-impl Default for JsonTraceCollector {
-    fn default() -> Self {
-        Self::new()
+        self.0.read()
     }
 }
 
@@ -140,12 +127,11 @@ impl tracing::field::Visit for JsonVisitor {
     }
 }
 
-struct JsonLayer {
-    collector: JsonTraceCollector,
-}
+struct JsonLayer(JsonTraceCollector);
+
 impl JsonLayer {
     pub fn new(collector: JsonTraceCollector) -> Self {
-        Self { collector }
+        Self(collector)
     }
 }
 
@@ -181,7 +167,7 @@ where
                 }
             }
 
-            self.collector.insert(span_json);
+            self.0.insert(span_json);
         }
     }
 }
@@ -190,8 +176,7 @@ pub fn with_tracing<F, R>(test_fn: F) -> R
 where
     F: FnOnce(&JsonTraceCollector) -> R,
 {
-    let collector = JsonTraceCollector::new();
-
+    let collector = JsonTraceCollector::default();
     let layer = JsonLayer::new(collector.clone());
     let subscriber = tracing_subscriber::registry().with(layer);
     let dispatch = Dispatch::new(subscriber);
