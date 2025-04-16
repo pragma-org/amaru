@@ -25,6 +25,7 @@ use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
 use num::{rational::Ratio, BigUint};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
+use pallas_primitives::conway::{Redeemer, RedeemersKey, RedeemersValue};
 use sha3::{Digest as _, Sha3_256};
 use std::{array::TryFromSliceError, convert::Infallible, ops::Deref, sync::LazyLock};
 
@@ -206,6 +207,48 @@ pub type PoolId = Hash<28>;
 pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
+
+pub struct ExUnitsIter<'a> {
+    source: ExUnitsIterSource<'a>,
+}
+
+type ExUnitsMapIter<'a> = std::iter::Map<
+    std::slice::Iter<'a, (RedeemersKey, RedeemersValue)>,
+    fn(&(RedeemersKey, RedeemersValue)) -> ExUnits,
+>;
+
+enum ExUnitsIterSource<'a> {
+    List(std::iter::Map<std::slice::Iter<'a, Redeemer>, fn(&Redeemer) -> ExUnits>),
+    Map(ExUnitsMapIter<'a>),
+}
+
+impl Iterator for ExUnitsIter<'_> {
+    type Item = ExUnits;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.source {
+            ExUnitsIterSource::List(iter) => iter.next(),
+            ExUnitsIterSource::Map(iter) => iter.next(),
+        }
+    }
+}
+
+pub trait RedeemersExt {
+    fn ex_units_iter(&self) -> ExUnitsIter<'_>;
+}
+
+impl RedeemersExt for Redeemers {
+    fn ex_units_iter(&self) -> ExUnitsIter<'_> {
+        match self {
+            Redeemers::List(list) => ExUnitsIter {
+                source: ExUnitsIterSource::List(list.iter().map(|r| r.ex_units)),
+            },
+            Redeemers::Map(map) => ExUnitsIter {
+                source: ExUnitsIterSource::Map(map.iter().map(|(_, r)| r.ex_units)),
+            },
+        }
+    }
+}
 
 // CBOR conversions
 // ----------------------------------------------------------------------------
@@ -604,6 +647,20 @@ pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<Sta
 pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
+}
+
+pub trait HasExUnits {
+    fn ex_units(&self) -> Vec<ExUnits>;
+}
+
+impl HasExUnits for MintedBlock<'_> {
+    fn ex_units(&self) -> Vec<ExUnits> {
+        self.transaction_witness_sets
+            .iter()
+            .flat_map(|witness_set| &witness_set.redeemer)
+            .flat_map(|redeemers| redeemers.ex_units_iter())
+            .collect()
+    }
 }
 
 // Calculate the total ex units in a witness set
