@@ -28,7 +28,7 @@ use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryData, HasExUnits, Hash, MintedBlock,
     OriginalHash, StakeCredential, TransactionPointer,
 };
-use std::ops::Deref;
+use std::ops::{ControlFlow, Deref, FromResidual, Try};
 use tracing::{instrument, Level};
 
 pub enum InvalidBlock {
@@ -48,6 +48,34 @@ pub enum BlockValidation {
     Invalid(InvalidBlock),
 }
 
+impl Try for BlockValidation {
+    type Output = ();
+    type Residual = BlockValidationResidual;
+
+    fn from_output((): Self::Output) -> Self {
+        BlockValidation::Valid
+    }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            BlockValidation::Valid => ControlFlow::Continue(()),
+            BlockValidation::Invalid(e) => ControlFlow::Break(BlockValidationResidual::Invalid(e)),
+        }
+    }
+}
+
+pub enum BlockValidationResidual {
+    Invalid(InvalidBlock),
+}
+
+impl FromResidual for BlockValidation {
+    fn from_residual(residual: BlockValidationResidual) -> Self {
+        match residual {
+            BlockValidationResidual::Invalid(e) => BlockValidation::Invalid(e),
+        }
+    }
+}
+
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     context: &mut C,
@@ -64,11 +92,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     ];
 
     for block_validation_fn in block_validation_fns {
-        if let BlockValidation::Invalid(err) =
-            block_validation_fn(context, &block, &protocol_params)
-        {
-            return BlockValidation::Invalid(err);
-        }
+        block_validation_fn(context, &block, &protocol_params)?;
     }
 
     let failed_transactions = FailedTransactions::from_block(&block);
