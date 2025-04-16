@@ -77,9 +77,16 @@ check-llvm-cov: ## Check if cargo-llvm-cov is installed, install if not
 
 coverage-html: check-llvm-cov ## Run test coverage for Amaru
 	cargo llvm-cov \
-	   --no-cfg-coverage \
-		--html \
+	    --no-cfg-coverage \
+	    --html \
 		--output-dir $(COVERAGE_DIR) $(foreach package,$(COVERAGE_CRATES), --package $(package))
+
+coverage-lconv: ## Run test coverage for CI to upload to Codecov
+	cargo llvm-cov \
+	    --all-features \
+		--workspace \
+		--lcov \
+		--output-path lcov.info
 
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 	./scripts/demo.sh $(AMARU_PEER_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
@@ -100,3 +107,4 @@ all-ci-checks: ## Run all CI checks
 	@cargo clippy-amaru
 	@cargo test-amaru
 	@$(MAKE) build-examples
+	@$(MAKE) coverage-lconv
