@@ -497,8 +497,10 @@ pub(crate) mod tests {
             chain_selector.select_roll_forward(&alice, *header);
         });
 
+        #[allow(clippy::double_ended_iterator_last)]
         let result = chain2
             .iter()
+            // TODO looks like this test relies on the fact that `select_roll_forward` is called on every element. `map` might not be correct then
             .map(|header| chain_selector.select_roll_forward(&bob, *header))
             .last();
 
@@ -533,7 +535,7 @@ pub(crate) mod tests {
         let result = chain1
             .iter()
             .map(|header| chain_selector.select_roll_forward(&alice, *header))
-            .last();
+            .next_back();
 
         assert_eq!(ForwardChainSelection::NoChange, result.unwrap());
     }
