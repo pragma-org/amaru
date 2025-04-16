@@ -129,6 +129,7 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/cache/restore@v4
         with:
           path: ${{ env.RUST_CACHE_PATH }}
@@ -138,8 +139,7 @@ jobs:
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
       - name: Generate code coverage
-        run: |
-          make coverage-lconv
+        run: make coverage-lconv
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v3
         with:

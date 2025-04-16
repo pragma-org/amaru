@@ -6,7 +6,7 @@ HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 
-.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config
+.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config  coverage-html coverage-lconv check-llvm-cov
 
 all: help
 
