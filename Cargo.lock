@@ -120,13 +120,11 @@ dependencies = [
  "num",
  "proptest",
  "serde",
- "serde_json",
  "slot-arithmetic",
  "test-case",
  "thiserror 2.0.12",
  "tracing",
  "tracing-json",
- "tracing-subscriber",
 ]
 
 [[package]]

@@ -25,8 +25,8 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, Hash, MintedBlock, OriginalHash,
-    Redeemers, StakeCredential, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, HasExUnits, Hash, MintedBlock,
+    OriginalHash, StakeCredential, TransactionPointer,
 };
 use std::ops::Deref;
 use thiserror::Error;
@@ -67,23 +67,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
 
     body_size::block_body_size_valid(&block.header.header_body, &block)?;
 
-    // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
-    let ex_units = block
-        .transaction_witness_sets
-        .iter()
-        .flat_map(|witness_set| {
-            witness_set
-                .redeemer
-                .iter()
-                .map(|redeemers| match redeemers.deref() {
-                    Redeemers::List(list) => list.iter().map(|r| r.ex_units).collect::<Vec<_>>(),
-                    Redeemers::Map(map) => map.iter().map(|(_, r)| r.ex_units).collect::<Vec<_>>(),
-                })
-        })
-        .flatten()
-        .collect::<Vec<_>>();
-
-    ex_units::block_ex_units_valid(ex_units, &protocol_params)?;
+    ex_units::block_ex_units_valid(block.ex_units(), &protocol_params)?;
 
     let failed_transactions = FailedTransactions::from_block(&block);
 

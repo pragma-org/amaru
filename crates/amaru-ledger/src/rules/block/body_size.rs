@@ -52,3 +52,30 @@ fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
         + auxiliary_data_raw.len()
         + invalid_transactions_raw.len()
 }
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{include_cbor, MintedBlock};
+    use test_case::test_case;
+
+    use super::InvalidBlockSize;
+
+    macro_rules! fixture {
+        ($number:literal) => {
+            include_cbor!(concat!("blocks/preprod/", $number, "/valid.cbor"))
+        };
+        ($number:literal, $variant:literal) => {
+            include_cbor!(concat!("blocks/preprod/", $number, "/", $variant, ".cbor"))
+        };
+    }
+
+    #[test_case(fixture!("2667660"); "valid")]
+    #[test_case(fixture!("2667660", "invalid_block_body_size") =>
+        matches Err(InvalidBlockSize::SizeMismatch {supplied, actual})
+            if supplied == 0 && actual == 3411;
+        "block body size mismatch"
+    )]
+    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlockSize> {
+        super::block_body_size_valid(&block.header.header_body, &block)
+    }
+}

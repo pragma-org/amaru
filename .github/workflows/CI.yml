@@ -123,6 +123,30 @@ jobs:
           fi
         shell: bash
 
+  coverage:
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
+        run: make coverage-lconv
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
+
   snapshots:
     name: Snapshots
     runs-on: ubuntu-latest
@@ -131,8 +155,8 @@ jobs:
       AMARU_PEER_ADDRESS: 127.0.0.1:3001
     strategy:
       matrix:
-        network: [ preprod ]
-        cardano_node_version: [ 10.1.4 ]
+        network: [preprod]
+        cardano_node_version: [10.1.4]
     steps:
       - uses: actions/checkout@v4
 

@@ -3,8 +3,10 @@ AMARU_PEER_ADDRESS ?= 127.0.0.1:3000
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
 DEMO_TARGET_EPOCH ?= 173
 HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
+COVERAGE_DIR ?= coverage
+COVERAGE_CRATES ?=
 
-.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config
+.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config  coverage-html coverage-lconv check-llvm-cov
 
 all: help
 
@@ -65,6 +67,27 @@ dev: ## Compile and run for development with default options
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
 	cargo test -p amaru -- --ignored
 
+check-llvm-cov: ## Check if cargo-llvm-cov is installed, install if not
+	@if ! cargo llvm-cov --version >/dev/null 2>&1; then \
+		echo "cargo-llvm-cov not found. Installing..."; \
+		cargo install cargo-llvm-cov; \
+	else \
+		echo "cargo-llvm-cov is already installed"; \
+	fi
+
+coverage-html: check-llvm-cov ## Run test coverage for Amaru
+	cargo llvm-cov \
+	    --no-cfg-coverage \
+	    --html \
+		--output-dir $(COVERAGE_DIR) $(foreach package,$(COVERAGE_CRATES), --package $(package))
+
+coverage-lconv: ## Run test coverage for CI to upload to Codecov
+	cargo llvm-cov \
+	    --all-features \
+		--workspace \
+		--lcov \
+		--output-path lcov.info
+
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 	./scripts/demo.sh $(AMARU_PEER_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
 
@@ -84,3 +107,4 @@ all-ci-checks: ## Run all CI checks
 	@cargo clippy-amaru
 	@cargo test-amaru
 	@$(MAKE) build-examples
+	@$(MAKE) coverage-lconv
