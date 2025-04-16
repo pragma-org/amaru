@@ -29,53 +29,41 @@ use amaru_kernel::{
     OriginalHash, StakeCredential, TransactionPointer,
 };
 use std::ops::Deref;
-use thiserror::Error;
 use tracing::{instrument, Level};
 
-#[derive(Debug, Error)]
 pub enum InvalidBlock {
-    #[error("Invalid block's size: {0}")]
-    Size(#[from] InvalidBlockSize),
-
-    #[error("Invalid block's execution units: {0}")]
-    ExUnits(#[from] InvalidExUnits),
-
-    #[error("Invalid block header: {0}")]
-    Header(#[from] InvalidBlockHeader),
-
-    #[error(
-        "Invalid transaction (hash: {transaction_hash}, index: {transaction_index}): {violation} "
-    )]
+    Size(InvalidBlockSize),
+    ExUnits(InvalidExUnits),
+    Header(InvalidBlockHeader),
     Transaction {
         transaction_hash: Hash<32>,
         transaction_index: u32,
         violation: InvalidTransaction,
     },
-
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("Uncategorized error: {0}")]
     UncategorizedError(String),
 }
 
-pub enum BlockValidation<C: ValidationContext> {
-    Valid(C),
+pub enum BlockValidation {
+    Valid,
     Invalid(InvalidBlock),
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
-    mut context: C,
+    context: &mut C,
     protocol_params: ProtocolParameters,
     block: MintedBlock<'_>,
-) -> BlockValidation<C> {
-    if let Err(err) =
-        header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)
+) -> BlockValidation {
+    if let BlockValidation::Invalid(err) =
+        header_size::block_header_size_valid(context, block.header.raw_cbor(), &protocol_params)
     {
-        return BlockValidation::Invalid(err.into());
+        return BlockValidation::Invalid(err);
     };
 
-    if let Err(err) = body_size::block_body_size_valid(&block.header.header_body, &block) {
-        return BlockValidation::Invalid(err.into());
+    if let BlockValidation::Invalid(err) =
+        body_size::block_body_size_valid(context, &block.header.header_body, &block)
+    {
+        return BlockValidation::Invalid(err);
     };
 
     ex_units::block_ex_units_valid(block.ex_units(), &protocol_params)?;
@@ -123,7 +111,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
         };
 
         if let Err(err) = transaction::execute(
-            &mut context,
+            context,
             &protocol_params,
             pointer,
             !failed_transactions.has(i),
@@ -139,5 +127,5 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
         }
     }
 
-    BlockValidation::Valid(context)
+    BlockValidation::Valid
 }
