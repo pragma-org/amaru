@@ -57,3 +57,57 @@ pub fn execute(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::{
+        include_cbor, protocol_parameters::ProtocolParameters, MintedTransactionBody,
+        TransactionOutput,
+    };
+    use test_case::test_case;
+
+    use super::InvalidOutputs;
+
+    macro_rules! fixture {
+        ($hash:literal, $index:expr) => {
+            (
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                ProtocolParameters::default(),
+                &mut |_, _| {},
+            )
+        };
+        ($hash:literal, $index:expr, $pp:expr) => {
+            (
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                $pp,
+                &mut |_, _| {},
+            )
+        };
+    }
+
+    #[test_case(
+        fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", 0);
+        "valid"
+    )]
+    #[test_case(
+        fixture!(
+            "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
+            0,
+            ProtocolParameters {
+                coins_per_utxo_byte: 100_000_000_000,
+                ..Default::default()
+            }
+        ) =>
+    matches Err(InvalidOutputs{..});
+    "output too small")]
+
+    fn test_inherent_value(
+        (tx, protocol_parameters, yield_output): (
+            MintedTransactionBody<'_>,
+            ProtocolParameters,
+            &mut impl FnMut(u64, TransactionOutput),
+        ),
+    ) -> Result<(), InvalidOutputs> {
+        super::execute(&protocol_parameters, tx.outputs, yield_output)
+    }
+}
