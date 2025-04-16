@@ -61,11 +61,7 @@ pub enum StoreError {
 // Store
 // ----------------------------------------------------------------------------
 
-pub trait Snapshot {
-    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
-    /// snapshot available.
-    fn epoch(&self) -> Epoch;
-
+pub trait ReadOnlyStore {
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
 
@@ -100,11 +96,90 @@ pub trait Snapshot {
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
 }
 
-pub trait Store: Snapshot {
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
+pub trait Snapshot: ReadOnlyStore {
+    fn epoch(&self) -> Epoch;
+}
+
+pub trait Store: ReadOnlyStore {
+    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    fn most_recent_snapshot(&self) -> Option<Epoch> {
+        self.snapshots().unwrap_or_default().last().cloned()
+    }
+
+    /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
+
+    /// Construct and save on-disk a snapshot of the store. The epoch number is used when
+    /// there's no existing snapshot and, to ensure that snapshots are taken in order.
+    ///
+    /// Idempotent
+    ///
+    /// /!\ IMPORTANT /!\
+    /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
+    /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
+    /// decision entirely to the caller owning the store.
+    fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError>;
+
+    /// Create a new transaction context. This is used to perform updates on the store.
+    fn create_transaction(&self) -> impl TransactionalContext<'_>;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
     fn tip(&self) -> Result<Point, StoreError>;
+}
+
+pub trait HistoricalStores {
+    ///Access a `Snapshot` for a specific `Epoch`
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Progress {
+    Snapshot,
+    BlockProcessed,
+}
+
+impl<C> cbor::encode::Encode<C> for Progress {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        match self {
+            Progress::Snapshot => e.encode_with(0, ctx),
+            Progress::BlockProcessed => e.encode_with(1, ctx),
+        }?;
+        Ok(())
+    }
+}
+
+impl<'a, C> cbor::decode::Decode<'a, C> for Progress {
+    fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.decode_with(ctx).map(|v: u8| match v {
+            0 => Progress::Snapshot,
+            1 => Progress::BlockProcessed,
+            _ => unreachable!("invalid progress value"),
+        })
+    }
+}
+
+/// A trait that provides a handle to perform atomic updates on the store.
+pub trait TransactionalContext<'a> {
+    /// Update the block processing process to State
+    fn update_progress(&self, new_progress: Progress) -> Result<Option<Progress>, StoreError>;
+
+    fn reset_fees(&self) -> Result<(), StoreError>;
+
+    fn reset_blocks_count(&self) -> Result<(), StoreError>;
+
+    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError>;
+
+    fn adjust_pots(
+        &self,
+        delta_treasury: u64,
+        delta_reserves: u64,
+        unclaimed_rewards: u64,
+    ) -> Result<(), StoreError>;
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
@@ -132,25 +207,17 @@ pub trait Store: Snapshot {
         voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError>;
 
-    /// Construct and save on-disk a snapshot of the store. The epoch number is used when
-    /// there's no existing snapshot and, to ensure that snapshots are taken in order.
-    ///
-    /// Idempotent
-    ///
-    /// /!\ IMPORTANT /!\
-    /// It is the **caller's** responsibility to ensure that the snapshot is done at the right
-    /// moment. The store has no notion of when is an epoch boundary, and thus deferred that
-    /// decision entirely to the caller owning the store.
-    fn next_snapshot(
-        &mut self,
-        epoch: Epoch,
-        rewards_summary: Option<RewardsSummary>,
-    ) -> Result<(), StoreError>;
-
     /// Return deposits back to reward accounts.
     fn refund(
         &self,
         refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
+    ) -> Result<(), StoreError>;
+
+    fn set_pots(
+        &self,
+        treasury: Lovelace,
+        reserves: Lovelace,
+        fees: Lovelace,
     ) -> Result<(), StoreError>;
 
     /// Get current values of the treasury and reserves accounts.
@@ -213,6 +280,9 @@ pub trait Store: Snapshot {
 
         self.refund(refunds.into_iter())
     }
+
+    /// Commit the transaction. This will persist all changes to the store.
+    fn commit(self) -> Result<(), StoreError>;
 }
 
 // Columns

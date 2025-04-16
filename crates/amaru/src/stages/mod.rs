@@ -22,7 +22,10 @@ use amaru_consensus::{
     ConsensusError,
 };
 use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header, Point};
-use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
+use amaru_stores::rocksdb::{
+    consensus::RocksDBStore,
+    {RocksDB, RocksDBHistoricalStores},
+};
 use consensus::{
     chain_forward::ForwardStage,
     fetch::BlockFetchStage,
@@ -69,7 +72,8 @@ pub fn bootstrap(
     // FIXME: Take from config / command args
     let era_history: &EraHistory = config.network.into();
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
-    let (mut ledger, tip) = ledger::Stage::new(store, era_history);
+    let snapshots = RocksDBHistoricalStores::new(&config.ledger_dir);
+    let (mut ledger, tip) = ledger::Stage::new(store, snapshots, era_history);
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
