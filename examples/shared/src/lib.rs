@@ -69,16 +69,16 @@ pub fn forward_ledger(raw_block: &str) {
         ),
     ]);
 
-    let volatile_state: VolatileState = match rules::validate_block(
-        context::DefaultValidationContext::new(inputs),
+    let mut context = context::DefaultValidationContext::new(inputs);
+    if let BlockValidation::Invalid(_err) = rules::validate_block(
+        &mut context,
         ProtocolParameters::default(),
         block,
     ) {
-        BlockValidation::Valid(state) => state.into(),
-        BlockValidation::Invalid(err) => {
-            panic!("Failed to validate block: {:?}", err)
-        }
+        panic!("Failed to validate block")
     };
+
+    let volatile_state: VolatileState = context.into();
 
     state.forward(volatile_state.anchor(&point, issuer)).unwrap()
 }

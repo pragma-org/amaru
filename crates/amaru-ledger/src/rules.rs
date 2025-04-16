@@ -176,12 +176,12 @@ pub(crate) mod tests {
         prepare_block(&mut ctx, &block);
 
         let results = rules::block::execute(
-            AssertValidationContext::from(ctx),
+            &mut AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
             block,
         );
 
-        assert!(matches!(results, BlockValidation::Valid(_)));
+        assert!(matches!(results, BlockValidation::Valid));
     }
 
     #[test]
@@ -202,7 +202,7 @@ pub(crate) mod tests {
 
         prepare_block(&mut ctx, &block);
 
-        let results = rules::block::execute(AssertValidationContext::from(ctx), pp, block);
+        let results = rules::block::execute(&mut AssertValidationContext::from(ctx), pp, block);
 
         assert!(matches!(
             results,

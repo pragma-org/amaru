@@ -101,17 +101,14 @@ impl<S: Store + Send> Stage<S> {
             .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
             .collect();
 
-        let state: VolatileState = match rules::validate_block(
-            context::DefaultValidationContext::new(inputs),
-            ProtocolParameters::default(),
-            block,
-        ) {
-            BlockValidation::Valid(state) => state.into(),
-            BlockValidation::Invalid(err) => {
-                return Ok(RollResult::Invalid(err));
-            }
+        let mut context = context::DefaultValidationContext::new(inputs);
+        if let BlockValidation::Invalid(err) =
+            rules::validate_block(&mut context, ProtocolParameters::default(), block)
+        {
+            return Ok(RollResult::Invalid(err));
         };
 
+        let state: VolatileState = context.into();
         self.state.forward(state.anchor(&point, issuer))?;
 
         Ok(RollResult::Valid)
