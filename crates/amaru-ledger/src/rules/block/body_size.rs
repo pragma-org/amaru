@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{to_cbor, HeaderBody, MintedBlock};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, to_cbor, MintedBlock};
 
 use crate::context::ValidationContext;
 
@@ -26,9 +26,10 @@ pub enum InvalidBlockSize {
 /// The validation of the bounds happens in the networking layer
 pub fn block_body_size_valid<C: ValidationContext>(
     _context: &mut C,
-    block_header: &HeaderBody,
     block: &MintedBlock<'_>,
+    _protocol_params: &ProtocolParameters,
 ) -> BlockValidation {
+    let block_header = &block.header.header_body;
     let bh_size = block_header.block_body_size as usize;
     let actual_block_size = calculate_block_body_size(block);
 

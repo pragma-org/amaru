@@ -12,7 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
+use std::ops::Deref;
+
+use amaru_kernel::{
+    protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits, MintedBlock, Redeemers,
+};
 
 use crate::context::ValidationContext;
 
@@ -24,9 +28,25 @@ pub enum InvalidExUnits {
 
 pub fn block_ex_units_valid<C: ValidationContext>(
     _context: &mut C,
-    ex_units: Vec<ExUnits>,
+    block: &MintedBlock<'_>,
     protocol_parameters: &ProtocolParameters,
 ) -> BlockValidation {
+    // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
+    let ex_units = block
+        .transaction_witness_sets
+        .iter()
+        .flat_map(|witness_set| {
+            witness_set
+                .redeemer
+                .iter()
+                .map(|redeemers| match redeemers.deref() {
+                    Redeemers::List(list) => list.iter().map(|r| r.ex_units).collect::<Vec<_>>(),
+                    Redeemers::Map(map) => map.iter().map(|(_, r)| r.ex_units).collect::<Vec<_>>(),
+                })
+        })
+        .flatten()
+        .collect::<Vec<_>>();
+
     let pp_max_ex_units = protocol_parameters.max_block_ex_units;
     let ex_units = ex_units
         .into_iter()
