@@ -54,19 +54,22 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     protocol_params: ProtocolParameters,
     block: MintedBlock<'_>,
 ) -> BlockValidation {
-    if let BlockValidation::Invalid(err) =
-        header_size::block_header_size_valid(context, block.header.raw_cbor(), &protocol_params)
-    {
-        return BlockValidation::Invalid(err);
-    };
+    // Block level validations functions share the same signature.
+    // Currently apply them one by one
+    // TODO consider an abstract strategy pattern to apply them (e.g. in parallel, in a priority order, ...)
+    let block_validation_fns = vec![
+        header_size::block_header_size_valid,
+        body_size::block_body_size_valid,
+        ex_units::block_ex_units_valid,
+    ];
 
-    if let BlockValidation::Invalid(err) =
-        body_size::block_body_size_valid(context, &block.header.header_body, &block)
-    {
-        return BlockValidation::Invalid(err);
-    };
-
-    ex_units::block_ex_units_valid(block.ex_units(), &protocol_params)?;
+    for block_validation_fn in block_validation_fns {
+        if let BlockValidation::Invalid(err) =
+            block_validation_fn(context, &block, &protocol_params)
+        {
+            return BlockValidation::Invalid(err);
+        }
+    }
 
     let failed_transactions = FailedTransactions::from_block(&block);
 
