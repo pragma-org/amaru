@@ -1,11 +1,7 @@
 use amaru_kernel::{protocol_parameters::ProtocolParameters, EraHistory, Hasher, Point};
 use amaru_ledger::{
     context,
-    rules::{
-        self,
-        block::{BlockValidation, InvalidBlock},
-        parse_block,
-    },
+    rules::{self, block::BlockValidation, parse_block},
     state::{self, BackwardError, VolatileState},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
@@ -18,11 +14,6 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
-
-pub enum RollResult {
-    Valid,
-    Invalid(InvalidBlock),
-}
 
 pub struct Stage<S>
 where
@@ -71,7 +62,7 @@ impl<S: Store + Send> Stage<S> {
         &mut self,
         point: Point,
         raw_block: RawBlock,
-    ) -> anyhow::Result<RollResult> {
+    ) -> anyhow::Result<BlockValidation> {
         let mut ctx = context::DefaultPreparationContext::new();
 
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
@@ -105,13 +96,13 @@ impl<S: Store + Send> Stage<S> {
         if let BlockValidation::Invalid(err) =
             rules::validate_block(&mut context, ProtocolParameters::default(), block)
         {
-            return Ok(RollResult::Invalid(err));
+            return Ok(BlockValidation::Invalid(err));
         };
 
         let state: VolatileState = context.into();
         self.state.forward(state.anchor(&point, issuer))?;
 
-        Ok(RollResult::Valid)
+        Ok(BlockValidation::Valid)
     }
 
     #[instrument(
@@ -164,10 +155,10 @@ impl<S: Store + Send> gasket::framework::Worker<Stage<S>> for Worker {
                 stage
                     .roll_forward(point.clone(), raw_block.to_vec())
                     .map(|res| match res {
-                        RollResult::Valid => {
+                        BlockValidation::Valid => {
                             BlockValidationResult::BlockValidated(point.clone(), span)
                         }
-                        RollResult::Invalid(_err) => {
+                        BlockValidation::Invalid(_err) => {
                             BlockValidationResult::BlockValidationFailed(point.clone(), span)
                         }
                     })
