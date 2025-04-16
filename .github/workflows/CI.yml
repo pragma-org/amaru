@@ -123,6 +123,25 @@ jobs:
           fi
         shell: bash
 
+  coverage:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup update stable
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Generate code coverage
+        run: cargo llvm-cov --all-features --workspace --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v3
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: true
+
   snapshots:
     name: Snapshots
     runs-on: ubuntu-latest
@@ -131,8 +150,8 @@ jobs:
       AMARU_PEER_ADDRESS: 127.0.0.1:3001
     strategy:
       matrix:
-        network: [ preprod ]
-        cardano_node_version: [ 10.1.4 ]
+        network: [preprod]
+        cardano_node_version: [10.1.4]
     steps:
       - uses: actions/checkout@v4
 
