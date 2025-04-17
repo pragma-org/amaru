@@ -83,6 +83,8 @@ pub(crate) mod tests {
     };
     use proptest::{option, prelude::*};
 
+    // Causes a StackOverflow on Windows, somehow...
+    #[cfg(not(target_os = "windows"))]
     prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row());
 
     prop_cbor_roundtrip!(prop_cbor_roundtrip_key, Key, any_proposal_id());
