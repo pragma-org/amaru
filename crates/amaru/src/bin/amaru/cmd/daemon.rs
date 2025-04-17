@@ -54,6 +54,10 @@ pub struct Args {
     /// The address to listen on for incoming connections.
     #[arg(long, value_name = "LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS)]
     listen_address: String,
+
+    /// The maximum number of downstream peers to connect to.
+    #[arg(long, value_name = "MAX_DOWNSTREAM_PEERS", default_value_t = 10)]
+    max_downstream_peers: usize,
 }
 
 pub async fn run(
@@ -112,5 +116,6 @@ fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
         network: args.network,
         network_magic: args.network.to_network_magic(),
         listen_address: args.listen_address,
+        max_downstream_peers: args.max_downstream_peers,
     })
 }

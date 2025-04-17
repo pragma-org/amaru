@@ -37,15 +37,15 @@ impl ChainStore<Header> for TestStore {
     }
 
     fn get_nonces(&self, _header: &Hash<32>) -> Option<Nonces> {
-        todo!()
+        unimplemented!()
     }
 
     fn put_nonces(&mut self, _header: &Hash<32>, _nonces: Nonces) -> Result<(), StoreError> {
-        todo!()
+        unimplemented!()
     }
 
     fn era_history(&self) -> &slot_arithmetic::EraHistory {
-        todo!()
+        unimplemented!()
     }
 }
 
@@ -177,8 +177,10 @@ fn find_headers_between_tip_and_lost() {
     let tip = point(TIP_41_SLOT, TIP_41);
     let points = [point(LOST_41_SLOT, LOST_41)];
 
-    let result = find_headers_between(&store, &tip, &points);
-    assert!(result.is_none(), "{result:?}");
+    let result = find_headers_between(&store, &tip, &points).unwrap();
+    assert_eq!(result.0.len() as u64, TIP_41_HEIGHT);
+    assert_eq!(result.1 .0, Point::Origin);
+    assert_eq!(result.1 .1, 0);
 }
 
 #[test]
@@ -212,7 +214,7 @@ fn test_chain_sync() {
 
     // step 1: prepare the stage
     let (block_tx, block_rx) = mpsc::channel(1);
-    let mut stage = ForwardStage::new(Some(downstream), store, 42, "127.0.0.1:0");
+    let mut stage = ForwardStage::new(Some(downstream), store, 42, "127.0.0.1:0", 1);
     stage.upstream.connect(ChannelRecvAdapter::Mpsc(block_rx));
     let tether = spawn_stage(stage, Default::default());
 
