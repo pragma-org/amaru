@@ -49,6 +49,7 @@ pub struct Config {
     pub network: NetworkName,
     pub network_magic: u32,
     pub listen_address: String,
+    pub max_downstream_peers: usize,
 }
 
 /// A session with a peer, including the peer itself and a client to communicate with it.
@@ -102,6 +103,7 @@ pub fn bootstrap(
         chain_ref.clone(),
         config.network_magic as u64,
         &config.listen_address,
+        config.max_downstream_peers,
     );
 
     let (to_block_fetch, from_consensus_stage) = gasket::messaging::tokio::mpsc_channel(50);

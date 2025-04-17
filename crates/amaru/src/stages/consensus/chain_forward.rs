@@ -53,6 +53,7 @@ pub struct ForwardStage {
     pub runtime: AcTokio,
     pub listen_address: String,
     pub downstream: Option<ActoRef<ForwardEvent>>,
+    pub max_peers: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -67,6 +68,7 @@ impl ForwardStage {
         store: Arc<Mutex<dyn ChainStore<Header>>>,
         network_magic: u64,
         listen_address: &str,
+        max_peers: usize,
     ) -> Self {
         #[allow(clippy::expect_used)]
         let runtime =
@@ -78,6 +80,7 @@ impl ForwardStage {
             runtime,
             listen_address: listen_address.to_string(),
             downstream,
+            max_peers,
         }
     }
 }
@@ -116,7 +119,7 @@ impl gasket::framework::Worker<ForwardStage> for Worker {
         let clients = stage
             .runtime
             .spawn_actor("chain_forward", |cell| {
-                client_supervisor(cell, stage.store.clone())
+                client_supervisor(cell, stage.store.clone(), stage.max_peers)
             })
             .me;
 
@@ -251,11 +254,17 @@ enum ClientMsg {
 async fn client_supervisor(
     mut cell: ActoCell<ClientMsg, impl ActoRuntime, Result<(), client_protocol::ClientError>>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
+    max_peers: usize,
 ) {
     let mut clients = HashMap::new();
     while let Some(msg) = cell.recv().await.has_senders() {
         match msg {
             ActoMsgSuper::Message(ClientMsg::Peer(peer, tip)) => {
+                if clients.len() >= max_peers {
+                    tracing::warn!(target: EVENT_TARGET, "max peers reached, dropping peer");
+                    continue;
+                }
+
                 let addr = peer
                     .accepted_address()
                     .map(|a| a.to_string())
