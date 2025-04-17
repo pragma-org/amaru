@@ -12,16 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
-
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits, MintedBlock, Redeemers,
+    protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits, HasExUnits, MintedBlock,
 };
 
 use crate::context::ValidationContext;
 
 use super::{BlockValidation, InvalidBlock};
 
+#[derive(Debug)]
 pub enum InvalidExUnits {
     TooMany { provided: ExUnits, max: ExUnits },
 }
@@ -32,20 +31,7 @@ pub fn block_ex_units_valid<C: ValidationContext>(
     protocol_parameters: &ProtocolParameters,
 ) -> BlockValidation {
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
-    let ex_units = block
-        .transaction_witness_sets
-        .iter()
-        .flat_map(|witness_set| {
-            witness_set
-                .redeemer
-                .iter()
-                .map(|redeemers| match redeemers.deref() {
-                    Redeemers::List(list) => list.iter().map(|r| r.ex_units).collect::<Vec<_>>(),
-                    Redeemers::Map(map) => map.iter().map(|(_, r)| r.ex_units).collect::<Vec<_>>(),
-                })
-        })
-        .flatten()
-        .collect::<Vec<_>>();
+    let ex_units = block.ex_units();
 
     let pp_max_ex_units = protocol_parameters.max_block_ex_units;
     let ex_units = ex_units
@@ -67,9 +53,11 @@ pub fn block_ex_units_valid<C: ValidationContext>(
 
 #[cfg(test)]
 mod tests {
+    use crate::{context::DefaultValidationContext, rules::block::InvalidBlock};
+
     use super::InvalidExUnits;
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, HasExUnits, MintedBlock,
+        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, MintedBlock,
     };
     use test_case::test_case;
 
@@ -95,11 +83,12 @@ mod tests {
             steps: 0
         },
         ..Default::default()
-    }) => matches Err(InvalidExUnits::TooMany{provided, max: _})
-        if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
+    }) => matches Err(InvalidBlock::ExUnits(InvalidExUnits::TooMany{provided, max: _}))
+    if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
     fn test_ex_units(
         (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
-    ) -> Result<(), InvalidExUnits> {
-        super::block_ex_units_valid(block.ex_units(), &protocol_parameters)
+    ) -> Result<(), InvalidBlock> {
+        let mut context = DefaultValidationContext::new(Default::default());
+        super::block_ex_units_valid(&mut context, &block, &protocol_parameters).into()
     }
 }

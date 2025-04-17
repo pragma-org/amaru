@@ -18,6 +18,7 @@ use crate::context::ValidationContext;
 
 use super::{BlockValidation, InvalidBlock};
 
+#[derive(Debug)]
 pub enum InvalidBlockHeader {
     SizeTooBig { supplied: usize, max: usize },
 }
