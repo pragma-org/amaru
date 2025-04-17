@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+mod backward_compatibility;
+
 use crate::store::{columns::dreps, Snapshot, StoreError};
 use amaru_kernel::{
     expect_stake_credential, network::EraHistory, Anchor, CertificatePointer, DRep, Epoch,
@@ -160,15 +162,60 @@ impl GovernanceSummary {
 /// push back its expiry. Additionally, each epoch with no active proposals increase the mandate by
 /// one.
 ///
-/// Besides, the behaviour around registration has slightl change between verion 9 and version 10
+/// Besides, the behaviour around registration has slightly changed between verion 9 and version 10
 /// of the protocol.
 ///
-/// - In version 9, dreps registering during a dormant period (with epochs containing no proposals
+/// - In version 9, dreps registering during a dormant period^1 (with epochs containing no proposals
 ///   whatsoever) would be granted extra expiry time corresponding to the current number of dormant
 ///   epoch.
 ///
 /// - In version 10, freshly register dreps will only be granted their "drep_expiry" from the
 ///   moment they register.
+///
+/// NOTE[^1]: About dormant period
+///
+///   Intuitively, a dormant period is a sequence of consecutive epochs with no proposals. However,
+///   the intuition isn't quite right when it comes to what the protocol *actually does*. In fact,
+///   we assess dormant epochs at the epoch boundary, after ratifying and/or expirying proposals. In
+///   case where there are no proposals left at the epoch boundary, then the next epoch is considered
+///   dormant.
+///
+///   Let's see a couple of examples, with the following base hypotheses:
+///
+///   - We are in epoch 16.
+///   - There's no proposal whatsoever before epoch 10.
+///   - Proposals' lifetime is 2 epochs
+///
+///   ╔══════ Scenario 1: a single proposal in 10.
+///   ║
+///   ║     <--------------->
+///   ║     ╿
+///   ║ ━━━━┷━╋━━━━━━╋━━━━━━╋━━━━━━╋━━━━━━╋━━━━━━╋━━━?
+///   ║   10     11     12     13     14     15     16
+///   ║
+///   ║ Dormant epochs: 10, 13, 14, 15, 16
+///   ╚═════════════════════════════════════════════════
+///
+///   ╔══════ Scenario 2: two proposals in 10 and 12
+///   ║
+///   ║     <╌--------------------->
+///   ║     ╿          ╿
+///   ║ ━━━━┷━╋━━━━━━╋━┷━━━━╋━━━━━━╋━━━━━━╋━━━━━━╋━━━?
+///   ║   10     11     12     13     14     15     16
+///   ║
+///   ║ Dormant epochs: 10, 14, 15, 16
+///   ╚═════════════════════════════════════════════════
+///
+///   ╔══════ Scenario 3: two proposals in 10 and 13
+///   ║
+///   ║     <╌--------------><╌╌╌╌╌-------------->
+///   ║     ╿                ╿
+///   ║ ━━━━┷━╋━━━━━━╋━━━━━━╋┷━━━━━╋━━━━━━╋━━━━━━╋━━━?
+///   ║   10     11     12     13     14     15     16
+///   ║
+///   ║ Dormant epochs: 10, 13, 16
+///   ╚═════════════════════════════════════════════════
+///
 fn drep_mandate_calculator(
     protocol_version: ProtocolVersion,
     governance_action_lifetime: Epoch,
@@ -189,6 +236,16 @@ fn drep_mandate_calculator(
     let proposals_activity_periods = proposals
         .iter()
         .flat_map(|(_pointer, start)| {
+            // Notice '+1' here on the lower bound. The epoch in which a proposal is submitted
+            // does not count towards a period of activity because we evaluate whether an epoch is
+            // dormant at the epoch boundary. If no proposals are active at the epoch boundary, the
+            // epoch is considered dormant.
+            //
+            // While this is slightly odd, it can be explained by considering how one could submit
+            // a proposal at the very end of epoch with little to no time for DReps to vote. An
+            // epoch with no proposal but on the last slot is arguably dormant. But as a
+            // consequence, we may also label as dormant epochs with proposals submitted on the
+            // very first slot too.
             (*start + 1..=*start + governance_action_lifetime).collect::<BTreeSet<_>>()
         })
         .collect::<BTreeSet<Epoch>>();
@@ -221,8 +278,11 @@ fn drep_mandate_calculator(
     if major_version <= 9 {
         return Box::new(
             move |registered_at: (Slot, Epoch), last_interaction: Epoch| -> Epoch {
-                drep_bonus_mandate(governance_action_lifetime, &proposals, registered_at)
-                    + v10_onwards(registered_at, last_interaction)
+                backward_compatibility::drep_bonus_mandate(
+                    governance_action_lifetime,
+                    &proposals,
+                    registered_at,
+                ) + v10_onwards(registered_at, last_interaction)
             },
         );
     }
@@ -230,232 +290,15 @@ fn drep_mandate_calculator(
     v10_onwards
 }
 
-// In Version 9, the number of dormant epochs depends on the moment the DRep registers *within the
-// epoch*.
-//
-// The original Haskell implementation would keep a counter of dormant epoch in-memory, incremented
-// at epoch boundaries for epochs without proposals. Besides, and unlike Amaru, the Haskell
-// implementation stores the actual expiry epoch for each DRep instead of their registration date
-// and last interaction.
-//
-// The expiration date is then updated for each DRep interations, and "periodically" when the
-// dormant counter is greater than 0. "Periodically" is in fact, **every time a transaction with
-// one or more new proposal is encountered**. So we need to figure out the _last dormant epoch
-// count_ that could be relevant to the DRep.
-fn drep_bonus_mandate(
-    governance_action_lifetime: u64,
-    proposals: &BTreeSet<(TransactionPointer, Epoch)>,
-    (registered_at, registered_in): (Slot, Epoch),
-) -> Epoch {
-    let proposal_until_registration = proposals
-        .iter()
-        .filter(|(_, proposed_in)| proposed_in <= &registered_in)
-        .collect();
-
-    match last_dormant_period(
-        governance_action_lifetime,
-        registered_in,
-        proposal_until_registration,
-    ) {
-        LastDormantEpoch::Empty { .. } | LastDormantEpoch::None { .. } => 0,
-
-        // The dormant epoch is ongoing, so always add the bonus to new DReps;
-        LastDormantEpoch::Last {
-            ending_at: None,
-            length,
-        } => length,
-
-        // The dormant epoch has ended, so only add the bonus if the drep registered *before* it
-        // ended.
-        //
-        // Interestingly, the dormant epoch counter is reset only once all certificates have been
-        // processed, as a last step. This means that if a DRep registers in the same transaction
-        // that a new proposal is submitted, it still get the bonus.
-        // |
-        // * TL; DR -> We need `<=` and not `<`.
-        LastDormantEpoch::Last {
-            ending_at: Some(ending_at),
-            length,
-        } => {
-            if registered_at <= ending_at.slot {
-                length
-            } else {
-                0
-            }
-        }
-    }
-}
-
-#[derive(Debug)]
-enum LastDormantEpoch<'a> {
-    /// Starting case, indicating no active proposals whatsoever if returned.
-    Empty { previous_epoch: Epoch },
-
-    /// Similar to Empty, but contains additional information used while recursing.
-    None {
-        previous_epoch: (&'a TransactionPointer, &'a Epoch),
-    },
-
-    /// Actual result of a previous or ongoing dormant epoch.
-    Last {
-        ending_at: Option<&'a TransactionPointer>,
-        length: u64,
-    },
-}
-
-/// Search for the last dormant period in a series of proposals. Returns the certificate that
-/// effectively puts an end to the dormant period, as well as the length of that period.
-///
-/// In case where the dormant period is still ongoing, returns `None` and the current length.
-fn last_dormant_period(
-    governance_action_lifetime: u64,
-    registered_in: Epoch,
-    proposals: BTreeSet<&(TransactionPointer, Epoch)>,
-) -> LastDormantEpoch<'_> {
-    let dormant_period = |previous_epoch, current_epoch| {
-        if previous_epoch <= current_epoch + governance_action_lifetime {
-            None
-        } else {
-            // We iterate on a BTreeSet in reverse order, so when in dormant periods, the previous
-            // epoch is necessarily larger than the current one. And we've just guaranteed there's
-            // a gap that is greater than the governance_action_lifetime between both.
-            Some(previous_epoch - current_epoch - governance_action_lifetime)
-        }
-    };
-
-    proposals.iter().rev().fold(
-        LastDormantEpoch::Empty {
-            previous_epoch: registered_in,
-        },
-        |st, current_epoch| {
-            match st {
-                // Short-circuit the fold if we've found any non-zero dormant epoch.
-                LastDormantEpoch::Last { .. } => st,
-                LastDormantEpoch::Empty { previous_epoch } => {
-                    match dormant_period(previous_epoch, current_epoch.1) {
-                        None => LastDormantEpoch::None {
-                            previous_epoch: (&current_epoch.0, &current_epoch.1),
-                        },
-                        Some(length) => LastDormantEpoch::Last {
-                            ending_at: None,
-                            length,
-                        },
-                    }
-                }
-                LastDormantEpoch::None {
-                    previous_epoch: (previous_pointer, previous_epoch),
-                    ..
-                } => match dormant_period(*previous_epoch, current_epoch.1) {
-                    None => LastDormantEpoch::None {
-                        previous_epoch: (&current_epoch.0, &current_epoch.1),
-                    },
-                    Some(length) => LastDormantEpoch::Last {
-                        ending_at: Some(previous_pointer),
-                        length,
-                    },
-                },
-            }
-        },
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::network::{Bound, EraParams, Summary};
-    use std::sync::LazyLock;
+    use backward_compatibility::tests::{ptr, ERA_HISTORY};
     use test_case::test_case;
     use EpochResult::*;
 
     const VERSION_9: ProtocolVersion = (9, 0);
     const VERSION_10: ProtocolVersion = (10, 0);
-
-    /// Some arbitrary, albeit simple, era history for testing purpose. Each epoch contains 10
-    /// slots or 1s each. The era starts at 0 and ends after 100 epochs, so make sure tests are
-    /// within this bound.
-    static ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| EraHistory {
-        eras: vec![Summary {
-            start: Bound {
-                time_ms: 0,
-                slot: From::from(0),
-                epoch: 0,
-            },
-            end: Bound {
-                time_ms: 1000000,
-                slot: From::from(1000),
-                epoch: 100,
-            },
-            params: EraParams {
-                epoch_size_slots: 10,
-                slot_length: 1000,
-            },
-        }],
-    });
-
-    /// Create a transaction pointer from a slot and a transaction index. Also returns the epoch
-    /// corresponding to that slot.
-    fn ptr(slot: u64, transaction_index: usize) -> (TransactionPointer, Epoch) {
-        let slot = Slot::from(slot);
-        (
-            TransactionPointer {
-                slot,
-                transaction_index,
-            },
-            ERA_HISTORY.slot_to_epoch(slot).unwrap(),
-        )
-    }
-
-    #[test_case(
-        0, vec![]
-        => None
-    )]
-    #[test_case(
-        8, vec![ptr(85, 0)]
-        => None
-    )]
-    #[test_case(
-        15, vec![ptr(85, 0)]
-        => Some((None, 4))
-    )]
-    #[test_case(
-        12, vec![ptr(115, 0), ptr(85, 0), ptr(125, 0)]
-        => None
-    )]
-    #[test_case(
-        5, vec![ptr(15, 0), ptr(45, 0)]
-        => None
-    )]
-    #[test_case(
-        5, vec![ptr(15, 0), ptr(55, 0)]
-        => Some((Some(ptr(55, 0).0), 1))
-    )]
-    #[test_case(
-        6, vec![ptr(15, 0), ptr(65, 0)]
-        => Some((Some(ptr(65, 0).0), 2))
-    )]
-    #[test_case(
-        6, vec![ptr(15, 0), ptr(65, 0), ptr(65, 2)]
-        => Some((Some(ptr(65, 0).0), 2))
-    )]
-    #[test_case(
-        11, vec![ptr(15, 0), ptr(65, 0)]
-        => Some((None, 2))
-    )]
-    #[test_case(
-        14, vec![ptr(15, 0), ptr(65, 0), ptr(145, 0)]
-        => Some((Some(ptr(145, 0).0), 5))
-    )]
-    fn test_last_dormant_period(
-        current_epoch: Epoch,
-        proposals: Vec<(TransactionPointer, Epoch)>,
-    ) -> Option<(Option<TransactionPointer>, u64)> {
-        match last_dormant_period(3, current_epoch, proposals.iter().collect()) {
-            LastDormantEpoch::Empty { .. } | LastDormantEpoch::None { .. } => None,
-            LastDormantEpoch::Last {
-                ending_at, length, ..
-            } => Some((ending_at.copied(), length)),
-        }
-    }
 
     #[derive(Debug, PartialEq)]
     enum EpochResult {
