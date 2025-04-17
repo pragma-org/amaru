@@ -58,7 +58,7 @@ pub enum BlockValidation {
 
 impl Try for BlockValidation {
     type Output = ();
-    type Residual = BlockValidationResidual;
+    type Residual = InvalidBlockDetails;
 
     fn from_output((): Self::Output) -> Self {
         BlockValidation::Valid
@@ -67,20 +67,14 @@ impl Try for BlockValidation {
     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             BlockValidation::Valid => ControlFlow::Continue(()),
-            BlockValidation::Invalid(e) => ControlFlow::Break(BlockValidationResidual::Invalid(e)),
+            BlockValidation::Invalid(e) => ControlFlow::Break(e),
         }
     }
 }
 
-pub enum BlockValidationResidual {
-    Invalid(InvalidBlockDetails),
-}
-
 impl FromResidual for BlockValidation {
-    fn from_residual(residual: BlockValidationResidual) -> Self {
-        match residual {
-            BlockValidationResidual::Invalid(e) => BlockValidation::Invalid(e),
-        }
+    fn from_residual(residual: InvalidBlockDetails) -> Self {
+        BlockValidation::Invalid(residual)
     }
 }
 
