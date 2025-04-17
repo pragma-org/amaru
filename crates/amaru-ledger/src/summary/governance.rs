@@ -89,6 +89,7 @@ impl GovernanceSummary {
             (9, 0),
             GOV_ACTION_LIFETIME,
             DREP_EXPIRY,
+            era_history,
             current_epoch,
             proposals,
         );
@@ -220,6 +221,7 @@ fn drep_mandate_calculator(
     protocol_version: ProtocolVersion,
     governance_action_lifetime: Epoch,
     drep_expiry: Epoch,
+    era_history: &EraHistory,
     current_epoch: Epoch,
     proposals: BTreeSet<(TransactionPointer, Epoch)>,
 ) -> Box<dyn Fn((Slot, Epoch), Epoch) -> Epoch> {
@@ -250,23 +252,36 @@ fn drep_mandate_calculator(
         })
         .collect::<BTreeSet<Epoch>>();
 
+    // Pre-calculate all epochs, so that need not to re-allocate memory for all DReps.
+    let first_epoch = era_history
+        .eras
+        .last()
+        .map(|summary| summary.start.epoch)
+        .unwrap_or_default();
+
+    let all_epochs = BTreeSet::from_iter(first_epoch..=current_epoch);
+
     let v10_onwards = Box::new(
         move |registered_at: (Slot, Epoch), last_interaction: Epoch| -> Epoch {
-            let dormant_epochs = BTreeSet::from_iter(last_interaction..=current_epoch)
+            let active_epochs = proposals_activity_periods
                 .iter()
-                .collect::<BTreeSet<&u64>>()
-                .difference(
-                    &proposals_activity_periods
-                        .iter()
-                        // Exclude any period prior to the drep registration. They shouldn't count towards
-                        // the dormant epochs number, since the DRep simply didn't exist back then.
-                        .filter(|epoch| *epoch >= &registered_at.1)
-                        // Always consider the registration epoch as an active epoch so that if the
-                        // drep is registered in the middle of a dormant period, it only counts from
-                        // the epoch following the registration.
-                        .chain(vec![&registered_at.1])
-                        .collect(),
-                )
+                // Exclude any period prior to the drep registration. They shouldn't count towards
+                // the dormant epochs number, since the DRep simply didn't exist back then.
+                .filter(|epoch| *epoch >= &registered_at.1)
+                // Always consider the registration epoch as an active epoch so that if the
+                // drep is registered in the middle of a dormant period, it only counts from
+                // the epoch following the registration.
+                .chain(vec![&registered_at.1])
+                .collect::<BTreeSet<_>>();
+
+            debug_assert!(
+                last_interaction <= current_epoch,
+                "drep recorded last interaction ({last_interaction}) is beyond the most recent epoch ({current_epoch})?"
+            );
+
+            let dormant_epochs = all_epochs
+                .range(last_interaction..=current_epoch)
+                .filter(|epoch| !active_epochs.contains(epoch))
                 .count() as u64;
 
             last_interaction + drep_expiry + dormant_epochs
@@ -323,6 +338,7 @@ mod tests {
                 protocol_version,
                 governance_action_lifetime,
                 drep_expiry,
+                &ERA_HISTORY,
                 current_epoch,
                 proposals.clone(),
             )(
@@ -352,11 +368,11 @@ mod tests {
     // 80   85   90        100       110
     //
     #[test_case( 84,    None,  8 => Consistent(18))]
-    #[test_case( 84, Some(9),  8 => Consistent(19))]
+    #[test_case( 84, Some(9),  9 => Consistent(19))]
     #[test_case( 85,    None,  8 => Consistent(18))]
-    #[test_case( 85, Some(9),  8 => Consistent(19))]
+    #[test_case( 85, Some(9),  9 => Consistent(19))]
     #[test_case( 86,    None,  8 => Consistent(18))]
-    #[test_case( 86, Some(9),  8 => Consistent(19))]
+    #[test_case( 86, Some(9),  9 => Consistent(19))]
     #[test_case(125,    None, 12 => Inconsistent { v9: 23, v10: 22 })]
     #[test_case(125,    None, 13 => Inconsistent { v9: 24, v10: 23 })]
     #[test_case(135,    None, 13 => Inconsistent { v9: 25, v10: 23 })]
@@ -392,7 +408,6 @@ mod tests {
     #[test_case( 88, Some(10), 14 => Consistent(22))]
     #[test_case(115,     None, 11 => Consistent(21))]
     #[test_case(115,     None, 13 => Consistent(23))]
-    #[test_case(115, Some(13), 12 => Consistent(23))]
     #[test_case(115, Some(13), 13 => Consistent(24))]
     #[test_case(125,     None, 13 => Inconsistent{ v9: 24, v10: 23 })]
     #[test_case(134,     None, 13 => Inconsistent{ v9: 25, v10: 23 })]
@@ -435,8 +450,8 @@ mod tests {
     #[test_case(114,    None, 11 => Inconsistent{ v9: 23, v10: 21 })]
     #[test_case(115,    None, 11 => Inconsistent{ v9: 23, v10: 21 })]
     #[test_case(116,    None, 11 => Consistent(21))]
-    #[test_case(140,    None, 11 => Consistent(24))]
-    #[test_case(150,    None, 11 => Inconsistent{ v9: 26, v10: 25 })]
+    #[test_case(140,    None, 14 => Consistent(24))]
+    #[test_case(150,    None, 15 => Inconsistent{ v9: 26, v10: 25 })]
     fn test_drep_mandate_multiple_dormant_periods(
         registered_at: u64,
         last_interaction: Option<Epoch>,

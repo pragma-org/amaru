@@ -35,7 +35,7 @@ use std::{
     path::PathBuf,
     sync::LazyLock,
 };
-use tracing::info;
+use tracing::{info, warn};
 
 const BATCH_SIZE: usize = 5000;
 
@@ -94,9 +94,10 @@ enum Error {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let era_history = args.network.into();
+    let network = args.network;
+    let era_history = network.into();
     if !args.snapshot.is_empty() {
-        import_all(&args.snapshot, &args.ledger_dir, era_history).await
+        import_all(&args.snapshot, &args.ledger_dir, &network, era_history).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
         let mut snapshots = fs::read_dir(snapshot_dir)?
             .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -104,7 +105,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .collect::<Vec<_>>();
         snapshots.sort();
 
-        import_all(&snapshots, &args.ledger_dir, era_history).await
+        import_all(&snapshots, &args.ledger_dir, &network, era_history).await
     } else {
         Err(Error::IncorrectUsage.into())
     }
@@ -113,11 +114,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 async fn import_all(
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
+    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
-        import_one(snapshot, ledger_dir, era_history).await?;
+        import_one(snapshot, ledger_dir, network, era_history).await?;
     }
     Ok(())
 }
@@ -126,6 +128,7 @@ async fn import_all(
 async fn import_one(
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
+    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing snapshot {}", snapshot.display());
@@ -142,7 +145,7 @@ async fn import_one(
     let mut db = amaru_stores::rocksdb::RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, network, era_history)?;
 
     db.save(
         &point,
@@ -168,6 +171,7 @@ fn decode_new_epoch_state(
     db: &RocksDB,
     bytes: &[u8],
     point: &Point,
+    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<u64, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
@@ -214,7 +218,7 @@ fn decode_new_epoch_state(
             {
                 d.array()?;
 
-                import_dreps(db, point, d.decode()?)?;
+                import_dreps(db, point, epoch, network, d.decode()?)?;
 
                 // Committee
                 d.skip()?;
@@ -433,6 +437,8 @@ fn import_utxo(
 fn import_dreps(
     db: &impl Store,
     point: &Point,
+    epoch: Epoch,
+    network: &NetworkName,
     dreps: HashMap<StakeCredential, DRepState>,
 ) -> Result<(), impl std::error::Error> {
     db.with_dreps(|iterator| {
@@ -451,12 +457,29 @@ fn import_dreps(
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: dreps.into_iter().map(|(credential, state)| {
+                // First DRep registrations in Conway are granted an extra epoch of expiry; because
+                // the first Conway epoch is deemed as "dormant" (not proposal in the epoch
+                // prior), and a bug in verison 9 is causing new DRep registrations to benefits
+                // from this extra epoch.
+                let early_conway_workaround =
+                    if network == &NetworkName::Preprod {
+                        if epoch == 163 {
+                            1
+                        } else {
+                            0
+                        }
+
+                    } else {
+                        warn!(%network, "early conway workaround not available; drep registration epoch may be invalid");
+                        0
+                    };
+
                 (
                     credential,
                     (
                         Resettable::from(Option::from(state.anchor)),
                         Some((state.deposit, *DEFAULT_CERTIFICATE_POINTER)),
-                        state.expiry - DREP_EXPIRY,
+                        state.expiry - DREP_EXPIRY - early_conway_workaround,
                     ),
                 )
             }),
