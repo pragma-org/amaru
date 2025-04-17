@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    network::NetworkName, Epoch, EraHistory, Lovelace, Point, PoolId, StakeCredential,
-    TransactionInput, TransactionOutput,
+    network::NetworkName, stake_credential_hash, stake_credential_type, Epoch, EraHistory,
+    Lovelace, Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -462,7 +462,13 @@ impl Store for RocksDB {
         let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
             0,
             |leftovers, (account, deposit)| {
-                info!(target: EVENT_TARGET, ?account, ?deposit, "refund");
+                info!(
+                    target: EVENT_TARGET,
+                    type = %stake_credential_type(&account),
+                    account = %stake_credential_hash(&account),
+                    %deposit,
+                    "refund"
+                );
                 Ok(leftovers + accounts::set(&batch, account, |balance| balance + deposit)?)
             },
         )?;
