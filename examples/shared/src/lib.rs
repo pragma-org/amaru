@@ -73,7 +73,7 @@ pub fn forward_ledger(raw_block: &str) {
     if let BlockValidation::Invalid(_err) = rules::validate_block(
         &mut context,
         ProtocolParameters::default(),
-        block,
+        &block,
     ) {
         panic!("Failed to validate block")
     };

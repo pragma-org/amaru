@@ -91,7 +91,7 @@ impl From<BlockValidation> for Result<(), InvalidBlockDetails> {
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     context: &mut C,
     protocol_params: ProtocolParameters,
-    block: MintedBlock<'_>,
+    block: &MintedBlock<'_>,
 ) -> BlockValidation {
     // Block level validations functions share the same signature.
     // Currently apply them one by one
@@ -103,14 +103,14 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     ];
 
     for block_validation_fn in block_validation_fns {
-        block_validation_fn(context, &block, &protocol_params)?;
+        block_validation_fn(context, block, &protocol_params)?;
     }
 
-    let failed_transactions = FailedTransactions::from_block(&block);
+    let failed_transactions = FailedTransactions::from_block(block);
 
     let witness_sets = block.transaction_witness_sets.deref().to_vec();
 
-    let transactions = block.transaction_bodies.to_vec();
+    let transactions = block.transaction_bodies.deref().to_vec();
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)

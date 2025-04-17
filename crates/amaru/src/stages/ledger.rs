@@ -1,6 +1,8 @@
-use amaru_kernel::{protocol_parameters::ProtocolParameters, EraHistory, Hasher, Point};
+use amaru_kernel::{
+    protocol_parameters::ProtocolParameters, EraHistory, Hasher, MintedBlock, Point,
+};
 use amaru_ledger::{
-    context,
+    context::{self, DefaultValidationContext},
     rules::{self, block::BlockValidation, parse_block},
     state::{self, BackwardError, VolatileState},
     store::Store,
@@ -53,23 +55,13 @@ impl<S: Store + Send> Stage<S> {
         )
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "ledger.roll_forward"
-    )]
-    pub fn roll_forward(
-        &mut self,
-        point: Point,
-        raw_block: RawBlock,
-    ) -> anyhow::Result<BlockValidation> {
+    fn create_validation_context(
+        &self,
+        block: &MintedBlock<'_>,
+    ) -> anyhow::Result<DefaultValidationContext> {
         let mut ctx = context::DefaultPreparationContext::new();
 
-        let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
-
-        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-
-        rules::prepare_block(&mut ctx, &block);
+        rules::prepare_block(&mut ctx, block);
 
         // TODO: Eventually move into a separate function, or integrate within the ledger instead
         // of the current .resolve_inputs; once the latter is no longer needed for the state
@@ -92,14 +84,32 @@ impl<S: Store + Send> Stage<S> {
             .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
             .collect();
 
-        let mut context = context::DefaultValidationContext::new(inputs);
+        Ok(context::DefaultValidationContext::new(inputs))
+    }
+
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "ledger.roll_forward"
+    )]
+    pub fn roll_forward(
+        &mut self,
+        point: Point,
+        raw_block: RawBlock,
+    ) -> anyhow::Result<BlockValidation> {
+        let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
+
+        let mut context = self.create_validation_context(&block)?;
+
         if let BlockValidation::Invalid(err) =
-            rules::validate_block(&mut context, ProtocolParameters::default(), block)
+            rules::validate_block(&mut context, ProtocolParameters::default(), &block)
         {
             return Ok(BlockValidation::Invalid(err));
         };
 
         let state: VolatileState = context.into();
+        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+
         self.state.forward(state.anchor(&point, issuer))?;
 
         Ok(BlockValidation::Valid)
