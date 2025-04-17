@@ -18,12 +18,7 @@ use amaru_kernel::{
 
 use crate::context::ValidationContext;
 
-use super::{BlockValidation, InvalidBlock};
-
-#[derive(Debug)]
-pub enum InvalidExUnits {
-    TooMany { provided: ExUnits, max: ExUnits },
-}
+use super::{BlockValidation, InvalidBlockDetails};
 
 pub fn block_ex_units_valid<C: ValidationContext>(
     _context: &mut C,
@@ -41,21 +36,20 @@ pub fn block_ex_units_valid<C: ValidationContext>(
     if ex_units.mem <= pp_max_ex_units.mem && ex_units.steps <= pp_max_ex_units.steps {
         BlockValidation::Valid
     } else {
-        BlockValidation::Invalid(InvalidBlock::ExUnits(InvalidExUnits::TooMany {
+        BlockValidation::Invalid(InvalidBlockDetails::TooManyExUnits {
             provided: ex_units,
             max: ExUnits {
                 mem: pp_max_ex_units.mem,
                 steps: pp_max_ex_units.steps,
             },
-        }))
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{context::DefaultValidationContext, rules::block::InvalidBlock};
+    use crate::{context::DefaultValidationContext, rules::block::InvalidBlockDetails};
 
-    use super::InvalidExUnits;
     use amaru_kernel::{
         include_cbor, protocol_parameters::ProtocolParameters, ExUnits, MintedBlock,
     };
@@ -83,11 +77,11 @@ mod tests {
             steps: 0
         },
         ..Default::default()
-    }) => matches Err(InvalidBlock::ExUnits(InvalidExUnits::TooMany{provided, max: _}))
+    }) => matches Err(InvalidBlockDetails::TooManyExUnits{provided, max: _})
     if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
     fn test_ex_units(
         (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
-    ) -> Result<(), InvalidBlock> {
+    ) -> Result<(), InvalidBlockDetails> {
         let mut context = DefaultValidationContext::new(Default::default());
         super::block_ex_units_valid(&mut context, &block, &protocol_parameters).into()
     }
