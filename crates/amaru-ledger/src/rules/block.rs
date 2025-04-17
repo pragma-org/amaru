@@ -16,26 +16,32 @@ pub mod body_size;
 pub mod ex_units;
 pub mod header_size;
 
-pub use crate::rules::block::{
-    body_size::InvalidBlockSize, ex_units::InvalidExUnits, header_size::InvalidBlockHeader,
-};
 use crate::{
     context::ValidationContext,
     rules::{transaction, transaction::InvalidTransaction},
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, Hash, MintedBlock, OriginalHash,
-    StakeCredential, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, MintedBlock,
+    OriginalHash, StakeCredential, TransactionPointer,
 };
 use std::ops::{ControlFlow, Deref, FromResidual, Try};
 use tracing::{instrument, Level};
 
 #[derive(Debug)]
-pub enum InvalidBlock {
-    Size(InvalidBlockSize),
-    ExUnits(InvalidExUnits),
-    Header(InvalidBlockHeader),
+pub enum InvalidBlockDetails {
+    BlockSizeMismatch {
+        supplied: usize,
+        actual: usize,
+    },
+    TooManyExUnits {
+        provided: ExUnits,
+        max: ExUnits,
+    },
+    HeaderSizeTooBig {
+        supplied: usize,
+        max: usize,
+    },
     Transaction {
         transaction_hash: Hash<32>,
         transaction_index: u32,
@@ -47,7 +53,7 @@ pub enum InvalidBlock {
 #[derive(Debug)]
 pub enum BlockValidation {
     Valid,
-    Invalid(InvalidBlock),
+    Invalid(InvalidBlockDetails),
 }
 
 impl Try for BlockValidation {
@@ -67,7 +73,7 @@ impl Try for BlockValidation {
 }
 
 pub enum BlockValidationResidual {
-    Invalid(InvalidBlock),
+    Invalid(InvalidBlockDetails),
 }
 
 impl FromResidual for BlockValidation {
@@ -78,7 +84,7 @@ impl FromResidual for BlockValidation {
     }
 }
 
-impl From<BlockValidation> for Result<(), InvalidBlock> {
+impl From<BlockValidation> for Result<(), InvalidBlockDetails> {
     fn from(validation: BlockValidation) -> Self {
         match validation {
             BlockValidation::Valid => Ok(()),
@@ -120,7 +126,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
         let witness_set = match witness_sets.get(i as usize) {
             Some(witness_set) => witness_set,
             None => {
-                return BlockValidation::Invalid(InvalidBlock::UncategorizedError(format!(
+                return BlockValidation::Invalid(InvalidBlockDetails::UncategorizedError(format!(
                     "Witness set not found for transaction index {}",
                     i
                 )));
@@ -157,7 +163,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             witness_set,
             auxiliary_data,
         ) {
-            return BlockValidation::Invalid(InvalidBlock::Transaction {
+            return BlockValidation::Invalid(InvalidBlockDetails::Transaction {
                 transaction_hash,
                 transaction_index: i,
                 violation: err,

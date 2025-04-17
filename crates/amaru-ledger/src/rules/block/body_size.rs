@@ -16,12 +16,7 @@ use amaru_kernel::{protocol_parameters::ProtocolParameters, to_cbor, MintedBlock
 
 use crate::context::ValidationContext;
 
-use super::{BlockValidation, InvalidBlock};
-
-#[derive(Debug)]
-pub enum InvalidBlockSize {
-    SizeMismatch { supplied: usize, actual: usize },
-}
+use super::{BlockValidation, InvalidBlockDetails};
 
 /// This validation checks that the purported block body size matches the actual block body size.
 /// The validation of the bounds happens in the networking layer
@@ -35,10 +30,10 @@ pub fn block_body_size_valid<C: ValidationContext>(
     let actual_block_size = calculate_block_body_size(block);
 
     if bh_size != actual_block_size {
-        BlockValidation::Invalid(InvalidBlock::Size(InvalidBlockSize::SizeMismatch {
+        BlockValidation::Invalid(InvalidBlockDetails::BlockSizeMismatch {
             supplied: bh_size,
             actual: actual_block_size,
-        }))
+        })
     } else {
         BlockValidation::Valid
     }
@@ -62,9 +57,7 @@ mod tests {
     use amaru_kernel::{include_cbor, protocol_parameters::ProtocolParameters, MintedBlock};
     use test_case::test_case;
 
-    use crate::{context::DefaultValidationContext, rules::block::InvalidBlock};
-
-    use super::InvalidBlockSize;
+    use crate::{context::DefaultValidationContext, rules::block::InvalidBlockDetails};
 
     macro_rules! fixture {
         ($number:literal) => {
@@ -75,22 +68,12 @@ mod tests {
         };
     }
 
-    /*fn aa() {
-        let mut context = DefaultValidationContext::new(Default::default());
-        let res = super::block_body_size_valid(&mut context, &block, &ProtocolParameters::default());
-        matches res {
-            BlockValidation::Invalid(InvalidBlock::Size(InvalidBlockSize::SizeMismatch {supplied, actual}));
-            if supplied == 0 && actual == 3411;
-        } Err(InvalidBlockSize::SizeMismatch {supplied, actual})
-        if supplied == 0 && actual == 3411;
-    }*/
-
     #[test_case(fixture!("2667660"); "valid")]
     #[test_case(fixture!("2667660", "invalid_block_body_size") => 
-        matches Err(InvalidBlock::Size(InvalidBlockSize::SizeMismatch {supplied, actual}))
+        matches Err(InvalidBlockDetails::BlockSizeMismatch {supplied, actual})
             if supplied == 0 && actual == 3411;
     "block body size mismatch")]
-    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlock> {
+    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlockDetails> {
         let mut context = DefaultValidationContext::new(Default::default());
         super::block_body_size_valid(&mut context, &block, &ProtocolParameters::default()).into()
     }

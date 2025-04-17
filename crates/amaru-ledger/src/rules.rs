@@ -130,7 +130,7 @@ pub(crate) mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::{
             self,
-            block::{BlockValidation, InvalidBlock, InvalidBlockHeader},
+            block::{BlockValidation, InvalidBlockDetails},
         },
         tests::{fake_input, fake_output},
     };
@@ -206,7 +206,7 @@ pub(crate) mod tests {
 
         assert!(matches!(
             results,
-            BlockValidation::Invalid(InvalidBlock::Header(InvalidBlockHeader::SizeTooBig { .. }))
+            BlockValidation::Invalid(InvalidBlockDetails::HeaderSizeTooBig { .. })
         ))
     }
 

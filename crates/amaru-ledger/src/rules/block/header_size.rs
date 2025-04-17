@@ -16,7 +16,7 @@ use amaru_kernel::{protocol_parameters::ProtocolParameters, MintedBlock};
 
 use crate::context::ValidationContext;
 
-use super::{BlockValidation, InvalidBlock};
+use super::{BlockValidation, InvalidBlockDetails};
 
 #[derive(Debug)]
 pub enum InvalidBlockHeader {
@@ -36,10 +36,10 @@ pub fn block_header_size_valid<C: ValidationContext>(
 
     let header = block.header.raw_cbor();
     if header.len() > max_header_size {
-        BlockValidation::Invalid(InvalidBlock::Header(InvalidBlockHeader::SizeTooBig {
+        BlockValidation::Invalid(InvalidBlockDetails::HeaderSizeTooBig {
             supplied: header.len(),
             max: max_header_size,
-        }))
+        })
     } else {
         BlockValidation::Valid
     }
