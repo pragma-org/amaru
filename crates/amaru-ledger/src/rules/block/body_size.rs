@@ -18,6 +18,7 @@ use crate::context::ValidationContext;
 
 use super::{BlockValidation, InvalidBlock};
 
+#[derive(Debug)]
 pub enum InvalidBlockSize {
     SizeMismatch { supplied: usize, actual: usize },
 }
@@ -58,8 +59,10 @@ fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::{include_cbor, MintedBlock};
+    use amaru_kernel::{include_cbor, protocol_parameters::ProtocolParameters, MintedBlock};
     use test_case::test_case;
+
+    use crate::{context::DefaultValidationContext, rules::block::InvalidBlock};
 
     use super::InvalidBlockSize;
 
@@ -72,13 +75,23 @@ mod tests {
         };
     }
 
-    #[test_case(fixture!("2667660"); "valid")]
-    #[test_case(fixture!("2667660", "invalid_block_body_size") =>
-        matches Err(InvalidBlockSize::SizeMismatch {supplied, actual})
+    /*fn aa() {
+        let mut context = DefaultValidationContext::new(Default::default());
+        let res = super::block_body_size_valid(&mut context, &block, &ProtocolParameters::default());
+        matches res {
+            BlockValidation::Invalid(InvalidBlock::Size(InvalidBlockSize::SizeMismatch {supplied, actual}));
             if supplied == 0 && actual == 3411;
-        "block body size mismatch"
-    )]
-    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlockSize> {
-        super::block_body_size_valid(&block.header.header_body, &block)
+        } Err(InvalidBlockSize::SizeMismatch {supplied, actual})
+        if supplied == 0 && actual == 3411;
+    }*/
+
+    #[test_case(fixture!("2667660"); "valid")]
+    #[test_case(fixture!("2667660", "invalid_block_body_size") => 
+        matches Err(InvalidBlock::Size(InvalidBlockSize::SizeMismatch {supplied, actual}))
+            if supplied == 0 && actual == 3411;
+    "block body size mismatch")]
+    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlock> {
+        let mut context = DefaultValidationContext::new(Default::default());
+        super::block_body_size_valid(&mut context, &block, &ProtocolParameters::default()).into()
     }
 }

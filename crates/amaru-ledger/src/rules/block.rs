@@ -25,12 +25,13 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, HasExUnits, Hash, MintedBlock,
-    OriginalHash, StakeCredential, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, Hash, MintedBlock, OriginalHash,
+    StakeCredential, TransactionPointer,
 };
 use std::ops::{ControlFlow, Deref, FromResidual, Try};
 use tracing::{instrument, Level};
 
+#[derive(Debug)]
 pub enum InvalidBlock {
     Size(InvalidBlockSize),
     ExUnits(InvalidExUnits),
@@ -43,6 +44,7 @@ pub enum InvalidBlock {
     UncategorizedError(String),
 }
 
+#[derive(Debug)]
 pub enum BlockValidation {
     Valid,
     Invalid(InvalidBlock),
@@ -72,6 +74,15 @@ impl FromResidual for BlockValidation {
     fn from_residual(residual: BlockValidationResidual) -> Self {
         match residual {
             BlockValidationResidual::Invalid(e) => BlockValidation::Invalid(e),
+        }
+    }
+}
+
+impl From<BlockValidation> for Result<(), InvalidBlock> {
+    fn from(validation: BlockValidation) -> Self {
+        match validation {
+            BlockValidation::Valid => Ok(()),
+            BlockValidation::Invalid(e) => Err(e),
         }
     }
 }
