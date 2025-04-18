@@ -1,7 +1,7 @@
 NETWORK ?= preprod
 AMARU_PEER_ADDRESS ?= 127.0.0.1:3000
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
-DEMO_TARGET_EPOCH ?= 173
+DEMO_TARGET_EPOCH ?= 174
 HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=

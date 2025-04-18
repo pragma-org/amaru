@@ -77,10 +77,12 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 }
 
 #[cfg(test)]
-pub mod test {
+pub(crate) mod tests {
     use super::Row;
-    use crate::store::columns::tests::any_certificate_pointer;
-    use amaru_kernel::{prop_cbor_roundtrip, Anchor, Epoch, Hash, Lovelace};
+    use amaru_kernel::{
+        prop_cbor_roundtrip, Anchor, CertificatePointer, Epoch, Hash, Lovelace, Slot,
+        TransactionPointer,
+    };
     use proptest::{option, prelude::*, string};
 
     prop_cbor_roundtrip!(Row, any_row());
@@ -97,6 +99,30 @@ pub mod test {
                 anchor,
                 registered_at,
                 last_interaction,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn any_transaction_pointer()(
+            slot in any::<u64>(),
+            transaction_index in any::<usize>(),
+        ) -> TransactionPointer {
+            TransactionPointer {
+                slot: Slot::from(slot),
+                transaction_index,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub(crate) fn any_certificate_pointer()(
+            transaction in any_transaction_pointer(),
+            certificate_index in any::<usize>(),
+        ) -> CertificatePointer {
+            CertificatePointer {
+                transaction,
+                certificate_index,
             }
         }
     }

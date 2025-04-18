@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::context::{DRepsSlice, WitnessSlice};
-use amaru_kernel::{GovActionId, NonEmptyKeyValuePairs, StakeCredential, Voter, VotingProcedure};
+use amaru_kernel::{NonEmptyKeyValuePairs, ProposalId, StakeCredential, Voter, VotingProcedure};
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    voting_procedures: Option<&Vec<(Voter, NonEmptyKeyValuePairs<GovActionId, VotingProcedure>)>>,
+    voting_procedures: Option<&Vec<(Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>)>>,
 ) where
     C: WitnessSlice + DRepsSlice,
 {

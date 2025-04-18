@@ -22,7 +22,7 @@ use crate::{
 };
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, Proposal,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    ProposalId, ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
 use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
@@ -209,10 +209,10 @@ impl CommitteeSlice for DefaultValidationContext {
 
 impl ProposalsSlice for DefaultValidationContext {
     #[allow(clippy::unwrap_used)]
-    fn acknowledge(&mut self, pointer: ProposalPointer, proposal: Proposal) {
+    fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
         self.state
             .proposals
-            .register(pointer, proposal, None, None)
+            .register(id.into(), (proposal, pointer), None, None)
             .unwrap_or_default(); // Can't happen as by construction key is unique
     }
 }
