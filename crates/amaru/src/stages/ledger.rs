@@ -3,7 +3,11 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
-    rules::{self, block::BlockValidation, parse_block},
+    rules::{
+        self,
+        block::{BlockValidation, DefaultRuleValidationExecutor},
+        parse_block,
+    },
     state::{self, BackwardError, VolatileState},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
@@ -101,9 +105,12 @@ impl<S: Store + Send> Stage<S> {
 
         let mut context = self.create_validation_context(&block)?;
 
-        if let BlockValidation::Invalid(err) =
-            rules::validate_block(&mut context, ProtocolParameters::default(), &block)
-        {
+        if let BlockValidation::Invalid(err) = rules::validate_block(
+            &mut DefaultRuleValidationExecutor::new(),
+            &mut context,
+            ProtocolParameters::default(),
+            &block,
+        ) {
             return Ok(BlockValidation::Invalid(err));
         };
 
