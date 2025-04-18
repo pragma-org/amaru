@@ -12,32 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::protocol_parameters::ProtocolParameters;
-use thiserror::Error;
+use amaru_kernel::{protocol_parameters::ProtocolParameters, MintedBlock};
 
-#[derive(Debug, Error)]
+use crate::context::ValidationContext;
+
+use super::{BlockValidation, InvalidBlockDetails};
+
+#[derive(Debug)]
 pub enum InvalidBlockHeader {
-    #[error("block header size too big: supplied {supplied}, max {max}")]
     SizeTooBig { supplied: usize, max: usize },
 }
 
 #[allow(clippy::panic)]
-pub fn block_header_size_valid(
-    header: &[u8],
+pub fn block_header_size_valid<C: ValidationContext>(
+    _context: &mut C,
+    block: &MintedBlock<'_>,
     protocol_params: &ProtocolParameters,
-) -> Result<(), InvalidBlockHeader> {
+) -> BlockValidation {
     let max_header_size = protocol_params
         .max_header_size
         .try_into()
         .unwrap_or_else(|_| panic!("Failed to convert u32 to usize"));
 
+    let header = block.header.raw_cbor();
     if header.len() > max_header_size {
-        Err(InvalidBlockHeader::SizeTooBig {
+        BlockValidation::Invalid(InvalidBlockDetails::HeaderSizeTooBig {
             supplied: header.len(),
             max: max_header_size,
         })
     } else {
-        Ok(())
+        BlockValidation::Valid
     }
 }
 
@@ -55,6 +59,14 @@ mod tests {
             cbor::decode(bytes.as_slice()).expect("Failed to parse Conway3.block bytes");
 
         let pp = ProtocolParameters::default();
-        assert!(block_header_size_valid(block.header.raw_cbor(), &pp).is_ok())
+
+        // Import one of the validation context types
+        use crate::context::DefaultValidationContext;
+
+        let mut context = DefaultValidationContext::new(Default::default());
+        assert!(matches!(
+            block_header_size_valid(&mut context, &block, &pp),
+            BlockValidation::Valid
+        ))
     }
 }

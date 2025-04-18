@@ -56,12 +56,10 @@ dependencies = [
  "iter-borrow",
  "num",
  "serde",
- "serde_json",
  "slot-arithmetic",
  "thiserror 2.0.12",
  "tracing",
  "tracing-json",
- "tracing-subscriber",
 ]
 
 [[package]]
