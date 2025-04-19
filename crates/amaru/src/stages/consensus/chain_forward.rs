@@ -140,7 +140,7 @@ impl std::fmt::Debug for PrettyPoint<'_> {
             f,
             "({}, {})",
             self.0.slot_or_default(),
-            hex::encode(hash_point(&self.0))
+            hex::encode(hash_point(self.0))
         )
     }
 }
