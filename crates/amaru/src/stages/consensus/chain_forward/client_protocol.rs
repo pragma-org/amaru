@@ -107,25 +107,34 @@ async fn chain_sync(
         let input = cell.recv().await;
         match input {
             ActoInput::Message(ChainSyncMsg::Op(op)) => {
+                tracing::debug!("got op {op:?}");
                 our_tip = op.tip();
                 state.add_op(op);
                 if waiting {
                     if let Some(op) = state.next_op() {
+                        tracing::debug!("sending op {op:?} to waiting handler");
                         waiting = false;
                         handler.send(Some((op, our_tip.clone())));
                     }
                 }
             }
             ActoInput::Message(ChainSyncMsg::ReqNext) => {
+                tracing::debug!("got req next");
                 if let Some(op) = state.next_op() {
+                    tracing::debug!("sending op {op:?} to handler");
                     handler.send(Some((op, our_tip.clone())));
                 } else {
+                    tracing::debug!("sending await reply");
                     handler.send(None);
                     waiting = true;
                 }
             }
-            ActoInput::NoMoreSenders => return Ok(()),
+            ActoInput::NoMoreSenders => {
+                tracing::debug!("no more senders");
+                return Ok(());
+            }
             ActoInput::Supervision { result, .. } => {
+                tracing::debug!("supervision result: {result:?}");
                 return result
                     .map_err(|e| anyhow::Error::from(ClientError::HandlerFailure(e.to_string())))
                     .and_then(|x| x);
@@ -144,24 +153,30 @@ async fn chain_sync_handler(
 ) -> anyhow::Result<()> {
     loop {
         let Some(req) = server.recv_while_idle().await? else {
+            tracing::debug!("client terminated");
             return Err(ClientError::ClientTerminated.into());
         };
         if !matches!(req, ClientRequest::RequestNext) {
+            tracing::debug!("late intersection");
             return Err(ClientError::LateIntersection.into());
         };
+        tracing::debug!("got req next");
         parent.send(ChainSyncMsg::ReqNext);
 
         if let ActoInput::Message(op) = cell.recv().await {
             match op {
                 Some((ClientOp::Forward(header, _), tip)) => {
+                    tracing::debug!("sending roll forward");
                     server
                         .send_roll_forward(to_header_content(header), tip)
                         .await?;
                 }
                 Some((ClientOp::Backward(point), tip)) => {
+                    tracing::debug!("sending roll backward");
                     server.send_roll_backward(point.0, tip).await?;
                 }
                 None => {
+                    tracing::debug!("sending await reply");
                     server.send_await_reply().await?;
                     let ActoInput::Message(Some((op, tip))) = cell.recv().await else {
                         return Ok(());
@@ -179,6 +194,7 @@ async fn chain_sync_handler(
                 }
             }
         } else {
+            tracing::debug!("parent terminated");
             // parent terminated
             return Ok(());
         }
