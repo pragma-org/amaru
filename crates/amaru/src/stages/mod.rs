@@ -90,7 +90,10 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
     let chain_store = RocksDBStore::new(config.chain_dir.clone(), era_history)?;
 
-    let header: Header = chain_store.load_header(&Hash::from(&tip)).unwrap();
+    #[allow(clippy::expect_used)]
+    let header: Header = chain_store
+        .load_header(&Hash::from(&tip))
+        .expect("Tip not found");
     let our_tip = Tip(header.pallas_point(), header.block_height());
 
     let chain_selector = make_chain_selector(tip.clone(), &chain_store, &peer_sessions)?;

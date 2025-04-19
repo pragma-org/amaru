@@ -29,7 +29,7 @@ impl ClientState {
             ClientOp::Backward(tip) => {
                 if let Some((index, _)) =
                     self.ops.iter().enumerate().rfind(
-                        |(_, op)| matches!(op, ClientOp::Forward(_, tip2) if &tip2.0 == &tip.0),
+                        |(_, op)| matches!(op, ClientOp::Forward(_, tip2) if tip2.0 == tip.0),
                     )
                 {
                     tracing::debug!("found backward op at index {index} in {:?}", self.ops);

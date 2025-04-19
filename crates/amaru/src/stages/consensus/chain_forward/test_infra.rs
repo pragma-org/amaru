@@ -301,6 +301,7 @@ impl Client {
 }
 
 #[derive(Clone)]
+#[allow(clippy::large_enum_variant)]
 pub enum ClientMsg {
     Forward(Header, Tip),
     Backward(Point, Tip),
@@ -319,7 +320,7 @@ impl std::fmt::Debug for ClientMsg {
                 .finish(),
             Self::Backward(point, tip) => f
                 .debug_struct("Backward")
-                .field("point", &PrettyPoint(&point))
+                .field("point", &PrettyPoint(point))
                 .field("tip", &(tip.1, PrettyPoint(&tip.0)))
                 .finish(),
         }
