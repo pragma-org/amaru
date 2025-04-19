@@ -131,3 +131,42 @@ fn test_chain_sync() {
 
     // Note: there’s no way to shut down the gasket stage without logging to ERRORs, sorry
 }
+
+#[test]
+fn test_sync_optimising_rollback() {
+    let mut setup = Setup::new(LOST_47);
+    let chain = setup.store.get_chain(TIP_47);
+    let lost = setup.store.get(&hash(LOST_47)).unwrap().clone();
+
+    let mut client = setup.connect();
+    client.find_intersect(vec![]).0.expect("no intersection");
+
+    let msgs = client.recv_n::<4>();
+    assert_eq!(
+        msgs,
+        [
+            ClientMsg::Forward(chain[0].clone(), lost.as_tip()),
+            ClientMsg::Forward(chain[1].clone(), lost.as_tip()),
+            ClientMsg::Forward(chain[2].clone(), lost.as_tip()),
+            ClientMsg::Forward(chain[3].clone(), lost.as_tip()),
+        ]
+    );
+
+    setup.send_backward(BRANCH_47);
+    setup.send_validated(&chain[7].hash().to_string());
+    setup.send_validated(&chain[8].hash().to_string());
+    setup.send_validated(&chain[9].hash().to_string());
+
+    let msgs = client.recv_until_await();
+    assert_eq!(
+        msgs,
+        [
+            ClientMsg::Forward(chain[4].clone(), chain[9].as_tip()),
+            ClientMsg::Forward(chain[5].clone(), chain[9].as_tip()),
+            ClientMsg::Forward(chain[6].clone(), chain[9].as_tip()),
+            ClientMsg::Forward(chain[7].clone(), chain[9].as_tip()),
+            ClientMsg::Forward(chain[8].clone(), chain[9].as_tip()),
+            ClientMsg::Forward(chain[9].clone(), chain[9].as_tip()),
+        ]
+    );
+}

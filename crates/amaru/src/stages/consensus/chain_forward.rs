@@ -105,12 +105,51 @@ impl Drop for Worker {
 }
 
 #[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum ClientOp {
     /// the tip to go back to
     Backward(Tip),
     /// the header to go forward to and the tip we will be at after sending this header
     Forward(Header, Tip),
+}
+
+impl std::fmt::Debug for ClientOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Backward(tip) => f
+                .debug_struct("Backward")
+                .field("tip", &(tip.1, PrettyPoint(&tip.0)))
+                .finish(),
+            Self::Forward(header, tip) => f
+                .debug_struct("Forward")
+                .field(
+                    "header",
+                    &(header.block_height(), PrettyPoint(&header.pallas_point())),
+                )
+                .field("tip", &(tip.1, PrettyPoint(&tip.0)))
+                .finish(),
+        }
+    }
+}
+
+struct PrettyPoint<'a>(&'a Point);
+
+impl std::fmt::Debug for PrettyPoint<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "({}, {})",
+            self.0.slot_or_default(),
+            hex::encode(hash_point(&self.0))
+        )
+    }
+}
+
+fn hash_point(point: &Point) -> Hash<32> {
+    match point {
+        Point::Origin => Hash::from([0; 32]),
+        Point::Specific(_slot, hash) => Hash::from(hash.as_slice()),
+    }
 }
 
 impl PartialEq for ClientOp {

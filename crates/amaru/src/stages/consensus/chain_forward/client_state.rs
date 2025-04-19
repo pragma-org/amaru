@@ -1,7 +1,7 @@
-use super::ClientOp;
+use super::{hash_point, ClientOp};
 use crate::stages::AsTip;
 use amaru_consensus::{consensus::store::ChainStore, IsHeader};
-use amaru_kernel::{Hash, Header};
+use amaru_kernel::Header;
 use pallas_network::miniprotocols::{chainsync::Tip, Point};
 use std::collections::VecDeque;
 
@@ -19,24 +19,30 @@ impl ClientState {
     }
 
     pub fn next_op(&mut self) -> Option<ClientOp> {
+        tracing::debug!("next_op: {:?}", self.ops.front());
         self.ops.pop_front()
     }
 
     pub fn add_op(&mut self, op: ClientOp) {
+        tracing::debug!("add_op: {:?}", op);
         match op {
             ClientOp::Backward(tip) => {
-                if let Some(index) = self
-                    .ops
-                    .iter()
-                    .rposition(|op| matches!(op, ClientOp::Forward(_, tip) if &tip.0 == &tip.0))
+                if let Some((index, _)) =
+                    self.ops.iter().enumerate().rfind(
+                        |(_, op)| matches!(op, ClientOp::Forward(_, tip2) if &tip2.0 == &tip.0),
+                    )
                 {
+                    tracing::debug!("found backward op at index {index} in {:?}", self.ops);
                     self.ops.truncate(index + 1);
+                    tracing::debug!("last after truncate: {:?}", self.ops.back());
                 } else {
+                    tracing::debug!("clearing ops");
                     self.ops.clear();
                     self.ops.push_back(ClientOp::Backward(tip));
                 }
             }
             op @ ClientOp::Forward(..) => {
+                tracing::debug!("adding forward op");
                 self.ops.push_back(op);
             }
         }
@@ -84,11 +90,4 @@ pub(super) fn find_headers_between(
     // Reached genesis without finding any matching point
     headers.reverse();
     Some((headers, Tip(Point::Origin, 0)))
-}
-
-pub(super) fn hash_point(point: &Point) -> Hash<32> {
-    match point {
-        Point::Origin => Hash::from([0; 32]),
-        Point::Specific(_slot, hash) => Hash::from(hash.as_slice()),
-    }
 }

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::{ForwardEvent, ForwardStage};
+use super::{ForwardEvent, ForwardStage, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
 use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
@@ -269,6 +269,21 @@ impl Client {
         ops
     }
 
+    pub fn recv_n<const N: usize>(&mut self) -> [ClientMsg; N] {
+        let mut ops = Vec::new();
+        for _ in 0..N {
+            let msg = block_on(&self.runtime, self.client.chainsync().request_next()).unwrap();
+            match msg {
+                NextResponse::RollForward(header, tip) => {
+                    ops.push(ClientMsg::Forward(from_cbor(&header.cbor).unwrap(), tip))
+                }
+                NextResponse::RollBackward(point, tip) => ops.push(ClientMsg::Backward(point, tip)),
+                NextResponse::Await => break,
+            }
+        }
+        ops.try_into().unwrap()
+    }
+
     pub fn recv_after_await(&mut self) -> ClientMsg {
         let msg = block_on(
             &self.runtime,
@@ -285,10 +300,30 @@ impl Client {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum ClientMsg {
     Forward(Header, Tip),
     Backward(Point, Tip),
+}
+
+impl std::fmt::Debug for ClientMsg {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Forward(header, tip) => f
+                .debug_struct("Forward")
+                .field(
+                    "header",
+                    &(header.block_height(), PrettyPoint(&header.pallas_point())),
+                )
+                .field("tip", &(tip.1, PrettyPoint(&tip.0)))
+                .finish(),
+            Self::Backward(point, tip) => f
+                .debug_struct("Backward")
+                .field("point", &PrettyPoint(&point))
+                .field("tip", &(tip.1, PrettyPoint(&tip.0)))
+                .finish(),
+        }
+    }
 }
 
 impl PartialEq for ClientMsg {
