@@ -1,79 +1,44 @@
+use super::ClientOp;
+use crate::stages::AsTip;
 use amaru_consensus::{consensus::store::ChainStore, IsHeader};
 use amaru_kernel::{Hash, Header};
 use pallas_network::miniprotocols::{chainsync::Tip, Point};
-use std::{collections::VecDeque, sync::Arc};
-use tokio::sync::Mutex;
-
-#[allow(clippy::large_enum_variant)]
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum ClientOp {
-    Backward(Point),
-    Forward(Header),
-}
+use std::collections::VecDeque;
 
 /// The state we track for one client.
 ///
 /// The `ops` list may contain up to one rollback at the front only.
 pub(super) struct ClientState {
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
     /// The list of operations to send to the client.
     ops: VecDeque<ClientOp>,
-    /// The point we presume the client is at.
-    /// This is updated as soon as we send an operation to the client.
-    client_at: Tip,
 }
 
 impl ClientState {
-    pub fn new(
-        store: Arc<Mutex<dyn ChainStore<Header>>>,
-        ops: VecDeque<ClientOp>,
-        client_at: Tip,
-    ) -> Self {
-        Self {
-            store,
-            ops,
-            client_at,
-        }
+    pub fn new(ops: VecDeque<ClientOp>) -> Self {
+        Self { ops }
     }
 
-    pub async fn next_op(&mut self) -> Option<(ClientOp, Tip)> {
-        let op = self.ops.pop_front()?;
-        let tip = self.tip().await;
-        Some((op, tip))
-    }
-
-    pub async fn tip(&self) -> Tip {
-        if let Some(op) = self.ops.back() {
-            match op {
-                ClientOp::Backward(point) => {
-                    let store = self.store.lock().await;
-                    #[allow(clippy::expect_used)]
-                    let header = store
-                        .load_header(&hash_point(point))
-                        .expect("rollback point was not in store");
-                    Tip(point.clone(), header.block_height())
-                }
-                ClientOp::Forward(header) => {
-                    Tip(to_pallas_point(&header.point()), header.block_height())
-                }
-            }
-        } else {
-            self.client_at.clone()
-        }
+    pub fn next_op(&mut self) -> Option<ClientOp> {
+        self.ops.pop_front()
     }
 
     pub fn add_op(&mut self, op: ClientOp) {
         match op {
-            ClientOp::Backward(point) => {
-                let needle = ClientOp::Backward(point.clone());
-                if let Some(index) = self.ops.iter().rposition(|op| op == &needle) {
+            ClientOp::Backward(tip) => {
+                if let Some(index) = self
+                    .ops
+                    .iter()
+                    .rposition(|op| matches!(op, ClientOp::Forward(_, tip) if &tip.0 == &tip.0))
+                {
                     self.ops.truncate(index + 1);
                 } else {
                     self.ops.clear();
-                    self.ops.push_back(ClientOp::Backward(point));
+                    self.ops.push_back(ClientOp::Backward(tip));
                 }
             }
-            op @ ClientOp::Forward(_) => self.ops.push_back(op),
+            op @ ClientOp::Forward(..) => {
+                self.ops.push_back(op);
+            }
         }
     }
 }
@@ -91,27 +56,25 @@ pub(super) fn find_headers_between(
     let start_header = store.load_header(&hash_point(start_point))?;
 
     if points.contains(start_point) {
-        return Some((
-            vec![],
-            Tip(start_point.clone(), start_header.block_height()),
-        ));
+        return Some((vec![], start_header.as_tip()));
     }
 
     // Find the first point that is in the past of start_point
     let mut current_header = start_header;
-    let mut headers = vec![ClientOp::Forward(current_header.clone())];
+    let mut headers = vec![ClientOp::Forward(
+        current_header.clone(),
+        current_header.as_tip(),
+    )];
 
     while let Some(parent_hash) = current_header.parent() {
         match store.load_header(&parent_hash) {
             Some(header) => {
                 if points.iter().any(|p| hash_point(p) == parent_hash) {
                     // Found a matching point, return the collected headers
-                    return Some((
-                        headers,
-                        Tip(to_pallas_point(&header.point()), header.block_height()),
-                    ));
+                    headers.reverse();
+                    return Some((headers, header.as_tip()));
                 }
-                headers.push(ClientOp::Forward(header.clone()));
+                headers.push(ClientOp::Forward(header.clone(), header.as_tip()));
                 current_header = header;
             }
             None => return None, // Broken chain
@@ -119,6 +82,7 @@ pub(super) fn find_headers_between(
     }
 
     // Reached genesis without finding any matching point
+    headers.reverse();
     Some((headers, Tip(Point::Origin, 0)))
 }
 
@@ -126,12 +90,5 @@ pub(super) fn hash_point(point: &Point) -> Hash<32> {
     match point {
         Point::Origin => Hash::from([0; 32]),
         Point::Specific(_slot, hash) => Hash::from(hash.as_slice()),
-    }
-}
-
-pub(super) fn to_pallas_point(point: &amaru_kernel::Point) -> Point {
-    match point {
-        amaru_kernel::Point::Origin => Point::Origin,
-        amaru_kernel::Point::Specific(slot, hash) => Point::Specific(*slot, hash.clone()),
     }
 }
