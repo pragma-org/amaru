@@ -146,7 +146,7 @@ impl Setup {
 
         let store = mk_store(CHAIN_47);
         let runtime = AcTokio::new("test", 1).unwrap();
-        let (port_tx, mut port_rx) = mpsc::channel(1);
+        let (port_tx, mut port_rx) = mpsc::channel(8);
         let downstream = runtime
             .spawn_actor(
                 "test",
@@ -157,7 +157,7 @@ impl Setup {
                 },
             )
             .me;
-        let (block_tx, block_rx) = mpsc::channel(1);
+        let (block_tx, block_rx) = mpsc::channel(8);
         let mut stage = ForwardStage::new(
             Some(downstream),
             Arc::new(Mutex::new(store.clone())),
