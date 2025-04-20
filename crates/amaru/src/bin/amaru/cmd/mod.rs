@@ -26,7 +26,7 @@ pub(crate) const DEFAULT_LEDGER_DB_DIR: &str = "./ledger.db";
 pub(crate) const DEFAULT_CHAIN_DB_DIR: &str = "./chain.db";
 
 /// Default address to listen on for incoming connections.
-pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3001";
+pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
 
 /// Utility function to parse a point from a string.
 ///
