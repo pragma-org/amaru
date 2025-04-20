@@ -5,11 +5,9 @@ DEMO_TARGET_EPOCH ?= 174
 HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
-DB_PREFIX ?= amaru
 LISTEN_ADDRESS ?= 0.0.0.0:0
-
-LEDGER_DIR = $(DB_PREFIX)-ledger
-CHAIN_DIR = $(DB_PREFIX)-chain
+LEDGER_DIR ?= ./ledger.db
+CHAIN_DIR ?= ./chain.db
 
 .PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config  coverage-html coverage-lconv check-llvm-cov
 
@@ -96,7 +94,7 @@ coverage-html: check-llvm-cov ## Run test coverage for Amaru
 	cargo llvm-cov \
 		--no-cfg-coverage \
 		--html \
-			--output-dir $(COVERAGE_DIR) $(foreach package,$(COVERAGE_CRATES), --package $(package))
+		--output-dir $(COVERAGE_DIR) $(foreach package,$(COVERAGE_CRATES), --package $(package))
 
 coverage-lconv: ## Run test coverage for CI to upload to Codecov
 	cargo llvm-cov \
