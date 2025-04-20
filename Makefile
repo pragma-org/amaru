@@ -77,9 +77,9 @@ dev: ## Compile and run for development with default options
 	cargo run -- daemon \
 	--ledger-dir $(LEDGER_DIR) \
 	--chain-dir $(CHAIN_DIR) \
-	--peer-address=$(AMARU_PEER_ADDRESS) \
+	--peer-address $(AMARU_PEER_ADDRESS) \
 	--network=$(NETWORK) \
-	--listen-address=$(LISTEN_ADDRESS)
+	--listen-address $(LISTEN_ADDRESS)
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
 	cargo test -p amaru -- --ignored
@@ -94,19 +94,19 @@ check-llvm-cov: ## Check if cargo-llvm-cov is installed, install if not
 
 coverage-html: check-llvm-cov ## Run test coverage for Amaru
 	cargo llvm-cov \
-	    --no-cfg-coverage \
-	    --html \
-		--output-dir $(COVERAGE_DIR) $(foreach package,$(COVERAGE_CRATES), --package $(package))
+		--no-cfg-coverage \
+		--html \
+			--output-dir $(COVERAGE_DIR) $(foreach package,$(COVERAGE_CRATES), --package $(package))
 
 coverage-lconv: ## Run test coverage for CI to upload to Codecov
 	cargo llvm-cov \
-	    --all-features \
+		--all-features \
 		--workspace \
 		--lcov \
 		--output-path lcov.info
 
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
-	./scripts/demo.sh $(AMARU_PEER_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
+	LEDGER_DIR=$(LEDGER_DIR) CHAIN_DIR=$(CHAIN_DIR) ./scripts/demo.sh $(AMARU_PEER_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
 
 build-examples: ## Build all examples
 	@for dir in $(wildcard examples/*/.); do \
