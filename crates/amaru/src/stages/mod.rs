@@ -32,7 +32,10 @@ use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,
 };
-use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
+use pallas_network::{
+    facades::PeerClient,
+    miniprotocols::{chainsync::Tip, Point},
+};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -90,11 +93,15 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
     let chain_store = RocksDBStore::new(config.chain_dir.clone(), era_history)?;
 
-    #[allow(clippy::expect_used)]
-    let header: Header = chain_store
-        .load_header(&Hash::from(&tip))
-        .expect("Tip not found");
-    let our_tip = Tip(header.pallas_point(), header.block_height());
+    let our_tip = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
+        #[allow(clippy::expect_used)]
+        let header: Header = chain_store
+            .load_header(&Hash::from(&**hash))
+            .expect("Tip not found");
+        Tip(header.pallas_point(), header.block_height())
+    } else {
+        Tip(Point::Origin, 0)
+    };
 
     let chain_selector = make_chain_selector(tip.clone(), &chain_store, &peer_sessions)?;
     let chain_ref = Arc::new(Mutex::new(chain_store));

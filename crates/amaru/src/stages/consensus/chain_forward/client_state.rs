@@ -50,10 +50,9 @@ impl ClientState {
 }
 
 /// Find headers between points in the chain store.
-/// Returns None if none of the points in `points` lies in the past of `start_point`.
+/// Returns None if the local chain is broken.
 /// Otherwise returns Some(headers) where headers is a list of headers leading from
-/// the first found point in the past of `start_point` matching a point from `points`
-/// up to `start_point`.
+/// the tallest point from the list that lies in the past of `start_point`.
 pub(super) fn find_headers_between(
     store: &dyn ChainStore<Header>,
     start_point: &Point,

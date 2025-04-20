@@ -23,8 +23,7 @@ target/
 *.snap.new
 
 # Files downloaded for the demo
-snapshots/
-!crates/amaru/tests/snapshots
+/snapshots/
 
 # Files for local coverage reports
 coverage/
@@ -39,4 +38,3 @@ coverage/
 
 # Cardano node support files
 /cardano-node-config/
-/snapshots/
