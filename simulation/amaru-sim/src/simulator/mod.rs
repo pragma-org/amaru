@@ -21,7 +21,7 @@ use amaru_consensus::consensus::{
     select_chain::SelectChain,
     store::ChainStore,
     store_header::StoreHeader,
-    validate_header::Consensus,
+    validate_header::ValidateHeader,
     ChainSyncEvent, PullEvent, ValidateHeaderEvent,
 };
 use amaru_consensus::peer::Peer;
@@ -132,7 +132,7 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
             .collect::<Vec<_>>(),
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let mut consensus = Consensus::new(Box::new(stake_distribution), chain_ref.clone());
+    let mut consensus = ValidateHeader::new(Box::new(stake_distribution), chain_ref.clone());
 
     let mut store_header = StoreHeader::new(chain_ref.clone());
     let mut select_chain = SelectChain::new(chain_selector);
@@ -152,7 +152,7 @@ async fn run_simulator(
     input_reader: &mut impl MessageReader,
     output_writer: Arc<Mutex<OutputWriter>>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
-    consensus: &mut Consensus,
+    consensus: &mut ValidateHeader,
     store_header: &mut StoreHeader,
     select_chain: &mut SelectChain,
 ) {

@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use super::{ForwardEvent, ForwardStage, PrettyPoint};
+use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
 use amaru_consensus::consensus::store::{ChainStore, StoreError};
@@ -158,7 +158,7 @@ impl Setup {
             )
             .me;
         let (block_tx, block_rx) = mpsc::channel(8);
-        let mut stage = ForwardStage::new(
+        let mut stage = ForwardChainStage::new(
             Some(downstream),
             Arc::new(Mutex::new(store.clone())),
             42,

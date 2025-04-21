@@ -54,12 +54,12 @@ pub fn header_is_valid(
     .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
-pub struct Consensus {
+pub struct ValidateHeader {
     ledger: Box<dyn HasStakeDistribution>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
 }
 
-impl Consensus {
+impl ValidateHeader {
     pub fn new(
         ledger: Box<dyn HasStakeDistribution>,
         store: Arc<Mutex<dyn ChainStore<Header>>>,

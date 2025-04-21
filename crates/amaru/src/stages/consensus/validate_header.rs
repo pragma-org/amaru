@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{validate_header::Consensus, PullEvent};
+use amaru_consensus::consensus::{validate_header::ValidateHeader, PullEvent};
 use gasket::framework::*;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
@@ -25,13 +25,13 @@ pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
     worker = "Worker"
 )]
 pub struct ValidateHeaderStage {
-    pub consensus: Consensus,
+    pub consensus: ValidateHeader,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
 }
 
 impl ValidateHeaderStage {
-    pub fn new(consensus: Consensus) -> Self {
+    pub fn new(consensus: ValidateHeader) -> Self {
         Self {
             consensus,
             upstream: Default::default(),

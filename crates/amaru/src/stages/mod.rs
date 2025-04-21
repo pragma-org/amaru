@@ -18,7 +18,7 @@ use amaru_consensus::{
         select_chain::SelectChain,
         store::ChainStore,
         store_header::StoreHeader,
-        validate_header::Consensus,
+        validate_header::ValidateHeader,
         ChainSyncEvent,
     },
     peer::Peer,
@@ -27,9 +27,9 @@ use amaru_consensus::{
 use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header};
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
 use consensus::{
-    chain_forward::ForwardStage, fetch::BlockFetchStage, receive_header::ReceiveHeaderStage,
-    select_chain::SelectChainStage, store_header::StoreHeaderStage,
-    validate_header::ValidateHeaderStage,
+    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
+    receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
+    store_header::StoreHeaderStage, validate_header::ValidateHeaderStage,
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
@@ -78,7 +78,7 @@ pub fn bootstrap(
     // FIXME: Take from config / command args
     let era_history: &EraHistory = config.network.into();
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
-    let (mut ledger, tip) = ledger::Stage::new(store, era_history);
+    let (mut ledger, tip) = ledger::ValidateBlockStage::new(store, era_history);
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -108,7 +108,7 @@ pub fn bootstrap(
 
     let chain_selector = make_chain_selector(tip.clone(), &chain_store, &peer_sessions)?;
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let consensus = Consensus::new(
+    let consensus = ValidateHeader::new(
         Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
     );
@@ -121,7 +121,7 @@ pub fn bootstrap(
 
     let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
 
-    let mut block_forward = ForwardStage::new(
+    let mut forward_chain_stage = ForwardChainStage::new(
         None,
         chain_ref.clone(),
         config.network_magic as u64,
@@ -131,7 +131,7 @@ pub fn bootstrap(
     );
 
     let (to_validate_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_store_header, from_validate_header_stage) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_store_header, from_validate_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_select_chain, from_store_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_fetch, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
@@ -147,9 +147,7 @@ pub fn bootstrap(
     validate_header_stage.upstream.connect(from_receive_header);
     validate_header_stage.downstream.connect(to_store_header);
 
-    store_header_stage
-        .upstream
-        .connect(from_validate_header_stage);
+    store_header_stage.upstream.connect(from_validate_header);
     store_header_stage.downstream.connect(to_select_chain);
 
     select_chain_stage.upstream.connect(from_store_header);
@@ -160,7 +158,7 @@ pub fn bootstrap(
 
     ledger.upstream.connect(from_block_fetch);
     ledger.downstream.connect(to_block_forward);
-    block_forward.upstream.connect(from_ledger);
+    forward_chain_stage.upstream.connect(from_ledger);
 
     // No retry, crash on panics.
     let policy = gasket::runtime::Policy::default();
@@ -173,7 +171,7 @@ pub fn bootstrap(
     let validate_header = gasket::runtime::spawn_stage(validate_header_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(block_fetch_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
-    let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());
+    let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
 
     pulls.push(validate_header);
     pulls.push(fetch);
