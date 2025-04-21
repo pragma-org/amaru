@@ -15,13 +15,13 @@
 use crate::{
     consensus::{
         chain_selection::{self, ChainSelector, Fork},
-        store::{ChainStore, NoncesError},
+        store::ChainStore,
     },
     peer::Peer,
     ConsensusError,
 };
 use amaru_kernel::{to_cbor, Hash, Header, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
-use amaru_ouroboros::praos;
+use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, Praos};
 use pallas_math::math::FixedDecimal;
 use std::sync::Arc;
@@ -127,31 +127,24 @@ impl Consensus {
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let header_hash = header.hash();
 
-        // first make sure we store the header
-        let mut store = self.store.lock().await;
+        let Nonces {
+            active: ref epoch_nonce,
+            ..
+        } = self.store.lock().await.evolve_nonce(header)?;
 
-        store.evolve_nonce(header)?;
+        assert_header(
+            point,
+            header,
+            to_cbor(&header.header_body).as_slice(),
+            epoch_nonce,
+            self.ledger.as_ref(),
+        )?;
 
-        if let Some(ref epoch_nonce) = store.get_nonce(&header_hash) {
-            assert_header(
-                point,
-                header,
-                to_cbor(&header.header_body).as_slice(),
-                epoch_nonce,
-                self.ledger.as_ref(),
-            )?;
-        } else {
-            return Err(NoncesError::UnknownHeader {
-                header: header_hash,
-            }
-            .into());
-        }
-
-        store
+        self.store
+            .lock()
+            .await
             .store_header(&header_hash, header)
             .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))?;
-
-        drop(store);
 
         let result = self
             .chain_selector
