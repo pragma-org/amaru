@@ -17,9 +17,9 @@ use std::{path::PathBuf, sync::Arc};
 use super::echo::Envelope;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
-    header_validation::Consensus,
     receive_header::handle_chain_sync,
     store::ChainStore,
+    validate_header::Consensus,
     ChainSyncEvent, PullEvent, ValidateHeaderEvent,
 };
 use amaru_consensus::peer::Peer;

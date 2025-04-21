@@ -15,8 +15,8 @@
 use amaru_consensus::{
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
-        header_validation::Consensus,
         store::ChainStore,
+        validate_header::Consensus,
         ChainSyncEvent,
     },
     peer::Peer,
@@ -152,12 +152,12 @@ pub fn bootstrap(
         .map(|p| gasket::runtime::spawn_stage(p, policy.clone()))
         .collect::<Vec<_>>();
 
-    let header_validation = gasket::runtime::spawn_stage(validate_header_stage, policy.clone());
+    let validate_header = gasket::runtime::spawn_stage(validate_header_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(block_fetch_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());
 
-    pulls.push(header_validation);
+    pulls.push(validate_header);
     pulls.push(fetch);
     pulls.push(ledger);
     pulls.push(block_forward);

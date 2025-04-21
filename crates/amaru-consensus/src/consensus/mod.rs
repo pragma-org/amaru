@@ -18,9 +18,9 @@ use tracing::Span;
 use crate::peer::Peer;
 
 pub mod chain_selection;
-pub mod header_validation;
 pub mod receive_header;
 pub mod store;
+pub mod validate_header;
 
 #[derive(Clone, Debug)]
 pub enum ChainSyncEvent {
