@@ -20,16 +20,17 @@ use crate::{
     peer::Peer,
     ConsensusError,
 };
-use amaru_kernel::{Hash, Header, MintedHeader, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
+use amaru_kernel::{Hash, Header, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, Praos};
-use pallas_codec::minicbor;
 use pallas_math::math::FixedDecimal;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, Level, Span};
 
-use super::{chain_selection::RollbackChainSelection, ValidateHeaderEvent};
+use super::{
+    chain_selection::RollbackChainSelection, receive_header::receive_header, ValidateHeaderEvent,
+};
 
 const EVENT_TARGET: &str = "amaru::consensus";
 
@@ -111,17 +112,6 @@ impl Consensus {
         result
     }
 
-    pub fn receive_header(
-        &self,
-        point: &Point,
-        raw_header: &[u8],
-    ) -> Result<Header, ConsensusError> {
-        let minted_header: MintedHeader<'_> = minicbor::decode(raw_header)
-            .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
-
-        Ok(Header::from(minted_header))
-    }
-
     #[instrument(
         level = Level::TRACE,
         skip_all,
@@ -137,7 +127,7 @@ impl Consensus {
         point: &Point,
         raw_header: &[u8],
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let header = self.receive_header(point, raw_header)?;
+        let header = receive_header(point, raw_header)?;
 
         let header_hash = header.hash();
 

@@ -18,8 +18,8 @@ use tracing::Span;
 use crate::peer::Peer;
 
 pub mod chain_selection;
-
 pub mod header_validation;
+pub mod receive_header;
 pub mod store;
 
 #[derive(Clone, Debug)]

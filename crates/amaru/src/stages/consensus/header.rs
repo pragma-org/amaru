@@ -15,7 +15,6 @@
 use amaru_consensus::{
     consensus::{header_validation::Consensus, ValidateHeaderEvent},
     peer::Peer,
-    ConsensusError,
 };
 use amaru_kernel::Point;
 use gasket::framework::*;
@@ -48,23 +47,13 @@ impl HeaderStage {
         }
     }
 
-    async fn handle_roll_forward(
-        &mut self,
-        peer: &Peer,
-        point: &Point,
-        raw_header: &[u8],
-    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        self.consensus
-            .handle_roll_forward(peer, point, raw_header)
-            .await
-    }
-
     async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
         let events = match unit {
             PullEvent::RollForward(peer, point, raw_header, span) => {
                 // Restore parent span
                 Span::current().set_parent(span.context());
-                self.handle_roll_forward(peer, point, raw_header)
+                self.consensus
+                    .handle_roll_forward(peer, point, raw_header)
                     .await
                     .or_panic()?
             }
