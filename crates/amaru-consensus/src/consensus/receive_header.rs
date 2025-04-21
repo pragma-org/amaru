@@ -17,6 +17,8 @@ use amaru_kernel::{Hash, Header, MintedHeader, Point};
 use pallas_codec::minicbor;
 use tracing::{instrument, Level};
 
+use super::{ChainSyncEvent, PullEvent};
+
 #[instrument(
         level = Level::TRACE,
         skip_all,
@@ -31,4 +33,21 @@ pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, Consen
         .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
 
     Ok(Header::from(minted_header))
+}
+
+pub fn handle_chain_sync(chain_sync: &ChainSyncEvent) -> Result<PullEvent, ConsensusError> {
+    match chain_sync {
+        ChainSyncEvent::RollForward(peer, point, raw_header, span) => {
+            let header = receive_header(point, raw_header)?;
+            Ok(PullEvent::RollForward(
+                peer.clone(),
+                point.clone(),
+                header,
+                span.clone(),
+            ))
+        }
+        ChainSyncEvent::Rollback(peer, rollback) => {
+            Ok(PullEvent::Rollback(peer.clone(), rollback.clone()))
+        }
+    }
 }

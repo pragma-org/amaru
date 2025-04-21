@@ -20,7 +20,7 @@ use crate::{
     peer::Peer,
     ConsensusError,
 };
-use amaru_kernel::{Hash, Header, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
+use amaru_kernel::{to_cbor, Hash, Header, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, Praos};
 use pallas_math::math::FixedDecimal;
@@ -28,10 +28,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, Level, Span};
 
-use super::{
-    chain_selection::RollbackChainSelection, receive_header::receive_header, PullEvent,
-    ValidateHeaderEvent,
-};
+use super::{chain_selection::RollbackChainSelection, PullEvent, ValidateHeaderEvent};
 
 const EVENT_TARGET: &str = "amaru::consensus";
 
@@ -126,22 +123,20 @@ impl Consensus {
         &mut self,
         peer: &Peer,
         point: &Point,
-        raw_header: &[u8],
+        header: &Header,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let header = receive_header(point, raw_header)?;
-
         let header_hash = header.hash();
 
         // first make sure we store the header
         let mut store = self.store.lock().await;
 
-        store.evolve_nonce(&header)?;
+        store.evolve_nonce(header)?;
 
         if let Some(ref epoch_nonce) = store.get_nonce(&header_hash) {
             assert_header(
                 point,
-                &header,
-                raw_header,
+                header,
+                to_cbor(&header.header_body).as_slice(),
                 epoch_nonce,
                 self.ledger.as_ref(),
             )?;
@@ -153,7 +148,7 @@ impl Consensus {
         }
 
         store
-            .store_header(&header_hash, &header)
+            .store_header(&header_hash, header)
             .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))?;
 
         drop(store);
@@ -162,7 +157,7 @@ impl Consensus {
             .chain_selector
             .lock()
             .await
-            .select_roll_forward(peer, header);
+            .select_roll_forward(peer, header.clone());
 
         let span = Span::current();
 
@@ -228,8 +223,8 @@ impl Consensus {
         chain_sync: &PullEvent,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         match chain_sync {
-            PullEvent::RollForward(peer, point, raw_header, _span) => {
-                self.handle_roll_forward(peer, point, raw_header).await
+            PullEvent::RollForward(peer, point, header, _span) => {
+                self.handle_roll_forward(peer, point, header).await
             }
             PullEvent::Rollback(peer, rollback) => self.handle_roll_back(peer, rollback).await,
         }

@@ -14,7 +14,7 @@
 
 use super::PeerSession;
 use crate::point::{from_network_point, to_network_point};
-use amaru_consensus::{consensus::PullEvent, RawHeader};
+use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
 use anyhow::anyhow;
 use gasket::framework::*;
@@ -33,7 +33,7 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerE
     out.or_panic()
 }
 
-pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
 pub enum WorkUnit {
     Pull,
@@ -109,7 +109,10 @@ impl Stage {
         let raw_header: RawHeader = header.cbor().to_vec();
 
         self.downstream
-            .send(PullEvent::RollForward(peer.clone(), point, raw_header, Span::current()).into())
+            .send(
+                ChainSyncEvent::RollForward(peer.clone(), point, raw_header, Span::current())
+                    .into(),
+            )
             .await
             .or_panic()
     }
@@ -128,7 +131,7 @@ impl Stage {
 
         let peer = &self.peer_session.peer;
         self.downstream
-            .send(PullEvent::Rollback(peer.clone(), point).into())
+            .send(ChainSyncEvent::Rollback(peer.clone(), point).into())
             .await
             .or_panic()
     }

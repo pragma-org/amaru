@@ -17,7 +17,7 @@ use amaru_consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         header_validation::Consensus,
         store::ChainStore,
-        PullEvent,
+        ChainSyncEvent,
     },
     peer::Peer,
     ConsensusError, IsHeader,
@@ -25,7 +25,8 @@ use amaru_consensus::{
 use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header};
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
 use consensus::{
-    chain_forward::ForwardStage, fetch::BlockFetchStage, validate_header::ValidateHeaderStage,
+    chain_forward::ForwardStage, fetch::BlockFetchStage, receive_header::ReceiveHeaderStage,
+    validate_header::ValidateHeaderStage,
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
@@ -110,6 +111,8 @@ pub fn bootstrap(
         chain_selector,
     );
 
+    let mut receive_header_stage = ReceiveHeaderStage::default();
+
     let mut validate_header_stage = ValidateHeaderStage::new(consensus);
     let mut block_forward = ForwardStage::new(
         None,
@@ -120,15 +123,18 @@ pub fn bootstrap(
         our_tip,
     );
 
+    let (to_validate_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_fetch, from_validate_header_stage) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
-    let outputs: Vec<&mut OutputPort<PullEvent>> = pulls
+    let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = pulls
         .iter_mut()
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
-    funnel_ports(outputs, &mut validate_header_stage.upstream, 50);
+    funnel_ports(outputs, &mut receive_header_stage.upstream, 50);
+    receive_header_stage.downstream.connect(to_validate_header);
+    validate_header_stage.upstream.connect(from_receive_header);
     validate_header_stage.downstream.connect(to_block_fetch);
     block_fetch_stage
         .upstream

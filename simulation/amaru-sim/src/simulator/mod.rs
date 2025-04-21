@@ -18,8 +18,9 @@ use super::echo::Envelope;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     header_validation::Consensus,
+    receive_header::handle_chain_sync,
     store::ChainStore,
-    PullEvent, ValidateHeaderEvent,
+    ChainSyncEvent, PullEvent, ValidateHeaderEvent,
 };
 use amaru_consensus::peer::Peer;
 use amaru_kernel::network::NetworkName;
@@ -31,6 +32,7 @@ use amaru_kernel::{
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use bytes::Bytes;
 use clap::Parser;
+use gasket::framework::WorkerError;
 use ledger::{populate_chain_store, FakeStakeDistribution};
 pub use pallas_crypto::hash::Hash;
 use sync::{
@@ -151,7 +153,9 @@ async fn run_simulator(
                 break;
             }
             Ok(msg) => {
-                let events = match mk_message(msg, span) {
+                let events = match mk_message(msg, span).and_then(|chain_sync: ChainSyncEvent| {
+                    handle_chain_sync(&chain_sync).map_err(|_| WorkerError::Recv)
+                }) {
                     Ok(event) => match event {
                         PullEvent::RollForward(peer, point, raw_header, _span) => {
                             consensus

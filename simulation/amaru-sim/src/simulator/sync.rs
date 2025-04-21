@@ -14,7 +14,7 @@
 
 use super::bytes::Bytes;
 use crate::echo::Envelope;
-use amaru_consensus::consensus::{PullEvent, ValidateHeaderEvent};
+use amaru_consensus::consensus::{ChainSyncEvent, ValidateHeaderEvent};
 use amaru_consensus::peer::Peer;
 use amaru_kernel::{self, Point, Slot};
 use futures_util::sink::SinkExt;
@@ -177,7 +177,10 @@ impl From<&ValidateHeaderEvent> for ChainSyncMessage {
     }
 }
 
-pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent, WorkerError> {
+pub fn mk_message(
+    v: Envelope<ChainSyncMessage>,
+    span: Span,
+) -> Result<ChainSyncEvent, WorkerError> {
     use ChainSyncMessage::*;
 
     let peer = Peer { name: v.src };
@@ -188,7 +191,7 @@ pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent
             slot,
             hash,
             header,
-        } => Ok(PullEvent::RollForward(
+        } => Ok(ChainSyncEvent::RollForward(
             peer,
             Point::Specific(slot.into(), hash.into()),
             header.into(),
@@ -198,7 +201,7 @@ pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent
             msg_id: _,
             slot,
             hash,
-        } => Ok(PullEvent::Rollback(
+        } => Ok(ChainSyncEvent::Rollback(
             peer,
             Point::Specific(slot.into(), hash.into()),
         )),
@@ -263,7 +266,7 @@ mod test {
         let event = super::mk_message(message, tracing::trace_span!("test")).unwrap();
 
         match event {
-            super::PullEvent::RollForward(peer, point, header, _) => {
+            super::ChainSyncEvent::RollForward(peer, point, header, _) => {
                 assert_eq!(peer.name, "peer1");
                 assert_eq!(point.slot_or_default(), From::from(1234));
                 assert_eq!(Hash::from(&point), expected_hash);

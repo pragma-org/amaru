@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point;
+use amaru_kernel::{Header, Point};
 use tracing::Span;
 
 use crate::peer::Peer;
@@ -23,8 +23,15 @@ pub mod receive_header;
 pub mod store;
 
 #[derive(Clone, Debug)]
-pub enum PullEvent {
+pub enum ChainSyncEvent {
     RollForward(Peer, Point, Vec<u8>, Span),
+    Rollback(Peer, Point),
+}
+
+#[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum PullEvent {
+    RollForward(Peer, Point, Header, Span),
     Rollback(Peer, Point),
 }
 
