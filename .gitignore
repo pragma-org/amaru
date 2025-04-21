@@ -14,17 +14,16 @@ target/
 *.pdb
 
 # Default database location for the ledger
-ledger.db
+/*ledger.db/
 
 # Default database location for the consensus
-chain.db
+/*chain.db/
 
 # Insta not-yet reviewed snapshots
 *.snap.new
 
 # Files downloaded for the demo
-snapshots/
-!crates/amaru/tests/snapshots
+/snapshots/
 
 # Files for local coverage reports
 coverage/
@@ -36,3 +35,6 @@ coverage/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 .idea/
 *~
+
+# Cardano node support files
+/cardano-node-config/
