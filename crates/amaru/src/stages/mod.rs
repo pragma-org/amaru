@@ -26,7 +26,7 @@ use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
 use consensus::{
     chain_forward::ForwardStage,
     fetch::BlockFetchStage,
-    header::{HeaderStage, PullEvent},
+    validate_header::{PullEvent, ValidateHeaderStage},
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
@@ -111,7 +111,7 @@ pub fn bootstrap(
         chain_selector,
     );
 
-    let mut consensus_stage = HeaderStage::new(consensus);
+    let mut validate_header_stage = ValidateHeaderStage::new(consensus);
     let mut block_forward = ForwardStage::new(
         None,
         chain_ref.clone(),
@@ -121,7 +121,7 @@ pub fn bootstrap(
         our_tip,
     );
 
-    let (to_block_fetch, from_consensus_stage) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_block_fetch, from_validate_header_stage) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
@@ -129,9 +129,11 @@ pub fn bootstrap(
         .iter_mut()
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
-    funnel_ports(outputs, &mut consensus_stage.upstream, 50);
-    consensus_stage.downstream.connect(to_block_fetch);
-    block_fetch_stage.upstream.connect(from_consensus_stage);
+    funnel_ports(outputs, &mut validate_header_stage.upstream, 50);
+    validate_header_stage.downstream.connect(to_block_fetch);
+    block_fetch_stage
+        .upstream
+        .connect(from_validate_header_stage);
     block_fetch_stage.downstream.connect(to_ledger);
     ledger.upstream.connect(from_block_fetch);
     ledger.downstream.connect(to_block_forward);
@@ -145,7 +147,7 @@ pub fn bootstrap(
         .map(|p| gasket::runtime::spawn_stage(p, policy.clone()))
         .collect::<Vec<_>>();
 
-    let header_validation = gasket::runtime::spawn_stage(consensus_stage, policy.clone());
+    let header_validation = gasket::runtime::spawn_stage(validate_header_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(block_fetch_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(block_forward, policy.clone());

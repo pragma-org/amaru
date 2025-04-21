@@ -15,7 +15,7 @@
 use std::{path::PathBuf, sync::Arc};
 
 use super::echo::Envelope;
-use amaru::stages::consensus::header::PullEvent;
+use amaru::stages::consensus::validate_header::PullEvent;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     header_validation::Consensus,

@@ -18,7 +18,7 @@ use amaru_consensus::{
 };
 use amaru_kernel::Point;
 use gasket::framework::*;
-use tracing::{instrument, Level, Span};
+use tracing::Span;
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 #[derive(Clone, Debug)]
@@ -32,13 +32,13 @@ pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 
 #[derive(Stage)]
 #[stage(name = "consensus.header", unit = "PullEvent", worker = "Worker")]
-pub struct HeaderStage {
+pub struct ValidateHeaderStage {
     pub consensus: Consensus,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
 }
 
-impl HeaderStage {
+impl ValidateHeaderStage {
     pub fn new(consensus: Consensus) -> Self {
         Self {
             consensus,
@@ -75,29 +75,24 @@ impl HeaderStage {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl gasket::framework::Worker<HeaderStage> for Worker {
-    async fn bootstrap(_stage: &HeaderStage) -> Result<Self, WorkerError> {
+impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
+    async fn bootstrap(_stage: &ValidateHeaderStage) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
 
     async fn schedule(
         &mut self,
-        stage: &mut HeaderStage,
+        stage: &mut ValidateHeaderStage,
     ) -> Result<WorkSchedule<PullEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
 
         Ok(WorkSchedule::Unit(unit.payload))
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "stage.consensus"
-    )]
     async fn execute(
         &mut self,
         unit: &PullEvent,
-        stage: &mut HeaderStage,
+        stage: &mut ValidateHeaderStage,
     ) -> Result<(), WorkerError> {
         stage.handle_event(unit).await
     }
