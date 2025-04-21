@@ -18,7 +18,9 @@ use super::echo::Envelope;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
     receive_header::handle_chain_sync,
+    select_chain::SelectChain,
     store::ChainStore,
+    store_header::StoreHeader,
     validate_header::Consensus,
     ChainSyncEvent, PullEvent, ValidateHeaderEvent,
 };
@@ -130,13 +132,20 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
             .collect::<Vec<_>>(),
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let mut consensus = Consensus::new(
-        Box::new(stake_distribution),
-        chain_ref.clone(),
-        chain_selector,
-    );
+    let mut consensus = Consensus::new(Box::new(stake_distribution), chain_ref.clone());
 
-    run_simulator(&mut input_reader, output_writer, chain_ref, &mut consensus).await;
+    let mut store_header = StoreHeader::new(chain_ref.clone());
+    let mut select_chain = SelectChain::new(chain_selector);
+
+    run_simulator(
+        &mut input_reader,
+        output_writer,
+        chain_ref,
+        &mut consensus,
+        &mut store_header,
+        &mut select_chain,
+    )
+    .await;
 }
 
 async fn run_simulator(
@@ -144,6 +153,8 @@ async fn run_simulator(
     output_writer: Arc<Mutex<OutputWriter>>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
     consensus: &mut Consensus,
+    store_header: &mut StoreHeader,
+    select_chain: &mut SelectChain,
 ) {
     loop {
         let span = tracing::info_span!("simulator");
@@ -153,23 +164,32 @@ async fn run_simulator(
                 break;
             }
             Ok(msg) => {
-                let events = match mk_message(msg, span).and_then(|chain_sync: ChainSyncEvent| {
-                    handle_chain_sync(&chain_sync).map_err(|_| WorkerError::Recv)
-                }) {
+                // receive stage
+                let chain_sync_event =
+                    mk_message(msg, span).and_then(|chain_sync: ChainSyncEvent| {
+                        handle_chain_sync(&chain_sync).map_err(|_| WorkerError::Recv)
+                    });
+
+                // validate stage
+                let validation_event = match chain_sync_event {
                     Ok(event) => match event {
-                        PullEvent::RollForward(peer, point, raw_header, _span) => {
-                            consensus
-                                .handle_roll_forward(&peer, &point, &raw_header)
-                                .await
-                        }
-                        PullEvent::Rollback(peer, rollback) => {
-                            consensus.handle_roll_back(&peer, &rollback).await
-                        }
+                        PullEvent::RollForward(peer, point, raw_header, _span) => consensus
+                            .handle_roll_forward(&peer, &point, &raw_header)
+                            .await
+                            .expect("unexpected error on roll forward"),
+                        PullEvent::Rollback(_, _) => event,
                     },
                     Err(_) => todo!(),
                 };
 
-                match events {
+                // store header stage
+                let store_event = match store_header.handle_event(&validation_event).await {
+                    Ok(stored) => stored,
+                    Err(_) => panic!("got error storing event"),
+                };
+
+                // chain selection stage
+                match select_chain.handle_chain_sync(&store_event).await {
                     Ok(events) => {
                         let mut w = output_writer.lock().await;
                         write_events(&mut w, &store, &events).await;

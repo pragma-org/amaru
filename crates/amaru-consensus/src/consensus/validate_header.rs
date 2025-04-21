@@ -12,20 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    consensus::{chain_selection::ChainSelector, store::ChainStore},
-    peer::Peer,
-    ConsensusError,
-};
+use crate::{consensus::store::ChainStore, peer::Peer, ConsensusError};
 use amaru_kernel::{to_cbor, Hash, Header, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{instrument, Level};
+use tracing::{instrument, Level, Span};
 
-use super::{select_chain, store_header, PullEvent, ValidateHeaderEvent};
+use super::PullEvent;
 
 #[instrument(
     level = Level::TRACE,
@@ -59,7 +55,6 @@ pub fn header_is_valid(
 }
 
 pub struct Consensus {
-    chain_selector: Arc<Mutex<ChainSelector<Header>>>,
     ledger: Box<dyn HasStakeDistribution>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
 }
@@ -68,13 +63,8 @@ impl Consensus {
     pub fn new(
         ledger: Box<dyn HasStakeDistribution>,
         store: Arc<Mutex<dyn ChainStore<Header>>>,
-        chain_selector: Arc<Mutex<ChainSelector<Header>>>,
     ) -> Self {
-        Self {
-            chain_selector,
-            ledger,
-            store,
-        }
+        Self { ledger, store }
     }
 
     #[instrument(
@@ -91,7 +81,7 @@ impl Consensus {
         peer: &Peer,
         point: &Point,
         header: &Header,
-    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+    ) -> Result<PullEvent, ConsensusError> {
         let Nonces {
             active: ref epoch_nonce,
             ..
@@ -105,37 +95,23 @@ impl Consensus {
             self.ledger.as_ref(),
         )?;
 
-        store_header::store_header(self.store.clone(), point, header).await?;
-
-        select_chain::select(self.chain_selector.clone(), peer, header).await
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "consensus.roll_backward",
-        fields(
-            point.slot = %rollback.slot_or_default(),
-            point.hash = %Hash::<32>::from(rollback),
-        )
-    )]
-    pub async fn handle_roll_back(
-        &mut self,
-        peer: &Peer,
-        rollback: &Point,
-    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        select_chain::select_rollback(self.chain_selector.clone(), peer, rollback).await
+        Ok(PullEvent::RollForward(
+            peer.clone(),
+            point.clone(),
+            header.clone(),
+            Span::current(),
+        ))
     }
 
     pub async fn handle_chain_sync(
         &mut self,
         chain_sync: &PullEvent,
-    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+    ) -> Result<PullEvent, ConsensusError> {
         match chain_sync {
             PullEvent::RollForward(peer, point, header, _span) => {
                 self.handle_roll_forward(peer, point, header).await
             }
-            PullEvent::Rollback(peer, rollback) => self.handle_roll_back(peer, rollback).await,
+            PullEvent::Rollback(_, _) => Ok(chain_sync.clone()),
         }
     }
 }

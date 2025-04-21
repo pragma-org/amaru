@@ -12,37 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{validate_header::Consensus, PullEvent};
+use amaru_consensus::consensus::{select_chain::SelectChain, PullEvent, ValidateHeaderEvent};
 use gasket::framework::*;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
-pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 
 #[derive(Stage)]
-#[stage(
-    name = "consensus.validate_header",
-    unit = "PullEvent",
-    worker = "Worker"
-)]
-pub struct ValidateHeaderStage {
-    pub consensus: Consensus,
+#[stage(name = "consensus.select_chain", unit = "PullEvent", worker = "Worker")]
+pub struct SelectChainStage {
+    pub select_chain: SelectChain,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
 }
 
-impl ValidateHeaderStage {
-    pub fn new(consensus: Consensus) -> Self {
+impl SelectChainStage {
+    pub fn new(select_chain: SelectChain) -> Self {
         Self {
-            consensus,
+            select_chain,
             upstream: Default::default(),
             downstream: Default::default(),
         }
     }
 
-    async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
-        let event = self.consensus.handle_chain_sync(unit).await.or_panic()?;
+    async fn handle_event(&mut self, pull: &PullEvent) -> Result<(), WorkerError> {
+        let events = self.select_chain.handle_chain_sync(pull).await.or_panic()?;
 
-        self.downstream.send(event.into()).await.or_panic()?;
+        for event in events {
+            self.downstream.send(event.into()).await.or_panic()?;
+        }
 
         Ok(())
     }
@@ -51,14 +49,14 @@ impl ValidateHeaderStage {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
-    async fn bootstrap(_stage: &ValidateHeaderStage) -> Result<Self, WorkerError> {
+impl gasket::framework::Worker<SelectChainStage> for Worker {
+    async fn bootstrap(_stage: &SelectChainStage) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
 
     async fn schedule(
         &mut self,
-        stage: &mut ValidateHeaderStage,
+        stage: &mut SelectChainStage,
     ) -> Result<WorkSchedule<PullEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
 
@@ -68,7 +66,7 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
     async fn execute(
         &mut self,
         unit: &PullEvent,
-        stage: &mut ValidateHeaderStage,
+        stage: &mut SelectChainStage,
     ) -> Result<(), WorkerError> {
         stage.handle_event(unit).await
     }

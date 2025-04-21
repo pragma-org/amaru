@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{chain_selection::RollbackChainSelection, ValidateHeaderEvent};
+use super::{chain_selection::RollbackChainSelection, PullEvent, ValidateHeaderEvent};
 use crate::{
     consensus::{
         chain_selection::{self, ChainSelector, Fork},
@@ -27,29 +27,15 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{trace, Span};
 
-pub async fn select(
-    chain_selector: Arc<Mutex<ChainSelector<Header>>>,
-    peer: &Peer,
-    header: &Header,
-) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-    let mut select = SelectChain { chain_selector };
-    select.select_chain(peer, header).await
-}
-
-pub(crate) async fn select_rollback(
-    chain_selector: Arc<Mutex<ChainSelector<Header>>>,
-    peer: &Peer,
-    rollback: &Point,
-) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-    let mut select = SelectChain { chain_selector };
-    select.select_rollback(peer, rollback).await
-}
-
 pub struct SelectChain {
     chain_selector: Arc<Mutex<ChainSelector<Header>>>,
 }
 
 impl SelectChain {
+    pub fn new(chain_selector: Arc<Mutex<ChainSelector<Header>>>) -> Self {
+        SelectChain { chain_selector }
+    }
+
     fn forward_block<H: IsHeader>(
         &mut self,
         peer: &Peer,
@@ -136,6 +122,18 @@ impl SelectChain {
                 tip: _,
             }) => Ok(self.switch_to_fork(&peer, &rollback_point, fork, &span)),
             RollbackChainSelection::NoChange => Ok(vec![]),
+        }
+    }
+
+    pub async fn handle_chain_sync(
+        &mut self,
+        chain_sync: &PullEvent,
+    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+        match chain_sync {
+            PullEvent::RollForward(peer, _point, header, _span) => {
+                self.select_chain(peer, header).await
+            }
+            PullEvent::Rollback(peer, rollback) => self.select_rollback(peer, rollback).await,
         }
     }
 }

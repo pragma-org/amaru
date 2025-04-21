@@ -15,4 +15,6 @@
 pub mod chain_forward;
 pub mod fetch;
 pub mod receive_header;
+pub mod select_chain;
+pub mod store_header;
 pub mod validate_header;

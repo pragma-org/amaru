@@ -15,7 +15,9 @@
 use amaru_consensus::{
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
+        select_chain::SelectChain,
         store::ChainStore,
+        store_header::StoreHeader,
         validate_header::Consensus,
         ChainSyncEvent,
     },
@@ -26,6 +28,7 @@ use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header};
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
 use consensus::{
     chain_forward::ForwardStage, fetch::BlockFetchStage, receive_header::ReceiveHeaderStage,
+    select_chain::SelectChainStage, store_header::StoreHeaderStage,
     validate_header::ValidateHeaderStage,
 };
 use gasket::{
@@ -108,12 +111,16 @@ pub fn bootstrap(
     let consensus = Consensus::new(
         Box::new(ledger.state.view_stake_distribution()),
         chain_ref.clone(),
-        chain_selector,
     );
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
     let mut validate_header_stage = ValidateHeaderStage::new(consensus);
+
+    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_ref.clone()));
+
+    let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
+
     let mut block_forward = ForwardStage::new(
         None,
         chain_ref.clone(),
@@ -124,7 +131,9 @@ pub fn bootstrap(
     );
 
     let (to_validate_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_block_fetch, from_validate_header_stage) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_store_header, from_validate_header_stage) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_select_chain, from_store_header) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_block_fetch, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
@@ -134,12 +143,21 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
     funnel_ports(outputs, &mut receive_header_stage.upstream, 50);
     receive_header_stage.downstream.connect(to_validate_header);
+
     validate_header_stage.upstream.connect(from_receive_header);
-    validate_header_stage.downstream.connect(to_block_fetch);
-    block_fetch_stage
+    validate_header_stage.downstream.connect(to_store_header);
+
+    store_header_stage
         .upstream
         .connect(from_validate_header_stage);
+    store_header_stage.downstream.connect(to_select_chain);
+
+    select_chain_stage.upstream.connect(from_store_header);
+    select_chain_stage.downstream.connect(to_block_fetch);
+
+    block_fetch_stage.upstream.connect(from_select_chain);
     block_fetch_stage.downstream.connect(to_ledger);
+
     ledger.upstream.connect(from_block_fetch);
     ledger.downstream.connect(to_block_forward);
     block_forward.upstream.connect(from_ledger);

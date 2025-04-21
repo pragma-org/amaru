@@ -12,35 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{validate_header::Consensus, PullEvent};
+use amaru_consensus::consensus::{store_header::StoreHeader, PullEvent};
 use gasket::framework::*;
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
 
 #[derive(Stage)]
-#[stage(
-    name = "consensus.validate_header",
-    unit = "PullEvent",
-    worker = "Worker"
-)]
-pub struct ValidateHeaderStage {
-    pub consensus: Consensus,
+#[stage(name = "consensus.store_header", unit = "PullEvent", worker = "Worker")]
+pub struct StoreHeaderStage {
+    pub store_header: StoreHeader,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
 }
 
-impl ValidateHeaderStage {
-    pub fn new(consensus: Consensus) -> Self {
+impl StoreHeaderStage {
+    pub fn new(store_header: StoreHeader) -> Self {
         Self {
-            consensus,
+            store_header,
             upstream: Default::default(),
             downstream: Default::default(),
         }
     }
 
-    async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
-        let event = self.consensus.handle_chain_sync(unit).await.or_panic()?;
+    async fn handle_event(&mut self, event: &PullEvent) -> Result<(), WorkerError> {
+        let event = self
+            .store_header
+            .handle_event(event)
+            .await
+            .map_err(|_| WorkerError::Recv)?;
 
         self.downstream.send(event.into()).await.or_panic()?;
 
@@ -51,14 +51,14 @@ impl ValidateHeaderStage {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
-    async fn bootstrap(_stage: &ValidateHeaderStage) -> Result<Self, WorkerError> {
+impl gasket::framework::Worker<StoreHeaderStage> for Worker {
+    async fn bootstrap(_stage: &StoreHeaderStage) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
 
     async fn schedule(
         &mut self,
-        stage: &mut ValidateHeaderStage,
+        stage: &mut StoreHeaderStage,
     ) -> Result<WorkSchedule<PullEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
 
@@ -68,7 +68,7 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
     async fn execute(
         &mut self,
         unit: &PullEvent,
-        stage: &mut ValidateHeaderStage,
+        stage: &mut StoreHeaderStage,
     ) -> Result<(), WorkerError> {
         stage.handle_event(unit).await
     }
