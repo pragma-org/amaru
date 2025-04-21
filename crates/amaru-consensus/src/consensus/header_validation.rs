@@ -111,6 +111,17 @@ impl Consensus {
         result
     }
 
+    pub fn receive_header(
+        &self,
+        point: &Point,
+        raw_header: &[u8],
+    ) -> Result<Header, ConsensusError> {
+        let minted_header: MintedHeader<'_> = minicbor::decode(raw_header)
+            .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
+
+        Ok(Header::from(minted_header))
+    }
+
     #[instrument(
         level = Level::TRACE,
         skip_all,
@@ -126,12 +137,7 @@ impl Consensus {
         point: &Point,
         raw_header: &[u8],
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let minted_header: MintedHeader<'_> = minicbor::decode(raw_header)
-            .map_err(|_| ConsensusError::CannotDecodeHeader(point.clone()))?;
-
-        let raw_body = minted_header.header_body.raw_cbor();
-
-        let header = Header::from(minted_header);
+        let header = self.receive_header(point, raw_header)?;
 
         let header_hash = header.hash();
 
@@ -141,7 +147,13 @@ impl Consensus {
         store.evolve_nonce(&header)?;
 
         if let Some(ref epoch_nonce) = store.get_nonce(&header_hash) {
-            assert_header(point, &header, raw_body, epoch_nonce, self.ledger.as_ref())?;
+            assert_header(
+                point,
+                &header,
+                raw_header,
+                epoch_nonce,
+                self.ledger.as_ref(),
+            )?;
         } else {
             return Err(NoncesError::UnknownHeader {
                 header: header_hash,
