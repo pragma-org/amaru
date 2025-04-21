@@ -3,8 +3,8 @@
 use super::{ForwardEvent, ForwardStage, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
-use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
-use amaru_consensus::IsHeader;
+use amaru_consensus::consensus::store::{ChainStore, StoreError};
+use amaru_consensus::{IsHeader, Nonces};
 use amaru_kernel::{from_cbor, Hash, Header};
 use amaru_ledger::BlockValidationResult;
 use gasket::messaging::tokio::ChannelRecvAdapter;
@@ -76,7 +76,7 @@ impl ChainStore<Header> for TestStore {
         unimplemented!()
     }
 
-    fn put_nonces(&mut self, _header: &Hash<32>, _nonces: Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&mut self, _header: &Hash<32>, _nonces: &Nonces) -> Result<(), StoreError> {
         unimplemented!()
     }
 
