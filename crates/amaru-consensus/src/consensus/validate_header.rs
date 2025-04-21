@@ -28,7 +28,9 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{instrument, trace, Level, Span};
 
-use super::{chain_selection::RollbackChainSelection, PullEvent, ValidateHeaderEvent};
+use super::{
+    chain_selection::RollbackChainSelection, store_header, PullEvent, ValidateHeaderEvent,
+};
 
 const EVENT_TARGET: &str = "amaru::consensus";
 
@@ -39,7 +41,7 @@ const EVENT_TARGET: &str = "amaru::consensus";
         issuer.key = %header.header_body.issuer_vkey,
     ),
 )]
-pub fn assert_header(
+pub fn header_is_valid(
     point: &Point,
     header: &Header,
     raw_header_body: &[u8],
@@ -125,14 +127,12 @@ impl Consensus {
         point: &Point,
         header: &Header,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let header_hash = header.hash();
-
         let Nonces {
             active: ref epoch_nonce,
             ..
         } = self.store.lock().await.evolve_nonce(header)?;
 
-        assert_header(
+        header_is_valid(
             point,
             header,
             to_cbor(&header.header_body).as_slice(),
@@ -140,11 +140,7 @@ impl Consensus {
             self.ledger.as_ref(),
         )?;
 
-        self.store
-            .lock()
-            .await
-            .store_header(&header_hash, header)
-            .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))?;
+        store_header::store_header(self.store.clone(), point, header).await?;
 
         let result = self
             .chain_selector
