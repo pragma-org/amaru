@@ -19,9 +19,12 @@ use crate::peer::Peer;
 
 pub mod chain_selection;
 pub mod receive_header;
+pub mod select_chain;
 pub mod store;
 pub mod store_header;
 pub mod validate_header;
+
+pub const EVENT_TARGET: &str = "amaru::consensus";
 
 #[derive(Clone, Debug)]
 pub enum ChainSyncEvent {

@@ -13,26 +13,19 @@
 // limitations under the License.
 
 use crate::{
-    consensus::{
-        chain_selection::{self, ChainSelector, Fork},
-        store::ChainStore,
-    },
+    consensus::{chain_selection::ChainSelector, store::ChainStore},
     peer::Peer,
     ConsensusError,
 };
 use amaru_kernel::{to_cbor, Hash, Header, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
 use amaru_ouroboros::{praos, Nonces};
-use amaru_ouroboros_traits::{HasStakeDistribution, IsHeader, Praos};
+use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{instrument, trace, Level, Span};
+use tracing::{instrument, Level};
 
-use super::{
-    chain_selection::RollbackChainSelection, store_header, PullEvent, ValidateHeaderEvent,
-};
-
-const EVENT_TARGET: &str = "amaru::consensus";
+use super::{select_chain, store_header, PullEvent, ValidateHeaderEvent};
 
 #[instrument(
     level = Level::TRACE,
@@ -84,34 +77,6 @@ impl Consensus {
         }
     }
 
-    fn forward_block<H: IsHeader>(
-        &mut self,
-        peer: &Peer,
-        header: &H,
-        span: &Span,
-    ) -> ValidateHeaderEvent {
-        ValidateHeaderEvent::Validated(peer.clone(), header.point().clone(), span.clone())
-    }
-
-    fn switch_to_fork(
-        &mut self,
-        peer: &Peer,
-        rollback_point: &Point,
-        fork: Vec<Header>,
-        span: &Span,
-    ) -> Vec<ValidateHeaderEvent> {
-        let mut result = vec![ValidateHeaderEvent::Rollback(
-            rollback_point.clone(),
-            span.clone(),
-        )];
-
-        for header in fork {
-            result.push(self.forward_block(peer, &header, span));
-        }
-
-        result
-    }
-
     #[instrument(
         level = Level::TRACE,
         skip_all,
@@ -142,32 +107,7 @@ impl Consensus {
 
         store_header::store_header(self.store.clone(), point, header).await?;
 
-        let result = self
-            .chain_selector
-            .lock()
-            .await
-            .select_roll_forward(peer, header.clone());
-
-        let span = Span::current();
-
-        let events = match result {
-            chain_selection::ForwardChainSelection::NewTip(hdr) => {
-                trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
-                vec![self.forward_block(peer, &hdr, &span)]
-            }
-            chain_selection::ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                tip: _,
-                fork,
-            }) => self.switch_to_fork(&peer, &rollback_point, fork, &span),
-            chain_selection::ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, "no_change");
-                vec![]
-            }
-        };
-
-        Ok(events)
+        select_chain::select(self.chain_selector.clone(), peer, header).await
     }
 
     #[instrument(
@@ -184,27 +124,7 @@ impl Consensus {
         peer: &Peer,
         rollback: &Point,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        let result = self
-            .chain_selector
-            .lock()
-            .await
-            .select_rollback(peer, Hash::from(rollback));
-
-        let span = Span::current();
-
-        match result {
-            RollbackChainSelection::RollbackTo(hash) => {
-                trace!(target: EVENT_TARGET, %hash, "rollback");
-                Ok(vec![ValidateHeaderEvent::Rollback(rollback.clone(), span)])
-            }
-            RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-                tip: _,
-            }) => Ok(self.switch_to_fork(&peer, &rollback_point, fork, &span)),
-            RollbackChainSelection::NoChange => Ok(vec![]),
-        }
+        select_chain::select_rollback(self.chain_selector.clone(), peer, rollback).await
     }
 
     pub async fn handle_chain_sync(
