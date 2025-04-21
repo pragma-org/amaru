@@ -23,6 +23,12 @@ pub mod receive_header;
 pub mod store;
 
 #[derive(Clone, Debug)]
+pub enum PullEvent {
+    RollForward(Peer, Point, Vec<u8>, Span),
+    Rollback(Peer, Point),
+}
+
+#[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
     Validated(Peer, Point, Span),

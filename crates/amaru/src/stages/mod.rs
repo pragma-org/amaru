@@ -17,6 +17,7 @@ use amaru_consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         header_validation::Consensus,
         store::ChainStore,
+        PullEvent,
     },
     peer::Peer,
     ConsensusError, IsHeader,
@@ -24,9 +25,7 @@ use amaru_consensus::{
 use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header};
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB};
 use consensus::{
-    chain_forward::ForwardStage,
-    fetch::BlockFetchStage,
-    validate_header::{PullEvent, ValidateHeaderStage},
+    chain_forward::ForwardStage, fetch::BlockFetchStage, validate_header::ValidateHeaderStage,
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},

@@ -12,20 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::{
-    consensus::{header_validation::Consensus, ValidateHeaderEvent},
-    peer::Peer,
-};
-use amaru_kernel::Point;
+use amaru_consensus::consensus::{header_validation::Consensus, PullEvent, ValidateHeaderEvent};
 use gasket::framework::*;
-use tracing::Span;
-use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-#[derive(Clone, Debug)]
-pub enum PullEvent {
-    RollForward(Peer, Point, Vec<u8>, Span),
-    Rollback(Peer, Point),
-}
 
 pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
@@ -48,21 +36,7 @@ impl ValidateHeaderStage {
     }
 
     async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
-        let events = match unit {
-            PullEvent::RollForward(peer, point, raw_header, span) => {
-                // Restore parent span
-                Span::current().set_parent(span.context());
-                self.consensus
-                    .handle_roll_forward(peer, point, raw_header)
-                    .await
-                    .or_panic()?
-            }
-            PullEvent::Rollback(peer, rollback) => self
-                .consensus
-                .handle_roll_back(peer, rollback)
-                .await
-                .or_panic()?,
-        };
+        let events = self.consensus.handle_chain_sync(unit).await.or_panic()?;
 
         for event in events {
             self.downstream.send(event.into()).await.or_panic()?;

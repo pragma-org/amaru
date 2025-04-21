@@ -29,7 +29,8 @@ use tokio::sync::Mutex;
 use tracing::{instrument, trace, Level, Span};
 
 use super::{
-    chain_selection::RollbackChainSelection, receive_header::receive_header, ValidateHeaderEvent,
+    chain_selection::RollbackChainSelection, receive_header::receive_header, PullEvent,
+    ValidateHeaderEvent,
 };
 
 const EVENT_TARGET: &str = "amaru::consensus";
@@ -219,6 +220,18 @@ impl Consensus {
                 tip: _,
             }) => Ok(self.switch_to_fork(&peer, &rollback_point, fork, &span)),
             RollbackChainSelection::NoChange => Ok(vec![]),
+        }
+    }
+
+    pub async fn handle_chain_sync(
+        &mut self,
+        chain_sync: &PullEvent,
+    ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
+        match chain_sync {
+            PullEvent::RollForward(peer, point, raw_header, _span) => {
+                self.handle_roll_forward(peer, point, raw_header).await
+            }
+            PullEvent::Rollback(peer, rollback) => self.handle_roll_back(peer, rollback).await,
         }
     }
 }
