@@ -152,7 +152,7 @@ async fn run_simulator(
     input_reader: &mut impl MessageReader,
     output_writer: Arc<Mutex<OutputWriter>>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
-    consensus: &mut ValidateHeader,
+    validate_header: &mut ValidateHeader,
     store_header: &mut StoreHeader,
     select_chain: &mut SelectChain,
 ) {
@@ -173,13 +173,13 @@ async fn run_simulator(
                 // validate stage
                 let validation_event = match chain_sync_event {
                     Ok(event) => match event {
-                        PullEvent::RollForward(peer, point, raw_header, _span) => consensus
+                        PullEvent::RollForward(peer, point, raw_header, _span) => validate_header
                             .handle_roll_forward(&peer, &point, &raw_header)
                             .await
                             .expect("unexpected error on roll forward"),
                         PullEvent::Rollback(_, _) => event,
                     },
-                    Err(_) => todo!(),
+                    Err(_) => panic!("got error validating chain sync"),
                 };
 
                 // store header stage

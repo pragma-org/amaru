@@ -32,7 +32,7 @@ pub struct ReceiveHeaderStage {
 
 impl ReceiveHeaderStage {
     async fn handle_event(&mut self, unit: &ChainSyncEvent) -> Result<(), WorkerError> {
-        let event = receive_header::handle_chain_sync(unit).or_panic()?;
+        let event = receive_header::handle_chain_sync(unit).map_err(|_| WorkerError::Recv)?;
 
         self.downstream.send(event.into()).await.or_panic()?;
 

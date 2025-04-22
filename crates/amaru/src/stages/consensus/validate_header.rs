@@ -40,9 +40,16 @@ impl ValidateHeaderStage {
     }
 
     async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
-        let event = self.consensus.handle_chain_sync(unit).await.or_panic()?;
+        let event = self
+            .consensus
+            .handle_chain_sync(unit)
+            .await
+            .map_err(|_| WorkerError::Recv)?;
 
-        self.downstream.send(event.into()).await.or_panic()?;
+        self.downstream
+            .send(event.into())
+            .await
+            .map_err(|_| WorkerError::Panic)?;
 
         Ok(())
     }
