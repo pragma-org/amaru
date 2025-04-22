@@ -22,7 +22,7 @@ use amaru_consensus::consensus::{
     store::ChainStore,
     store_header::StoreHeader,
     validate_header::ValidateHeader,
-    ChainSyncEvent, PullEvent, ValidateHeaderEvent,
+    ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
 };
 use amaru_consensus::peer::Peer;
 use amaru_kernel::network::NetworkName;
@@ -173,11 +173,13 @@ async fn run_simulator(
                 // validate stage
                 let validation_event = match chain_sync_event {
                     Ok(event) => match event {
-                        PullEvent::RollForward(peer, point, raw_header, _span) => validate_header
-                            .handle_roll_forward(&peer, &point, &raw_header)
-                            .await
-                            .expect("unexpected error on roll forward"),
-                        PullEvent::Rollback(_, _) => event,
+                        DecodedChainSyncEvent::RollForward(peer, point, raw_header, _span) => {
+                            validate_header
+                                .handle_roll_forward(&peer, &point, &raw_header)
+                                .await
+                                .expect("unexpected error on roll forward")
+                        }
+                        DecodedChainSyncEvent::Rollback(_, _) => event,
                     },
                     Err(_) => panic!("got error validating chain sync"),
                 };

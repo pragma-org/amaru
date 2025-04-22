@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{receive_header, ChainSyncEvent, PullEvent};
+use amaru_consensus::consensus::{receive_header, ChainSyncEvent, DecodedChainSyncEvent};
 use gasket::framework::*;
 use tracing::{instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ChainSyncEvent>;
-pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
 #[derive(Default, Stage)]
 #[stage(

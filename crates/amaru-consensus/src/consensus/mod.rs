@@ -34,7 +34,7 @@ pub enum ChainSyncEvent {
 
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
-pub enum PullEvent {
+pub enum DecodedChainSyncEvent {
     RollForward(Peer, Point, Header, Span),
     Rollback(Peer, Point),
 }

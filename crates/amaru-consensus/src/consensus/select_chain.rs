@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{chain_selection::RollbackChainSelection, PullEvent, ValidateHeaderEvent};
+use super::{chain_selection::RollbackChainSelection, DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::{
     consensus::{
         chain_selection::{self, ChainSelector, Fork},
@@ -127,13 +127,15 @@ impl SelectChain {
 
     pub async fn handle_chain_sync(
         &mut self,
-        chain_sync: &PullEvent,
+        chain_sync: &DecodedChainSyncEvent,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         match chain_sync {
-            PullEvent::RollForward(peer, _point, header, _span) => {
+            DecodedChainSyncEvent::RollForward(peer, _point, header, _span) => {
                 self.select_chain(peer, header).await
             }
-            PullEvent::Rollback(peer, rollback) => self.select_rollback(peer, rollback).await,
+            DecodedChainSyncEvent::Rollback(peer, rollback) => {
+                self.select_rollback(peer, rollback).await
+            }
         }
     }
 }

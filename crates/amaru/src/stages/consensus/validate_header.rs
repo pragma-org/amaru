@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{validate_header::ValidateHeader, PullEvent};
+use amaru_consensus::consensus::{validate_header::ValidateHeader, DecodedChainSyncEvent};
 use gasket::framework::*;
 
-pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
-pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
+pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
 #[derive(Stage)]
 #[stage(
     name = "consensus.validate_header",
-    unit = "PullEvent",
+    unit = "DecodedChainSyncEvent",
     worker = "Worker"
 )]
 pub struct ValidateHeaderStage {
@@ -39,7 +39,7 @@ impl ValidateHeaderStage {
         }
     }
 
-    async fn handle_event(&mut self, unit: &PullEvent) -> Result<(), WorkerError> {
+    async fn handle_event(&mut self, unit: &DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self
             .consensus
             .handle_chain_sync(unit)
@@ -66,7 +66,7 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
     async fn schedule(
         &mut self,
         stage: &mut ValidateHeaderStage,
-    ) -> Result<WorkSchedule<PullEvent>, WorkerError> {
+    ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
 
         Ok(WorkSchedule::Unit(unit.payload))
@@ -74,7 +74,7 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
 
     async fn execute(
         &mut self,
-        unit: &PullEvent,
+        unit: &DecodedChainSyncEvent,
         stage: &mut ValidateHeaderStage,
     ) -> Result<(), WorkerError> {
         stage.handle_event(unit).await

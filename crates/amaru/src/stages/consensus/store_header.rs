@@ -12,14 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{store_header::StoreHeader, PullEvent};
+use amaru_consensus::consensus::{store_header::StoreHeader, DecodedChainSyncEvent};
 use gasket::framework::*;
 
-pub type UpstreamPort = gasket::messaging::InputPort<PullEvent>;
-pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
+pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
 #[derive(Stage)]
-#[stage(name = "consensus.store_header", unit = "PullEvent", worker = "Worker")]
+#[stage(
+    name = "consensus.store_header",
+    unit = "DecodedChainSyncEvent",
+    worker = "Worker"
+)]
 pub struct StoreHeaderStage {
     pub store_header: StoreHeader,
     pub upstream: UpstreamPort,
@@ -35,7 +39,7 @@ impl StoreHeaderStage {
         }
     }
 
-    async fn handle_event(&mut self, event: &PullEvent) -> Result<(), WorkerError> {
+    async fn handle_event(&mut self, event: &DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self
             .store_header
             .handle_event(event)
@@ -59,7 +63,7 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
     async fn schedule(
         &mut self,
         stage: &mut StoreHeaderStage,
-    ) -> Result<WorkSchedule<PullEvent>, WorkerError> {
+    ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
 
         Ok(WorkSchedule::Unit(unit.payload))
@@ -67,7 +71,7 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
 
     async fn execute(
         &mut self,
-        unit: &PullEvent,
+        unit: &DecodedChainSyncEvent,
         stage: &mut StoreHeaderStage,
     ) -> Result<(), WorkerError> {
         stage.handle_event(unit).await

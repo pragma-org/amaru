@@ -18,7 +18,7 @@ use amaru_ouroboros_traits::IsHeader;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use super::PullEvent;
+use super::DecodedChainSyncEvent;
 
 pub struct StoreHeader {
     store: Arc<Mutex<dyn ChainStore<Header>>>,
@@ -37,13 +37,16 @@ impl StoreHeader {
             .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))
     }
 
-    pub async fn handle_event(&self, event: &PullEvent) -> Result<PullEvent, ConsensusError> {
+    pub async fn handle_event(
+        &self,
+        event: &DecodedChainSyncEvent,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         match event {
-            PullEvent::RollForward(_peer, point, header, _span) => {
+            DecodedChainSyncEvent::RollForward(_peer, point, header, _span) => {
                 self.store(point, header).await?;
                 Ok(event.clone())
             }
-            PullEvent::Rollback(_peer, _point) => Ok(event.clone()),
+            DecodedChainSyncEvent::Rollback(_peer, _point) => Ok(event.clone()),
         }
     }
 }

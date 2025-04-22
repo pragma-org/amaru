@@ -21,7 +21,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{instrument, Level, Span};
 
-use super::PullEvent;
+use super::DecodedChainSyncEvent;
 
 #[instrument(
     level = Level::TRACE,
@@ -81,7 +81,7 @@ impl ValidateHeader {
         peer: &Peer,
         point: &Point,
         header: &Header,
-    ) -> Result<PullEvent, ConsensusError> {
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         let Nonces {
             active: ref epoch_nonce,
             ..
@@ -95,7 +95,7 @@ impl ValidateHeader {
             self.ledger.as_ref(),
         )?;
 
-        Ok(PullEvent::RollForward(
+        Ok(DecodedChainSyncEvent::RollForward(
             peer.clone(),
             point.clone(),
             header.clone(),
@@ -105,13 +105,13 @@ impl ValidateHeader {
 
     pub async fn handle_chain_sync(
         &mut self,
-        chain_sync: &PullEvent,
-    ) -> Result<PullEvent, ConsensusError> {
+        chain_sync: &DecodedChainSyncEvent,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         match chain_sync {
-            PullEvent::RollForward(peer, point, header, _span) => {
+            DecodedChainSyncEvent::RollForward(peer, point, header, _span) => {
                 self.handle_roll_forward(peer, point, header).await
             }
-            PullEvent::Rollback(_, _) => Ok(chain_sync.clone()),
+            DecodedChainSyncEvent::Rollback(_, _) => Ok(chain_sync.clone()),
         }
     }
 }
