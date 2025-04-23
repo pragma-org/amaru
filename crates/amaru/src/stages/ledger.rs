@@ -53,7 +53,7 @@ impl<S: Store + Send> ValidateBlockStage<S> {
         )
     }
 
-    pub fn roll_forward(&mut self, point: Point, raw_block: RawBlock) -> anyhow::Result<()> {
+    pub fn roll_forward(&mut self, point: Point, raw_block: &RawBlock) -> anyhow::Result<()> {
         let mut ctx = context::DefaultPreparationContext::new();
 
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
@@ -102,7 +102,7 @@ impl<S: Store + Send> ValidateBlockStage<S> {
     pub fn roll_forward_wrapper(
         &mut self,
         point: Point,
-        raw_block: RawBlock,
+        raw_block: &RawBlock,
         span: Span,
     ) -> anyhow::Result<BlockValidationResult> {
         match self.roll_forward(point.clone(), raw_block) {
@@ -165,7 +165,7 @@ impl<S: Store + Send> gasket::framework::Worker<ValidateBlockStage<S>> for Worke
     ) -> Result<(), WorkerError> {
         let result = match unit {
             ValidateBlockEvent::Validated { point, block, span } => stage
-                .roll_forward_wrapper(point.clone(), block.to_vec(), restore_span(span))
+                .roll_forward_wrapper(point.clone(), block, restore_span(span))
                 .or_panic()?,
 
             ValidateBlockEvent::Rollback {
