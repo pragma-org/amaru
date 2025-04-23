@@ -122,7 +122,7 @@ impl Stage {
         name = "pull.roll_backward",
         skip_all,
         fields(
-            point = ?point,
+            point = %point,
             peer = self.peer_session.peer.name,
         ),
     )]
