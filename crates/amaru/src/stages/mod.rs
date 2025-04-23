@@ -19,9 +19,9 @@ use amaru_consensus::{
         store::ChainStore,
     },
     peer::Peer,
-    ConsensusError,
+    ConsensusError, IsHeader,
 };
-use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header, Point};
+use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header};
 use amaru_stores::rocksdb::{
     consensus::RocksDBStore,
     {RocksDB, RocksDBHistoricalStores},
@@ -35,7 +35,10 @@ use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
     runtime::Tether,
 };
-use pallas_network::facades::PeerClient;
+use pallas_network::{
+    facades::PeerClient,
+    miniprotocols::{chainsync::Tip, Point},
+};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -50,6 +53,9 @@ pub struct Config {
     pub chain_dir: PathBuf,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
+    pub network_magic: u32,
+    pub listen_address: String,
+    pub max_downstream_peers: usize,
 }
 
 /// A session with a peer, including the peer itself and a client to communicate with it.
@@ -90,7 +96,18 @@ pub fn bootstrap(
         .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
         .collect::<Vec<_>>();
     let chain_store = RocksDBStore::new(config.chain_dir.clone(), era_history)?;
-    let chain_selector = make_chain_selector(tip, &chain_store, &peer_sessions)?;
+
+    let our_tip = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
+        #[allow(clippy::expect_used)]
+        let header: Header = chain_store
+            .load_header(&Hash::from(&**hash))
+            .expect("Tip not found");
+        Tip(header.pallas_point(), header.block_height())
+    } else {
+        Tip(Point::Origin, 0)
+    };
+
+    let chain_selector = make_chain_selector(tip.clone(), &chain_store, &peer_sessions)?;
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let consensus = Consensus::new(
         Box::new(ledger.state.view_stake_distribution()),
@@ -99,7 +116,14 @@ pub fn bootstrap(
     );
 
     let mut consensus_stage = HeaderStage::new(consensus);
-    let mut block_forward = ForwardStage::new(chain_ref.clone());
+    let mut block_forward = ForwardStage::new(
+        None,
+        chain_ref.clone(),
+        config.network_magic as u64,
+        &config.listen_address,
+        config.max_downstream_peers,
+        our_tip,
+    );
 
     let (to_block_fetch, from_consensus_stage) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
@@ -138,7 +162,7 @@ pub fn bootstrap(
 }
 
 fn make_chain_selector(
-    tip: Point,
+    tip: amaru_kernel::Point,
     chain_store: &impl ChainStore<Header>,
     peers: &Vec<PeerSession>,
 ) -> Result<Arc<Mutex<ChainSelector<Header>>>, ConsensusError> {
@@ -155,4 +179,39 @@ fn make_chain_selector(
     }
 
     Ok(Arc::new(Mutex::new(builder.build()?)))
+}
+
+pub trait PallasPoint {
+    fn pallas_point(&self) -> pallas_network::miniprotocols::Point;
+}
+
+impl PallasPoint for Header {
+    fn pallas_point(&self) -> pallas_network::miniprotocols::Point {
+        to_pallas_point(&self.point())
+    }
+}
+
+impl PallasPoint for amaru_kernel::Point {
+    fn pallas_point(&self) -> pallas_network::miniprotocols::Point {
+        to_pallas_point(self)
+    }
+}
+
+fn to_pallas_point(point: &amaru_kernel::Point) -> pallas_network::miniprotocols::Point {
+    match point {
+        amaru_kernel::Point::Origin => pallas_network::miniprotocols::Point::Origin,
+        amaru_kernel::Point::Specific(slot, hash) => {
+            pallas_network::miniprotocols::Point::Specific(*slot, hash.clone())
+        }
+    }
+}
+
+pub trait AsTip {
+    fn as_tip(&self) -> Tip;
+}
+
+impl AsTip for Header {
+    fn as_tip(&self) -> Tip {
+        Tip(self.pallas_point(), self.block_height())
+    }
 }

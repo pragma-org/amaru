@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory, GovActionId,
-    Lovelace, Point, PoolId, PoolParams, Proposal, ProposalPointer, Set, StakeCredential,
+    network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory, Lovelace, Point,
+    PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential,
     TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME,
     STAKE_CREDENTIAL_DEPOSIT,
 };
@@ -33,14 +33,14 @@ use std::{
     path::PathBuf,
     sync::LazyLock,
 };
-use tracing::info;
+use tracing::{info, warn};
 
 const BATCH_SIZE: usize = 5000;
 
 static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
     LazyLock::new(|| CertificatePointer {
-        transaction_pointer: TransactionPointer {
-            slot: From::from(0),
+        transaction: TransactionPointer {
+            slot: Slot::from(0),
             transaction_index: 0,
         },
         certificate_index: 0,
@@ -92,9 +92,10 @@ enum Error {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let era_history = args.network.into();
+    let network = args.network;
+    let era_history = network.into();
     if !args.snapshot.is_empty() {
-        import_all(&args.snapshot, &args.ledger_dir, era_history).await
+        import_all(&args.snapshot, &args.ledger_dir, &network, era_history).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
         let mut snapshots = fs::read_dir(snapshot_dir)?
             .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -102,7 +103,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .collect::<Vec<_>>();
         snapshots.sort();
 
-        import_all(&snapshots, &args.ledger_dir, era_history).await
+        import_all(&snapshots, &args.ledger_dir, &network, era_history).await
     } else {
         Err(Error::IncorrectUsage.into())
     }
@@ -111,11 +112,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 async fn import_all(
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
+    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
-        import_one(snapshot, ledger_dir, era_history).await?;
+        import_one(snapshot, ledger_dir, network, era_history).await?;
     }
     Ok(())
 }
@@ -124,6 +126,7 @@ async fn import_all(
 async fn import_one(
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
+    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing snapshot {}", snapshot.display());
@@ -140,7 +143,7 @@ async fn import_one(
     let db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, network, era_history)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,
@@ -174,6 +177,7 @@ fn decode_new_epoch_state(
     db: &(impl Store + 'static),
     bytes: &[u8],
     point: &Point,
+    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<u64, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
@@ -220,7 +224,7 @@ fn decode_new_epoch_state(
             {
                 d.array()?;
 
-                import_dreps(db, point, d.decode()?)?;
+                import_dreps(db, point, epoch, network, d.decode()?)?;
 
                 // Committee
                 d.skip()?;
@@ -293,7 +297,7 @@ fn decode_new_epoch_state(
                     // Proposals
                     d.array()?;
                     d.skip()?; // Proposals roots
-                    import_proposals(db, point, d.decode()?)?;
+                    import_proposals(db, point, era_history, d.decode()?)?;
 
                     // Constitutional committee
                     d.skip()?;
@@ -452,6 +456,8 @@ fn import_utxo(
 fn import_dreps(
     db: &impl Store,
     point: &Point,
+    epoch: Epoch,
+    network: &NetworkName,
     dreps: HashMap<StakeCredential, DRepState>,
 ) -> Result<(), impl std::error::Error> {
     let transaction = db.create_transaction();
@@ -471,12 +477,29 @@ fn import_dreps(
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: dreps.into_iter().map(|(credential, state)| {
+                // First DRep registrations in Conway are granted an extra epoch of expiry; because
+                // the first Conway epoch is deemed as "dormant" (not proposal in the epoch
+                // prior), and a bug in verison 9 is causing new DRep registrations to benefits
+                // from this extra epoch.
+                let early_conway_workaround =
+                    if network == &NetworkName::Preprod {
+                        if epoch == 163 {
+                            1
+                        } else {
+                            0
+                        }
+
+                    } else {
+                        warn!(%network, "early conway workaround not available; drep registration epoch may be invalid");
+                        0
+                    };
+
                 (
                     credential,
                     (
                         Resettable::from(Option::from(state.anchor)),
                         Some((state.deposit, *DEFAULT_CERTIFICATE_POINTER)),
-                        state.expiry - DREP_EXPIRY,
+                        state.expiry - DREP_EXPIRY - early_conway_workaround,
                     ),
                 )
             }),
@@ -493,8 +516,9 @@ fn import_dreps(
 fn import_proposals(
     db: &impl Store,
     point: &Point,
+    era_history: &EraHistory,
     proposals: Vec<ProposalState>,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
         for (_, mut handle) in iterator {
@@ -513,25 +537,35 @@ fn import_proposals(
             accounts: iter::empty(),
             dreps: iter::empty(),
             cc_members: iter::empty(),
-            proposals: proposals.into_iter().map(|proposal| {
-                (
-                    ProposalPointer {
-                        transaction: proposal.id.transaction_id,
-                        proposal_index: proposal.id.action_index as usize,
-                    },
-                    proposals::Value {
-                        proposed_in: proposal.proposed_in,
-                        valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
-                        proposal: proposal.procedure,
-                    },
-                )
-            }),
+            proposals: proposals
+                .into_iter()
+                .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
+                    let proposal_index = proposal.id.action_index as usize;
+                    Ok((
+                        proposal.id,
+                        proposals::Value {
+                            proposed_in: ProposalPointer {
+                                transaction: TransactionPointer {
+                                    slot: era_history.epoch_bounds(proposal.proposed_in)?.start,
+                                    transaction_index: 0,
+                                },
+                                proposal_index,
+                            },
+                            valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
+                            proposal: proposal.procedure,
+                        },
+                    ))
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter(),
         },
         Default::default(),
         iter::empty(),
         BTreeSet::new(),
     )?;
-    transaction.commit()
+    transaction.commit()?;
+
+    Ok(())
 }
 
 fn import_stake_pools(
@@ -807,7 +841,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for DRepState {
 
 #[derive(Debug)]
 struct ProposalState {
-    id: GovActionId,
+    id: ProposalId,
     procedure: Proposal,
     proposed_in: Epoch,
     #[allow(dead_code)]

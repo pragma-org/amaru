@@ -14,6 +14,12 @@
     "from": "verificationKey",
     "id": "8b75035882d4165bea8000c4d3f2c123ae33c1d92a751a78135a2402"
   },
+  "dc9cc61187d01e9046db06a035f9f8b5671c49c068e7c6d5321dea63": {
+    "type": "abstain"
+  },
+  "e55000d63da7fccdd8bb12dcb5be3a5528ec4d6584aa9c128d8ccd70": {
+    "type": "abstain"
+  },
   "02e420a5fd6cde2e0f3bcabe3bc134c626ee68ed53712faa3d9cd14a": {
     "type": "registered",
     "from": "verificationKey",
@@ -54,6 +60,9 @@
     "type": "registered",
     "from": "verificationKey",
     "id": "5bfef20b43131c5ca870846b561ef4f395add12019e9c7a47f756d44"
+  },
+  "199433032240ef315df3b6a0b8a3ef9a4bc74ae08b2608405fa9de63": {
+    "type": "abstain"
   },
   "1bf1e138f2f8beabc963c94cc28ee8ed4b41744601f2edaf50b21efd": {
     "type": "registered",
@@ -134,6 +143,9 @@
     "from": "script",
     "id": "763ef75661f0cd8c8fa159a79d79bfe8f9a76878bdaaff700598ee0e"
   },
+  "4199f66b16ce9eb5849ed96473face025b2e9bcbdf1e352ad4362981": {
+    "type": "abstain"
+  },
   "4550dac0a8361f5c64ce9d0e22f18a5306bd455ca20205fc995c4d62": {
     "type": "registered",
     "from": "verificationKey",
@@ -186,6 +198,9 @@
     "type": "registered",
     "from": "verificationKey",
     "id": "ed11d1ad4d95806b4443576724a4c5b57b93dc15eca5a3f46d235a9e"
+  },
+  "5b7857667a18e87d8927a6f004086495e0aba415639dc1434cb5900e": {
+    "type": "abstain"
   },
   "5e57fc7cd5b6208feb4d2a93438df531bd731cd2858175451e140cd5": {
     "type": "noConfidence"
@@ -244,6 +259,9 @@
     "type": "registered",
     "from": "verificationKey",
     "id": "b0111edb19e227b39b08283388c00e253bf4083deab5d39577ef35c2"
+  },
+  "6e4fc43cea7966f7c79a2687bf76ee8f7611d0099dcb932ed7729567": {
+    "type": "abstain"
   },
   "70a56a620685e39da9449c085ce536621d4518e6d1e2ee880b09dfe5": {
     "type": "abstain"
@@ -306,6 +324,9 @@
     "from": "verificationKey",
     "id": "b0111edb19e227b39b08283388c00e253bf4083deab5d39577ef35c2"
   },
+  "9fd6a98ce4cdb52751d54afbe41e9db16e84d33a822355f37d74454d": {
+    "type": "abstain"
+  },
   "a11419cc620cf80e76bf0993b91fcefe57bc16d61bdb878c08f58062": {
     "type": "abstain"
   },
@@ -313,6 +334,9 @@
     "type": "registered",
     "from": "verificationKey",
     "id": "e04d73abcdffb31364d8ddc260377c35973a6f91a132241a642bebd6"
+  },
+  "a48aeaf7b25c62c2050667564f655e4817c23f41b11453278225b2dd": {
+    "type": "abstain"
   },
   "a6eba4752133fb46424976c48c1acd4f66264d33a4c757fbde3caf84": {
     "type": "registered",
@@ -379,6 +403,9 @@
   "beff48ff154383e37fccfb14a04b4085c684bf5072a6dd13324274db": {
     "type": "abstain"
   },
+  "bf2918313bb37a1311413dfe8b601d0669db5d98dedfe1d2b6b61b9f": {
+    "type": "abstain"
+  },
   "bfaa385c8eab7bbdc6c98b50413435b3d02b73de3c644e1384b801d4": {
     "type": "registered",
     "from": "script",
@@ -438,6 +465,9 @@
     "from": "verificationKey",
     "id": "5bfef20b43131c5ca870846b561ef4f395add12019e9c7a47f756d44"
   },
+  "d35e3b124ebb4d282b06ca8a88bc5f938d791e39c23893b56863eabd": {
+    "type": "abstain"
+  },
   "d3e3c4bf80f3ac8641af4a99214363bf4060deba1ed5c0d830b62c9e": {
     "type": "registered",
     "from": "verificationKey",
@@ -489,6 +519,9 @@
     "type": "registered",
     "from": "verificationKey",
     "id": "fa6a8dc2635dddcf9af495cb144f7eb4ff845866fe48695ad7cb65d3"
+  },
+  "eee790c7bb9c497f716fcec7d92a4d68c27b48c9e301b7c547c653cd": {
+    "type": "abstain"
   },
   "f1a8e379127b811583070faf74db00d880d45027fe6171b1b69bd9ca": {
     "type": "registered",

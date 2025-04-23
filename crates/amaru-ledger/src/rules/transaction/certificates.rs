@@ -48,7 +48,7 @@ pub enum InvalidCertificates {
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    transaction_pointer: TransactionPointer,
+    transaction: TransactionPointer,
     certificates: Option<NonEmptySet<Certificate>>,
 ) -> Result<(), InvalidCertificates>
 where
@@ -63,7 +63,7 @@ where
             execute_one(
                 context,
                 CertificatePointer {
-                    transaction_pointer,
+                    transaction,
                     certificate_index,
                 },
                 certificate,

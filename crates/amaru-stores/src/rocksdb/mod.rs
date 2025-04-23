@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    Epoch, EraHistory, Lovelace, Point, PoolId, StakeCredential, TransactionInput,
-    TransactionOutput,
+    stake_credential_hash, stake_credential_type, Epoch, EraHistory, Lovelace, Point, PoolId,
+    StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -156,6 +156,18 @@ impl RocksDB {
 
     fn transaction_committed(&self) {
         self.ongoing_transaction.store(false, Ordering::SeqCst);
+    }
+
+    fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
+        &self,
+        key: &str,
+    ) -> Result<Option<T>, StoreError> {
+        self.db
+            .get(key)
+            .map_err(|err| StoreError::Internal(err.into()))?
+            .map(|bytes| cbor::decode(&bytes))
+            .transpose()
+            .map_err(StoreError::Undecodable)
     }
 }
 
@@ -312,6 +324,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     #[instrument(
         level = Level::TRACE,
+        target = EVENT_TARGET,
         skip_all,
     )]
     fn reset_fees(&self) -> Result<(), StoreError> {
@@ -322,6 +335,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     #[instrument(
         level = Level::TRACE,
+        target = EVENT_TARGET,
         name = "reset.blocks_count",
         skip_all,
     )]
@@ -338,6 +352,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     #[instrument(
         level = Level::TRACE,
+        target = EVENT_TARGET,
         name = "snapshot.applying_rewards",
         skip_all,
     )]
@@ -357,6 +372,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     #[instrument(
         level = Level::TRACE,
+        target = EVENT_TARGET,
         name= "snapshot.adjusting_pots",
         skip_all,
     )]
@@ -417,12 +433,12 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
                 utxo::add(&self.transaction, add.utxo)?;
                 pools::add(&self.transaction, add.pools)?;
+                dreps::add(&self.transaction, add.dreps)?;
                 accounts::add(&self.transaction, add.accounts)?;
                 cc_members::add(&self.transaction, add.cc_members)?;
+                proposals::add(&self.transaction, add.proposals)?;
 
                 accounts::reset_many(&self.transaction, withdrawals)?;
-
-                dreps::add(&self.transaction, add.dreps)?;
                 dreps::tick(&self.transaction, voting_dreps, {
                     let slot = point.slot_or_default();
                     self.db
@@ -430,7 +446,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                         .slot_to_epoch(slot)
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
-                proposals::add(&self.transaction, add.proposals)?;
 
                 utxo::remove(&self.transaction, remove.utxo)?;
                 pools::remove(&self.transaction, remove.pools)?;
@@ -449,12 +464,20 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
             0,
             |leftovers, (account, deposit)| {
+                info!(
+                    target: EVENT_TARGET,
+                    type = %stake_credential_type(&account),
+                    account = %stake_credential_hash(&account),
+                    %deposit,
+                    "refund"
+                );
                 Ok(leftovers
                     + accounts::set(&self.transaction, account, |balance| balance + deposit)?)
             },
         )?;
 
         if leftovers > 0 {
+            info!(target: EVENT_TARGET, ?leftovers, "refund");
             let mut pots = pots::get(&self.transaction)?;
             pots.treasury += leftovers;
             pots::put(&self.transaction, pots)?;
@@ -543,7 +566,7 @@ impl Store for RocksDB {
         RocksDB::snapshots(&self.dir)
     }
 
-    #[instrument(level = Level::INFO, name = "snapshot", skip_all, fields(epoch = epoch))]
+    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch = epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
         if path.exists() {
@@ -576,12 +599,7 @@ impl Store for RocksDB {
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
-        self.db
-            .get(KEY_TIP)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|bytes| cbor::decode(&bytes))
-            .transpose()
-            .map_err(|err| StoreError::Tip(TipErrorKind::Undecodable(err)))?
+        self.get(KEY_TIP)?
             .ok_or(StoreError::Tip(TipErrorKind::Missing))
     }
 }

@@ -19,8 +19,9 @@ use super::{
 };
 use crate::store::{self, columns::*};
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Proposal,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput, GOV_ACTION_LIFETIME,
+    Anchor, CertificatePointer, ComparableProposalId, DRep, Epoch, Lovelace, Point, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential, TransactionInput,
+    TransactionOutput, GOV_ACTION_LIFETIME,
 };
 use std::collections::{BTreeSet, VecDeque};
 use tracing::error;
@@ -138,7 +139,7 @@ pub struct VolatileState {
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
-    pub proposals: DiffBind<ProposalPointer, Empty, Empty, Proposal>,
+    pub proposals: DiffBind<ComparableProposalId, Empty, Empty, (Proposal, ProposalPointer)>,
     pub fees: Lovelace,
 }
 
@@ -237,10 +238,10 @@ impl AnchoredVolatileState {
                         Bind {
                             left: anchor,
                             right: _,
-                            value: deposit,
+                            value: registration,
                         },
                     ): (_, Bind<_, Empty, _>)| {
-                        (credential, (anchor, deposit, epoch))
+                        (credential, (anchor, registration, epoch))
                     },
                 ),
                 cc_members: self.state.committee.registered.into_iter().map(
@@ -263,7 +264,7 @@ impl AnchoredVolatileState {
                         move |(
                             index,
                             (
-                                proposal_pointer,
+                                proposal_id,
                                 Bind {
                                     left: _,
                                     right: _,
@@ -272,10 +273,10 @@ impl AnchoredVolatileState {
                             ),
                         ): (usize, (_, Bind<_, Empty, _>))| {
                             match value {
-                                Some(proposal) => Some((
-                                    proposal_pointer,
+                                Some((proposal, proposed_in)) => Some((
+                                    ProposalId::from(proposal_id),
                                     proposals::Value {
-                                        proposed_in: epoch,
+                                        proposed_in,
                                         valid_until: epoch + GOV_ACTION_LIFETIME,
                                         proposal,
                                     },
@@ -298,7 +299,12 @@ impl AnchoredVolatileState {
                 accounts: self.state.accounts.unregistered.into_iter(),
                 dreps: self.state.dreps.unregistered.into_iter(),
                 cc_members: self.state.committee.unregistered.into_iter(),
-                proposals: self.state.proposals.unregistered.into_iter(),
+                proposals: self
+                    .state
+                    .proposals
+                    .unregistered
+                    .into_iter()
+                    .map(ProposalId::from),
             },
         }
     }

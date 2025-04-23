@@ -84,8 +84,8 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(test)]
 pub(crate) mod test {
     use super::Row;
-    use crate::store::columns::tests::any_certificate_pointer;
-    use amaru_kernel::{prop_cbor_roundtrip, DRep, Hash, Lovelace, PoolId};
+    use crate::store::columns::{dreps::tests::any_certificate_pointer, pools::tests::any_pool_id};
+    use amaru_kernel::{prop_cbor_roundtrip, DRep, Hash, Lovelace, StakeCredential};
     use proptest::{option, prelude::*};
 
     prop_cbor_roundtrip!(Row, any_row());
@@ -124,12 +124,10 @@ pub(crate) mod test {
         }
     }
 
-    prop_compose! {
-        pub(crate) fn any_pool_id()(
-            bytes in any::<[u8; 28]>(),
-        ) -> PoolId {
-            Hash::from(bytes)
-        }
-
+    pub(crate) fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
+        prop_oneof![
+            any::<[u8; 28]>().prop_map(|hash| StakeCredential::AddrKeyhash(Hash::new(hash))),
+            any::<[u8; 28]>().prop_map(|hash| StakeCredential::ScriptHash(Hash::new(hash))),
+        ]
     }
 }

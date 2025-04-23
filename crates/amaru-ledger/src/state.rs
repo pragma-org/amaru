@@ -21,7 +21,7 @@ use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{HistoricalStores, Progress, Store, StoreError, TransactionalContext},
     summary::{
-        governance::GovernanceSummary,
+        governance::{self, GovernanceSummary},
         rewards::{RewardsSummary, StakeDistribution},
     },
 };
@@ -120,7 +120,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let mut stake_distributions = VecDeque::new();
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
             stake_distributions.push_front(
-                recover_stake_distribution(&snapshots, epoch).unwrap_or_else(|e| {
+                recover_stake_distribution(&snapshots, epoch, era_history).unwrap_or_else(|e| {
                     // TODO deal with error
                     panic!(
                         "unable to get stake distribution for (epoch={:?}): {e:?}",
@@ -316,9 +316,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         )
         .map_err(StateError::Storage)?;
 
-        stake_distributions.push_front(
-            recover_stake_distribution(&self.snapshots, epoch).map_err(StateError::Storage)?,
-        );
+        stake_distributions.push_front(recover_stake_distribution(
+            &self.snapshots,
+            epoch,
+            &self.era_history,
+        )?);
 
         Ok(rewards_summary)
     }
@@ -401,7 +403,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 fn recover_stake_distribution(
     snapshots: &impl HistoricalStores,
     epoch: Epoch,
-) -> Result<StakeDistribution, StoreError> {
+    era_history: &EraHistory,
+) -> Result<StakeDistribution, StateError> {
     let snapshot = snapshots.for_epoch(epoch).unwrap_or_else(|e| {
         panic!(
             "unable to open database snapshot for epoch {:?}: {:?}",
@@ -409,10 +412,11 @@ fn recover_stake_distribution(
         )
     });
 
-    StakeDistribution::new(&snapshot, GovernanceSummary::new(&snapshot)?)
+    StakeDistribution::new(&snapshot, GovernanceSummary::new(&snapshot, era_history)?)
+        .map_err(StateError::Storage)
 }
 
-#[instrument(level = Level::TRACE, skip_all)]
+#[instrument(level = Level::INFO, skip_all, fields(epoch = current_epoch - 1))]
 fn epoch_transition<'store>(
     transaction: &mut impl TransactionalContext<'store>,
     current_epoch: Epoch,
@@ -423,6 +427,11 @@ fn epoch_transition<'store>(
     // Then we, can tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
     // the tick since the actions are only effective once the epoch is crossed.
+    //
+    // FIXME: We also need a mechanism to remove any remaining delegation to pools retired by this
+    // step. The accounts are already filtered out when computing rewards, but if any retired pool
+    // were to re-register, they would automatically be granted the stake associated to their past
+    // delegates.
     transaction
         .tick_pools(current_epoch)
         .map_err(StateError::Storage)?;
@@ -525,4 +534,15 @@ pub enum StateError {
     StakeDistributionNotAvailableForRewards,
     #[error("failed to compute epoch from slot {0:?}: {1}")]
     ErrorComputingEpoch(Slot, TimeHorizonError),
+}
+
+impl From<governance::Error> for StateError {
+    fn from(origin: governance::Error) -> Self {
+        match origin {
+            governance::Error::TimeHorizonError(slot, err) => {
+                StateError::ErrorComputingEpoch(slot, err)
+            }
+            governance::Error::StoreError(err) => StateError::Storage(err),
+        }
+    }
 }
