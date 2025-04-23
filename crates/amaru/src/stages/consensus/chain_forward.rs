@@ -86,6 +86,7 @@ impl ForwardStage {
     }
 }
 
+#[allow(clippy::large_enum_variant)]
 pub enum Unit {
     Peer(RefCell<Option<PeerServer>>),
     Block(BlockValidationResult),
