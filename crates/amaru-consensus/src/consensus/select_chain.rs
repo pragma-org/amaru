@@ -36,12 +36,7 @@ impl SelectChain {
         SelectChain { chain_selector }
     }
 
-    fn forward_block<H: IsHeader>(
-        &mut self,
-        peer: Peer,
-        header: H,
-        span: Span,
-    ) -> ValidateHeaderEvent {
+    fn forward_block<H: IsHeader>(&self, peer: Peer, header: H, span: Span) -> ValidateHeaderEvent {
         ValidateHeaderEvent::Validated {
             peer,
             point: header.point(),
@@ -50,7 +45,7 @@ impl SelectChain {
     }
 
     fn switch_to_fork(
-        &mut self,
+        &self,
         peer: Peer,
         rollback_point: Point,
         fork: Vec<Header>,
