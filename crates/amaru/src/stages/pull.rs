@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::PeerSession;
 use crate::point::{from_network_point, to_network_point};
-use amaru_consensus::RawHeader;
+use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
 use anyhow::anyhow;
 use gasket::framework::*;
@@ -22,8 +23,6 @@ use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
 use tokio::time::timeout;
 use tracing::{instrument, Level, Span};
-
-use super::{consensus::header::PullEvent, PeerSession};
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
     let out = match header.byron_prefix {
@@ -34,7 +33,7 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerE
     out.or_panic()
 }
 
-pub type DownstreamPort = gasket::messaging::OutputPort<PullEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
 pub enum WorkUnit {
     Pull,
@@ -110,7 +109,15 @@ impl Stage {
         let raw_header: RawHeader = header.cbor().to_vec();
 
         self.downstream
-            .send(PullEvent::RollForward(peer.clone(), point, raw_header, Span::current()).into())
+            .send(
+                ChainSyncEvent::RollForward {
+                    peer: peer.clone(),
+                    point,
+                    raw_header,
+                    span: Span::current(),
+                }
+                .into(),
+            )
             .await
             .or_panic()
     }
@@ -120,16 +127,23 @@ impl Stage {
         name = "pull.roll_backward",
         skip_all,
         fields(
-            point = ?point,
+            point = %rollback_point,
             peer = self.peer_session.peer.name,
         ),
     )]
-    pub async fn roll_back(&mut self, point: Point, tip: Tip) -> Result<(), WorkerError> {
+    pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
         self.track_tip(&tip);
 
         let peer = &self.peer_session.peer;
         self.downstream
-            .send(PullEvent::Rollback(peer.clone(), point).into())
+            .send(
+                ChainSyncEvent::Rollback {
+                    peer: peer.clone(),
+                    rollback_point,
+                    span: Span::current(),
+                }
+                .into(),
+            )
             .await
             .or_panic()
     }

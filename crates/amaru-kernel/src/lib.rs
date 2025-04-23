@@ -28,7 +28,12 @@ use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::conway::{Redeemer, RedeemersKey, RedeemersValue};
 use sha3::{Digest as _, Sha3_256};
 use std::{
-    array::TryFromSliceError, cmp::Ordering, convert::Infallible, ops::Deref, sync::LazyLock,
+    array::TryFromSliceError,
+    cmp::Ordering,
+    convert::Infallible,
+    fmt::{self, Display, Formatter},
+    ops::Deref,
+    sync::LazyLock,
 };
 
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
@@ -157,6 +162,18 @@ impl Point {
         match self {
             Point::Origin => From::from(0),
             Point::Specific(slot, _) => From::from(*slot),
+        }
+    }
+}
+
+impl Display for Point {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Point::Origin => write!(
+                f,
+                "0.0000000000000000000000000000000000000000000000000000000000000000"
+            ),
+            Point::Specific(slot, vec) => write!(f, "{}.{}", slot, hex::encode(vec)),
         }
     }
 }

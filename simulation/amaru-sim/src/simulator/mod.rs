@@ -15,12 +15,14 @@
 use std::{path::PathBuf, sync::Arc};
 
 use super::echo::Envelope;
-use amaru::stages::consensus::header::PullEvent;
 use amaru_consensus::consensus::{
     chain_selection::{ChainSelector, ChainSelectorBuilder},
-    header_validation::Consensus,
+    receive_header::handle_chain_sync,
+    select_chain::SelectChain,
     store::ChainStore,
-    ValidateHeaderEvent,
+    store_header::StoreHeader,
+    validate_header::ValidateHeader,
+    ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
 };
 use amaru_consensus::peer::Peer;
 use amaru_kernel::network::NetworkName;
@@ -32,6 +34,7 @@ use amaru_kernel::{
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use bytes::Bytes;
 use clap::Parser;
+use gasket::framework::WorkerError;
 use ledger::{populate_chain_store, FakeStakeDistribution};
 pub use pallas_crypto::hash::Hash;
 use sync::{
@@ -129,20 +132,29 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
             .collect::<Vec<_>>(),
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let mut consensus = Consensus::new(
-        Box::new(stake_distribution),
-        chain_ref.clone(),
-        chain_selector,
-    );
+    let mut consensus = ValidateHeader::new(Box::new(stake_distribution), chain_ref.clone());
 
-    run_simulator(&mut input_reader, output_writer, chain_ref, &mut consensus).await;
+    let mut store_header = StoreHeader::new(chain_ref.clone());
+    let mut select_chain = SelectChain::new(chain_selector);
+
+    run_simulator(
+        &mut input_reader,
+        output_writer,
+        chain_ref,
+        &mut consensus,
+        &mut store_header,
+        &mut select_chain,
+    )
+    .await;
 }
 
 async fn run_simulator(
     input_reader: &mut impl MessageReader,
     output_writer: Arc<Mutex<OutputWriter>>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
-    consensus: &mut Consensus,
+    validate_header: &mut ValidateHeader,
+    store_header: &mut StoreHeader,
+    select_chain: &mut SelectChain,
 ) {
     loop {
         let span = tracing::info_span!("simulator");
@@ -152,21 +164,37 @@ async fn run_simulator(
                 break;
             }
             Ok(msg) => {
-                let events = match mk_message(msg, span) {
+                // receive stage
+                let chain_sync_event =
+                    mk_message(msg, span).and_then(|chain_sync: ChainSyncEvent| {
+                        handle_chain_sync(chain_sync).map_err(|_| WorkerError::Recv)
+                    });
+
+                // validate stage
+                let validation_event = match chain_sync_event {
                     Ok(event) => match event {
-                        PullEvent::RollForward(peer, point, raw_header, _span) => {
-                            consensus
-                                .handle_roll_forward(&peer, &point, &raw_header)
-                                .await
-                        }
-                        PullEvent::Rollback(peer, rollback) => {
-                            consensus.handle_roll_back(&peer, &rollback).await
-                        }
+                        DecodedChainSyncEvent::RollForward {
+                            peer,
+                            point,
+                            header,
+                            ..
+                        } => validate_header
+                            .handle_roll_forward(peer, point, header)
+                            .await
+                            .expect("unexpected error on roll forward"),
+                        DecodedChainSyncEvent::Rollback { .. } => event,
                     },
-                    Err(_) => todo!(),
+                    Err(_) => panic!("got error validating chain sync"),
                 };
 
-                match events {
+                // store header stage
+                let store_event = match store_header.handle_event(validation_event).await {
+                    Ok(stored) => stored,
+                    Err(_) => panic!("got error storing event"),
+                };
+
+                // chain selection stage
+                match select_chain.handle_chain_sync(store_event).await {
                     Ok(events) => {
                         let mut w = output_writer.lock().await;
                         write_events(&mut w, &store, &events).await;
@@ -191,7 +219,7 @@ async fn write_events(
     let s = store.lock().await;
     for e in events {
         match e {
-            ValidateHeaderEvent::Validated(_peer, point, _span) => {
+            ValidateHeaderEvent::Validated { point, .. } => {
                 let h: Hash<32> = point.into();
                 let hdr = s.load_header(&h).unwrap();
                 let fwd = ChainSyncMessage::Fwd {
@@ -211,11 +239,11 @@ async fn write_events(
                 };
                 msgs.push(envelope);
             }
-            ValidateHeaderEvent::Rollback(point, _span) => {
-                let h: Hash<32> = point.into();
+            ValidateHeaderEvent::Rollback { rollback_point, .. } => {
+                let h: Hash<32> = rollback_point.into();
                 let fwd = ChainSyncMessage::Bck {
                     msg_id: 0, // FIXME
-                    slot: point.slot_or_default(),
+                    slot: rollback_point.slot_or_default(),
                     hash: Bytes {
                         bytes: (*h).to_vec(),
                     },

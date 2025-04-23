@@ -52,19 +52,29 @@ impl BlockFetchStage {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    async fn handle_event(&mut self, unit: &ValidateHeaderEvent) -> Result<(), WorkerError> {
-        match unit {
-            ValidateHeaderEvent::Validated(peer, point, span) => {
+    async fn handle_event(&mut self, event: ValidateHeaderEvent) -> Result<(), WorkerError> {
+        match event {
+            ValidateHeaderEvent::Validated { peer, point, span } => {
                 Span::current().set_parent(span.context());
-                let block = self.fetch_block(peer, point.clone()).await.or_panic()?;
+                let block = self.fetch_block(&peer, &point).await.or_panic()?;
                 self.downstream
-                    .send(ValidateBlockEvent::Validated(point.clone(), block, span.clone()).into())
+                    .send(ValidateBlockEvent::Validated { point, block, span }.into())
                     .await
                     .or_panic()?;
             }
-            ValidateHeaderEvent::Rollback(point, span) => {
+            ValidateHeaderEvent::Rollback {
+                rollback_point,
+                span,
+                ..
+            } => {
                 self.downstream
-                    .send(ValidateBlockEvent::Rollback(point.clone(), span.clone()).into())
+                    .send(
+                        ValidateBlockEvent::Rollback {
+                            rollback_point,
+                            span,
+                        }
+                        .into(),
+                    )
                     .await
                     .or_panic()?;
             }
@@ -73,7 +83,7 @@ impl BlockFetchStage {
         Ok(())
     }
 
-    async fn fetch_block(&self, peer: &Peer, point: Point) -> Result<Vec<u8>, ConsensusError> {
+    async fn fetch_block(&self, peer: &Peer, point: &Point) -> Result<Vec<u8>, ConsensusError> {
         // FIXME: should not crash if the peer is not found
         // the block should be fetched from any other valid peer
         // which is known to have it
@@ -92,7 +102,7 @@ impl BlockFetchStage {
         client
             .fetch_single(new_point)
             .await
-            .map_err(|_| ConsensusError::FetchBlockFailed(point))
+            .map_err(|_| ConsensusError::FetchBlockFailed(point.clone()))
     }
 }
 
@@ -118,6 +128,6 @@ impl gasket::framework::Worker<BlockFetchStage> for Worker {
         unit: &ValidateHeaderEvent,
         stage: &mut BlockFetchStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit).await
+        stage.handle_event(unit.clone()).await
     }
 }

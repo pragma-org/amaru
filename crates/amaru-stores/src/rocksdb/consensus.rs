@@ -1,4 +1,7 @@
-use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
+use amaru_consensus::{
+    consensus::store::{ChainStore, StoreError},
+    Nonces,
+};
 use amaru_kernel::{cbor, from_cbor, to_cbor, Hash};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
@@ -56,9 +59,9 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
             .and_then(from_cbor)
     }
 
-    fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
         self.db
-            .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(&nonces))
+            .put([&NONCES_PREFIX[..], &header[..]].concat(), to_cbor(nonces))
             .map_err(|e| StoreError::WriteError {
                 error: e.to_string(),
             })

@@ -12,19 +12,62 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point;
+use amaru_kernel::{Header, Point};
 use tracing::Span;
 
 use crate::peer::Peer;
 
 pub mod chain_selection;
-
-pub mod header_validation;
+pub mod receive_header;
+pub mod select_chain;
 pub mod store;
+pub mod store_header;
+pub mod validate_header;
+
+pub const EVENT_TARGET: &str = "amaru::consensus";
+
+#[derive(Clone, Debug)]
+pub enum ChainSyncEvent {
+    RollForward {
+        peer: Peer,
+        point: Point,
+        raw_header: Vec<u8>,
+        span: Span,
+    },
+    Rollback {
+        peer: Peer,
+        rollback_point: Point,
+        span: Span,
+    },
+}
+
+#[derive(Clone, Debug)]
+#[allow(clippy::large_enum_variant)]
+pub enum DecodedChainSyncEvent {
+    RollForward {
+        peer: Peer,
+        point: Point,
+        header: Header,
+        span: Span,
+    },
+    Rollback {
+        peer: Peer,
+        rollback_point: Point,
+        span: Span,
+    },
+}
 
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
-    Validated(Peer, Point, Span),
-    Rollback(Point, Span),
+    Validated {
+        peer: Peer,
+        point: Point,
+        span: Span,
+    },
+    Rollback {
+        peer: Peer,
+        rollback_point: Point,
+        span: Span,
+    },
 }
