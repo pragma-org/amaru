@@ -110,16 +110,13 @@ build-examples: ## Build all examples
 	@for dir in $(wildcard examples/*/.); do \
 		if [ -f $$dir/Makefile ]; then \
 			echo "Building $$dir"; \
-			$(MAKE) -C $$dir; \
-			if [ $$? != "0" ]; then \
-				exit $$?; \
-			fi; \
+			$(MAKE) -C $$dir || exit; \
 		fi; \
 	done
 
-all-ci-checks: ## Run all CI checks
+all-core-ci-checks:
 	@cargo fmt-amaru
 	@cargo clippy-amaru
 	@cargo test-amaru
-	@$(MAKE) build-examples
-	@$(MAKE) coverage-lconv
+
+all-ci-checks: all-core-ci-checks build-examples coverage-lconv ## Run all CI checks
