@@ -19,8 +19,8 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     store::{
-        columns as scolumns, Columns, HistoricalStores, OpenErrorKind, Progress, ReadOnlyStore,
-        Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
+        columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
+        ReadOnlyStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
     },
     summary::rewards::{Pots, RewardsSummary},
 };
@@ -62,7 +62,7 @@ const DIR_LIVE_DB: &str = "live";
 /// * key                     * value                                          *
 /// * ========================*=============================================== *
 /// * 'tip'                   * Point                                          *
-/// * 'progress'              * Progress                                       *
+/// * 'progress'              * EpochTransitionProgress                        *
 /// * 'pots'                  * (Lovelace, Lovelace, Lovelace)                 *
 /// * 'utxo:'TransactionInput * TransactionOutput                              *
 /// * 'pool:'PoolId           * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
@@ -91,6 +91,7 @@ pub struct RocksDB {
 impl RocksDB {
     pub fn snapshots(dir: &Path) -> Result<Vec<Epoch>, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
+
         for entry in fs::read_dir(dir)
             .map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?
             .by_ref()
@@ -114,6 +115,7 @@ impl RocksDB {
         }
 
         snapshots.sort();
+
         Ok(snapshots)
     }
 
@@ -306,20 +308,28 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         level = Level::TRACE,
         skip_all,
     )]
-    fn update_progress(&self, progress: Progress) -> Result<Option<Progress>, StoreError> {
+    fn try_epoch_transition(
+        &self,
+        from: Option<EpochTransitionProgress>,
+        to: Option<EpochTransitionProgress>,
+    ) -> Result<bool, StoreError> {
         let previous_progress = self
             .transaction
             .get(KEY_PROGRESS)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| cbor::decode(&bytes))
             .transpose()
-            .map_err(|err| StoreError::Internal(err.into()));
-        let mut buffer = Vec::new();
-        cbor::encode(progress, &mut buffer).map_err(|err| StoreError::Internal(err.into()))?;
+            .map_err(StoreError::Undecodable)?;
+
+        if previous_progress != from {
+            return Ok(false);
+        }
+
         self.transaction
-            .put(KEY_PROGRESS, buffer)
+            .put(KEY_PROGRESS, as_value(to))
             .map_err(|err| StoreError::Internal(err.into()))?;
-        previous_progress
+
+        Ok(true)
     }
 
     #[instrument(
@@ -569,6 +579,7 @@ impl Store for RocksDB {
     #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch = epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
+
         if path.exists() {
             // RocksDB error can't be created externally, so panic instead
             // It might be better to come up with a global error type
@@ -576,9 +587,9 @@ impl Store for RocksDB {
                 StoreError::Internal("Unable to remove existing snapshot directory".into())
             })?;
         }
+
         checkpoint::Checkpoint::new(&self.db)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .create_checkpoint(path)
+            .and_then(|handle| handle.create_checkpoint(path))
             .map_err(|err| StoreError::Internal(err.into()))?;
 
         Ok(())

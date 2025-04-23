@@ -16,8 +16,18 @@ pub mod columns;
 
 use crate::summary::rewards::{Pots, RewardsSummary};
 use amaru_kernel::{
-    cbor, expect_stake_credential, Epoch, Lovelace, Point, PoolId, StakeCredential,
-    TransactionInput, TransactionOutput,
+    // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
+    // instances for some types, and the macro rule handling that seems to be explicitly looking
+    // for 'minicbor' in scope, and not an alias of any sort...
+    cbor as minicbor,
+    expect_stake_credential,
+    Epoch,
+    Lovelace,
+    Point,
+    PoolId,
+    StakeCredential,
+    TransactionInput,
+    TransactionOutput,
 };
 use columns::*;
 use std::{
@@ -49,7 +59,7 @@ pub enum StoreError {
     #[error(transparent)]
     Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
     #[error("unable to decode database's value")]
-    Undecodable(#[from] cbor::decode::Error),
+    Undecodable(#[from] minicbor::decode::Error),
     #[error("error sending work unit through output port")]
     Send,
     #[error("error opening the store")]
@@ -103,8 +113,13 @@ pub trait Snapshot: ReadOnlyStore {
 pub trait Store: ReadOnlyStore {
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
-    fn most_recent_snapshot(&self) -> Option<Epoch> {
-        self.snapshots().unwrap_or_default().last().cloned()
+    #[allow(clippy::panic)]
+    fn most_recent_snapshot(&self) -> Epoch {
+        self.snapshots()
+            .unwrap_or_default()
+            .last()
+            .copied()
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
     }
 
     /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
@@ -133,40 +148,28 @@ pub trait HistoricalStores {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
 
-#[derive(Debug, PartialEq, Eq)]
-pub enum Progress {
-    Snapshot,
-    BlockProcessed,
-}
-
-impl<C> cbor::encode::Encode<C> for Progress {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        match self {
-            Progress::Snapshot => e.encode_with(0, ctx),
-            Progress::BlockProcessed => e.encode_with(1, ctx),
-        }?;
-        Ok(())
-    }
-}
-
-impl<'a, C> cbor::decode::Decode<'a, C> for Progress {
-    fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.decode_with(ctx).map(|v: u8| match v {
-            0 => Progress::Snapshot,
-            1 => Progress::BlockProcessed,
-            _ => unreachable!("invalid progress value"),
-        })
-    }
+#[derive(Debug, PartialEq, Eq, minicbor::Encode, minicbor::Decode)]
+pub enum EpochTransitionProgress {
+    #[n(0)]
+    EpochEnded,
+    #[n(1)]
+    SnapshotTaken,
+    #[n(2)]
+    EpochStarted,
 }
 
 /// A trait that provides a handle to perform atomic updates on the store.
 pub trait TransactionalContext<'a> {
-    /// Update the block processing process to State
-    fn update_progress(&self, new_progress: Progress) -> Result<Option<Progress>, StoreError>;
+    /// Try to update the epoch transition progress so that we can recover from interruption within an
+    /// epoch transition, if this ever happens.
+    ///
+    /// - return `True` and updates the store if the progress before the call matched the `from` argument.
+    /// - returns `False` and does not update the store otherwise.
+    fn try_epoch_transition(
+        &self,
+        from: Option<EpochTransitionProgress>,
+        to: Option<EpochTransitionProgress>,
+    ) -> Result<bool, StoreError>;
 
     fn reset_fees(&self) -> Result<(), StoreError>;
 
