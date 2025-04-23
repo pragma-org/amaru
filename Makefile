@@ -114,9 +114,9 @@ build-examples: ## Build all examples
 		fi; \
 	done
 
-all-core-ci-checks:
+all-ci-checks: ## Run all CI checks
 	@cargo fmt-amaru
 	@cargo clippy-amaru
 	@cargo test-amaru
-
-all-ci-checks: all-core-ci-checks build-examples coverage-lconv ## Run all CI checks
+	@$(MAKE) build-examples
+	@$(MAKE) coverage-lconv
