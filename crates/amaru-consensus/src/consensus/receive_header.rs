@@ -56,9 +56,11 @@ pub fn handle_chain_sync(
         ChainSyncEvent::Rollback {
             peer,
             rollback_point,
+            span,
         } => Ok(DecodedChainSyncEvent::Rollback {
             peer,
             rollback_point,
+            span,
         }),
     }
 }

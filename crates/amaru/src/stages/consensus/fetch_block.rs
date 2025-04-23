@@ -52,8 +52,8 @@ impl BlockFetchStage {
     }
 
     #[instrument(level = tracing::Level::TRACE, skip_all)]
-    async fn handle_event(&mut self, unit: ValidateHeaderEvent) -> Result<(), WorkerError> {
-        match unit {
+    async fn handle_event(&mut self, event: ValidateHeaderEvent) -> Result<(), WorkerError> {
+        match event {
             ValidateHeaderEvent::Validated { peer, point, span } => {
                 Span::current().set_parent(span.context());
                 let block = self.fetch_block(&peer, &point).await.or_panic()?;
@@ -65,6 +65,7 @@ impl BlockFetchStage {
             ValidateHeaderEvent::Rollback {
                 rollback_point,
                 span,
+                ..
             } => {
                 self.downstream
                     .send(

@@ -37,6 +37,7 @@ pub enum ChainSyncEvent {
     Rollback {
         peer: Peer,
         rollback_point: Point,
+        span: Span,
     },
 }
 
@@ -52,6 +53,7 @@ pub enum DecodedChainSyncEvent {
     Rollback {
         peer: Peer,
         rollback_point: Point,
+        span: Span,
     },
 }
 
@@ -64,6 +66,7 @@ pub enum ValidateHeaderEvent {
         span: Span,
     },
     Rollback {
+        peer: Peer,
         rollback_point: Point,
         span: Span,
     },

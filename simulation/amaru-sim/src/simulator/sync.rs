@@ -204,6 +204,7 @@ pub fn mk_message(
         } => Ok(ChainSyncEvent::Rollback {
             peer,
             rollback_point: Point::Specific(slot.into(), hash.into()),
+            span,
         }),
         _ => Err(WorkerError::Recv),
     }

@@ -58,6 +58,7 @@ impl SelectChain {
     ) -> Vec<ValidateHeaderEvent> {
         let mut result = vec![ValidateHeaderEvent::Rollback {
             rollback_point,
+            peer: peer.clone(),
             span: span.clone(),
         }];
 
@@ -119,6 +120,7 @@ impl SelectChain {
                 trace!(target: EVENT_TARGET, %hash, "rollback");
                 Ok(vec![ValidateHeaderEvent::Rollback {
                     rollback_point,
+                    peer,
                     span,
                 }])
             }
@@ -143,6 +145,7 @@ impl SelectChain {
             DecodedChainSyncEvent::Rollback {
                 peer,
                 rollback_point,
+                ..
             } => self.select_rollback(peer, rollback_point).await,
         }
     }

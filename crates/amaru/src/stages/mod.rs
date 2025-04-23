@@ -169,10 +169,16 @@ pub fn bootstrap(
         .collect::<Vec<_>>();
 
     let validate_header = gasket::runtime::spawn_stage(validate_header_stage, policy.clone());
+    let receive_header = gasket::runtime::spawn_stage(receive_header_stage, policy.clone());
+    let store_header = gasket::runtime::spawn_stage(store_header_stage, policy.clone());
+    let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(block_fetch_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
 
+    pulls.push(store_header);
+    pulls.push(receive_header);
+    pulls.push(select_chain);
     pulls.push(validate_header);
     pulls.push(fetch);
     pulls.push(ledger);

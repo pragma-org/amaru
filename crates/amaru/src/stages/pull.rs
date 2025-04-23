@@ -140,6 +140,7 @@ impl Stage {
                 ChainSyncEvent::Rollback {
                     peer: peer.clone(),
                     rollback_point,
+                    span: Span::current(),
                 }
                 .into(),
             )
