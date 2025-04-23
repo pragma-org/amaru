@@ -87,71 +87,24 @@ impl From<BlockValidation> for Result<(), InvalidBlockDetails> {
     }
 }
 
-pub struct DefaultRuleValidationExecutor {}
-
-impl DefaultRuleValidationExecutor {
-    pub fn new() -> Self {
-        DefaultRuleValidationExecutor {}
-    }
-}
-
-impl Default for DefaultRuleValidationExecutor {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-/// A default implementation of the RuleValidationExecutor trait that executes all block validation fns one by one.
-/// If a block validation fn fails, the error is returned immediately.
-impl<C: ValidationContext<FinalState = S>, S: From<C>> RuleValidationExecutor<C, S>
-    for DefaultRuleValidationExecutor
-{
-    fn execute(
-        &mut self,
-        context: &mut C,
-        protocol_params: &ProtocolParameters,
-        block: &MintedBlock<'_>,
-        block_validation_fns: &[fn(
-            &mut C,
-            &MintedBlock<'_>,
-            &ProtocolParameters,
-        ) -> BlockValidation],
-    ) -> BlockValidation {
-        for block_validation_fn in block_validation_fns {
-            block_validation_fn(context, block, protocol_params)?;
-        }
-        BlockValidation::Valid
-    }
-}
-
-pub trait RuleValidationExecutor<C: ValidationContext<FinalState = S>, S: From<C>> {
-    fn execute(
-        &mut self,
-        context: &mut C,
-        protocol_params: &ProtocolParameters,
-        block: &MintedBlock<'_>,
-        block_validation_fns: &[fn(
-            &mut C,
-            &MintedBlock<'_>,
-            &ProtocolParameters,
-        ) -> BlockValidation],
-    ) -> BlockValidation;
-}
-
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
-    rule_validation_executor: &mut dyn RuleValidationExecutor<C, S>,
     context: &mut C,
     protocol_params: ProtocolParameters,
     block: &MintedBlock<'_>,
 ) -> BlockValidation {
+    // Block level validations functions share the same signature.
+    // Currently apply them one by one
+    // TODO consider an abstract strategy pattern to apply them (e.g. in parallel, in a priority order, ...)
     let block_validation_fns = vec![
         header_size::block_header_size_valid,
         body_size::block_body_size_valid,
         ex_units::block_ex_units_valid,
     ];
 
-    rule_validation_executor.execute(context, &protocol_params, block, &block_validation_fns)?;
+    for block_validation_fn in block_validation_fns {
+        block_validation_fn(context, block, &protocol_params)?;
+    }
 
     let failed_transactions = FailedTransactions::from_block(block);
 

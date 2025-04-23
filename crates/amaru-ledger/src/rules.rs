@@ -130,7 +130,7 @@ pub(crate) mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::{
             self,
-            block::{BlockValidation, DefaultRuleValidationExecutor, InvalidBlockDetails},
+            block::{BlockValidation, InvalidBlockDetails},
         },
         tests::{fake_input, fake_output},
     };
@@ -176,7 +176,6 @@ pub(crate) mod tests {
         prepare_block(&mut ctx, &block);
 
         let results = rules::block::execute(
-            &mut DefaultRuleValidationExecutor::new(),
             &mut AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
             &block,
@@ -203,12 +202,7 @@ pub(crate) mod tests {
 
         prepare_block(&mut ctx, &block);
 
-        let results = rules::block::execute(
-            &mut DefaultRuleValidationExecutor::new(),
-            &mut AssertValidationContext::from(ctx),
-            pp,
-            &block,
-        );
+        let results = rules::block::execute(&mut AssertValidationContext::from(ctx), pp, &block);
 
         assert!(matches!(
             results,
