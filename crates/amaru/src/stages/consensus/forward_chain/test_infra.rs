@@ -1,10 +1,10 @@
 #![allow(dead_code)]
 
-use super::{ForwardEvent, ForwardStage, PrettyPoint};
+use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
-use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
-use amaru_consensus::IsHeader;
+use amaru_consensus::consensus::store::{ChainStore, StoreError};
+use amaru_consensus::{IsHeader, Nonces};
 use amaru_kernel::{from_cbor, Hash, Header};
 use amaru_ledger::BlockValidationResult;
 use gasket::messaging::tokio::ChannelRecvAdapter;
@@ -76,7 +76,7 @@ impl ChainStore<Header> for TestStore {
         unimplemented!()
     }
 
-    fn put_nonces(&mut self, _header: &Hash<32>, _nonces: Nonces) -> Result<(), StoreError> {
+    fn put_nonces(&mut self, _header: &Hash<32>, _nonces: &Nonces) -> Result<(), StoreError> {
         unimplemented!()
     }
 
@@ -158,7 +158,7 @@ impl Setup {
             )
             .me;
         let (block_tx, block_rx) = mpsc::channel(8);
-        let mut stage = ForwardStage::new(
+        let mut stage = ForwardChainStage::new(
             Some(downstream),
             Arc::new(Mutex::new(store.clone())),
             42,
@@ -194,9 +194,13 @@ impl Setup {
     pub fn send_validated(&mut self, s: &str) {
         let point = self.store.get(&hash(s)).unwrap().point();
         let span = tracing::debug_span!("whatever");
-        let f = self
-            .block
-            .send(BlockValidationResult::BlockValidated(point.clone(), span).into());
+        let f = self.block.send(
+            BlockValidationResult::BlockValidated {
+                point: point.clone(),
+                span,
+            }
+            .into(),
+        );
         tracing::info!("sending block validated");
         block_on(&self.runtime, f).unwrap();
         tracing::info!("waiting for forward event");
@@ -210,9 +214,13 @@ impl Setup {
     pub fn send_backward(&mut self, s: &str) {
         let point = self.store.get(&hash(s)).unwrap().point();
         let span = tracing::debug_span!("whatever");
-        let f = self
-            .block
-            .send(BlockValidationResult::RolledBackTo(point.clone(), span).into());
+        let f = self.block.send(
+            BlockValidationResult::RolledBackTo {
+                rollback_point: point.clone(),
+                span,
+            }
+            .into(),
+        );
         tracing::info!("sending block roll backward");
         block_on(&self.runtime, f).unwrap();
         tracing::info!("waiting for backward event");

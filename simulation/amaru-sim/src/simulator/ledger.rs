@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{fs::File, io::BufReader, path::Path};
-
-use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
+use amaru_consensus::consensus::store::{ChainStore, StoreError};
 use amaru_kernel::{Header, RationalNumber, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD};
-use amaru_ouroboros::{HasStakeDistribution, PoolSummary};
+use amaru_ouroboros::{HasStakeDistribution, Nonces, PoolSummary};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use std::{fs::File, io::BufReader, path::Path};
 
 /// Stake data for a single pool.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -138,7 +137,7 @@ pub(crate) fn populate_chain_store(
         epoch: 0,
     };
 
-    chain_store.put_nonces(header, nonces).map_err(IoError)?;
+    chain_store.put_nonces(header, &nonces).map_err(IoError)?;
 
     Ok(())
 }
@@ -163,14 +162,14 @@ pub struct ConsensusContext {
 
 #[cfg(test)]
 mod test {
-    use amaru_consensus::consensus::store::{ChainStore, Nonces, StoreError};
+    use amaru_consensus::consensus::store::{ChainStore, StoreError};
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::Header;
 
     use super::populate_chain_store;
 
     use super::FakeStakeDistribution;
-    use amaru_ouroboros::HasStakeDistribution;
+    use amaru_ouroboros::{HasStakeDistribution, Nonces};
     use pallas_crypto::hash::Hash;
     use rand::{rngs::StdRng, RngCore, SeedableRng};
     use std::{collections::HashMap, path::PathBuf};
@@ -243,8 +242,8 @@ mod test {
             self.nonces.get(header).cloned()
         }
 
-        fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError> {
-            self.nonces.insert(*header, nonces);
+        fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+            self.nonces.insert(*header, nonces.clone());
             Ok(())
         }
 
