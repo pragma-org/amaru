@@ -5,7 +5,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     context,
-    rules::{self, block::{BlockValidation, DefaultRuleValidationExecutor}},
+    rules::{self, block::BlockValidation},
     state::{State, VolatileState},
 };
 use std::{
@@ -71,7 +71,6 @@ pub fn forward_ledger(raw_block: &str) {
 
     let mut context = context::DefaultValidationContext::new(inputs);
     if let BlockValidation::Invalid(_err) = rules::validate_block(
-        &mut DefaultRuleValidationExecutor::new(),
         &mut context,
         ProtocolParameters::default(),
         &block,
