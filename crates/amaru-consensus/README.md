@@ -5,27 +5,29 @@ The following graph represents a simplified sequence of _stages_ headers (either
 ```mermaid
 graph TD
     disc[disconnect peer]
-    up([upstream]) -- chain sync --> rcv[receive header]
+    up([upstream]) -- chain sync --> pull
+    pull -- ChainSyncEvent --> rcv[receive header]
     rcv -- malformed header --> disc
     val_hdr[validate header]
-    rcv -- pull_event --> val_hdr
+    rcv -- DecodedChainSyncEvent --> val_hdr
     val_hdr -- invalid header --> disc
-    val_hdr -- pull event --> sto_hdr[store header]
+    val_hdr -- DecodedChainSyncEvent --> sto_hdr[store header]
     sto_hdr -- storage failure --> crash?
-    sto_hdr -- pull event --> select[select chain]
+    sto_hdr -- DecodedChainSyncEvent --> select[select chain]
     select -- invalid chain --> disc
-    select -- validate header events --> fetch[fetch block]
+    select -- ValidateHeaderEvent --> fetch[fetch block]
     fetch -- fetch error --> disc
-    fetch -- validate block event --> sto_block[store block]
+    fetch -- ValidateBlockEvent --> sto_block[store block]
     sto_block -- storage failure --> crash?
-    sto_block -- validate block event --> val_block[validate block]
+    sto_block -- ValidateBlockEvent --> val_block[validate block]
     val_block -- invalid block --> disc
-    val_block -- block validation result --> fwd[forward chain]
+    val_block -- BlockValidationResult --> fwd[forward chain]
     fwd --> down([downstream])
 ```
 
 Stages:
 
+* [pull](../amaru/src/stages/pull.rs): connects to upstream peers, running chain sync and block fetch protocols.
 * [receive header](src/consensus/receive_header.rs): this stage is responsible for basic sanity check of _chain sync_ messages, deserialising raw headers, and potentially checking whether or not they should be further processed (eg. if a header is already known to be invalid, or known to be valid because it's part of our best chain, let's not waste time processing it!)
 * [validate header](src/consensus/validate_header.rs): protocol validation of the header, checks the correctness of the VRF leader election w.r.t relevant stake distribution, and epoch nonce
 * [store header](src/consensus/store_header.rs): store valid (and invalid?) headers indexed by hash
