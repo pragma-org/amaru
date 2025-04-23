@@ -12,9 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{protocol_parameters::ProtocolParameters, MintedBlock};
-
-use crate::context::ValidationContext;
+use amaru_kernel::protocol_parameters::ProtocolParameters;
 
 use super::{BlockValidation, InvalidBlockDetails};
 
@@ -24,9 +22,8 @@ pub enum InvalidBlockHeader {
 }
 
 #[allow(clippy::panic)]
-pub fn block_header_size_valid<C: ValidationContext>(
-    _context: &mut C,
-    block: &MintedBlock<'_>,
+pub fn block_header_size_valid(
+    header: &[u8],
     protocol_params: &ProtocolParameters,
 ) -> BlockValidation {
     let max_header_size = protocol_params
@@ -34,7 +31,6 @@ pub fn block_header_size_valid<C: ValidationContext>(
         .try_into()
         .unwrap_or_else(|_| panic!("Failed to convert u32 to usize"));
 
-    let header = block.header.raw_cbor();
     if header.len() > max_header_size {
         BlockValidation::Invalid(InvalidBlockDetails::HeaderSizeTooBig {
             supplied: header.len(),
@@ -60,12 +56,8 @@ mod tests {
 
         let pp = ProtocolParameters::default();
 
-        // Import one of the validation context types
-        use crate::context::DefaultValidationContext;
-
-        let mut context = DefaultValidationContext::new(Default::default());
         assert!(matches!(
-            block_header_size_valid(&mut context, &block, &pp),
+            block_header_size_valid(block.header.raw_cbor(), &pp),
             BlockValidation::Valid
         ))
     }

@@ -22,7 +22,7 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, Hash, MintedBlock,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
     OriginalHash, StakeCredential, TransactionPointer,
 };
 use std::ops::{ControlFlow, Deref, FromResidual, Try};
@@ -93,18 +93,11 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     protocol_params: ProtocolParameters,
     block: &MintedBlock<'_>,
 ) -> BlockValidation {
-    // Block level validations functions share the same signature.
-    // Currently apply them one by one
-    // TODO consider an abstract strategy pattern to apply them (e.g. in parallel, in a priority order, ...)
-    let block_validation_fns = vec![
-        header_size::block_header_size_valid,
-        body_size::block_body_size_valid,
-        ex_units::block_ex_units_valid,
-    ];
+    header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;
 
-    for block_validation_fn in block_validation_fns {
-        block_validation_fn(context, block, &protocol_params)?;
-    }
+    body_size::block_body_size_valid(block)?;
+
+    ex_units::block_ex_units_valid(block.ex_units(), &protocol_params)?;
 
     let failed_transactions = FailedTransactions::from_block(block);
 

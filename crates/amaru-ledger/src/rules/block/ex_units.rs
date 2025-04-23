@@ -12,21 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits, HasExUnits, MintedBlock,
-};
-
-use crate::context::ValidationContext;
+use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
 
 use super::{BlockValidation, InvalidBlockDetails};
 
-pub fn block_ex_units_valid<C: ValidationContext>(
-    _context: &mut C,
-    block: &MintedBlock<'_>,
+pub fn block_ex_units_valid(
+    ex_units: Vec<ExUnits>,
     protocol_parameters: &ProtocolParameters,
 ) -> BlockValidation {
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
-    let ex_units = block.ex_units();
 
     let pp_max_ex_units = protocol_parameters.max_block_ex_units;
     let ex_units = ex_units
@@ -48,10 +42,10 @@ pub fn block_ex_units_valid<C: ValidationContext>(
 
 #[cfg(test)]
 mod tests {
-    use crate::{context::DefaultValidationContext, rules::block::InvalidBlockDetails};
+    use crate::rules::block::InvalidBlockDetails;
 
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, MintedBlock,
+        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, HasExUnits, MintedBlock,
     };
     use test_case::test_case;
 
@@ -82,7 +76,6 @@ mod tests {
     fn test_ex_units(
         (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
     ) -> Result<(), InvalidBlockDetails> {
-        let mut context = DefaultValidationContext::new(Default::default());
-        super::block_ex_units_valid(&mut context, &block, &protocol_parameters).into()
+        super::block_ex_units_valid(block.ex_units(), &protocol_parameters).into()
     }
 }
