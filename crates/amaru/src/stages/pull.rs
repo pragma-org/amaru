@@ -110,8 +110,13 @@ impl Stage {
 
         self.downstream
             .send(
-                ChainSyncEvent::RollForward(peer.clone(), point, raw_header, Span::current())
-                    .into(),
+                ChainSyncEvent::RollForward {
+                    peer: peer.clone(),
+                    point,
+                    raw_header,
+                    span: Span::current(),
+                }
+                .into(),
             )
             .await
             .or_panic()
@@ -122,16 +127,22 @@ impl Stage {
         name = "pull.roll_backward",
         skip_all,
         fields(
-            point = %point,
+            point = %rollback_point,
             peer = self.peer_session.peer.name,
         ),
     )]
-    pub async fn roll_back(&mut self, point: Point, tip: Tip) -> Result<(), WorkerError> {
+    pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
         self.track_tip(&tip);
 
         let peer = &self.peer_session.peer;
         self.downstream
-            .send(ChainSyncEvent::Rollback(peer.clone(), point).into())
+            .send(
+                ChainSyncEvent::Rollback {
+                    peer: peer.clone(),
+                    rollback_point,
+                }
+                .into(),
+            )
             .await
             .or_panic()
     }

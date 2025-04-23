@@ -41,8 +41,12 @@ impl SelectChainStage {
         }
     }
 
-    async fn handle_event(&mut self, pull: &DecodedChainSyncEvent) -> Result<(), WorkerError> {
-        let events = self.select_chain.handle_chain_sync(pull).await.or_panic()?;
+    async fn handle_event(&mut self, sync_event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
+        let events = self
+            .select_chain
+            .handle_chain_sync(sync_event)
+            .await
+            .or_panic()?;
 
         for event in events {
             self.downstream.send(event.into()).await.or_panic()?;
@@ -74,6 +78,6 @@ impl gasket::framework::Worker<SelectChainStage> for Worker {
         unit: &DecodedChainSyncEvent,
         stage: &mut SelectChainStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit).await
+        stage.handle_event(unit.clone()).await
     }
 }

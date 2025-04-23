@@ -194,9 +194,13 @@ impl Setup {
     pub fn send_validated(&mut self, s: &str) {
         let point = self.store.get(&hash(s)).unwrap().point();
         let span = tracing::debug_span!("whatever");
-        let f = self
-            .block
-            .send(BlockValidationResult::BlockValidated(point.clone(), span).into());
+        let f = self.block.send(
+            BlockValidationResult::BlockValidated {
+                point: point.clone(),
+                span,
+            }
+            .into(),
+        );
         tracing::info!("sending block validated");
         block_on(&self.runtime, f).unwrap();
         tracing::info!("waiting for forward event");
@@ -210,9 +214,13 @@ impl Setup {
     pub fn send_backward(&mut self, s: &str) {
         let point = self.store.get(&hash(s)).unwrap().point();
         let span = tracing::debug_span!("whatever");
-        let f = self
-            .block
-            .send(BlockValidationResult::RolledBackTo(point.clone(), span).into());
+        let f = self.block.send(
+            BlockValidationResult::RolledBackTo {
+                rollback_point: point.clone(),
+                span,
+            }
+            .into(),
+        );
         tracing::info!("sending block roll backward");
         block_on(&self.runtime, f).unwrap();
         tracing::info!("waiting for backward event");

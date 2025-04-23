@@ -73,45 +73,48 @@ impl ValidateHeader {
         name = "consensus.roll_forward",
         fields(
             point.slot = %point.slot_or_default(),
-            point.hash = %Hash::<32>::from(point),
+            point.hash = %Hash::<32>::from(&point),
         )
     )]
     pub async fn handle_roll_forward(
         &mut self,
-        peer: &Peer,
-        point: &Point,
-        header: &Header,
+        peer: Peer,
+        point: Point,
+        header: Header,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         let Nonces {
             active: ref epoch_nonce,
             ..
-        } = self.store.lock().await.evolve_nonce(header)?;
+        } = self.store.lock().await.evolve_nonce(&header)?;
 
         header_is_valid(
-            point,
-            header,
+            &point,
+            &header,
             to_cbor(&header.header_body).as_slice(),
             epoch_nonce,
             self.ledger.as_ref(),
         )?;
 
-        Ok(DecodedChainSyncEvent::RollForward(
-            peer.clone(),
-            point.clone(),
-            header.clone(),
-            Span::current(),
-        ))
+        Ok(DecodedChainSyncEvent::RollForward {
+            peer,
+            point,
+            header,
+            span: Span::current(),
+        })
     }
 
     pub async fn handle_chain_sync(
         &mut self,
-        chain_sync: &DecodedChainSyncEvent,
+        chain_sync: DecodedChainSyncEvent,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         match chain_sync {
-            DecodedChainSyncEvent::RollForward(peer, point, header, _span) => {
-                self.handle_roll_forward(peer, point, header).await
-            }
-            DecodedChainSyncEvent::Rollback(_, _) => Ok(chain_sync.clone()),
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => self.handle_roll_forward(peer, point, header).await,
+            DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
         }
     }
 }

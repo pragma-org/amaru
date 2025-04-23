@@ -110,10 +110,10 @@ impl<S: Store + Send> ValidateBlockStage<S> {
                 // TODO Make sure `roll_forward` returns a structured object encapsulating validation errors
                 // Err should be used for unexpected errors only and stop block processing
 
-                Ok(BlockValidationResult::BlockValidated(point, span))
+                Ok(BlockValidationResult::BlockValidated { point, span })
             }
             Err(err) => match err.downcast_ref::<InvalidBlock>() {
-                Some(_err) => Ok(BlockValidationResult::BlockValidationFailed(point, span)),
+                Some(_err) => Ok(BlockValidationResult::BlockValidationFailed { point, span }),
                 None => Err(err),
             },
         }
@@ -126,9 +126,12 @@ impl<S: Store + Send> ValidateBlockStage<S> {
     )]
     pub async fn rollback_to(&mut self, point: Point, span: Span) -> BlockValidationResult {
         match self.state.backward(&point) {
-            Ok(_) => BlockValidationResult::RolledBackTo(point, span),
+            Ok(_) => BlockValidationResult::RolledBackTo {
+                rollback_point: point,
+                span,
+            },
             Err(BackwardError::UnknownRollbackPoint(_)) => {
-                BlockValidationResult::BlockValidationFailed(point, span)
+                BlockValidationResult::BlockValidationFailed { point, span }
             }
         }
     }
@@ -161,13 +164,16 @@ impl<S: Store + Send> gasket::framework::Worker<ValidateBlockStage<S>> for Worke
         stage: &mut ValidateBlockStage<S>,
     ) -> Result<(), WorkerError> {
         let result = match unit {
-            ValidateBlockEvent::Validated(point, raw_block, parent_span) => stage
-                .roll_forward_wrapper(point.clone(), raw_block.to_vec(), restore_span(parent_span))
+            ValidateBlockEvent::Validated { point, block, span } => stage
+                .roll_forward_wrapper(point.clone(), block.to_vec(), restore_span(span))
                 .or_panic()?,
 
-            ValidateBlockEvent::Rollback(point, parent_span) => {
+            ValidateBlockEvent::Rollback {
+                rollback_point,
+                span,
+            } => {
                 stage
-                    .rollback_to(point.clone(), restore_span(parent_span))
+                    .rollback_to(rollback_point.clone(), restore_span(span))
                     .await
             }
         };

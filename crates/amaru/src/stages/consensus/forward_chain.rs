@@ -250,7 +250,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
         stage: &mut ForwardChainStage,
     ) -> Result<(), WorkerError> {
         match unit {
-            Unit::Block(BlockValidationResult::BlockValidated(point, span)) => {
+            Unit::Block(BlockValidationResult::BlockValidated { point, span }) => {
                 // FIXME: this span is just a placeholder to hold a link to t
                 // the parent, it will be filled once we had the storage and
                 // forwarding logic.
@@ -288,30 +288,32 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
 
                 Ok(())
             }
-            Unit::Block(BlockValidationResult::RolledBackTo(point, span)) => {
+            Unit::Block(BlockValidationResult::RolledBackTo {
+                rollback_point,
+                span,
+            }) => {
                 info!(
                     target: EVENT_TARGET,
                     parent: span,
-                    slot = ?point.slot_or_default(),
-                    hash = %Hash::<32>::from(point),
+                    point = %rollback_point,
                     "rolled_back_to"
                 );
 
                 // FIXME: block height should be part of BlockValidated message
                 let store = stage.store.lock().await;
-                if let Some(header) = store.load_header(&Hash::from(point)) {
-                    self.our_tip = Tip(point.pallas_point(), header.block_height());
+                if let Some(header) = store.load_header(&Hash::from(rollback_point)) {
+                    self.our_tip = Tip(rollback_point.pallas_point(), header.block_height());
                     self.clients
                         .send(ClientMsg::Op(ClientOp::Backward(self.our_tip.clone())));
 
                     stage
                         .downstream
-                        .send(ForwardEvent::Backward(point.pallas_point()));
+                        .send(ForwardEvent::Backward(rollback_point.pallas_point()));
                 }
 
                 Ok(())
             }
-            Unit::Block(BlockValidationResult::BlockValidationFailed(point, span)) => {
+            Unit::Block(BlockValidationResult::BlockValidationFailed { point, span }) => {
                 error!(
                     target: EVENT_TARGET,
                     parent: span,

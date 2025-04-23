@@ -28,20 +28,43 @@ pub const EVENT_TARGET: &str = "amaru::consensus";
 
 #[derive(Clone, Debug)]
 pub enum ChainSyncEvent {
-    RollForward(Peer, Point, Vec<u8>, Span),
-    Rollback(Peer, Point),
+    RollForward {
+        peer: Peer,
+        point: Point,
+        raw_header: Vec<u8>,
+        span: Span,
+    },
+    Rollback {
+        peer: Peer,
+        rollback_point: Point,
+    },
 }
 
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum DecodedChainSyncEvent {
-    RollForward(Peer, Point, Header, Span),
-    Rollback(Peer, Point),
+    RollForward {
+        peer: Peer,
+        point: Point,
+        header: Header,
+        span: Span,
+    },
+    Rollback {
+        peer: Peer,
+        rollback_point: Point,
+    },
 }
 
 #[derive(Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
-    Validated(Peer, Point, Span),
-    Rollback(Point, Span),
+    Validated {
+        peer: Peer,
+        point: Point,
+        span: Span,
+    },
+    Rollback {
+        rollback_point: Point,
+        span: Span,
+    },
 }

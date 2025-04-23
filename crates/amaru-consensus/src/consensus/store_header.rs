@@ -39,14 +39,18 @@ impl StoreHeader {
 
     pub async fn handle_event(
         &self,
-        event: &DecodedChainSyncEvent,
+        event: DecodedChainSyncEvent,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         match event {
-            DecodedChainSyncEvent::RollForward(_peer, point, header, _span) => {
+            DecodedChainSyncEvent::RollForward {
+                ref point,
+                ref header,
+                ..
+            } => {
                 self.store(point, header).await?;
-                Ok(event.clone())
+                Ok(event)
             }
-            DecodedChainSyncEvent::Rollback(_peer, _point) => Ok(event.clone()),
+            DecodedChainSyncEvent::Rollback { .. } => Ok(event),
         }
     }
 }

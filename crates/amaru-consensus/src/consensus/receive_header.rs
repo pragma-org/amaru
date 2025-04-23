@@ -36,21 +36,29 @@ pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, Consen
 }
 
 pub fn handle_chain_sync(
-    chain_sync: &ChainSyncEvent,
+    chain_sync: ChainSyncEvent,
 ) -> Result<DecodedChainSyncEvent, ConsensusError> {
     match chain_sync {
-        ChainSyncEvent::RollForward(peer, point, raw_header, span) => {
-            let header = receive_header(point, raw_header)?;
-            Ok(DecodedChainSyncEvent::RollForward(
-                peer.clone(),
-                point.clone(),
+        ChainSyncEvent::RollForward {
+            peer,
+            point,
+            raw_header,
+            span,
+        } => {
+            let header = receive_header(&point, &raw_header)?;
+            Ok(DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
                 header,
-                span.clone(),
-            ))
+                span,
+            })
         }
-        ChainSyncEvent::Rollback(peer, rollback) => Ok(DecodedChainSyncEvent::Rollback(
-            peer.clone(),
-            rollback.clone(),
-        )),
+        ChainSyncEvent::Rollback {
+            peer,
+            rollback_point,
+        } => Ok(DecodedChainSyncEvent::Rollback {
+            peer,
+            rollback_point,
+        }),
     }
 }

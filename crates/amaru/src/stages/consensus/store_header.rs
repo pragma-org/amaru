@@ -39,7 +39,7 @@ impl StoreHeaderStage {
         }
     }
 
-    async fn handle_event(&mut self, event: &DecodedChainSyncEvent) -> Result<(), WorkerError> {
+    async fn handle_event(&mut self, event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self
             .store_header
             .handle_event(event)
@@ -74,6 +74,6 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
         unit: &DecodedChainSyncEvent,
         stage: &mut StoreHeaderStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit).await
+        stage.handle_event(unit.clone()).await
     }
 }

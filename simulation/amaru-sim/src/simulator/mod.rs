@@ -167,31 +167,34 @@ async fn run_simulator(
                 // receive stage
                 let chain_sync_event =
                     mk_message(msg, span).and_then(|chain_sync: ChainSyncEvent| {
-                        handle_chain_sync(&chain_sync).map_err(|_| WorkerError::Recv)
+                        handle_chain_sync(chain_sync).map_err(|_| WorkerError::Recv)
                     });
 
                 // validate stage
                 let validation_event = match chain_sync_event {
                     Ok(event) => match event {
-                        DecodedChainSyncEvent::RollForward(peer, point, raw_header, _span) => {
-                            validate_header
-                                .handle_roll_forward(&peer, &point, &raw_header)
-                                .await
-                                .expect("unexpected error on roll forward")
-                        }
-                        DecodedChainSyncEvent::Rollback(_, _) => event,
+                        DecodedChainSyncEvent::RollForward {
+                            peer,
+                            point,
+                            header,
+                            ..
+                        } => validate_header
+                            .handle_roll_forward(peer, point, header)
+                            .await
+                            .expect("unexpected error on roll forward"),
+                        DecodedChainSyncEvent::Rollback { .. } => event,
                     },
                     Err(_) => panic!("got error validating chain sync"),
                 };
 
                 // store header stage
-                let store_event = match store_header.handle_event(&validation_event).await {
+                let store_event = match store_header.handle_event(validation_event).await {
                     Ok(stored) => stored,
                     Err(_) => panic!("got error storing event"),
                 };
 
                 // chain selection stage
-                match select_chain.handle_chain_sync(&store_event).await {
+                match select_chain.handle_chain_sync(store_event).await {
                     Ok(events) => {
                         let mut w = output_writer.lock().await;
                         write_events(&mut w, &store, &events).await;
@@ -216,7 +219,7 @@ async fn write_events(
     let s = store.lock().await;
     for e in events {
         match e {
-            ValidateHeaderEvent::Validated(_peer, point, _span) => {
+            ValidateHeaderEvent::Validated { point, .. } => {
                 let h: Hash<32> = point.into();
                 let hdr = s.load_header(&h).unwrap();
                 let fwd = ChainSyncMessage::Fwd {
@@ -236,11 +239,11 @@ async fn write_events(
                 };
                 msgs.push(envelope);
             }
-            ValidateHeaderEvent::Rollback(point, _span) => {
-                let h: Hash<32> = point.into();
+            ValidateHeaderEvent::Rollback { rollback_point, .. } => {
+                let h: Hash<32> = rollback_point.into();
                 let fwd = ChainSyncMessage::Bck {
                     msg_id: 0, // FIXME
-                    slot: point.slot_or_default(),
+                    slot: rollback_point.slot_or_default(),
                     hash: Bytes {
                         bytes: (*h).to_vec(),
                     },

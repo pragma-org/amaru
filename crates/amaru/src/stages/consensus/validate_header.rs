@@ -39,7 +39,7 @@ impl ValidateHeaderStage {
         }
     }
 
-    async fn handle_event(&mut self, unit: &DecodedChainSyncEvent) -> Result<(), WorkerError> {
+    async fn handle_event(&mut self, unit: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self
             .consensus
             .handle_chain_sync(unit)
@@ -77,6 +77,6 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
         unit: &DecodedChainSyncEvent,
         stage: &mut ValidateHeaderStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit).await
+        stage.handle_event(unit.clone()).await
     }
 }

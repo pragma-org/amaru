@@ -38,27 +38,31 @@ impl SelectChain {
 
     fn forward_block<H: IsHeader>(
         &mut self,
-        peer: &Peer,
-        header: &H,
-        span: &Span,
+        peer: Peer,
+        header: H,
+        span: Span,
     ) -> ValidateHeaderEvent {
-        ValidateHeaderEvent::Validated(peer.clone(), header.point().clone(), span.clone())
+        ValidateHeaderEvent::Validated {
+            peer,
+            point: header.point(),
+            span,
+        }
     }
 
     fn switch_to_fork(
         &mut self,
-        peer: &Peer,
-        rollback_point: &Point,
+        peer: Peer,
+        rollback_point: Point,
         fork: Vec<Header>,
-        span: &Span,
+        span: Span,
     ) -> Vec<ValidateHeaderEvent> {
-        let mut result = vec![ValidateHeaderEvent::Rollback(
-            rollback_point.clone(),
-            span.clone(),
-        )];
+        let mut result = vec![ValidateHeaderEvent::Rollback {
+            rollback_point,
+            span: span.clone(),
+        }];
 
         for header in fork {
-            result.push(self.forward_block(peer, &header, span));
+            result.push(self.forward_block(peer.clone(), header, span.clone()));
         }
 
         result
@@ -66,28 +70,28 @@ impl SelectChain {
 
     pub async fn select_chain(
         &mut self,
-        peer: &Peer,
-        header: &Header,
+        peer: Peer,
+        header: Header,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let result = self
             .chain_selector
             .lock()
             .await
-            .select_roll_forward(peer, header.clone());
+            .select_roll_forward(&peer, header);
 
         let span = Span::current();
 
         let events = match result {
             chain_selection::ForwardChainSelection::NewTip(hdr) => {
                 trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
-                vec![self.forward_block(peer, &hdr, &span)]
+                vec![self.forward_block(peer, hdr, span)]
             }
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 tip: _,
                 fork,
-            }) => self.switch_to_fork(&peer, &rollback_point, fork, &span),
+            }) => self.switch_to_fork(peer, rollback_point, fork, span),
             chain_selection::ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
                 vec![]
@@ -99,43 +103,47 @@ impl SelectChain {
 
     pub async fn select_rollback(
         &mut self,
-        peer: &Peer,
-        rollback: &Point,
+        peer: Peer,
+        rollback_point: Point,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let result = self
             .chain_selector
             .lock()
             .await
-            .select_rollback(peer, Hash::from(rollback));
+            .select_rollback(&peer, Hash::from(&rollback_point));
 
         let span = Span::current();
 
         match result {
             RollbackChainSelection::RollbackTo(hash) => {
                 trace!(target: EVENT_TARGET, %hash, "rollback");
-                Ok(vec![ValidateHeaderEvent::Rollback(rollback.clone(), span)])
+                Ok(vec![ValidateHeaderEvent::Rollback {
+                    rollback_point,
+                    span,
+                }])
             }
             RollbackChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 fork,
                 tip: _,
-            }) => Ok(self.switch_to_fork(&peer, &rollback_point, fork, &span)),
+            }) => Ok(self.switch_to_fork(peer, rollback_point, fork, span)),
             RollbackChainSelection::NoChange => Ok(vec![]),
         }
     }
 
     pub async fn handle_chain_sync(
         &mut self,
-        chain_sync: &DecodedChainSyncEvent,
+        chain_sync: DecodedChainSyncEvent,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         match chain_sync {
-            DecodedChainSyncEvent::RollForward(peer, _point, header, _span) => {
+            DecodedChainSyncEvent::RollForward { peer, header, .. } => {
                 self.select_chain(peer, header).await
             }
-            DecodedChainSyncEvent::Rollback(peer, rollback) => {
-                self.select_rollback(peer, rollback).await
-            }
+            DecodedChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+            } => self.select_rollback(peer, rollback_point).await,
         }
     }
 }
