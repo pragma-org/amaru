@@ -18,7 +18,7 @@ use super::{BlockValidation, InvalidBlockDetails};
 
 /// This validation checks that the purported block body size matches the actual block body size.
 /// The validation of the bounds happens in the networking layer
-pub fn block_body_size_valid(block: &MintedBlock<'_>) -> BlockValidation {
+pub fn block_body_size_valid<E>(block: &MintedBlock<'_>) -> BlockValidation<(), E> {
     let block_header = &block.header.header_body;
     let bh_size = block_header.block_body_size as usize;
     let actual_block_size = calculate_block_body_size(block);
@@ -29,7 +29,7 @@ pub fn block_body_size_valid(block: &MintedBlock<'_>) -> BlockValidation {
             actual: actual_block_size,
         })
     } else {
-        BlockValidation::Valid
+        BlockValidation::Valid(())
     }
 }
 
@@ -48,10 +48,9 @@ fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
 
 #[cfg(test)]
 mod tests {
+    use crate::rules::block::{BlockValidation, InvalidBlockDetails};
     use amaru_kernel::{include_cbor, MintedBlock};
     use test_case::test_case;
-
-    use crate::rules::block::InvalidBlockDetails;
 
     macro_rules! fixture {
         ($number:literal) => {
@@ -63,11 +62,11 @@ mod tests {
     }
 
     #[test_case(fixture!("2667660"); "valid")]
-    #[test_case(fixture!("2667660", "invalid_block_body_size") => 
-        matches Err(InvalidBlockDetails::BlockSizeMismatch {supplied, actual})
+    #[test_case(fixture!("2667660", "invalid_block_body_size") =>
+        matches BlockValidation::Invalid(InvalidBlockDetails::BlockSizeMismatch {supplied, actual})
             if supplied == 0 && actual == 3411;
     "block body size mismatch")]
-    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlockDetails> {
-        super::block_body_size_valid(&block).into()
+    fn test_block_size(block: MintedBlock<'_>) -> BlockValidation<(), anyhow::Error> {
+        super::block_body_size_valid(&block)
     }
 }

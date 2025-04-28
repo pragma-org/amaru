@@ -136,6 +136,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-kernel",
  "amaru-ouroboros-traits",
+ "anyhow",
  "hex",
  "iter-borrow",
  "num",
