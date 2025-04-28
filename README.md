@@ -151,5 +151,27 @@ With this, the node with start up, fetch the required config files, and then sta
  
 Amaru is also compatible with Radicle, a decentralized code collaboration platform. This allows developers to collaborate on Amaru's development in a decentralized manner.
  
-Follow the [radicle user guide](https://radicle.xyz/guides/user) to create a local clone of the Amaru repository, which you can use to collaborate with other developers on the project.
+To start using radicle:
 
+- Follow the [radicle user guide](https://radicle.xyz/guides/user) to install the software on your machine
+- start the node:
+```bash
+rad node start
+```
+- create a local clone of the Amaru repository:
+```bash
+rad clone rad:zkw8cuTp2YRsk1U68HJ9sigHYsTu
+```
+- seed the repo:
+```bash
+  $ rad seed
+╭───────────────────────────────────────────────────────────╮
+│ Repository                         Name    Policy   Scope │
+├───────────────────────────────────────────────────────────┤
+│ rad:zkw8cuTp2YRsk1U68HJ9sigHYsTu   amaru   allow    all   │
+╰───────────────────────────────────────────────────────────╯
+```
+- add changes using git, then push like so:
+```bash
+git push rad HEAD:refs/patches
+```
