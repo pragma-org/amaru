@@ -1,6 +1,6 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
-    store::{HistoricalStores, Progress, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
+    store::{HistoricalStores, EpochTransitionProgress, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
     summary::rewards::{Pots, RewardsSummary},
 };
 use std::collections::BTreeSet;
@@ -134,8 +134,8 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         Ok(())
     }
 
-    fn update_progress(&self, _new_progress: Progress) -> Result<Option<Progress>, StoreError> {
-        Ok(None)
+    fn try_epoch_transition(&self, _from: Option<EpochTransitionProgress>, _to: Option<EpochTransitionProgress>,) -> Result<bool, StoreError> {
+        Ok(true)
     }
 
     fn apply_rewards(&self, _rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
