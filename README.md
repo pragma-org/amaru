@@ -146,3 +146,10 @@ Since we want to use network connections to interact with this node, you’ll wa
 
 The final and crucial ingredient is to supply the environment variable `NETWORK=preprod`.
 With this, the node with start up, fetch the required config files, and then start syncing blocks from the network; this will take some time.
+
+## Using radicle 
+ 
+Amaru is also compatible with Radicle, a decentralized code collaboration platform. This allows developers to collaborate on Amaru's development in a decentralized manner.
+ 
+Follow the [radicle user guide](https://radicle.xyz/guides/user) to create a local clone of the Amaru repository, which you can use to collaborate with other developers on the project.
+
