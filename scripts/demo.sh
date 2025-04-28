@@ -39,5 +39,13 @@ AMARU_TRACE="amaru=info" cargo run -- --with-json-traces daemon \
       pkill -INT -P $$
       break
     fi
+  else
+    LEVEL=$(echo $line | jq -r '.level' 2>/dev/null)
+    if [ "$LEVEL" == "ERROR" ]; then
+      # Sometimes the process doesn't fully properly exits
+      echo "Got an error, force-stopping the process."
+      pkill -INT -P $$
+      break
+    fi
   fi
 done
