@@ -27,7 +27,9 @@ where
     pub state: state::State<S, HS>,
 }
 
-impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage for ValidateBlockStage<S, HS> {
+impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
+    for ValidateBlockStage<S, HS>
+{
     type Unit = ValidateBlockEvent;
     type Worker = Worker;
 
@@ -141,8 +143,8 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Worker<ValidateBlockStage<S, HS>>
-    for Worker
+impl<S: Store + Send, HS: HistoricalStores + Send>
+    gasket::framework::Worker<ValidateBlockStage<S, HS>> for Worker
 {
     async fn bootstrap(_stage: &ValidateBlockStage<S, HS>) -> Result<Self, WorkerError> {
         Ok(Self {})
