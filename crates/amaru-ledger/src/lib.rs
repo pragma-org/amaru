@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![feature(try_trait_v2)]
+
 use amaru_kernel::Point;
 use tracing::Span;
 

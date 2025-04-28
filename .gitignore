@@ -38,3 +38,6 @@ coverage/
 
 # Cardano node support files
 /cardano-node-config/
+
+# llvm-cov generated file
+lcov.info

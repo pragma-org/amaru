@@ -12,31 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{to_cbor, HeaderBody, MintedBlock};
-use thiserror::Error;
+use amaru_kernel::{to_cbor, MintedBlock};
 
-#[derive(Debug, Error)]
-pub enum InvalidBlockSize {
-    #[error("block body size mismatch: supplied {supplied}, actual {actual}")]
-    SizeMismatch { supplied: usize, actual: usize },
-}
+use super::{BlockValidation, InvalidBlockDetails};
 
 /// This validation checks that the purported block body size matches the actual block body size.
 /// The validation of the bounds happens in the networking layer
-pub fn block_body_size_valid(
-    block_header: &HeaderBody,
-    block: &MintedBlock<'_>,
-) -> Result<(), InvalidBlockSize> {
+pub fn block_body_size_valid(block: &MintedBlock<'_>) -> BlockValidation {
+    let block_header = &block.header.header_body;
     let bh_size = block_header.block_body_size as usize;
     let actual_block_size = calculate_block_body_size(block);
 
     if bh_size != actual_block_size {
-        Err(InvalidBlockSize::SizeMismatch {
+        BlockValidation::Invalid(InvalidBlockDetails::BlockSizeMismatch {
             supplied: bh_size,
             actual: actual_block_size,
         })
     } else {
-        Ok(())
+        BlockValidation::Valid
     }
 }
 
@@ -58,7 +51,7 @@ mod tests {
     use amaru_kernel::{include_cbor, MintedBlock};
     use test_case::test_case;
 
-    use super::InvalidBlockSize;
+    use crate::rules::block::InvalidBlockDetails;
 
     macro_rules! fixture {
         ($number:literal) => {
@@ -70,12 +63,11 @@ mod tests {
     }
 
     #[test_case(fixture!("2667660"); "valid")]
-    #[test_case(fixture!("2667660", "invalid_block_body_size") =>
-        matches Err(InvalidBlockSize::SizeMismatch {supplied, actual})
+    #[test_case(fixture!("2667660", "invalid_block_body_size") => 
+        matches Err(InvalidBlockDetails::BlockSizeMismatch {supplied, actual})
             if supplied == 0 && actual == 3411;
-        "block body size mismatch"
-    )]
-    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlockSize> {
-        super::block_body_size_valid(&block.header.header_body, &block)
+    "block body size mismatch")]
+    fn test_block_size(block: MintedBlock<'_>) -> Result<(), InvalidBlockDetails> {
+        super::block_body_size_valid(&block).into()
     }
 }

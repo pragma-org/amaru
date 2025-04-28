@@ -1,8 +1,10 @@
-use amaru_kernel::{protocol_parameters::ProtocolParameters, EraHistory, Hasher, Point};
+use amaru_kernel::{
+    protocol_parameters::ProtocolParameters, EraHistory, Hasher, MintedBlock, Point,
+};
 use amaru_ledger::{
-    context,
-    rules::{self, block::InvalidBlock, parse_block},
-    state::{self, BackwardError},
+    context::{self, DefaultValidationContext},
+    rules::{self, block::BlockValidation, parse_block},
+    state::{self, BackwardError, VolatileState},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
@@ -53,14 +55,13 @@ impl<S: Store + Send> ValidateBlockStage<S> {
         )
     }
 
-    pub fn roll_forward(&mut self, point: Point, raw_block: &RawBlock) -> anyhow::Result<()> {
+    fn create_validation_context(
+        &self,
+        block: &MintedBlock<'_>,
+    ) -> anyhow::Result<DefaultValidationContext> {
         let mut ctx = context::DefaultPreparationContext::new();
 
-        let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
-
-        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-
-        rules::prepare_block(&mut ctx, &block);
+        rules::prepare_block(&mut ctx, block);
 
         // TODO: Eventually move into a separate function, or integrate within the ledger instead
         // of the current .resolve_inputs; once the latter is no longer needed for the state
@@ -83,15 +84,7 @@ impl<S: Store + Send> ValidateBlockStage<S> {
             .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
             .collect();
 
-        let state = rules::validate_block(
-            context::DefaultValidationContext::new(inputs),
-            ProtocolParameters::default(),
-            block,
-        )?;
-
-        self.state.forward(state.anchor(&point, issuer))?;
-
-        Ok(())
+        Ok(context::DefaultValidationContext::new(inputs))
     }
 
     #[instrument(
@@ -99,24 +92,27 @@ impl<S: Store + Send> ValidateBlockStage<S> {
         skip_all,
         name = "ledger.roll_forward"
     )]
-    pub fn roll_forward_wrapper(
+    pub fn roll_forward(
         &mut self,
         point: Point,
-        raw_block: &RawBlock,
-        span: Span,
-    ) -> anyhow::Result<BlockValidationResult> {
-        match self.roll_forward(point.clone(), raw_block) {
-            Ok(_) => {
-                // TODO Make sure `roll_forward` returns a structured object encapsulating validation errors
-                // Err should be used for unexpected errors only and stop block processing
+        raw_block: RawBlock,
+    ) -> anyhow::Result<BlockValidation> {
+        let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
 
-                Ok(BlockValidationResult::BlockValidated { point, span })
-            }
-            Err(err) => match err.downcast_ref::<InvalidBlock>() {
-                Some(_err) => Ok(BlockValidationResult::BlockValidationFailed { point, span }),
-                None => Err(err),
-            },
-        }
+        let mut context = self.create_validation_context(&block)?;
+
+        if let BlockValidation::Invalid(err) =
+            rules::validate_block(&mut context, ProtocolParameters::default(), &block)
+        {
+            return Ok(BlockValidation::Invalid(err));
+        };
+
+        let state: VolatileState = context.into();
+        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+
+        self.state.forward(state.anchor(&point, issuer))?;
+
+        Ok(BlockValidation::Valid)
     }
 
     #[instrument(
@@ -165,9 +161,20 @@ impl<S: Store + Send> gasket::framework::Worker<ValidateBlockStage<S>> for Worke
     ) -> Result<(), WorkerError> {
         let result = match unit {
             ValidateBlockEvent::Validated { point, block, span } => stage
-                .roll_forward_wrapper(point.clone(), block, restore_span(span))
+                .roll_forward(point.clone(), block.to_vec())
+                .map(|res| match res {
+                    BlockValidation::Valid => BlockValidationResult::BlockValidated {
+                        point: point.clone(),
+                        span: restore_span(span),
+                    },
+                    BlockValidation::Invalid(_err) => {
+                        BlockValidationResult::BlockValidationFailed {
+                            point: point.clone(),
+                            span: restore_span(span),
+                        }
+                    }
+                })
                 .or_panic()?,
-
             ValidateBlockEvent::Rollback {
                 rollback_point,
                 span,
