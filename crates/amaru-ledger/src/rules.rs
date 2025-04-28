@@ -181,7 +181,7 @@ pub(crate) mod tests {
             &block,
         );
 
-        assert!(matches!(results, BlockValidation::Valid));
+        assert!(matches!(results, BlockValidation::Valid(())));
     }
 
     #[test]

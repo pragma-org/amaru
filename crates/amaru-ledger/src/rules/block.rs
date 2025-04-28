@@ -25,7 +25,10 @@ use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
     OriginalHash, StakeCredential, TransactionPointer,
 };
-use std::ops::{ControlFlow, Deref, FromResidual, Try};
+use std::{
+    ops::{ControlFlow, Deref, FromResidual, Try},
+    process::{ExitCode, Termination},
+};
 use tracing::{instrument, Level};
 
 #[derive(Debug)]
@@ -47,42 +50,69 @@ pub enum InvalidBlockDetails {
         transaction_index: u32,
         violation: InvalidTransaction,
     },
-    UncategorizedError(String),
 }
 
 #[derive(Debug)]
-pub enum BlockValidation {
-    Valid,
+pub enum BlockValidation<A, E> {
+    Valid(A),
     Invalid(InvalidBlockDetails),
+    Err(E),
 }
 
-impl Try for BlockValidation {
-    type Output = ();
-    type Residual = InvalidBlockDetails;
-
-    fn from_output((): Self::Output) -> Self {
-        BlockValidation::Valid
+impl<A> BlockValidation<A, anyhow::Error> {
+    pub fn bail(msg: String) -> Self {
+        BlockValidation::Err(anyhow::Error::msg(msg))
     }
 
-    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+    pub fn anyhow<E>(err: E) -> Self
+    where
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        BlockValidation::Err(anyhow::Error::new(err))
+    }
+
+    pub fn context<C>(self, context: C) -> Self
+    where
+        C: std::fmt::Display + Send + Sync + 'static,
+    {
         match self {
-            BlockValidation::Valid => ControlFlow::Continue(()),
-            BlockValidation::Invalid(e) => ControlFlow::Break(e),
+            BlockValidation::Err(err) => BlockValidation::Err(err.context(context)),
+            BlockValidation::Invalid { .. } | BlockValidation::Valid { .. } => self,
         }
     }
 }
 
-impl FromResidual for BlockValidation {
-    fn from_residual(residual: InvalidBlockDetails) -> Self {
-        BlockValidation::Invalid(residual)
+impl<A, E> Termination for BlockValidation<A, E> {
+    fn report(self) -> ExitCode {
+        match self {
+            Self::Valid { .. } => ExitCode::SUCCESS,
+            Self::Invalid { .. } | Self::Err { .. } => ExitCode::FAILURE,
+        }
     }
 }
 
-impl From<BlockValidation> for Result<(), InvalidBlockDetails> {
-    fn from(validation: BlockValidation) -> Self {
-        match validation {
-            BlockValidation::Valid => Ok(()),
-            BlockValidation::Invalid(e) => Err(e),
+impl<A, E> Try for BlockValidation<A, E> {
+    type Output = A;
+    type Residual = Result<InvalidBlockDetails, E>;
+
+    fn from_output(result: Self::Output) -> Self {
+        Self::Valid(result)
+    }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            Self::Valid(result) => ControlFlow::Continue(result),
+            Self::Invalid(violation) => ControlFlow::Break(Ok(violation)),
+            Self::Err(err) => ControlFlow::Break(Err(err)),
+        }
+    }
+}
+
+impl<A, E> FromResidual for BlockValidation<A, E> {
+    fn from_residual(residual: Result<InvalidBlockDetails, E>) -> Self {
+        match residual {
+            Ok(violation) => BlockValidation::Invalid(violation),
+            Err(err) => BlockValidation::Err(err),
         }
     }
 }
@@ -92,7 +122,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     context: &mut C,
     protocol_params: ProtocolParameters,
     block: &MintedBlock<'_>,
-) -> BlockValidation {
+) -> BlockValidation<(), anyhow::Error> {
     header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;
 
     body_size::block_body_size_valid(block)?;
@@ -113,10 +143,11 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
         let witness_set = match witness_sets.get(i as usize) {
             Some(witness_set) => witness_set,
             None => {
-                return BlockValidation::Invalid(InvalidBlockDetails::UncategorizedError(format!(
+                // TODO: Define a proper error for this.
+                return BlockValidation::bail(format!(
                     "Witness set not found for transaction index {}",
                     i
-                )));
+                ));
             }
         };
 
@@ -158,5 +189,5 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
         }
     }
 
-    BlockValidation::Valid
+    BlockValidation::Valid(())
 }

@@ -3,7 +3,11 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
-    rules::{self, block::BlockValidation, parse_block},
+    rules::{
+        self,
+        block::{BlockValidation, InvalidBlockDetails},
+        parse_block,
+    },
     state::{self, BackwardError, VolatileState},
     store::Store,
     BlockValidationResult, RawBlock, ValidateBlockEvent,
@@ -96,23 +100,23 @@ impl<S: Store + Send> ValidateBlockStage<S> {
         &mut self,
         point: Point,
         raw_block: RawBlock,
-    ) -> anyhow::Result<BlockValidation> {
+    ) -> anyhow::Result<Option<InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
 
         let mut context = self.create_validation_context(&block)?;
 
-        if let BlockValidation::Invalid(err) =
-            rules::validate_block(&mut context, ProtocolParameters::default(), &block)
-        {
-            return Ok(BlockValidation::Invalid(err));
-        };
-
-        let state: VolatileState = context.into();
-        let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-
-        self.state.forward(state.anchor(&point, issuer))?;
-
-        Ok(BlockValidation::Valid)
+        match rules::validate_block(&mut context, ProtocolParameters::default(), &block) {
+            BlockValidation::Err(err) => return Err(err),
+            BlockValidation::Invalid(err) => {
+                return Ok(Some(err));
+            }
+            BlockValidation::Valid(()) => {
+                let state: VolatileState = context.into();
+                let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
+                self.state.forward(state.anchor(&point, issuer))?;
+                Ok(None)
+            }
+        }
     }
 
     #[instrument(
@@ -163,16 +167,14 @@ impl<S: Store + Send> gasket::framework::Worker<ValidateBlockStage<S>> for Worke
             ValidateBlockEvent::Validated { point, block, span } => stage
                 .roll_forward(point.clone(), block.to_vec())
                 .map(|res| match res {
-                    BlockValidation::Valid => BlockValidationResult::BlockValidated {
+                    None => BlockValidationResult::BlockValidated {
                         point: point.clone(),
                         span: restore_span(span),
                     },
-                    BlockValidation::Invalid(_err) => {
-                        BlockValidationResult::BlockValidationFailed {
-                            point: point.clone(),
-                            span: restore_span(span),
-                        }
-                    }
+                    Some(_err) => BlockValidationResult::BlockValidationFailed {
+                        point: point.clone(),
+                        span: restore_span(span),
+                    },
                 })
                 .or_panic()?,
             ValidateBlockEvent::Rollback {
