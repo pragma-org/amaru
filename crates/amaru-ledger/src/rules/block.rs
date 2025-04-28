@@ -16,76 +16,109 @@ pub mod body_size;
 pub mod ex_units;
 pub mod header_size;
 
-pub use crate::rules::block::{
-    body_size::InvalidBlockSize, ex_units::InvalidExUnits, header_size::InvalidBlockHeader,
-};
 use crate::{
     context::ValidationContext,
     rules::{transaction, transaction::InvalidTransaction},
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, HasExUnits, Hash, MintedBlock,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
     OriginalHash, StakeCredential, TransactionPointer,
 };
-use std::ops::Deref;
-use thiserror::Error;
+use std::ops::{ControlFlow, Deref, FromResidual, Try};
 use tracing::{instrument, Level};
 
-#[derive(Debug, Error)]
-pub enum InvalidBlock {
-    #[error("Invalid block's size: {0}")]
-    Size(#[from] InvalidBlockSize),
-
-    #[error("Invalid block's execution units: {0}")]
-    ExUnits(#[from] InvalidExUnits),
-
-    #[error("Invalid block header: {0}")]
-    Header(#[from] InvalidBlockHeader),
-
-    #[error(
-        "Invalid transaction (hash: {transaction_hash}, index: {transaction_index}): {violation} "
-    )]
+#[derive(Debug)]
+pub enum InvalidBlockDetails {
+    BlockSizeMismatch {
+        supplied: usize,
+        actual: usize,
+    },
+    TooManyExUnits {
+        provided: ExUnits,
+        max: ExUnits,
+    },
+    HeaderSizeTooBig {
+        supplied: usize,
+        max: usize,
+    },
     Transaction {
         transaction_hash: Hash<32>,
         transaction_index: u32,
         violation: InvalidTransaction,
     },
-
-    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
-    #[error("Uncategorized error: {0}")]
     UncategorizedError(String),
+}
+
+#[derive(Debug)]
+pub enum BlockValidation {
+    Valid,
+    Invalid(InvalidBlockDetails),
+}
+
+impl Try for BlockValidation {
+    type Output = ();
+    type Residual = InvalidBlockDetails;
+
+    fn from_output((): Self::Output) -> Self {
+        BlockValidation::Valid
+    }
+
+    fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
+        match self {
+            BlockValidation::Valid => ControlFlow::Continue(()),
+            BlockValidation::Invalid(e) => ControlFlow::Break(e),
+        }
+    }
+}
+
+impl FromResidual for BlockValidation {
+    fn from_residual(residual: InvalidBlockDetails) -> Self {
+        BlockValidation::Invalid(residual)
+    }
+}
+
+impl From<BlockValidation> for Result<(), InvalidBlockDetails> {
+    fn from(validation: BlockValidation) -> Self {
+        match validation {
+            BlockValidation::Valid => Ok(()),
+            BlockValidation::Invalid(e) => Err(e),
+        }
+    }
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
-    mut context: C,
+    context: &mut C,
     protocol_params: ProtocolParameters,
-    block: MintedBlock<'_>,
-) -> Result<S, InvalidBlock> {
+    block: &MintedBlock<'_>,
+) -> BlockValidation {
     header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;
 
-    body_size::block_body_size_valid(&block.header.header_body, &block)?;
+    body_size::block_body_size_valid(block)?;
 
     ex_units::block_ex_units_valid(block.ex_units(), &protocol_params)?;
 
-    let failed_transactions = FailedTransactions::from_block(&block);
+    let failed_transactions = FailedTransactions::from_block(block);
 
     let witness_sets = block.transaction_witness_sets.deref().to_vec();
 
-    let transactions = block.transaction_bodies.to_vec();
+    let transactions = block.transaction_bodies.deref().to_vec();
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
     // Realistically, we're never gonna hit the u32 limit with the number of transactions in a block (a boy can dream)
     for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
         let transaction_hash = transaction.original_hash();
 
-        let witness_set = witness_sets
-            .get(i as usize)
-            .ok_or(InvalidBlock::UncategorizedError(format!(
-                "Missing witness set for transaction index {}",
-                i
-            )))?;
+        let witness_set = match witness_sets.get(i as usize) {
+            Some(witness_set) => witness_set,
+            None => {
+                return BlockValidation::Invalid(InvalidBlockDetails::UncategorizedError(format!(
+                    "Witness set not found for transaction index {}",
+                    i
+                )));
+            }
+        };
 
         let auxiliary_data: Option<&AuxiliaryData> = block
             .auxiliary_data_set
@@ -108,21 +141,22 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             transaction_index: i as usize, // From u32
         };
 
-        transaction::execute(
-            &mut context,
+        if let Err(err) = transaction::execute(
+            context,
             &protocol_params,
             pointer,
             !failed_transactions.has(i),
             transaction,
             witness_set,
             auxiliary_data,
-        )
-        .map_err(|err| InvalidBlock::Transaction {
-            transaction_hash,
-            transaction_index: i,
-            violation: err,
-        })?;
+        ) {
+            return BlockValidation::Invalid(InvalidBlockDetails::Transaction {
+                transaction_hash,
+                transaction_index: i,
+                violation: err,
+            });
+        }
     }
 
-    Ok(context.into())
+    BlockValidation::Valid
 }

@@ -13,27 +13,24 @@
 // limitations under the License.
 
 use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
-use thiserror::Error;
 
-#[derive(Debug, Error)]
-pub enum InvalidExUnits {
-    #[error("too many execution units in block: provided (mem: {}, steps: {}), max (mem: {}, steps: {})", provided.mem, provided.steps, max.mem, max.steps)]
-    TooMany { provided: ExUnits, max: ExUnits },
-}
+use super::{BlockValidation, InvalidBlockDetails};
 
 pub fn block_ex_units_valid(
     ex_units: Vec<ExUnits>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), InvalidExUnits> {
+) -> BlockValidation {
+    // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
+
     let pp_max_ex_units = protocol_parameters.max_block_ex_units;
     let ex_units = ex_units
         .into_iter()
         .fold(ExUnits { mem: 0, steps: 0 }, sum_ex_units);
 
     if ex_units.mem <= pp_max_ex_units.mem && ex_units.steps <= pp_max_ex_units.steps {
-        Ok(())
+        BlockValidation::Valid
     } else {
-        Err(InvalidExUnits::TooMany {
+        BlockValidation::Invalid(InvalidBlockDetails::TooManyExUnits {
             provided: ex_units,
             max: ExUnits {
                 mem: pp_max_ex_units.mem,
@@ -45,7 +42,8 @@ pub fn block_ex_units_valid(
 
 #[cfg(test)]
 mod tests {
-    use super::InvalidExUnits;
+    use crate::rules::block::InvalidBlockDetails;
+
     use amaru_kernel::{
         include_cbor, protocol_parameters::ProtocolParameters, ExUnits, HasExUnits, MintedBlock,
     };
@@ -73,11 +71,11 @@ mod tests {
             steps: 0
         },
         ..Default::default()
-    }) => matches Err(InvalidExUnits::TooMany{provided, max: _})
-        if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
+    }) => matches Err(InvalidBlockDetails::TooManyExUnits{provided, max: _})
+    if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
     fn test_ex_units(
         (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
-    ) -> Result<(), InvalidExUnits> {
-        super::block_ex_units_valid(block.ex_units(), &protocol_parameters)
+    ) -> Result<(), InvalidBlockDetails> {
+        super::block_ex_units_valid(block.ex_units(), &protocol_parameters).into()
     }
 }

@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Epoch, EraHistory, Nonce, Point};
-use amaru_ouroboros::praos::nonce;
+use amaru_kernel::{EraHistory, Nonce, Point};
+use amaru_ouroboros::{praos::nonce, Nonces};
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;
 use slot_arithmetic::TimeHorizonError;
@@ -44,48 +44,9 @@ where
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
 
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
-    fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError>;
+    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
 
     fn era_history(&self) -> &EraHistory;
-}
-
-#[derive(Debug, PartialEq, Clone)]
-pub struct Nonces {
-    pub active: Nonce,
-    pub evolving: Nonce,
-    pub candidate: Nonce,
-    pub tail: Hash<32>,
-    pub epoch: Epoch,
-}
-
-impl<C> cbor::encode::Encode<C> for Nonces {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.begin_array()?;
-        e.encode_with(self.active, ctx)?;
-        e.encode_with(self.evolving, ctx)?;
-        e.encode_with(self.candidate, ctx)?;
-        e.encode_with(self.tail, ctx)?;
-        e.encode_with(self.epoch, ctx)?;
-        e.end()?;
-        Ok(())
-    }
-}
-
-impl<'b, C> cbor::decode::Decode<'b, C> for Nonces {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
-        Ok(Nonces {
-            active: d.decode_with(ctx)?,
-            evolving: d.decode_with(ctx)?,
-            candidate: d.decode_with(ctx)?,
-            tail: d.decode_with(ctx)?,
-            epoch: d.decode_with(ctx)?,
-        })
-    }
 }
 
 #[derive(Error, Debug)]
@@ -113,7 +74,7 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
         self.get_nonces(header).map(|nonces| nonces.active)
     }
 
-    fn evolve_nonce(&mut self, header: &H) -> Result<(), Self::Error> {
+    fn evolve_nonce(&mut self, header: &H) -> Result<Nonces, Self::Error> {
         let (epoch, is_within_stability_window) =
             nonce::randomness_stability_window(header, self.era_history())
                 .map_err(NoncesError::EraHistoryError)?;
@@ -131,60 +92,59 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
         // output.
         let evolving = nonce::evolve(header, &parent.evolving);
 
-        self.put_nonces(
-            &header.hash(),
-            Nonces {
-                epoch,
-                evolving,
+        let nonces = Nonces {
+            epoch,
+            evolving,
 
-                // On epoch changes, compute the new active nonce by combining:
-                //   1. the (now stable) candidate; and
-                //   2. the previous epoch's last block's parent header hash.
-                //
-                // If the epoch hasn't changed, then our active nonce is unchanged.
-                active: if epoch > parent.epoch {
-                    let tail =
-                        self.load_header(&parent.tail)
-                            .ok_or(NoncesError::UnknownHeader {
-                                header: parent.tail,
-                            })?;
-                    nonce::from_candidate(&tail, &parent.candidate).ok_or(
-                        NoncesError::NoParentHeader {
-                            header: parent.tail,
-                        },
-                    )?
-                } else {
-                    parent.active
-                },
-
-                // Unless we are within the randomness stability window, we also update the candidate. This
-                // means that outside of the stability window, we always have:
-                //
-                //   evolving == candidate
-                //
-                // They only diverge for the last blocks of each epoch; The candidate remains stable while
-                // the rolling nonce keeps evolving in preparation of the next epoch. Another way to look
-                // at it is to think that there's always an entire epoch length contributing to the nonce
-                // randomness, but it spans over two epochs.
-                candidate: if is_within_stability_window {
-                    evolving
-                } else {
-                    parent.candidate
-                },
-
-                // On epoch changes, the parent header is -- by definition -- the last header of the
-                // previous epoch.
-                //
-                // Otherwise, the tail remains unchanged.
-                tail: if epoch > parent.epoch {
-                    parent_hash
-                } else {
-                    parent.tail
-                },
+            // On epoch changes, compute the new active nonce by combining:
+            //   1. the (now stable) candidate; and
+            //   2. the previous epoch's last block's parent header hash.
+            //
+            // If the epoch hasn't changed, then our active nonce is unchanged.
+            active: if epoch > parent.epoch {
+                let tail = self
+                    .load_header(&parent.tail)
+                    .ok_or(NoncesError::UnknownHeader {
+                        header: parent.tail,
+                    })?;
+                nonce::from_candidate(&tail, &parent.candidate).ok_or(
+                    NoncesError::NoParentHeader {
+                        header: parent.tail,
+                    },
+                )?
+            } else {
+                parent.active
             },
-        )?;
 
-        Ok(())
+            // Unless we are within the randomness stability window, we also update the candidate. This
+            // means that outside of the stability window, we always have:
+            //
+            //   evolving == candidate
+            //
+            // They only diverge for the last blocks of each epoch; The candidate remains stable while
+            // the rolling nonce keeps evolving in preparation of the next epoch. Another way to look
+            // at it is to think that there's always an entire epoch length contributing to the nonce
+            // randomness, but it spans over two epochs.
+            candidate: if is_within_stability_window {
+                evolving
+            } else {
+                parent.candidate
+            },
+
+            // On epoch changes, the parent header is -- by definition -- the last header of the
+            // previous epoch.
+            //
+            // Otherwise, the tail remains unchanged.
+            tail: if epoch > parent.epoch {
+                parent_hash
+            } else {
+                parent.tail
+            },
+        };
+
+        self.put_nonces(&header.hash(), &nonces)?;
+
+        Ok(nonces)
     }
 }
 
@@ -260,7 +220,7 @@ mod test {
             self.nonces.get(header).cloned()
         }
 
-        fn put_nonces(&mut self, header: &Hash<32>, nonces: Nonces) -> Result<(), StoreError> {
+        fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
             self.nonces.insert(*header, nonces.clone());
             Ok(())
         }
@@ -284,7 +244,7 @@ mod test {
 
         // Have information about the direct parent.
         store
-            .put_nonces(&parent.0.hash(), parent.1.clone())
+            .put_nonces(&parent.0.hash(), parent.1)
             .expect("database failure");
 
         // Evolve the current nonce so that 'get_nonces' can then return a result.

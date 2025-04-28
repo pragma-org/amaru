@@ -128,8 +128,10 @@ pub(crate) mod tests {
     use super::*;
     use crate::{
         context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules,
-        rules::block::{InvalidBlock, InvalidBlockHeader},
+        rules::{
+            self,
+            block::{BlockValidation, InvalidBlockDetails},
+        },
         tests::{fake_input, fake_output},
     };
     use amaru_kernel::protocol_parameters::ProtocolParameters;
@@ -174,12 +176,12 @@ pub(crate) mod tests {
         prepare_block(&mut ctx, &block);
 
         let results = rules::block::execute(
-            AssertValidationContext::from(ctx),
+            &mut AssertValidationContext::from(ctx),
             ProtocolParameters::default(),
-            block,
+            &block,
         );
 
-        assert!(results.is_ok())
+        assert!(matches!(results, BlockValidation::Valid));
     }
 
     #[test]
@@ -200,14 +202,12 @@ pub(crate) mod tests {
 
         prepare_block(&mut ctx, &block);
 
-        assert!(
-            rules::block::execute(AssertValidationContext::from(ctx), pp, block).is_err_and(|e| {
-                matches!(
-                    e,
-                    InvalidBlock::Header(InvalidBlockHeader::SizeTooBig { .. })
-                )
-            })
-        )
+        let results = rules::block::execute(&mut AssertValidationContext::from(ctx), pp, &block);
+
+        assert!(matches!(
+            results,
+            BlockValidation::Invalid(InvalidBlockDetails::HeaderSizeTooBig { .. })
+        ))
     }
 
     macro_rules! fixture_context {

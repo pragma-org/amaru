@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::protocol_parameters::ProtocolParameters;
-use thiserror::Error;
 
-#[derive(Debug, Error)]
+use super::{BlockValidation, InvalidBlockDetails};
+
+#[derive(Debug)]
 pub enum InvalidBlockHeader {
-    #[error("block header size too big: supplied {supplied}, max {max}")]
     SizeTooBig { supplied: usize, max: usize },
 }
 
@@ -25,19 +25,19 @@ pub enum InvalidBlockHeader {
 pub fn block_header_size_valid(
     header: &[u8],
     protocol_params: &ProtocolParameters,
-) -> Result<(), InvalidBlockHeader> {
+) -> BlockValidation {
     let max_header_size = protocol_params
         .max_header_size
         .try_into()
         .unwrap_or_else(|_| panic!("Failed to convert u32 to usize"));
 
     if header.len() > max_header_size {
-        Err(InvalidBlockHeader::SizeTooBig {
+        BlockValidation::Invalid(InvalidBlockDetails::HeaderSizeTooBig {
             supplied: header.len(),
             max: max_header_size,
         })
     } else {
-        Ok(())
+        BlockValidation::Valid
     }
 }
 
@@ -55,6 +55,10 @@ mod tests {
             cbor::decode(bytes.as_slice()).expect("Failed to parse Conway3.block bytes");
 
         let pp = ProtocolParameters::default();
-        assert!(block_header_size_valid(block.header.raw_cbor(), &pp).is_ok())
+
+        assert!(matches!(
+            block_header_size_valid(block.header.raw_cbor(), &pp),
+            BlockValidation::Valid
+        ))
     }
 }

@@ -14,8 +14,7 @@
 
 use super::bytes::Bytes;
 use crate::echo::Envelope;
-use amaru::stages::consensus::header::PullEvent;
-use amaru_consensus::consensus::ValidateHeaderEvent;
+use amaru_consensus::consensus::{ChainSyncEvent, ValidateHeaderEvent};
 use amaru_consensus::peer::Peer;
 use amaru_kernel::{self, Point, Slot};
 use futures_util::sink::SinkExt;
@@ -162,7 +161,7 @@ impl From<&ValidateHeaderEvent> for ChainSyncMessage {
         pub use pallas_crypto::hash::Hash;
 
         match event {
-            ValidateHeaderEvent::Validated(_peer, point, _span) => {
+            ValidateHeaderEvent::Validated { point, .. } => {
                 let raw_hash: Hash<32> = point.into();
                 ChainSyncMessage::Fwd {
                     msg_id: 0,
@@ -173,12 +172,15 @@ impl From<&ValidateHeaderEvent> for ChainSyncMessage {
                     header: Bytes { bytes: vec![] }, // FIXME: vec is the full body not the header
                 }
             }
-            ValidateHeaderEvent::Rollback(_point, _span) => todo!(),
+            ValidateHeaderEvent::Rollback { .. } => todo!(),
         }
     }
 }
 
-pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent, WorkerError> {
+pub fn mk_message(
+    v: Envelope<ChainSyncMessage>,
+    span: Span,
+) -> Result<ChainSyncEvent, WorkerError> {
     use ChainSyncMessage::*;
 
     let peer = Peer { name: v.src };
@@ -189,20 +191,21 @@ pub fn mk_message(v: Envelope<ChainSyncMessage>, span: Span) -> Result<PullEvent
             slot,
             hash,
             header,
-        } => Ok(PullEvent::RollForward(
+        } => Ok(ChainSyncEvent::RollForward {
             peer,
-            Point::Specific(slot.into(), hash.into()),
-            header.into(),
+            point: Point::Specific(slot.into(), hash.into()),
+            raw_header: header.into(),
             span,
-        )),
+        }),
         Bck {
             msg_id: _,
             slot,
             hash,
-        } => Ok(PullEvent::Rollback(
+        } => Ok(ChainSyncEvent::Rollback {
             peer,
-            Point::Specific(slot.into(), hash.into()),
-        )),
+            rollback_point: Point::Specific(slot.into(), hash.into()),
+            span,
+        }),
         _ => Err(WorkerError::Recv),
     }
 }
@@ -264,11 +267,16 @@ mod test {
         let event = super::mk_message(message, tracing::trace_span!("test")).unwrap();
 
         match event {
-            super::PullEvent::RollForward(peer, point, header, _) => {
+            super::ChainSyncEvent::RollForward {
+                peer,
+                point,
+                raw_header,
+                ..
+            } => {
                 assert_eq!(peer.name, "peer1");
                 assert_eq!(point.slot_or_default(), From::from(1234));
                 assert_eq!(Hash::from(&point), expected_hash);
-                assert_eq!(header, hex::decode(TEST_HEADER).unwrap());
+                assert_eq!(raw_header, hex::decode(TEST_HEADER).unwrap());
             }
             _ => panic!("expected RollForward event"),
         }
@@ -352,7 +360,11 @@ mod test {
         prop_oneof![("[0-9a-z]+", any::<u64>(), any::<[u8; 32]>()).prop_map(
             |(name, slot, hash)| {
                 let span = trace_span!("");
-                Validated(Peer { name }, Point::Specific(slot, hash.into()), span)
+                Validated {
+                    peer: Peer { name },
+                    point: Point::Specific(slot, hash.into()),
+                    span,
+                }
             }
         )]
         .boxed()

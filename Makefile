@@ -116,10 +116,7 @@ build-examples: ## Build all examples
 	@for dir in $(wildcard examples/*/.); do \
 		if [ -f $$dir/Makefile ]; then \
 			echo "Building $$dir"; \
-			$(MAKE) -C $$dir; \
-			if [ $$? != "0" ]; then \
-				exit $$?; \
-			fi; \
+			$(MAKE) -C $$dir || exit; \
 		fi; \
 	done
 
