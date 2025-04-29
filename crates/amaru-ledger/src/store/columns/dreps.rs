@@ -35,6 +35,12 @@ pub struct Row {
     pub anchor: Option<Anchor>,
     pub registered_at: CertificatePointer,
     pub last_interaction: Epoch,
+    /// This field is *temporary* and only necessary to re-implement a bug present in the Cardano
+    /// ledger in the protocol version 9.
+    ///
+    /// It is temporary in the sense that, it is no longer required if bootstrapping from snapshots
+    /// that starts in protocol version 10 or later; and thus shall be dropped entirely when relevant.
+    pub previous_deregistration: Option<CertificatePointer>,
 }
 
 impl Row {
@@ -55,23 +61,29 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(4)?;
+        e.array(5)?;
         e.encode_with(self.deposit, ctx)?;
         e.encode_with(self.anchor.clone(), ctx)?;
         e.encode_with(self.registered_at, ctx)?;
         e.encode_with(self.last_interaction, ctx)?;
+        e.encode_with(self.previous_deregistration, ctx)?;
         Ok(())
     }
 }
 
 impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        d.array()?;
+        let len = d.array()?;
         Ok(Row {
             deposit: d.decode_with(ctx)?,
             anchor: d.decode_with(ctx)?,
             registered_at: d.decode_with(ctx)?,
             last_interaction: d.decode_with(ctx)?,
+            previous_deregistration: if len > Some(4) {
+                d.decode_with(ctx)?
+            } else {
+                None
+            },
         })
     }
 }
@@ -93,12 +105,14 @@ pub(crate) mod tests {
             anchor in option::of(any_anchor()),
             registered_at in any_certificate_pointer(),
             last_interaction in any::<Epoch>(),
+            previous_deregistration in option::of(any_certificate_pointer()),
         ) -> Row {
             Row {
                 deposit,
                 anchor,
                 registered_at,
                 last_interaction,
+                previous_deregistration,
             }
         }
     }

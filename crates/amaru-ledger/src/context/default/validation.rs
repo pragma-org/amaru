@@ -174,8 +174,11 @@ impl DRepsSlice for DefaultValidationContext {
         Ok(())
     }
 
-    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace) {
+    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer) {
         trace!(?drep, ?refund, "certificate.drep.retirement");
+        self.state
+            .dreps_deregistrations
+            .insert(drep.clone(), pointer);
         self.state.dreps.unregister(drep)
     }
 

@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{network::NetworkName, Network};
+use amaru_kernel::{
+    network::NetworkName, Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+};
 use amaru_ledger::{
     store::Snapshot,
     summary::{
@@ -85,8 +87,14 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 fn compare_preprod_snapshot(epoch: Epoch) {
     let snapshot = db(epoch);
 
-    let dreps = GovernanceSummary::new(snapshot.as_ref(), NetworkName::Preprod.into()).unwrap();
-    let stake_distr = StakeDistribution::new(snapshot.as_ref(), dreps).unwrap();
+    let dreps = GovernanceSummary::new(
+        snapshot.as_ref(),
+        preprod_protocol_version(epoch),
+        NetworkName::Preprod.into(),
+    )
+    .unwrap();
+    let stake_distr =
+        StakeDistribution::new(snapshot.as_ref(), preprod_protocol_version(epoch), dreps).unwrap();
     insta::assert_json_snapshot!(
         format!("stake_distribution_{}", epoch),
         stake_distr.for_network(Network::Testnet),
@@ -97,4 +105,12 @@ fn compare_preprod_snapshot(epoch: Epoch) {
         let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), stake_distr).unwrap();
         insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
     }
+}
+
+fn preprod_protocol_version(epoch: Epoch) -> ProtocolVersion {
+    if epoch <= 180 {
+        return PROTOCOL_VERSION_9;
+    }
+
+    PROTOCOL_VERSION_10
 }

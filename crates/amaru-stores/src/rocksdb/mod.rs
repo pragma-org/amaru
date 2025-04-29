@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    stake_credential_hash, stake_credential_type, Epoch, EraHistory, Lovelace, Point, PoolId,
-    StakeCredential, TransactionInput, TransactionOutput,
+    stake_credential_hash, stake_credential_type, CertificatePointer, Epoch, EraHistory, Lovelace,
+    Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -427,7 +427,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             impl Iterator<Item = scolumns::utxo::Key>,
             impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
             impl Iterator<Item = scolumns::accounts::Key>,
-            impl Iterator<Item = scolumns::dreps::Key>,
+            impl Iterator<Item = (scolumns::dreps::Key, CertificatePointer)>,
             impl Iterator<Item = scolumns::cc_members::Key>,
             impl Iterator<Item = scolumns::proposals::Key>,
         >,

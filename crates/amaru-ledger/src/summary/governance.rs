@@ -36,6 +36,8 @@ pub struct DRepState {
     pub stake: Lovelace,
     #[serde(skip)]
     pub registered_at: CertificatePointer,
+    #[serde(skip)]
+    pub previous_deregistration: Option<CertificatePointer>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -53,7 +55,11 @@ pub enum Error {
 }
 
 impl GovernanceSummary {
-    pub fn new(db: &impl Snapshot, era_history: &EraHistory) -> Result<Self, Error> {
+    pub fn new(
+        db: &impl Snapshot,
+        protocol_version: ProtocolVersion,
+        era_history: &EraHistory,
+    ) -> Result<Self, Error> {
         let current_epoch = db.epoch();
 
         let mut proposals = BTreeSet::new();
@@ -85,8 +91,7 @@ impl GovernanceSummary {
             })?;
 
         let mandate = drep_mandate_calculator(
-            // FIXME: Obtain protocol version from arguments, passed from block header.
-            (9, 0),
+            protocol_version,
             GOV_ACTION_LIFETIME,
             DREP_EXPIRY,
             era_history,
@@ -96,11 +101,30 @@ impl GovernanceSummary {
 
         let mut dreps = db
             .iter_dreps()?
+            .filter(
+                |(
+                    _,
+                    dreps::Row {
+                        registered_at,
+                        previous_deregistration,
+                        ..
+                    },
+                )| {
+                    let is_default = registered_at == &CertificatePointer::default();
+                    Some(registered_at) > previous_deregistration.as_ref()
+                        // This second condition stems from how we import snapshots from incomplete
+                        // data: we do not know when a drep registers when it's already in a
+                        // snapshot. The default is filled with zeroes, and thus, will always be
+                        // smaller than any registration certificate.
+                        || is_default && previous_deregistration.is_some()
+                },
+            )
             .map(
                 |(
                     k,
                     dreps::Row {
                         registered_at,
+                        previous_deregistration,
                         last_interaction,
                         anchor,
                         ..
@@ -117,6 +141,7 @@ impl GovernanceSummary {
                         drep,
                         DRepState {
                             registered_at,
+                            previous_deregistration,
                             metadata: anchor,
                             mandate: Some(mandate(
                                 // TODO: The map_err to include the slot as context shouldn't be
@@ -138,7 +163,7 @@ impl GovernanceSummary {
             )
             .collect::<Result<BTreeMap<_, _>, Error>>()?;
 
-        let default_drep_state = || DRepState {
+        let default_protocol_drep = || DRepState {
             mandate: None,
             metadata: None,
             stake: 0,
@@ -149,10 +174,11 @@ impl GovernanceSummary {
                 },
                 certificate_index: 0,
             },
+            previous_deregistration: None,
         };
 
-        dreps.insert(DRep::Abstain, default_drep_state());
-        dreps.insert(DRep::NoConfidence, default_drep_state());
+        dreps.insert(DRep::Abstain, default_protocol_drep());
+        dreps.insert(DRep::NoConfidence, default_protocol_drep());
 
         Ok(GovernanceSummary { dreps, deposits })
     }
@@ -253,13 +279,18 @@ fn drep_mandate_calculator(
         .collect::<BTreeSet<Epoch>>();
 
     // Pre-calculate all epochs, so that need not to re-allocate memory for all DReps.
-    let first_epoch = era_history
+    //
+    // FIXME: This initial epoch should be bound to the oldest epoch known of Amaru.
+    // We cannot access data older than that *anyway*.
+    let from_epoch = era_history
         .eras
         .last()
         .map(|summary| summary.start.epoch)
         .unwrap_or_default();
 
-    let all_epochs = BTreeSet::from_iter(first_epoch..=current_epoch);
+    let all_epochs = BTreeSet::from_iter(from_epoch..=current_epoch);
+
+    let era_first_epoch = era_history.era_first_epoch(current_epoch);
 
     let v10_onwards = Box::new(
         move |registered_at: (Slot, Epoch), last_interaction: Epoch| -> Epoch {
@@ -268,10 +299,10 @@ fn drep_mandate_calculator(
                 // Exclude any period prior to the drep registration. They shouldn't count towards
                 // the dormant epochs number, since the DRep simply didn't exist back then.
                 .filter(|epoch| *epoch >= &registered_at.1)
-                // Always consider the registration epoch as an active epoch so that if the
-                // drep is registered in the middle of a dormant period, it only counts from
-                // the epoch following the registration.
-                .chain(vec![&registered_at.1])
+                // Always consider the registration & last interaction epoch as active epochs so
+                // that if the drep is registered/updated in the middle of a dormant period, it
+                // only counts from the epoch following the event.
+                .chain(vec![&registered_at.1, &last_interaction])
                 .collect::<BTreeSet<_>>();
 
             debug_assert!(
@@ -293,11 +324,19 @@ fn drep_mandate_calculator(
     if major_version <= 9 {
         return Box::new(
             move |registered_at: (Slot, Epoch), last_interaction: Epoch| -> Epoch {
-                backward_compatibility::drep_bonus_mandate(
+                let bonus_bug_dormant = backward_compatibility::drep_bonus_mandate(
                     governance_action_lifetime,
                     &proposals,
                     registered_at,
-                ) + v10_onwards(registered_at, last_interaction)
+                );
+
+                let bonus_first_epoch = if Ok(current_epoch) == era_first_epoch {
+                    1
+                } else {
+                    0
+                };
+
+                bonus_first_epoch + bonus_bug_dormant + v10_onwards(registered_at, last_interaction)
             },
         );
     }
@@ -308,12 +347,10 @@ fn drep_mandate_calculator(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amaru_kernel::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_9};
     use backward_compatibility::tests::{ptr, ERA_HISTORY};
     use test_case::test_case;
     use EpochResult::*;
-
-    const VERSION_9: ProtocolVersion = (9, 0);
-    const VERSION_10: ProtocolVersion = (10, 0);
 
     #[derive(Debug, PartialEq)]
     enum EpochResult {
@@ -347,9 +384,9 @@ mod tests {
             )
         };
 
-        let v9 = test_with(VERSION_9);
+        let v9 = test_with(PROTOCOL_VERSION_9);
 
-        let v10 = test_with(VERSION_10);
+        let v10 = test_with(PROTOCOL_VERSION_10);
 
         if v9 == v10 {
             Consistent(v10)

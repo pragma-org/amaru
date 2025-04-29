@@ -113,9 +113,9 @@ use crate::{
 };
 use amaru_kernel::{
     encode_bech32, expect_stake_credential, output_stake_credential, DRep, Epoch, HasLovelace,
-    Hash, Lovelace, Network, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
-    MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
-    SHELLEY_EPOCH_LENGTH, STAKE_POOL_DEPOSIT, TREASURY_TAX,
+    Hash, Lovelace, Network, PoolId, PoolParams, ProtocolVersion, StakeCredential,
+    ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT,
+    PLEDGE_INFLUENCE, PROTOCOL_VERSION_10, SHELLEY_EPOCH_LENGTH, STAKE_POOL_DEPOSIT, TREASURY_TAX,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
@@ -167,6 +167,7 @@ impl StakeDistribution {
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(
         db: &impl Snapshot,
+        protocol_version: ProtocolVersion,
         GovernanceSummary {
             mut dreps,
             deposits,
@@ -178,15 +179,27 @@ impl StakeDistribution {
             .iter_accounts()?
             .map(|(credential, account)| {
                 (
-                    credential,
+                    credential.clone(),
                     AccountState {
                         lovelace: account.rewards,
                         pool: account.delegatee,
-                        drep: account.drep.and_then(|(drep, since)| match drep {
+                        drep: account.drep.clone().and_then(|(drep, since)| match drep {
                             DRep::Abstain | DRep::NoConfidence => Some(drep),
                             DRep::Key { .. } | DRep::Script { .. } => {
-                                let DRepState { registered_at, .. } = dreps.get(&drep)?;
-                                if &since >= registered_at {
+                                let DRepState {
+                                    registered_at,
+                                    previous_deregistration,
+                                    ..
+                                } = dreps.get(&drep)?;
+
+                                // FIXME: Change this behaviour in protocol 10
+                                if protocol_version < PROTOCOL_VERSION_10 {
+                                    if &Some(since) > previous_deregistration {
+                                        Some(drep)
+                                    } else {
+                                        None
+                                    }
+                                } else if &since >= registered_at {
                                     Some(drep)
                                 } else {
                                     None

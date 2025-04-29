@@ -27,7 +27,8 @@ use crate::{
 };
 use amaru_kernel::{
     Epoch, EraHistory, Hash, MintedBlock, Point, PoolId, Slot, TransactionInput, TransactionOutput,
-    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD, STABILITY_WINDOW,
+    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9, SLOTS_PER_KES_PERIOD,
+    STABILITY_WINDOW,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -371,8 +372,15 @@ fn recover_stake_distribution(
         )
     });
 
-    StakeDistribution::new(&snapshot, GovernanceSummary::new(&snapshot, era_history)?)
-        .map_err(StateError::Storage)
+    // FIXME: Obtain from current block
+    let protocol_version = PROTOCOL_VERSION_9;
+
+    StakeDistribution::new(
+        &snapshot,
+        protocol_version,
+        GovernanceSummary::new(&snapshot, protocol_version, era_history)?,
+    )
+    .map_err(StateError::Storage)
 }
 
 #[instrument(level = Level::INFO, skip_all, fields(from = next_epoch - 1, into = next_epoch))]

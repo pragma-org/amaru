@@ -21,6 +21,7 @@ use amaru_kernel::{
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
     expect_stake_credential,
+    CertificatePointer,
     Epoch,
     Lovelace,
     Point,
@@ -202,7 +203,7 @@ pub trait TransactionalContext<'a> {
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
-            impl Iterator<Item = dreps::Key>,
+            impl Iterator<Item = (dreps::Key, CertificatePointer)>,
             impl Iterator<Item = cc_members::Key>,
             impl Iterator<Item = proposals::Key>,
         >,

@@ -211,7 +211,7 @@ pub trait DRepsSlice {
         anchor: Option<Anchor>,
     ) -> Result<(), UpdateError<StakeCredential>>;
 
-    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace);
+    fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer);
 
     fn vote(&mut self, drep: StakeCredential);
 }

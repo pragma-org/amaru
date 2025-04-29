@@ -329,6 +329,16 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
+    /// Find the first epoch of the era from which this epoch belongs.
+    pub fn era_first_epoch(&self, epoch: u64) -> Result<u64, TimeHorizonError> {
+        for era in &self.eras {
+            if epoch < era.end.epoch {
+                return Ok(era.start.epoch);
+            }
+        }
+        Err(TimeHorizonError::PastTimeHorizon)
+    }
+
     pub fn epoch_bounds(&self, epoch: u64) -> Result<EpochBounds, TimeHorizonError> {
         for era in &self.eras {
             if era.start.epoch > epoch {

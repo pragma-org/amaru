@@ -23,7 +23,7 @@ use amaru_kernel::{
     PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential, TransactionInput,
     TransactionOutput, GOV_ACTION_LIFETIME,
 };
-use std::collections::{BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tracing::error;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::state::volatile_db";
@@ -136,6 +136,7 @@ pub struct VolatileState {
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
+    pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
@@ -177,7 +178,7 @@ pub struct StoreUpdate<W, A, R> {
 impl AnchoredVolatileState {
     #[allow(clippy::type_complexity)]
     pub fn into_store_update(
-        self,
+        mut self,
         epoch: Epoch,
     ) -> StoreUpdate<
         impl Iterator<Item = accounts::Key>,
@@ -193,7 +194,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
-            impl Iterator<Item = dreps::Key>,
+            impl Iterator<Item = (dreps::Key, CertificatePointer)>,
             impl Iterator<Item = cc_members::Key>,
             impl Iterator<Item = proposals::Key>,
         >,
@@ -297,7 +298,17 @@ impl AnchoredVolatileState {
                 utxo: self.state.utxo.consumed.into_iter(),
                 pools: self.state.pools.unregistered.into_iter(),
                 accounts: self.state.accounts.unregistered.into_iter(),
-                dreps: self.state.dreps.unregistered.into_iter(),
+                dreps: self
+                    .state
+                    .dreps
+                    .unregistered
+                    .into_iter()
+                    .filter_map(move |credential| {
+                        self.state
+                            .dreps_deregistrations
+                            .remove(&credential)
+                            .map(|pointer| (credential, pointer))
+                    }),
                 cc_members: self.state.committee.unregistered.into_iter(),
                 proposals: self
                     .state
