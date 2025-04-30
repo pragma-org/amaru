@@ -80,12 +80,12 @@ macro_rules! include_cbor {
 /// project's tests/data folder, relative to the project's Cargo.toml.
 #[macro_export]
 macro_rules! include_json {
-    ($filepath:expr) => {
+    ($filepath:expr) => {{
         $crate::json::from_str(include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/tests/data/",
             $filepath,
         )))
         .expect(concat!("invalid json file: ", $filepath))
-    };
+    }};
 }

@@ -18,14 +18,14 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
-    #[error("Unknown input: {}#{}", .0.index, .0.transaction_id)]
+    #[error("Unknown input: {}#{}", .0.transaction_id, .0.index)]
     UnknownInput(TransactionInput),
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
         intersection
             .iter()
             .map(|input|
-                format!("{}#{}", input.index, input.transaction_id)
+                format!("{}#{}", input.transaction_id, input.index)
             )
             .collect::<Vec<_>>()
             .join(", ")
@@ -68,6 +68,7 @@ where
     for input in [inputs.as_slice(), collaterals].concat().iter() {
         match context.lookup(input) {
             Some(output) => {
+                // In theory, we could receive a stake address as an output destination here and it would be valid...
                 let address = output.address().map_err(|e| {
                     InvalidInputs::UncategorizedError(format!(
                         "Invalid output address. (error {:?}) output: {:?}",
@@ -109,12 +110,33 @@ mod tests {
     use test_case::test_case;
     use tracing_json::assert_trace;
 
+    use super::InvalidInputs;
+
     macro_rules! fixture {
         ($hash:literal) => {
             (
                 fixture_context!($hash),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+            )
+        };
+        ($hash:literal, $variant:literal) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/tx.cbor"
+                )),
+                include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/expected.traces"
+                )),
             )
         };
     }
@@ -124,25 +146,44 @@ mod tests {
     #[test_case(fixture!("578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"))]
     #[test_case(fixture!("d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a"))]
     #[test_case(fixture!("6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4"))]
+    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "non-disjoint-reference-inputs") =>
+        matches Err(InvalidInputs::NonDisjointRefInputs { intersection })
+            if  intersection.len() == 1
+                && InvalidInputs::NonDisjointRefInputs { intersection: intersection.clone() }.to_string() == "inputs included in both reference inputs and spent inputs: intersection [47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab#0]";
+        "Non-Disjoint Reference Inputs")]
+    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-address-header") =>
+        matches Err(InvalidInputs::UncategorizedError(e))
+            if e == "Invalid output address. (error InvalidHeader(160)) output: PostAlonzo(PseudoPostAlonzoTransactionOutput { address: Bytes(ByteVec([160, 83, 9, 250, 120, 104, 86, 193, 38, 45, 9, 91, 137, 173, 246, 79, 232, 165, 37, 90, 209, 145, 66, 201, 197, 55, 53, 158, 65])), value: Coin(0), datum_option: None, script_ref: None })";
+            "invalid address header")]
+    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "unknown-input") =>
+        matches Err(InvalidInputs::UnknownInput(input))
+        if  hex::encode(input.transaction_id) == "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab" && input.index == 2;
+        "unknown input")]
+    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-byron-address") =>
+        matches Err(InvalidInputs::UncategorizedError(e))
+        if e == "Invalid byron address payload. (error InvalidByronCbor(Error { err: TypeMismatch(U8), pos: Some(31), msg: \"expected map\" })) address: ByronAddress { payload: TagWrap(ByteVec([130, 88, 28, 133, 24, 18, 154, 60, 13, 248, 227, 60, 64, 224, 75, 141, 38, 173, 59, 4, 34, 208, 250, 156, 169, 37, 88, 6, 163, 243, 139, 0])), crc: 3884043611 }";
+        "invalid byron payload")]
+    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "valid-byron-address");
+        "valid byron address")]
     fn valid_reference_input_transactions(
         (ctx, tx, expected_traces): (
             AssertPreparationContext,
             KeepRaw<'_, MintedTransactionBody<'_>>,
             Vec<json::Value>,
         ),
-    ) {
-        assert_trace(
+    ) -> Result<(), InvalidInputs> {
+        let assert_trace = assert_trace(
             || {
                 let mut validation_context = AssertValidationContext::from(ctx.clone());
-                assert!(super::execute(
+                super::execute(
                     &mut validation_context,
                     &tx.inputs,
                     tx.reference_inputs.as_deref(),
                     tx.collateral.as_deref(),
                 )
-                .is_ok());
             },
             expected_traces,
-        )
+        );
+        assert_trace
     }
 }

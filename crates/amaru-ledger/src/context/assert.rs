@@ -252,6 +252,14 @@ impl WitnessSlice for AssertValidationContext {
         }
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            bootstrap_witness.hash = %root,
+        )
+        skip_all,
+        name = "require_bootstrap_witness"
+    )]
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
         self.required_bootstrap_signers.insert(root);
     }
