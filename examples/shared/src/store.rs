@@ -126,6 +126,10 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         Ok(())
     }
 
+    fn rollback(self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
     fn reset_fees(&self) -> Result<(), StoreError> {
         Ok(())
     }

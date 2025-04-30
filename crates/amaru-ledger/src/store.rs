@@ -306,6 +306,9 @@ pub trait TransactionalContext<'a> {
 
     /// Commit the transaction. This will persist all changes to the store.
     fn commit(self) -> Result<(), StoreError>;
+
+    /// Rollback the transaction. This will not persist any changes to the store.
+    fn rollback(self) -> Result<(), StoreError>;
 }
 
 // Columns

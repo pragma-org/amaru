@@ -55,6 +55,40 @@ const KEY_PROGRESS: &str = "progress";
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
+struct OngoingTransaction {
+    value: Arc<AtomicBool>,
+}
+
+impl OngoingTransaction {
+    fn new() -> Self {
+        OngoingTransaction {
+            value: Arc::new(AtomicBool::new(false)),
+        }
+    }
+    fn get(&self) -> bool {
+        self.value.load(Ordering::SeqCst)
+    }
+
+    fn set(&self, value: bool) {
+        #[allow(clippy::panic)]
+        if self.get() == value {
+            // This is a bug, we should never set the same value twice. Crash the process.
+            panic!("Ongoing transaction was already set to {}", value);
+        }
+        self.value.store(value, Ordering::SeqCst);
+    }
+}
+
+impl Drop for OngoingTransaction {
+    #[allow(clippy::panic)]
+    fn drop(&mut self) {
+        if self.get() {
+            // This is a bug, no transaction should be left open. Crash the process.
+            panic!("Ongoing transaction was not closed before dropping RocksDB");
+        }
+    }
+}
+
 /// An opaque handle for a store implementation of top of RocksDB. The database has the
 /// following structure:
 ///
@@ -85,7 +119,7 @@ pub struct RocksDB {
     /// The `EraHistory` of the network this database is tied to
     era_history: EraHistory,
 
-    ongoing_transaction: Arc<AtomicBool>,
+    ongoing_transaction: OngoingTransaction,
 }
 
 impl RocksDB {
@@ -138,7 +172,7 @@ impl RocksDB {
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
             era_history: era_history.clone(), // TODO: remove clone?
-            ongoing_transaction: AtomicBool::new(false).into(),
+            ongoing_transaction: OngoingTransaction::new(),
         })
     }
 
@@ -152,12 +186,12 @@ impl RocksDB {
             db: OptimisticTransactionDB::open(&opts, dir.join("live"))
                 .map_err(|err| StoreError::Internal(err.into()))?,
             era_history: era_history.clone(),
-            ongoing_transaction: AtomicBool::new(false).into(),
+            ongoing_transaction: OngoingTransaction::new(),
         })
     }
 
-    fn transaction_committed(&self) {
-        self.ongoing_transaction.store(false, Ordering::SeqCst);
+    fn transaction_ended(&self) {
+        self.ongoing_transaction.set(false);
     }
 
     fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
@@ -300,7 +334,16 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             .transaction
             .commit()
             .map_err(|err| StoreError::Internal(err.into()));
-        self.db.transaction_committed();
+        self.db.transaction_ended();
+        res
+    }
+
+    fn rollback(mut self) -> Result<(), StoreError> {
+        let transaction = std::mem::replace(&mut self.transaction, self.db.db.transaction());
+        let res = transaction
+            .rollback()
+            .map_err(|err| StoreError::Internal(err.into()));
+        self.db.transaction_ended();
         res
     }
 
@@ -597,12 +640,12 @@ impl Store for RocksDB {
 
     #[allow(clippy::panic)]
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
-        if self.ongoing_transaction.load(Ordering::SeqCst) {
+        if self.ongoing_transaction.get() {
             // Thats a bug in the code, we should never have two transactions at the same time
             panic!("RocksDB already has an ongoing transaction");
         }
         let transaction = self.db.transaction();
-        self.ongoing_transaction.store(true, Ordering::SeqCst);
+        self.ongoing_transaction.set(true);
         RocksDBTransactionalContext {
             transaction,
             db: self,
