@@ -445,7 +445,7 @@ mod tests {
     #[test_case( 88, Some(10), 14 => Consistent(22))]
     #[test_case(115,     None, 11 => Consistent(21))]
     #[test_case(115,     None, 13 => Consistent(23))]
-    #[test_case(115, Some(13), 13 => Consistent(24))]
+    #[test_case(115, Some(13), 13 => Consistent(23))]
     #[test_case(125,     None, 13 => Inconsistent{ v9: 24, v10: 23 })]
     #[test_case(134,     None, 13 => Inconsistent{ v9: 25, v10: 23 })]
     #[test_case(135,     None, 13 => Inconsistent{ v9: 25, v10: 23 })]
