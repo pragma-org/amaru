@@ -203,7 +203,12 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
             impl Iterator<Item = amaru_ledger::store::columns::utxo::Key>,
             impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, Epoch)>,
             impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
-            impl Iterator<Item = amaru_ledger::store::columns::dreps::Key>,
+            impl Iterator<
+                Item = (
+                    amaru_ledger::store::columns::dreps::Key,
+                    amaru_kernel::CertificatePointer,
+                ),
+            >,
             impl Iterator<Item = amaru_ledger::store::columns::cc_members::Key>,
             impl Iterator<Item = amaru_ledger::store::columns::proposals::Key>,
         >,

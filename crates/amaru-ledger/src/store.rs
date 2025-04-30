@@ -29,6 +29,7 @@ use amaru_kernel::{
     StakeCredential,
     TransactionInput,
     TransactionOutput,
+    STAKE_POOL_DEPOSIT,
 };
 use columns::*;
 use std::{
@@ -257,11 +258,21 @@ pub trait TransactionalContext<'a> {
 
     #[instrument(level = Level::INFO, name = "tick.pool", skip_all)]
     fn tick_pools(&self, epoch: Epoch) -> Result<(), StoreError> {
+        let mut refunds = Vec::new();
+
         self.with_pools(|iterator| {
             for (_, pool) in iterator {
-                pools::Row::tick(pool, epoch)
+                if let Some(refund) = pools::Row::tick(pool, epoch) {
+                    refunds.push(refund)
+                }
             }
-        })
+        })?;
+
+        self.refund(
+            refunds
+                .into_iter()
+                .map(|credential| (credential, STAKE_POOL_DEPOSIT as u64)),
+        )
     }
 
     #[instrument(level = Level::INFO, name = "tick.proposals", skip_all)]

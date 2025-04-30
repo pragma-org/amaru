@@ -74,14 +74,12 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[test_case(171)]
 #[test_case(172)]
 #[test_case(173)]
-// FIXME
-// Re-enable as state divergences get addressed.
-// #[test_case(174)]
-// #[test_case(175)]
-// #[test_case(176)]
-// #[test_case(177)]
-// #[test_case(178)]
-// #[test_case(179)]
+#[test_case(174)]
+#[test_case(175)]
+#[test_case(176)]
+#[test_case(177)]
+#[test_case(178)]
+#[test_case(179)]
 #[ignore]
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
@@ -100,11 +98,8 @@ fn compare_preprod_snapshot(epoch: Epoch) {
         stake_distr.for_network(Network::Testnet),
     );
 
-    // FIXME: remove this condition once we're able to proceed beyond Epoch 173.
-    if epoch <= 171 {
-        let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), stake_distr).unwrap();
-        insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
-    }
+    let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), stake_distr).unwrap();
+    insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
 }
 
 fn preprod_protocol_version(epoch: Epoch) -> ProtocolVersion {

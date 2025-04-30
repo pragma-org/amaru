@@ -163,7 +163,7 @@ async fn import_one(
     transaction.reset_fees()?;
     transaction.with_pools(|iterator| {
         for (_, pool) in iterator {
-            amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1)
+            amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1);
         }
     })?;
     transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;

@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Epoch, PoolId, PoolParams};
+use amaru_kernel::{cbor, expect_stake_credential, Epoch, PoolId, PoolParams, StakeCredential};
 use iter_borrow::IterBorrow;
-use tracing::trace;
+use tracing::{debug, trace};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
 
@@ -54,7 +54,7 @@ impl Row {
     pub fn tick<'a>(
         mut row: Box<dyn std::borrow::BorrowMut<Option<Self>> + 'a>,
         current_epoch: Epoch,
-    ) {
+    ) -> Option<StakeCredential> {
         let (update, retirement, needs_update) = match row.borrow().as_ref() {
             None => (None, None, false),
             Some(pool) => pool.fold_future_params(current_epoch),
@@ -73,13 +73,16 @@ impl Row {
             // which is taken care of in the fold above (returning 'None').
             if let Some(epoch) = retirement {
                 if epoch <= current_epoch {
-                    trace!(
+                    let retiring = &pool
+                        .as_ref()
+                        .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
+                        .current_params;
+
+                    let refund = expect_stake_credential(&retiring.reward_account);
+
+                    debug!(
                         target: EVENT_TARGET,
-                        pool = %pool
-                            .as_ref()
-                            .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
-                            .current_params
-                            .id,
+                        pool = %retiring.id,
                         "tick.retiring"
                     );
 
@@ -102,14 +105,17 @@ impl Row {
                         .unwrap_or_else(|| unreachable!("pre-condition: needs_update"))
                         .future_params
                         .last();
+
                     assert_eq!(
                         last,
                         Some(&(None, current_epoch)),
                         "invariant violation: most recent retirement is not last certificate: {:?}",
                         last,
                     );
+
                     *pool = None;
-                    return;
+
+                    return Some(refund);
                 }
             }
 
@@ -133,6 +139,8 @@ impl Row {
             pool.future_params
                 .retain(|(_, epoch)| epoch > &current_epoch);
         }
+
+        None
     }
 
     /// Collapse stake pool future parameters according to the current epoch. The stable DB is at most k
