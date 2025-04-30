@@ -49,6 +49,9 @@ impl HasProxy for TransactionInput {
 #[derive(Debug, serde::Deserialize)]
 pub struct TransactionOutputProxy {
     address: Bytes,
+    // Adding new fields here as an `Option` to not break existing context.json files. Can go back through and clean up later
+    // TODO: support value that is more than just lovelace
+    value: Option<u64>,
     // TODO: expand this
 }
 
@@ -60,7 +63,7 @@ impl From<TransactionOutputProxy> for TransactionOutput {
     fn from(proxy: TransactionOutputProxy) -> Self {
         Self::PostAlonzo(PostAlonzoTransactionOutput {
             address: proxy.address,
-            value: Value::Coin(0),
+            value: Value::Coin(proxy.value.unwrap_or_default()),
             datum_option: None,
             script_ref: None,
         })

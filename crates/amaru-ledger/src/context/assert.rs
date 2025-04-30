@@ -96,6 +96,14 @@ impl From<AssertValidationContext> for () {
 }
 
 impl PotsSlice for AssertValidationContext {
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            fee = %_fees,
+        )
+        skip_all,
+        name = "add_fees"
+    )]
     fn add_fees(&mut self, _fees: Lovelace) {}
 }
 

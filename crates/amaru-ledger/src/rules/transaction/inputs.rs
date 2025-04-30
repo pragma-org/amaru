@@ -165,14 +165,14 @@ mod tests {
         "invalid byron payload")]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "valid-byron-address");
         "valid byron address")]
-    fn valid_reference_input_transactions(
+    fn inputs(
         (ctx, tx, expected_traces): (
             AssertPreparationContext,
             KeepRaw<'_, MintedTransactionBody<'_>>,
             Vec<json::Value>,
         ),
     ) -> Result<(), InvalidInputs> {
-        let assert_trace = assert_trace(
+        assert_trace(
             || {
                 let mut validation_context = AssertValidationContext::from(ctx.clone());
                 super::execute(
@@ -183,7 +183,6 @@ mod tests {
                 )
             },
             expected_traces,
-        );
-        assert_trace
+        )
     }
 }

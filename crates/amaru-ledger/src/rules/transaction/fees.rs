@@ -19,6 +19,11 @@ use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionIn
 pub enum InvalidFees {
     #[error("unknown collateral input at position {position}")]
     UnknownCollateralInput { position: usize },
+    #[error("collateral return underflow")]
+    CollateralReturnUnderflow {
+        total_collateral_input: u64,
+        total_collateral_return: u64,
+    },
 }
 
 pub(crate) fn execute<C>(
@@ -51,8 +56,88 @@ where
 
     let collateral_return = collateral_return.map(|o| o.lovelace()).unwrap_or_default();
 
-    // FIXME: Check for underflow..
+    if total_collateral < collateral_return {
+        return Err(InvalidFees::CollateralReturnUnderflow {
+            total_collateral_input: total_collateral,
+            total_collateral_return: collateral_return,
+        });
+    }
     context.add_fees(total_collateral - collateral_return);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        rules::tests::fixture_context,
+    };
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use test_case::test_case;
+    use tracing_json::assert_trace;
+
+    use super::InvalidFees;
+
+    macro_rules! fixture {
+        ($hash:literal, $is_valid:expr) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+                $is_valid,
+            )
+        };
+        ($hash:literal, $variant:literal, $is_valid:expr) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/tx.cbor"
+                )),
+                include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/expected.traces"
+                )),
+                $is_valid,
+            )
+        };
+    }
+
+    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", true); "valid transaction")]
+    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-transaction", false); "invalid transaction")]
+    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "collateral-underflow", false) =>
+        matches Err(InvalidFees::CollateralReturnUnderflow { total_collateral_input, total_collateral_return }) if total_collateral_input == 5000000 && total_collateral_return == 10000000;
+        "collateral underflow")]
+    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-collateral", false) =>
+        matches Err(InvalidFees::UnknownCollateralInput { position }) if position == 0;
+        "unresolved collateral")]
+    fn fees(
+        (ctx, tx, expected_traces, is_valid): (
+            AssertPreparationContext,
+            KeepRaw<'_, MintedTransactionBody<'_>>,
+            Vec<json::Value>,
+            bool,
+        ),
+    ) -> Result<(), InvalidFees> {
+        assert_trace(
+            || {
+                let mut validation_context = AssertValidationContext::from(ctx.clone());
+                super::execute(
+                    &mut validation_context,
+                    is_valid,
+                    tx.fee,
+                    tx.collateral.as_deref(),
+                    tx.collateral_return.as_ref(),
+                )
+            },
+            expected_traces,
+        )
+    }
 }
