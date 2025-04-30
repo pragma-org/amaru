@@ -14,11 +14,12 @@
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_kernel::Lovelace;
-use amaru_ledger::store::StoreError;
-use rocksdb::Transaction;
+use amaru_ledger::store::{
+    columns::accounts::{Key, Row, Value, EVENT_TARGET},
+    StoreError,
+};
+use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
 use tracing::{error, info};
-
-use amaru_ledger::store::columns::accounts::{Key, Row, Value, EVENT_TARGET};
 
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
@@ -100,14 +101,26 @@ pub fn reset_many<DB>(
     Ok(())
 }
 
+/// Obtain a account from the store
+pub fn get<T: ThreadMode>(
+    db: &OptimisticTransactionDB<T>,
+    credential: &Key,
+) -> Result<Option<Row>, StoreError> {
+    let key = as_key(&PREFIX, credential);
+    Ok(db
+        .get(&key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(Row::unsafe_decode))
+}
+
 /// Alter balance of a specific account. If the account did not exist, returns the leftovers
 /// amount that couldn't be allocated to the account.
 pub fn set<DB>(
     db: &Transaction<'_, DB>,
-    credential: Key,
+    credential: &Key,
     with_rewards: impl FnOnce(Lovelace) -> Lovelace,
 ) -> Result<Lovelace, StoreError> {
-    let key = as_key(&PREFIX, &credential);
+    let key = as_key(&PREFIX, credential);
 
     if let Some(mut row) = db
         .get(&key)

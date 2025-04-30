@@ -32,7 +32,7 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
-use tracing::{info, instrument, trace, warn, Level};
+use tracing::{debug, info, instrument, trace, warn, Level};
 
 pub mod columns;
 use columns::*;
@@ -200,6 +200,13 @@ macro_rules! impl_ReadOnlyStore {
         $(impl ReadOnlyStore for $s {
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
                 pools::get(&self.db, pool)
+            }
+
+            fn account(
+                &self,
+                credential: &StakeCredential,
+            ) -> Result<Option<scolumns::accounts::Row>, StoreError> {
+                accounts::get(&self.db, credential)
             }
 
             fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
@@ -486,20 +493,21 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
             0,
             |leftovers, (account, deposit)| {
-                info!(
+                debug!(
                     target: EVENT_TARGET,
                     type = %stake_credential_type(&account),
                     account = %stake_credential_hash(&account),
                     %deposit,
                     "refund"
                 );
+
                 Ok(leftovers
-                    + accounts::set(&self.transaction, account, |balance| balance + deposit)?)
+                    + accounts::set(&self.transaction, &account, |balance| balance + deposit)?)
             },
         )?;
 
         if leftovers > 0 {
-            info!(target: EVENT_TARGET, ?leftovers, "refund");
+            debug!(target: EVENT_TARGET, ?leftovers, "refund");
             let mut pots = pots::get(&self.transaction)?;
             pots.treasury += leftovers;
             pots::put(&self.transaction, pots)?;

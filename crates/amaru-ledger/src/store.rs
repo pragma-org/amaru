@@ -77,6 +77,9 @@ pub trait ReadOnlyStore {
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
 
+    /// Get details about a specific Account
+    fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>, StoreError>;
+
     /// Get details about a specific UTxO
     fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError>;
 

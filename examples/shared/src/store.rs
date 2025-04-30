@@ -1,6 +1,9 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
-    store::{HistoricalStores, EpochTransitionProgress, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
+    store::{
+        EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
+        TransactionalContext,
+    },
     summary::rewards::{Pots, RewardsSummary},
 };
 use std::collections::BTreeSet;
@@ -14,6 +17,14 @@ impl Snapshot for MemoryStore {
 }
 
 impl ReadOnlyStore for MemoryStore {
+    fn account(
+        &self,
+        _credential: &amaru_kernel::StakeCredential,
+    ) -> Result<Option<amaru_ledger::store::columns::accounts::Row>, amaru_ledger::store::StoreError>
+    {
+        Ok(None)
+    }
+
     fn pool(
         &self,
         _pool: &amaru_kernel::PoolId,
@@ -118,8 +129,7 @@ impl ReadOnlyStore for MemoryStore {
     }
 }
 
-pub struct MemoryTransactionalContext {
-}
+pub struct MemoryTransactionalContext {}
 
 impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
     fn commit(self) -> Result<(), StoreError> {
@@ -138,7 +148,11 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         Ok(())
     }
 
-    fn try_epoch_transition(&self, _from: Option<EpochTransitionProgress>, _to: Option<EpochTransitionProgress>,) -> Result<bool, StoreError> {
+    fn try_epoch_transition(
+        &self,
+        _from: Option<EpochTransitionProgress>,
+        _to: Option<EpochTransitionProgress>,
+    ) -> Result<bool, StoreError> {
         Ok(true)
     }
 
@@ -281,10 +295,7 @@ impl Store for MemoryStore {
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
         Ok(vec![3])
     }
-    fn next_snapshot(
-        &self,
-        _epoch: Epoch,
-    ) -> Result<(), amaru_ledger::store::StoreError> {
+    fn next_snapshot(&self, _epoch: Epoch) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
@@ -297,10 +308,8 @@ impl Store for MemoryStore {
 }
 
 impl HistoricalStores for MemoryStore {
-    fn for_epoch(
-        &self,
-        _epoch: Epoch,
-    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
+    fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
         Ok(MemoryStore {})
     }
 }
+

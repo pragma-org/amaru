@@ -814,6 +814,50 @@ impl RewardsSummary {
         })
     }
 
+    // The test snapshots are powerful, but limited. We define the 'stake distribution' snapshot by
+    // looking at the ledger state right after the 'SNAP' rule.
+    //
+    // The 'rewards' snapshots contains data pertaining to the rewards of a particular epoch. Those
+    // rewards are calculated *later*, which makes some element of the snapshot a bit tricky to anchor
+    // in time.
+    //
+    // In particular, the treasury and reserves value used for rewards calculation are the values of
+    // the pots *at the moment the calculation begin*.
+    //
+    // So, for rewards corresponding to an epoch `e`, these calculation begin about `k` blocks within
+    // epoch `e + 3`; and are paid out in the transition from `e + 3` to `e + 4` (and thus, available
+    // in `e + 4`).
+    //
+    // BUT: for the 'rewards' snapshot at epoch `e`, we pull the treasury value from our snapshots at
+    // `e + 2`; which already includes rewards paid out to accounts as well as the leftovers from any
+    // unregistered account, but, does not include leftovers that may come from pool retirements since
+    // those are only process _at the beginning of epochs_ (and thus, after the snapshot has been
+    // taken).
+    //
+    // For example, there's a pool retiring in the transition from 176 to 177, with a reward account
+    // that's already unregistered. And thus, the deposit is sent back to the treasury. So when the
+    // rewards calculation for 174 kicks in later in the epoch, the deposit was already added to the
+    // treasury... So it won't be present from our snapshot labeled 176 since it happened BEFORE the
+    // beginning of the epoch 177.
+    pub fn with_unclaimed_refunds(mut self, db: &impl Snapshot) -> Result<Self, StoreError> {
+        let leftovers = db.iter_pools()?.try_fold(0, |leftovers, (_, row)| {
+            if let Some(account) = pools::Row::tick(
+                Box::new(BorrowableProxy::new(Some(row), |_| {})),
+                self.epoch + 3,
+            ) {
+                if db.account(&account)?.is_none() {
+                    return Ok::<_, StoreError>(leftovers + STAKE_POOL_DEPOSIT as u64);
+                }
+            }
+
+            Ok(leftovers)
+        })?;
+
+        self.pots.treasury += leftovers;
+
+        Ok(self)
+    }
+
     /// Count blocks produced by pools, returning the total count and map indexed by poolid.
     fn count_blocks(db: &impl Snapshot) -> Result<(u64, BTreeMap<PoolId, u64>), StoreError> {
         let mut total: u64 = 0;

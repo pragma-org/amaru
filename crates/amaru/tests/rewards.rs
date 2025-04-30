@@ -91,6 +91,7 @@ fn compare_preprod_snapshot(epoch: Epoch) {
         NetworkName::Preprod.into(),
     )
     .unwrap();
+
     let stake_distr =
         StakeDistribution::new(snapshot.as_ref(), preprod_protocol_version(epoch), dreps).unwrap();
     insta::assert_json_snapshot!(
@@ -98,7 +99,13 @@ fn compare_preprod_snapshot(epoch: Epoch) {
         stake_distr.for_network(Network::Testnet),
     );
 
-    let rewards_summary = RewardsSummary::new(db(epoch + 2).as_ref(), stake_distr).unwrap();
+    let snapshot_from_the_future = db(epoch + 2);
+
+    let rewards_summary = RewardsSummary::new(snapshot_from_the_future.as_ref(), stake_distr)
+        .unwrap()
+        .with_unclaimed_refunds(snapshot_from_the_future.as_ref())
+        .unwrap();
+
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
 }
 
