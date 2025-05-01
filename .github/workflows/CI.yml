@@ -124,6 +124,7 @@ jobs:
         shell: bash
 
   coverage:
+    name: Coverage
     runs-on: ubuntu-latest
     if: ${{ !github.event.pull_request.draft }}
     env:
