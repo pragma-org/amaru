@@ -211,8 +211,17 @@ impl DRepsSlice for AssertValidationContext {
         unimplemented!()
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            credential.type = %stake_credential_type(&_drep),
+            credential.hash = %stake_credential_hash(&_drep),
+        )
+        skip_all,
+        name = "vote"
+    )]
     fn vote(&mut self, _drep: StakeCredential) {
-        unimplemented!()
+        // TODO: IMPLEMENT
     }
 }
 

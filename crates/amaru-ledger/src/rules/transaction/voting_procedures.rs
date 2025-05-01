@@ -45,3 +45,54 @@ pub(crate) fn execute<C>(
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use test_case::test_case;
+    use tracing_json::assert_trace;
+
+    macro_rules! fixture {
+        ($hash:literal, $variant:literal) => {
+            (
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/tx.cbor"
+                )),
+                include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/expected.traces"
+                )),
+            )
+        };
+    }
+
+    #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "cc-key"); "CC Key")]
+    #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "cc-script"); "CC Script")]
+    #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "drep-key"); "DRep Key")]
+    #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "drep-script"); "DRep Script")]
+    #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "spo-key"); "SPO Key")]
+    fn voting_procedures(
+        (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
+    ) {
+        assert_trace(
+            || {
+                let mut validation_context =
+                    AssertValidationContext::from(AssertPreparationContext {
+                        utxo: BTreeMap::new(),
+                    });
+                super::execute(&mut validation_context, tx.voting_procedures.as_deref())
+            },
+            expected_traces,
+        );
+    }
+}
