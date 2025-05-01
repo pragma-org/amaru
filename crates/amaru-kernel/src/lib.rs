@@ -75,6 +75,10 @@ pub mod serde_utils;
 // Constants
 // ----------------------------------------------------------------------------
 
+pub const PROTOCOL_VERSION_9: ProtocolVersion = (9, 0);
+
+pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
+
 /// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
 pub const MAX_LOVELACE_SUPPLY: u64 = 45000000000000000;
 

@@ -14,13 +14,14 @@
 
 pub mod columns;
 
-use crate::summary::rewards::{Pots, RewardsSummary};
+use crate::summary::{rewards::RewardsSummary, Pots};
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
     expect_stake_credential,
+    CertificatePointer,
     Epoch,
     Lovelace,
     Point,
@@ -28,6 +29,7 @@ use amaru_kernel::{
     StakeCredential,
     TransactionInput,
     TransactionOutput,
+    STAKE_POOL_DEPOSIT,
 };
 use columns::*;
 use std::{
@@ -74,6 +76,9 @@ pub enum StoreError {
 pub trait ReadOnlyStore {
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
+
+    /// Get details about a specific Account
+    fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>, StoreError>;
 
     /// Get details about a specific UTxO
     fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError>;
@@ -202,7 +207,7 @@ pub trait TransactionalContext<'a> {
             impl Iterator<Item = utxo::Key>,
             impl Iterator<Item = (pools::Key, Epoch)>,
             impl Iterator<Item = accounts::Key>,
-            impl Iterator<Item = dreps::Key>,
+            impl Iterator<Item = (dreps::Key, CertificatePointer)>,
             impl Iterator<Item = cc_members::Key>,
             impl Iterator<Item = proposals::Key>,
         >,
@@ -256,11 +261,21 @@ pub trait TransactionalContext<'a> {
 
     #[instrument(level = Level::INFO, name = "tick.pool", skip_all)]
     fn tick_pools(&self, epoch: Epoch) -> Result<(), StoreError> {
+        let mut refunds = Vec::new();
+
         self.with_pools(|iterator| {
             for (_, pool) in iterator {
-                pools::Row::tick(pool, epoch)
+                if let Some(refund) = pools::Row::tick(pool, epoch) {
+                    refunds.push(refund)
+                }
             }
-        })
+        })?;
+
+        self.refund(
+            refunds
+                .into_iter()
+                .map(|credential| (credential, STAKE_POOL_DEPOSIT as u64)),
+        )
     }
 
     #[instrument(level = Level::INFO, name = "tick.proposals", skip_all)]

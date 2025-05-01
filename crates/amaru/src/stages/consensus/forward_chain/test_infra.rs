@@ -3,21 +3,31 @@
 use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
-use amaru_consensus::consensus::store::{ChainStore, StoreError};
-use amaru_consensus::{IsHeader, Nonces};
+use amaru_consensus::{
+    consensus::store::{ChainStore, StoreError},
+    IsHeader, Nonces,
+};
 use amaru_kernel::{from_cbor, Hash, Header};
 use amaru_ledger::BlockValidationResult;
-use gasket::messaging::tokio::ChannelRecvAdapter;
-use gasket::runtime::{spawn_stage, Tether};
-use pallas_network::facades::PeerClient;
-use pallas_network::miniprotocols::chainsync::{NextResponse, Tip};
-use pallas_network::miniprotocols::Point;
-use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
-use std::{collections::HashMap, fs::File, path::Path, str::FromStr};
-use tokio::sync::{mpsc, Mutex};
-use tokio::time::timeout;
+use gasket::{
+    messaging::tokio::ChannelRecvAdapter,
+    runtime::{spawn_stage, Tether},
+};
+use pallas_network::{
+    facades::PeerClient,
+    miniprotocols::{
+        chainsync::{NextResponse, Tip},
+        Point,
+    },
+};
+use std::{
+    collections::HashMap, fs::File, future::Future, path::Path, str::FromStr, sync::Arc,
+    time::Duration,
+};
+use tokio::{
+    sync::{mpsc, Mutex},
+    time::timeout,
+};
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Clone)]

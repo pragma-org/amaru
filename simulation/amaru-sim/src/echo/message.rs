@@ -51,8 +51,7 @@ mod test {
 
     fn arbitrary_message() -> BoxedStrategy<EchoMessage> {
         use super::EchoMessage;
-        use proptest::collection::vec;
-        use proptest::prelude::*;
+        use proptest::{collection::vec, prelude::*};
 
         prop_oneof![
             (any::<u64>(), any::<String>(), vec(any::<String>(), 0..10)).prop_map(

@@ -72,7 +72,7 @@ pub(crate) fn drep_bonus_mandate(
 }
 
 #[derive(Debug)]
-enum LastDormantEpoch<'a> {
+pub enum LastDormantEpoch<'a> {
     /// Starting case, indicating no active proposals whatsoever if returned.
     Empty { previous_epoch: Epoch },
 
@@ -92,11 +92,11 @@ enum LastDormantEpoch<'a> {
 /// effectively puts an end to the dormant period, as well as the length of that period.
 ///
 /// In case where the dormant period is still ongoing, returns `None` and the current length.
-fn last_dormant_period(
+fn last_dormant_period<'a>(
     governance_action_lifetime: u64,
     registered_in: Epoch,
-    proposals: BTreeSet<&(TransactionPointer, Epoch)>,
-) -> LastDormantEpoch<'_> {
+    proposals: BTreeSet<&'a (TransactionPointer, Epoch)>,
+) -> LastDormantEpoch<'a> {
     let dormant_period = |previous_epoch, current_epoch| {
         if previous_epoch <= current_epoch + governance_action_lifetime {
             None

@@ -194,7 +194,12 @@ impl DRepsSlice for AssertValidationContext {
         unimplemented!()
     }
 
-    fn unregister(&mut self, _drep: StakeCredential, _refund: Lovelace) {
+    fn unregister(
+        &mut self,
+        _drep: StakeCredential,
+        _refund: Lovelace,
+        _pointer: CertificatePointer,
+    ) {
         unimplemented!()
     }
 

@@ -14,15 +14,15 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    stake_credential_hash, stake_credential_type, Epoch, EraHistory, Lovelace, Point, PoolId,
-    StakeCredential, TransactionInput, TransactionOutput,
+    stake_credential_hash, stake_credential_type, CertificatePointer, Epoch, EraHistory, Lovelace,
+    Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
         columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
         ReadOnlyStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
     },
-    summary::rewards::{Pots, RewardsSummary},
+    summary::{rewards::RewardsSummary, Pots},
 };
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
@@ -32,10 +32,10 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
-use tracing::{info, instrument, trace, warn, Level};
+use tracing::{debug, info, instrument, trace, warn, Level};
 
-pub mod columns;
-use columns::*;
+pub mod ledger;
+use ledger::columns::*;
 
 pub mod common;
 use common::{as_value, PREFIX_LEN};
@@ -200,6 +200,13 @@ macro_rules! impl_ReadOnlyStore {
         $(impl ReadOnlyStore for $s {
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
                 pools::get(&self.db, pool)
+            }
+
+            fn account(
+                &self,
+                credential: &StakeCredential,
+            ) -> Result<Option<scolumns::accounts::Row>, StoreError> {
+                accounts::get(&self.db, credential)
             }
 
             fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
@@ -427,7 +434,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             impl Iterator<Item = scolumns::utxo::Key>,
             impl Iterator<Item = (scolumns::pools::Key, Epoch)>,
             impl Iterator<Item = scolumns::accounts::Key>,
-            impl Iterator<Item = scolumns::dreps::Key>,
+            impl Iterator<Item = (scolumns::dreps::Key, CertificatePointer)>,
             impl Iterator<Item = scolumns::cc_members::Key>,
             impl Iterator<Item = scolumns::proposals::Key>,
         >,
@@ -486,20 +493,21 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
             0,
             |leftovers, (account, deposit)| {
-                info!(
+                debug!(
                     target: EVENT_TARGET,
                     type = %stake_credential_type(&account),
                     account = %stake_credential_hash(&account),
                     %deposit,
                     "refund"
                 );
+
                 Ok(leftovers
-                    + accounts::set(&self.transaction, account, |balance| balance + deposit)?)
+                    + accounts::set(&self.transaction, &account, |balance| balance + deposit)?)
             },
         )?;
 
         if leftovers > 0 {
-            info!(target: EVENT_TARGET, ?leftovers, "refund");
+            debug!(target: EVENT_TARGET, ?leftovers, "refund");
             let mut pots = pots::get(&self.transaction)?;
             pots.treasury += leftovers;
             pots::put(&self.transaction, pots)?;

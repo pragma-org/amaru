@@ -36,6 +36,8 @@ pub struct DRepState {
     pub stake: Lovelace,
     #[serde(skip)]
     pub registered_at: CertificatePointer,
+    #[serde(skip)]
+    pub previous_deregistration: Option<CertificatePointer>,
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -53,7 +55,11 @@ pub enum Error {
 }
 
 impl GovernanceSummary {
-    pub fn new(db: &impl Snapshot, era_history: &EraHistory) -> Result<Self, Error> {
+    pub fn new(
+        db: &impl Snapshot,
+        protocol_version: ProtocolVersion,
+        era_history: &EraHistory,
+    ) -> Result<Self, Error> {
         let current_epoch = db.epoch();
 
         let mut proposals = BTreeSet::new();
@@ -85,8 +91,7 @@ impl GovernanceSummary {
             })?;
 
         let mandate = drep_mandate_calculator(
-            // FIXME: Obtain protocol version from arguments, passed from block header.
-            (9, 0),
+            protocol_version,
             GOV_ACTION_LIFETIME,
             DREP_EXPIRY,
             era_history,
@@ -96,11 +101,22 @@ impl GovernanceSummary {
 
         let mut dreps = db
             .iter_dreps()?
+            .filter(
+                |(
+                    _,
+                    dreps::Row {
+                        registered_at,
+                        previous_deregistration,
+                        ..
+                    },
+                )| { Some(registered_at) > previous_deregistration.as_ref() },
+            )
             .map(
                 |(
                     k,
                     dreps::Row {
                         registered_at,
+                        previous_deregistration,
                         last_interaction,
                         anchor,
                         ..
@@ -117,6 +133,7 @@ impl GovernanceSummary {
                         drep,
                         DRepState {
                             registered_at,
+                            previous_deregistration,
                             metadata: anchor,
                             mandate: Some(mandate(
                                 // TODO: The map_err to include the slot as context shouldn't be
@@ -138,7 +155,7 @@ impl GovernanceSummary {
             )
             .collect::<Result<BTreeMap<_, _>, Error>>()?;
 
-        let default_drep_state = || DRepState {
+        let default_protocol_drep = || DRepState {
             mandate: None,
             metadata: None,
             stake: 0,
@@ -149,10 +166,11 @@ impl GovernanceSummary {
                 },
                 certificate_index: 0,
             },
+            previous_deregistration: None,
         };
 
-        dreps.insert(DRep::Abstain, default_drep_state());
-        dreps.insert(DRep::NoConfidence, default_drep_state());
+        dreps.insert(DRep::Abstain, default_protocol_drep());
+        dreps.insert(DRep::NoConfidence, default_protocol_drep());
 
         Ok(GovernanceSummary { dreps, deposits })
     }
@@ -217,6 +235,7 @@ impl GovernanceSummary {
 ///   ║ Dormant epochs: 10, 13, 16
 ///   ╚═════════════════════════════════════════════════
 ///
+#[allow(clippy::type_complexity)]
 fn drep_mandate_calculator(
     protocol_version: ProtocolVersion,
     governance_action_lifetime: Epoch,
@@ -224,7 +243,7 @@ fn drep_mandate_calculator(
     era_history: &EraHistory,
     current_epoch: Epoch,
     proposals: BTreeSet<(TransactionPointer, Epoch)>,
-) -> Box<dyn Fn((Slot, Epoch), Epoch) -> Epoch> {
+) -> Box<dyn Fn((Slot, Epoch), Option<Epoch>) -> Epoch> {
     // A set containing all overlapping activity periods of all proposals. Might contain disjoint periods.
     // e.g.
     //
@@ -252,26 +271,39 @@ fn drep_mandate_calculator(
         })
         .collect::<BTreeSet<Epoch>>();
 
+    let first_proposal = proposals.first().copied();
+
     // Pre-calculate all epochs, so that need not to re-allocate memory for all DReps.
-    let first_epoch = era_history
+    //
+    // FIXME: This initial epoch should be bound to the oldest epoch known of Amaru.
+    // We cannot access data older than that *anyway*.
+    let from_epoch = era_history
         .eras
         .last()
         .map(|summary| summary.start.epoch)
         .unwrap_or_default();
 
-    let all_epochs = BTreeSet::from_iter(first_epoch..=current_epoch);
+    let all_epochs = BTreeSet::from_iter(from_epoch..=current_epoch);
+
+    let era_first_epoch = era_history
+        .era_first_epoch(current_epoch)
+        .unwrap_or_else(|_| {
+            unreachable!("malformed era history {era_history:#?}\ndoesn't contain current epoch: {current_epoch}")
+        });
 
     let v10_onwards = Box::new(
-        move |registered_at: (Slot, Epoch), last_interaction: Epoch| -> Epoch {
+        move |registered_at: (Slot, Epoch), last_interaction: Option<Epoch>| -> Epoch {
+            let last_interaction = last_interaction.unwrap_or(registered_at.1);
+
             let active_epochs = proposals_activity_periods
                 .iter()
                 // Exclude any period prior to the drep registration. They shouldn't count towards
                 // the dormant epochs number, since the DRep simply didn't exist back then.
                 .filter(|epoch| *epoch >= &registered_at.1)
-                // Always consider the registration epoch as an active epoch so that if the
-                // drep is registered in the middle of a dormant period, it only counts from
-                // the epoch following the registration.
-                .chain(vec![&registered_at.1])
+                // Always consider the registration & last interaction epoch as active epochs so
+                // that if the drep is registered/updated in the middle of a dormant period, it
+                // only counts from the epoch following the event.
+                .chain(vec![&registered_at.1, &last_interaction])
                 .collect::<BTreeSet<_>>();
 
             debug_assert!(
@@ -292,12 +324,37 @@ fn drep_mandate_calculator(
 
     if major_version <= 9 {
         return Box::new(
-            move |registered_at: (Slot, Epoch), last_interaction: Epoch| -> Epoch {
-                backward_compatibility::drep_bonus_mandate(
-                    governance_action_lifetime,
-                    &proposals,
-                    registered_at,
-                ) + v10_onwards(registered_at, last_interaction)
+            move |registered_at: (Slot, Epoch), last_interaction: Option<Epoch>| -> Epoch {
+                let registered_in = registered_at.1;
+
+                let bonus_bug_dormant = if last_interaction.is_some() {
+                    // The dormant epoch bug bonus only applies on registrations. If the drep
+                    // interacts with the chain after that (either by voting or updating its
+                    // metadata), its new mandate will be reset to
+                    //
+                    0
+                } else {
+                    // Epochs are considered 'dormant' should there be no active proposals at the
+                    // beginning of the epoch. When the ledger first enters the Conway era, the
+                    // very first epoch is thus considered dormant.
+                    //
+                    // The 'drep_bonus_mandate' calculation doesn't acknowledge this edge-case. So,
+                    // in case where a drep is registered before any proposal we can manually
+                    // compute the bonus period it was granted upon registering.
+                    if first_proposal
+                        .is_none_or(|(first_proposal, _)| registered_at.0 <= first_proposal.slot)
+                    {
+                        registered_in - era_first_epoch + 1
+                    } else {
+                        backward_compatibility::drep_bonus_mandate(
+                            governance_action_lifetime,
+                            &proposals,
+                            registered_at,
+                        )
+                    }
+                };
+
+                bonus_bug_dormant + v10_onwards(registered_at, last_interaction)
             },
         );
     }
@@ -308,12 +365,10 @@ fn drep_mandate_calculator(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use amaru_kernel::{PROTOCOL_VERSION_10, PROTOCOL_VERSION_9};
     use backward_compatibility::tests::{ptr, ERA_HISTORY};
     use test_case::test_case;
     use EpochResult::*;
-
-    const VERSION_9: ProtocolVersion = (9, 0);
-    const VERSION_10: ProtocolVersion = (10, 0);
 
     #[derive(Debug, PartialEq)]
     enum EpochResult {
@@ -341,15 +396,12 @@ mod tests {
                 &ERA_HISTORY,
                 current_epoch,
                 proposals.clone(),
-            )(
-                (registration_slot, registration_epoch),
-                last_interaction.unwrap_or(registration_epoch),
-            )
+            )((registration_slot, registration_epoch), last_interaction)
         };
 
-        let v9 = test_with(VERSION_9);
+        let v9 = test_with(PROTOCOL_VERSION_9);
 
-        let v10 = test_with(VERSION_10);
+        let v10 = test_with(PROTOCOL_VERSION_10);
 
         if v9 == v10 {
             Consistent(v10)
@@ -367,9 +419,9 @@ mod tests {
     //  |----x----|---------|---------|------>
     // 80   85   90        100       110
     //
-    #[test_case( 84,    None,  8 => Consistent(18))]
+    #[test_case( 84,    None,  8 => Inconsistent { v9: 27, v10: 18 })]
     #[test_case( 84, Some(9),  9 => Consistent(19))]
-    #[test_case( 85,    None,  8 => Consistent(18))]
+    #[test_case( 85,    None,  8 => Inconsistent { v9: 27, v10: 18 })]
     #[test_case( 85, Some(9),  9 => Consistent(19))]
     #[test_case( 86,    None,  8 => Consistent(18))]
     #[test_case( 86, Some(9),  9 => Consistent(19))]
@@ -408,7 +460,7 @@ mod tests {
     #[test_case( 88, Some(10), 14 => Consistent(22))]
     #[test_case(115,     None, 11 => Consistent(21))]
     #[test_case(115,     None, 13 => Consistent(23))]
-    #[test_case(115, Some(13), 13 => Consistent(24))]
+    #[test_case(115, Some(13), 13 => Consistent(23))]
     #[test_case(125,     None, 13 => Inconsistent{ v9: 24, v10: 23 })]
     #[test_case(134,     None, 13 => Inconsistent{ v9: 25, v10: 23 })]
     #[test_case(135,     None, 13 => Inconsistent{ v9: 25, v10: 23 })]
@@ -438,12 +490,12 @@ mod tests {
     //  |-----x------|--...--|------x-----|--...--|-----x------>
     //  0     5     10       60    65   70       110   115
     //
-    #[test_case(  1,    None, 11 => Consistent(15))]
+    #[test_case(  1,    None, 11 => Inconsistent{ v9: 16, v10: 15 })]
     #[test_case( 64,    None,  8 => Inconsistent{ v9: 19, v10: 16 })]
     #[test_case( 64,    None, 10 => Inconsistent{ v9: 20, v10: 17 })]
     #[test_case( 64,    None, 11 => Inconsistent{ v9: 21, v10: 18 })]
     #[test_case( 65,    None, 11 => Inconsistent{ v9: 21, v10: 18 })]
-    #[test_case( 65, Some(8), 11 => Inconsistent{ v9: 23, v10: 20 })]
+    #[test_case( 65, Some(8), 11 => Consistent(20))]
     #[test_case( 66,    None, 11 => Consistent(18))]
     #[test_case( 66, Some(8), 10 => Consistent(19))]
     #[test_case( 66, Some(8), 11 => Consistent(20))]

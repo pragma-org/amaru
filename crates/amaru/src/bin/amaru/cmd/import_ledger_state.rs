@@ -21,19 +21,21 @@ use amaru_kernel::{
 use amaru_ledger::{
     self,
     state::diff_bind::Resettable,
-    store::{self, columns::proposals, EpochTransitionProgress, Store, TransactionalContext},
+    store::{
+        self, columns::proposals, EpochTransitionProgress, Store, StoreError, TransactionalContext,
+    },
 };
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_codec::minicbor as cbor;
 use std::{
-    collections::{BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet, HashMap},
     fs, iter,
     path::PathBuf,
     sync::LazyLock,
 };
-use tracing::{info, warn};
+use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
 
@@ -95,7 +97,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let era_history = network.into();
     if !args.snapshot.is_empty() {
-        import_all(&args.snapshot, &args.ledger_dir, &network, era_history).await
+        import_all(&args.snapshot, &args.ledger_dir, era_history).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
         let mut snapshots = fs::read_dir(snapshot_dir)?
             .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -103,7 +105,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
             .collect::<Vec<_>>();
         snapshots.sort();
 
-        import_all(&snapshots, &args.ledger_dir, &network, era_history).await
+        import_all(&snapshots, &args.ledger_dir, era_history).await
     } else {
         Err(Error::IncorrectUsage.into())
     }
@@ -112,12 +114,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 async fn import_all(
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
-    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
-        import_one(snapshot, ledger_dir, network, era_history).await?;
+        import_one(snapshot, ledger_dir, era_history).await?;
     }
     Ok(())
 }
@@ -126,7 +127,6 @@ async fn import_all(
 async fn import_one(
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
-    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing snapshot {}", snapshot.display());
@@ -143,7 +143,7 @@ async fn import_one(
     let db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = decode_new_epoch_state(&db, &bytes, &point, network, era_history)?;
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,
@@ -163,7 +163,7 @@ async fn import_one(
     transaction.reset_fees()?;
     transaction.with_pools(|iterator| {
         for (_, pool) in iterator {
-            amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1)
+            amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1);
         }
     })?;
     transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;
@@ -176,7 +176,6 @@ fn decode_new_epoch_state(
     db: &(impl Store + 'static),
     bytes: &[u8],
     point: &Point,
-    network: &NetworkName,
     era_history: &EraHistory,
 ) -> Result<u64, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
@@ -222,7 +221,7 @@ fn decode_new_epoch_state(
             {
                 d.array()?;
 
-                import_dreps(db, point, epoch, network, d.decode()?)?;
+                import_dreps(db, era_history, point, epoch, d.decode()?)?;
 
                 // Committee
                 d.skip()?;
@@ -453,14 +452,25 @@ fn import_utxo(
 
 fn import_dreps(
     db: &impl Store,
+    era_history: &EraHistory,
     point: &Point,
     epoch: Epoch,
-    network: &NetworkName,
     dreps: HashMap<StakeCredential, DRepState>,
 ) -> Result<(), impl std::error::Error> {
+    let mut known_dreps = BTreeMap::new();
+
+    let era_first_epoch = era_history
+        .era_first_epoch(epoch)
+        .map_err(|e| StoreError::Internal(Box::new(e)))?;
+
     let transaction = db.create_transaction();
     transaction.with_dreps(|iterator| {
-        for (_, mut handle) in iterator {
+        for (drep, mut handle) in iterator {
+            if epoch > era_first_epoch {
+                if let Some(row) = handle.borrow() {
+                    known_dreps.insert(drep, row.registered_at);
+                }
+            }
             *handle.borrow_mut() = None;
         }
     })?;
@@ -475,29 +485,68 @@ fn import_dreps(
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: dreps.into_iter().map(|(credential, state)| {
-                // First DRep registrations in Conway are granted an extra epoch of expiry; because
-                // the first Conway epoch is deemed as "dormant" (not proposal in the epoch
-                // prior), and a bug in verison 9 is causing new DRep registrations to benefits
-                // from this extra epoch.
-                let early_conway_workaround =
-                    if network == &NetworkName::Preprod {
-                        if epoch == 163 {
-                            1
-                        } else {
-                            0
-                        }
-
+                // 1. First DRep registrations in Conway are *sometimes* granted an extra epoch of
+                //    expiry; because the first Conway epoch is deemed as "dormant" (no proposals
+                //    in the epoch prior), and a bug in version 9 is causing new DRep registrations
+                //    to benefits from this extra epoch.
+                //
+                // 2. We have no idea when exactly was the drep registered; but we
+                //    need to pick a valid slot so that mandate calculations falls
+                //    back on the correct value.
+                //
+                //    There are two scenarios:
+                //
+                //    A) Either the drep has registered before the first proposal in
+                //       the epoch. In which case it would enjoy an extra epoch of
+                //       expiry.
+                //
+                //    B) Or it has registered strictly after, such that the number of
+                //       dormant epoch was already reset. In which case, no bonus
+                //       applies.
+                //
+                //    We can assign dreps to (A) or (B) by artificially chosing the
+                //    first and last slot of the epoch respectively. To know whether
+                //    we shall assign them to (A) or (B), we can simply look at their
+                //    mandate in the snapshot which would be one greater for dreps in
+                //    group (A).
+                //
+                // 3. We make a strong assumption that there are proposals submitted during the
+                //    very first epoch of the Conway era on this network. This is true of Preview,
+                //    Preprod and Mainnet. Any custom network for which this wouldn't be true is
+                //    expected to use a protocol version > 9, where this assumption doesn't matter.
+                #[allow(clippy::unwrap_used)]
+                let (registration_slot, last_interaction) = if epoch == era_first_epoch {
+                    let last_interaction = era_first_epoch;
+                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
+                    if state.expiry > epoch + DREP_EXPIRY {
+                        (epoch_bound.start, last_interaction)
                     } else {
-                        warn!(%network, "early conway workaround not available; drep registration epoch may be invalid");
-                        0
-                    };
+                        (epoch_bound.end, last_interaction)
+                    }
+                } else {
+                    let last_interaction = state.expiry - DREP_EXPIRY;
+                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
+                    // start or end doesn't matter here.
+                    (epoch_bound.start, last_interaction)
+                };
+
+                let registration =
+                    known_dreps
+                        .remove(&credential)
+                        .unwrap_or_else(|| CertificatePointer {
+                            transaction: TransactionPointer {
+                                slot: registration_slot,
+                                ..TransactionPointer::default()
+                            },
+                            ..CertificatePointer::default()
+                        });
 
                 (
                     credential,
                     (
                         Resettable::from(Option::from(state.anchor)),
-                        Some((state.deposit, *DEFAULT_CERTIFICATE_POINTER)),
-                        state.expiry - DREP_EXPIRY - early_conway_workaround,
+                        Some((state.deposit, registration)),
+                        last_interaction,
                     ),
                 )
             }),

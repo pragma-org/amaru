@@ -177,7 +177,7 @@ where
 
         Certificate::UnRegDRepCert(drep, refund) => {
             context.require_witness(drep.clone());
-            DRepsSlice::unregister(context, drep, refund);
+            DRepsSlice::unregister(context, drep, refund, pointer);
             Ok(())
         }
 

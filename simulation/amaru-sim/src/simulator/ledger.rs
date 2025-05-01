@@ -163,8 +163,7 @@ pub struct ConsensusContext {
 #[cfg(test)]
 mod test {
     use amaru_consensus::consensus::store::{ChainStore, StoreError};
-    use amaru_kernel::network::NetworkName;
-    use amaru_kernel::Header;
+    use amaru_kernel::{network::NetworkName, Header};
 
     use super::populate_chain_store;
 

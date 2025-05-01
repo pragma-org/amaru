@@ -1,7 +1,7 @@
 NETWORK ?= preprod
 AMARU_PEER_ADDRESS ?= 127.0.0.1:3000
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
-DEMO_TARGET_EPOCH ?= 174
+DEMO_TARGET_EPOCH ?= 182
 HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
@@ -110,7 +110,8 @@ coverage-lconv: ## Run test coverage for CI to upload to Codecov
 		--output-path lcov.info
 
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
-	LEDGER_DIR=$(LEDGER_DIR) CHAIN_DIR=$(CHAIN_DIR) ./scripts/demo.sh $(AMARU_PEER_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
+	LEDGER_DIR=$(LEDGER_DIR) CHAIN_DIR=$(CHAIN_DIR) \
+		./scripts/demo.sh $(AMARU_PEER_ADDRESS) $(LISTEN_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
 
 build-examples: ## Build all examples
 	@for dir in $(wildcard examples/*/.); do \

@@ -109,316 +109,29 @@ certain mutations are applied to the system.
 
 use crate::{
     store::{columns::*, Snapshot, StoreError},
-    summary::governance::{DRepState, GovernanceSummary, ProposalState},
+    summary::{
+        safe_ratio,
+        serde::{encode_pool_id, serialize_map},
+        serialize_safe_ratio,
+        stake_distribution::StakeDistribution,
+        AccountState, PoolState, Pots, SafeRatio,
+    },
 };
 use amaru_kernel::{
-    encode_bech32, expect_stake_credential, output_stake_credential, DRep, Epoch, HasLovelace,
-    Hash, Lovelace, Network, PoolId, PoolParams, StakeCredential, ACTIVE_SLOT_COEFF_INVERSE,
-    MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE,
-    SHELLEY_EPOCH_LENGTH, STAKE_POOL_DEPOSIT, TREASURY_TAX,
+    expect_stake_credential, Epoch, Hash, Lovelace, PoolId, StakeCredential,
+    ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT,
+    PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH, STAKE_POOL_DEPOSIT, TREASURY_TAX,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
-    rational::Ratio,
     traits::{One, Zero},
     BigUint,
 };
 use serde::ser::SerializeStruct;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use tracing::info;
 
 const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
-
-/// A stake distribution snapshot useful for:
-///
-/// - Leader schedule (in particular the 'pools' field)
-/// - Rewards calculation
-///
-/// Note that the `accounts` field only contains _active_ accounts; that is, accounts
-/// delegated to a registered stake pool.
-#[derive(Debug)]
-pub struct StakeDistribution {
-    /// Epoch number for this snapshot (taken at the end of the epoch)
-    pub epoch: Epoch,
-
-    /// Total stake, in Lovelace, delegated to registered pools
-    pub active_stake: Lovelace,
-
-    /// Total voting stake, in Lovelace, corresponding to the total stake assigned to registered
-    /// and active delegate representatives.
-    pub voting_stake: Lovelace,
-
-    /// Mapping of accounts' stake credentials to their respective state.
-    ///
-    /// NOTE:
-    /// accounts that have stake but aren't delegated to any pools aren't present in the map.
-    pub accounts: BTreeMap<StakeCredential, AccountState>,
-
-    /// Mapping of pools to their relative stake & parameters
-    pub pools: BTreeMap<PoolId, PoolState>,
-
-    /// Mapping of dreps to their relative stake
-    pub dreps: BTreeMap<DRep, DRepState>,
-}
-
-impl StakeDistribution {
-    /// Compute a new stake distribution snapshot using data available in the `Store`.
-    ///
-    /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
-    pub fn new(
-        db: &impl Snapshot,
-        GovernanceSummary {
-            mut dreps,
-            deposits,
-        }: GovernanceSummary,
-    ) -> Result<Self, StoreError> {
-        let epoch = db.epoch();
-
-        let mut accounts = db
-            .iter_accounts()?
-            .map(|(credential, account)| {
-                (
-                    credential,
-                    AccountState {
-                        lovelace: account.rewards,
-                        pool: account.delegatee,
-                        drep: account.drep.and_then(|(drep, since)| match drep {
-                            DRep::Abstain | DRep::NoConfidence => Some(drep),
-                            DRep::Key { .. } | DRep::Script { .. } => {
-                                let DRepState { registered_at, .. } = dreps.get(&drep)?;
-                                if &since >= registered_at {
-                                    Some(drep)
-                                } else {
-                                    None
-                                }
-                            }
-                        }),
-                    },
-                )
-            })
-            .collect::<BTreeMap<StakeCredential, AccountState>>();
-
-        // TODO: This is the most expensive call in this whole function. It could be made
-        // significantly cheaper if we only partially deserialize the UTxOs here. We only need the
-        // output's address and *lovelace* value, so we can skip on deserializing the rest of the value, as
-        // well as the datum and/or script references if any.
-        db.iter_utxos()?.for_each(|(_, output)| {
-            if let Ok(Some(credential)) = output_stake_credential(&output) {
-                let value = output.lovelace();
-                accounts
-                    .entry(credential)
-                    .and_modify(|account| account.lovelace += value);
-            }
-        });
-
-        let mut retiring_pools = BTreeSet::new();
-        let mut refunds = BTreeMap::new();
-        let mut pools = db
-            .iter_pools()?
-            .map(|(pool, row)| {
-                let reward_account = expect_stake_credential(&row.current_params.reward_account);
-
-                // NOTE: We need to tick pool as part of the stake distribution calculation, in
-                // order to know whether a pool will retire in the next epoch. This is because,
-                // votes ratification happens *after* pools reaping, and thus, nullify voting power
-                // of pools that are retiring.
-                pools::Row::tick(
-                    Box::new(BorrowableProxy::new(Some(row.clone()), |dropped| {
-                        if dropped.is_none() {
-                            retiring_pools.insert(pool);
-                            // FIXME: Store the deposit with the pool, and ensures the same deposit
-                            // it returned back.
-                            refunds.insert(reward_account, STAKE_POOL_DEPOSIT as Lovelace);
-                        }
-                    })),
-                    epoch + 1,
-                );
-
-                (
-                    pool,
-                    PoolState {
-                        stake: 0,
-                        voting_stake: 0,
-                        blocks_count: 0,
-                        // NOTE: pre-compute margin here (1 - m), which gets used for all
-                        // member and leader rewards calculation.
-                        margin: safe_ratio(
-                            row.current_params.margin.numerator,
-                            row.current_params.margin.denominator,
-                        ),
-                        parameters: row.current_params.clone(),
-                    },
-                )
-            })
-            .collect::<BTreeMap<Hash<28>, PoolState>>();
-
-        let mut voting_stake: Lovelace = 0;
-        let mut active_stake: Lovelace = 0;
-        let accounts = accounts
-            .into_iter()
-            .filter(|(credential, account)| {
-                let ProposalState {
-                    deposit,
-                    valid_until,
-                } = deposits
-                    .get(credential)
-                    .copied()
-                    .unwrap_or(ProposalState::default());
-
-                let refund = refunds.get(credential).copied().unwrap_or_default();
-
-                // NOTE: Only accounts delegated to active dreps counts towards the voting stake.
-                if let Some(drep) = &account.drep {
-                    if let Some(st) = dreps.get_mut(drep) {
-                        voting_stake += account.lovelace + deposit + refund;
-                        st.stake += account.lovelace + deposit + refund;
-                    }
-                }
-
-                // NOTE: Only accounts delegated to active pools counts towards the active stake.
-                if let Some(pool_id) = account.pool {
-                    return match pools.get_mut(&pool_id) {
-                        None => false,
-                        Some(pool) => {
-                            // NOTE: Governance deposits do not count towards the pools' stake.
-                            // They are only counted as part of the voting power.
-                            active_stake += &account.lovelace;
-                            pool.stake += &account.lovelace;
-
-                            // NOTE: Because votes are ratified with an epoch delay and using the
-                            // stake distribution _at the beginning of an epoch_ (so, after pool
-                            // reap), any pool retiring in the next epoch is considered having no
-                            // voting power whatsoever.
-                            if !retiring_pools.contains(&pool_id) {
-                                pool.voting_stake += account.lovelace;
-
-                                // NOTE: This is subtle, but the pool distribution used for
-                                // computing voting power is determined BEFORE refunds or
-                                // withdrawal are processed.
-                                //
-                                // So unlike the DRep voting stake, which already includes those,
-                                // we mustn't include the deposit as part of the pool voting stake
-                                // for the epoch that immediately follows the expiry.
-                                //
-                                // Note that the refund is eventually credited in the following
-                                // epoch so the deposit is effectively missing from the pools'
-                                // voting stake for an entire epoch.
-                                if epoch <= valid_until {
-                                    pool.voting_stake += deposit;
-                                }
-                            }
-                            true
-                        }
-                    };
-                }
-
-                false
-            })
-            .collect::<BTreeMap<_, _>>();
-
-        let block_issuers = db.iter_block_issuers()?;
-        block_issuers.for_each(|(_, issuer)| {
-            pools
-                .entry(issuer.slot_leader)
-                .and_modify(|pool| pool.blocks_count += 1);
-        });
-
-        info!(
-            target: EVENT_TARGET,
-            epoch = ?epoch,
-            accounts = ?accounts.len(),
-            pools = ?pools.len(),
-            active_stake = ?active_stake,
-            dreps = ?dreps.len(),
-            voting_stake = ?voting_stake,
-            "stake_distribution.snapshot",
-        );
-
-        Ok(StakeDistribution {
-            epoch,
-            active_stake,
-            voting_stake,
-            accounts,
-            pools,
-            dreps,
-        })
-    }
-
-    pub fn for_network(&self, network: Network) -> StakeDistributionForNetwork<'_> {
-        StakeDistributionForNetwork(self, network)
-    }
-}
-
-/// A temporary struct mainly used for serializing a StakeDistribution. This is needed because we
-/// need the network id in order to serialize stake credentials as stake address and disambiguate
-/// them.
-pub struct StakeDistributionForNetwork<'a>(&'a StakeDistribution, Network);
-
-impl serde::Serialize for StakeDistributionForNetwork<'_> {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("StakeDistribution", 5)?;
-        s.serialize_field("epoch", &self.0.epoch)?;
-        s.serialize_field("active_stake", &self.0.active_stake)?;
-        s.serialize_field("voting_stake", &self.0.voting_stake)?;
-        serialize_map("accounts", &mut s, &self.0.accounts, |credential| {
-            encode_stake_credential(self.1, credential)
-        })?;
-        serialize_map("pools", &mut s, &self.0.pools, encode_pool_id)?;
-        serialize_map("dreps", &mut s, &self.0.dreps, encode_drep)?;
-        s.end()
-    }
-}
-
-#[derive(Debug)]
-pub struct AccountState {
-    pub lovelace: Lovelace,
-    pub pool: Option<PoolId>,
-    pub drep: Option<DRep>,
-}
-
-impl serde::Serialize for AccountState {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("AccountState", 2)?;
-        s.serialize_field("lovelace", &self.lovelace)?;
-        s.serialize_field("pool", &self.pool.as_ref().map(encode_pool_id))?;
-        s.serialize_field("drep", &self.drep.as_ref().map(encode_drep))?;
-        s.end()
-    }
-}
-
-#[derive(Debug)]
-pub struct PoolState {
-    /// Number of blocks produced during an epoch by the underlying pool.
-    pub blocks_count: u64,
-
-    /// The stake used for verifying the leader-schedule.
-    pub stake: Lovelace,
-
-    /// The stake used when counting votes, which includes proposal deposits for proposals whose
-    /// refund address is delegated to the underlying pool.
-    pub voting_stake: Lovelace,
-
-    /// The pool's margin, as define per its last registration certificate.
-    ///
-    /// TODO: The margin is already present within the parameters, but is pre-computed here as a
-    /// SafeRatio to avoid unnecessary recomputations during rewards calculations. Arguably, it
-    /// should just be stored as a `SafeRatio` from within `PoolParams` to begin with!
-    pub margin: SafeRatio,
-
-    /// The pool's parameters, as define per its last registration certificate.
-    pub parameters: PoolParams,
-}
-
-impl serde::Serialize for PoolState {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("PoolState", 4)?;
-        s.serialize_field("blocks_count", &self.blocks_count)?;
-        s.serialize_field("stake", &self.stake)?;
-        s.serialize_field("voting_stake", &self.voting_stake)?;
-        s.serialize_field("parameters", &self.parameters)?;
-        s.end()
-    }
-}
 
 impl PoolState {
     pub fn relative_stake(&self, total_stake: Lovelace) -> LovelaceRatio {
@@ -600,36 +313,6 @@ impl serde::Serialize for PoolRewards {
 }
 
 #[derive(Debug)]
-pub struct Pots {
-    /// Value, in Lovelace, of the treasury at a given epoch.
-    pub treasury: Lovelace,
-    /// Value, in Lovelace, of the reserves at a given epoch.
-    pub reserves: Lovelace,
-    /// Values, in Lovelace, generated from fees during an epoch.
-    pub fees: Lovelace,
-}
-
-impl From<&pots::Row> for Pots {
-    fn from(pots: &pots::Row) -> Pots {
-        Pots {
-            treasury: pots.treasury,
-            reserves: pots.reserves,
-            fees: pots.fees,
-        }
-    }
-}
-
-impl serde::Serialize for Pots {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("Pots", 3)?;
-        s.serialize_field("treasury", &self.treasury)?;
-        s.serialize_field("reserves", &self.reserves)?;
-        s.serialize_field("fees", &self.fees)?;
-        s.end()
-    }
-}
-
-#[derive(Debug)]
 pub struct RewardsSummary {
     /// Epoch number for this summary. Note that the summary is computed during the
     /// following epoch.
@@ -801,6 +484,50 @@ impl RewardsSummary {
         })
     }
 
+    // The test snapshots are powerful, but limited. We define the 'stake distribution' snapshot by
+    // looking at the ledger state right after the 'SNAP' rule.
+    //
+    // The 'rewards' snapshots contains data pertaining to the rewards of a particular epoch. Those
+    // rewards are calculated *later*, which makes some element of the snapshot a bit tricky to anchor
+    // in time.
+    //
+    // In particular, the treasury and reserves value used for rewards calculation are the values of
+    // the pots *at the moment the calculation begin*.
+    //
+    // So, for rewards corresponding to an epoch `e`, these calculation begin about `k` blocks within
+    // epoch `e + 3`; and are paid out in the transition from `e + 3` to `e + 4` (and thus, available
+    // in `e + 4`).
+    //
+    // BUT: for the 'rewards' snapshot at epoch `e`, we pull the treasury value from our snapshots at
+    // `e + 2`; which already includes rewards paid out to accounts as well as the leftovers from any
+    // unregistered account, but, does not include leftovers that may come from pool retirements since
+    // those are only process _at the beginning of epochs_ (and thus, after the snapshot has been
+    // taken).
+    //
+    // For example, there's a pool retiring in the transition from 176 to 177, with a reward account
+    // that's already unregistered. And thus, the deposit is sent back to the treasury. So when the
+    // rewards calculation for 174 kicks in later in the epoch, the deposit was already added to the
+    // treasury... So it won't be present from our snapshot labeled 176 since it happened BEFORE the
+    // beginning of the epoch 177.
+    pub fn with_unclaimed_refunds(mut self, db: &impl Snapshot) -> Result<Self, StoreError> {
+        let leftovers = db.iter_pools()?.try_fold(0, |leftovers, (_, row)| {
+            if let Some(account) = pools::Row::tick(
+                Box::new(BorrowableProxy::new(Some(row), |_| {})),
+                self.epoch + 3,
+            ) {
+                if db.account(&account)?.is_none() {
+                    return Ok::<_, StoreError>(leftovers + STAKE_POOL_DEPOSIT as u64);
+                }
+            }
+
+            Ok(leftovers)
+        })?;
+
+        self.pots.treasury += leftovers;
+
+        Ok(self)
+    }
+
     /// Count blocks produced by pools, returning the total count and map indexed by poolid.
     fn count_blocks(db: &impl Snapshot) -> Result<(u64, BTreeMap<PoolId, u64>), StoreError> {
         let mut total: u64 = 0;
@@ -905,107 +632,14 @@ impl RewardsSummary {
 
 // -------------------------------------------------------------------- Internal
 
-fn encode_pool_id(pool_id: &PoolId) -> String {
-    encode_bech32("pool", pool_id.as_slice())
-        .unwrap_or_else(|_| unreachable!("human-readable part 'pool' is okay"))
-}
-
-/// Serialize a (registerd) DRep to bech32, according to [CIP-0129](https://cips.cardano.org/cip/CIP-0129).
-/// The always-Abstain and always-NoConfidence dreps are ignored (i.e. return `None`).
-///
-/// ```rust
-/// use amaru_kernel::{DRep, Hash};
-/// use amaru_ledger::summary::rewards::encode_drep;
-///
-/// let key_drep = DRep::Key(Hash::from(
-///   hex::decode("7a719c71d1bc67d2eb4af19f02fd48e7498843d33a22168111344a34")
-///     .unwrap()
-///     .as_slice()
-/// ));
-///
-/// let script_drep = DRep::Script(Hash::from(
-///   hex::decode("429b12461640cefd3a4a192f7c531d8f6c6d33610b727f481eb22d39")
-///     .unwrap()
-///     .as_slice()
-/// ));
-///
-/// assert_eq!(
-///   encode_drep(&DRep::Abstain).as_str(),
-///   "abstain",
-/// );
-///
-/// assert_eq!(
-///   encode_drep(&DRep::NoConfidence).as_str(),
-///   "no_confidence",
-/// );
-///
-/// assert_eq!(
-///   encode_drep(&key_drep).as_str(),
-///   "drep1yfa8r8r36x7x05htftce7qhafrn5nzzr6vazy95pzy6y5dqac0ss7",
-/// );
-///
-/// assert_eq!(
-///   encode_drep(&script_drep).as_str(),
-///   "drep1ydpfkyjxzeqvalf6fgvj7lznrk8kcmfnvy9hyl6gr6ez6wgsjaelx",
-/// );
-/// ```
-pub fn encode_drep(drep: &DRep) -> String {
-    match drep {
-        DRep::Key(hash) => encode_bech32("drep", &[&[0x22], hash.as_slice()].concat()),
-        DRep::Script(hash) => encode_bech32("drep", &[&[0x23], hash.as_slice()].concat()),
-        DRep::Abstain => Ok("abstain".to_string()),
-        DRep::NoConfidence => Ok("no_confidence".to_string()),
-    }
-    .unwrap_or_else(|_| unreachable!("human-readable part 'drep' is okay"))
-}
-
-fn encode_stake_credential(network: Network, credential: &StakeCredential) -> String {
-    encode_bech32(
-        "stake_test",
-        &match credential {
-            StakeCredential::AddrKeyhash(hash) => {
-                [&[0xe0 | network.value()], hash.as_slice()].concat()
-            }
-            StakeCredential::ScriptHash(hash) => {
-                [&[0xf0 | network.value()], hash.as_slice()].concat()
-            }
-        },
-    )
-    .unwrap_or_else(|_| unreachable!("human-readable part 'stake_test' is okay"))
-}
-
-fn serialize_map<K, V: serde::ser::Serialize, S: serde::ser::SerializeStruct>(
-    field: &'static str,
-    s: &mut S,
-    m: &BTreeMap<K, V>,
-    serialize_key: impl Fn(&K) -> String,
-) -> Result<(), S::Error> {
-    let mut elems = m
-        .iter()
-        .map(|(k, v)| (serialize_key(k), v))
-        .collect::<Vec<_>>();
-    elems.sort_by(|a, b| a.0.cmp(&b.0));
-    s.serialize_field(field, &elems.into_iter().collect::<BTreeMap<String, &V>>())
-}
-
-type SafeRatio = Ratio<BigUint>;
-
-pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
-    SafeRatio::new(BigUint::from(numerator), BigUint::from(denominator))
-}
-
-fn serialize_safe_ratio(r: &SafeRatio) -> String {
-    format!("{}/{}", r.numer(), r.denom())
-}
-
 type LovelaceRatio = SafeRatio;
 
-pub fn floor_to_lovelace(n: LovelaceRatio) -> Lovelace {
+fn floor_to_lovelace(n: LovelaceRatio) -> Lovelace {
     Lovelace::try_from(n.floor().to_integer()).unwrap_or_else(|_| {
         unreachable!("always fits in a u64; otherwise we've exceeded the max Ada supply.")
     })
 }
 
-pub fn lovelace_ratio(numerator: Lovelace, denominator: Lovelace) -> LovelaceRatio {
+fn lovelace_ratio(numerator: Lovelace, denominator: Lovelace) -> LovelaceRatio {
     LovelaceRatio::new(BigUint::from(numerator), BigUint::from(denominator))
 }

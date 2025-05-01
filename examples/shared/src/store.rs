@@ -1,7 +1,10 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
-    store::{HistoricalStores, EpochTransitionProgress, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
-    summary::rewards::{Pots, RewardsSummary},
+    store::{
+        EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
+        TransactionalContext,
+    },
+    summary::{rewards::RewardsSummary, Pots},
 };
 use std::collections::BTreeSet;
 
@@ -14,6 +17,14 @@ impl Snapshot for MemoryStore {
 }
 
 impl ReadOnlyStore for MemoryStore {
+    fn account(
+        &self,
+        _credential: &amaru_kernel::StakeCredential,
+    ) -> Result<Option<amaru_ledger::store::columns::accounts::Row>, amaru_ledger::store::StoreError>
+    {
+        Ok(None)
+    }
+
     fn pool(
         &self,
         _pool: &amaru_kernel::PoolId,
@@ -29,9 +40,7 @@ impl ReadOnlyStore for MemoryStore {
         Ok(None)
     }
 
-    fn pots(
-        &self,
-    ) -> Result<amaru_ledger::summary::rewards::Pots, amaru_ledger::store::StoreError> {
+    fn pots(&self) -> Result<amaru_ledger::summary::Pots, amaru_ledger::store::StoreError> {
         Ok(Pots {
             fees: 0,
             treasury: 0,
@@ -118,8 +127,7 @@ impl ReadOnlyStore for MemoryStore {
     }
 }
 
-pub struct MemoryTransactionalContext {
-}
+pub struct MemoryTransactionalContext {}
 
 impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
     fn commit(self) -> Result<(), StoreError> {
@@ -138,7 +146,11 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         Ok(())
     }
 
-    fn try_epoch_transition(&self, _from: Option<EpochTransitionProgress>, _to: Option<EpochTransitionProgress>,) -> Result<bool, StoreError> {
+    fn try_epoch_transition(
+        &self,
+        _from: Option<EpochTransitionProgress>,
+        _to: Option<EpochTransitionProgress>,
+    ) -> Result<bool, StoreError> {
         Ok(true)
     }
 
@@ -203,7 +215,12 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
             impl Iterator<Item = amaru_ledger::store::columns::utxo::Key>,
             impl Iterator<Item = (amaru_ledger::store::columns::pools::Key, Epoch)>,
             impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
-            impl Iterator<Item = amaru_ledger::store::columns::dreps::Key>,
+            impl Iterator<
+                Item = (
+                    amaru_ledger::store::columns::dreps::Key,
+                    amaru_kernel::CertificatePointer,
+                ),
+            >,
             impl Iterator<Item = amaru_ledger::store::columns::cc_members::Key>,
             impl Iterator<Item = amaru_ledger::store::columns::proposals::Key>,
         >,
@@ -276,10 +293,7 @@ impl Store for MemoryStore {
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
         Ok(vec![3])
     }
-    fn next_snapshot(
-        &self,
-        _epoch: Epoch,
-    ) -> Result<(), amaru_ledger::store::StoreError> {
+    fn next_snapshot(&self, _epoch: Epoch) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
@@ -292,10 +306,7 @@ impl Store for MemoryStore {
 }
 
 impl HistoricalStores for MemoryStore {
-    fn for_epoch(
-        &self,
-        _epoch: Epoch,
-    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
+    fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
         Ok(MemoryStore {})
     }
 }
