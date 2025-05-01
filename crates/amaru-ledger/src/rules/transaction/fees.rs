@@ -19,8 +19,8 @@ use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionIn
 pub enum InvalidFees {
     #[error("unknown collateral input at position {position}")]
     UnknownCollateralInput { position: usize },
-    #[error("collateral return underflow")]
-    CollateralReturnUnderflow {
+    #[error("Collateral return value is greater than total collateral input (input: {total_collateral_input}, return: {total_collateral_return})")]
+    CollateralReturnOverflow {
         total_collateral_input: u64,
         total_collateral_return: u64,
     },
@@ -57,7 +57,7 @@ where
     let collateral_return = collateral_return.map(|o| o.lovelace()).unwrap_or_default();
 
     if total_collateral < collateral_return {
-        return Err(InvalidFees::CollateralReturnUnderflow {
+        return Err(InvalidFees::CollateralReturnOverflow {
             total_collateral_input: total_collateral,
             total_collateral_return: collateral_return,
         });
@@ -110,14 +110,14 @@ mod tests {
         };
     }
 
-    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", true); "valid transaction")]
-    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-transaction", false); "invalid transaction")]
+    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", true); "Valid transaction")]
+    #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-transaction", false); "Invalid transaction")]
     #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "collateral-underflow", false) =>
-        matches Err(InvalidFees::CollateralReturnUnderflow { total_collateral_input, total_collateral_return }) if total_collateral_input == 5000000 && total_collateral_return == 10000000;
-        "collateral underflow")]
+        matches Err(InvalidFees::CollateralReturnOverflow { total_collateral_input, total_collateral_return }) if total_collateral_input == 5000000 && total_collateral_return == 10000000;
+        "Collateral overflow")]
     #[test_case(fixture!("efecb8d07a7c15e80c1daf3a25a3b89728506ddad4e18cd9c9512cea44805b4f", "invalid-collateral", false) =>
         matches Err(InvalidFees::UnknownCollateralInput { position }) if position == 0;
-        "unresolved collateral")]
+        "Unresolved collateral")]
     fn fees(
         (ctx, tx, expected_traces, is_valid): (
             AssertPreparationContext,
