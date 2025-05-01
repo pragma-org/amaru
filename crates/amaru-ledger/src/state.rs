@@ -430,7 +430,7 @@ fn epoch_transition(
     Ok(())
 }
 
-#[instrument(level = Level::INFO, skip_all, fields(epoch = rewards_summary.epoch()))]
+#[instrument(level = Level::INFO, skip_all)]
 fn end_epoch<'store>(
     transaction: &impl TransactionalContext<'store>,
     mut rewards_summary: RewardsSummary,
@@ -446,7 +446,7 @@ fn end_epoch<'store>(
     Ok(())
 }
 
-#[instrument(level = Level::INFO, skip_all, fields(epoch = current_epoch))]
+#[instrument(level = Level::INFO, skip_all)]
 fn begin_epoch<'store>(
     transaction: &impl TransactionalContext<'store>,
     current_epoch: Epoch,
