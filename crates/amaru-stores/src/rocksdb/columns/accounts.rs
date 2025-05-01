@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_kernel::Lovelace;
+use amaru_kernel::{stake_credential_hash, stake_credential_type, Lovelace};
 use amaru_ledger::store::{
     columns::accounts::{Key, Row, Value, EVENT_TARGET},
     StoreError,
 };
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
-use tracing::{error, info};
+use tracing::{debug, error};
 
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x61, 0x63, 0x63, 0x74];
@@ -133,9 +133,10 @@ pub fn set<DB>(
         return Ok(0);
     }
 
-    info!(
+    debug!(
         target: EVENT_TARGET,
-        ?credential,
+        type = %stake_credential_type(credential),
+        account = %stake_credential_hash(credential),
         "set.no_account",
     );
 
