@@ -49,10 +49,9 @@ impl OngoingTransaction {
 }
 
 impl Drop for OngoingTransaction {
-    #[allow(clippy::panic)]
     fn drop(&mut self) {
         if self.get() {
-            // This is a bug, no transaction should be left open. Crash the process.
+            // This is a bug, no transaction should be left open. Report an error so that root cause is not swallowed.
             error!("Ongoing transaction was not closed before dropping RocksDB");
         }
     }
