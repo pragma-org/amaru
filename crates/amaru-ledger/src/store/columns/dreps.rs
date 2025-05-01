@@ -34,7 +34,7 @@ pub struct Row {
     pub deposit: Lovelace,
     pub anchor: Option<Anchor>,
     pub registered_at: CertificatePointer,
-    pub last_interaction: Epoch,
+    pub last_interaction: Option<Epoch>,
     /// This field is *temporary* and only necessary to re-implement a bug present in the Cardano
     /// ledger in the protocol version 9.
     ///
@@ -104,7 +104,7 @@ pub(crate) mod tests {
             deposit in any::<Lovelace>(),
             anchor in option::of(any_anchor()),
             registered_at in any_certificate_pointer(),
-            last_interaction in any::<Epoch>(),
+            last_interaction in option::of(any::<Epoch>()),
             previous_deregistration in option::of(any_certificate_pointer()),
         ) -> Row {
             Row {

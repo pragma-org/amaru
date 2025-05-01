@@ -51,9 +51,11 @@ pub fn add<DB>(
             if let Some((deposit, registered_at)) = register {
                 row.registered_at = registered_at;
                 row.deposit = deposit;
+                row.last_interaction = None;
+            } else {
+                row.last_interaction = Some(epoch);
             }
             anchor.set_or_reset(&mut row.anchor);
-            row.last_interaction = epoch;
             Some(row)
 
         // Brand new registration.
@@ -62,7 +64,7 @@ pub fn add<DB>(
                 anchor: None,
                 deposit,
                 registered_at,
-                last_interaction: epoch,
+                last_interaction: None,
                 previous_deregistration: None,
             };
             anchor.set_or_reset(&mut row.anchor);
@@ -106,7 +108,7 @@ pub fn tick<DB>(
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(Row::unsafe_decode)
         {
-            row.last_interaction = epoch;
+            row.last_interaction = Some(epoch);
             db.put(key, as_value(row))
                 .map_err(|err| StoreError::Internal(err.into()))?;
         } else {
