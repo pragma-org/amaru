@@ -16,6 +16,7 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use tracing::error;
 
 /// A wrapper to keep track of the status of an ongoing database transaction. This is handy to
 /// ensure that we don't misuse db transactions while using the store by adding some invariant
@@ -52,7 +53,7 @@ impl Drop for OngoingTransaction {
     fn drop(&mut self) {
         if self.get() {
             // This is a bug, no transaction should be left open. Crash the process.
-            panic!("Ongoing transaction was not closed before dropping RocksDB");
+            error!("Ongoing transaction was not closed before dropping RocksDB");
         }
     }
 }

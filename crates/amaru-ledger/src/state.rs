@@ -375,6 +375,7 @@ fn recover_stake_distribution(
         .map_err(StateError::Storage)
 }
 
+#[instrument(level = Level::INFO, skip_all, fields(from = next_epoch - 1, into = next_epoch))]
 fn epoch_transition(
     db: &mut impl Store,
     next_epoch: Epoch,
@@ -543,7 +544,7 @@ pub enum BackwardError {
 
 #[derive(Debug, Error)]
 pub enum StateError {
-    #[error("error accessing storage")]
+    #[error("error accessing storage: {0}")]
     Storage(#[from] StoreError),
     #[error("no stake distribution available for rewards calculation.")]
     StakeDistributionNotAvailableForRewards,

@@ -58,13 +58,13 @@ pub enum TipErrorKind {
 pub enum StoreError {
     #[error(transparent)]
     Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
-    #[error("unable to decode database's value")]
+    #[error("unable to decode database's value: {0}")]
     Undecodable(#[from] minicbor::decode::Error),
     #[error("error sending work unit through output port")]
     Send,
-    #[error("error opening the store")]
+    #[error("error opening the store: {0}")]
     Open(#[source] OpenErrorKind),
-    #[error("error opening the tip")]
+    #[error("error opening the tip: {0}")]
     Tip(#[source] TipErrorKind),
 }
 

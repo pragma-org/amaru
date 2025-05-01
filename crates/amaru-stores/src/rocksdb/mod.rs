@@ -335,9 +335,11 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             return Ok(false);
         }
 
-        self.transaction
-            .put(KEY_PROGRESS, as_value(to))
-            .map_err(|err| StoreError::Internal(err.into()))?;
+        match to {
+            None => self.transaction.delete(KEY_PROGRESS),
+            Some(to) => self.transaction.put(KEY_PROGRESS, as_value(to)),
+        }
+        .map_err(|err| StoreError::Internal(err.into()))?;
 
         Ok(true)
     }
