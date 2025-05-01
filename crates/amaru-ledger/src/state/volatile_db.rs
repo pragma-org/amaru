@@ -303,11 +303,13 @@ impl AnchoredVolatileState {
                     .dreps
                     .unregistered
                     .into_iter()
-                    .filter_map(move |credential| {
-                        self.state
-                            .dreps_deregistrations
-                            .remove(&credential)
-                            .map(|pointer| (credential, pointer))
+                    .map(move |credential| {
+                        #[allow(clippy::expect_used)]
+                        let pointer = self.state.dreps_deregistrations.remove(&credential).expect(
+                            "every 'unregistered' drep must have a matching deregistration",
+                        );
+
+                        (credential, pointer)
                     }),
                 cc_members: self.state.committee.unregistered.into_iter(),
                 proposals: self
