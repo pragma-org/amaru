@@ -2,8 +2,8 @@
 
 exitWithUsage () {
   echo -e "\033[1;31mError: missing argument(s)!\033[00m\n"
-  echo -e "\033[1;32mUsage:\033[00m\n    $0 PEER_ADDRESS TARGET_EPOCH [NETWORK]\n"
-  echo -e "\033[1mExamples:\033[00m \n    $0 127.0.0.1:3000 173\n    $0 127.0.0.1:3001 200 preprod"
+  echo -e "\033[1;32mUsage:\033[00m\n    $0 PEER_ADDRESS LISTEN_ADDRESS TARGET_EPOCH [NETWORK]\n"
+  echo -e "\033[1mExamples:\033[00m \n    $0 127.0.0.1:3000 0.0.0.0:0    173\n    $0 127.0.0.1:3001 0.0.0.0:8000 200 preprod"
   exit 1
 }
 
@@ -12,12 +12,17 @@ if [ -z "$PEER_ADDRESS" ]; then
   exitWithUsage
 fi
 
-TARGET_EPOCH=$2
+LISTEN_ADDRESS=$2
+if [ -z "$LISTEN_ADDRESS" ]; then
+  exitWithUsage
+fi
+
+TARGET_EPOCH=$3
 if [ -z "$TARGET_EPOCH" ]; then
   exitWithUsage
 fi
 
-NETWORK=${3:-preprod}
+NETWORK=${4:-preprod}
 
 LEDGER_DIR=${LEDGER_DIR:-./ledger.db}
 
@@ -27,6 +32,7 @@ echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 set -eo pipefail
 AMARU_TRACE="amaru=info" cargo run -- --with-json-traces daemon \
            --peer-address="${PEER_ADDRESS}" \
+           --listen-address="${LISTEN_ADDRESS}" \
            --network="${NETWORK}" \
            --chain-dir="${CHAIN_DIR}" \
            --ledger-dir="${LEDGER_DIR}" | while read line; do
