@@ -33,7 +33,7 @@ AMARU_TRACE="amaru=info" cargo run -- --with-json-traces daemon \
   EVENT=$(echo $line | jq -r '.fields.message' 2>/dev/null)
   SPAN=$(echo $line | jq -r '.span.name' 2>/dev/null)
   if [ "$EVENT" == "exit" ] && [ "$SPAN" == "epoch_transition" ]; then
-    EPOCH=$(echo $line | jq -r '.span.epoch' 2>/dev/null)
+    EPOCH=$(echo $line | jq -r '.span.from' 2>/dev/null)
     if [ "$EPOCH" == "$TARGET_EPOCH" ]; then
       echo "Target epoch reached, stopping the process."
       pkill -INT -P $$
