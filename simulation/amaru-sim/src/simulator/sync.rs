@@ -14,14 +14,15 @@
 
 use super::bytes::Bytes;
 use crate::echo::Envelope;
-use amaru_consensus::consensus::{ChainSyncEvent, ValidateHeaderEvent};
-use amaru_consensus::peer::Peer;
+use amaru_consensus::{
+    consensus::{ChainSyncEvent, ValidateHeaderEvent},
+    peer::Peer,
+};
 use amaru_kernel::{self, Point, Slot};
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};
-use tokio::io::{stdin, stdout, BufReader, Stdin, Stdout};
-use tokio::io::{AsyncBufReadExt, Lines};
+use tokio::io::{stdin, stdout, AsyncBufReadExt, BufReader, Lines, Stdin, Stdout};
 use tokio_util::codec::{FramedWrite, LinesCodec};
 use tracing::{error, Span};
 
@@ -214,17 +215,22 @@ pub fn mk_message(
 mod test {
     use std::str::FromStr;
 
-    use crate::echo::Envelope;
-    use crate::simulator::bytes::Bytes;
-    use crate::simulator::sync::{parse, read_peer_addresses_from_init, StringMessageReader};
-    use amaru_consensus::consensus::ValidateHeaderEvent;
-    use amaru_consensus::peer::Peer;
+    use crate::{
+        echo::Envelope,
+        simulator::{
+            bytes::Bytes,
+            sync::{parse, read_peer_addresses_from_init, StringMessageReader},
+        },
+    };
+    use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer};
     use amaru_kernel::Point;
     use pallas_codec::minicbor;
     use pallas_crypto::hash::Hasher;
     use pallas_primitives::{babbage, Hash};
-    use proptest::prelude::*;
-    use proptest::{prelude::BoxedStrategy, proptest};
+    use proptest::{
+        prelude::{BoxedStrategy, *},
+        proptest,
+    };
     use tracing::trace_span;
 
     use super::{
@@ -312,8 +318,7 @@ mod test {
     }
 
     fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
-        use proptest::collection::vec;
-        use proptest::prelude::*;
+        use proptest::{collection::vec, prelude::*};
 
         prop_oneof![
             (any::<u64>(), any::<String>(), vec(any::<String>(), 0..10)).prop_map(

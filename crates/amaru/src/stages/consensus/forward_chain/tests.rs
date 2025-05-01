@@ -6,8 +6,7 @@ use super::{
 };
 use crate::stages::{AsTip, PallasPoint};
 use amaru_consensus::IsHeader;
-use pallas_network::miniprotocols::chainsync::Tip;
-use pallas_network::miniprotocols::Point;
+use pallas_network::miniprotocols::{chainsync::Tip, Point};
 
 #[test]
 fn test_mk_store() {

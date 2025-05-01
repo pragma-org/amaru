@@ -15,20 +15,21 @@
 use std::{path::PathBuf, sync::Arc};
 
 use super::echo::Envelope;
-use amaru_consensus::consensus::{
-    chain_selection::{ChainSelector, ChainSelectorBuilder},
-    receive_header::handle_chain_sync,
-    select_chain::SelectChain,
-    store::ChainStore,
-    store_header::StoreHeader,
-    validate_header::ValidateHeader,
-    ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
+use amaru_consensus::{
+    consensus::{
+        chain_selection::{ChainSelector, ChainSelectorBuilder},
+        receive_header::handle_chain_sync,
+        select_chain::SelectChain,
+        store::ChainStore,
+        store_header::StoreHeader,
+        validate_header::ValidateHeader,
+        ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
+    },
+    peer::Peer,
 };
-use amaru_consensus::peer::Peer;
-use amaru_kernel::network::NetworkName;
-use amaru_kernel::to_cbor;
 use amaru_kernel::{
-    Header,
+    network::NetworkName,
+    to_cbor, Header,
     Point::{self, *},
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
