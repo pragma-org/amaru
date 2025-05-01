@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::super::common::{as_key, as_value, PREFIX_LEN};
-use crate::rocksdb::scolumns::utxo::{Key, Value};
-use amaru_ledger::store::StoreError;
+use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use amaru_ledger::store::{
+    columns::utxo::{Key, Value},
+    StoreError,
+};
 use pallas_codec::minicbor::{self as cbor};
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
 

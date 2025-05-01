@@ -34,8 +34,8 @@ use std::{
 };
 use tracing::{debug, info, instrument, trace, warn, Level};
 
-pub mod columns;
-use columns::*;
+pub mod ledger;
+use ledger::columns::*;
 
 pub mod common;
 use common::{as_value, PREFIX_LEN};

@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::super::common::{as_key, as_value, PREFIX_LEN};
-use crate::rocksdb::scolumns::pools::{Key, Row, Value, EVENT_TARGET};
+use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_kernel::Epoch;
-use amaru_ledger::store::StoreError;
+use amaru_ledger::store::{
+    columns::pools::{Key, Row, Value, EVENT_TARGET},
+    StoreError,
+};
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
 use tracing::error;
 

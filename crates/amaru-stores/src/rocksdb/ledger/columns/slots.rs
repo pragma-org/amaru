@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::super::common::{as_key, as_value, PREFIX_LEN};
-use crate::rocksdb::scolumns::slots::{Key, Value};
-use amaru_ledger::store::StoreError;
+use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use amaru_ledger::store::{
+    columns::slots::{Key, Value},
+    StoreError,
+};
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
 
 /// Name prefixed used for storing Pool entries. UTF-8 encoding for "slot"
