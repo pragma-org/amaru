@@ -14,7 +14,7 @@
 
 pub mod columns;
 
-use crate::summary::rewards::{Pots, RewardsSummary};
+use crate::summary::{rewards::RewardsSummary, Pots};
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking

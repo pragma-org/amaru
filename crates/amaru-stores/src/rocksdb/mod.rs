@@ -22,7 +22,7 @@ use amaru_ledger::{
         columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
         ReadOnlyStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
     },
-    summary::rewards::{Pots, RewardsSummary},
+    summary::{rewards::RewardsSummary, Pots},
 };
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};

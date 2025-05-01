@@ -1,5 +1,5 @@
 ---
-source: crates/amaru/src/ledger/rewards.rs
+source: crates/amaru/tests/summary.rs
 expression: stake_distr
 ---
 {

@@ -22,7 +22,8 @@ use crate::{
     store::{EpochTransitionProgress, HistoricalStores, Store, StoreError, TransactionalContext},
     summary::{
         governance::{self, GovernanceSummary},
-        rewards::{RewardsSummary, StakeDistribution},
+        rewards::RewardsSummary,
+        stake_distribution::StakeDistribution,
     },
 };
 use amaru_kernel::{

@@ -18,8 +18,8 @@ use amaru_kernel::{
 use amaru_ledger::{
     store::Snapshot,
     summary::{
-        governance::GovernanceSummary,
-        rewards::{RewardsSummary, StakeDistribution},
+        governance::GovernanceSummary, rewards::RewardsSummary,
+        stake_distribution::StakeDistribution,
     },
 };
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot};
