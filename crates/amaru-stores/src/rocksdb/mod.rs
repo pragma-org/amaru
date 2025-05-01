@@ -24,8 +24,6 @@ use amaru_ledger::{
     },
     summary::rewards::{Pots, RewardsSummary},
 };
-use columns::*;
-use common::{as_value, PREFIX_LEN};
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
 use rocksdb::Transaction;
@@ -33,16 +31,19 @@ use std::{
     collections::BTreeSet,
     fmt, fs,
     path::{Path, PathBuf},
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
 };
 use tracing::{info, instrument, trace, warn, Level};
 
 pub mod columns;
+use columns::*;
+
 pub mod common;
+use common::{as_value, PREFIX_LEN};
+
 pub mod consensus;
+
+mod transaction;
+use transaction::OngoingTransaction;
 
 const EVENT_TARGET: &str = "amaru::ledger::store";
 
@@ -54,40 +55,6 @@ const KEY_PROGRESS: &str = "progress";
 
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
-
-struct OngoingTransaction {
-    value: Arc<AtomicBool>,
-}
-
-impl OngoingTransaction {
-    fn new() -> Self {
-        OngoingTransaction {
-            value: Arc::new(AtomicBool::new(false)),
-        }
-    }
-    fn get(&self) -> bool {
-        self.value.load(Ordering::SeqCst)
-    }
-
-    fn set(&self, value: bool) {
-        #[allow(clippy::panic)]
-        if self.get() == value {
-            // This is a bug, we should never set the same value twice. Crash the process.
-            panic!("Ongoing transaction was already set to {}", value);
-        }
-        self.value.store(value, Ordering::SeqCst);
-    }
-}
-
-impl Drop for OngoingTransaction {
-    #[allow(clippy::panic)]
-    fn drop(&mut self) {
-        if self.get() {
-            // This is a bug, no transaction should be left open. Crash the process.
-            panic!("Ongoing transaction was not closed before dropping RocksDB");
-        }
-    }
-}
 
 /// An opaque handle for a store implementation of top of RocksDB. The database has the
 /// following structure:
