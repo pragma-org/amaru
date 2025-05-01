@@ -206,16 +206,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
         // epoch than the previously applied block (i.e. the tip of the stable storage).
         if current_epoch > tip_epoch {
-            // FIXME: This should eventually be an '.await', as we always expect to *eventually*
-            // have some rewards summary being available. There's no way to continue progressing
-            // the ledger if we don't.
-            let rewards_summary = self
-                .rewards_summary
-                .take()
-                .ok_or(StateError::RewardsSummaryNotReady)?;
-
-            epoch_transition(&mut *db, current_epoch, rewards_summary)
-                .map_err(StateError::Storage)?;
+            epoch_transition(&mut *db, current_epoch, self.rewards_summary.take())?
         }
 
         // Persist changes for this block
@@ -387,14 +378,21 @@ fn recover_stake_distribution(
 fn epoch_transition(
     db: &mut impl Store,
     next_epoch: Epoch,
-    rewards_summary: RewardsSummary,
-) -> Result<(), StoreError> {
+    rewards_summary: Option<RewardsSummary>,
+) -> Result<(), StateError> {
     // End of epoch
     let batch = db.create_transaction();
     let should_end_epoch =
         batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
     if should_end_epoch {
-        end_epoch(&batch, rewards_summary)?;
+        end_epoch(
+            &batch,
+            // FIXME: This should eventually be an '.await', as we always expect to *eventually*
+            // have some rewards summary being available. There's no way to continue progressing
+            // the ledger if we don't.
+            rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
+        )
+        .map_err(StateError::Storage)?;
     }
     batch.commit()?;
 
@@ -423,6 +421,7 @@ fn epoch_transition(
     Ok(())
 }
 
+#[instrument(level = Level::INFO, skip_all, fields(epoch = rewards_summary.epoch()))]
 fn end_epoch<'store>(
     transaction: &impl TransactionalContext<'store>,
     mut rewards_summary: RewardsSummary,
@@ -438,7 +437,7 @@ fn end_epoch<'store>(
     Ok(())
 }
 
-#[instrument(level = Level::INFO, skip_all, fields(epoch = current_epoch - 1))]
+#[instrument(level = Level::INFO, skip_all, fields(epoch = current_epoch))]
 fn begin_epoch<'store>(
     transaction: &impl TransactionalContext<'store>,
     current_epoch: Epoch,
@@ -545,7 +544,7 @@ pub enum BackwardError {
 #[derive(Debug, Error)]
 pub enum StateError {
     #[error("error accessing storage")]
-    Storage(#[source] StoreError),
+    Storage(#[from] StoreError),
     #[error("no stake distribution available for rewards calculation.")]
     StakeDistributionNotAvailableForRewards,
     #[error("rewards summary not ready")]

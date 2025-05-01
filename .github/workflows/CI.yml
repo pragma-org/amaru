@@ -238,7 +238,7 @@ jobs:
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
         with:
           path: ./ledger.db
-          key: ${{ runner.OS }}-ledger-cache-v4-${{ steps.timestamp.outputs.value }}
+          key: ${{ runner.OS }}-ledger-cache-v5-${{ steps.timestamp.outputs.value }}
 
       - name: Run node
         timeout-minutes: 30

@@ -586,7 +586,7 @@ impl Store for RocksDB {
         RocksDB::snapshots(&self.dir)
     }
 
-    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch = epoch))]
+    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
 

@@ -21,7 +21,7 @@ use amaru_kernel::{
 use amaru_ledger::{
     self,
     state::diff_bind::Resettable,
-    store::{self, columns::proposals, Store, TransactionalContext},
+    store::{self, columns::proposals, EpochTransitionProgress, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
@@ -157,17 +157,16 @@ async fn import_one(
 
     let snapshot = db.snapshots()?.last().map(|s| s + 1).unwrap_or(epoch);
     db.next_snapshot(snapshot)?;
+
     let transaction = db.create_transaction();
     transaction.reset_blocks_count()?;
-
     transaction.reset_fees()?;
-    transaction.commit()?;
-    let transaction = db.create_transaction();
     transaction.with_pools(|iterator| {
         for (_, pool) in iterator {
             amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1)
         }
     })?;
+    transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;
     transaction.commit()?;
     info!("Imported snapshot for epoch {}", epoch);
     Ok(())
@@ -187,7 +186,6 @@ fn decode_new_epoch_state(
     // EpochNo
     let epoch = d.u64()?;
     assert_eq!(epoch, era_history.slot_to_epoch(point.slot_or_default())?);
-    info!(epoch, "importing_snapshot");
 
     // Previous blocks made
     d.skip()?;

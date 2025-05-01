@@ -687,6 +687,10 @@ impl serde::Serialize for RewardsSummary {
 }
 
 impl RewardsSummary {
+    pub fn epoch(&self) -> Epoch {
+        self.epoch
+    }
+
     pub fn new(
         db: &impl Snapshot,
         stake_distribution: StakeDistribution,
