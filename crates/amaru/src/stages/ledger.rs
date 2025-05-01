@@ -9,7 +9,7 @@ use amaru_ledger::{
         parse_block,
     },
     state::{self, BackwardError, VolatileState},
-    store::Store,
+    store::{HistoricalStores, Store},
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 use anyhow::Context;
@@ -21,16 +21,19 @@ use tracing_opentelemetry::OpenTelemetrySpanExt;
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
 
-pub struct ValidateBlockStage<S>
+pub struct ValidateBlockStage<S, HS>
 where
     S: Store + Send,
+    HS: HistoricalStores + Send,
 {
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
-    pub state: state::State<S>,
+    pub state: state::State<S, HS>,
 }
 
-impl<S: Store + Send> gasket::framework::Stage for ValidateBlockStage<S> {
+impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
+    for ValidateBlockStage<S, HS>
+{
     type Unit = ValidateBlockEvent;
     type Worker = Worker;
 
@@ -43,9 +46,13 @@ impl<S: Store + Send> gasket::framework::Stage for ValidateBlockStage<S> {
     }
 }
 
-impl<S: Store + Send> ValidateBlockStage<S> {
-    pub fn new(store: S, era_history: &EraHistory) -> (Self, Point) {
-        let state = state::State::new(Arc::new(std::sync::Mutex::new(store)), era_history);
+impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
+    pub fn new(store: S, snapshots: HS, era_history: &EraHistory) -> (Self, Point) {
+        let state = state::State::new(
+            Arc::new(std::sync::Mutex::new(store)),
+            snapshots,
+            era_history,
+        );
 
         let tip = state.tip().into_owned();
 
@@ -140,14 +147,16 @@ impl<S: Store + Send> ValidateBlockStage<S> {
 pub struct Worker {}
 
 #[async_trait::async_trait(?Send)]
-impl<S: Store + Send> gasket::framework::Worker<ValidateBlockStage<S>> for Worker {
-    async fn bootstrap(_stage: &ValidateBlockStage<S>) -> Result<Self, WorkerError> {
+impl<S: Store + Send, HS: HistoricalStores + Send>
+    gasket::framework::Worker<ValidateBlockStage<S, HS>> for Worker
+{
+    async fn bootstrap(_stage: &ValidateBlockStage<S, HS>) -> Result<Self, WorkerError> {
         Ok(Self {})
     }
 
     async fn schedule(
         &mut self,
-        stage: &mut ValidateBlockStage<S>,
+        stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
         Ok(WorkSchedule::Unit(unit.payload))
@@ -161,7 +170,7 @@ impl<S: Store + Send> gasket::framework::Worker<ValidateBlockStage<S>> for Worke
     async fn execute(
         &mut self,
         unit: &ValidateBlockEvent,
-        stage: &mut ValidateBlockStage<S>,
+        stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
         let result = match unit {
             ValidateBlockEvent::Validated { point, block, span } => stage

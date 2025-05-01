@@ -1,7 +1,7 @@
 use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
-    store::{Snapshot, Store},
-    summary::rewards::Pots,
+    store::{HistoricalStores, EpochTransitionProgress, ReadOnlyStore, Snapshot, Store, StoreError, TransactionalContext},
+    summary::rewards::{Pots, RewardsSummary},
 };
 use std::collections::BTreeSet;
 
@@ -11,7 +11,9 @@ impl Snapshot for MemoryStore {
     fn epoch(&self) -> Epoch {
         10
     }
+}
 
+impl ReadOnlyStore for MemoryStore {
     fn pool(
         &self,
         _pool: &amaru_kernel::PoolId,
@@ -116,14 +118,41 @@ impl Snapshot for MemoryStore {
     }
 }
 
-impl Store for MemoryStore {
-    #[allow(refining_impl_trait)]
-    fn for_epoch(&self, _epoch: Epoch) -> Result<MemoryStore, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore {})
+pub struct MemoryTransactionalContext {
+}
+
+impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
+    fn commit(self) -> Result<(), StoreError> {
+        Ok(())
     }
 
-    fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
-        Ok(Point::Origin)
+    fn rollback(self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn reset_fees(&self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn reset_blocks_count(&self) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn try_epoch_transition(&self, _from: Option<EpochTransitionProgress>, _to: Option<EpochTransitionProgress>,) -> Result<bool, StoreError> {
+        Ok(true)
+    }
+
+    fn apply_rewards(&self, _rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
+        Ok(())
+    }
+
+    fn adjust_pots(
+        &self,
+        _delta_treasury: u64,
+        _delta_reserves: u64,
+        _unclaimed_rewards: u64,
+    ) -> Result<(), StoreError> {
+        Ok(())
     }
 
     fn refund(
@@ -184,10 +213,11 @@ impl Store for MemoryStore {
         Ok(())
     }
 
-    fn next_snapshot(
-        &mut self,
-        _epoch: Epoch,
-        _rewards_summary: Option<amaru_ledger::summary::rewards::RewardsSummary>,
+    fn set_pots(
+        &self,
+        _treasury: amaru_kernel::Lovelace,
+        _reserves: amaru_kernel::Lovelace,
+        _fees: amaru_kernel::Lovelace,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }
@@ -239,5 +269,33 @@ impl Store for MemoryStore {
         _with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
+    }
+}
+
+impl Store for MemoryStore {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![3])
+    }
+    fn next_snapshot(
+        &self,
+        _epoch: Epoch,
+    ) -> Result<(), amaru_ledger::store::StoreError> {
+        Ok(())
+    }
+    fn create_transaction(&self) -> impl TransactionalContext<'_> {
+        MemoryTransactionalContext {}
+    }
+
+    fn tip(&self) -> Result<Point, amaru_ledger::store::StoreError> {
+        Ok(Point::Origin)
+    }
+}
+
+impl HistoricalStores for MemoryStore {
+    fn for_epoch(
+        &self,
+        _epoch: Epoch,
+    ) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
+        Ok(MemoryStore {})
     }
 }

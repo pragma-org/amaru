@@ -45,6 +45,7 @@ rayon = "1.10"
 rocksdb = { version = "0.23.0", default-features = false, features = [
     "bindgen-runtime",
     "snappy",
+    "multi-threaded-cf"
 ] }
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0.128", default-features = false }
