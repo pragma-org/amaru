@@ -125,7 +125,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 let state: VolatileState = context.into();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
                 self.state
-            .forward(&global_parameters, state.anchor(&point, issuer))?;
+                    .forward(&global_parameters, state.anchor(&point, issuer))?;
                 Ok(None)
             }
         }
