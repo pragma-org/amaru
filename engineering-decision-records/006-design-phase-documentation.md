@@ -256,6 +256,14 @@ We recognize the following capabilities of this contract:
 5. **Credential rotation**: In case of lost credentials or the departure of a scope owner, a mechanism allows the rotation of credentials to a new scope owner upon approval by all (5 out of 5) PRAGMA members (effectively capturing PRAGMA's board decision to appoint new maintainers).
 6. **Failsafe**: In the extreme scenario where credentials would be irremediably lost, thus preventing any further decision, a failsafe mechanism allows all unconsumed funds to be sent back to the Cardano treasury.   
 
+#### Acceptance process for milestones and deliverables on the project
+
+Any milestone or delivery item will have to go through this process:
+- Submit a pull request to the Amaru repo on the main branch
+- Demonstrate evidence of testing: once implemented in the Amaru context, make reports available to show that the expected features are working within the targeted environment.
+- Formally review with the Amaru Maintainer Committee the pull request (in the recurrent bi-monthly maintainer meeting or in a dedicated meeting)
+- Finalise with the scope owner the integration and merge the pull request into the Amaru repo
+
 ## Discussion points
 
 This documentation will be updated when we better understand the product and our project environment after each delivery step.
