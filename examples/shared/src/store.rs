@@ -4,7 +4,7 @@ use amaru_ledger::{
         EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
         TransactionalContext,
     },
-    summary::{rewards::RewardsSummary, Pots},
+    summary::Pots,
 };
 use std::collections::BTreeSet;
 
@@ -138,14 +138,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         Ok(())
     }
 
-    fn reset_fees(&self) -> Result<(), StoreError> {
-        Ok(())
-    }
-
-    fn reset_blocks_count(&self) -> Result<(), StoreError> {
-        Ok(())
-    }
-
     fn try_epoch_transition(
         &self,
         _from: Option<EpochTransitionProgress>,
@@ -154,24 +146,12 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         Ok(true)
     }
 
-    fn apply_rewards(&self, _rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
-        Ok(())
-    }
-
-    fn adjust_pots(
-        &self,
-        _delta_treasury: u64,
-        _delta_reserves: u64,
-        _unclaimed_rewards: u64,
-    ) -> Result<(), StoreError> {
-        Ok(())
-    }
-
     fn refund(
         &self,
-        _refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
-    ) -> Result<(), amaru_ledger::store::StoreError> {
-        Ok(())
+        _credential: &amaru_ledger::store::columns::accounts::Key,
+        _deposit: Lovelace,
+    ) -> Result<Lovelace, StoreError> {
+        Ok(0)
     }
 
     fn save(
@@ -226,15 +206,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         >,
         _withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
         _voting_dreps: BTreeSet<StakeCredential>,
-    ) -> Result<(), amaru_ledger::store::StoreError> {
-        Ok(())
-    }
-
-    fn set_pots(
-        &self,
-        _treasury: amaru_kernel::Lovelace,
-        _reserves: amaru_kernel::Lovelace,
-        _fees: amaru_kernel::Lovelace,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
     }

@@ -19,7 +19,10 @@ pub mod volatile_db;
 
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
-    store::{EpochTransitionProgress, HistoricalStores, Store, StoreError, TransactionalContext},
+    store::{
+        columns::pools, EpochTransitionProgress, HistoricalStores, Store, StoreError,
+        TransactionalContext,
+    },
     summary::{
         governance::{self, GovernanceSummary},
         rewards::RewardsSummary,
@@ -27,19 +30,20 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    Epoch, EraHistory, Hash, MintedBlock, Point, PoolId, Slot, TransactionInput, TransactionOutput,
-    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9, SLOTS_PER_KES_PERIOD,
-    STABILITY_WINDOW,
+    expect_stake_credential, stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash,
+    Lovelace, MintedBlock, Point, PoolId, Slot, StakeCredential, TransactionInput,
+    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9,
+    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW, STAKE_POOL_DEPOSIT,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
 use std::{
     borrow::Cow,
-    collections::{BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
-use tracing::{instrument, trace, Level};
+use tracing::{debug, instrument, trace, Level};
 use volatile_db::AnchoredVolatileState;
 
 pub use volatile_db::VolatileState;
@@ -384,6 +388,9 @@ fn recover_stake_distribution(
     .map_err(StateError::Storage)
 }
 
+// Epoch Transitions
+// ----------------------------------------------------------------------------
+
 #[instrument(level = Level::INFO, skip_all, fields(from = next_epoch - 1, into = next_epoch))]
 fn epoch_transition(
     db: &mut impl Store,
@@ -433,28 +440,42 @@ fn epoch_transition(
 
 #[instrument(level = Level::INFO, skip_all)]
 fn end_epoch<'store>(
-    transaction: &impl TransactionalContext<'store>,
+    db: &impl TransactionalContext<'store>,
     mut rewards_summary: RewardsSummary,
 ) -> Result<(), StoreError> {
-    transaction.apply_rewards(&mut rewards_summary)?;
+    // Pay rewards to each account.
+    db.with_accounts(|iterator| {
+        for (account, mut row) in iterator {
+            if let Some(rewards) = rewards_summary.extract_rewards(&account) {
+                // The condition avoids the mutable borrow when not needed, which will incur a db
+                // operation.
+                if rewards > 0 {
+                    if let Some(account) = row.borrow_mut() {
+                        account.rewards += rewards;
+                    }
+                }
+            }
+        }
+    })?;
 
-    transaction.adjust_pots(
-        rewards_summary.delta_treasury(),
-        rewards_summary.delta_reserves(),
-        rewards_summary.unclaimed_rewards(),
-    )?;
+    // Adjust treasury and reserves accordingly.
+    db.with_pots(|mut row| {
+        let pots = row.borrow_mut();
+        pots.treasury += rewards_summary.delta_treasury() + rewards_summary.unclaimed_rewards();
+        pots.reserves -= rewards_summary.delta_reserves();
+    })?;
 
     Ok(())
 }
 
 #[instrument(level = Level::INFO, skip_all)]
 fn begin_epoch<'store>(
-    transaction: &impl TransactionalContext<'store>,
+    db: &impl TransactionalContext<'store>,
     current_epoch: Epoch,
 ) -> Result<(), StoreError> {
     // Reset counters before the epoch begins.
-    transaction.reset_blocks_count()?;
-    transaction.reset_fees()?;
+    reset_blocks_count(db)?;
+    reset_fees(db)?;
 
     // Tick pools to compute their new state at the epoch boundary. Notice
     // how we tick with the _current epoch_ however, but we take the snapshot before
@@ -464,12 +485,139 @@ fn begin_epoch<'store>(
     // step. The accounts are already filtered out when computing rewards, but if any retired pool
     // were to re-register, they would automatically be granted the stake associated to their past
     // delegates.
-    transaction.tick_pools(current_epoch)?;
+    tick_pools(db, current_epoch)?;
 
     // Refund deposit for any proposal that has expired.
-    transaction.tick_proposals(current_epoch)?;
+    tick_proposals(db, current_epoch)?;
 
     Ok(())
+}
+
+// Operation on the state
+// ----------------------------------------------------------------------------
+
+#[instrument(
+    level = Level::TRACE,
+    target = EVENT_TARGET,
+    name = "reset.fees",
+    skip_all,
+)]
+pub fn reset_fees<'store>(db: &impl TransactionalContext<'store>) -> Result<(), StoreError> {
+    db.with_pots(|mut row| {
+        row.borrow_mut().fees = 0;
+    })
+}
+
+#[instrument(
+    level = Level::TRACE,
+    target = EVENT_TARGET,
+    name = "reset.blocks_count",
+    skip_all,
+)]
+pub fn reset_blocks_count<'store>(
+    db: &impl TransactionalContext<'store>,
+) -> Result<(), StoreError> {
+    // TODO: If necessary, come up with a more efficient way of dropping a "table".
+    // RocksDB does support batch-removing of key ranges, but somehow, not in a
+    // transactional way. So it isn't as trivial to implement as it may seem.
+    db.with_block_issuers(|iterator| {
+        for (_, mut row) in iterator {
+            *row.borrow_mut() = None;
+        }
+    })
+}
+
+/// Return deposits back to reward accounts.
+pub fn refund_many<'store>(
+    db: &impl TransactionalContext<'store>,
+    mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
+) -> Result<(), StoreError> {
+    let leftovers =
+        refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
+            debug!(
+                target: EVENT_TARGET,
+                type = %stake_credential_type(&account),
+                account = %stake_credential_hash(&account),
+                %deposit,
+                "refund"
+            );
+
+            Ok(leftovers + db.refund(&account, deposit)?)
+        })?;
+
+    if leftovers > 0 {
+        debug!(target: EVENT_TARGET, ?leftovers, "refund");
+        db.with_pots(|mut pots| pots.borrow_mut().treasury += leftovers)?;
+    }
+
+    Ok(())
+}
+
+#[instrument(level = Level::INFO, name = "tick.pool", skip_all)]
+pub fn tick_pools<'store>(
+    db: &impl TransactionalContext<'store>,
+    epoch: Epoch,
+) -> Result<(), StoreError> {
+    let mut refunds = Vec::new();
+
+    db.with_pools(|iterator| {
+        for (_, pool) in iterator {
+            if let Some(refund) = pools::Row::tick(pool, epoch) {
+                refunds.push(refund)
+            }
+        }
+    })?;
+
+    refund_many(
+        db,
+        refunds
+            .into_iter()
+            .map(|credential| (credential, STAKE_POOL_DEPOSIT as u64)),
+    )
+}
+
+#[instrument(level = Level::INFO, name = "tick.proposals", skip_all)]
+pub fn tick_proposals<'store>(
+    db: &impl TransactionalContext<'store>,
+    epoch: Epoch,
+) -> Result<(), StoreError> {
+    let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+
+    db.with_proposals(|iterator| {
+        for (_key, item) in iterator {
+            if let Some(row) = item.borrow() {
+                // This '+2' is worthy of an explanation.
+                //
+                // - `epoch` here designates the _next_ epoch we are transitioning into.
+                //
+                // - So, `epoch - 1` points at the epoch that _just ended_.
+                //
+                // - Proposals "valid_until" epoch `e` means that they expire during the
+                //   transition from `e` to `e + 1`  (they can still be voted on in `e`!)
+                //
+                // - Proposals are processed with an epoch of delay; so a proposal that expires
+                //   in `e` will not be refunded in the transition from `e` to `e+1` but in the
+                //   one from `e+1` to `e+2`.
+                //
+                // So, putting it all together:
+                //
+                // 1. A proposal that is valid until `e` must be refunded in the transition
+                //   from `e+1` to `e+2`;
+                //
+                // 2. `epoch` designates the arrival epoch (i.e. `e+2`);
+                //
+                // Hence: epoch == valid_until + 2
+                if epoch == row.valid_until + 2 {
+                    refunds.insert(
+                        expect_stake_credential(&row.proposal.reward_account),
+                        row.proposal.deposit,
+                    );
+                }
+            }
+        }
+    })?;
+
+    refund_many(db, refunds.into_iter())
 }
 
 // HasStakeDistribution
