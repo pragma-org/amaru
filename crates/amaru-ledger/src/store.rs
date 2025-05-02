@@ -14,13 +14,12 @@
 
 pub mod columns;
 
-use crate::summary::{rewards::RewardsSummary, Pots};
+use crate::summary::Pots;
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
-    expect_stake_credential,
     CertificatePointer,
     Epoch,
     Lovelace,
@@ -29,16 +28,10 @@ use amaru_kernel::{
     StakeCredential,
     TransactionInput,
     TransactionOutput,
-    STAKE_POOL_DEPOSIT,
 };
 use columns::*;
-use std::{
-    borrow::BorrowMut,
-    collections::{BTreeMap, BTreeSet},
-    io, iter,
-};
+use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
 use thiserror::Error;
-use tracing::{instrument, Level};
 
 #[derive(Debug, Error)]
 #[error(transparent)]
@@ -176,19 +169,6 @@ pub trait TransactionalContext<'a> {
         to: Option<EpochTransitionProgress>,
     ) -> Result<bool, StoreError>;
 
-    fn reset_fees(&self) -> Result<(), StoreError>;
-
-    fn reset_blocks_count(&self) -> Result<(), StoreError>;
-
-    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError>;
-
-    fn adjust_pots(
-        &self,
-        delta_treasury: u64,
-        delta_reserves: u64,
-        unclaimed_rewards: u64,
-    ) -> Result<(), StoreError>;
-
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
     fn save(
@@ -215,20 +195,12 @@ pub trait TransactionalContext<'a> {
         voting_dreps: BTreeSet<StakeCredential>,
     ) -> Result<(), StoreError>;
 
-    /// Return deposits back to reward accounts.
-    fn refund(
-        &self,
-        refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
-    ) -> Result<(), StoreError>;
+    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
+    /// deposit.
+    fn refund(&self, credential: &accounts::Key, deposit: Lovelace)
+        -> Result<Lovelace, StoreError>;
 
-    fn set_pots(
-        &self,
-        treasury: Lovelace,
-        reserves: Lovelace,
-        fees: Lovelace,
-    ) -> Result<(), StoreError>;
-
-    /// Get current values of the treasury and reserves accounts.
+    /// Get current values of the treasury and reserves accounts, and possibly modify them.
     fn with_pots(
         &self,
         with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>),
@@ -258,66 +230,6 @@ pub trait TransactionalContext<'a> {
 
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
     fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<(), StoreError>;
-
-    #[instrument(level = Level::INFO, name = "tick.pool", skip_all)]
-    fn tick_pools(&self, epoch: Epoch) -> Result<(), StoreError> {
-        let mut refunds = Vec::new();
-
-        self.with_pools(|iterator| {
-            for (_, pool) in iterator {
-                if let Some(refund) = pools::Row::tick(pool, epoch) {
-                    refunds.push(refund)
-                }
-            }
-        })?;
-
-        self.refund(
-            refunds
-                .into_iter()
-                .map(|credential| (credential, STAKE_POOL_DEPOSIT as u64)),
-        )
-    }
-
-    #[instrument(level = Level::INFO, name = "tick.proposals", skip_all)]
-    fn tick_proposals(&self, epoch: Epoch) -> Result<(), StoreError> {
-        let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
-
-        self.with_proposals(|iterator| {
-            for (_key, item) in iterator {
-                if let Some(row) = item.borrow() {
-                    // This '+2' is worthy of an explanation.
-                    //
-                    // - `epoch` here designates the _next_ epoch we are transitioning into.
-                    //
-                    // - So, `epoch - 1` points at the epoch that _just ended_.
-                    //
-                    // - Proposals "valid_until" epoch `e` means that they expire during the
-                    //   transition from `e` to `e + 1`  (they can still be voted on in `e`!)
-                    //
-                    // - Proposals are processed with an epoch of delay; so a proposal that expires
-                    //   in `e` will not be refunded in the transition from `e` to `e+1` but in the
-                    //   one from `e+1` to `e+2`.
-                    //
-                    // So, putting it all together:
-                    //
-                    // 1. A proposal that is valid until `e` must be refunded in the transition
-                    //   from `e+1` to `e+2`;
-                    //
-                    // 2. `epoch` designates the arrival epoch (i.e. `e+2`);
-                    //
-                    // Hence: epoch == valid_until + 2
-                    if epoch == row.valid_until + 2 {
-                        refunds.insert(
-                            expect_stake_credential(&row.proposal.reward_account),
-                            row.proposal.deposit,
-                        );
-                    }
-                }
-            }
-        })?;
-
-        self.refund(refunds.into_iter())
-    }
 
     /// Commit the transaction. This will persist all changes to the store.
     fn commit(self) -> Result<(), StoreError>;

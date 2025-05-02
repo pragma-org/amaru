@@ -15,7 +15,7 @@
 /// This modules captures protocol-wide value pots such as treasury and reserves accounts.
 use amaru_kernel::{cbor, Lovelace};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Row {
     pub treasury: Lovelace,
     pub reserves: Lovelace,

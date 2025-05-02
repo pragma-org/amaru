@@ -20,7 +20,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     self,
-    state::diff_bind::Resettable,
+    state::{self, diff_bind::Resettable},
     store::{
         self, columns::proposals, EpochTransitionProgress, Store, StoreError, TransactionalContext,
     },
@@ -159,8 +159,8 @@ async fn import_one(
     db.next_snapshot(snapshot)?;
 
     let transaction = db.create_transaction();
-    transaction.reset_blocks_count()?;
-    transaction.reset_fees()?;
+    state::reset_blocks_count(&transaction)?;
+    state::reset_fees(&transaction)?;
     transaction.with_pools(|iterator| {
         for (_, pool) in iterator {
             amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1);
@@ -690,7 +690,12 @@ fn import_pots(
     fees: u64,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-    transaction.set_pots(treasury, reserves, fees)?;
+    transaction.with_pots(|mut row| {
+        let pots = row.borrow_mut();
+        pots.treasury = treasury;
+        pots.reserves = reserves;
+        pots.fees = fees;
+    })?;
     transaction.commit()?;
     info!(what = "pots", treasury, reserves, fees);
     Ok(())
