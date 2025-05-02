@@ -256,5 +256,6 @@ We recognize the following capabilities of this contract:
 5. **Credential rotation**: In case of lost credentials or the departure of a scope owner, a mechanism allows the rotation of credentials to a new scope owner upon approval by all (5 out of 5) PRAGMA members (effectively capturing PRAGMA's board decision to appoint new maintainers).
 6. **Failsafe**: In the extreme scenario where credentials would be irremediably lost, thus preventing any further decision, a failsafe mechanism allows all unconsumed funds to be sent back to the Cardano treasury.   
 
+## Discussion points
 
 This documentation will be updated when we better understand the product and our project environment after each delivery step.
