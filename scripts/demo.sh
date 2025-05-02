@@ -36,18 +36,18 @@ AMARU_TRACE="amaru=info" cargo run -- --with-json-traces daemon \
            --network="${NETWORK}" \
            --chain-dir="${CHAIN_DIR}" \
            --ledger-dir="${LEDGER_DIR}" | while read line; do
-  EVENT=$(echo $line | jq -r '.fields.message' 2>/dev/null)
-  SPAN=$(echo $line | jq -r '.span.name' 2>/dev/null)
-  if [ "$EVENT" == "exit" ] && [ "$SPAN" == "epoch_transition" ]; then
-    EPOCH=$(echo $line | jq -r '.span.into' 2>/dev/null)
-    if [ "$EPOCH" == "$TARGET_EPOCH" ]; then
+  EVENT=$(jq -r '.fields.message' <<< "$line" 2>/dev/null)
+  SPAN=$(jq -r '.span.name' <<< "$line" 2>/dev/null)
+  if [ "$EVENT" = "exit" ] && [ "$SPAN" = "epoch_transition" ]; then
+    EPOCH=$(jq -r '.span.into' <<< "$line" 2>/dev/null)
+    if [ "$EPOCH" -eq "$TARGET_EPOCH" ]; then
       echo "Target epoch reached, stopping the process."
       pkill -INT -P $$
       break
     fi
   else
-    LEVEL=$(echo $line | jq -r '.level' 2>/dev/null)
-    if [ "$LEVEL" == "ERROR" ]; then
+    LEVEL=$(jq -r '.level' <<< "$line" 2>/dev/null)
+    if [ "$LEVEL" = "ERROR" ]; then
       # Sometimes the process doesn't fully properly exits
       echo "Got an error, force-stopping the process."
       pkill -INT -P $$
