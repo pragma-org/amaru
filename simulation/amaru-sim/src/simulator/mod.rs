@@ -27,6 +27,9 @@ use amaru_consensus::{
     },
     peer::Peer,
 };
+use amaru_consensus::peer::Peer;
+use amaru_kernel::to_cbor;
+use amaru_kernel::{network::NetworkName, protocol_parameters::GlobalParameters};
 use amaru_kernel::{
     network::NetworkName,
     to_cbor, Header,
@@ -180,7 +183,7 @@ async fn run_simulator(
                             header,
                             ..
                         } => validate_header
-                            .handle_roll_forward(peer, point, header)
+                            .handle_roll_forward(peer, point, header, &GlobalParameters::default())
                             .await
                             .expect("unexpected error on roll forward"),
                         DecodedChainSyncEvent::Rollback { .. } => event,

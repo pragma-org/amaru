@@ -120,14 +120,14 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     context: &mut C,
-    protocol_params: ProtocolParameters,
+    protocol_params: &ProtocolParameters,
     block: &MintedBlock<'_>,
 ) -> BlockValidation<(), anyhow::Error> {
-    header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;
+    header_size::block_header_size_valid(block.header.raw_cbor(), protocol_params)?;
 
     body_size::block_body_size_valid(block)?;
 
-    ex_units::block_ex_units_valid(block.ex_units(), &protocol_params)?;
+    ex_units::block_ex_units_valid(block.ex_units(), protocol_params)?;
 
     let failed_transactions = FailedTransactions::from_block(block);
 
@@ -174,7 +174,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
 
         if let Err(err) = transaction::execute(
             context,
-            &protocol_params,
+            protocol_params,
             pointer,
             !failed_transactions.has(i),
             transaction,

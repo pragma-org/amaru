@@ -118,9 +118,10 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, Epoch, Hash, Lovelace, PoolId, StakeCredential,
-    ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT,
-    PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH, STAKE_POOL_DEPOSIT, TREASURY_TAX,
+    encode_bech32, expect_stake_credential, output_stake_credential,
+    protocol_parameters::GlobalParameters, DRep, Epoch, HasLovelace, Hash, Lovelace, Network,
+    PoolId, PoolParams, StakeCredential, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION,
+    OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, STAKE_POOL_DEPOSIT, TREASURY_TAX,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
@@ -377,14 +378,15 @@ impl RewardsSummary {
     pub fn new(
         db: &impl Snapshot,
         stake_distribution: StakeDistribution,
+        global_parameters: &GlobalParameters,
     ) -> Result<Self, StoreError> {
         let pots = db.pots()?;
 
         let (mut blocks_count, mut blocks_per_pool) = RewardsSummary::count_blocks(db)?;
 
         let efficiency = safe_ratio(
-            blocks_count * ACTIVE_SLOT_COEFF_INVERSE as u64,
-            SHELLEY_EPOCH_LENGTH as u64,
+            blocks_count * global_parameters.active_slot_coeff_inverse as u64,
+            global_parameters.shelley_epoch_length() as u64,
         );
 
         blocks_count = blocks_count.max(1);

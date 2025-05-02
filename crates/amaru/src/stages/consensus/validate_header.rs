@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::{validate_header::ValidateHeader, DecodedChainSyncEvent};
+use amaru_kernel::protocol_parameters::GlobalParameters;
 use gasket::framework::*;
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
@@ -40,9 +41,10 @@ impl ValidateHeaderStage {
     }
 
     async fn handle_event(&mut self, unit: DecodedChainSyncEvent) -> Result<(), WorkerError> {
+        let global_parameters = GlobalParameters::default();
         let event = self
             .consensus
-            .handle_chain_sync(unit)
+            .handle_chain_sync(unit, &global_parameters)
             .await
             .map_err(|_| WorkerError::Recv)?;
 
