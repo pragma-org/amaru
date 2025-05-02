@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+    network::NetworkName, protocol_parameters::GlobalParameters, Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     store::Snapshot,
@@ -101,7 +101,12 @@ fn compare_preprod_snapshot(epoch: Epoch) {
 
     let snapshot_from_the_future = db(epoch + 2);
 
-    let rewards_summary = RewardsSummary::new(snapshot_from_the_future.as_ref(), stake_distr)
+    let rewards_summary = RewardsSummary::new(
+            snapshot_from_the_future.as_ref(),
+            stake_distr,
+            &GlobalParameters::default(),
+        )
+        
         .unwrap()
         .with_unclaimed_refunds(snapshot_from_the_future.as_ref())
         .unwrap();

@@ -21,7 +21,6 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
-use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
 use num::{rational::Ratio, BigUint};
 use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
@@ -92,37 +91,8 @@ pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 /// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
 pub const MAX_LOVELACE_SUPPLY: u64 = 45000000000000000;
 
-/// The maximum depth of a rollback, also known as the security parameter 'k'.
-/// This translates down to the length of our volatile storage, containing states of the ledger
-/// which aren't yet considered final.
-///
-// FIXME: import from genesis configuration
-pub const CONSENSUS_SECURITY_PARAM: usize = 2160;
-
-/// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Shelley's epoch length.
-pub const SHELLEY_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
-
-/// Inverse of the active slot coefficient (i.e. 1/f);
-pub const ACTIVE_SLOT_COEFF_INVERSE: usize = 20;
-
-/// Number of slots in a Shelley epoch
-pub const SHELLEY_EPOCH_LENGTH: usize =
-    ACTIVE_SLOT_COEFF_INVERSE * SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
-
-/// Relative slot from which data of the previous epoch can be considered stable.
-pub const STABILITY_WINDOW: usize = ACTIVE_SLOT_COEFF_INVERSE * CONSENSUS_SECURITY_PARAM * 2;
-
-/// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
-pub const BYRON_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
-
-/// Number of blocks in a Byron epoch
-pub const BYRON_EPOCH_LENGTH: usize = BYRON_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
-
-/// Number of slots in the Byron era, for PreProd
-pub const BYRON_TOTAL_SLOTS: usize = BYRON_EPOCH_LENGTH * PREPROD_SHELLEY_TRANSITION_EPOCH;
-
 /// Value, in Lovelace, that one must deposit when registering a new stake pool
-pub const STAKE_POOL_DEPOSIT: usize = 500000000;
+pub const STAKE_POOL_DEPOSIT: Lovelace = 500000000;
 
 /// Value, in Lovelace, that one must deposit when registering a new stake credential
 pub const STAKE_CREDENTIAL_DEPOSIT: usize = 2000000;
@@ -133,11 +103,6 @@ pub const SLOTS_PER_KES_PERIOD: u64 = 129600;
 /// Maximum number of KES key evolution. Combined with SLOTS_PER_KES_PERIOD, these values
 /// indicates the validity period of a KES key before a new one is required.
 pub const MAX_KES_EVOLUTION: u8 = 62;
-
-/// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
-/// nonce of the following epoch.
-pub const RANDOMNESS_STABILIZATION_WINDOW: u64 =
-    4 * (CONSENSUS_SECURITY_PARAM as u64) * (ACTIVE_SLOT_COEFF_INVERSE as u64);
 
 // The monetary expansion value, a.k.a ρ
 pub static MONETARY_EXPANSION: LazyLock<Ratio<BigUint>> =

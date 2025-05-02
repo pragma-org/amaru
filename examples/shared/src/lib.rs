@@ -1,7 +1,7 @@
 use amaru_kernel::{
     cbor, protocol_parameters::ProtocolParameters, Bytes, Hash, Hasher, MintedBlock, Point,
     PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, EraHistory,
-    network::NetworkName
+    network::NetworkName, protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::{
     context,
@@ -72,7 +72,7 @@ pub fn forward_ledger(raw_block: &str) {
     let mut context = context::DefaultValidationContext::new(inputs);
     if let BlockValidation::Invalid(_err) = rules::validate_block(
         &mut context,
-        ProtocolParameters::default(),
+        &ProtocolParameters::default(),
         &block,
     ) {
         panic!("Failed to validate block")
@@ -80,5 +80,5 @@ pub fn forward_ledger(raw_block: &str) {
 
     let volatile_state: VolatileState = context.into();
 
-    state.forward(volatile_state.anchor(&point, issuer)).unwrap()
+    state.forward(&GlobalParameters::default(), volatile_state.anchor(&point, issuer)).unwrap()
 }

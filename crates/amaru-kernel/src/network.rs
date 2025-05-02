@@ -16,9 +16,6 @@ use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
 
-/// Epoch number in which the PreProd network transitioned to Shelley.
-pub const PREPROD_SHELLEY_TRANSITION_EPOCH: usize = 4;
-
 /// Era history for Preprod retrieved with:
 ///
 /// ```bash

@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{path::PathBuf, sync::Arc};
-
 use super::echo::Envelope;
 use amaru_consensus::{
     consensus::{
@@ -29,7 +27,8 @@ use amaru_consensus::{
 };
 use amaru_kernel::{
     network::NetworkName,
-    to_cbor, Header,
+    protocol_parameters::GlobalParameters,
+    to_cbor, Hash, Header,
     Point::{self, *},
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
@@ -37,7 +36,7 @@ use bytes::Bytes;
 use clap::Parser;
 use gasket::framework::WorkerError;
 use ledger::{populate_chain_store, FakeStakeDistribution};
-pub use pallas_crypto::hash::Hash;
+use std::{path::PathBuf, sync::Arc};
 use sync::{
     mk_message, read_peer_addresses_from_init, ChainSyncMessage, MessageReader, OutputWriter,
     StdinMessageReader,
@@ -181,7 +180,7 @@ async fn run_simulator(
                             header,
                             ..
                         } => validate_header
-                            .handle_roll_forward(peer, point, header)
+                            .handle_roll_forward(peer, point, header, &GlobalParameters::default())
                             .await
                             .expect("unexpected error on roll forward"),
                         DecodedChainSyncEvent::Rollback { .. } => event,

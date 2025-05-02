@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{EraHistory, Nonce, Point};
+use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Nonce, Point};
 use amaru_ouroboros::{praos::nonce, Nonces};
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;
@@ -74,9 +74,13 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
         self.get_nonces(header).map(|nonces| nonces.active)
     }
 
-    fn evolve_nonce(&mut self, header: &H) -> Result<Nonces, Self::Error> {
+    fn evolve_nonce(
+        &mut self,
+        header: &H,
+        global_parameters: &GlobalParameters,
+    ) -> Result<Nonces, Self::Error> {
         let (epoch, is_within_stability_window) =
-            nonce::randomness_stability_window(header, self.era_history())
+            nonce::randomness_stability_window(header, self.era_history(), global_parameters)
                 .map_err(NoncesError::EraHistoryError)?;
 
         let parent_hash = header.parent().unwrap_or((&Point::Origin).into());
@@ -234,6 +238,7 @@ mod test {
         last_header_last_epoch: &Header,
         parent: (&Header, &Nonces),
         current: &Header,
+        global_parameters: &GlobalParameters,
     ) -> Option<Nonces> {
         let mut store = Box::new(FakeStore::default()) as Box<dyn ChainStore<Header>>;
 
@@ -248,7 +253,9 @@ mod test {
             .expect("database failure");
 
         // Evolve the current nonce so that 'get_nonces' can then return a result.
-        store.evolve_nonce(current).expect("evolve nonce failed");
+        store
+            .evolve_nonce(current, global_parameters)
+            .expect("evolve nonce failed");
 
         store.get_nonces(&current.hash())
     }
@@ -259,7 +266,8 @@ mod test {
             evolve_nonce(
                 &PREPROD_HEADER_69638382,
                 (&PREPROD_HEADER_70070331, &PREPROD_NONCES_70070331),
-                &PREPROD_HEADER_70070379
+                &PREPROD_HEADER_70070379,
+                &GlobalParameters::default()
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070379)
@@ -272,7 +280,8 @@ mod test {
             evolve_nonce(
                 &PREPROD_HEADER_69638382,
                 (&PREPROD_HEADER_70070379, &PREPROD_NONCES_70070379),
-                &PREPROD_HEADER_70070426
+                &PREPROD_HEADER_70070426,
+                &GlobalParameters::default()
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070426)
@@ -285,7 +294,8 @@ mod test {
             evolve_nonce(
                 &PREPROD_HEADER_70070379,
                 (&PREPROD_HEADER_70070426, &PREPROD_NONCES_70070426),
-                &PREPROD_HEADER_70070464
+                &PREPROD_HEADER_70070464,
+                &GlobalParameters::default()
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070464)

@@ -40,6 +40,67 @@ pub struct ProtocolParameters {
     pub drep_activity: Epoch,
 }
 
+pub struct GlobalParameters {
+    /// The maximum depth of a rollback, also known as the security parameter 'k'.
+    /// This translates down to the length of our volatile storage, containing states of the ledger
+    /// which aren't yet considered final.
+    pub consensus_security_param: usize,
+
+    /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Shelley's epoch length.
+    pub shelley_epoch_length_scale_factor: usize,
+
+    /// Inverse of the active slot coefficient (i.e. 1/f);
+    pub active_slot_coeff_inverse: usize,
+
+    /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
+    pub byron_epoch_length_scale_factor: usize,
+
+    /// Epoch number in which the PreProd network transitioned to Shelley.
+    pub preprod_shelley_transition_epoch: usize,
+}
+
+impl GlobalParameters {
+    /// Number of slots in a Shelley epoch
+    pub const fn shelley_epoch_length(&self) -> usize {
+        self.active_slot_coeff_inverse
+            * self.shelley_epoch_length_scale_factor
+            * self.consensus_security_param
+    }
+
+    /// Relative slot from which data of the previous epoch can be considered stable.
+    pub const fn stability_window(&self) -> usize {
+        self.active_slot_coeff_inverse * self.consensus_security_param * 2
+    }
+
+    /// Number of blocks in a Byron epoch
+    pub const fn byron_epoch_length(&self) -> usize {
+        self.byron_epoch_length_scale_factor * self.consensus_security_param
+    }
+
+    /// Number of slots in the Byron era, for PreProd
+    pub const fn byron_total_slots(&self) -> usize {
+        self.byron_epoch_length() * self.preprod_shelley_transition_epoch
+    }
+
+    /// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
+    /// nonce of the following epoch.
+    pub const fn randomness_stabilization_window(&self) -> u64 {
+        (4 * self.consensus_security_param * self.active_slot_coeff_inverse) as u64
+    }
+}
+
+impl Default for GlobalParameters {
+    fn default() -> Self {
+        Self {
+            consensus_security_param: 2160,
+            shelley_epoch_length_scale_factor: 10,
+            active_slot_coeff_inverse: 20,
+            byron_epoch_length_scale_factor: 10,
+            preprod_shelley_transition_epoch: 4,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Prices {
     pub mem: RationalNumber,

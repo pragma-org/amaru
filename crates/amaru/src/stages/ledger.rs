@@ -1,5 +1,6 @@
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, EraHistory, Hasher, MintedBlock, Point,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    EraHistory, Hasher, MintedBlock, Point,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -111,8 +112,10 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
 
         let mut context = self.create_validation_context(&block)?;
+        let protocol_parameters = ProtocolParameters::default();
+        let global_parameters = GlobalParameters::default();
 
-        match rules::validate_block(&mut context, ProtocolParameters::default(), &block) {
+        match rules::validate_block(&mut context, &protocol_parameters, &block) {
             BlockValidation::Err(err) => return Err(err),
             BlockValidation::Invalid(err) => {
                 error!("Block invalid: {:?}", err);
@@ -121,7 +124,8 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-                self.state.forward(state.anchor(&point, issuer))?;
+                self.state
+            .forward(&global_parameters, state.anchor(&point, issuer))?;
                 Ok(None)
             }
         }

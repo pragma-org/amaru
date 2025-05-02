@@ -30,10 +30,10 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash,
-    Lovelace, MintedBlock, Point, PoolId, Slot, StakeCredential, TransactionInput,
-    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9,
-    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW, STAKE_POOL_DEPOSIT,
+    expect_stake_credential, protocol_parameters::GlobalParameters, stake_credential_hash,
+    stake_credential_type, Epoch, EraHistory, Hash, Lovelace, MintedBlock, Point, PoolId, Slot,
+    StakeCredential, TransactionInput, TransactionOutput, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9,
+    SLOTS_PER_KES_PERIOD, STAKE_POOL_DEPOSIT,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -60,7 +60,7 @@ const EVENT_TARGET: &str = "amaru::ledger::state";
 ///   blocks old; where 'k' is the security parameter of the protocol.
 ///
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
-///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
+///   top of the _stable_ store. It contains at most 'GlobalParameters::consensus_security_param' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
 pub struct State<S, HS>
 where
@@ -148,7 +148,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // (1) The consensus must be storing its own state, and in particular, where it has
             //     left the synchronization.
             //
-            // (2) Re-applying 2160 (already synchronized) blocks is _fast-enough_ that it can be
+            // (2) Re-applying GlobalParameters::consensus_security_param (already synchronized) blocks is _fast-enough_ that it can be
             //     done on restart easily. To be measured; if this turns out to be too slow, we
             //     views of the volatile DB on-disk to be able to restore them quickly.
             volatile: VolatileDB::default(),
@@ -261,7 +261,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
-    fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
+    fn compute_rewards(
+        &mut self,
+        global_parameters: &GlobalParameters,
+    ) -> Result<RewardsSummary, StateError> {
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
         let stake_distribution = stake_distributions
             .pop_back()
@@ -278,6 +281,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 )
             }),
             stake_distribution,
+            global_parameters,
         )
         .map_err(StateError::Storage)?;
 
@@ -295,12 +299,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// the internal state of the ledger.
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
-    pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
+    pub fn forward(
+        &mut self,
+        global_parameters: &GlobalParameters,
+        next_state: AnchoredVolatileState,
+    ) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
-        if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
+        if self.volatile.len() >= global_parameters.consensus_security_param {
             let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
-                unreachable!("pre-condition: self.volatile.len() >= CONSENSUS_SECURITY_PARAM")
+                unreachable!("pre-condition: self.volatile.len() >= consensus_security_param")
             });
 
             self.apply_block(now_stable)?;
@@ -315,8 +323,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .slot_in_epoch(next_state_slot)
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
-        if self.rewards_summary.is_none() && relative_slot >= From::from(STABILITY_WINDOW as u64) {
-            self.rewards_summary = Some(self.compute_rewards()?);
+        if self.rewards_summary.is_none()
+            && relative_slot >= From::from(global_parameters.stability_window() as u64)
+        {
+            self.rewards_summary = Some(self.compute_rewards(global_parameters)?);
         }
 
         self.volatile.push_back(next_state);
@@ -572,7 +582,7 @@ pub fn tick_pools<'store>(
         db,
         refunds
             .into_iter()
-            .map(|credential| (credential, STAKE_POOL_DEPOSIT as u64)),
+            .map(|credential| (credential, STAKE_POOL_DEPOSIT)),
     )
 }
 
