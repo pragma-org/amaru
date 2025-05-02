@@ -274,7 +274,7 @@ pub trait TransactionalContext<'a> {
         self.refund(
             refunds
                 .into_iter()
-                .map(|credential| (credential, STAKE_POOL_DEPOSIT as u64)),
+                .map(|credential| (credential, STAKE_POOL_DEPOSIT)),
         )
     }
 

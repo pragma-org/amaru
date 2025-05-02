@@ -27,11 +27,9 @@ use amaru_consensus::{
     },
     peer::Peer,
 };
-use amaru_consensus::peer::Peer;
-use amaru_kernel::to_cbor;
-use amaru_kernel::{network::NetworkName, protocol_parameters::GlobalParameters};
 use amaru_kernel::{
     network::NetworkName,
+    protocol_parameters::GlobalParameters,
     to_cbor, Header,
     Point::{self, *},
 };

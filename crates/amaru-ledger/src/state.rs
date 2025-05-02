@@ -28,8 +28,8 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::GlobalParameters, Epoch, EraHistory, Hash, MintedBlock, Point, PoolId,
-    Slot, TransactionInput, TransactionOutput, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9, SLOTS_PER_KES_PERIOD,
-   
+    Slot, TransactionInput, TransactionOutput, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9,
+    SLOTS_PER_KES_PERIOD,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;

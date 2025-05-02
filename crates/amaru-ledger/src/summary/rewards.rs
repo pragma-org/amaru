@@ -118,10 +118,9 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    encode_bech32, expect_stake_credential, output_stake_credential,
-    protocol_parameters::GlobalParameters, DRep, Epoch, HasLovelace, Hash, Lovelace, Network,
-    PoolId, PoolParams, StakeCredential, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION,
-    OPTIMAL_STAKE_POOLS_COUNT, PLEDGE_INFLUENCE, STAKE_POOL_DEPOSIT, TREASURY_TAX,
+    expect_stake_credential, protocol_parameters::GlobalParameters, Epoch, Hash, Lovelace, PoolId,
+    StakeCredential, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT,
+    PLEDGE_INFLUENCE, STAKE_POOL_DEPOSIT, TREASURY_TAX,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
@@ -518,7 +517,7 @@ impl RewardsSummary {
                 self.epoch + 3,
             ) {
                 if db.account(&account)?.is_none() {
-                    return Ok::<_, StoreError>(leftovers + STAKE_POOL_DEPOSIT as u64);
+                    return Ok::<_, StoreError>(leftovers + STAKE_POOL_DEPOSIT);
                 }
             }
 
