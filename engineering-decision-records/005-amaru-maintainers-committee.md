@@ -23,7 +23,7 @@ Here is the new composition of the Amaru maintainers committee (scope owners of 
 
 | Matthias Benkort <br/> <img src="https://github.com/ktorz.png" width=50 height=50 /> <br/> [@KtorZ][] | Santiago Carmuega <br/> <img src="https://github.com/scarmuega.png" width=50 height=50 /> <br/> [@scarmuega][] | Pi Lanningham <br/> <img src="https://github.com/quantumplation.png" width=50 height=50 /> <br/> [@QuantumPlation][] |  Arnaud Bailly <br/> <img src="https://github.com/abailly.png" width=50 height=50 /> <br/> [@abailly][] |  Damien Czapla <br/> <img src="https://avatars.githubusercontent.com/u/161828179?v=4" width=50 height=50 /> <br/> [@Dam-CZ][] |
 | --- | --- | --- | --- | --- |
-| Ledger & integration | Networking | Mempool & Middleware | Consensus | PR, Marketing |
+| Ledger & integration | Networking | Mempool & Middleware | Consensus | Project management, PR, Marketing |
 
 
 [@KtorZ]: https://github.com/ktorz
