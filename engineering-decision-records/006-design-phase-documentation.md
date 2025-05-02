@@ -171,4 +171,90 @@ For each of the scopes that are linked with our project but aren't hosted in the
 - Pallas owner: [Santiago Carmuega](https://github.com/scarmuega) see: [Pallas Github](https://github.com/txpipe/pallas) [Pallas proposal](https://gov.tools/budget_discussion/41)
 - UPLC VM owner: [Lucas Rosa](https://github.com/rvcas) see: [UPLC Github](https://github.com/pragma-org/uplc)
 
-This will be updated when we better understand the product and our project environment after each delivery step.
+### Treasury proposal: scope owners and budget administration
+
+The Amaru team submitted a proposal with a list of scopes related to the project and describing a specific way of administrating the budget, this is now reflected into the ways of working of the project.
+
+#### Scopes described in the proposal
+
+![2025_04_13_Amaru_ask](https://github.com/user-attachments/assets/041dacde-5717-4b6f-87a8-1fc279d47e23)
+
+
+> [!TIP]
+> The scopes described here are what the Amaru team expects to deliver in Q3 & Q4 2025
+> For example the Networking is not included as it will already be delivered, but some integration might be required, that's the purpose of the "Ad-Hoc mercenaries"
+
+Scope | Owner | Estimated effort | Resources already secured | Resources needed
+---   | ---   | ---                | ---                       | ---
+Ledger | Matthias | 2.5 FTEs | 1 FTE | 1.5 FTEs
+Consensus | Arnaud | 2.5 FTEs | 1 FTE | 1.5 FTEs
+Networking | Santiago | 1 FTE | 1 FTE | 0 FTEs
+Ad-hoc Mercenaries | Pi | 2.5 FTEs | 0 FTEs | 2.5 FTEs
+Project Management, Public Relations & Marketing | Damien | 0.5 FTEs | 0 FTEs | 0.5 FTEs
+
+#### New scopes from the proposal
+
+##### Ad-Hoc mercernaries
+
+
+**Purpose:** troubleshoot the gaps not planned for and articulate smart problem solving on the project.
+
+Examples of activities:
+- Troubleshoot integration activities
+- Interface
+- Specific use case development, testing and delivery
+
+One of the scopes that will be carried by the Ad-Hoc team will be the Mempool as it requires strong interfacing with the rest of the team.
+This includes:
+- Mempool library: Build a standalone library (data structure that represents transactions in memory) with an interface to get an extract of these transactions
+- "Simple" mempool implementation: Build a basic mempool that adds, remove, gather, drain transactions and exposes a new ledger state
+- "Complex" mempool implementation: Build a more refined version of the mempool that handles features differently and optimises the overall resources consumption
+- Mempool tooling and API: Create a tool able to manage the mempool and the modularity
+- Node management Remote Procedure Call (RPC): Build a software that handles the "operator perspective" on operating the Amaru node
+- Block forging: Develop a component able to forge blocs
+
+Timeline:
+- Mempool library: done
+- "Simple" mempool implementation: Q2 2025
+- Block forging: Q3 2025
+- "Complex" mempool implementation: Q4 2025
+
+#### Project Management, Public relations and Marketing
+
+**Purpose:** drive key initiatives and manage use cases and end users feedback loops. 
+
+The current set of activities forecasted are: 
+- Creating and managing SPO working groups to actively improve the operator side of Amaru 
+- Organizing and facilitating workshops related to key explorations of the product
+- Marketing, implementation partnerships alignment, use case specific collaborations
+- Roadmaps interfaces and scopes alignment synchronization 
+- Bug bounty: create an incentive to generate traffic on the testnet preprod and bring contributors to the project
+> *Testnet developer bounty:* Create on preprod the use cases defined by the Amaru team by building the transactions on the network and generate the conditions needed  
+> *Testnet SPO bounty:* Produce a block that includes the above use case   
+> *Amaru development bounty:* be involved in at least 3 contributions accepted by maintainers   
+
+Our current ambition is to experiment with Amaru as much as we can with testnet activity, conformance tests, simulations and build (with the feedback of early adopters) a reliable setup that fullfills all our global targets.
+
+Each bounded context will share ownership over a resource that will interface with all the stakeholders of the Amaru project to facilitate the activities mentioned above.
+
+Timeline:
+- SPO working group setup and key initiatives: Q3 2025
+- Bug bounty setup and start: Q3 2025
+- Amaru workshops: Every quarter
+
+
+#### Administration of the budget
+
+The maintainer committee will ensure **direct administration** of the budget, assisted with **an on-chain smart contract** (developed in open source, still incomplete, but aimed to be done and fully audited by the time of the first withdrawal). The smart contract's role is to ensure that the expenditure of funds is done in accordance with the scope defined in this budget and authorized by the relevant scope owners. 
+
+We recognize the following capabilities of this contract:
+
+1. **Standard withdrawal**: A scope owner asks other scope owners for money to be withdrawn from his scope.
+2. **Contingency withdrawal**: A scope owner asks other scope owners to withdraw an amount from the contingency funds.
+3. **Scope reconciliation**: A scope owner asks other scope owners for a change of ownership (or a reallocation of budget).
+4. **Contingency refund/closing**: scope owners ask to send the leftovers from the contingency budget to be sent back to the Cardano treasury.
+5. **Credential rotation**: In case of lost credentials or the departure of a scope owner, a mechanism allows the rotation of credentials to a new scope owner upon approval by all (5 out of 5) PRAGMA members (effectively capturing PRAGMA's board decision to appoint new maintainers).
+6. **Failsafe**: In the extreme scenario where credentials would be irremediably lost, thus preventing any further decision, a failsafe mechanism allows all unconsumed funds to be sent back to the Cardano treasury.   
+
+
+This documentation will be updated when we better understand the product and our project environment after each delivery step.
