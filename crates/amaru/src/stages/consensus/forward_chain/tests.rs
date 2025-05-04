@@ -15,6 +15,7 @@ fn test_mk_store() {
     let chain = store.get_chain(TIP_47);
     assert_eq!(chain.len(), 47);
     assert_eq!(chain[0].header_body.slot, 31);
+    assert_eq!(chain[0].header_body.prev_hash, None);
     assert_eq!(chain[46].header_body.slot, 990);
     assert_eq!(chain[6].block_height(), 7);
 }
