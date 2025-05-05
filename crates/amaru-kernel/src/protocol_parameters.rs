@@ -1,7 +1,11 @@
 use crate::{Coin, Epoch, ExUnits, RationalNumber};
 
+/// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
+/// Some of the names have been adapted to improve readability.
+/// Also see https://github.com/IntersectMBO/cardano-ledger/blob/d90eb4df4651970972d860e95f1a3697a3de8977/eras/conway/impl/cddl-files/conway.cddl#L324
 #[derive(Clone)]
 pub struct ProtocolParameters {
+    // Network group
     pub max_block_body_size: u32,
     pub max_tx_size: u32,
     pub max_header_size: u32,
@@ -10,10 +14,13 @@ pub struct ProtocolParameters {
     pub max_val_size: u32,
     pub max_collateral_inputs: u32,
 
+    // Economic group
     pub min_fee_a: u32,
     pub min_fee_b: u32,
     pub key_deposit: Coin,
     pub pool_deposit: Coin,
+    pub monetary_expansion_rate: RationalNumber,
+    pub treasury_expansion_rate: RationalNumber,
     pub coins_per_utxo_byte: Coin,
     pub prices: Prices,
     pub min_fee_ref_script_coins_per_byte: RationalNumber,
@@ -22,14 +29,14 @@ pub struct ProtocolParameters {
     pub ref_script_cost_stride: u32,
     pub ref_script_cost_multiplier: RationalNumber,
 
+    // Technical group
     pub max_epoch: Epoch,
-    pub pool_influence: RationalNumber,
     pub desired_pool_count: u32,
-    pub treasury_expansion_rate: RationalNumber,
-    pub monetary_expansion_rate: RationalNumber,
+    pub pool_influence: RationalNumber,
     pub collateral_percentage: u32,
     pub cost_models: CostModels,
 
+    // Governance group
     pub pool_thresholds: PoolThresholds,
     pub drep_thresholds: DrepThresholds,
     pub cc_min_size: u32,
