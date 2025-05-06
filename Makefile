@@ -46,16 +46,14 @@ import-snapshots: snapshots ## Import snapshots for demo
 	  $$SNAPSHOT_ARGS
 
 import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
-	cargo run --release -- import-headers \
-	--chain-dir $(CHAIN_DIR) \
-	--peer-address ${AMARU_PEER_ADDRESS} \
-	--starting-point 69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2 \
-	--count 2
-	cargo run --release -- import-headers \
-	--chain-dir $(CHAIN_DIR) \
-	--peer-address ${AMARU_PEER_ADDRESS} \
-	--starting-point 70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c \
-	--count 2
+	@HEADERS=$$(jq -r '.[]' data/${NETWORK}/headers.json); \
+	for HEADER in $$HEADERS; do \
+		cargo run --release -- import-headers \
+			--chain-dir $(CHAIN_DIR) \
+			--peer-address ${AMARU_PEER_ADDRESS} \
+			--starting-point $$HEADER \
+			--count 2; \
+	done
 
 import-nonces: ## Import nonces for demo
 	cargo run --release -- import-nonces \
