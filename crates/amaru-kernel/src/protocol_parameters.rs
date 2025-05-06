@@ -101,46 +101,41 @@ pub struct GlobalParameters {
 
     /// Pledge influence parameter, a.k.a a0
     pub pledge_influence: Ratio<BigUint>,
-}
 
-impl GlobalParameters {
     /// Number of slots in a Shelley epoch
-    pub const fn shelley_epoch_length(&self) -> usize {
-        self.active_slot_coeff_inverse
-            * self.shelley_epoch_length_scale_factor
-            * self.consensus_security_param
-    }
+    pub shelley_epoch_length: usize,
 
     /// Relative slot from which data of the previous epoch can be considered stable.
-    pub const fn stability_window(&self) -> usize {
-        self.active_slot_coeff_inverse * self.consensus_security_param * 2
-    }
+    pub stability_window: usize,
 
     /// Number of blocks in a Byron epoch
-    pub const fn byron_epoch_length(&self) -> usize {
-        self.byron_epoch_length_scale_factor * self.consensus_security_param
-    }
+    pub byron_epoch_length: usize,
 
-    /// Number of slots in the Byron era, for PreProd
-    pub const fn byron_total_slots(&self) -> usize {
-        self.byron_epoch_length() * self.preprod_shelley_transition_epoch
-    }
+    /// Number of slots in the Byron era
+    pub byron_total_slots: usize,
 
     /// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
     /// nonce of the following epoch.
-    pub const fn randomness_stabilization_window(&self) -> u64 {
-        (4 * self.consensus_security_param * self.active_slot_coeff_inverse) as u64
-    }
+    pub randomness_stabilization_window: u64,
 }
 
 impl Default for GlobalParameters {
     fn default() -> Self {
+        let consensus_security_param = 2160;
+        let active_slot_coeff_inverse = 20;
+        let shelley_epoch_length_scale_factor = 10;
+        let shelley_epoch_length = active_slot_coeff_inverse
+            * shelley_epoch_length_scale_factor
+            * consensus_security_param;
+        let byron_epoch_length_scale_factor = 10;
+        let byron_epoch_length = byron_epoch_length_scale_factor * consensus_security_param;
+        let preprod_shelley_transition_epoch = 4;
         Self {
-            consensus_security_param: 2160,
-            shelley_epoch_length_scale_factor: 10,
-            active_slot_coeff_inverse: 20,
-            byron_epoch_length_scale_factor: 10,
-            preprod_shelley_transition_epoch: 4,
+            consensus_security_param,
+            shelley_epoch_length_scale_factor,
+            active_slot_coeff_inverse,
+            byron_epoch_length_scale_factor,
+            preprod_shelley_transition_epoch,
             max_lovelace_supply: 45_000_000_000_000_000,
             gov_action_lifetime: 6,
             optimal_stake_pools_count: 500,
@@ -152,6 +147,13 @@ impl Default for GlobalParameters {
             monetary_expansion: Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)),
             treasury_tax: Ratio::new_raw(BigUint::from(20_u64), BigUint::from(100_u64)),
             pledge_influence: Ratio::new_raw(BigUint::from(3_u64), BigUint::from(10_u64)),
+            shelley_epoch_length,
+            stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
+            byron_epoch_length,
+            byron_total_slots: byron_epoch_length * preprod_shelley_transition_epoch,
+            randomness_stabilization_window: (4
+                * consensus_security_param
+                * active_slot_coeff_inverse) as u64,
         }
     }
 }

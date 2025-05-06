@@ -344,7 +344,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
         if self.rewards_summary.is_none()
-            && relative_slot >= From::from(global_parameters.stability_window() as u64)
+            && relative_slot >= From::from(global_parameters.stability_window as u64)
         {
             self.rewards_summary = Some(self.compute_rewards(global_parameters)?);
         }

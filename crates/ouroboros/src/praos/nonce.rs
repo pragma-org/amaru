@@ -56,7 +56,7 @@ pub fn randomness_stability_window<H: IsHeader>(
     let epoch = era_history.slot_to_epoch(From::from(slot))?;
     let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch)?;
 
-    let is_within_stability_window = slot + global_parameters.randomness_stabilization_window()
+    let is_within_stability_window = slot + global_parameters.randomness_stabilization_window
         < From::from(next_epoch_first_slot);
 
     Ok((epoch, is_within_stability_window))
