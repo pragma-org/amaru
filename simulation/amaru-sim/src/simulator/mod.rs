@@ -47,6 +47,7 @@ use tracing::info;
 
 mod bytes;
 mod ledger;
+mod simulate;
 mod sync;
 
 #[derive(Debug, Parser)]

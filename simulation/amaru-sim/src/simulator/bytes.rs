@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Bytes {
     pub bytes: Vec<u8>,
 }
