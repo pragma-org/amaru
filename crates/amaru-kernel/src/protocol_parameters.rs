@@ -224,26 +224,26 @@ impl Default for ProtocolParameters {
             max_tx_size: 16384,
             max_header_size: 1100,
             max_tx_ex_units: ExUnits {
-                mem: 14000000,
-                steps: 10000000000,
+                mem: 14_000_000,
+                steps: 10_000_000_000,
             },
             max_block_ex_units: ExUnits {
-                mem: 62000000,
-                steps: 20000000000,
+                mem: 62_000_000,
+                steps: 20_000_000_000,
             },
             max_val_size: 5000,
             max_collateral_inputs: 3,
-            key_deposit: 2000000,
-            pool_deposit: 500000000,
+            key_deposit: 2_000_000,
+            pool_deposit: 500_000_000,
             coins_per_utxo_byte: 4310,
             prices: Prices {
                 mem: RationalNumber {
                     numerator: 577,
-                    denominator: 10000,
+                    denominator: 10_000,
                 },
                 step: RationalNumber {
                     numerator: 721,
-                    denominator: 10000000,
+                    denominator: 10_000_000,
                 },
             },
             min_fee_ref_script_coins_per_byte: RationalNumber {
@@ -269,7 +269,7 @@ impl Default for ProtocolParameters {
             },
             monetary_expansion_rate: RationalNumber {
                 numerator: 3,
-                denominator: 1000,
+                denominator: 1_000,
             },
             collateral_percentage: 150,
             cost_models: CostModels {
@@ -394,8 +394,8 @@ impl Default for ProtocolParameters {
             cc_min_size: 7,
             cc_max_term_length: 146,
             gov_action_lifetime: 6,
-            gov_action_deposit: 100000000000,
-            drep_deposit: 500000000,
+            gov_action_deposit: 100_000_000_000,
+            drep_deposit: 500_000_000,
             drep_activity: 20,
         }
     }
