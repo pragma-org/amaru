@@ -13,10 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory, Lovelace, Point,
-    PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential,
-    TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME,
-    STAKE_CREDENTIAL_DEPOSIT,
+    network::NetworkName, protocol_parameters::GlobalParameters, Anchor, CertificatePointer, DRep,
+    Epoch, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    Set, Slot, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer,
 };
 use amaru_ledger::{
     self,
@@ -177,6 +176,7 @@ fn decode_new_epoch_state(
     point: &Point,
     era_history: &EraHistory,
 ) -> Result<u64, Box<dyn std::error::Error>> {
+    let global_parameters = GlobalParameters::default();
     let mut d = cbor::Decoder::new(bytes);
 
     d.array()?;
@@ -220,7 +220,14 @@ fn decode_new_epoch_state(
             {
                 d.array()?;
 
-                import_dreps(db, era_history, point, epoch, d.decode()?)?;
+                import_dreps(
+                    db,
+                    era_history,
+                    point,
+                    epoch,
+                    d.decode()?,
+                    &global_parameters,
+                )?;
 
                 // Committee
                 d.skip()?;
@@ -293,7 +300,7 @@ fn decode_new_epoch_state(
                     // Proposals
                     d.array()?;
                     d.skip()?; // Proposals roots
-                    import_proposals(db, point, era_history, d.decode()?)?;
+                    import_proposals(db, point, era_history, d.decode()?, &global_parameters)?;
 
                     // Constitutional committee
                     d.skip()?;
@@ -340,7 +347,7 @@ fn decode_new_epoch_state(
         // NonMyopic
         d.skip()?;
 
-        import_accounts(db, point, accounts, &mut rewards)?;
+        import_accounts(db, point, accounts, &mut rewards, &global_parameters)?;
 
         let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
             total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
@@ -455,6 +462,7 @@ fn import_dreps(
     point: &Point,
     epoch: Epoch,
     dreps: HashMap<StakeCredential, DRepState>,
+    global_parameters: &GlobalParameters,
 ) -> Result<(), impl std::error::Error> {
     let mut known_dreps = BTreeMap::new();
 
@@ -517,13 +525,13 @@ fn import_dreps(
                 let (registration_slot, last_interaction) = if epoch == era_first_epoch {
                     let last_interaction = era_first_epoch;
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    if state.expiry > epoch + DREP_EXPIRY {
+                    if state.expiry > epoch + global_parameters.drep_expiry {
                         (epoch_bound.start, last_interaction)
                     } else {
                         (epoch_bound.end, last_interaction)
                     }
                 } else {
-                    let last_interaction = state.expiry - DREP_EXPIRY;
+                    let last_interaction = state.expiry - global_parameters.drep_expiry;
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     // start or end doesn't matter here.
                     (epoch_bound.start, last_interaction)
@@ -564,6 +572,7 @@ fn import_proposals(
     point: &Point,
     era_history: &EraHistory,
     proposals: Vec<ProposalState>,
+    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
@@ -597,7 +606,8 @@ fn import_proposals(
                                 },
                                 proposal_index,
                             },
-                            valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
+                            valid_until: proposal.proposed_in
+                                + global_parameters.gov_action_lifetime,
                             proposal: proposal.procedure,
                         },
                     ))
@@ -705,6 +715,7 @@ fn import_accounts(
     point: &Point,
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
+    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_accounts(|iterator| {
@@ -726,7 +737,7 @@ fn import_accounts(
                 },
             )| {
                 let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
-                    .unwrap_or((0, STAKE_CREDENTIAL_DEPOSIT as u64));
+                    .unwrap_or((0, global_parameters.stake_credential_deposit as u64));
 
                 let rewards_update = match rewards_updates.remove(&credential) {
                     None => 0,

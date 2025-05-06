@@ -22,8 +22,9 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
-    OriginalHash, StakeCredential, TransactionPointer,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock, OriginalHash, StakeCredential,
+    TransactionPointer,
 };
 use std::{
     ops::{ControlFlow, Deref, FromResidual, Try},
@@ -122,6 +123,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     context: &mut C,
     protocol_params: &ProtocolParameters,
     block: &MintedBlock<'_>,
+    global_parameters: &GlobalParameters,
 ) -> BlockValidation<(), anyhow::Error> {
     header_size::block_header_size_valid(block.header.raw_cbor(), protocol_params)?;
 
@@ -180,6 +182,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             transaction,
             witness_set,
             auxiliary_data,
+            global_parameters,
         ) {
             return BlockValidation::Invalid(InvalidBlockDetails::Transaction {
                 transaction_hash,

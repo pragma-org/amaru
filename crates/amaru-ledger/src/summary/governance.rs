@@ -16,9 +16,9 @@ mod backward_compatibility;
 
 use crate::store::{columns::dreps, Snapshot, StoreError};
 use amaru_kernel::{
-    expect_stake_credential, network::EraHistory, Anchor, CertificatePointer, DRep, Epoch,
-    Lovelace, ProtocolVersion, Slot, StakeCredential, TransactionPointer, DREP_EXPIRY,
-    GOV_ACTION_LIFETIME,
+    expect_stake_credential, network::EraHistory, protocol_parameters::GlobalParameters, Anchor,
+    CertificatePointer, DRep, Epoch, Lovelace, ProtocolVersion, Slot, StakeCredential,
+    TransactionPointer,
 };
 use slot_arithmetic::TimeHorizonError;
 use std::collections::{BTreeMap, BTreeSet};
@@ -59,6 +59,7 @@ impl GovernanceSummary {
         db: &impl Snapshot,
         protocol_version: ProtocolVersion,
         era_history: &EraHistory,
+        global_parameters: &GlobalParameters,
     ) -> Result<Self, Error> {
         let current_epoch = db.epoch();
 
@@ -92,8 +93,8 @@ impl GovernanceSummary {
 
         let mandate = drep_mandate_calculator(
             protocol_version,
-            GOV_ACTION_LIFETIME,
-            DREP_EXPIRY,
+            global_parameters.gov_action_lifetime,
+            global_parameters.drep_expiry,
             era_history,
             current_epoch,
             proposals,

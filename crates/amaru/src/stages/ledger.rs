@@ -30,6 +30,7 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
+    pub global_parameters: GlobalParameters,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
@@ -48,11 +49,17 @@ impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
-    pub fn new(store: S, snapshots: HS, era_history: &EraHistory) -> (Self, Point) {
+    pub fn new(
+        store: S,
+        snapshots: HS,
+        era_history: &EraHistory,
+        global_parameters: &GlobalParameters,
+    ) -> (Self, Point) {
         let state = state::State::new(
             Arc::new(std::sync::Mutex::new(store)),
             snapshots,
             era_history,
+            global_parameters,
         );
 
         let tip = state.tip().into_owned();
@@ -62,6 +69,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
+                global_parameters: global_parameters.clone(),
             },
             tip,
         )
@@ -108,14 +116,19 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         &mut self,
         point: Point,
         raw_block: RawBlock,
+        global_parameters: &GlobalParameters,
     ) -> anyhow::Result<Option<InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
 
         let mut context = self.create_validation_context(&block)?;
         let protocol_parameters = ProtocolParameters::default();
-        let global_parameters = GlobalParameters::default();
 
-        match rules::validate_block(&mut context, &protocol_parameters, &block) {
+        match rules::validate_block(
+            &mut context,
+            &protocol_parameters,
+            &block,
+            global_parameters,
+        ) {
             BlockValidation::Err(err) => return Err(err),
             BlockValidation::Invalid(err) => {
                 error!("Block invalid: {:?}", err);
@@ -125,7 +138,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 let state: VolatileState = context.into();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
                 self.state
-                    .forward(&global_parameters, state.anchor(&point, issuer))?;
+                    .forward(&self.global_parameters, state.anchor(&point, issuer))?;
                 Ok(None)
             }
         }
@@ -177,9 +190,10 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         unit: &ValidateBlockEvent,
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
-        let result = match unit {
+        let global_parameters = stage.global_parameters.clone();
+        let result: BlockValidationResult = match unit {
             ValidateBlockEvent::Validated { point, block, span } => stage
-                .roll_forward(point.clone(), block.to_vec())
+                .roll_forward(point.clone(), block.to_vec(), &global_parameters)
                 .map(|res| match res {
                     None => BlockValidationResult::BlockValidated {
                         point: point.clone(),

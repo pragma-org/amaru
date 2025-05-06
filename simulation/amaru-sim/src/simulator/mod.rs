@@ -88,8 +88,10 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
     // it as mutable in the inner loop of run simulator
     let output_writer = Arc::new(Mutex::new(OutputWriter::new()));
 
+    let global_parameters = GlobalParameters::default();
     let stake_distribution: FakeStakeDistribution =
-        FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
+        FakeStakeDistribution::from_file(&args.stake_distribution_file, &global_parameters)
+            .unwrap();
     let era_history = NetworkName::Testnet(42).into();
 
     let mut chain_store =

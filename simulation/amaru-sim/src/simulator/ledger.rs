@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::store::{ChainStore, StoreError};
-use amaru_kernel::{Header, RationalNumber, MAX_KES_EVOLUTION, SLOTS_PER_KES_PERIOD};
+use amaru_kernel::{protocol_parameters::GlobalParameters, Header, RationalNumber};
 use amaru_ouroboros::{HasStakeDistribution, Nonces, PoolSummary};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
@@ -54,15 +54,22 @@ pub struct FakeStakeDistribution {
 }
 
 impl FakeStakeDistribution {
-    pub fn from_file(stake_distribution_file: &Path) -> Result<FakeStakeDistribution, Error> {
+    pub fn from_file(
+        stake_distribution_file: &Path,
+        global_parameters: &GlobalParameters,
+    ) -> Result<FakeStakeDistribution, Error> {
         let file = File::open(stake_distribution_file)
             .unwrap_or_else(|_| panic!("cannot find stake distribution file '{}', use --stake-distribution-file <FILE> to set the file to load distribution from", stake_distribution_file.display()));
 
-        serde_json::from_reader(BufReader::new(file))
-            .map(|pools: Vec<FakeStakePoolInfo>| FakeStakeDistribution::new(pools))
+        serde_json::from_reader(BufReader::new(file)).map(|pools: Vec<FakeStakePoolInfo>| {
+            FakeStakeDistribution::new(pools, global_parameters)
+        })
     }
 
-    pub fn new(pools: Vec<FakeStakePoolInfo>) -> FakeStakeDistribution {
+    pub fn new(
+        pools: Vec<FakeStakePoolInfo>,
+        global_parameters: &GlobalParameters,
+    ) -> FakeStakeDistribution {
         let total_active_stake = pools
             .iter()
             .map(|p| p.individual_stake.individual_total_pool_stake)
@@ -71,8 +78,8 @@ impl FakeStakeDistribution {
         FakeStakeDistribution {
             pools,
             total_active_stake,
-            max_kes_evolutions: MAX_KES_EVOLUTION,
-            slots_per_kes_period: SLOTS_PER_KES_PERIOD,
+            max_kes_evolutions: global_parameters.max_kes_evolution,
+            slots_per_kes_period: global_parameters.slots_per_kes_period,
         }
     }
 }
@@ -163,6 +170,7 @@ pub struct ConsensusContext {
 #[cfg(test)]
 mod test {
     use amaru_consensus::consensus::store::{ChainStore, StoreError};
+    use amaru_kernel::protocol_parameters::GlobalParameters;
     use amaru_kernel::{network::NetworkName, Header};
 
     use super::populate_chain_store;
@@ -184,8 +192,11 @@ mod test {
     #[test]
     fn can_create_stake_distribution_from_file() {
         let stake_distribution_file = "tests/data/stake-distribution.json";
-        let stake_distribution =
-            FakeStakeDistribution::from_file(&PathBuf::from(stake_distribution_file)).unwrap();
+        let stake_distribution = FakeStakeDistribution::from_file(
+            &PathBuf::from(stake_distribution_file),
+            &GlobalParameters::default(),
+        )
+        .unwrap();
         let pool_id: Hash<28> = amaru_kernel::Hash::from(
             hex::decode("50484a702b93327308d85f51f1831940fdddcb751bf43bc3376c42b9")
                 .unwrap()
@@ -200,8 +211,11 @@ mod test {
     #[test]
     fn compute_total_stake_from_individual_pool_stake() {
         let stake_distribution_file = "tests/data/stake-distribution.json";
-        let stake_distribution =
-            FakeStakeDistribution::from_file(&PathBuf::from(stake_distribution_file)).unwrap();
+        let stake_distribution = FakeStakeDistribution::from_file(
+            &PathBuf::from(stake_distribution_file),
+            &GlobalParameters::default(),
+        )
+        .unwrap();
         let pool_id: Hash<28> = amaru_kernel::Hash::from(
             hex::decode("50484a702b93327308d85f51f1831940fdddcb751bf43bc3376c42b9")
                 .unwrap()
