@@ -122,7 +122,7 @@ where
                 context,
                 credential,
                 AccountState {
-                    deposit: global_parameters.stake_credential_deposit as Lovelace,
+                    deposit: global_parameters.stake_credential_deposit,
                     pool: None,
                     drep: None,
                 },
