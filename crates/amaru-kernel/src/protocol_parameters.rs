@@ -1,3 +1,5 @@
+use num::{rational::Ratio, BigUint};
+
 use crate::{Coin, Epoch, ExUnits, Lovelace, RationalNumber};
 
 /// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
@@ -90,6 +92,15 @@ pub struct GlobalParameters {
     /// Maximum number of KES key evolution. Combined with SLOTS_PER_KES_PERIOD, these values
     /// indicates the validity period of a KES key before a new one is required.
     pub max_kes_evolution: u8,
+
+    // The monetary expansion value, a.k.a ρ
+    pub monetary_expansion: Ratio<BigUint>,
+
+    /// Treasury tax, a.k.a τ
+    pub treasury_tax: Ratio<BigUint>,
+
+    /// Pledge influence parameter, a.k.a a0
+    pub pledge_influence: Ratio<BigUint>,
 }
 
 impl GlobalParameters {
@@ -138,6 +149,9 @@ impl Default for GlobalParameters {
             stake_credential_deposit: 2_000_000,
             slots_per_kes_period: 129_600,
             max_kes_evolution: 62,
+            monetary_expansion: Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)),
+            treasury_tax: Ratio::new_raw(BigUint::from(20_u64), BigUint::from(100_u64)),
+            pledge_influence: Ratio::new_raw(BigUint::from(3_u64), BigUint::from(10_u64)),
         }
     }
 }
