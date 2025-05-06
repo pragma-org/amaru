@@ -737,7 +737,7 @@ fn import_accounts(
                 },
             )| {
                 let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
-                    .unwrap_or((0, global_parameters.stake_credential_deposit as u64));
+                    .unwrap_or((0, global_parameters.stake_credential_deposit));
 
                 let rewards_update = match rewards_updates.remove(&credential) {
                     None => 0,

@@ -17,8 +17,8 @@ use crate::context::{
     PoolsSlice, RegisterError, UnregisterError, UpdateError, WitnessSlice,
 };
 use amaru_kernel::{
-    protocol_parameters::GlobalParameters, Certificate, CertificatePointer, DRep, Lovelace,
-    NonEmptySet, PoolId, PoolParams, StakeCredential, TransactionPointer,
+    protocol_parameters::GlobalParameters, Certificate, CertificatePointer, DRep, NonEmptySet,
+    PoolId, PoolParams, StakeCredential, TransactionPointer,
 };
 use thiserror::Error;
 
