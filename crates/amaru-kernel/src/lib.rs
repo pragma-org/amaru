@@ -21,7 +21,6 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
-use num::{rational::Ratio, BigUint};
 use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     Error, *,
@@ -42,7 +41,6 @@ use std::{
     convert::Infallible,
     fmt::{self, Display, Formatter},
     ops::Deref,
-    sync::LazyLock,
 };
 
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
@@ -87,18 +85,6 @@ pub mod serde_utils;
 pub const PROTOCOL_VERSION_9: ProtocolVersion = (9, 0);
 
 pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
-
-// The monetary expansion value, a.k.a ρ
-pub static MONETARY_EXPANSION: LazyLock<Ratio<BigUint>> =
-    LazyLock::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)));
-
-/// Treasury tax, a.k.a τ
-pub static TREASURY_TAX: LazyLock<Ratio<BigUint>> =
-    LazyLock::new(|| Ratio::new_raw(BigUint::from(20_u64), BigUint::from(100_u64)));
-
-/// Pledge influence parameter, a.k.a a0
-pub static PLEDGE_INFLUENCE: LazyLock<Ratio<BigUint>> =
-    LazyLock::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(10_u64)));
 
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------

@@ -119,7 +119,7 @@ use crate::{
 };
 use amaru_kernel::{
     expect_stake_credential, protocol_parameters::GlobalParameters, Epoch, Hash, Lovelace, PoolId,
-    StakeCredential, MONETARY_EXPANSION, PLEDGE_INFLUENCE, TREASURY_TAX,
+    StakeCredential,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
@@ -172,7 +172,7 @@ impl PoolState {
         global_parameters: &GlobalParameters,
     ) -> Lovelace {
         let one = SafeRatio::one();
-        let a0 = &*PLEDGE_INFLUENCE;
+        let a0 = &global_parameters.pledge_influence;
         let z0 = safe_ratio(1, global_parameters.optimal_stake_pools_count as u64);
 
         let relative_pledge = lovelace_ratio(self.parameters.pledge, total_stake);
@@ -401,14 +401,14 @@ impl RewardsSummary {
 
         let incentives = floor_to_lovelace(
             (&SafeRatio::one()).min(&efficiency)
-                * &*MONETARY_EXPANSION
+                * &global_parameters.monetary_expansion
                 * BigUint::from(pots.reserves),
         );
 
         let total_rewards: Lovelace = incentives + pots.fees;
 
         let treasury_tax: Lovelace =
-            floor_to_lovelace(&*TREASURY_TAX * BigUint::from(total_rewards));
+            floor_to_lovelace(&global_parameters.treasury_tax * BigUint::from(total_rewards));
 
         let available_rewards: Lovelace = total_rewards - treasury_tax;
 
