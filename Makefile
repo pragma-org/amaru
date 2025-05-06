@@ -18,10 +18,6 @@ help:
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
 
-clean-dbs: ## Clean all databases
-	@rm -rf ledger.db
-	@rm -rf $(HASKELL_NODE_CONFIG_DIR)
-
 snapshots: ## Download snapshots
 	mkdir -p $@
 	curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" \
@@ -71,7 +67,7 @@ import-nonces: ## Import PreProd nonces for demo
 clear-db: ## Clear the database
 	rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
 
-bootstrap: clear-db import-headers import-nonces import-snapshots ## Bootstrap the node
+bootstrap: clear-db import-headers import-nonces import-snapshots ## Bootstrap the node from scratch
 
 dev: ## Compile and run for development with default options
 	cargo run -- daemon \
@@ -84,7 +80,7 @@ dev: ## Compile and run for development with default options
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
 	cargo test --release -p amaru -- --ignored
 
-test-e2-from-scratch: clean-dbs bootstrap demo test-e2e ## Run end-to-end tests from scratch
+test-e2-from-scratch: bootstrap demo test-e2e ## Run end-to-end tests from scratch
 
 check-llvm-cov: ## Check if cargo-llvm-cov is installed, install if not
 	@if ! cargo llvm-cov --version >/dev/null 2>&1; then \
