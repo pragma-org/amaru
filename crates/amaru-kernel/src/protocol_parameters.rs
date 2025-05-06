@@ -69,7 +69,7 @@ pub struct GlobalParameters {
     pub preprod_shelley_transition_epoch: usize,
 
     /// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
-    pub max_lovelace_supply: u64,
+    pub max_lovelace_supply: Lovelace,
 
     /// Epoch duration after which inactive Proposals are considered expired.
     pub gov_action_lifetime: u64,
@@ -84,7 +84,7 @@ pub struct GlobalParameters {
     pub stake_pool_deposit: Lovelace,
 
     /// Value, in Lovelace, that one must deposit when registering a new stake credential
-    pub stake_credential_deposit: usize,
+    pub stake_credential_deposit: Lovelace,
 
     /// Number of slots for a single KES validity period.
     pub slots_per_kes_period: u64,
