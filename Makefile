@@ -11,8 +11,6 @@ CHAIN_DIR ?= ./chain.db
 
 .PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config  coverage-html coverage-lconv check-llvm-cov
 
-all: help
-
 help:
 	@echo "\033[1;4mTargets:\033[00m"
 	@grep -E '^[a-zA-Z0-9 -]+:.*##'  Makefile | sort | while read -r l; do printf "  \033[1;32m$$(echo $$l | cut -f 1 -d':')\033[00m:$$(echo $$l | cut -f 3- -d'#')\n"; done
