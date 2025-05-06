@@ -1,4 +1,4 @@
-use crate::{Coin, Epoch, ExUnits, RationalNumber};
+use crate::{Coin, Epoch, ExUnits, Lovelace, RationalNumber};
 
 /// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
 /// Some of the names have been adapted to improve readability.
@@ -47,6 +47,7 @@ pub struct ProtocolParameters {
     pub drep_activity: Epoch,
 }
 
+#[derive(Clone)]
 pub struct GlobalParameters {
     /// The maximum depth of a rollback, also known as the security parameter 'k'.
     /// This translates down to the length of our volatile storage, containing states of the ledger
@@ -64,6 +65,31 @@ pub struct GlobalParameters {
 
     /// Epoch number in which the PreProd network transitioned to Shelley.
     pub preprod_shelley_transition_epoch: usize,
+
+    /// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
+    pub max_lovelace_supply: u64,
+
+    /// Epoch duration after which inactive Proposals are considered expired.
+    pub gov_action_lifetime: u64,
+
+    /// The optimal number of stake pools target for the incentives, a.k.a k
+    pub optimal_stake_pools_count: usize,
+
+    /// Epoch duration after which inactive DReps are considered expired.
+    pub drep_expiry: u64,
+
+    /// Value, in Lovelace, that one must deposit when registering a new stake pool
+    pub stake_pool_deposit: Lovelace,
+
+    /// Value, in Lovelace, that one must deposit when registering a new stake credential
+    pub stake_credential_deposit: usize,
+
+    /// Number of slots for a single KES validity period.
+    pub slots_per_kes_period: u64,
+
+    /// Maximum number of KES key evolution. Combined with SLOTS_PER_KES_PERIOD, these values
+    /// indicates the validity period of a KES key before a new one is required.
+    pub max_kes_evolution: u8,
 }
 
 impl GlobalParameters {
@@ -104,6 +130,14 @@ impl Default for GlobalParameters {
             active_slot_coeff_inverse: 20,
             byron_epoch_length_scale_factor: 10,
             preprod_shelley_transition_epoch: 4,
+            max_lovelace_supply: 45_000_000_000_000_000,
+            gov_action_lifetime: 6,
+            optimal_stake_pools_count: 500,
+            drep_expiry: 20,
+            stake_pool_deposit: 500_000_000,
+            stake_credential_deposit: 2_000_000,
+            slots_per_kes_period: 129_600,
+            max_kes_evolution: 62,
         }
     }
 }

@@ -85,16 +85,23 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
     let snapshot = db(epoch);
+    let global_parameters = GlobalParameters::default();
 
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
         NetworkName::Preprod.into(),
+        &global_parameters,
     )
     .unwrap();
 
-    let stake_distr =
-        StakeDistribution::new(snapshot.as_ref(), preprod_protocol_version(epoch), dreps).unwrap();
+    let stake_distr = StakeDistribution::new(
+        snapshot.as_ref(),
+        preprod_protocol_version(epoch),
+        dreps,
+        &global_parameters,
+    )
+    .unwrap();
     insta::assert_json_snapshot!(
         format!("stake_distribution_{}", epoch),
         stake_distr.for_network(Network::Testnet),
@@ -105,10 +112,10 @@ fn compare_preprod_snapshot(epoch: Epoch) {
     let rewards_summary = RewardsSummary::new(
         snapshot_from_the_future.as_ref(),
         stake_distr,
-        &GlobalParameters::default(),
+        &global_parameters,
     )
     .unwrap()
-    .with_unclaimed_refunds(snapshot_from_the_future.as_ref())
+    .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &global_parameters)
     .unwrap();
 
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);

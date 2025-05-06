@@ -27,7 +27,8 @@ pub fn forward_ledger(raw_block: &str) {
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
     let era_history : &EraHistory = NetworkName::Preprod.into();
 
-    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})), MemoryStore {}, era_history);
+    let global_parameters = GlobalParameters::default();
+    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})), MemoryStore {}, era_history, &global_parameters);
 
     let point = Point::Specific(
         block.header.header_body.slot,
@@ -74,11 +75,12 @@ pub fn forward_ledger(raw_block: &str) {
         &mut context,
         &ProtocolParameters::default(),
         &block,
+        &GlobalParameters::default(),
     ) {
         panic!("Failed to validate block")
     };
 
     let volatile_state: VolatileState = context.into();
 
-    state.forward(&GlobalParameters::default(), volatile_state.anchor(&point, issuer)).unwrap()
+    state.forward(&global_parameters, volatile_state.anchor(&point, issuer)).unwrap()
 }

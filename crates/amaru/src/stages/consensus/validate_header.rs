@@ -29,22 +29,23 @@ pub struct ValidateHeaderStage {
     pub consensus: ValidateHeader,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
+    pub global_parameters: GlobalParameters,
 }
 
 impl ValidateHeaderStage {
-    pub fn new(consensus: ValidateHeader) -> Self {
+    pub fn new(consensus: ValidateHeader, global_parameters: &GlobalParameters) -> Self {
         Self {
             consensus,
             upstream: Default::default(),
             downstream: Default::default(),
+            global_parameters: global_parameters.clone(),
         }
     }
 
     async fn handle_event(&mut self, unit: DecodedChainSyncEvent) -> Result<(), WorkerError> {
-        let global_parameters = GlobalParameters::default();
         let event = self
             .consensus
-            .handle_chain_sync(unit, &global_parameters)
+            .handle_chain_sync(unit, &self.global_parameters)
             .await
             .map_err(|_| WorkerError::Recv)?;
 

@@ -21,6 +21,7 @@ use amaru_kernel::{
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
     expect_stake_credential,
+    protocol_parameters::GlobalParameters,
     CertificatePointer,
     Epoch,
     Lovelace,
@@ -29,7 +30,6 @@ use amaru_kernel::{
     StakeCredential,
     TransactionInput,
     TransactionOutput,
-    STAKE_POOL_DEPOSIT,
 };
 use columns::*;
 use std::{
@@ -260,7 +260,11 @@ pub trait TransactionalContext<'a> {
     fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     #[instrument(level = Level::INFO, name = "tick.pool", skip_all)]
-    fn tick_pools(&self, epoch: Epoch) -> Result<(), StoreError> {
+    fn tick_pools(
+        &self,
+        epoch: Epoch,
+        global_parameters: &GlobalParameters,
+    ) -> Result<(), StoreError> {
         let mut refunds = Vec::new();
 
         self.with_pools(|iterator| {
@@ -274,7 +278,7 @@ pub trait TransactionalContext<'a> {
         self.refund(
             refunds
                 .into_iter()
-                .map(|credential| (credential, STAKE_POOL_DEPOSIT)),
+                .map(|credential| (credential, global_parameters.stake_pool_deposit)),
         )
     }
 
