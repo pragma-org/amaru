@@ -19,13 +19,12 @@ use rocksdb::Transaction;
 /// Name prefixed used for storing protocol pots. UTF-8 encoding for "pots"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x74, 0x73];
 
-#[allow(clippy::panic)]
 pub fn get<DB>(db: &Transaction<'_, DB>) -> Result<Row, StoreError> {
-    Ok(Row::unsafe_decode(
-        db.get(PREFIX)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .unwrap_or_else(|| panic!("no protocol pots (treasury, reserves, fees, ...) found")),
-    ))
+    Ok(db
+        .get(PREFIX)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(Row::unsafe_decode)
+        .unwrap_or_default())
 }
 
 pub fn put<DB>(db: &Transaction<'_, DB>, row: Row) -> Result<(), StoreError> {

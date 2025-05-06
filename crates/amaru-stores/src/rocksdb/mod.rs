@@ -14,15 +14,15 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    stake_credential_hash, stake_credential_type, CertificatePointer, Epoch, EraHistory, Lovelace,
-    Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+    CertificatePointer, Epoch, EraHistory, Lovelace, Point, PoolId, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
         columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
         ReadOnlyStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
     },
-    summary::{rewards::RewardsSummary, Pots},
+    summary::Pots,
 };
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
@@ -32,7 +32,7 @@ use std::{
     fmt, fs,
     path::{Path, PathBuf},
 };
-use tracing::{debug, info, instrument, trace, warn, Level};
+use tracing::{info, instrument, trace, warn, Level};
 
 pub mod ledger;
 use ledger::columns::*;
@@ -351,71 +351,14 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Ok(true)
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        target = EVENT_TARGET,
-        skip_all,
-    )]
-    fn reset_fees(&self) -> Result<(), StoreError> {
-        self.with_pots(|mut row| {
-            row.borrow_mut().fees = 0;
-        })
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        target = EVENT_TARGET,
-        name = "reset.blocks_count",
-        skip_all,
-    )]
-    fn reset_blocks_count(&self) -> Result<(), StoreError> {
-        // TODO: If necessary, come up with a more efficient way of dropping a "table".
-        // RocksDB does support batch-removing of key ranges, but somehow, not in a
-        // transactional way. So it isn't as trivial to implement as it may seem.
-        self.with_block_issuers(|iterator| {
-            for (_, mut row) in iterator {
-                *row.borrow_mut() = None;
-            }
-        })
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        target = EVENT_TARGET,
-        name = "snapshot.applying_rewards",
-        skip_all,
-    )]
-    fn apply_rewards(&self, rewards_summary: &mut RewardsSummary) -> Result<(), StoreError> {
-        self.with_accounts(|iterator| {
-            for (account, mut row) in iterator {
-                if let Some(rewards) = rewards_summary.extract_rewards(&account) {
-                    if rewards > 0 {
-                        if let Some(account) = row.borrow_mut() {
-                            account.rewards += rewards;
-                        }
-                    }
-                }
-            }
-        })
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        target = EVENT_TARGET,
-        name= "snapshot.adjusting_pots",
-        skip_all,
-    )]
-    fn adjust_pots(
+    /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
+    /// deposit.
+    fn refund(
         &self,
-        delta_treasury: u64,
-        delta_reserves: u64,
-        unclaimed_rewards: u64,
-    ) -> Result<(), StoreError> {
-        self.with_pots(|mut row| {
-            let pots = row.borrow_mut();
-            pots.treasury += delta_treasury + unclaimed_rewards;
-            pots.reserves -= delta_reserves;
-        })
+        credential: &scolumns::accounts::Key,
+        deposit: Lovelace,
+    ) -> Result<Lovelace, StoreError> {
+        accounts::set(&self.transaction, credential, |balance| balance + deposit)
     }
 
     fn save(
@@ -484,48 +427,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             }
         }
         Ok(())
-    }
-
-    fn refund(
-        &self,
-        mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
-    ) -> Result<(), StoreError> {
-        let leftovers = refunds.try_fold::<_, _, Result<_, StoreError>>(
-            0,
-            |leftovers, (account, deposit)| {
-                debug!(
-                    target: EVENT_TARGET,
-                    type = %stake_credential_type(&account),
-                    account = %stake_credential_hash(&account),
-                    %deposit,
-                    "refund"
-                );
-
-                Ok(leftovers
-                    + accounts::set(&self.transaction, &account, |balance| balance + deposit)?)
-            },
-        )?;
-
-        if leftovers > 0 {
-            debug!(target: EVENT_TARGET, ?leftovers, "refund");
-            let mut pots = pots::get(&self.transaction)?;
-            pots.treasury += leftovers;
-            pots::put(&self.transaction, pots)?;
-        }
-
-        Ok(())
-    }
-
-    fn set_pots(
-        &self,
-        treasury: amaru_kernel::Lovelace,
-        reserves: amaru_kernel::Lovelace,
-        fees: amaru_kernel::Lovelace,
-    ) -> Result<(), StoreError> {
-        pots::put(
-            &self.transaction,
-            amaru_ledger::store::columns::pots::Row::new(treasury, reserves, fees),
-        )
     }
 
     fn with_pots<'db>(
