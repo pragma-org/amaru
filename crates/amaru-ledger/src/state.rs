@@ -30,19 +30,9 @@ use crate::{
     },
 };
 use amaru_kernel::{
-<<<<<<< HEAD
-    protocol_parameters::GlobalParameters, Epoch, EraHistory, Hash, MintedBlock, Point, PoolId,
-    Slot, TransactionInput, TransactionOutput, PROTOCOL_VERSION_9,
-||||||| 89dea9da
-    Epoch, EraHistory, Hash, MintedBlock, Point, PoolId, Slot, TransactionInput, TransactionOutput,
-    CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9, SLOTS_PER_KES_PERIOD,
-    STABILITY_WINDOW,
-=======
-    expect_stake_credential, stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash,
-    Lovelace, MintedBlock, Point, PoolId, Slot, StakeCredential, TransactionInput,
-    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9,
-    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW, STAKE_POOL_DEPOSIT,
->>>>>>> main
+    expect_stake_credential, protocol_parameters::GlobalParameters, stake_credential_hash,
+    stake_credential_type, Epoch, EraHistory, Hash, Lovelace, MintedBlock, Point, PoolId, Slot,
+    StakeCredential, TransactionInput, TransactionOutput, PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -529,13 +519,7 @@ fn begin_epoch<'store>(
     // step. The accounts are already filtered out when computing rewards, but if any retired pool
     // were to re-register, they would automatically be granted the stake associated to their past
     // delegates.
-<<<<<<< HEAD
-    transaction.tick_pools(current_epoch, global_parameters)?;
-||||||| 89dea9da
-    transaction.tick_pools(current_epoch)?;
-=======
-    tick_pools(db, current_epoch)?;
->>>>>>> main
+    tick_pools(db, current_epoch, global_parameters)?;
 
     // Refund deposit for any proposal that has expired.
     tick_proposals(db, current_epoch)?;
@@ -607,6 +591,7 @@ pub fn refund_many<'store>(
 pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    global_parameters: &GlobalParameters,
 ) -> Result<(), StoreError> {
     let mut refunds = Vec::new();
 
@@ -622,7 +607,7 @@ pub fn tick_pools<'store>(
         db,
         refunds
             .into_iter()
-            .map(|credential| (credential, STAKE_POOL_DEPOSIT as u64)),
+            .map(|credential| (credential, global_parameters.stake_pool_deposit)),
     )
 }
 

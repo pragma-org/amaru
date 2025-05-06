@@ -20,7 +20,6 @@ use amaru_kernel::{
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
-    protocol_parameters::GlobalParameters,
     CertificatePointer,
     Epoch,
     Lovelace,
