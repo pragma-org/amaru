@@ -65,8 +65,8 @@ pub struct GlobalParameters {
     /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
     pub byron_epoch_length_scale_factor: usize,
 
-    /// Epoch number in which the PreProd network transitioned to Shelley.
-    pub preprod_shelley_transition_epoch: usize,
+    /// Epoch number in which the network transitioned to Shelley.
+    pub shelley_transition_epoch: usize,
 
     /// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
     pub max_lovelace_supply: Lovelace,
@@ -129,13 +129,13 @@ impl Default for GlobalParameters {
             * consensus_security_param;
         let byron_epoch_length_scale_factor = 10;
         let byron_epoch_length = byron_epoch_length_scale_factor * consensus_security_param;
-        let preprod_shelley_transition_epoch = 4;
+        let shelley_transition_epoch = 4;
         Self {
             consensus_security_param,
             shelley_epoch_length_scale_factor,
             active_slot_coeff_inverse,
             byron_epoch_length_scale_factor,
-            preprod_shelley_transition_epoch,
+            shelley_transition_epoch,
             max_lovelace_supply: 45_000_000_000_000_000,
             gov_action_lifetime: 6,
             optimal_stake_pools_count: 500,
@@ -150,7 +150,7 @@ impl Default for GlobalParameters {
             shelley_epoch_length,
             stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
             byron_epoch_length,
-            byron_total_slots: byron_epoch_length * preprod_shelley_transition_epoch,
+            byron_total_slots: byron_epoch_length * shelley_transition_epoch,
             randomness_stabilization_window: (4
                 * consensus_security_param
                 * active_slot_coeff_inverse) as u64,
