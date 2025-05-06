@@ -19,12 +19,12 @@ help:
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
 
 snapshots: ## Download snapshots
-	mkdir -p $@
-	curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" \
+	mkdir -p $@/${NETWORK}
+	cat data/${NETWORK}/snapshots.json \
 		| jq -r '.[] | "\(.point) \(.url)"' \
 		| while read p u; do \
 			echo "Fetching $$p.cbor"; \
-			curl --progress-bar -o - $$u | gunzip > $@/$$p.cbor; \
+			curl --progress-bar -o - $$u | gunzip > $@/${NETWORK}/$$p.cbor; \
 		done
 
 download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
@@ -36,12 +36,14 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/alonzo-genesis.json
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
 
-import-snapshots: snapshots ## Import PreProd snapshots for demo
+import-snapshots: snapshots ## Import snapshots for demo
+	SNAPSHOT_ARGS=""; \
+	for SNAPSHOT in $^/${NETWORK}/*.cbor; do \
+	  SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
+	done; \
 	cargo run --release -- import-ledger-state \
-	--ledger-dir $(LEDGER_DIR) \
-	--snapshot $^/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor \
-	--snapshot $^/69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor \
-	--snapshot $^/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
+	  --ledger-dir "$(LEDGER_DIR)" \
+	  $$SNAPSHOT_ARGS
 
 import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
 	cargo run --release -- import-headers \
@@ -55,7 +57,7 @@ import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
 	--starting-point 70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c \
 	--count 2
 
-import-nonces: ## Import PreProd nonces for demo
+import-nonces: ## Import nonces for demo
 	cargo run --release -- import-nonces \
 	--chain-dir $(CHAIN_DIR) \
 	--at 70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d \
@@ -64,10 +66,10 @@ import-nonces: ## Import PreProd nonces for demo
 	--evolving 24bb737ee28652cd99ca41f1f7be568353b4103d769c6e1ddb531fc874dd6718 \
 	--tail 5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7
 
-clear-db: ## Clear the database
-	rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
+clear-dbs: ## Clear the databases
+	@rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
 
-bootstrap: clear-db import-headers import-nonces import-snapshots ## Bootstrap the node from scratch
+bootstrap: clear-dbs import-headers import-nonces import-snapshots ## Bootstrap the node from scratch
 
 dev: ## Compile and run for development with default options
 	cargo run -- daemon \
