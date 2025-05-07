@@ -85,3 +85,90 @@ pub fn execute(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        context::assert::AssertValidationContext,
+        rules::{tests::fixture_context, InvalidEd25519Signature, WithPosition},
+    };
+    use amaru_kernel::{
+        include_cbor, include_json, json, KeepRaw, MintedTransactionBody, MintedWitnessSet,
+        OriginalHash,
+    };
+    use test_case::test_case;
+    use tracing_json::assert_trace;
+
+    use super::InvalidBootstrapWitnesses;
+
+    macro_rules! fixture {
+        ($hash:literal) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+                include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
+            )
+        };
+        ($hash:literal, $variant:literal) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/witness.cbor"
+                )),
+                include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/expected.traces"
+                )),
+            )
+        };
+    }
+
+    #[test_case(fixture!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a"); "happy path")]
+    #[test_case(fixture!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a", "missing-required-witness") =>
+        matches Err(InvalidBootstrapWitnesses::MissingRequiredBootstrapWitnesses { missing_bootstrap_roots })
+        if missing_bootstrap_roots.len() == 1 && hex::encode(missing_bootstrap_roots[0]) == "65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8f";
+        "Missing Required Witness")]
+    #[test_case(fixture!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a", "invalid-signature") =>
+        matches Err(InvalidBootstrapWitnesses::InvalidSignatures { invalid_witnesses })
+        if invalid_witnesses.len() == 1 && matches!(invalid_witnesses[0], WithPosition {
+            position: 0,
+            element: InvalidEd25519Signature::InvalidSignature});
+        "Invalid Signatures: Invalid Signature")]
+    #[test_case(fixture!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a", "invalid-signature-size") =>
+        matches Err(InvalidBootstrapWitnesses::InvalidSignatures { invalid_witnesses })
+        if invalid_witnesses.len() == 1 && matches!(invalid_witnesses[0], WithPosition {
+            position: 0,
+            element: InvalidEd25519Signature::InvalidSignatureSize { ..}});
+        "Invalid Signatures: Invalid Signature Size")]
+    // InvalidKeySize is enforced by the validation context type (Hash<28>).
+    // If the key in the signature is the wrong length, the execute function will fail with MissingRequiredWitness
+    fn bootstrap_witness(
+        (mut ctx, tx, witness_set, expected_traces): (
+            AssertValidationContext,
+            KeepRaw<'_, MintedTransactionBody<'_>>,
+            KeepRaw<'_, MintedWitnessSet<'_>>,
+            Vec<json::Value>,
+        ),
+    ) -> Result<(), InvalidBootstrapWitnesses> {
+        assert_trace(
+            || {
+                let transaction_id = tx.original_hash();
+                super::execute(
+                    &mut ctx,
+                    transaction_id,
+                    witness_set.bootstrap_witness.as_deref(),
+                )
+            },
+            expected_traces,
+        )
+    }
+}

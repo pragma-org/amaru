@@ -96,6 +96,14 @@ impl From<AssertValidationContext> for () {
 }
 
 impl PotsSlice for AssertValidationContext {
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            fee = %_fees,
+        )
+        skip_all,
+        name = "add_fees"
+    )]
     fn add_fees(&mut self, _fees: Lovelace) {}
 }
 
@@ -203,8 +211,17 @@ impl DRepsSlice for AssertValidationContext {
         unimplemented!()
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            credential.type = %stake_credential_type(&_drep),
+            credential.hash = %stake_credential_hash(&_drep),
+        )
+        skip_all,
+        name = "vote"
+    )]
     fn vote(&mut self, _drep: StakeCredential) {
-        unimplemented!()
+        // TODO: IMPLEMENT
     }
 }
 
@@ -252,6 +269,14 @@ impl WitnessSlice for AssertValidationContext {
         }
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            bootstrap_witness.hash = %root,
+        )
+        skip_all,
+        name = "require_bootstrap_witness"
+    )]
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
         self.required_bootstrap_signers.insert(root);
     }

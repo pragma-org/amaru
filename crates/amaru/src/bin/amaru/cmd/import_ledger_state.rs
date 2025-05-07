@@ -64,7 +64,6 @@ pub struct Args {
     /// Can be repeated multiple times for multiple snapshots.
     #[arg(long, value_name = "SNAPSHOT", verbatim_doc_comment, num_args(0..))]
     snapshot: Vec<PathBuf>,
-
     /// Path to a directory containing multiple CBOR snapshots to import.
     #[arg(long, value_name = "DIR")]
     snapshot_dir: Option<PathBuf>,

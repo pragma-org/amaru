@@ -65,10 +65,15 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        rules::TransactionField,
+    };
     use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
     use test_case::test_case;
     use tracing_json::assert_trace;
+
+    use super::InvalidWithdrawals;
 
     macro_rules! fixture {
         ($hash:literal) => {
@@ -77,22 +82,44 @@ mod test {
                 include_json!(concat!("transactions/preprod/", $hash, "/expected.traces")),
             )
         };
+        ($hash:literal, $variant:literal) => {
+            (
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/tx.cbor"
+                )),
+                include_json!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/expected.traces"
+                )),
+            )
+        };
     }
 
     #[test_case(fixture!("f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7"))]
     #[test_case(fixture!("a81147b58650b80f08986b29dad7f5efedd53ff215c17659f9dd0596e9a3d227"))]
+    #[test_case(fixture!("f861e92f12e12a744e1392a29fee5c49b987eae5e75c805f14e6ecff4ef13ff7", "malformed-account") =>
+        matches Err(InvalidWithdrawals::MalformedRewardAccount {  position, bytes, context })
+            if  position == 0 && bytes == vec![0x00, 0x00] && matches!(context, TransactionField::Withdrawals);
+        "Malformed Reward Account")]
     fn valid_withdrawal(
         (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
-    ) {
+    ) -> Result<(), InvalidWithdrawals> {
         assert_trace(
             || {
                 let mut context = AssertValidationContext::from(AssertPreparationContext {
                     utxo: Default::default(),
                 });
 
-                assert!(super::execute(&mut context, tx.withdrawals.as_deref()).is_ok());
+                super::execute(&mut context, tx.withdrawals.as_deref())
             },
             expected_traces,
-        );
+        )
     }
 }
