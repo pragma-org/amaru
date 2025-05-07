@@ -27,6 +27,8 @@
 use crate::echo::Envelope;
 
 use super::sync::ChainSyncMessage;
+use proptest::prelude;
+use proptest::test_runner::Config;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::time::{Duration, Instant};
 
@@ -53,9 +55,9 @@ impl Eq for Message {}
 type NodeId = String;
 
 // TODO: should be RK's handle to interact with a node
-trait Node {
-    fn run(&self) -> Vec<Envelope<ChainSyncMessage>>;
-    fn send(&self, message: ChainSyncMessage);
+pub trait NodeHandle {
+    fn handle(&self, message: ChainSyncMessage) -> Vec<Envelope<ChainSyncMessage>>;
+    fn close(&self);
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -63,7 +65,7 @@ pub struct Trace(Vec<Envelope<ChainSyncMessage>>);
 
 pub struct World {
     heap: BinaryHeap<Message>,
-    nodes: BTreeMap<NodeId, Box<dyn Node>>,
+    nodes: BTreeMap<NodeId, Box<dyn NodeHandle>>,
     trace: Trace,
 }
 
@@ -75,10 +77,13 @@ pub enum Next {
 
 #[allow(dead_code)]
 impl World {
-    pub fn new() -> Self {
+    pub fn new(
+        initial_messages: Vec<Message>,
+        node_handles: Vec<(NodeId, Box<dyn NodeHandle>)>,
+    ) -> Self {
         World {
-            heap: BinaryHeap::new(),
-            nodes: BTreeMap::new(),
+            heap: BinaryHeap::from(initial_messages),
+            nodes: node_handles.into_iter().collect(),
             trace: Trace(Vec::new()),
         }
     }
@@ -97,9 +102,8 @@ impl World {
             {
                 match self.nodes.get(&message.dest) {
                     Some(node) => {
-                        node.send(message.body.clone());
                         let (client_responses, outputs): (Vec<_>, Vec<_>) = node
-                            .run()
+                            .handle(message.body.clone())
                             .into_iter()
                             .partition(|msg| msg.dest.starts_with("c"));
                         outputs
@@ -130,6 +134,22 @@ impl World {
     }
 }
 
+trait Deployment {
+    fn number_of_nodes(&self) -> u8;
+    fn spawn(&self) -> Box<dyn NodeHandle>;
+}
+
+
+
+pub fn simulate<D: Deployment>(config: Config, deployment: D) {
+    let initial_messages = Vec::new(); // XXX:: this should come from proptest
+    let node_handles = (1..deployment.number_of_nodes())
+        .map(|i| (format!("n{}", i), deployment.spawn()))
+        .collect();
+    let world = World::new(initial_messages, node_handles);
+    ()
+}
+
 #[cfg(test)]
 mod tests {
     use crate::simulator::simulate::Trace;
@@ -137,7 +157,7 @@ mod tests {
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
-        let mut world = World::new();
+        let mut world = World::new(Vec::new(), Vec::new());
 
         assert_eq!(world.run_world(), Trace(Vec::new()));
     }
