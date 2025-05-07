@@ -59,12 +59,12 @@ trait Node {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Trace (Vec<Message>);
+pub struct Trace(Vec<Envelope<ChainSyncMessage>>);
 
 pub struct World {
     heap: BinaryHeap<Message>,
     nodes: BTreeMap<NodeId, Box<dyn Node>>,
-    trace: Trace
+    trace: Trace,
 }
 
 #[derive(Debug, PartialEq)]
@@ -97,8 +97,11 @@ impl World {
             {
                 match self.nodes.get(&message.dest) {
                     Some(node) => {
-                        node.send(message.body);
-                        let outputs = node.run();
+                        node.send(message.body.clone());
+                        let (client_responses, outputs): (Vec<_>, Vec<_>) = node
+                            .run()
+                            .into_iter()
+                            .partition(|msg| msg.dest.starts_with("c"));
                         outputs
                             .iter()
                             .map(|envelope| Message {
@@ -106,6 +109,12 @@ impl World {
                                 message: envelope.clone(),
                             })
                             .for_each(|msg| self.heap.push(msg));
+                        if message.src.starts_with("c") {
+                            self.trace.0.push(message);
+                        }
+                        client_responses
+                            .iter()
+                            .for_each(|msg| self.trace.0.push(msg.clone()));
                         Next::Continue
                     }
                     None => panic!("unknown destination node: {}", message.dest),
@@ -118,14 +127,13 @@ impl World {
     pub fn run_world(&mut self) -> Trace {
         while self.step_world() == Next::Continue {}
         self.trace.clone()
-
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::simulator::simulate::World;
     use crate::simulator::simulate::Trace;
+    use crate::simulator::simulate::World;
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
