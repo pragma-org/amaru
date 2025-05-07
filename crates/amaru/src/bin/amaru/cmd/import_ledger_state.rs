@@ -13,9 +13,11 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, protocol_parameters::GlobalParameters, Anchor, CertificatePointer, DRep,
-    Epoch, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    Set, Slot, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer,
+    network::NetworkName,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    Anchor, CertificatePointer, DRep, Epoch, EraHistory, Lovelace, Point, PoolId, PoolParams,
+    Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential, TransactionInput,
+    TransactionOutput, TransactionPointer,
 };
 use amaru_ledger::{
     self,
@@ -177,6 +179,7 @@ fn decode_new_epoch_state(
     era_history: &EraHistory,
 ) -> Result<u64, Box<dyn std::error::Error>> {
     let global_parameters = GlobalParameters::default();
+    let protocol_parameters = ProtocolParameters::default();
     let mut d = cbor::Decoder::new(bytes);
 
     d.array()?;
@@ -226,7 +229,7 @@ fn decode_new_epoch_state(
                     point,
                     epoch,
                     d.decode()?,
-                    &global_parameters,
+                    &protocol_parameters,
                 )?;
 
                 // Committee
@@ -347,7 +350,7 @@ fn decode_new_epoch_state(
         // NonMyopic
         d.skip()?;
 
-        import_accounts(db, point, accounts, &mut rewards, &global_parameters)?;
+        import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
 
         let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
             total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
@@ -462,7 +465,7 @@ fn import_dreps(
     point: &Point,
     epoch: Epoch,
     dreps: HashMap<StakeCredential, DRepState>,
-    global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), impl std::error::Error> {
     let mut known_dreps = BTreeMap::new();
 
@@ -525,13 +528,13 @@ fn import_dreps(
                 let (registration_slot, last_interaction) = if epoch == era_first_epoch {
                     let last_interaction = era_first_epoch;
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    if state.expiry > epoch + global_parameters.drep_expiry {
+                    if state.expiry > epoch + protocol_parameters.drep_expiry {
                         (epoch_bound.start, last_interaction)
                     } else {
                         (epoch_bound.end, last_interaction)
                     }
                 } else {
-                    let last_interaction = state.expiry - global_parameters.drep_expiry;
+                    let last_interaction = state.expiry - protocol_parameters.drep_expiry;
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     // start or end doesn't matter here.
                     (epoch_bound.start, last_interaction)
@@ -715,7 +718,7 @@ fn import_accounts(
     point: &Point,
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
-    global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_accounts(|iterator| {
@@ -737,7 +740,7 @@ fn import_accounts(
                 },
             )| {
                 let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
-                    .unwrap_or((0, global_parameters.stake_credential_deposit));
+                    .unwrap_or((0, protocol_parameters.stake_credential_deposit));
 
                 let rewards_update = match rewards_updates.remove(&credential) {
                     None => 0,

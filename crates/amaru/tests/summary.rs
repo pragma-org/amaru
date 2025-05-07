@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, protocol_parameters::GlobalParameters, Network, ProtocolVersion,
-    PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+    network::NetworkName,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     store::Snapshot,
@@ -86,12 +87,14 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 fn compare_preprod_snapshot(epoch: Epoch) {
     let snapshot = db(epoch);
     let global_parameters = GlobalParameters::default();
+    let protocol_parameters = ProtocolParameters::default();
 
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
         NetworkName::Preprod.into(),
         &global_parameters,
+        &protocol_parameters,
     )
     .unwrap();
 
@@ -99,7 +102,7 @@ fn compare_preprod_snapshot(epoch: Epoch) {
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
         dreps,
-        &global_parameters,
+        &protocol_parameters,
     )
     .unwrap();
     insta::assert_json_snapshot!(
@@ -113,9 +116,10 @@ fn compare_preprod_snapshot(epoch: Epoch) {
         snapshot_from_the_future.as_ref(),
         stake_distr,
         &global_parameters,
+        &protocol_parameters,
     )
     .unwrap()
-    .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &global_parameters)
+    .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &protocol_parameters)
     .unwrap();
 
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);

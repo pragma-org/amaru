@@ -14,9 +14,8 @@
 
 use crate::context::ValidationContext;
 use amaru_kernel::{
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
-    AuxiliaryData, KeepRaw, MintedTransactionBody, MintedWitnessSet, Network, OriginalHash,
-    TransactionInput, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, MintedTransactionBody,
+    MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
 };
 use core::mem;
 use std::ops::Deref;
@@ -88,13 +87,12 @@ pub enum InvalidTransaction {
 #[allow(clippy::too_many_arguments)]
 pub fn execute(
     context: &mut impl ValidationContext,
-    protocol_params: &ProtocolParameters,
+    protocol_parameters: &ProtocolParameters,
     pointer: TransactionPointer,
     is_valid: bool,
     transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
     transaction_witness_set: &MintedWitnessSet<'_>,
     transaction_auxiliary_data: Option<&AuxiliaryData>,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), InvalidTransaction> {
     // FIXME: this is temporary, to be replaced when we have some state that determines the node's network
     let network = Network::Testnet;
@@ -109,7 +107,7 @@ pub fn execute(
         context,
         pointer,
         mem::take(&mut transaction_body.certificates),
-        global_parameters,
+        protocol_parameters,
     )?;
 
     fees::execute(
@@ -130,7 +128,7 @@ pub fn execute(
     mint::execute(context, transaction_body.mint.as_ref());
 
     outputs::execute(
-        protocol_params,
+        protocol_parameters,
         &network,
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
@@ -155,7 +153,7 @@ pub fn execute(
     )?;
 
     outputs::execute(
-        protocol_params,
+        protocol_parameters,
         &network,
         mem::take(&mut transaction_body.outputs),
         &mut |index, output| {

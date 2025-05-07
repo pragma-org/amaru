@@ -1,7 +1,7 @@
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, Bytes, Hash, Hasher, MintedBlock, Point,
+    cbor, Bytes, Hash, Hasher, MintedBlock, Point,
     PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, EraHistory,
-    network::NetworkName, protocol_parameters::GlobalParameters,
+    network::NetworkName, protocol_parameters::{GlobalParameters, ProtocolParameters},
 };
 use amaru_ledger::{
     context,
@@ -28,7 +28,8 @@ pub fn forward_ledger(raw_block: &str) {
     let era_history : &EraHistory = NetworkName::Preprod.into();
 
     let global_parameters = GlobalParameters::default();
-    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})), MemoryStore {}, era_history, &global_parameters);
+    let protocol_parameters = ProtocolParameters::default();
+    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})), MemoryStore {}, era_history, &global_parameters, &protocol_parameters);
 
     let point = Point::Specific(
         block.header.header_body.slot,
@@ -75,12 +76,11 @@ pub fn forward_ledger(raw_block: &str) {
         &mut context,
         &ProtocolParameters::default(),
         &block,
-        &GlobalParameters::default(),
     ) {
         panic!("Failed to validate block")
     };
 
     let volatile_state: VolatileState = context.into();
 
-    state.forward(&global_parameters, volatile_state.anchor(&point, issuer)).unwrap()
+    state.forward(&global_parameters, &protocol_parameters, volatile_state.anchor(&point, issuer)).unwrap()
 }

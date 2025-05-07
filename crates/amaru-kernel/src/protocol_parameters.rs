@@ -1,5 +1,3 @@
-use num::{rational::Ratio, BigUint};
-
 use crate::{Coin, Epoch, ExUnits, Lovelace, RationalNumber};
 
 /// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
@@ -19,8 +17,8 @@ pub struct ProtocolParameters {
     // Economic group
     pub min_fee_a: u32,
     pub min_fee_b: u32,
-    pub key_deposit: Coin,
-    pub pool_deposit: Coin,
+    pub stake_credential_deposit: Coin,
+    pub stake_pool_deposit: Coin,
     pub monetary_expansion_rate: RationalNumber,
     pub treasury_expansion_rate: RationalNumber,
     pub coins_per_utxo_byte: Coin,
@@ -33,8 +31,8 @@ pub struct ProtocolParameters {
 
     // Technical group
     pub max_epoch: Epoch,
-    pub desired_pool_count: u32,
-    pub pool_influence: RationalNumber,
+    pub optimal_stake_pools_count: u32,
+    pub pledge_influence: RationalNumber,
     pub collateral_percentage: u32,
     pub cost_models: CostModels,
 
@@ -46,7 +44,7 @@ pub struct ProtocolParameters {
     pub gov_action_lifetime: u32,
     pub gov_action_deposit: Coin,
     pub drep_deposit: Coin,
-    pub drep_activity: Epoch,
+    pub drep_expiry: Epoch,
 }
 
 #[derive(Clone)]
@@ -74,33 +72,12 @@ pub struct GlobalParameters {
     /// Epoch duration after which inactive Proposals are considered expired.
     pub gov_action_lifetime: u64,
 
-    /// The optimal number of stake pools target for the incentives, a.k.a k
-    pub optimal_stake_pools_count: usize,
-
-    /// Epoch duration after which inactive DReps are considered expired.
-    pub drep_expiry: u64,
-
-    /// Value, in Lovelace, that one must deposit when registering a new stake pool
-    pub stake_pool_deposit: Lovelace,
-
-    /// Value, in Lovelace, that one must deposit when registering a new stake credential
-    pub stake_credential_deposit: Lovelace,
-
     /// Number of slots for a single KES validity period.
     pub slots_per_kes_period: u64,
 
     /// Maximum number of KES key evolution. Combined with SLOTS_PER_KES_PERIOD, these values
     /// indicates the validity period of a KES key before a new one is required.
     pub max_kes_evolution: u8,
-
-    // The monetary expansion value, a.k.a ρ
-    pub monetary_expansion: Ratio<BigUint>,
-
-    /// Treasury tax, a.k.a τ
-    pub treasury_tax: Ratio<BigUint>,
-
-    /// Pledge influence parameter, a.k.a a0
-    pub pledge_influence: Ratio<BigUint>,
 
     /// Number of slots in a Shelley epoch
     pub shelley_epoch_length: usize,
@@ -121,6 +98,7 @@ pub struct GlobalParameters {
 
 impl Default for GlobalParameters {
     fn default() -> Self {
+        // https://cips.cardano.org/cip/CIP-9
         let consensus_security_param = 2160;
         let active_slot_coeff_inverse = 20;
         let shelley_epoch_length_scale_factor = 10;
@@ -138,15 +116,8 @@ impl Default for GlobalParameters {
             shelley_transition_epoch,
             max_lovelace_supply: 45_000_000_000_000_000,
             gov_action_lifetime: 6,
-            optimal_stake_pools_count: 500,
-            drep_expiry: 20,
-            stake_pool_deposit: 500_000_000,
-            stake_credential_deposit: 2_000_000,
             slots_per_kes_period: 129_600,
             max_kes_evolution: 62,
-            monetary_expansion: Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)),
-            treasury_tax: Ratio::new_raw(BigUint::from(20_u64), BigUint::from(100_u64)),
-            pledge_influence: Ratio::new_raw(BigUint::from(3_u64), BigUint::from(10_u64)),
             shelley_epoch_length,
             stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
             byron_epoch_length,
@@ -214,6 +185,7 @@ pub struct ProtocolParametersThresholds {
     pub governance_group: RationalNumber,
 }
 
+// Decode from snapshot CBOR. Look into pallas?
 impl Default for ProtocolParameters {
     // This default is the protocol parameters on Preprod as of epoch 197
     fn default() -> Self {
@@ -233,8 +205,8 @@ impl Default for ProtocolParameters {
             },
             max_val_size: 5000,
             max_collateral_inputs: 3,
-            key_deposit: 2_000_000,
-            pool_deposit: 500_000_000,
+            stake_credential_deposit: 2_000_000,
+            stake_pool_deposit: 500_000_000,
             coins_per_utxo_byte: 4310,
             prices: Prices {
                 mem: RationalNumber {
@@ -258,11 +230,11 @@ impl Default for ProtocolParameters {
                 denominator: 10,
             }, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85)
             max_epoch: 18,
-            pool_influence: RationalNumber {
+            pledge_influence: RationalNumber {
                 numerator: 3,
                 denominator: 10,
             },
-            desired_pool_count: 500,
+            optimal_stake_pools_count: 500,
             treasury_expansion_rate: RationalNumber {
                 numerator: 2,
                 denominator: 10,
@@ -396,7 +368,7 @@ impl Default for ProtocolParameters {
             gov_action_lifetime: 6,
             gov_action_deposit: 100_000_000_000,
             drep_deposit: 500_000_000,
-            drep_activity: 20,
+            drep_expiry: 20,
         }
     }
 }

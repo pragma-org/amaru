@@ -17,7 +17,7 @@ use crate::context::{
     PoolsSlice, RegisterError, UnregisterError, UpdateError, WitnessSlice,
 };
 use amaru_kernel::{
-    protocol_parameters::GlobalParameters, Certificate, CertificatePointer, DRep, NonEmptySet,
+    protocol_parameters::ProtocolParameters, Certificate, CertificatePointer, DRep, NonEmptySet,
     PoolId, PoolParams, StakeCredential, TransactionPointer,
 };
 use thiserror::Error;
@@ -50,7 +50,7 @@ pub(crate) fn execute<C>(
     context: &mut C,
     transaction: TransactionPointer,
     certificates: Option<NonEmptySet<Certificate>>,
-    global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidCertificates>
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice,
@@ -68,7 +68,7 @@ where
                     certificate_index,
                 },
                 certificate,
-                global_parameters,
+                protocol_parameters,
             )
         })
 }
@@ -78,7 +78,7 @@ fn execute_one<C>(
     context: &mut C,
     pointer: CertificatePointer,
     certificate: Certificate,
-    global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidCertificates>
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice,
@@ -122,7 +122,7 @@ where
                 context,
                 credential,
                 AccountState {
-                    deposit: global_parameters.stake_credential_deposit,
+                    deposit: protocol_parameters.stake_credential_deposit,
                     pool: None,
                     drep: None,
                 },
@@ -210,32 +210,32 @@ where
 
         Certificate::StakeVoteDeleg(credential, pool, drep) => {
             let drep_deleg = Certificate::VoteDeleg(credential.clone(), drep);
-            execute_one(context, pointer, drep_deleg, global_parameters)?;
+            execute_one(context, pointer, drep_deleg, protocol_parameters)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute_one(context, pointer, pool_deleg, global_parameters)
+            execute_one(context, pointer, pool_deleg, protocol_parameters)
         }
 
         Certificate::StakeRegDeleg(credential, pool, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, pointer, reg, global_parameters)?;
+            execute_one(context, pointer, reg, protocol_parameters)?;
             let pool_deleg = Certificate::StakeDelegation(credential, pool);
-            execute_one(context, pointer, pool_deleg, global_parameters)
+            execute_one(context, pointer, pool_deleg, protocol_parameters)
         }
 
         Certificate::StakeVoteRegDeleg(credential, pool, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, pointer, reg, global_parameters)?;
+            execute_one(context, pointer, reg, protocol_parameters)?;
             let pool_deleg = Certificate::StakeDelegation(credential.clone(), pool);
-            execute_one(context, pointer, pool_deleg, global_parameters)?;
+            execute_one(context, pointer, pool_deleg, protocol_parameters)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute_one(context, pointer, drep_deleg, global_parameters)
+            execute_one(context, pointer, drep_deleg, protocol_parameters)
         }
 
         Certificate::VoteRegDeleg(credential, drep, coin) => {
             let reg = Certificate::Reg(credential.clone(), coin);
-            execute_one(context, pointer, reg, global_parameters)?;
+            execute_one(context, pointer, reg, protocol_parameters)?;
             let drep_deleg = Certificate::VoteDeleg(credential, drep);
-            execute_one(context, pointer, drep_deleg, global_parameters)
+            execute_one(context, pointer, drep_deleg, protocol_parameters)
         }
     }
 }

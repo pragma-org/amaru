@@ -22,8 +22,8 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, output_stake_credential, protocol_parameters::GlobalParameters, DRep,
-    Epoch, HasLovelace, Lovelace, Network, PoolId, ProtocolVersion, StakeCredential,
+    expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
+    DRep, Epoch, HasLovelace, Lovelace, Network, PoolId, ProtocolVersion, StakeCredential,
     PROTOCOL_VERSION_10,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
@@ -76,7 +76,7 @@ impl StakeDistribution {
             mut dreps,
             deposits,
         }: GovernanceSummary,
-        global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
 
@@ -146,7 +146,7 @@ impl StakeDistribution {
                             retiring_pools.insert(pool);
                             // FIXME: Store the deposit with the pool, and ensures the same deposit
                             // it returned back.
-                            refunds.insert(reward_account, global_parameters.stake_pool_deposit);
+                            refunds.insert(reward_account, protocol_parameters.stake_pool_deposit);
                         }
                     })),
                     epoch + 1,

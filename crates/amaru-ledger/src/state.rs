@@ -30,9 +30,10 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, protocol_parameters::GlobalParameters, stake_credential_hash,
-    stake_credential_type, Epoch, EraHistory, Hash, Lovelace, MintedBlock, Point, PoolId, Slot,
-    StakeCredential, TransactionInput, TransactionOutput, PROTOCOL_VERSION_9,
+    expect_stake_credential,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash, Lovelace, MintedBlock,
+    Point, PoolId, Slot, StakeCredential, TransactionInput, TransactionOutput, PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -111,6 +112,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         snapshots: HS,
         era_history: &EraHistory,
         global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Self {
         let db = stable.lock().unwrap();
 
@@ -130,14 +132,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let mut stake_distributions = VecDeque::new();
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
             stake_distributions.push_front(
-                recover_stake_distribution(&snapshots, epoch, era_history, global_parameters)
-                    .unwrap_or_else(|e| {
-                        // TODO deal with error
-                        panic!(
-                            "unable to get stake distribution for (epoch={:?}): {e:?}",
-                            epoch
-                        )
-                    }),
+                recover_stake_distribution(
+                    &snapshots,
+                    epoch,
+                    era_history,
+                    global_parameters,
+                    protocol_parameters,
+                )
+                .unwrap_or_else(|e| {
+                    // TODO deal with error
+                    panic!(
+                        "unable to get stake distribution for (epoch={:?}): {e:?}",
+                        epoch
+                    )
+                }),
             );
         }
 
@@ -204,6 +212,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &mut self,
         now_stable: AnchoredVolatileState,
         global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StateError> {
         let start_slot = now_stable.anchor.0.slot_or_default();
 
@@ -230,7 +239,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 &mut *db,
                 current_epoch,
                 self.rewards_summary.take(),
-                global_parameters,
+                protocol_parameters,
             )?
         }
 
@@ -283,6 +292,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     fn compute_rewards(
         &mut self,
         global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Result<RewardsSummary, StateError> {
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
         let stake_distribution = stake_distributions
@@ -301,6 +311,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             }),
             stake_distribution,
             global_parameters,
+            protocol_parameters,
         )
         .map_err(StateError::Storage)?;
 
@@ -309,6 +320,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             epoch,
             &self.era_history,
             global_parameters,
+            protocol_parameters,
         )?);
 
         Ok(rewards_summary)
@@ -322,6 +334,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn forward(
         &mut self,
         global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
         next_state: AnchoredVolatileState,
     ) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
@@ -331,7 +344,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 unreachable!("pre-condition: self.volatile.len() >= consensus_security_param")
             });
 
-            self.apply_block(now_stable, global_parameters)?;
+            self.apply_block(now_stable, global_parameters, protocol_parameters)?;
         } else {
             trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }
@@ -346,7 +359,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         if self.rewards_summary.is_none()
             && relative_slot >= From::from(global_parameters.stability_window as u64)
         {
-            self.rewards_summary = Some(self.compute_rewards(global_parameters)?);
+            self.rewards_summary =
+                Some(self.compute_rewards(global_parameters, protocol_parameters)?);
         }
 
         self.volatile.push_back(next_state);
@@ -400,6 +414,7 @@ fn recover_stake_distribution(
     epoch: Epoch,
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
     let snapshot = snapshots.for_epoch(epoch).unwrap_or_else(|e| {
         panic!(
@@ -414,8 +429,14 @@ fn recover_stake_distribution(
     StakeDistribution::new(
         &snapshot,
         protocol_version,
-        GovernanceSummary::new(&snapshot, protocol_version, era_history, global_parameters)?,
-        global_parameters,
+        GovernanceSummary::new(
+            &snapshot,
+            protocol_version,
+            era_history,
+            global_parameters,
+            protocol_parameters,
+        )?,
+        protocol_parameters,
     )
     .map_err(StateError::Storage)
 }
@@ -428,7 +449,7 @@ fn epoch_transition(
     db: &mut impl Store,
     next_epoch: Epoch,
     rewards_summary: Option<RewardsSummary>,
-    global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StateError> {
     // End of epoch
     let batch = db.create_transaction();
@@ -464,7 +485,7 @@ fn epoch_transition(
         Some(EpochTransitionProgress::EpochStarted),
     )?;
     if should_begin_epoch {
-        begin_epoch(&batch, next_epoch, global_parameters)?;
+        begin_epoch(&batch, next_epoch, protocol_parameters)?;
     }
     batch.commit()?;
 
@@ -505,7 +526,7 @@ fn end_epoch<'store>(
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     current_epoch: Epoch,
-    global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StoreError> {
     // Reset counters before the epoch begins.
     reset_blocks_count(db)?;
@@ -519,7 +540,7 @@ fn begin_epoch<'store>(
     // step. The accounts are already filtered out when computing rewards, but if any retired pool
     // were to re-register, they would automatically be granted the stake associated to their past
     // delegates.
-    tick_pools(db, current_epoch, global_parameters)?;
+    tick_pools(db, current_epoch, protocol_parameters)?;
 
     // Refund deposit for any proposal that has expired.
     tick_proposals(db, current_epoch)?;
@@ -591,7 +612,7 @@ pub fn refund_many<'store>(
 pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
-    global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StoreError> {
     let mut refunds = Vec::new();
 
@@ -607,7 +628,7 @@ pub fn tick_pools<'store>(
         db,
         refunds
             .into_iter()
-            .map(|credential| (credential, global_parameters.stake_pool_deposit)),
+            .map(|credential| (credential, protocol_parameters.stake_pool_deposit)),
     )
 }
 
