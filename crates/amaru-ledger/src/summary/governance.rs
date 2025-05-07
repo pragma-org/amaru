@@ -16,8 +16,10 @@ mod backward_compatibility;
 
 use crate::store::{columns::dreps, Snapshot, StoreError};
 use amaru_kernel::{
-    expect_stake_credential, network::EraHistory, protocol_parameters::GlobalParameters, Anchor,
-    CertificatePointer, DRep, Epoch, Lovelace, ProtocolVersion, Slot, StakeCredential,
+    expect_stake_credential,
+    network::EraHistory,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    Anchor, CertificatePointer, DRep, Epoch, Lovelace, ProtocolVersion, Slot, StakeCredential,
     TransactionPointer,
 };
 use slot_arithmetic::TimeHorizonError;
@@ -60,6 +62,7 @@ impl GovernanceSummary {
         protocol_version: ProtocolVersion,
         era_history: &EraHistory,
         global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, Error> {
         let current_epoch = db.epoch();
 
@@ -94,7 +97,7 @@ impl GovernanceSummary {
         let mandate = drep_mandate_calculator(
             protocol_version,
             global_parameters.gov_action_lifetime,
-            global_parameters.drep_expiry,
+            protocol_parameters.drep_expiry,
             era_history,
             current_epoch,
             proposals,

@@ -118,8 +118,9 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, protocol_parameters::GlobalParameters, Epoch, Hash, Lovelace, PoolId,
-    StakeCredential,
+    expect_stake_credential,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    Epoch, Hash, Lovelace, PoolId, StakeCredential,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
@@ -169,11 +170,12 @@ impl PoolState {
         &self,
         available_rewards: Lovelace,
         total_stake: Lovelace,
-        global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Lovelace {
         let one = SafeRatio::one();
-        let a0 = &global_parameters.pledge_influence;
-        let z0 = safe_ratio(1, global_parameters.optimal_stake_pools_count as u64);
+        let a0 = protocol_parameters.pledge_influence.clone();
+        let a0 = safe_ratio(a0.numerator, a0.denominator);
+        let z0 = safe_ratio(1, protocol_parameters.optimal_stake_pools_count as u64);
 
         let relative_pledge = lovelace_ratio(self.parameters.pledge, total_stake);
         let relative_stake = self.relative_stake(total_stake);
@@ -183,7 +185,7 @@ impl PoolState {
         let s = (&z0).min(&relative_stake);
 
         // R / (1 + a0)
-        let left = r / (one + a0);
+        let left = r / (one + a0.clone());
 
         // σ' + p' × a0 × (σ' - p' × (z0 - σ') / z0) / z0
         //               ⎝___________ z0_factor__________⎠
@@ -211,7 +213,7 @@ impl PoolState {
         active_stake: Lovelace,
         total_stake: Lovelace,
         owner_stake: Lovelace,
-        global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Lovelace {
         if self.parameters.pledge <= owner_stake {
             floor_to_lovelace(
@@ -219,7 +221,7 @@ impl PoolState {
                     * BigUint::from(self.optimal_rewards(
                         available_rewards,
                         total_stake,
-                        global_parameters,
+                        protocol_parameters,
                     )),
             )
         } else {
@@ -387,6 +389,7 @@ impl RewardsSummary {
         db: &impl Snapshot,
         stake_distribution: StakeDistribution,
         global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, StoreError> {
         let pots = db.pots()?;
 
@@ -399,16 +402,26 @@ impl RewardsSummary {
 
         blocks_count = blocks_count.max(1);
 
+        let monetary_expansion_rate = &protocol_parameters.monetary_expansion_rate;
+        let monetary_expansion_rate = safe_ratio(
+            monetary_expansion_rate.numerator,
+            monetary_expansion_rate.denominator,
+        );
         let incentives = floor_to_lovelace(
             (&SafeRatio::one()).min(&efficiency)
-                * &global_parameters.monetary_expansion
+                * &monetary_expansion_rate
                 * BigUint::from(pots.reserves),
         );
 
         let total_rewards: Lovelace = incentives + pots.fees;
 
+        let treasury_expansion_rate = &protocol_parameters.treasury_expansion_rate;
+        let treasury_expansion_rate = safe_ratio(
+            treasury_expansion_rate.numerator,
+            treasury_expansion_rate.denominator,
+        );
         let treasury_tax: Lovelace =
-            floor_to_lovelace(&global_parameters.treasury_tax * BigUint::from(total_rewards));
+            floor_to_lovelace(treasury_expansion_rate * BigUint::from(total_rewards));
 
         let available_rewards: Lovelace = total_rewards - treasury_tax;
 
@@ -431,7 +444,7 @@ impl RewardsSummary {
                         total_stake,
                         &stake_distribution,
                         pool,
-                        global_parameters,
+                        protocol_parameters,
                     );
 
                     let rewards = effective_rewards + pool_rewards.leader;
@@ -523,7 +536,7 @@ impl RewardsSummary {
     pub fn with_unclaimed_refunds(
         mut self,
         db: &impl Snapshot,
-        global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, StoreError> {
         let leftovers = db.iter_pools()?.try_fold(0, |leftovers, (_, row)| {
             if let Some(account) = pools::Row::tick(
@@ -531,7 +544,7 @@ impl RewardsSummary {
                 self.epoch + 3,
             ) {
                 if db.account(&account)?.is_none() {
-                    return Ok::<_, StoreError>(leftovers + global_parameters.stake_pool_deposit);
+                    return Ok::<_, StoreError>(leftovers + protocol_parameters.stake_pool_deposit);
                 }
             }
 
@@ -591,7 +604,7 @@ impl RewardsSummary {
         total_stake: Lovelace,
         stake_distribution: &StakeDistribution,
         pool: &PoolState,
-        global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> PoolRewards {
         let owner_stake = pool.owner_stake(&stake_distribution.accounts);
 
@@ -606,7 +619,7 @@ impl RewardsSummary {
             stake_distribution.active_stake,
             total_stake,
             owner_stake,
-            global_parameters,
+            protocol_parameters,
         );
 
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);
