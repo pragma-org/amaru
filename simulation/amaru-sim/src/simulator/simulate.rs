@@ -30,7 +30,7 @@ use super::sync::ChainSyncMessage;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::time::{Duration, Instant};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Message {
     arrival_time: Instant,
     message: Envelope<ChainSyncMessage>,
@@ -58,9 +58,13 @@ trait Node {
     fn send(&self, message: ChainSyncMessage);
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct Trace (Vec<Message>);
+
 pub struct World {
     heap: BinaryHeap<Message>,
     nodes: BTreeMap<NodeId, Box<dyn Node>>,
+    trace: Trace
 }
 
 #[derive(Debug, PartialEq)]
@@ -75,6 +79,7 @@ impl World {
         World {
             heap: BinaryHeap::new(),
             nodes: BTreeMap::new(),
+            trace: Trace(Vec::new()),
         }
     }
 
@@ -103,23 +108,29 @@ impl World {
                             .for_each(|msg| self.heap.push(msg));
                         Next::Continue
                     }
-                    None => todo!(),
+                    None => panic!("unknown destination node: {}", message.dest),
                 }
             }
             None => Next::Done,
         }
     }
+
+    pub fn run_world(&mut self) -> Trace {
+        while self.step_world() == Next::Continue {}
+        self.trace.clone()
+
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::simulator::simulate::Next;
     use crate::simulator::simulate::World;
+    use crate::simulator::simulate::Trace;
 
     #[test]
-    fn step_stops_when_no_message_to_process_is_left() {
+    fn run_stops_when_no_message_to_process_is_left() {
         let mut world = World::new();
 
-        assert_eq!(world.step_world(), Next::Done);
+        assert_eq!(world.run_world(), Trace(Vec::new()));
     }
 }
