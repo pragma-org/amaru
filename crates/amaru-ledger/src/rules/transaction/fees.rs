@@ -19,7 +19,7 @@ use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionIn
 pub enum InvalidFees {
     #[error("unknown collateral input at position {position}")]
     UnknownCollateralInput { position: usize },
-    #[error("Collateral return value is greater than total collateral input (input: {total_collateral_input}, return: {total_collateral_return})")]
+    #[error("collateral return value {{total_collateral_return}} is greater than total collateral input {{total_collateral_input}}")]
     CollateralReturnOverflow {
         total_collateral_input: u64,
         total_collateral_return: u64,

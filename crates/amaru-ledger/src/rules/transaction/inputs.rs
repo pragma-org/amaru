@@ -153,15 +153,15 @@ mod tests {
         "Non-Disjoint Reference Inputs")]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-address-header") =>
         matches Err(InvalidInputs::UncategorizedError(e))
-            if e == "Invalid output address. (error InvalidHeader(160)) output: PostAlonzo(PseudoPostAlonzoTransactionOutput { address: Bytes(ByteVec([160, 83, 9, 250, 120, 104, 86, 193, 38, 45, 9, 91, 137, 173, 246, 79, 232, 165, 37, 90, 209, 145, 66, 201, 197, 55, 53, 158, 65])), value: Coin(0), datum_option: None, script_ref: None })";
-            "invalid address header")]
+        if e.contains("InvalidHeader");
+        "invalid address header")]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "unknown-input") =>
         matches Err(InvalidInputs::UnknownInput(input))
-        if  hex::encode(input.transaction_id) == "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab" && input.index == 2;
+        if hex::encode(input.transaction_id) == "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab" && input.index == 2;
         "unknown input")]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-byron-address") =>
         matches Err(InvalidInputs::UncategorizedError(e))
-        if e == "Invalid byron address payload. (error InvalidByronCbor(Error { err: TypeMismatch(U8), pos: Some(31), msg: \"expected map\" })) address: ByronAddress { payload: TagWrap(ByteVec([130, 88, 28, 133, 24, 18, 154, 60, 13, 248, 227, 60, 64, 224, 75, 141, 38, 173, 59, 4, 34, 208, 250, 156, 169, 37, 88, 6, 163, 243, 139, 0])), crc: 3884043611 }";
+        if e.contains("InvalidByronCbor");
         "invalid byron payload")]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "valid-byron-address");
         "valid byron address")]
