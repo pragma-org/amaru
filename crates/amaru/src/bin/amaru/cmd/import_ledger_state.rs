@@ -310,7 +310,7 @@ fn decode_new_epoch_state(
                     // Constitution
                     d.skip()?;
                     // Current Protocol Params
-                    d.skip()?;
+                    let _protocol_parameters: ProtocolParameters = d.decode()?;
                     // Previous Protocol Params
                     d.skip()?;
                     // Future Protocol Params
