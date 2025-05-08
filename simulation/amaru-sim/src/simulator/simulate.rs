@@ -27,8 +27,8 @@
 use crate::echo::Envelope;
 
 use super::sync::ChainSyncMessage;
-use proptest::prelude;
-use proptest::test_runner::Config;
+use proptest::prelude::*;
+use proptest::test_runner::{Config, TestError, TestRunner};
 use std::collections::{BTreeMap, BinaryHeap};
 use std::time::{Duration, Instant};
 
@@ -121,7 +121,7 @@ impl World {
                             .for_each(|msg| self.trace.0.push(msg.clone()));
                         Next::Continue
                     }
-                    None => panic!("unknown destination node: {}", message.dest),
+                    None => panic!("unknown destination node '{}'", message.dest),
                 }
             }
             None => Next::Done,
@@ -134,20 +134,38 @@ impl World {
     }
 }
 
-trait Deployment {
-    fn number_of_nodes(&self) -> u8;
-    fn spawn(&self) -> Box<dyn NodeHandle>;
-}
+pub fn simulate(
+    config: Config,
+    number_of_nodes: u8,
+    spawn: fn() -> Box<dyn NodeHandle>,
+    generate_message: impl Strategy<Value = Message>,
+    property: fn(Trace) -> Result<(), String>,
+) {
+    let mut runner = TestRunner::new(config);
+    let generate_messages = prop::collection::vec(generate_message, 0..20);
+    let result = runner.run(&generate_messages, |initial_messages| {
+        let node_handles = (1..number_of_nodes)
+            .map(|i| (format!("n{}", i), spawn()))
+            .collect();
+        let trace = World::new(initial_messages, node_handles).run_world();
 
+        // XXX: How do we close the node handles here? The following doesn't work, because
+        // node_handles has been moved in the line above, and we can also not clone it because of
+        // dyn in the NodeHandle trait.
+        // node_handles.into_iter().map(|(_node_id, node_handle)| node_handle.close());
 
+        match property(trace) {
+          Ok(()) => (),
+          Err(reason) => assert!(false, "{}", reason)
 
-pub fn simulate<D: Deployment>(config: Config, deployment: D) {
-    let initial_messages = Vec::new(); // XXX:: this should come from proptest
-    let node_handles = (1..deployment.number_of_nodes())
-        .map(|i| (format!("n{}", i), deployment.spawn()))
-        .collect();
-    let world = World::new(initial_messages, node_handles);
-    ()
+        }
+        Ok(())
+    });
+    match result {
+        Ok(_) => (),
+        Err(TestError::Fail(_, value)) => println!("Found minimal failing case: {:?}", value),
+        Err(TestError::Abort(_)) => todo!(),
+    }
 }
 
 #[cfg(test)]
