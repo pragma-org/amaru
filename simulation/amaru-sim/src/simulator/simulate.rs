@@ -30,6 +30,10 @@ use proptest::prelude::*;
 use proptest::test_runner::{Config, TestError, TestRunner};
 use std::collections::{BTreeMap, BinaryHeap};
 use std::fmt::Debug;
+use std::io::{BufRead, BufReader, Write};
+use std::path::Path;
+use std::process::{Command, Stdio};
+use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -55,9 +59,54 @@ impl<Msg: PartialEq> Eq for Entry<Msg> {}
 type NodeId = String;
 
 // TODO: should be RK's handle to interact with a node
-pub trait NodeHandle {
-    fn handle(&self, message: Envelope<EchoMessage>) -> Vec<Envelope<EchoMessage>>;
-    fn close(&self);
+pub struct NodeHandle {
+    handle: Box<
+        dyn FnOnce(Instant, &Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, String>,
+    >,
+    close: Box<dyn FnMut()>,
+}
+
+pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, String> {
+    let mut child = Command::new(filepath)
+        .args(args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to create process: {}", e))?;
+
+    let mut stdin = child.stdin.take().ok_or("Failed to take stdin")?;
+    let stdout = child.stdout.take().ok_or("Failed to take stdout")?;
+
+    let handle = Box::new(move |_arrival_time, msg| {
+        writeln!(
+            stdin,
+            "{}",
+            serde_json::to_string(msg).map_err(|e| format!("Failed to encode JSON: {}", e))?
+        )
+        .map_err(|e| format!("Failed to write to child's stdin: {}", e))?;
+        stdin
+            .flush()
+            .map_err(|e| format!("Failed to flush child's stdin: {}", e))?;
+
+        let mut reader = BufReader::new(stdout);
+        let mut line = String::new();
+        reader
+            .read_line(&mut line)
+            .map_err(|e| format!("Failed to read from child's stdout: {}", e))?;
+
+        serde_json::from_str(&line)
+            .map(|msg| vec![msg])
+            .map_err(|e| format!("Failed to decode JSON: {}", e))
+    });
+
+    let close = Box::new(move || {
+        child
+            .kill()
+            .map_err(|e| format!("Failed to terminate process: {}", e))
+            .ok();
+    });
+
+    Ok(NodeHandle { handle, close })
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -71,7 +120,7 @@ pub enum Next {
 
 pub struct World {
     heap: BinaryHeap<Entry<EchoMessage>>,
-    nodes: BTreeMap<NodeId, Box<dyn NodeHandle>>,
+    nodes: BTreeMap<NodeId, NodeHandle>,
     trace: Trace,
 }
 
@@ -79,7 +128,7 @@ pub struct World {
 impl World {
     pub fn new(
         initial_messages: Vec<Entry<EchoMessage>>,
-        node_handles: Vec<(NodeId, Box<dyn NodeHandle>)>,
+        node_handles: Vec<(NodeId, NodeHandle)>,
     ) -> Self {
         World {
             heap: BinaryHeap::from(initial_messages),
@@ -137,7 +186,7 @@ impl World {
 pub fn simulate(
     config: Config,
     number_of_nodes: u8,
-    spawn: fn() -> Box<dyn NodeHandle>,
+    spawn: fn() -> NodeHandle,
     generate_message: impl Strategy<Value = EchoMessage>,
     property: fn(Trace) -> Result<(), String>,
 ) {
@@ -161,8 +210,11 @@ pub fn simulate(
 
         // XXX: How do we close the node handles here? The following doesn't work, because
         // node_handles has been moved in the line above, and we can also not clone it because of
-        // dyn in the NodeHandle trait.
+        // dyn in the NodeHandle struct.
         // node_handles.into_iter().map(|(_node_id, node_handle)| node_handle.close());
+        // node_handles
+        //     .into_iter()
+        //     .map(|(_node_id, node_handle)| node_handle.close());
 
         match property(trace) {
             Ok(()) => (),
