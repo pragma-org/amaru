@@ -1,9 +1,11 @@
-use crate::{Coin, Epoch, ExUnits, Lovelace, RationalNumber};
+use pallas_codec::minicbor::Decoder;
+
+use crate::{cbor, Coin, Epoch, ExUnits, Lovelace, RationalNumber};
 
 /// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
 /// Some of the names have been adapted to improve readability.
 /// Also see https://github.com/IntersectMBO/cardano-ledger/blob/d90eb4df4651970972d860e95f1a3697a3de8977/eras/conway/impl/cddl-files/conway.cddl#L324
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ProtocolParameters {
     // Network group
     pub max_block_body_size: u32,
@@ -45,6 +47,152 @@ pub struct ProtocolParameters {
     pub gov_action_deposit: Coin,
     pub drep_deposit: Coin,
     pub drep_expiry: Epoch,
+}
+
+fn decode_rationale(d: &mut Decoder<'_>) -> Result<RationalNumber, cbor::decode::Error> {
+    d.tag()?;
+    d.array()?;
+    let numerator = match d.datatype()? {
+        cbor::data::Type::U8 => d.u8()? as u64,
+        cbor::data::Type::U16 => d.u16()? as u64,
+        cbor::data::Type::U32 => d.u32()? as u64,
+        _ => panic!("Expected u8 or u16 or u32 for numerator"),
+    };
+    let denominator = match d.datatype()? {
+        cbor::data::Type::U8 => d.u8()? as u64,
+        cbor::data::Type::U16 => d.u16()? as u64,
+        cbor::data::Type::U32 => d.u32()? as u64,
+        _ => panic!("Expected u8 or u16 or u32 for denominator"),
+    };
+    Ok(RationalNumber { numerator, denominator })
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.array()?;
+        let min_fee_a = d.u8()? as u32;
+        let min_fee_b = d.u32()?;
+        let max_block_body_size = d.u32()?;
+        let max_tx_size = d.u16()? as u32;
+        let max_header_size = d.u16()? as u32;
+        let stake_credential_deposit = d.u32()? as u64;
+        let stake_pool_deposit = d.u32()? as u64;
+        let max_epoch = d.u8()? as u64;
+        let optimal_stake_pools_count = d.u16()? as u32;
+        let pledge_influence = decode_rationale(d)?;
+        let monetary_expansion_rate = decode_rationale(d)?;
+        
+        let _ = decode_rationale(d)?; // TODO unknown 1  5
+        let _ = d.array()?; d.u8()?; d.u8()?; // TODO unknown 9  0
+        let _ = d.u32()?; // TODO unknown 170000000
+
+        let coins_per_utxo_byte = d.u16()? as u64;
+        
+        let _ = d.map()?; d.u8()?;
+        let plutus_v1 = d.decode_with(ctx)?;
+        d.u8()?;
+        let plutus_v2 = d.decode_with(ctx)?;
+        d.u8()?;
+        let plutus_v3 = d.decode_with(ctx)?;
+
+        d.array()?;
+        let prices = Prices {
+            mem: decode_rationale(d)?,
+            step: decode_rationale(d)?,
+        };
+        d.array()?;
+        let max_tx_ex_units = ExUnits {
+            mem: d.u32()? as u64,
+            steps: d.u64()?,
+        };
+        d.array()?;
+        let max_block_ex_units = ExUnits {
+            mem: d.u32()? as u64,
+            steps: d.u64()?,
+        };
+        let max_val_size = d.u16()? as u32;
+        let collateral_percentage = d.u8()? as u32;
+        let max_collateral_inputs = d.u8()? as u32;
+        
+        // TODO validate order
+        d.array()?;
+        let pool_thresholds = PoolThresholds {
+            no_confidence: decode_rationale(d)?,
+            committee: decode_rationale(d)?,
+            committee_under_no_confidence: decode_rationale(d)?,
+            hard_fork: decode_rationale(d)?,
+            security_group: decode_rationale(d)?,
+        };
+        // TODO validate order
+        d.array()?;
+        let drep_thresholds = DrepThresholds {
+            no_confidence: decode_rationale(d)?,
+            committee: decode_rationale(d)?,
+            committee_under_no_confidence: decode_rationale(d)?,
+            constitution: decode_rationale(d)?,
+            hard_fork: decode_rationale(d)?,
+            protocol_parameters: ProtocolParametersThresholds {
+                network_group: decode_rationale(d)?,
+                economic_group: decode_rationale(d)?,
+                technical_group: decode_rationale(d)?,
+                governance_group: decode_rationale(d)?,
+            },
+            treasury_withdrawal: decode_rationale(d)?,
+        };
+        let cc_min_size = d.u8()? as u32;
+        let cc_max_term_length = d.u8()?  as u32;
+        let gov_action_lifetime = d.u8()?  as u32;
+        let gov_action_deposit = d.u64()?;
+        let drep_deposit = d.u32()? as u64;
+        let drep_expiry = d.u8()? as u64;
+        let min_fee_ref_script_coins_per_byte = decode_rationale(d)?;
+
+        Ok(ProtocolParameters {
+            min_fee_a,
+            min_fee_b,
+            max_block_body_size,
+            max_tx_size,
+            max_header_size,
+            stake_credential_deposit,
+            stake_pool_deposit,
+            max_epoch,
+            optimal_stake_pools_count,
+            pledge_influence,
+            monetary_expansion_rate,
+            coins_per_utxo_byte,
+            cost_models: CostModels {
+                plutus_v1,
+                plutus_v2,
+                plutus_v3,
+            },
+            prices,
+            max_tx_ex_units,
+            max_block_ex_units,
+            max_val_size,
+            collateral_percentage,
+            max_collateral_inputs,
+            pool_thresholds,
+            drep_thresholds,
+            cc_min_size,
+            cc_max_term_length,
+            gov_action_lifetime,
+            gov_action_deposit,
+            drep_deposit,
+            drep_expiry,
+            min_fee_ref_script_coins_per_byte,
+            max_ref_script_size_per_tx: 200 * 1024, //Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Ledger.hs#L154)
+            max_ref_script_size_per_block: 1024 * 1024, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Rules/Bbody.hs#L91)
+            ref_script_cost_stride: 25600, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L82)
+            ref_script_cost_multiplier: RationalNumber {
+                numerator: 12,
+                denominator: 10,
+            }, // Hardcoded in the haskell ledger (https://github.com/IntersectMBO/cardano-ledger/blob/3fe73a26588876bbf033bf4c4d25c97c2d8564dd/eras/conway/impl/src/Cardano/Ledger/Conway/Tx.hs#L85)
+            treasury_expansion_rate: RationalNumber {
+                numerator: 2,
+                denominator: 10,
+            },
+         })
+    }
 }
 
 #[derive(Clone)]
