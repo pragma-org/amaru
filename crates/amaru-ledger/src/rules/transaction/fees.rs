@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::context::{PotsSlice, UtxoSlice};
-use amaru_kernel::{HasLovelace, Lovelace, MintedTransactionOutput, TransactionInput};
+use amaru_kernel::{HasLovelace, Lovelace, TransactionInput, TransactionOutput};
 
 #[derive(Debug, thiserror::Error)]
 pub enum InvalidFees {
@@ -26,15 +26,15 @@ pub enum InvalidFees {
     },
 }
 
-pub(crate) fn execute<C>(
+pub(crate) fn execute<'b, C>(
     context: &mut C,
     is_valid: bool,
     fees: Lovelace,
     collateral: Option<&Vec<TransactionInput>>,
-    collateral_return: Option<&MintedTransactionOutput<'_>>,
+    collateral_return: Option<&TransactionOutput<'_>>,
 ) -> Result<(), InvalidFees>
 where
-    C: UtxoSlice + PotsSlice,
+    C: UtxoSlice<'b> + PotsSlice,
 {
     if is_valid {
         context.add_fees(fees);
@@ -73,7 +73,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, TransactionBody};
     use test_case::test_case;
     use tracing_json::assert_trace;
 
@@ -120,8 +120,8 @@ mod tests {
         "Unresolved collateral")]
     fn fees(
         (ctx, tx, expected_traces, is_valid): (
-            AssertPreparationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
+            AssertPreparationContext<'_>,
+            KeepRaw<'_, TransactionBody<'_>>,
             Vec<json::Value>,
             bool,
         ),

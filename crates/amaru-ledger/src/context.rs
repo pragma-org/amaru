@@ -25,9 +25,9 @@ use std::{collections::BTreeSet, fmt, marker::PhantomData};
 pub use default::*;
 
 /// The ValidationContext is a collection of slices needed to validate a block
-pub trait ValidationContext:
+pub trait ValidationContext<'a>:
     PotsSlice
-    + UtxoSlice
+    + UtxoSlice<'a>
     + PoolsSlice
     + AccountsSlice
     + DRepsSlice
@@ -112,10 +112,10 @@ pub trait PotsSlice {
 // -------------------------------------------------------------------------------------------------
 
 // An interface for interacting with a subset of the UTxO state.
-pub trait UtxoSlice {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput>;
+pub trait UtxoSlice<'b> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'b>>;
     fn consume(&mut self, input: TransactionInput);
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput);
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'b>);
 }
 
 /// An interface to help constructing the concrete UtxoSlice ahead of time.

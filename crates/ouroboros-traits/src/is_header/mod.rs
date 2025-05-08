@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Hash, Hasher, Header, MintedHeader, Point};
+use amaru_kernel::{cbor, Hash, Hasher, Header, KeepRaw, Point};
 
 pub mod fake;
 
@@ -75,7 +75,7 @@ impl IsHeader for Header {
     }
 }
 
-impl IsHeader for MintedHeader<'_> {
+impl<'a> IsHeader for KeepRaw<'a, Header> {
     fn parent(&self) -> Option<Hash<HASH_SIZE>> {
         self.header_body.prev_hash
     }

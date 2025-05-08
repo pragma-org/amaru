@@ -68,8 +68,8 @@ impl StakeDistribution {
     /// Compute a new stake distribution snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
-    pub fn new(
-        db: &impl Snapshot,
+    pub fn new<'s>(
+        db: &impl Snapshot<'s>,
         protocol_version: ProtocolVersion,
         GovernanceSummary {
             mut dreps,

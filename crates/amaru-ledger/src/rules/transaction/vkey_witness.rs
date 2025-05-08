@@ -176,9 +176,9 @@ mod tests {
     )]
     fn test_vkey_witness(
         (mut ctx, transaction_id, witness_set): (
-            AssertValidationContext,
+            AssertValidationContext<'_>,
             TransactionId,
-            WitnessSet,
+            WitnessSet<'_>,
         ),
     ) -> Result<(), InvalidVKeyWitness> {
         super::execute(&mut ctx, transaction_id, witness_set.vkeywitness.as_deref())

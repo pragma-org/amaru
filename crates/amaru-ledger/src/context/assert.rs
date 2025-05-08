@@ -19,8 +19,8 @@ use crate::context::{
     UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    serde_utils, stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep,
-    Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential,
+    stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep, Epoch,
+    Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential,
     TransactionInput, TransactionOutput,
 };
 use core::mem;
@@ -33,13 +33,12 @@ use tracing::{instrument, Level};
 /// provided upfront as test data, and all `require` method merely checks that the requested data
 /// pre-exists in the context.
 #[derive(serde::Deserialize, Debug, Clone)]
-pub struct AssertPreparationContext {
-    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
+pub struct AssertPreparationContext<'b> {
+    pub utxo: BTreeMap<TransactionInput, TransactionOutput<'b>>,
 }
 
-impl From<AssertPreparationContext> for AssertValidationContext {
-    fn from(ctx: AssertPreparationContext) -> AssertValidationContext {
+impl<'b> From<AssertPreparationContext<'b>> for AssertValidationContext<'b> {
+    fn from(ctx: AssertPreparationContext<'b>) -> AssertValidationContext<'b> {
         AssertValidationContext {
             utxo: ctx.utxo,
             required_signers: BTreeSet::default(),
@@ -48,9 +47,9 @@ impl From<AssertPreparationContext> for AssertValidationContext {
     }
 }
 
-impl PreparationContext<'_> for AssertPreparationContext {}
+impl<'b> PreparationContext<'_> for AssertPreparationContext<'b> {}
 
-impl PrepareUtxoSlice<'_> for AssertPreparationContext {
+impl<'b> PrepareUtxoSlice<'_> for AssertPreparationContext<'b> {
     #[allow(clippy::panic)]
     fn require_input(&mut self, input: &TransactionInput) {
         if !self.utxo.contains_key(input) {
@@ -59,19 +58,19 @@ impl PrepareUtxoSlice<'_> for AssertPreparationContext {
     }
 }
 
-impl PreparePoolsSlice<'_> for AssertPreparationContext {
+impl<'b> PreparePoolsSlice<'_> for AssertPreparationContext<'b> {
     fn require_pool(&mut self, _pool: &PoolId) {
         unimplemented!();
     }
 }
 
-impl PrepareAccountsSlice<'_> for AssertPreparationContext {
+impl<'b> PrepareAccountsSlice<'_> for AssertPreparationContext<'b> {
     fn require_account(&mut self, _credential: &StakeCredential) {
         unimplemented!();
     }
 }
 
-impl PrepareDRepsSlice<'_> for AssertPreparationContext {
+impl<'b> PrepareDRepsSlice<'_> for AssertPreparationContext<'b> {
     fn require_drep(&mut self, _drep: &StakeCredential) {
         unimplemented!();
     }
@@ -80,22 +79,21 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 // -------------------------------------------------------------------------------------- Validation
 
 #[derive(Debug, serde::Deserialize)]
-pub struct AssertValidationContext {
-    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
+pub struct AssertValidationContext<'b> {
+    utxo: BTreeMap<TransactionInput, TransactionOutput<'b>>,
     required_signers: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
-impl ValidationContext for AssertValidationContext {
+impl<'b> ValidationContext<'b> for AssertValidationContext<'b> {
     type FinalState = ();
 }
 
-impl From<AssertValidationContext> for () {
-    fn from(_ctx: AssertValidationContext) {}
+impl From<AssertValidationContext<'_>> for () {
+    fn from(_ctx: AssertValidationContext<'_>) {}
 }
 
-impl PotsSlice for AssertValidationContext {
+impl<'b> PotsSlice for AssertValidationContext<'b> {
     #[instrument(
         level = Level::TRACE,
         fields(
@@ -107,8 +105,8 @@ impl PotsSlice for AssertValidationContext {
     fn add_fees(&mut self, _fees: Lovelace) {}
 }
 
-impl UtxoSlice for AssertValidationContext {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+impl<'b> UtxoSlice<'b> for AssertValidationContext<'b> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'b>> {
         self.utxo.get(input)
     }
 
@@ -116,12 +114,12 @@ impl UtxoSlice for AssertValidationContext {
         self.utxo.remove(&input);
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'b>) {
         self.utxo.insert(input, output);
     }
 }
 
-impl PoolsSlice for AssertValidationContext {
+impl<'b> PoolsSlice for AssertValidationContext<'b> {
     fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
         unimplemented!()
     }
@@ -133,7 +131,7 @@ impl PoolsSlice for AssertValidationContext {
     }
 }
 
-impl AccountsSlice for AssertValidationContext {
+impl<'b> AccountsSlice for AssertValidationContext<'b> {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
         unimplemented!()
     }
@@ -181,7 +179,7 @@ impl AccountsSlice for AssertValidationContext {
     }
 }
 
-impl DRepsSlice for AssertValidationContext {
+impl<'b> DRepsSlice for AssertValidationContext<'b> {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepState> {
         unimplemented!()
     }
@@ -225,7 +223,7 @@ impl DRepsSlice for AssertValidationContext {
     }
 }
 
-impl CommitteeSlice for AssertValidationContext {
+impl<'b> CommitteeSlice for AssertValidationContext<'b> {
     fn delegate_cold_key(
         &mut self,
         _cc_member: StakeCredential,
@@ -243,11 +241,11 @@ impl CommitteeSlice for AssertValidationContext {
     }
 }
 
-impl ProposalsSlice for AssertValidationContext {
+impl<'b> ProposalsSlice for AssertValidationContext<'b> {
     fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
 }
 
-impl WitnessSlice for AssertValidationContext {
+impl<'b> WitnessSlice for AssertValidationContext<'b> {
     #[instrument(
         level = Level::TRACE,
         fields(

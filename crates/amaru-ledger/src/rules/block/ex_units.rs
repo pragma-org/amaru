@@ -44,7 +44,7 @@ pub fn block_ex_units_valid<E>(
 mod tests {
     use crate::rules::block::{BlockValidation, InvalidBlockDetails};
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, HasExUnits, MintedBlock,
+        include_cbor, protocol_parameters::ProtocolParameters, Block, ExUnits, HasExUnits,
     };
     use test_case::test_case;
 
@@ -73,7 +73,7 @@ mod tests {
     }) => matches BlockValidation::Invalid(InvalidBlockDetails::TooManyExUnits{provided, max: _})
     if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
     fn test_ex_units(
-        (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
+        (block, protocol_parameters): (Block<'_>, ProtocolParameters),
     ) -> BlockValidation<(), String> {
         super::block_ex_units_valid(block.ex_units(), &protocol_parameters)
     }

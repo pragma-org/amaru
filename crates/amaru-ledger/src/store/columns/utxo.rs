@@ -17,7 +17,7 @@ use iter_borrow::IterBorrow;
 
 pub type Key = TransactionInput;
 
-pub type Value = TransactionOutput;
+pub type Value<'b> = TransactionOutput<'b>;
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
+pub type Iter<'a, 'b, 'o> = IterBorrow<'a, 'b, Key, Option<Value<'o>>>;

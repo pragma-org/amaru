@@ -30,8 +30,8 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash,
-    Lovelace, MintedBlock, Point, PoolId, Slot, StakeCredential, TransactionInput,
+    expect_stake_credential, stake_credential_hash, stake_credential_type, Block, Epoch,
+    EraHistory, Hash, Lovelace, Point, PoolId, Slot, StakeCredential, TransactionInput,
     TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9,
     SLOTS_PER_KES_PERIOD, STABILITY_WINDOW, STAKE_POOL_DEPOSIT,
 };
@@ -62,10 +62,10 @@ const EVENT_TARGET: &str = "amaru::ledger::state";
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
 ///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
-pub struct State<S, HS>
+pub struct State<'s, S, HS>
 where
-    S: Store,
-    HS: HistoricalStores,
+    S: Store<'s>,
+    HS: HistoricalStores<'s>,
 {
     /// A handle to the stable store, shared across all ledger instances.
     stable: Arc<Mutex<S>>,
@@ -74,7 +74,7 @@ where
     snapshots: HS,
 
     /// Our own in-memory vector of volatile deltas to apply onto the stable store in due time.
-    volatile: VolatileDB,
+    volatile: VolatileDB<'s>,
 
     /// The computed rewards summary to be applied on the next epoch boundary. This is computed
     /// once in the epoch, and held until the end where it is reset.
@@ -102,7 +102,7 @@ where
     era_history: EraHistory,
 }
 
-impl<S: Store, HS: HistoricalStores> State<S, HS> {
+impl<'store, S: Store<'store>, HS: HistoricalStores<'store>> State<'store, S, HS> {
     #[allow(clippy::unwrap_used)]
     #[allow(clippy::panic)]
     pub fn new(stable: Arc<Mutex<S>>, snapshots: HS, era_history: &EraHistory) -> Self {
@@ -190,7 +190,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all, fields(point.slot = ?now_stable.anchor.0.slot_or_default()))]
-    fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
+    fn apply_block(&mut self, now_stable: AnchoredVolatileState<'_>) -> Result<(), StateError> {
         let start_slot = now_stable.anchor.0.slot_or_default();
 
         let current_epoch = self
@@ -295,7 +295,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// the internal state of the ledger.
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
-    pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
+    pub fn forward<'a>(&mut self, next_state: AnchoredVolatileState<'a>) -> Result<(), StateError>
+    where
+        'a: 'store,
+    {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
         if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
@@ -339,9 +342,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[allow(clippy::unwrap_used)]
     pub fn resolve_inputs<'a>(
         &'_ self,
-        ongoing_state: &VolatileState,
+        ongoing_state: &'store VolatileState<'_>,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<(TransactionInput, Option<TransactionOutput>)>, StoreError> {
+    ) -> Result<Vec<(TransactionInput, Option<TransactionOutput<'_>>)>, StoreError> {
         let mut result = Vec::new();
 
         // TODO: perform lookup in batch, and possibly within the same transaction as other
@@ -356,7 +359,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                     let db = self.stable.lock().unwrap();
                     db.utxo(input)
                 })?;
-
             result.push((input.clone(), output));
         }
 
@@ -365,8 +367,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 }
 
 #[allow(clippy::panic)]
-fn recover_stake_distribution(
-    snapshots: &impl HistoricalStores,
+fn recover_stake_distribution<'store>(
+    snapshots: &impl HistoricalStores<'store>,
     epoch: Epoch,
     era_history: &EraHistory,
 ) -> Result<StakeDistribution, StateError> {
@@ -392,8 +394,8 @@ fn recover_stake_distribution(
 // ----------------------------------------------------------------------------
 
 #[instrument(level = Level::INFO, skip_all, fields(from = next_epoch - 1, into = next_epoch))]
-fn epoch_transition(
-    db: &mut impl Store,
+fn epoch_transition<'store>(
+    db: &mut impl Store<'store>,
     next_epoch: Epoch,
     rewards_summary: Option<RewardsSummary>,
 ) -> Result<(), StateError> {
@@ -669,7 +671,7 @@ pub(crate) struct FailedTransactions {
 }
 
 impl FailedTransactions {
-    pub(crate) fn from_block(block: &MintedBlock<'_>) -> Self {
+    pub(crate) fn from_block(block: &Block<'_>) -> Self {
         FailedTransactions {
             inner: block
                 .invalid_transactions

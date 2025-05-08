@@ -29,15 +29,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::trace;
 
 #[derive(Debug)]
-pub struct DefaultValidationContext {
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
-    state: VolatileState,
+pub struct DefaultValidationContext<'b> {
+    utxo: BTreeMap<TransactionInput, TransactionOutput<'b>>,
+    state: VolatileState<'b>,
     required_signers: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
-impl DefaultValidationContext {
-    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput>) -> Self {
+impl<'b> DefaultValidationContext<'b> {
+    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput<'b>>) -> Self {
         Self {
             utxo,
             state: VolatileState::default(),
@@ -47,24 +47,27 @@ impl DefaultValidationContext {
     }
 }
 
-impl From<DefaultValidationContext> for VolatileState {
-    fn from(ctx: DefaultValidationContext) -> VolatileState {
+impl<'a, 'b> From<DefaultValidationContext<'b>> for VolatileState<'a>
+where
+    'b: 'a,
+{
+    fn from(ctx: DefaultValidationContext<'b>) -> VolatileState<'a> {
         ctx.state
     }
 }
 
-impl ValidationContext for DefaultValidationContext {
-    type FinalState = VolatileState;
+impl<'b> ValidationContext<'b> for DefaultValidationContext<'b> {
+    type FinalState = VolatileState<'b>;
 }
 
-impl PotsSlice for DefaultValidationContext {
+impl<'b> PotsSlice for DefaultValidationContext<'b> {
     fn add_fees(&mut self, fees: Lovelace) {
         self.state.fees += fees;
     }
 }
 
-impl UtxoSlice for DefaultValidationContext {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+impl<'b> UtxoSlice<'b> for DefaultValidationContext<'b> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'b>> {
         self.utxo.get(input).or(self.state.utxo.produced.get(input))
     }
 
@@ -73,12 +76,12 @@ impl UtxoSlice for DefaultValidationContext {
         self.state.utxo.consume(input)
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'b>) {
         self.state.utxo.produce(input, output)
     }
 }
 
-impl PoolsSlice for DefaultValidationContext {
+impl<'b> PoolsSlice for DefaultValidationContext<'b> {
     fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
         unimplemented!()
     }
@@ -94,7 +97,7 @@ impl PoolsSlice for DefaultValidationContext {
     }
 }
 
-impl AccountsSlice for DefaultValidationContext {
+impl<'b> AccountsSlice for DefaultValidationContext<'b> {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
         unimplemented!()
     }
@@ -144,7 +147,7 @@ impl AccountsSlice for DefaultValidationContext {
     }
 }
 
-impl DRepsSlice for DefaultValidationContext {
+impl<'b> DRepsSlice for DefaultValidationContext<'b> {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepState> {
         unimplemented!()
     }
@@ -188,7 +191,7 @@ impl DRepsSlice for DefaultValidationContext {
     }
 }
 
-impl CommitteeSlice for DefaultValidationContext {
+impl<'b> CommitteeSlice for DefaultValidationContext<'b> {
     fn delegate_cold_key(
         &mut self,
         cc_member: StakeCredential,
@@ -210,7 +213,7 @@ impl CommitteeSlice for DefaultValidationContext {
     }
 }
 
-impl ProposalsSlice for DefaultValidationContext {
+impl<'b> ProposalsSlice for DefaultValidationContext<'b> {
     #[allow(clippy::unwrap_used)]
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
         self.state
@@ -220,7 +223,7 @@ impl ProposalsSlice for DefaultValidationContext {
     }
 }
 
-impl WitnessSlice for DefaultValidationContext {
+impl<'b> WitnessSlice for DefaultValidationContext<'b> {
     fn require_witness(&mut self, credential: StakeCredential) {
         match credential {
             StakeCredential::AddrKeyhash(vk_hash) => {

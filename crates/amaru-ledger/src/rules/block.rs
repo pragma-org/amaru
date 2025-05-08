@@ -22,7 +22,7 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, Block, ExUnits, HasExUnits, Hash,
     OriginalHash, StakeCredential, TransactionPointer,
 };
 use std::{
@@ -118,11 +118,15 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
-pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
+pub fn execute<'a, C, S>(
     context: &mut C,
     protocol_params: ProtocolParameters,
-    block: &MintedBlock<'_>,
-) -> BlockValidation<(), anyhow::Error> {
+    block: &Block<'_>,
+) -> BlockValidation<(), anyhow::Error>
+where
+    C: ValidationContext<'a, FinalState = S>,
+    S: From<C>,
+{
     header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;
 
     body_size::block_body_size_valid(block)?;
@@ -154,7 +158,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
         let auxiliary_data: Option<&AuxiliaryData> = block
             .auxiliary_data_set
             .iter()
-            .find(|key_pair| key_pair.0 == i)
+            .find(|key_pair| key_pair.0 == &i)
             .map(|key_pair| key_pair.1.deref());
 
         transaction

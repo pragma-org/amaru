@@ -37,14 +37,14 @@ pub enum InvalidInputs {
     UncategorizedError(String),
 }
 
-pub fn execute<C>(
+pub fn execute<'b, C>(
     context: &mut C,
     inputs: &Vec<TransactionInput>,
     reference_inputs: Option<&Vec<TransactionInput>>,
     collaterals: Option<&Vec<TransactionInput>>,
 ) -> Result<(), InvalidInputs>
 where
-    C: UtxoSlice + WitnessSlice,
+    C: UtxoSlice<'b> + WitnessSlice,
 {
     // Check for disjoint reference inputs.
     let intersection = match &reference_inputs {
@@ -106,7 +106,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, TransactionBody};
     use test_case::test_case;
     use tracing_json::assert_trace;
 
@@ -167,8 +167,8 @@ mod tests {
         "valid byron address")]
     fn inputs(
         (ctx, tx, expected_traces): (
-            AssertPreparationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
+            AssertPreparationContext<'_>,
+            KeepRaw<'_, TransactionBody<'_>>,
             Vec<json::Value>,
         ),
     ) -> Result<(), InvalidInputs> {

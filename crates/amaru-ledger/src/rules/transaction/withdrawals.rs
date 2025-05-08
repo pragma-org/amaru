@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::collections::BTreeMap;
+
 use crate::{
     context::{AccountsSlice, WitnessSlice},
     rules::TransactionField,
@@ -31,7 +33,7 @@ pub enum InvalidWithdrawals {
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    withdrawals: Option<&Vec<(RewardAccount, Lovelace)>>,
+    withdrawals: Option<&BTreeMap<RewardAccount, Lovelace>>,
 ) -> Result<(), InvalidWithdrawals>
 where
     C: WitnessSlice + AccountsSlice,
@@ -69,7 +71,7 @@ mod test {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::TransactionField,
     };
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, TransactionBody};
     use test_case::test_case;
     use tracing_json::assert_trace;
 
@@ -109,7 +111,7 @@ mod test {
             if  position == 0 && bytes == vec![0x00, 0x00] && matches!(context, TransactionField::Withdrawals);
         "Malformed Reward Account")]
     fn valid_withdrawal(
-        (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
+        (tx, expected_traces): (KeepRaw<'_, TransactionBody<'_>>, Vec<json::Value>),
     ) -> Result<(), InvalidWithdrawals> {
         assert_trace(
             || {
@@ -117,7 +119,7 @@ mod test {
                     utxo: Default::default(),
                 });
 
-                super::execute(&mut context, tx.withdrawals.as_deref())
+                super::execute(&mut context, tx.withdrawals.as_ref())
             },
             expected_traces,
         )

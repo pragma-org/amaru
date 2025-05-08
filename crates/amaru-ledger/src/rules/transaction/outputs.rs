@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use crate::rules::{format_vec, WithPosition};
-use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Lovelace, MintedTransactionOutput, TransactionOutput,
-};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, Lovelace, TransactionOutput};
 use thiserror::Error;
 
 mod inherent_value;
@@ -39,8 +37,8 @@ pub enum InvalidOutput {
 
 pub fn execute(
     protocol_parameters: &ProtocolParameters,
-    outputs: Vec<MintedTransactionOutput<'_>>,
-    yield_output: &mut impl FnMut(u64, TransactionOutput),
+    outputs: Vec<TransactionOutput<'_>>,
+    yield_output: &mut impl FnMut(u64, TransactionOutput<'_>),
 ) -> Result<(), InvalidOutputs> {
     let mut invalid_outputs = Vec::new();
     for (position, output) in outputs.into_iter().enumerate() {
@@ -61,8 +59,7 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, MintedTransactionBody,
-        TransactionOutput,
+        include_cbor, protocol_parameters::ProtocolParameters, TransactionBody, TransactionOutput,
     };
     use test_case::test_case;
 
@@ -103,9 +100,9 @@ mod tests {
 
     fn test_inherent_value(
         (tx, protocol_parameters, yield_output): (
-            MintedTransactionBody<'_>,
+            TransactionBody<'_>,
             ProtocolParameters,
-            &mut impl FnMut(u64, TransactionOutput),
+            &mut impl FnMut(u64, TransactionOutput<'_>),
         ),
     ) -> Result<(), InvalidOutputs> {
         super::execute(&protocol_parameters, tx.outputs, yield_output)
