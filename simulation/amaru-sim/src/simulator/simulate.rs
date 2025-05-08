@@ -24,50 +24,44 @@
 // Go to 3 and continue until heap is empty;
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
-use crate::echo::Envelope;
+use crate::echo::{EchoMessage, Envelope};
 
-use super::sync::ChainSyncMessage;
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestError, TestRunner};
 use std::collections::{BTreeMap, BinaryHeap};
+use std::fmt::Debug;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Message {
+pub struct Entry<Msg> {
     arrival_time: Instant,
-    message: Envelope<ChainSyncMessage>,
+    envelope: Envelope<Msg>,
 }
 
-impl PartialOrd for Message {
+impl<Msg: PartialEq> PartialOrd for Entry<Msg> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.cmp(other))
+        Some(self.arrival_time.cmp(&other.arrival_time))
     }
 }
 
-impl Ord for Message {
-    fn cmp(&self, _other: &Self) -> std::cmp::Ordering {
-        todo!()
+impl<Msg: PartialEq> Ord for Entry<Msg> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.arrival_time.cmp(&other.arrival_time)
     }
 }
 
-impl Eq for Message {}
+impl<Msg: PartialEq> Eq for Entry<Msg> {}
 
 type NodeId = String;
 
 // TODO: should be RK's handle to interact with a node
 pub trait NodeHandle {
-    fn handle(&self, message: ChainSyncMessage) -> Vec<Envelope<ChainSyncMessage>>;
+    fn handle(&self, message: Envelope<EchoMessage>) -> Vec<Envelope<EchoMessage>>;
     fn close(&self);
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Trace(Vec<Envelope<ChainSyncMessage>>);
-
-pub struct World {
-    heap: BinaryHeap<Message>,
-    nodes: BTreeMap<NodeId, Box<dyn NodeHandle>>,
-    trace: Trace,
-}
+pub struct Trace(Vec<Envelope<EchoMessage>>);
 
 #[derive(Debug, PartialEq)]
 pub enum Next {
@@ -75,10 +69,16 @@ pub enum Next {
     Continue,
 }
 
+pub struct World {
+    heap: BinaryHeap<Entry<EchoMessage>>,
+    nodes: BTreeMap<NodeId, Box<dyn NodeHandle>>,
+    trace: Trace,
+}
+
 #[allow(dead_code)]
 impl World {
     pub fn new(
-        initial_messages: Vec<Message>,
+        initial_messages: Vec<Entry<EchoMessage>>,
         node_handles: Vec<(NodeId, Box<dyn NodeHandle>)>,
     ) -> Self {
         World {
@@ -92,36 +92,36 @@ impl World {
     /// see https://github.com/pragma-org/simulation-testing/blob/main/blog/dist/04-simulation-testing-main-loop.md
     pub fn step_world(&mut self) -> Next {
         match self.heap.pop() {
-            Some(Message {
+            Some(Entry {
                 arrival_time,
-                message,
+                envelope,
             }) =>
             // TODO: deal with time advance across all nodes
             // eg. run all nodes whose next action is ealier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
             {
-                match self.nodes.get(&message.dest) {
+                match self.nodes.get(&envelope.dest) {
                     Some(node) => {
                         let (client_responses, outputs): (Vec<_>, Vec<_>) = node
-                            .handle(message.body.clone())
+                            .handle(envelope.clone())
                             .into_iter()
                             .partition(|msg| msg.dest.starts_with("c"));
                         outputs
                             .iter()
-                            .map(|envelope| Message {
+                            .map(|envelope| Entry {
                                 arrival_time: arrival_time + Duration::from_millis(100),
-                                message: envelope.clone(),
+                                envelope: envelope.clone(),
                             })
                             .for_each(|msg| self.heap.push(msg));
-                        if message.src.starts_with("c") {
-                            self.trace.0.push(message);
+                        if envelope.src.starts_with("c") {
+                            self.trace.0.push(envelope);
                         }
                         client_responses
                             .iter()
                             .for_each(|msg| self.trace.0.push(msg.clone()));
                         Next::Continue
                     }
-                    None => panic!("unknown destination node '{}'", message.dest),
+                    None => panic!("unknown destination node '{}'", envelope.dest),
                 }
             }
             None => Next::Done,
@@ -138,11 +138,21 @@ pub fn simulate(
     config: Config,
     number_of_nodes: u8,
     spawn: fn() -> Box<dyn NodeHandle>,
-    generate_message: impl Strategy<Value = Message>,
+    generate_message: impl Strategy<Value = EchoMessage>,
     property: fn(Trace) -> Result<(), String>,
 ) {
     let mut runner = TestRunner::new(config);
-    let generate_messages = prop::collection::vec(generate_message, 0..20);
+    let generate_messages = prop::collection::vec(
+        generate_message.prop_map(|msg| Entry {
+            arrival_time: Instant::now(),
+            envelope: Envelope {
+                src: "c1".to_string(),
+                dest: "n1".to_string(),
+                body: msg,
+            },
+        }),
+        0..20,
+    );
     let result = runner.run(&generate_messages, |initial_messages| {
         let node_handles = (1..number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))
@@ -155,9 +165,8 @@ pub fn simulate(
         // node_handles.into_iter().map(|(_node_id, node_handle)| node_handle.close());
 
         match property(trace) {
-          Ok(()) => (),
-          Err(reason) => assert!(false, "{}", reason)
-
+            Ok(()) => (),
+            Err(reason) => assert!(false, "{}", reason),
         }
         Ok(())
     });
