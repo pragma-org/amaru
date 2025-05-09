@@ -63,7 +63,7 @@ pub struct NodeHandle {
     close: Box<dyn FnMut()>,
 }
 
-pub fn pipe_node_handle<'a>(filepath: &'a Path, args: &'a [&'a str]) -> Result<NodeHandle, String> {
+pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, String> {
     let mut child = Command::new(filepath)
         .args(args)
         .stdin(Stdio::piped())
@@ -145,7 +145,7 @@ impl World {
             // eg. run all nodes whose next action is ealier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
             {
-                match self.nodes.get(&envelope.dest) {
+                match self.nodes.get_mut(&envelope.dest) {
                     Some(node) => match (node.handle)(envelope.clone()) {
                         Ok(outgoing) => {
                             let (client_responses, outputs): (
