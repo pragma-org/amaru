@@ -59,11 +59,11 @@ type NodeId = String;
 
 // TODO: should be RK's handle to interact with a node
 pub struct NodeHandle {
-    handle: Box<dyn Fn(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, String>>,
+    handle: Box<dyn FnMut(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, String>>,
     close: Box<dyn FnMut()>,
 }
 
-pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, String> {
+pub fn pipe_node_handle<'a>(filepath: &'a Path, args: &'a [&'a str]) -> Result<NodeHandle, String> {
     let mut child = Command::new(filepath)
         .args(args)
         .stdin(Stdio::piped())
@@ -71,7 +71,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, St
         .spawn()
         .map_err(|e| format!("Failed to create process: {}", e))?;
     let mut stdin = child.stdin.take().ok_or("Failed to take stdin")?;
-    let stdout = child.stdout.take().ok_or("Failed to take stdout")?;
+    let mut stdout = child.stdout.take().ok_or("Failed to take stdout")?;
 
     let handle = Box::new(move |msg: Envelope<EchoMessage>| {
         writeln!(
@@ -84,7 +84,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, St
             .flush()
             .map_err(|e| format!("Failed to flush child's stdin: {}", e))?;
 
-        let mut reader = BufReader::new(stdout);
+        let mut reader = BufReader::new(&mut stdout);
         let mut line = String::new();
         reader
             .read_line(&mut line)
