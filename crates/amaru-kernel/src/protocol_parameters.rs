@@ -50,11 +50,14 @@ pub struct ProtocolParameters {
 }
 
 fn decode_u64(d: &mut Decoder<'_>) -> Result<u64, cbor::decode::Error> {
+    #[allow(clippy::wildcard_enum_match_arm)]
     match d.datatype()? {
         cbor::data::Type::U8 => Ok(d.u8()? as u64),
         cbor::data::Type::U16 => Ok(d.u16()? as u64),
         cbor::data::Type::U32 => Ok(d.u32()? as u64),
-        _ => Err(cbor::decode::Error::message("Expected u8 or u16 or u32 for denominator")),
+        _ => Err(cbor::decode::Error::message(
+            "Expected u8 or u16 or u32 for denominator",
+        )),
     }
 }
 
@@ -63,7 +66,10 @@ fn decode_rationale(d: &mut Decoder<'_>) -> Result<RationalNumber, cbor::decode:
     d.array()?;
     let numerator = decode_u64(d)?;
     let denominator = decode_u64(d)?;
-    Ok(RationalNumber { numerator, denominator })
+    Ok(RationalNumber {
+        numerator,
+        denominator,
+    })
 }
 
 impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
@@ -80,14 +86,17 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         let optimal_stake_pools_count = d.u16()?;
         let pledge_influence = decode_rationale(d)?;
         let monetary_expansion_rate = decode_rationale(d)?;
-        
+
         let _ = decode_rationale(d)?; // TODO unknown 1  5
-        let _ = d.array()?; d.u8()?; d.u8()?; // TODO unknown 9  0
+        let _ = d.array()?;
+        d.u8()?;
+        d.u8()?; // TODO unknown 9  0
         let _ = d.u32()?; // TODO unknown 170000000
 
         let coins_per_utxo_byte = d.u16()? as u64;
-        
-        let _ = d.map()?; d.u8()?;
+
+        let _ = d.map()?;
+        d.u8()?;
         let plutus_v1 = d.decode_with(ctx)?;
         d.u8()?;
         let plutus_v2 = d.decode_with(ctx)?;
@@ -112,7 +121,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         let max_val_size = d.u16()? as u32;
         let collateral_percentage = d.u8()? as u16;
         let max_collateral_inputs = d.u8()? as u16;
-        
+
         // TODO validate order
         d.array()?;
         let pool_thresholds = PoolThresholds {
@@ -139,8 +148,8 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             treasury_withdrawal: decode_rationale(d)?,
         };
         let cc_min_size = d.u8()? as u16;
-        let cc_max_term_length = d.u8()?  as u32;
-        let gov_action_lifetime = d.u8()?  as u32;
+        let cc_max_term_length = d.u8()? as u32;
+        let gov_action_lifetime = d.u8()? as u32;
         let gov_action_deposit = d.u64()?;
         let drep_deposit = d.u32()? as u64;
         let drep_expiry = d.u8()? as u64;
@@ -190,7 +199,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
                 numerator: 2,
                 denominator: 10,
             },
-         })
+        })
     }
 }
 
