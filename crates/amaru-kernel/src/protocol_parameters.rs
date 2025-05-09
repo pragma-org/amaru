@@ -49,21 +49,20 @@ pub struct ProtocolParameters {
     pub drep_expiry: Epoch,
 }
 
+fn decode_u64(d: &mut Decoder<'_>) -> Result<u64, cbor::decode::Error> {
+    match d.datatype()? {
+        cbor::data::Type::U8 => Ok(d.u8()? as u64),
+        cbor::data::Type::U16 => Ok(d.u16()? as u64),
+        cbor::data::Type::U32 => Ok(d.u32()? as u64),
+        _ => Err(cbor::decode::Error::message("Expected u8 or u16 or u32 for denominator")),
+    }
+}
+
 fn decode_rationale(d: &mut Decoder<'_>) -> Result<RationalNumber, cbor::decode::Error> {
     d.tag()?;
     d.array()?;
-    let numerator = match d.datatype()? {
-        cbor::data::Type::U8 => d.u8()? as u64,
-        cbor::data::Type::U16 => d.u16()? as u64,
-        cbor::data::Type::U32 => d.u32()? as u64,
-        _ => panic!("Expected u8 or u16 or u32 for numerator"),
-    };
-    let denominator = match d.datatype()? {
-        cbor::data::Type::U8 => d.u8()? as u64,
-        cbor::data::Type::U16 => d.u16()? as u64,
-        cbor::data::Type::U32 => d.u32()? as u64,
-        _ => panic!("Expected u8 or u16 or u32 for denominator"),
-    };
+    let numerator = decode_u64(d)?;
+    let denominator = decode_u64(d)?;
     Ok(RationalNumber { numerator, denominator })
 }
 
