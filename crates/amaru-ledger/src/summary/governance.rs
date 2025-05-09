@@ -55,8 +55,8 @@ pub enum Error {
 }
 
 impl GovernanceSummary {
-    pub fn new<'s>(
-        db: &impl Snapshot<'s>,
+    pub fn new(
+        db: &impl Snapshot,
         protocol_version: ProtocolVersion,
         era_history: &EraHistory,
     ) -> Result<Self, Error> {

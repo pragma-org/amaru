@@ -26,7 +26,7 @@ pub enum InvalidFees {
     },
 }
 
-pub(crate) fn execute<'b, C>(
+pub(crate) fn execute<C>(
     context: &mut C,
     is_valid: bool,
     fees: Lovelace,
@@ -34,7 +34,7 @@ pub(crate) fn execute<'b, C>(
     collateral_return: Option<&TransactionOutput<'_>>,
 ) -> Result<(), InvalidFees>
 where
-    C: UtxoSlice<'b> + PotsSlice,
+    C: UtxoSlice + PotsSlice,
 {
     if is_valid {
         context.add_fees(fees);
@@ -120,7 +120,7 @@ mod tests {
         "Unresolved collateral")]
     fn fees(
         (ctx, tx, expected_traces, is_valid): (
-            AssertPreparationContext<'_>,
+            AssertPreparationContext,
             KeepRaw<'_, TransactionBody<'_>>,
             Vec<json::Value>,
             bool,

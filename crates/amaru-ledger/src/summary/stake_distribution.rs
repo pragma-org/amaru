@@ -68,8 +68,8 @@ impl StakeDistribution {
     /// Compute a new stake distribution snapshot using data available in the `Store`.
     ///
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
-    pub fn new<'s>(
-        db: &impl Snapshot<'s>,
+    pub fn new(
+        db: &impl Snapshot,
         protocol_version: ProtocolVersion,
         GovernanceSummary {
             mut dreps,
@@ -118,7 +118,7 @@ impl StakeDistribution {
         // significantly cheaper if we only partially deserialize the UTxOs here. We only need the
         // output's address and *lovelace* value, so we can skip on deserializing the rest of the value, as
         // well as the datum and/or script references if any.
-        db.iter_utxos()?.for_each(|(_, output)| {
+        db.iter_utxos()?.for_each(|(_, utxo::Value(output))| {
             if let Ok(Some(credential)) = output_stake_credential(&output) {
                 let value = output.lovelace();
                 accounts

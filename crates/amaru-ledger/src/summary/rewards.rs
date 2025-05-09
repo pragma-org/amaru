@@ -374,8 +374,8 @@ impl RewardsSummary {
         self.epoch
     }
 
-    pub fn new<'s>(
-        db: &impl Snapshot<'s>,
+    pub fn new(
+        db: &impl Snapshot,
         stake_distribution: StakeDistribution,
     ) -> Result<Self, StoreError> {
         let pots = db.pots()?;
@@ -509,10 +509,7 @@ impl RewardsSummary {
     // rewards calculation for 174 kicks in later in the epoch, the deposit was already added to the
     // treasury... So it won't be present from our snapshot labeled 176 since it happened BEFORE the
     // beginning of the epoch 177.
-    pub fn with_unclaimed_refunds<'s>(
-        mut self,
-        db: &impl Snapshot<'s>,
-    ) -> Result<Self, StoreError> {
+    pub fn with_unclaimed_refunds(mut self, db: &impl Snapshot) -> Result<Self, StoreError> {
         let leftovers = db.iter_pools()?.try_fold(0, |leftovers, (_, row)| {
             if let Some(account) = pools::Row::tick(
                 Box::new(BorrowableProxy::new(Some(row), |_| {})),
@@ -532,9 +529,7 @@ impl RewardsSummary {
     }
 
     /// Count blocks produced by pools, returning the total count and map indexed by poolid.
-    fn count_blocks<'s>(
-        db: &impl Snapshot<'s>,
-    ) -> Result<(u64, BTreeMap<PoolId, u64>), StoreError> {
+    fn count_blocks(db: &impl Snapshot) -> Result<(u64, BTreeMap<PoolId, u64>), StoreError> {
         let mut total: u64 = 0;
         let mut per_pool: BTreeMap<Hash<28>, u64> = BTreeMap::new();
 

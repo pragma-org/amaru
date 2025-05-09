@@ -41,12 +41,12 @@ pub const EVENT_TARGET: &str = "amaru::ledger::state::volatile_db";
 // Another option is to have the cache not own data, but indices onto the sequence. This may
 // require to switch the sequence back to a Vec to allow fast random lookups.
 #[derive(Default)]
-pub struct VolatileDB<'a> {
-    cache: VolatileCache<'a>,
-    sequence: VecDeque<AnchoredVolatileState<'a>>,
+pub struct VolatileDB {
+    cache: VolatileCache,
+    sequence: VecDeque<AnchoredVolatileState>,
 }
 
-impl<'a> VolatileDB<'a> {
+impl VolatileDB {
     pub fn is_empty(&self) -> bool {
         self.sequence.is_empty()
     }
@@ -55,15 +55,15 @@ impl<'a> VolatileDB<'a> {
         self.sequence.len()
     }
 
-    pub fn view_back(&self) -> Option<&AnchoredVolatileState<'a>> {
+    pub fn view_back(&self) -> Option<&AnchoredVolatileState> {
         self.sequence.back()
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput<'a>> {
+    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.cache.utxo.produced.get(input)
     }
 
-    pub fn pop_front(&mut self) -> Option<AnchoredVolatileState<'a>> {
+    pub fn pop_front(&mut self) -> Option<AnchoredVolatileState> {
         self.sequence.pop_front().inspect(|state| {
             // NOTE: It is imperative to remove consumed and produced UTxOs from the cache as we
             // remove them from the sequence to prevent the cache from growing out of proportion.
@@ -77,7 +77,7 @@ impl<'a> VolatileDB<'a> {
         })
     }
 
-    pub fn push_back(&mut self, state: AnchoredVolatileState<'a>) {
+    pub fn push_back(&mut self, state: AnchoredVolatileState) {
         // TODO: See NOTE on VolatileDB regarding the .clone()
         self.cache.merge(state.state.utxo.clone());
         self.sequence.push_back(state);
@@ -117,12 +117,12 @@ impl<'a> VolatileDB<'a> {
 // It would be relatively easy to extend to accounts, but it is trickier for pools since
 // DiffEpochReg aren't meant to be mergeable across epochs.
 #[derive(Default)]
-struct VolatileCache<'b> {
-    pub utxo: DiffSet<TransactionInput, TransactionOutput<'b>>,
+struct VolatileCache {
+    pub utxo: DiffSet<TransactionInput, TransactionOutput<'static>>,
 }
 
-impl<'a> VolatileCache<'a> {
-    pub fn merge(&mut self, utxo: DiffSet<TransactionInput, TransactionOutput<'a>>) {
+impl VolatileCache {
+    pub fn merge(&mut self, utxo: DiffSet<TransactionInput, TransactionOutput<'static>>) {
         self.utxo.merge(utxo);
     }
 }
@@ -131,8 +131,8 @@ impl<'a> VolatileCache<'a> {
 // ----------------------------------------------------------------------------
 
 #[derive(Debug, Default)]
-pub struct VolatileState<'b> {
-    pub utxo: DiffSet<TransactionInput, TransactionOutput<'b>>,
+pub struct VolatileState {
+    pub utxo: DiffSet<TransactionInput, TransactionOutput<'static>>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
@@ -144,26 +144,20 @@ pub struct VolatileState<'b> {
     pub fees: Lovelace,
 }
 
-pub struct AnchoredVolatileState<'state> {
+pub struct AnchoredVolatileState {
     pub anchor: (Point, PoolId),
-    pub state: VolatileState<'state>,
+    pub state: VolatileState,
 }
 
-impl<'state, 'anchor, 'b> VolatileState<'state> {
-    pub fn anchor(self, point: &Point, issuer: PoolId) -> AnchoredVolatileState<'anchor>
-    where
-        'state: 'anchor,
-    {
+impl VolatileState {
+    pub fn anchor(self, point: &Point, issuer: PoolId) -> AnchoredVolatileState {
         AnchoredVolatileState {
             anchor: (point.clone(), issuer),
             state: self,
         }
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput<'b>>
-    where
-        'state: 'b,
-    {
+    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.utxo.produced.get(input)
     }
 }
@@ -181,15 +175,15 @@ pub struct StoreUpdate<W, A, R> {
     pub remove: R,
 }
 
-impl<'state> AnchoredVolatileState<'state> {
+impl AnchoredVolatileState {
     #[allow(clippy::type_complexity)]
-    pub fn into_store_update<'v>(
+    pub fn into_store_update(
         mut self,
         epoch: Epoch,
     ) -> StoreUpdate<
         impl Iterator<Item = accounts::Key>,
         store::Columns<
-            impl Iterator<Item = (utxo::Key, utxo::Value<'v>)>,
+            impl Iterator<Item = (utxo::Key, utxo::Value)>,
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
@@ -204,10 +198,7 @@ impl<'state> AnchoredVolatileState<'state> {
             impl Iterator<Item = cc_members::Key>,
             impl Iterator<Item = proposals::Key>,
         >,
-    >
-    where
-        'state: 'v,
-    {
+    > {
         StoreUpdate {
             point: self.anchor.0,
             issuer: self.anchor.1,
@@ -215,7 +206,12 @@ impl<'state> AnchoredVolatileState<'state> {
             withdrawals: self.state.withdrawals.into_iter(),
             voting_dreps: self.state.voting_dreps,
             add: store::Columns {
-                utxo: self.state.utxo.produced.into_iter(),
+                utxo: self
+                    .state
+                    .utxo
+                    .produced
+                    .into_iter()
+                    .map(|(i, o)| (i, utxo::Value(o))),
                 pools: self.state.pools.registered.into_iter().flat_map(
                     move |(_, registrations)| {
                         registrations

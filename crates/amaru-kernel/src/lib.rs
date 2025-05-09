@@ -26,8 +26,8 @@ use num::{rational::Ratio, BigUint};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::{
-    babbage::GenPostAlonzoTransactionOutput,
-    conway::{Redeemer, RedeemersKey, RedeemersValue, ScriptRef},
+    self,
+    babbage::{GenPostAlonzoTransactionOutput, GenTransactionOutput},
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
@@ -42,7 +42,7 @@ use std::{
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{Bytes, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, CborWrap, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
@@ -52,16 +52,17 @@ pub use pallas_primitives::{
     // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
     // Investigate.
     alonzo,
-    babbage::{GenTransactionOutput, Header},
+    babbage::Header,
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, Epoch, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, NonEmptySet,
-        PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, RationalNumber,
-        Redeemers, Relay, RewardAccount, ScriptHash, StakeCredential, TransactionBody,
-        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter,
-        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, Epoch,
+        ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw,
+        NativeScript, NonEmptySet, PlutusData, PoolMetadata, PoolVotingThresholds,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, RationalNumber, Redeemer, Redeemers, RedeemersKey, RedeemersValue, Relay,
+        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -629,6 +630,60 @@ pub fn output_stake_credential(
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
     })
+}
+
+pub fn new_transaction_output(
+    address: Bytes,
+    value: Value,
+    datum: Option<DatumOption<'static>>,
+    script: Option<ScriptRef<'static>>,
+) -> TransactionOutput<'static> {
+    TransactionOutput::PostAlonzo(KeepRaw::from(PostAlonzoTransactionOutput {
+        address,
+        value,
+        datum_option: datum.map(KeepRaw::from),
+        script_ref: script.map(CborWrap),
+    }))
+}
+
+pub fn into_owned_output(output: TransactionOutput<'_>) -> TransactionOutput<'static> {
+    match output {
+        TransactionOutput::Legacy(legacy) => TransactionOutput::Legacy(legacy.to_owned()),
+        TransactionOutput::PostAlonzo(modern) => {
+            let modern = modern.unwrap();
+
+            let datum_option: Option<KeepRaw<'static, DatumOption<'static>>> =
+                modern.datum_option.map(|datum| {
+                    KeepRaw::from(match datum.unwrap() {
+                        DatumOption::Hash(hash) => DatumOption::Hash(hash),
+                        DatumOption::Data(cbor) => {
+                            DatumOption::Data(CborWrap(cbor.unwrap().to_owned()))
+                        }
+                    })
+                });
+
+            let script_ref: Option<CborWrap<ScriptRef<'static>>> = modern.script_ref.map(|cbor| {
+                CborWrap(match cbor.unwrap() {
+                    ScriptRef::NativeScript(keep_raw) => {
+                        ScriptRef::NativeScript(keep_raw.to_owned())
+                    }
+                    ScriptRef::PlutusV1Script(plutus) => ScriptRef::PlutusV1Script(plutus),
+                    ScriptRef::PlutusV2Script(plutus) => ScriptRef::PlutusV2Script(plutus),
+                    ScriptRef::PlutusV3Script(plutus) => ScriptRef::PlutusV3Script(plutus),
+                })
+            });
+
+            let raw: KeepRaw<'_, GenPostAlonzoTransactionOutput<'_, Value, ScriptRef<'_>>> =
+                KeepRaw::from(GenPostAlonzoTransactionOutput {
+                    address: modern.address,
+                    value: modern.value,
+                    datum_option,
+                    script_ref,
+                });
+
+            TransactionOutput::PostAlonzo(raw)
+        }
+    }
 }
 
 // StakeAddress

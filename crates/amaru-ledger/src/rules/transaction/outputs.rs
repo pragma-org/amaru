@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crate::rules::{format_vec, WithPosition};
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Lovelace, TransactionOutput};
+use amaru_kernel::{
+    into_owned_output, protocol_parameters::ProtocolParameters, Lovelace, TransactionOutput,
+};
 use thiserror::Error;
 
 mod inherent_value;
@@ -35,10 +37,10 @@ pub enum InvalidOutput {
     },
 }
 
-pub fn execute(
+pub fn execute<'block>(
     protocol_parameters: &ProtocolParameters,
-    outputs: Vec<TransactionOutput<'_>>,
-    yield_output: &mut impl FnMut(u64, TransactionOutput<'_>),
+    outputs: Vec<TransactionOutput<'block>>,
+    yield_output: &mut impl FnMut(u64, TransactionOutput<'static>),
 ) -> Result<(), InvalidOutputs> {
     let mut invalid_outputs = Vec::new();
     for (position, output) in outputs.into_iter().enumerate() {
@@ -46,7 +48,7 @@ pub fn execute(
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
         // TODO: Ensures the validation context can work from references to avoid cloning data.
-        yield_output(position as u64, TransactionOutput::from(output));
+        yield_output(position as u64, into_owned_output(output));
     }
 
     if !invalid_outputs.is_empty() {

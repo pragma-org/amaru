@@ -176,7 +176,7 @@ mod tests {
     )]
     fn test_vkey_witness(
         (mut ctx, transaction_id, witness_set): (
-            AssertValidationContext<'_>,
+            AssertValidationContext,
             TransactionId,
             WitnessSet<'_>,
         ),

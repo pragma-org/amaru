@@ -76,13 +76,13 @@ pub enum InvalidTransaction {
     Metadata(#[from] InvalidTransactionMetadata),
 }
 
-pub fn execute<'a>(
-    context: &mut impl ValidationContext<'a>,
+pub fn execute<'block>(
+    context: &mut impl ValidationContext,
     protocol_params: &ProtocolParameters,
     pointer: TransactionPointer,
     is_valid: bool,
-    transaction_body: KeepRaw<'_, TransactionBody<'_>>,
-    transaction_witness_set: &WitnessSet<'_>,
+    transaction_body: KeepRaw<'block, TransactionBody<'block>>,
+    transaction_witness_set: &WitnessSet<'block>,
     transaction_auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<(), InvalidTransaction> {
     let transaction_id = transaction_body.original_hash();

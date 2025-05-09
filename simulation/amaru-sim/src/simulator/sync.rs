@@ -213,8 +213,6 @@ pub fn mk_message(
 
 #[cfg(test)]
 mod test {
-    use std::str::FromStr;
-
     use crate::{
         echo::Envelope,
         simulator::{
@@ -223,7 +221,7 @@ mod test {
         },
     };
     use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer};
-    use amaru_kernel::Point;
+    use amaru_kernel::{to_cbor, Point};
     use pallas_codec::minicbor;
     use pallas_crypto::hash::Hasher;
     use pallas_primitives::{babbage, Hash};
@@ -231,6 +229,7 @@ mod test {
         prelude::{BoxedStrategy, *},
         proptest,
     };
+    use std::str::FromStr;
     use tracing::trace_span;
 
     use super::{
@@ -248,8 +247,8 @@ mod test {
 
     fn some_forward() -> ChainSyncMessage {
         let header_bytes = hex::decode(TEST_HEADER).unwrap();
-        let header: babbage::MintedHeader<'_> = minicbor::decode(&header_bytes).unwrap();
-        let header_hash = Hasher::<256>::hash(header.raw_cbor());
+        let header: babbage::Header = minicbor::decode(&header_bytes).unwrap();
+        let header_hash = Hasher::<256>::hash(&to_cbor(&header));
         Fwd {
             msg_id: 1,
             slot: From::from(1234),

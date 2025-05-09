@@ -15,7 +15,7 @@
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
     CertificatePointer, Epoch, EraHistory, Lovelace, Point, PoolId, StakeCredential,
-    TransactionInput, TransactionOutput,
+    TransactionInput,
 };
 use amaru_ledger::{
     store::{
@@ -209,8 +209,12 @@ macro_rules! impl_ReadOnlyStore {
                 accounts::get(&self.db, credential)
             }
 
-            fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
+            fn utxo(&self, input: &TransactionInput) -> Result<Option<scolumns::utxo::Value>, StoreError> {
                 utxo::get(&self.db, input)
+            }
+
+            fn pots(&self) -> Result<Pots, StoreError> {
+                pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
             }
 
             fn iter_utxos(
@@ -218,10 +222,6 @@ macro_rules! impl_ReadOnlyStore {
             ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
             {
                 iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
-            }
-
-            fn pots(&self) -> Result<Pots, StoreError> {
-                pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
             }
 
             fn iter_accounts(

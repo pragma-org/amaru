@@ -29,15 +29,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use tracing::trace;
 
 #[derive(Debug)]
-pub struct DefaultValidationContext<'b> {
-    utxo: BTreeMap<TransactionInput, TransactionOutput<'b>>,
-    state: VolatileState<'b>,
+pub struct DefaultValidationContext {
+    utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
+    state: VolatileState,
     required_signers: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
-impl<'b> DefaultValidationContext<'b> {
-    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput<'b>>) -> Self {
+impl DefaultValidationContext {
+    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>) -> Self {
         Self {
             utxo,
             state: VolatileState::default(),
@@ -47,27 +47,24 @@ impl<'b> DefaultValidationContext<'b> {
     }
 }
 
-impl<'a, 'b> From<DefaultValidationContext<'b>> for VolatileState<'a>
-where
-    'b: 'a,
-{
-    fn from(ctx: DefaultValidationContext<'b>) -> VolatileState<'a> {
+impl From<DefaultValidationContext> for VolatileState {
+    fn from(ctx: DefaultValidationContext) -> VolatileState {
         ctx.state
     }
 }
 
-impl<'b> ValidationContext<'b> for DefaultValidationContext<'b> {
-    type FinalState = VolatileState<'b>;
+impl ValidationContext for DefaultValidationContext {
+    type FinalState = VolatileState;
 }
 
-impl<'b> PotsSlice for DefaultValidationContext<'b> {
+impl PotsSlice for DefaultValidationContext {
     fn add_fees(&mut self, fees: Lovelace) {
         self.state.fees += fees;
     }
 }
 
-impl<'b> UtxoSlice<'b> for DefaultValidationContext<'b> {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'b>> {
+impl UtxoSlice for DefaultValidationContext {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.utxo.get(input).or(self.state.utxo.produced.get(input))
     }
 
@@ -76,12 +73,12 @@ impl<'b> UtxoSlice<'b> for DefaultValidationContext<'b> {
         self.state.utxo.consume(input)
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'b>) {
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'static>) {
         self.state.utxo.produce(input, output)
     }
 }
 
-impl<'b> PoolsSlice for DefaultValidationContext<'b> {
+impl PoolsSlice for DefaultValidationContext {
     fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
         unimplemented!()
     }
@@ -97,7 +94,7 @@ impl<'b> PoolsSlice for DefaultValidationContext<'b> {
     }
 }
 
-impl<'b> AccountsSlice for DefaultValidationContext<'b> {
+impl AccountsSlice for DefaultValidationContext {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
         unimplemented!()
     }
@@ -147,7 +144,7 @@ impl<'b> AccountsSlice for DefaultValidationContext<'b> {
     }
 }
 
-impl<'b> DRepsSlice for DefaultValidationContext<'b> {
+impl DRepsSlice for DefaultValidationContext {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepState> {
         unimplemented!()
     }
@@ -191,7 +188,7 @@ impl<'b> DRepsSlice for DefaultValidationContext<'b> {
     }
 }
 
-impl<'b> CommitteeSlice for DefaultValidationContext<'b> {
+impl CommitteeSlice for DefaultValidationContext {
     fn delegate_cold_key(
         &mut self,
         cc_member: StakeCredential,
@@ -213,7 +210,7 @@ impl<'b> CommitteeSlice for DefaultValidationContext<'b> {
     }
 }
 
-impl<'b> ProposalsSlice for DefaultValidationContext<'b> {
+impl ProposalsSlice for DefaultValidationContext {
     #[allow(clippy::unwrap_used)]
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal) {
         self.state
@@ -223,7 +220,7 @@ impl<'b> ProposalsSlice for DefaultValidationContext<'b> {
     }
 }
 
-impl<'b> WitnessSlice for DefaultValidationContext<'b> {
+impl WitnessSlice for DefaultValidationContext {
     fn require_witness(&mut self, credential: StakeCredential) {
         match credential {
             StakeCredential::AddrKeyhash(vk_hash) => {

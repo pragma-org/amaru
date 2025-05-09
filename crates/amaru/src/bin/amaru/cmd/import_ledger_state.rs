@@ -13,16 +13,18 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory, Lovelace, Point,
-    PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential,
-    TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME,
-    STAKE_CREDENTIAL_DEPOSIT,
+    into_owned_output, network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory,
+    Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot,
+    StakeCredential, TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY,
+    GOV_ACTION_LIFETIME, STAKE_CREDENTIAL_DEPOSIT,
 };
 use amaru_ledger::{
     self,
     state::{self, diff_bind::Resettable},
     store::{
-        self, columns::proposals, EpochTransitionProgress, Store, StoreError, TransactionalContext,
+        self,
+        columns::{self, proposals},
+        EpochTransitionProgress, Store, StoreError, TransactionalContext,
     },
 };
 use amaru_stores::rocksdb::RocksDB;
@@ -277,9 +279,9 @@ fn decode_new_epoch_state(
                 import_utxo(
                     db,
                     point,
-                    d.decode::<HashMap<TransactionInput, TransactionOutput>>()?
+                    d.decode::<HashMap<TransactionInput, TransactionOutput<'_>>>()?
                         .into_iter()
-                        .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
+                        .collect::<Vec<(TransactionInput, TransactionOutput<'_>)>>(),
                 )?;
 
                 let _deposited: u64 = d.decode()?;
@@ -399,7 +401,7 @@ fn import_block_issuers(
 fn import_utxo(
     db: &impl Store,
     point: &Point,
-    mut utxo: Vec<(TransactionInput, TransactionOutput)>,
+    mut utxo: Vec<(TransactionInput, TransactionOutput<'_>)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(what = "utxo_entries", size = utxo.len());
 
@@ -423,7 +425,9 @@ fn import_utxo(
 
     while !utxo.is_empty() {
         let n = std::cmp::min(BATCH_SIZE, utxo.len());
-        let chunk = utxo.drain(0..n);
+        let chunk = utxo
+            .drain(0..n)
+            .map(|(i, o)| (i, columns::utxo::Value(into_owned_output(o))));
 
         transaction.save(
             point,

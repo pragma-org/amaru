@@ -152,7 +152,7 @@ mod tests {
     // If the key in the signature is the wrong length, the execute function will fail with MissingRequiredWitness
     fn bootstrap_witness(
         (mut ctx, tx, witness_set, expected_traces): (
-            AssertValidationContext<'_>,
+            AssertValidationContext,
             KeepRaw<'_, TransactionBody<'_>>,
             KeepRaw<'_, WitnessSet<'_>>,
             Vec<json::Value>,

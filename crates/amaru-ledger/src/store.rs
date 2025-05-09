@@ -27,7 +27,6 @@ use amaru_kernel::{
     PoolId,
     StakeCredential,
     TransactionInput,
-    TransactionOutput,
 };
 use columns::*;
 use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
@@ -66,7 +65,7 @@ pub enum StoreError {
 // Store
 // ----------------------------------------------------------------------------
 
-pub trait ReadOnlyStore<'a> {
+pub trait ReadOnlyStore {
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
 
@@ -74,13 +73,13 @@ pub trait ReadOnlyStore<'a> {
     fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>, StoreError>;
 
     /// Get details about a specific UTxO
-    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput<'a>>, StoreError>;
+    fn utxo(&self, input: &TransactionInput) -> Result<Option<utxo::Value>, StoreError>;
 
     /// Get current values of the treasury and reserves accounts.
     fn pots(&self) -> Result<Pots, StoreError>;
 
     /// Get details about all utxos
-    fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value<'_>)>, StoreError>;
+    fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value)>, StoreError>;
 
     /// Get details about all slot leaders
     fn iter_block_issuers(
@@ -104,11 +103,11 @@ pub trait ReadOnlyStore<'a> {
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
 }
 
-pub trait Snapshot<'store>: ReadOnlyStore<'store> {
+pub trait Snapshot: ReadOnlyStore {
     fn epoch(&self) -> Epoch;
 }
 
-pub trait Store<'a>: ReadOnlyStore<'a> {
+pub trait Store: ReadOnlyStore {
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
     #[allow(clippy::panic)]
@@ -141,9 +140,9 @@ pub trait Store<'a>: ReadOnlyStore<'a> {
     fn tip(&self) -> Result<Point, StoreError>;
 }
 
-pub trait HistoricalStores<'store> {
+pub trait HistoricalStores {
     ///Access a `Snapshot` for a specific `Epoch`
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot<'store>, StoreError>;
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
 
 #[derive(Debug, PartialEq, Eq, minicbor::Encode, minicbor::Decode)]
@@ -171,12 +170,12 @@ pub trait TransactionalContext<'a> {
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
-    fn save<'v>(
+    fn save(
         &self,
         point: &Point,
         issuer: Option<&pools::Key>,
         add: Columns<
-            impl Iterator<Item = (utxo::Key, utxo::Value<'v>)>,
+            impl Iterator<Item = (utxo::Key, utxo::Value)>,
             impl Iterator<Item = pools::Value>,
             impl Iterator<Item = (accounts::Key, accounts::Value)>,
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
@@ -223,7 +222,7 @@ pub trait TransactionalContext<'a> {
     fn with_block_issuers(&self, with: impl FnMut(slots::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     /// Provide an access to iterate over utxo, similar to 'with_pools'.
-    fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_, '_>)) -> Result<(), StoreError>;
+    fn with_utxo(&self, with: impl FnMut(utxo::Iter<'_, '_>)) -> Result<(), StoreError>;
 
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
     fn with_dreps(&self, with: impl FnMut(dreps::Iter<'_, '_>)) -> Result<(), StoreError>;

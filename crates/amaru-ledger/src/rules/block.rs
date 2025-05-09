@@ -118,13 +118,13 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 }
 
 #[instrument(level = Level::TRACE, skip_all)]
-pub fn execute<'a, C, S>(
+pub fn execute<C, S>(
     context: &mut C,
     protocol_params: ProtocolParameters,
     block: &Block<'_>,
 ) -> BlockValidation<(), anyhow::Error>
 where
-    C: ValidationContext<'a, FinalState = S>,
+    C: ValidationContext<FinalState = S>,
     S: From<C>,
 {
     header_size::block_header_size_valid(block.header.raw_cbor(), &protocol_params)?;

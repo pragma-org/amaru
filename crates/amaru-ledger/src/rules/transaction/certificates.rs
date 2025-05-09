@@ -169,7 +169,7 @@ where
                 DRepState {
                     deposit,
                     registered_at: pointer,
-                    anchor: Option::from(anchor),
+                    anchor,
                 },
             )?;
             Ok(())
@@ -183,7 +183,7 @@ where
 
         Certificate::UpdateDRepCert(drep, anchor) => {
             context.require_witness(drep.clone());
-            DRepsSlice::update(context, drep, Option::from(anchor))?;
+            DRepsSlice::update(context, drep, anchor)?;
             Ok(())
         }
 
@@ -201,7 +201,7 @@ where
 
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
             context.require_witness(cold_credential.clone());
-            CommitteeSlice::resign(context, cold_credential, Option::from(anchor))?;
+            CommitteeSlice::resign(context, cold_credential, anchor)?;
             Ok(())
         }
 

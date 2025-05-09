@@ -37,14 +37,14 @@ pub enum InvalidInputs {
     UncategorizedError(String),
 }
 
-pub fn execute<'b, C>(
+pub fn execute<C>(
     context: &mut C,
     inputs: &Vec<TransactionInput>,
     reference_inputs: Option<&Vec<TransactionInput>>,
     collaterals: Option<&Vec<TransactionInput>>,
 ) -> Result<(), InvalidInputs>
 where
-    C: UtxoSlice<'b> + WitnessSlice,
+    C: UtxoSlice + WitnessSlice,
 {
     // Check for disjoint reference inputs.
     let intersection = match &reference_inputs {
@@ -167,7 +167,7 @@ mod tests {
         "valid byron address")]
     fn inputs(
         (ctx, tx, expected_traces): (
-            AssertPreparationContext<'_>,
+            AssertPreparationContext,
             KeepRaw<'_, TransactionBody<'_>>,
             Vec<json::Value>,
         ),

@@ -33,12 +33,12 @@ use tracing::{instrument, Level};
 /// provided upfront as test data, and all `require` method merely checks that the requested data
 /// pre-exists in the context.
 #[derive(serde::Deserialize, Debug, Clone)]
-pub struct AssertPreparationContext<'b> {
-    pub utxo: BTreeMap<TransactionInput, TransactionOutput<'b>>,
+pub struct AssertPreparationContext {
+    pub utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
 }
 
-impl<'b> From<AssertPreparationContext<'b>> for AssertValidationContext<'b> {
-    fn from(ctx: AssertPreparationContext<'b>) -> AssertValidationContext<'b> {
+impl From<AssertPreparationContext> for AssertValidationContext {
+    fn from(ctx: AssertPreparationContext) -> AssertValidationContext {
         AssertValidationContext {
             utxo: ctx.utxo,
             required_signers: BTreeSet::default(),
@@ -47,9 +47,9 @@ impl<'b> From<AssertPreparationContext<'b>> for AssertValidationContext<'b> {
     }
 }
 
-impl<'b> PreparationContext<'_> for AssertPreparationContext<'b> {}
+impl PreparationContext<'_> for AssertPreparationContext {}
 
-impl<'b> PrepareUtxoSlice<'_> for AssertPreparationContext<'b> {
+impl PrepareUtxoSlice<'_> for AssertPreparationContext {
     #[allow(clippy::panic)]
     fn require_input(&mut self, input: &TransactionInput) {
         if !self.utxo.contains_key(input) {
@@ -58,19 +58,19 @@ impl<'b> PrepareUtxoSlice<'_> for AssertPreparationContext<'b> {
     }
 }
 
-impl<'b> PreparePoolsSlice<'_> for AssertPreparationContext<'b> {
+impl PreparePoolsSlice<'_> for AssertPreparationContext {
     fn require_pool(&mut self, _pool: &PoolId) {
         unimplemented!();
     }
 }
 
-impl<'b> PrepareAccountsSlice<'_> for AssertPreparationContext<'b> {
+impl PrepareAccountsSlice<'_> for AssertPreparationContext {
     fn require_account(&mut self, _credential: &StakeCredential) {
         unimplemented!();
     }
 }
 
-impl<'b> PrepareDRepsSlice<'_> for AssertPreparationContext<'b> {
+impl PrepareDRepsSlice<'_> for AssertPreparationContext {
     fn require_drep(&mut self, _drep: &StakeCredential) {
         unimplemented!();
     }
@@ -79,21 +79,21 @@ impl<'b> PrepareDRepsSlice<'_> for AssertPreparationContext<'b> {
 // -------------------------------------------------------------------------------------- Validation
 
 #[derive(Debug, serde::Deserialize)]
-pub struct AssertValidationContext<'b> {
-    utxo: BTreeMap<TransactionInput, TransactionOutput<'b>>,
+pub struct AssertValidationContext {
+    utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
     required_signers: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
-impl<'b> ValidationContext<'b> for AssertValidationContext<'b> {
+impl ValidationContext for AssertValidationContext {
     type FinalState = ();
 }
 
-impl From<AssertValidationContext<'_>> for () {
-    fn from(_ctx: AssertValidationContext<'_>) {}
+impl From<AssertValidationContext> for () {
+    fn from(_ctx: AssertValidationContext) {}
 }
 
-impl<'b> PotsSlice for AssertValidationContext<'b> {
+impl PotsSlice for AssertValidationContext {
     #[instrument(
         level = Level::TRACE,
         fields(
@@ -105,8 +105,8 @@ impl<'b> PotsSlice for AssertValidationContext<'b> {
     fn add_fees(&mut self, _fees: Lovelace) {}
 }
 
-impl<'b> UtxoSlice<'b> for AssertValidationContext<'b> {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'b>> {
+impl UtxoSlice for AssertValidationContext {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.utxo.get(input)
     }
 
@@ -114,12 +114,12 @@ impl<'b> UtxoSlice<'b> for AssertValidationContext<'b> {
         self.utxo.remove(&input);
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'b>) {
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'static>) {
         self.utxo.insert(input, output);
     }
 }
 
-impl<'b> PoolsSlice for AssertValidationContext<'b> {
+impl PoolsSlice for AssertValidationContext {
     fn lookup(&self, _pool: &PoolId) -> Option<&PoolParams> {
         unimplemented!()
     }
@@ -131,7 +131,7 @@ impl<'b> PoolsSlice for AssertValidationContext<'b> {
     }
 }
 
-impl<'b> AccountsSlice for AssertValidationContext<'b> {
+impl AccountsSlice for AssertValidationContext {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&AccountState> {
         unimplemented!()
     }
@@ -179,7 +179,7 @@ impl<'b> AccountsSlice for AssertValidationContext<'b> {
     }
 }
 
-impl<'b> DRepsSlice for AssertValidationContext<'b> {
+impl DRepsSlice for AssertValidationContext {
     fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepState> {
         unimplemented!()
     }
@@ -223,7 +223,7 @@ impl<'b> DRepsSlice for AssertValidationContext<'b> {
     }
 }
 
-impl<'b> CommitteeSlice for AssertValidationContext<'b> {
+impl CommitteeSlice for AssertValidationContext {
     fn delegate_cold_key(
         &mut self,
         _cc_member: StakeCredential,
@@ -241,11 +241,11 @@ impl<'b> CommitteeSlice for AssertValidationContext<'b> {
     }
 }
 
-impl<'b> ProposalsSlice for AssertValidationContext<'b> {
+impl ProposalsSlice for AssertValidationContext {
     fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
 }
 
-impl<'b> WitnessSlice for AssertValidationContext<'b> {
+impl WitnessSlice for AssertValidationContext {
     #[instrument(
         level = Level::TRACE,
         fields(
