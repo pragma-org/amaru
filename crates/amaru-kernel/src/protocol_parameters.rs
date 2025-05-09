@@ -152,7 +152,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         let gov_action_lifetime = d.u8()? as u32;
         let gov_action_deposit = d.u64()?;
         let drep_deposit = d.u32()? as u64;
-        let drep_expiry = d.u8()? as u64;
+        let drep_expiry = d.u8()? as Epoch;
         let min_fee_ref_script_coins_per_byte = decode_rationale(d)?;
 
         Ok(ProtocolParameters {
