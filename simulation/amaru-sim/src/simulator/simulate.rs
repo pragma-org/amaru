@@ -33,7 +33,6 @@ use std::fmt::Debug;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
-use std::rc::Rc;
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,9 +59,7 @@ type NodeId = String;
 
 // TODO: should be RK's handle to interact with a node
 pub struct NodeHandle {
-    handle: Box<
-        dyn FnOnce(Instant, &Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, String>,
-    >,
+    handle: Box<dyn FnOnce(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, String>>,
     close: Box<dyn FnMut()>,
 }
 
@@ -73,15 +70,14 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, St
         .stdout(Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to create process: {}", e))?;
-
     let mut stdin = child.stdin.take().ok_or("Failed to take stdin")?;
     let stdout = child.stdout.take().ok_or("Failed to take stdout")?;
 
-    let handle = Box::new(move |_arrival_time, msg| {
+    let handle = Box::new(move |msg: Envelope<EchoMessage>| {
         writeln!(
             stdin,
             "{}",
-            serde_json::to_string(msg).map_err(|e| format!("Failed to encode JSON: {}", e))?
+            serde_json::to_string(&msg).map_err(|e| format!("Failed to encode JSON: {}", e))?
         )
         .map_err(|e| format!("Failed to write to child's stdin: {}", e))?;
         stdin
@@ -95,7 +91,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, St
             .map_err(|e| format!("Failed to read from child's stdout: {}", e))?;
 
         serde_json::from_str(&line)
-            .map(|msg| vec![msg])
+            .map(|msg: Envelope<EchoMessage>| vec![msg])
             .map_err(|e| format!("Failed to decode JSON: {}", e))
     });
 
@@ -150,26 +146,31 @@ impl World {
             // and enqueue their output messages possibly bailing out and recursing
             {
                 match self.nodes.get(&envelope.dest) {
-                    Some(node) => {
-                        let (client_responses, outputs): (Vec<_>, Vec<_>) = node
-                            .handle(envelope.clone())
-                            .into_iter()
-                            .partition(|msg| msg.dest.starts_with("c"));
-                        outputs
-                            .iter()
-                            .map(|envelope| Entry {
-                                arrival_time: arrival_time + Duration::from_millis(100),
-                                envelope: envelope.clone(),
-                            })
-                            .for_each(|msg| self.heap.push(msg));
-                        if envelope.src.starts_with("c") {
-                            self.trace.0.push(envelope);
+                    Some(node) => match (node.handle)(envelope.clone()) {
+                        Ok(outgoing) => {
+                            let (client_responses, outputs): (
+                                Vec<Envelope<EchoMessage>>,
+                                Vec<Envelope<EchoMessage>>,
+                            ) = outgoing
+                                .into_iter()
+                                .partition(|msg| msg.dest.starts_with("c"));
+                            outputs
+                                .iter()
+                                .map(|envelope| Entry {
+                                    arrival_time: arrival_time + Duration::from_millis(100),
+                                    envelope: envelope.clone(),
+                                })
+                                .for_each(|msg| self.heap.push(msg));
+                            if envelope.src.starts_with("c") {
+                                self.trace.0.push(envelope);
+                            }
+                            client_responses
+                                .iter()
+                                .for_each(|msg| self.trace.0.push(msg.clone()));
+                            Next::Continue
                         }
-                        client_responses
-                            .iter()
-                            .for_each(|msg| self.trace.0.push(msg.clone()));
-                        Next::Continue
-                    }
+                        Err(err) => panic!("{}", err),
+                    },
                     None => panic!("unknown destination node '{}'", envelope.dest),
                 }
             }
