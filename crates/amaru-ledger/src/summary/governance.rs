@@ -16,11 +16,9 @@ mod backward_compatibility;
 
 use crate::store::{columns::dreps, Snapshot, StoreError};
 use amaru_kernel::{
-    expect_stake_credential,
-    network::EraHistory,
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
-    Anchor, CertificatePointer, DRep, Epoch, Lovelace, ProtocolVersion, Slot, StakeCredential,
-    TransactionPointer,
+    expect_stake_credential, network::EraHistory, protocol_parameters::ProtocolParameters, Anchor,
+    CertificatePointer, DRep, Epoch, EpochInterval, Lovelace, ProtocolVersion, Slot,
+    StakeCredential, TransactionPointer,
 };
 use slot_arithmetic::TimeHorizonError;
 use std::collections::{BTreeMap, BTreeSet};
@@ -61,7 +59,6 @@ impl GovernanceSummary {
         db: &impl Snapshot,
         protocol_version: ProtocolVersion,
         era_history: &EraHistory,
-        global_parameters: &GlobalParameters,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, Error> {
         let current_epoch = db.epoch();
@@ -96,7 +93,7 @@ impl GovernanceSummary {
 
         let mandate = drep_mandate_calculator(
             protocol_version,
-            global_parameters.gov_action_lifetime,
+            protocol_parameters.gov_action_lifetime,
             protocol_parameters.drep_expiry,
             era_history,
             current_epoch,
@@ -242,7 +239,7 @@ impl GovernanceSummary {
 #[allow(clippy::type_complexity)]
 fn drep_mandate_calculator(
     protocol_version: ProtocolVersion,
-    governance_action_lifetime: Epoch,
+    governance_action_lifetime: EpochInterval,
     drep_expiry: Epoch,
     era_history: &EraHistory,
     current_epoch: Epoch,
@@ -271,7 +268,7 @@ fn drep_mandate_calculator(
             // epoch with no proposal but on the last slot is arguably dormant. But as a
             // consequence, we may also label as dormant epochs with proposals submitted on the
             // very first slot too.
-            (*start + 1..=*start + governance_action_lifetime).collect::<BTreeSet<_>>()
+            (*start + 1..=*start + governance_action_lifetime as Epoch).collect::<BTreeSet<_>>()
         })
         .collect::<BTreeSet<Epoch>>();
 
@@ -381,7 +378,7 @@ mod tests {
     }
 
     fn test_drep_mandate(
-        governance_action_lifetime: u64,
+        governance_action_lifetime: EpochInterval,
         drep_expiry: u64,
         proposals: Vec<(TransactionPointer, Epoch)>,
         registered_at: u64,

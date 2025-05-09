@@ -132,20 +132,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let mut stake_distributions = VecDeque::new();
         for epoch in latest_epoch - 2..=latest_epoch - 1 {
             stake_distributions.push_front(
-                recover_stake_distribution(
-                    &snapshots,
-                    epoch,
-                    era_history,
-                    global_parameters,
-                    protocol_parameters,
-                )
-                .unwrap_or_else(|e| {
-                    // TODO deal with error
-                    panic!(
-                        "unable to get stake distribution for (epoch={:?}): {e:?}",
-                        epoch
-                    )
-                }),
+                recover_stake_distribution(&snapshots, epoch, era_history, protocol_parameters)
+                    .unwrap_or_else(|e| {
+                        // TODO deal with error
+                        panic!(
+                            "unable to get stake distribution for (epoch={:?}): {e:?}",
+                            epoch
+                        )
+                    }),
             );
         }
 
@@ -211,7 +205,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     fn apply_block(
         &mut self,
         now_stable: AnchoredVolatileState,
-        global_parameters: &GlobalParameters,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StateError> {
         let start_slot = now_stable.anchor.0.slot_or_default();
@@ -252,7 +245,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             remove,
             withdrawals,
             voting_dreps,
-        } = now_stable.into_store_update(current_epoch, global_parameters.clone());
+        } = now_stable.into_store_update(current_epoch, protocol_parameters.clone());
 
         let batch = db.create_transaction();
 
@@ -319,7 +312,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             &self.snapshots,
             epoch,
             &self.era_history,
-            global_parameters,
             protocol_parameters,
         )?);
 
@@ -344,7 +336,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 unreachable!("pre-condition: self.volatile.len() >= consensus_security_param")
             });
 
-            self.apply_block(now_stable, global_parameters, protocol_parameters)?;
+            self.apply_block(now_stable, protocol_parameters)?;
         } else {
             trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }
@@ -413,7 +405,6 @@ fn recover_stake_distribution(
     snapshots: &impl HistoricalStores,
     epoch: Epoch,
     era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
     let snapshot = snapshots.for_epoch(epoch).unwrap_or_else(|e| {
@@ -433,7 +424,6 @@ fn recover_stake_distribution(
             &snapshot,
             protocol_version,
             era_history,
-            global_parameters,
             protocol_parameters,
         )?,
         protocol_parameters,

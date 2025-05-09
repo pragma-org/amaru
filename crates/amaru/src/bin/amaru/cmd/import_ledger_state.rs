@@ -13,11 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName,
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
-    Anchor, CertificatePointer, DRep, Epoch, EraHistory, Lovelace, Point, PoolId, PoolParams,
-    Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential, TransactionInput,
-    TransactionOutput, TransactionPointer,
+    network::NetworkName, protocol_parameters::ProtocolParameters, Anchor, CertificatePointer,
+    DRep, Epoch, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, Set, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    TransactionPointer,
 };
 use amaru_ledger::{
     self,
@@ -178,7 +177,6 @@ fn decode_new_epoch_state(
     point: &Point,
     era_history: &EraHistory,
 ) -> Result<u64, Box<dyn std::error::Error>> {
-    let global_parameters = GlobalParameters::default();
     let protocol_parameters = ProtocolParameters::default();
     let mut d = cbor::Decoder::new(bytes);
 
@@ -303,7 +301,7 @@ fn decode_new_epoch_state(
                     // Proposals
                     d.array()?;
                     d.skip()?; // Proposals roots
-                    import_proposals(db, point, era_history, d.decode()?, &global_parameters)?;
+                    import_proposals(db, point, era_history, d.decode()?, &protocol_parameters)?;
 
                     // Constitutional committee
                     d.skip()?;
@@ -575,7 +573,7 @@ fn import_proposals(
     point: &Point,
     era_history: &EraHistory,
     proposals: Vec<ProposalState>,
-    global_parameters: &GlobalParameters,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
@@ -610,7 +608,7 @@ fn import_proposals(
                                 proposal_index,
                             },
                             valid_until: proposal.proposed_in
-                                + global_parameters.gov_action_lifetime,
+                                + protocol_parameters.gov_action_lifetime as Epoch,
                             proposal: proposal.procedure,
                         },
                     ))
