@@ -838,9 +838,20 @@ impl HasNetwork for ByronAddress {
         let x: AddressPayload = from_cbor(&self.payload.0)?;
         for attribute in x.attributes.iter() {
             if let AddrAttrProperty::NetworkTag(network) = attribute {
-                if let Some(bytes) = network.deref()[4..4].try_into().ok() {
-                    return Some(Network::from(u8::from_be_bytes(bytes)));
+                // the network tag is specified as a u32 in the CDDL
+                // but CBOR always chooses the smallest possible number
+                let network = network.deref();
+                let network_id: u8 = match network.len() {
+                    1 => u32::from_be_bytes([0, 0, 0, network[0]]).try_into(),
+                    2 => u32::from_be_bytes([0, 0, network[0], network[1]]).try_into(),
+                    3 => u32::from_be_bytes([0, network[0], network[1], network[2]]).try_into(),
+                    4 => u32::from_be_bytes([network[0], network[1], network[2], network[3]])
+                        .try_into(),
+                    _ => return None,
                 }
+                .ok()?;
+
+                return Some(Network::from(network_id));
             }
         }
 
