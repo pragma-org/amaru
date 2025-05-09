@@ -91,6 +91,8 @@ pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 
 pub type Lovelace = u64;
 
+pub type EpochInterval = u32;
+
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Point {
     Origin,
