@@ -59,7 +59,7 @@ type NodeId = String;
 
 // TODO: should be RK's handle to interact with a node
 pub struct NodeHandle {
-    handle: Box<dyn FnOnce(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, String>>,
+    handle: Box<dyn Fn(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, String>>,
     close: Box<dyn FnMut()>,
 }
 
