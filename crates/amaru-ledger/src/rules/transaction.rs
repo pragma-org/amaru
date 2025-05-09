@@ -15,7 +15,7 @@
 use crate::context::ValidationContext;
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, MintedTransactionBody,
-    MintedWitnessSet, OriginalHash, TransactionInput, TransactionPointer,
+    MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
 };
 use core::mem;
 use std::ops::Deref;
@@ -85,6 +85,9 @@ pub fn execute(
     transaction_witness_set: &MintedWitnessSet<'_>,
     transaction_auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<(), InvalidTransaction> {
+    // FIXME: this is temporary, to be replaced when we have some state that determines the node's network
+    let network = Network::Testnet;
+
     let transaction_id = transaction_body.original_hash();
 
     let mut transaction_body = transaction_body.unwrap();
@@ -114,6 +117,7 @@ pub fn execute(
 
     outputs::execute(
         protocol_params,
+        &network,
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
@@ -138,6 +142,7 @@ pub fn execute(
 
     outputs::execute(
         protocol_params,
+        &network,
         mem::take(&mut transaction_body.outputs),
         &mut |index, output| {
             if is_valid {
