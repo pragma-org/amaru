@@ -813,7 +813,7 @@ pub fn to_network_id(network: &Network) -> u8 {
     match network {
         Network::Testnet => 0,
         Network::Mainnet => 1,
-        Network::Other(id) => id.clone(),
+        Network::Other(id) => *id,
     }
 }
 
