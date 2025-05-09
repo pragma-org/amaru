@@ -43,7 +43,7 @@ pub struct ProtocolParameters {
     pub drep_thresholds: DrepThresholds,
     pub cc_min_size: u16,
     pub cc_max_term_length: EpochInterval,
-    pub gov_action_lifetime: u32,
+    pub gov_action_lifetime: EpochInterval,
     pub gov_action_deposit: Coin,
     pub drep_deposit: Coin,
     pub drep_expiry: Epoch,
@@ -225,9 +225,6 @@ pub struct GlobalParameters {
     /// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
     pub max_lovelace_supply: Lovelace,
 
-    /// Epoch duration after which inactive Proposals are considered expired.
-    pub gov_action_lifetime: u64,
-
     /// Number of slots for a single KES validity period.
     pub slots_per_kes_period: u64,
 
@@ -271,7 +268,6 @@ impl Default for GlobalParameters {
             byron_epoch_length_scale_factor,
             shelley_transition_epoch,
             max_lovelace_supply: 45_000_000_000_000_000,
-            gov_action_lifetime: 6,
             slots_per_kes_period: 129_600,
             max_kes_evolution: 62,
             shelley_epoch_length,

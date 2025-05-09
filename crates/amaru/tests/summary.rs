@@ -93,7 +93,6 @@ fn compare_preprod_snapshot(epoch: Epoch) {
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
         NetworkName::Preprod.into(),
-        &global_parameters,
         &protocol_parameters,
     )
     .unwrap();
