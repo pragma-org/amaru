@@ -14,7 +14,8 @@
 
 use crate::rules::{format_vec, WithPosition};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Lovelace, MintedTransactionOutput, TransactionOutput,
+    protocol_parameters::ProtocolParameters, to_network_id, HasAddress, HasNetwork, Lovelace,
+    MintedTransactionOutput, Network, TransactionOutput,
 };
 use thiserror::Error;
 
@@ -35,16 +36,32 @@ pub enum InvalidOutput {
         minimum_value: Lovelace,
         given_value: Lovelace,
     },
+    #[error("output value is too large: maximum: {maximum_size}, actual: {given_size}")]
+    ValueTooLarge {
+        maximum_size: usize,
+        given_size: usize,
+    },
+
+    #[error("address has the wrong network ID: expected: {expected}, actual: {actual}")]
+    WrongNetwork { expected: u8, actual: u8 },
+
+    // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
+    #[error("uncategorized error: {0}")]
+    UncategorizedError(String),
 }
 
 pub fn execute(
     protocol_parameters: &ProtocolParameters,
+    network: &Network,
     outputs: Vec<MintedTransactionOutput<'_>>,
     yield_output: &mut impl FnMut(u64, TransactionOutput),
 ) -> Result<(), InvalidOutputs> {
     let mut invalid_outputs = Vec::new();
     for (position, output) in outputs.into_iter().enumerate() {
         inherent_value::execute(protocol_parameters, &output)
+            .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
+
+        validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
         // TODO: Ensures the validation context can work from references to avoid cloning data.
@@ -58,25 +75,62 @@ pub fn execute(
     Ok(())
 }
 
+fn validate_network(
+    output: &MintedTransactionOutput<'_>,
+    expected_network: &Network,
+) -> Result<(), InvalidOutput> {
+    let address = output
+        .address()
+        .map_err(|e| InvalidOutput::UncategorizedError(e.to_string()))?;
+
+    let given_network = address.has_network().ok_or_else(|| {
+        InvalidOutput::UncategorizedError("failed to parse network ID from address".to_string())
+    })?;
+
+    if &given_network != expected_network {
+        Err(InvalidOutput::WrongNetwork {
+            expected: to_network_id(expected_network),
+            actual: to_network_id(&given_network),
+        })
+    } else {
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, MintedTransactionBody,
+        include_cbor, protocol_parameters::ProtocolParameters, MintedTransactionBody, Network,
         TransactionOutput,
     };
     use test_case::test_case;
 
+    use crate::rules::{transaction::outputs::InvalidOutput, WithPosition};
+
     use super::InvalidOutputs;
 
     macro_rules! fixture {
-        ($hash:literal, $index:expr) => {
+        ($hash:literal) => {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 ProtocolParameters::default(),
                 &mut |_, _| {},
             )
         };
-        ($hash:literal, $index:expr, $pp:expr) => {
+        ($hash:literal, $variant:literal) => {
+            (
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/tx.cbor"
+                )),
+                ProtocolParameters::default(),
+                &mut |_, _| {},
+            )
+        };
+        ($hash:literal, $pp:expr) => {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 $pp,
@@ -85,29 +139,43 @@ mod tests {
         };
     }
 
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"); "valid")]
     #[test_case(
-        fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", 0);
-        "valid"
+        fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", ProtocolParameters { coins_per_utxo_byte: 100_000_000_000, ..Default::default() }) =>
+        matches Err(InvalidOutputs{invalid_outputs})
+            if matches!(invalid_outputs[0], WithPosition {
+                position: 0,
+                element: InvalidOutput::TooSmall { .. }
+            });
+        "output too small")]
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", ProtocolParameters { max_val_size: 1, ..Default::default() }) =>
+        matches Err(InvalidOutputs{invalid_outputs})
+            if matches!(invalid_outputs[0], WithPosition {
+                position: 0,
+                element: InvalidOutput::ValueTooLarge {..}
+            });
+        "value too large"
     )]
-    #[test_case(
-        fixture!(
-            "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
-            0,
-            ProtocolParameters {
-                coins_per_utxo_byte: 100_000_000_000,
-                ..Default::default()
-            }
-        ) =>
-    matches Err(InvalidOutputs{..});
-    "output too small")]
-
-    fn test_inherent_value(
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-shelley") =>
+        matches Err(InvalidOutputs{invalid_outputs})
+            if matches!(invalid_outputs[0], WithPosition {
+                position: 0,
+                element: InvalidOutput::WrongNetwork { expected: 0, actual: 1 }
+            });
+        "wrong network shelley"
+    )]
+    fn outputs(
         (tx, protocol_parameters, yield_output): (
             MintedTransactionBody<'_>,
             ProtocolParameters,
             &mut impl FnMut(u64, TransactionOutput),
         ),
     ) -> Result<(), InvalidOutputs> {
-        super::execute(&protocol_parameters, tx.outputs, yield_output)
+        super::execute(
+            &protocol_parameters,
+            &Network::Testnet,
+            tx.outputs,
+            yield_output,
+        )
     }
 }

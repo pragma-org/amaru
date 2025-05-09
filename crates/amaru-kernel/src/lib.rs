@@ -23,9 +23,14 @@ While elements are being contributed upstream, they might transiently live in th
 
 use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
 use num::{rational::Ratio, BigUint};
-use pallas_addresses::{Error, *};
+use pallas_addresses::{
+    byron::{AddrAttrProperty, AddressPayload},
+    Error, *,
+};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
-use pallas_primitives::conway::{Redeemer, RedeemersKey, RedeemersValue};
+use pallas_primitives::conway::{
+    MintedPostAlonzoTransactionOutput, Redeemer, RedeemersKey, RedeemersValue,
+};
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
@@ -793,6 +798,55 @@ impl HasAddress for TransactionOutput {
     }
 }
 
+impl<'b> HasAddress for PseudoTransactionOutput<MintedPostAlonzoTransactionOutput<'b>> {
+    fn address(&self) -> Result<Address, pallas_addresses::Error> {
+        match self {
+            PseudoTransactionOutput::Legacy(transaction_output) => {
+                Address::from_bytes(&transaction_output.address)
+            }
+            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
+        }
+    }
+}
+
+pub fn to_network_id(network: &Network) -> u8 {
+    match network {
+        Network::Testnet => 0,
+        Network::Mainnet => 1,
+        Network::Other(id) => id.clone(),
+    }
+}
+
+pub trait HasNetwork {
+    /// Returns the Network of a given entity
+    fn has_network(&self) -> Option<Network>;
+}
+
+impl HasNetwork for Address {
+    fn has_network(&self) -> Option<Network> {
+        match self {
+            Address::Byron(address) => address.has_network(),
+            Address::Shelley(_) | Address::Stake(_) => self.network(),
+        }
+    }
+}
+
+impl HasNetwork for ByronAddress {
+    /// Based off of the CDDL specification for ByronAddress
+    /// https://raw.githubusercontent.com/cardano-foundation/CIPs/master/CIP-0019/CIP-0019-byron-addresses.cddl
+    fn has_network(&self) -> Option<Network> {
+        let x: AddressPayload = from_cbor(&self.payload.0)?;
+        for attribute in x.attributes.iter() {
+            if let AddrAttrProperty::NetworkTag(network) = attribute {
+                if let Some(bytes) = network.deref()[4..4].try_into().ok() {
+                    return Some(Network::from(u8::from_be_bytes(bytes)));
+                }
+            }
+        }
+
+        None
+    }
+}
 pub trait HasOwnership {
     /// Returns ownership credential of a given entity, if any.
     ///
