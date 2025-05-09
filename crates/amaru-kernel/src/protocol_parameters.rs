@@ -1,6 +1,6 @@
 use pallas_codec::minicbor::Decoder;
 
-use crate::{cbor, Coin, Epoch, ExUnits, Lovelace, RationalNumber};
+use crate::{cbor, Coin, Epoch, EpochInterval, ExUnits, Lovelace, RationalNumber};
 
 /// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
 /// Some of the names have been adapted to improve readability.
@@ -10,15 +10,15 @@ pub struct ProtocolParameters {
     // Network group
     pub max_block_body_size: u32,
     pub max_tx_size: u32,
-    pub max_header_size: u32,
+    pub max_header_size: u16,
     pub max_tx_ex_units: ExUnits,
     pub max_block_ex_units: ExUnits,
     pub max_val_size: u32,
-    pub max_collateral_inputs: u32,
+    pub max_collateral_inputs: u16,
 
     // Economic group
-    pub min_fee_a: u32,
-    pub min_fee_b: u32,
+    pub min_fee_a: Coin,
+    pub min_fee_b: Coin,
     pub stake_credential_deposit: Coin,
     pub stake_pool_deposit: Coin,
     pub monetary_expansion_rate: RationalNumber,
@@ -32,17 +32,17 @@ pub struct ProtocolParameters {
     pub ref_script_cost_multiplier: RationalNumber,
 
     // Technical group
-    pub max_epoch: Epoch,
-    pub optimal_stake_pools_count: u32,
+    pub max_epoch: EpochInterval,
+    pub optimal_stake_pools_count: u16,
     pub pledge_influence: RationalNumber,
-    pub collateral_percentage: u32,
+    pub collateral_percentage: u16,
     pub cost_models: CostModels,
 
     // Governance group
     pub pool_thresholds: PoolThresholds,
     pub drep_thresholds: DrepThresholds,
-    pub cc_min_size: u32,
-    pub cc_max_term_length: u32,
+    pub cc_min_size: u16,
+    pub cc_max_term_length: EpochInterval,
     pub gov_action_lifetime: u32,
     pub gov_action_deposit: Coin,
     pub drep_deposit: Coin,
@@ -70,15 +70,15 @@ fn decode_rationale(d: &mut Decoder<'_>) -> Result<RationalNumber, cbor::decode:
 impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
-        let min_fee_a = d.u8()? as u32;
-        let min_fee_b = d.u32()?;
+        let min_fee_a = d.u8()? as Coin;
+        let min_fee_b = d.u32()? as Coin;
         let max_block_body_size = d.u32()?;
         let max_tx_size = d.u16()? as u32;
-        let max_header_size = d.u16()? as u32;
-        let stake_credential_deposit = d.u32()? as u64;
-        let stake_pool_deposit = d.u32()? as u64;
-        let max_epoch = d.u8()? as u64;
-        let optimal_stake_pools_count = d.u16()? as u32;
+        let max_header_size = d.u16()?;
+        let stake_credential_deposit = d.u32()? as Coin;
+        let stake_pool_deposit = d.u32()? as Coin;
+        let max_epoch = d.u8()? as EpochInterval;
+        let optimal_stake_pools_count = d.u16()?;
         let pledge_influence = decode_rationale(d)?;
         let monetary_expansion_rate = decode_rationale(d)?;
         
@@ -111,8 +111,8 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             steps: d.u64()?,
         };
         let max_val_size = d.u16()? as u32;
-        let collateral_percentage = d.u8()? as u32;
-        let max_collateral_inputs = d.u8()? as u32;
+        let collateral_percentage = d.u8()? as u16;
+        let max_collateral_inputs = d.u8()? as u16;
         
         // TODO validate order
         d.array()?;
@@ -139,7 +139,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             },
             treasury_withdrawal: decode_rationale(d)?,
         };
-        let cc_min_size = d.u8()? as u32;
+        let cc_min_size = d.u8()? as u16;
         let cc_max_term_length = d.u8()?  as u32;
         let gov_action_lifetime = d.u8()?  as u32;
         let gov_action_deposit = d.u64()?;
