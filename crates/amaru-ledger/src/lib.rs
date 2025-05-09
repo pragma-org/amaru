@@ -47,9 +47,7 @@ pub mod summary;
 
 #[cfg(test)]
 pub(crate) mod tests {
-    use amaru_kernel::{
-        Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
-    };
+    use amaru_kernel::{Bytes, Hash, TransactionInput, TransactionOutput, Value};
 
     pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
         TransactionInput {
@@ -58,12 +56,12 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn fake_output(address: &str) -> TransactionOutput {
-        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
-            address: Bytes::from(hex::decode(address).expect("Invalid hex address")),
-            value: Value::Coin(0),
-            datum_option: None,
-            script_ref: None,
-        })
+    pub(crate) fn fake_output(address: &str) -> TransactionOutput<'static> {
+        amaru_kernel::new_transaction_output(
+            Bytes::from(hex::decode(address).expect("Invalid hex address")),
+            Value::Coin(0),
+            None,
+            None,
+        )
     }
 }

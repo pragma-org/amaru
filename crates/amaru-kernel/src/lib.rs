@@ -25,7 +25,10 @@ use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
 use num::{rational::Ratio, BigUint};
 use pallas_addresses::{Error, *};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
-use pallas_primitives::conway::{Redeemer, RedeemersKey, RedeemersValue};
+use pallas_primitives::{
+    self,
+    babbage::{GenPostAlonzoTransactionOutput, GenTransactionOutput},
+};
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
@@ -39,7 +42,7 @@ use std::{
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{Bytes, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, CborWrap, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
@@ -49,17 +52,17 @@ pub use pallas_primitives::{
     // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
     // Investigate.
     alonzo,
-    babbage::{Header, MintedHeader},
+    babbage::Header,
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, Epoch, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet,
-        PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion,
-        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, ScriptHash,
-        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
-        VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, Epoch,
+        ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw,
+        NativeScript, NonEmptySet, PlutusData, PoolMetadata, PoolVotingThresholds,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, RationalNumber, Redeemer, Redeemers, RedeemersKey, RedeemersValue, Relay,
+        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -70,7 +73,6 @@ pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 pub mod macros;
 pub mod network;
 pub mod protocol_parameters;
-pub mod serde_utils;
 
 // Constants
 // ----------------------------------------------------------------------------
@@ -238,8 +240,8 @@ pub struct ExUnitsIter<'a> {
 }
 
 type ExUnitsMapIter<'a> = std::iter::Map<
-    std::slice::Iter<'a, (RedeemersKey, RedeemersValue)>,
-    fn(&(RedeemersKey, RedeemersValue)) -> ExUnits,
+    std::collections::btree_map::Iter<'a, RedeemersKey, RedeemersValue>,
+    fn((&RedeemersKey, &RedeemersValue)) -> ExUnits,
 >;
 
 enum ExUnitsIterSource<'a> {
@@ -303,7 +305,7 @@ pub struct PoolParams {
     pub reward_account: RewardAccount,
     pub owners: Set<AddrKeyhash>,
     pub relays: Vec<Relay>,
-    pub metadata: Nullable<PoolMetadata>,
+    pub metadata: Option<PoolMetadata>,
 }
 
 impl<C> cbor::encode::Encode<C> for PoolParams {
@@ -373,16 +375,16 @@ impl serde::Serialize for PoolParams {
                     Relay::SingleHostAddr(port, ipv4, ipv6) => {
                         let mut s = serializer.serialize_struct("Relay::SingleHostAddr", 4)?;
                         s.serialize_field("type", "ipAddress")?;
-                        if let Nullable::Some(ipv4) = ipv4 {
+                        if let Some(ipv4) = ipv4 {
                             s.serialize_field(
                                 "ipv4",
                                 &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]),
                             )?;
                         }
-                        if let Nullable::Some(ipv6) = ipv6 {
+                        if let Some(ipv6) = ipv6 {
                             s.serialize_field("ipv6", ipv6)?;
                         }
-                        if let Nullable::Some(port) = port {
+                        if let Some(port) = port {
                             s.serialize_field("port", port)?;
                         }
                         s.end()
@@ -391,7 +393,7 @@ impl serde::Serialize for PoolParams {
                         let mut s = serializer.serialize_struct("Relay::SingleHostName", 3)?;
                         s.serialize_field("type", "hostname")?;
                         s.serialize_field("hostname", hostname)?;
-                        if let Nullable::Some(port) = port {
+                        if let Some(port) = port {
                             s.serialize_field("port", port)?;
                         }
                         s.end()
@@ -428,7 +430,7 @@ impl serde::Serialize for PoolParams {
                 .map(WrapRelay)
                 .collect::<Vec<WrapRelay<'_>>>(),
         )?;
-        if let Nullable::Some(metadata) = &self.metadata {
+        if let Some(metadata) = &self.metadata {
             s.serialize_field("metadata", metadata)?;
         }
         s.end()
@@ -594,7 +596,13 @@ impl HasLovelace for alonzo::Value {
     }
 }
 
-impl HasLovelace for TransactionOutput {
+impl<'b> HasLovelace for GenPostAlonzoTransactionOutput<'b, Value, ScriptRef<'b>> {
+    fn lovelace(&self) -> Lovelace {
+        self.value.lovelace()
+    }
+}
+
+impl<'b> HasLovelace for TransactionOutput<'b> {
     fn lovelace(&self) -> Lovelace {
         match self {
             TransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
@@ -603,18 +611,9 @@ impl HasLovelace for TransactionOutput {
     }
 }
 
-impl HasLovelace for MintedTransactionOutput<'_> {
-    fn lovelace(&self) -> Lovelace {
-        match self {
-            PseudoTransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
-            PseudoTransactionOutput::PostAlonzo(modern) => modern.value.lovelace(),
-        }
-    }
-}
-
 /// TODO: See 'output_lovelace', same remark applies.
 pub fn output_stake_credential(
-    output: &TransactionOutput,
+    output: &TransactionOutput<'_>,
 ) -> Result<Option<StakeCredential>, Error> {
     let address = Address::from_bytes(match output {
         TransactionOutput::Legacy(legacy) => &legacy.address[..],
@@ -631,6 +630,60 @@ pub fn output_stake_credential(
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
     })
+}
+
+pub fn new_transaction_output(
+    address: Bytes,
+    value: Value,
+    datum: Option<DatumOption<'static>>,
+    script: Option<ScriptRef<'static>>,
+) -> TransactionOutput<'static> {
+    TransactionOutput::PostAlonzo(KeepRaw::from(PostAlonzoTransactionOutput {
+        address,
+        value,
+        datum_option: datum.map(KeepRaw::from),
+        script_ref: script.map(CborWrap),
+    }))
+}
+
+pub fn into_owned_output(output: TransactionOutput<'_>) -> TransactionOutput<'static> {
+    match output {
+        TransactionOutput::Legacy(legacy) => TransactionOutput::Legacy(legacy.to_owned()),
+        TransactionOutput::PostAlonzo(modern) => {
+            let modern = modern.unwrap();
+
+            let datum_option: Option<KeepRaw<'static, DatumOption<'static>>> =
+                modern.datum_option.map(|datum| {
+                    KeepRaw::from(match datum.unwrap() {
+                        DatumOption::Hash(hash) => DatumOption::Hash(hash),
+                        DatumOption::Data(cbor) => {
+                            DatumOption::Data(CborWrap(cbor.unwrap().to_owned()))
+                        }
+                    })
+                });
+
+            let script_ref: Option<CborWrap<ScriptRef<'static>>> = modern.script_ref.map(|cbor| {
+                CborWrap(match cbor.unwrap() {
+                    ScriptRef::NativeScript(keep_raw) => {
+                        ScriptRef::NativeScript(keep_raw.to_owned())
+                    }
+                    ScriptRef::PlutusV1Script(plutus) => ScriptRef::PlutusV1Script(plutus),
+                    ScriptRef::PlutusV2Script(plutus) => ScriptRef::PlutusV2Script(plutus),
+                    ScriptRef::PlutusV3Script(plutus) => ScriptRef::PlutusV3Script(plutus),
+                })
+            });
+
+            let raw: KeepRaw<'_, GenPostAlonzoTransactionOutput<'_, Value, ScriptRef<'_>>> =
+                KeepRaw::from(GenPostAlonzoTransactionOutput {
+                    address: modern.address,
+                    value: modern.value,
+                    datum_option,
+                    script_ref,
+                });
+
+            TransactionOutput::PostAlonzo(raw)
+        }
+    }
 }
 
 // StakeAddress
@@ -749,7 +802,7 @@ pub trait HasExUnits {
     fn ex_units(&self) -> Vec<ExUnits>;
 }
 
-impl HasExUnits for MintedBlock<'_> {
+impl HasExUnits for Block<'_> {
     fn ex_units(&self) -> Vec<ExUnits> {
         self.transaction_witness_sets
             .iter()
@@ -760,9 +813,9 @@ impl HasExUnits for MintedBlock<'_> {
 }
 
 // Calculate the total ex units in a witness set
-pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
+pub fn to_ex_units(witness_set: WitnessSet<'_>) -> ExUnits {
     match witness_set.redeemer {
-        Some(redeemers) => match redeemers {
+        Some(redeemers) => match redeemers.unwrap() {
             Redeemers::List(redeemers) => redeemers
                 .iter()
                 .fold(ExUnits { mem: 0, steps: 0 }, |acc, redeemer| {
@@ -782,13 +835,19 @@ pub trait HasAddress {
     fn address(&self) -> Result<Address, pallas_addresses::Error>;
 }
 
-impl HasAddress for TransactionOutput {
+impl<'b> HasAddress for GenPostAlonzoTransactionOutput<'b, Value, ScriptRef<'b>> {
+    fn address(&self) -> Result<Address, pallas_addresses::Error> {
+        Address::from_bytes(&self.address)
+    }
+}
+
+impl<'a> HasAddress for TransactionOutput<'a> {
     fn address(&self) -> Result<Address, pallas_addresses::Error> {
         match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => {
+            GenTransactionOutput::Legacy(transaction_output) => {
                 Address::from_bytes(&transaction_output.address)
             }
-            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
+            GenTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
         }
     }
 }

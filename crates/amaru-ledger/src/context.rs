@@ -113,9 +113,9 @@ pub trait PotsSlice {
 
 // An interface for interacting with a subset of the UTxO state.
 pub trait UtxoSlice {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput>;
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>>;
     fn consume(&mut self, input: TransactionInput);
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput);
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'static>);
 }
 
 /// An interface to help constructing the concrete UtxoSlice ahead of time.

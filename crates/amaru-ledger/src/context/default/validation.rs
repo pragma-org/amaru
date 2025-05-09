@@ -30,14 +30,14 @@ use tracing::trace;
 
 #[derive(Debug)]
 pub struct DefaultValidationContext {
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
     state: VolatileState,
     required_signers: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
 impl DefaultValidationContext {
-    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput>) -> Self {
+    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>) -> Self {
         Self {
             utxo,
             state: VolatileState::default(),
@@ -64,7 +64,7 @@ impl PotsSlice for DefaultValidationContext {
 }
 
 impl UtxoSlice for DefaultValidationContext {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.utxo.get(input).or(self.state.utxo.produced.get(input))
     }
 
@@ -73,7 +73,7 @@ impl UtxoSlice for DefaultValidationContext {
         self.state.utxo.consume(input)
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'static>) {
         self.state.utxo.produce(input, output)
     }
 }

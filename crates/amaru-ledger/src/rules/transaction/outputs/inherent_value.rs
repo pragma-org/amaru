@@ -14,12 +14,12 @@
 
 use super::InvalidOutput;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, MintedTransactionOutput,
+    protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, TransactionOutput,
 };
 
 pub fn execute(
     protocol_parameters: &ProtocolParameters,
-    output: &MintedTransactionOutput<'_>,
+    output: &TransactionOutput<'_>,
 ) -> Result<(), InvalidOutput> {
     let coins_per_utxo_byte = protocol_parameters.coins_per_utxo_byte;
 

@@ -106,7 +106,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, TransactionBody};
     use test_case::test_case;
     use tracing_json::assert_trace;
 
@@ -168,7 +168,7 @@ mod tests {
     fn inputs(
         (ctx, tx, expected_traces): (
             AssertPreparationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
+            KeepRaw<'_, TransactionBody<'_>>,
             Vec<json::Value>,
         ),
     ) -> Result<(), InvalidInputs> {

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use amaru_kernel::{into_owned_output, TransactionOutput};
 use amaru_ledger::store::{
     columns::utxo::{Key, Value},
     StoreError,
@@ -32,12 +33,13 @@ pub fn get<T: ThreadMode>(
         .get(as_key(&PREFIX, key))
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(|bytes| {
-            cbor::decode(&bytes).unwrap_or_else(|e| {
+            let output = cbor::decode::<TransactionOutput<'_>>(&bytes).unwrap_or_else(|e| {
                 panic!(
                     "unable to decode TransactionOutput from CBOR ({}): {e:?}",
                     hex::encode(&bytes)
                 )
-            })
+            });
+            Value(into_owned_output(output))
         }))
 }
 

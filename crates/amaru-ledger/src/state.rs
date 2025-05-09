@@ -30,8 +30,8 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash,
-    Lovelace, MintedBlock, Point, PoolId, Slot, StakeCredential, TransactionInput,
+    expect_stake_credential, stake_credential_hash, stake_credential_type, Block, Epoch,
+    EraHistory, Hash, Lovelace, Point, PoolId, Slot, StakeCredential, TransactionInput,
     TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9,
     SLOTS_PER_KES_PERIOD, STABILITY_WINDOW, STAKE_POOL_DEPOSIT,
 };
@@ -341,7 +341,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &'_ self,
         ongoing_state: &VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<(TransactionInput, Option<TransactionOutput>)>, StoreError> {
+    ) -> Result<Vec<(TransactionInput, Option<TransactionOutput<'_>>)>, StoreError> {
         let mut result = Vec::new();
 
         // TODO: perform lookup in batch, and possibly within the same transaction as other
@@ -354,9 +354,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 .map(|output| Ok(Some(output)))
                 .unwrap_or_else(|| {
                     let db = self.stable.lock().unwrap();
-                    db.utxo(input)
+                    db.utxo(input).map(|opt| opt.map(|value| value.0))
                 })?;
-
             result.push((input.clone(), output));
         }
 
@@ -669,7 +668,7 @@ pub(crate) struct FailedTransactions {
 }
 
 impl FailedTransactions {
-    pub(crate) fn from_block(block: &MintedBlock<'_>) -> Self {
+    pub(crate) fn from_block(block: &Block<'_>) -> Self {
         FailedTransactions {
             inner: block
                 .invalid_transactions

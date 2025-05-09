@@ -59,7 +59,7 @@ impl VolatileDB {
         self.sequence.back()
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.cache.utxo.produced.get(input)
     }
 
@@ -118,11 +118,11 @@ impl VolatileDB {
 // DiffEpochReg aren't meant to be mergeable across epochs.
 #[derive(Default)]
 struct VolatileCache {
-    pub utxo: DiffSet<TransactionInput, TransactionOutput>,
+    pub utxo: DiffSet<TransactionInput, TransactionOutput<'static>>,
 }
 
 impl VolatileCache {
-    pub fn merge(&mut self, utxo: DiffSet<TransactionInput, TransactionOutput>) {
+    pub fn merge(&mut self, utxo: DiffSet<TransactionInput, TransactionOutput<'static>>) {
         self.utxo.merge(utxo);
     }
 }
@@ -132,7 +132,7 @@ impl VolatileCache {
 
 #[derive(Debug, Default)]
 pub struct VolatileState {
-    pub utxo: DiffSet<TransactionInput, TransactionOutput>,
+    pub utxo: DiffSet<TransactionInput, TransactionOutput<'static>>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
@@ -157,7 +157,7 @@ impl VolatileState {
         }
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.utxo.produced.get(input)
     }
 }
@@ -206,7 +206,12 @@ impl AnchoredVolatileState {
             withdrawals: self.state.withdrawals.into_iter(),
             voting_dreps: self.state.voting_dreps,
             add: store::Columns {
-                utxo: self.state.utxo.produced.into_iter(),
+                utxo: self
+                    .state
+                    .utxo
+                    .produced
+                    .into_iter()
+                    .map(|(i, o)| (i, utxo::Value(o))),
                 pools: self.state.pools.registered.into_iter().flat_map(
                     move |(_, registrations)| {
                         registrations

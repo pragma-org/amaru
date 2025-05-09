@@ -19,8 +19,8 @@ use crate::context::{
     UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    serde_utils, stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep,
-    Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential,
+    stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep, Epoch,
+    Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential,
     TransactionInput, TransactionOutput,
 };
 use core::mem;
@@ -34,8 +34,7 @@ use tracing::{instrument, Level};
 /// pre-exists in the context.
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct AssertPreparationContext {
-    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    pub utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
 }
 
 impl From<AssertPreparationContext> for AssertValidationContext {
@@ -81,8 +80,7 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 
 #[derive(Debug, serde::Deserialize)]
 pub struct AssertValidationContext {
-    #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
     required_signers: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
@@ -108,7 +106,7 @@ impl PotsSlice for AssertValidationContext {
 }
 
 impl UtxoSlice for AssertValidationContext {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.utxo.get(input)
     }
 
@@ -116,7 +114,7 @@ impl UtxoSlice for AssertValidationContext {
         self.utxo.remove(&input);
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'static>) {
         self.utxo.insert(input, output);
     }
 }
