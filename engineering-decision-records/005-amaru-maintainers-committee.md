@@ -21,15 +21,16 @@ In order to manage the decision making on the project and have a compelling prod
 
 Here is the new composition of the Amaru maintainers committee (scope owners of the project):
 
-| Matthias Benkort <br/> <img src="https://github.com/ktorz.png" width=50 height=50 /> <br/> [@KtorZ][] | Santiago Carmuega <br/> <img src="https://github.com/scarmuega.png" width=50 height=50 /> <br/> [@scarmuega][] | Pi Lanningham <br/> <img src="https://github.com/quantumplation.png" width=50 height=50 /> <br/> [@QuantumPlation][] |  Arnaud Bailly <br/> <img src="https://github.com/abailly.png" width=50 height=50 /> <br/> [@abailly][] |
-| --- | --- | --- | --- |
-| Ledger & integration | Networking | Mempool & Middleware | Consensus |
+| Matthias Benkort <br/> <img src="https://github.com/ktorz.png" width=50 height=50 /> <br/> [@KtorZ][] | Santiago Carmuega <br/> <img src="https://github.com/scarmuega.png" width=50 height=50 /> <br/> [@scarmuega][] | Pi Lanningham <br/> <img src="https://github.com/quantumplation.png" width=50 height=50 /> <br/> [@QuantumPlation][] |  Arnaud Bailly <br/> <img src="https://github.com/abailly.png" width=50 height=50 /> <br/> [@abailly][] |  Damien Czapla <br/> <img src="https://avatars.githubusercontent.com/u/161828179?v=4" width=50 height=50 /> <br/> [@Dam-CZ][] |
+| --- | --- | --- | --- | --- |
+| Ledger & integration | Networking | Mempool & Middleware | Consensus | Project management, PR, Marketing |
 
 
 [@KtorZ]: https://github.com/ktorz
 [@scarmuega]: https://github.com/scarmuega
 [@Quantumplation]: https://github.com/Quantumplation
 [@abailly]: https://github.com/abailly
+[@Dam-CZ]: https://github.com/Dam-CZ
 
 [Matthias Benkort - @KtorZ](https://github.com/KtorZ) provides the ultimate voice in decision-making regarding final integration and architectural designs. Furthermore, Amaru has close relationship with the following projects and their respective owners:
 
@@ -44,3 +45,5 @@ Here is the new composition of the Amaru maintainers committee (scope owners of 
 - We need to have a diverse enough point of view in the maintainers committee to enlighten the decision making process
 - Each scope owner on the project still has the decision making power for everything that relates specifically to his scope
 - The maintainer committee reach a decision by having a minimum of four votes in favour of a decisions for it to be accepted
+
+
