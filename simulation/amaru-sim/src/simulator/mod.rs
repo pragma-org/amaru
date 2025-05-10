@@ -29,6 +29,7 @@ use amaru_consensus::{
 };
 use amaru_kernel::{
     network::NetworkName,
+    protocol_parameters::GlobalParameters,
     to_cbor, Header,
     Point::{self, *},
 };
@@ -88,8 +89,10 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
     // it as mutable in the inner loop of run simulator
     let output_writer = Arc::new(Mutex::new(OutputWriter::new()));
 
+    let global_parameters = GlobalParameters::default();
     let stake_distribution: FakeStakeDistribution =
-        FakeStakeDistribution::from_file(&args.stake_distribution_file).unwrap();
+        FakeStakeDistribution::from_file(&args.stake_distribution_file, &global_parameters)
+            .unwrap();
     let era_history = NetworkName::Testnet(42).into();
 
     let mut chain_store =
@@ -180,7 +183,7 @@ async fn run_simulator(
                             header,
                             ..
                         } => validate_header
-                            .handle_roll_forward(peer, point, header)
+                            .handle_roll_forward(peer, point, header, &GlobalParameters::default())
                             .await
                             .expect("unexpected error on roll forward"),
                         DecodedChainSyncEvent::Rollback { .. } => event,

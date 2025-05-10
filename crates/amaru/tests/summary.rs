@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+    network::NetworkName,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     store::Snapshot,
@@ -84,16 +86,24 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: Epoch) {
     let snapshot = db(epoch);
+    let global_parameters = GlobalParameters::default();
+    let protocol_parameters = ProtocolParameters::default();
 
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
         NetworkName::Preprod.into(),
+        &protocol_parameters,
     )
     .unwrap();
 
-    let stake_distr =
-        StakeDistribution::new(snapshot.as_ref(), preprod_protocol_version(epoch), dreps).unwrap();
+    let stake_distr = StakeDistribution::new(
+        snapshot.as_ref(),
+        preprod_protocol_version(epoch),
+        dreps,
+        &protocol_parameters,
+    )
+    .unwrap();
     insta::assert_json_snapshot!(
         format!("stake_distribution_{}", epoch),
         stake_distr.for_network(Network::Testnet),
@@ -101,10 +111,15 @@ fn compare_preprod_snapshot(epoch: Epoch) {
 
     let snapshot_from_the_future = db(epoch + 2);
 
-    let rewards_summary = RewardsSummary::new(snapshot_from_the_future.as_ref(), stake_distr)
-        .unwrap()
-        .with_unclaimed_refunds(snapshot_from_the_future.as_ref())
-        .unwrap();
+    let rewards_summary = RewardsSummary::new(
+        snapshot_from_the_future.as_ref(),
+        stake_distr,
+        &global_parameters,
+        &protocol_parameters,
+    )
+    .unwrap()
+    .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &protocol_parameters)
+    .unwrap();
 
     insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
 }

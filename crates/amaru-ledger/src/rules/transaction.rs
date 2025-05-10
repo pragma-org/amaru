@@ -76,9 +76,10 @@ pub enum InvalidTransaction {
     Metadata(#[from] InvalidTransactionMetadata),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn execute(
     context: &mut impl ValidationContext,
-    protocol_params: &ProtocolParameters,
+    protocol_parameters: &ProtocolParameters,
     pointer: TransactionPointer,
     is_valid: bool,
     transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
@@ -95,6 +96,7 @@ pub fn execute(
         context,
         pointer,
         mem::take(&mut transaction_body.certificates),
+        protocol_parameters,
     )?;
 
     fees::execute(
@@ -113,7 +115,7 @@ pub fn execute(
     )?;
 
     outputs::execute(
-        protocol_params,
+        protocol_parameters,
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
@@ -137,7 +139,7 @@ pub fn execute(
     )?;
 
     outputs::execute(
-        protocol_params,
+        protocol_parameters,
         mem::take(&mut transaction_body.outputs),
         &mut |index, output| {
             if is_valid {

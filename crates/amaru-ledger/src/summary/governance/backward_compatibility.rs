@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, Slot, TransactionPointer};
+use amaru_kernel::{Epoch, EpochInterval, Slot, TransactionPointer};
 use std::collections::BTreeSet;
 
 // In Version 9, the number of dormant epochs depends on the moment the DRep registers *within the
@@ -28,7 +28,7 @@ use std::collections::BTreeSet;
 // one or more new proposal is encountered**. So we need to figure out the _last dormant epoch
 // count_ that could be relevant to the DRep.
 pub(crate) fn drep_bonus_mandate(
-    governance_action_lifetime: u64,
+    governance_action_lifetime: EpochInterval,
     proposals: &BTreeSet<(TransactionPointer, Epoch)>,
     (registered_at, registered_in): (Slot, Epoch),
 ) -> Epoch {
@@ -93,18 +93,18 @@ pub enum LastDormantEpoch<'a> {
 ///
 /// In case where the dormant period is still ongoing, returns `None` and the current length.
 fn last_dormant_period<'a>(
-    governance_action_lifetime: u64,
+    governance_action_lifetime: EpochInterval,
     registered_in: Epoch,
     proposals: BTreeSet<&'a (TransactionPointer, Epoch)>,
 ) -> LastDormantEpoch<'a> {
     let dormant_period = |previous_epoch, current_epoch| {
-        if previous_epoch <= current_epoch + governance_action_lifetime {
+        if previous_epoch <= current_epoch + governance_action_lifetime as Epoch {
             None
         } else {
             // We iterate on a BTreeSet in reverse order, so when in dormant periods, the previous
             // epoch is necessarily larger than the current one. And we've just guaranteed there's
             // a gap that is greater than the governance_action_lifetime between both.
-            Some(previous_epoch - current_epoch - governance_action_lifetime)
+            Some(previous_epoch - current_epoch - governance_action_lifetime as Epoch)
         }
     };
 
