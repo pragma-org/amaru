@@ -819,43 +819,44 @@ pub fn to_network_id(network: &Network) -> u8 {
 
 pub trait HasNetwork {
     /// Returns the Network of a given entity
-    fn has_network(&self) -> Option<Network>;
+    fn has_network(&self) -> Network;
 }
 
 impl HasNetwork for Address {
-    fn has_network(&self) -> Option<Network> {
+    #[allow(clippy::unwrap_used)]
+    fn has_network(&self) -> Network {
         match self {
             Address::Byron(address) => address.has_network(),
-            Address::Shelley(_) | Address::Stake(_) => self.network(),
+            // Safe to unwrap here, as there will always be a network value for self.network as long as it is not Address::Byron (which is handled above)
+            Address::Shelley(_) | Address::Stake(_) => self.network().unwrap(),
         }
     }
 }
 
 impl HasNetwork for ByronAddress {
-    /// Based off of the CDDL specification for ByronAddress
-    /// https://raw.githubusercontent.com/cardano-foundation/CIPs/master/CIP-0019/CIP-0019-byron-addresses.cddl
-    fn has_network(&self) -> Option<Network> {
-        let x: AddressPayload = from_cbor(&self.payload.0)?;
-        for attribute in x.attributes.iter() {
-            if let AddrAttrProperty::NetworkTag(network) = attribute {
-                // the network tag is specified as a u32 in the CDDL
-                // but CBOR always chooses the smallest possible number
-                let network = network.deref();
-                let network_id: u8 = match network.len() {
-                    1 => u32::from_be_bytes([0, 0, 0, network[0]]).try_into(),
-                    2 => u32::from_be_bytes([0, 0, network[0], network[1]]).try_into(),
-                    3 => u32::from_be_bytes([0, network[0], network[1], network[2]]).try_into(),
-                    4 => u32::from_be_bytes([network[0], network[1], network[2], network[3]])
-                        .try_into(),
-                    _ => return None,
-                }
-                .ok()?;
+    /*
+        According to the Byron address specification (https://raw.githubusercontent.com/cardano-foundation/CIPs/master/CIP-0019/CIP-0019-byron-addresses.cddl),
+        the attributes can optionally contain a u32 network discriminant, identifying a specific testnet network.
 
-                return Some(Network::from(network_id));
+        When decoding Byron address attributes (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/eras/byron/ledger/impl/src/Cardano/Chain/Common/AddrAttributes.hs#L122-L144),
+        the node defaults to Mainnet, unless otherwise specified. The discriminant can be any `NetworkMagic` (sometimes referred to as `ProtocolMagic`), identifying a specific testnet.
+        If present, it is Testnet(discriminant).
+
+        However, when retrieving a network ID from a Byron Address, it maps every testnet network to the value Network::Testnet, regardless of discriminant.
+        (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs#L152)
+    */
+    #[allow(clippy::unwrap_used)]
+    fn has_network(&self) -> Network {
+        // Unwrap is safe, we know that there is a valid address payload if it is a Byron address.
+        let x: AddressPayload = from_cbor(&self.payload.0).unwrap();
+        for attribute in x.attributes.iter() {
+            if let AddrAttrProperty::NetworkTag(_) = attribute {
+                // We are ignoring the network discriminant here, as the Haskell node does
+                return Network::Testnet;
             }
         }
 
-        None
+        Network::Mainnet
     }
 }
 pub trait HasOwnership {

@@ -83,9 +83,7 @@ fn validate_network(
         .address()
         .map_err(|e| InvalidOutput::UncategorizedError(e.to_string()))?;
 
-    let given_network = address.has_network().ok_or_else(|| {
-        InvalidOutput::UncategorizedError("failed to parse network ID from address".to_string())
-    })?;
+    let given_network = address.has_network();
 
     if &given_network != expected_network {
         Err(InvalidOutput::WrongNetwork {
