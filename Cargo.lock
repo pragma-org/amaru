@@ -200,6 +200,7 @@ dependencies = [
  "amaru-ledger",
  "amaru-ouroboros",
  "amaru-stores",
+ "anyhow",
  "async-trait",
  "built",
  "clap",
