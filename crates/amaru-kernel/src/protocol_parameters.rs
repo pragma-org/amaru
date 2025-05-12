@@ -7,7 +7,7 @@ pub struct ProtocolParameters {
     pub max_header_size: u32,
     pub max_tx_ex_units: ExUnits,
     pub max_block_ex_units: ExUnits,
-    pub max_val_size: usize,
+    pub max_val_size: u32,
     pub max_collateral_inputs: u32,
 
     pub min_fee_a: u32,

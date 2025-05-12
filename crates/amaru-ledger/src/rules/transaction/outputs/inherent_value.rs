@@ -41,9 +41,10 @@ pub fn execute(
         amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => to_cbor(&output.value).len(),
     };
 
-    if given_val_size > max_val_size {
+    // This conversion is safe becuase max_val_size will never be big enough to cause a problem
+    if given_val_size > max_val_size as usize {
         return Err(InvalidOutput::ValueTooLarge {
-            maximum_size: max_val_size,
+            maximum_size: max_val_size as usize,
             given_size: given_val_size,
         });
     }
