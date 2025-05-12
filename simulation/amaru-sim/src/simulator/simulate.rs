@@ -29,6 +29,7 @@ use crate::echo::{EchoMessage, Envelope};
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestError, TestRunner};
 use std::collections::{BTreeMap, BinaryHeap};
+use std::fmt;
 use std::fmt::Debug;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -63,6 +64,12 @@ pub struct NodeHandle {
     close: Box<dyn FnMut()>,
 }
 
+impl Debug for NodeHandle {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "<NodeHandle>")
+    }
+}
+
 pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, String> {
     let mut child = Command::new(filepath)
         .args(args)
@@ -74,6 +81,10 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, St
     let mut stdout = child.stdout.take().ok_or("Failed to take stdout")?;
 
     let handle = Box::new(move |msg: Envelope<EchoMessage>| {
+        println!(
+            "About to write: {}",
+            serde_json::to_string(&msg).expect("Failed to encode JSON")
+        );
         writeln!(
             stdin,
             "{}",
@@ -90,6 +101,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, St
             .read_line(&mut line)
             .map_err(|e| format!("Failed to read from child's stdout: {}", e))?;
 
+        println!("Just read: {}", &line);
         serde_json::from_str(&line)
             .map(|msg: Envelope<EchoMessage>| vec![msg])
             .map_err(|e| format!("Failed to decode JSON: {}", e))
@@ -204,18 +216,18 @@ pub fn simulate(
         0..20,
     );
     let result = runner.run(&generate_messages, |initial_messages| {
-        let node_handles = (1..number_of_nodes)
+        let node_handles: Vec<_> = (1..=number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))
             .collect();
+        println!("{:?}", node_handles);
         let trace = World::new(initial_messages, node_handles).run_world();
 
         // XXX: How do we close the node handles here? The following doesn't work, because
         // node_handles has been moved in the line above, and we can also not clone it because of
         // dyn in the NodeHandle struct.
-        // node_handles.into_iter().map(|(_node_id, node_handle)| node_handle.close());
         // node_handles
         //     .into_iter()
-        //     .map(|(_node_id, node_handle)| node_handle.close());
+        //     .map(|(_node_id, mut node_handle)| (node_handle.close)());
 
         match property(trace) {
             Ok(()) => (),
@@ -225,20 +237,41 @@ pub fn simulate(
     });
     match result {
         Ok(_) => (),
-        Err(TestError::Fail(_, value)) => println!("Found minimal failing case: {:?}", value),
+        Err(TestError::Fail(_, value)) => {
+            assert!(false, "Found minimal failing case: {:?}", value);
+        }
         Err(TestError::Abort(_)) => todo!(),
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::simulator::simulate::Trace;
-    use crate::simulator::simulate::World;
+    use super::*;
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
         let mut world = World::new(Vec::new(), Vec::new());
 
         assert_eq!(world.run_world(), Trace(Vec::new()));
+    }
+
+    #[test]
+    fn simulate_echo() {
+        let config = proptest::test_runner::Config {
+            cases: 3,
+            verbose: 1,
+            ..Default::default()
+        };
+
+        let number_of_nodes = 1;
+        let spawn: fn() -> NodeHandle = || {
+            pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
+        };
+        let generate_message = (0..128u8).prop_map(|i| EchoMessage::Echo {
+            msg_id: 0,
+            echo: format!("Please echo {}", i),
+        });
+        let property = |_trace| Ok(()); // XXX: Actually check that we get the right responses.
+        simulate(config, number_of_nodes, spawn, generate_message, property)
     }
 }
