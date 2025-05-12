@@ -839,10 +839,14 @@ impl HasNetwork for ByronAddress {
         the attributes can optionally contain a u32 network discriminant, identifying a specific testnet network.
 
         When decoding Byron address attributes (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/eras/byron/ledger/impl/src/Cardano/Chain/Common/AddrAttributes.hs#L122-L144),
-        the node defaults to Mainnet, unless otherwise specified. The discriminant can be any `NetworkMagic` (sometimes referred to as `ProtocolMagic`), identifying a specific testnet.
+        the Haskell node defaults NetworkMagic to NetworkMainOrStage, unless otherwise specified. The discriminant can be any `NetworkMagic` (sometimes referred to as `ProtocolMagic`), identifying a specific testnet.
         If present, it is Testnet(discriminant).
 
-        However, when retrieving a network ID from a Byron Address, it maps every testnet network to the value Network::Testnet, regardless of discriminant.
+        It does not, notabtly, validate this discriminant, as evidenced by this conflicting Byron address on Preprod: 2cWKMJemoBaiqkR9D1YZ2xQ2BhVxzauukrsxm8ttZUrto1f7kr5J1tD9uhtEtTc9U4PuF (found in tx 9738801cc4f7e46bb3561a138a403fa8470e8a4faf2df5009023e7bbcdf09cb4).
+        This address encodes a `NetworkMagic` of 1097911063. The `NetworkMagic` of Preprod is 1 (https://book.world.dev.cardano.org/environments/preprod/byron-genesis.json).
+
+
+        As a result, since we are only checking the network of a Byron address for validation, we will mirror the Haskell node logic and disregard the discriminant when fetching the network from an address.
         (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs#L152)
     */
     #[allow(clippy::unwrap_used)]
