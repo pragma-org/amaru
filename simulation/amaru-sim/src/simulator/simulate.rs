@@ -188,9 +188,10 @@ impl World {
         }
     }
 
-    pub fn run_world(&mut self) -> Trace {
+    pub fn run_world(&mut self) -> &[Envelope<EchoMessage>] {
+        let prev = self.trace.0.len();
         while self.step_world() == Next::Continue {}
-        self.trace.clone()
+        &self.trace.0[prev..]
     }
 }
 
@@ -228,9 +229,11 @@ pub fn simulate(
         let node_handles: Vec<_> = (1..=number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))
             .collect();
-        let trace = World::new(initial_messages, node_handles).run_world();
 
-        match property(trace) {
+        let mut world = World::new(initial_messages, node_handles);
+        let trace = world.run_world();
+
+        match property(Trace(trace.to_vec())) {
             Ok(()) => (),
             Err(reason) => assert!(false, "{}", reason),
         }
