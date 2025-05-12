@@ -43,26 +43,26 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
 
 import-snapshots: snapshots ## Import PreProd snapshots for demo
-	cargo run -- import-ledger-state \
+	cargo run --release -- import-ledger-state \
 	--ledger-dir $(LEDGER_DIR) \
 	--snapshot $^/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor \
 	--snapshot $^/69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor \
 	--snapshot $^/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
 
 import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
-	cargo run -- import-headers \
+	cargo run --release -- import-headers \
 	--chain-dir $(CHAIN_DIR) \
 	--peer-address ${AMARU_PEER_ADDRESS} \
 	--starting-point 69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2 \
 	--count 2
-	cargo run -- import-headers \
+	cargo run --release -- import-headers \
 	--chain-dir $(CHAIN_DIR) \
 	--peer-address ${AMARU_PEER_ADDRESS} \
 	--starting-point 70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c \
 	--count 2
 
 import-nonces: ## Import PreProd nonces for demo
-	cargo run -- import-nonces \
+	cargo run --release -- import-nonces \
 	--chain-dir $(CHAIN_DIR) \
 	--at 70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d \
 	--active a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a \
@@ -84,7 +84,7 @@ dev: ## Compile and run for development with default options
 	--listen-address $(LISTEN_ADDRESS)
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
-	cargo test -p amaru -- --ignored
+	cargo test --release -p amaru -- --ignored
 
 test-e2-from-scratch: clean-dbs bootstrap demo test-e2e ## Run end-to-end tests from scratch
 

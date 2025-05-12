@@ -30,7 +30,7 @@ CHAIN_DIR=${CHAIN_DIR:-./chain.db}
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 set -eo pipefail
-AMARU_TRACE="amaru=info" cargo run -- --with-json-traces daemon \
+AMARU_TRACE="amaru=info" cargo run --release -- --with-json-traces daemon \
            --peer-address="${PEER_ADDRESS}" \
            --listen-address="${LISTEN_ADDRESS}" \
            --network="${NETWORK}" \

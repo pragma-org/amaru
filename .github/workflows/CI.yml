@@ -209,7 +209,7 @@ jobs:
 
       - name: Build Amaru
         run: |
-          cargo test --no-run -p amaru
+          cargo test --release --no-run -p amaru
 
       - name: Cache Amaru's ledger.db
         id: cache-ledger-db
