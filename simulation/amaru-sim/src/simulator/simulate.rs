@@ -28,6 +28,7 @@ use crate::echo::{EchoMessage, Envelope};
 
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestError, TestRunner};
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BinaryHeap};
 use std::fmt::Debug;
 use std::io::{BufRead, BufReader, Write};
@@ -43,7 +44,7 @@ pub struct Entry<Msg> {
 
 impl<Msg: PartialEq> PartialOrd for Entry<Msg> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.arrival_time.cmp(&other.arrival_time))
+        Some(self.cmp(other))
     }
 }
 
@@ -120,7 +121,7 @@ pub enum Next {
 }
 
 pub struct World {
-    heap: BinaryHeap<Entry<EchoMessage>>,
+    heap: BinaryHeap<Reverse<Entry<EchoMessage>>>,
     nodes: BTreeMap<NodeId, NodeHandle>,
     trace: Trace,
 }
@@ -128,7 +129,7 @@ pub struct World {
 #[allow(dead_code)]
 impl World {
     pub fn new(
-        initial_messages: Vec<Entry<EchoMessage>>,
+        initial_messages: Vec<Reverse<Entry<EchoMessage>>>,
         node_handles: Vec<(NodeId, NodeHandle)>,
     ) -> Self {
         World {
@@ -142,10 +143,10 @@ impl World {
     /// see https://github.com/pragma-org/simulation-testing/blob/main/blog/dist/04-simulation-testing-main-loop.md
     pub fn step_world(&mut self) -> Next {
         match self.heap.pop() {
-            Some(Entry {
+            Some(Reverse(Entry {
                 arrival_time,
                 envelope,
-            }) =>
+            })) =>
             // TODO: deal with time advance across all nodes
             // eg. run all nodes whose next action is ealier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
@@ -165,7 +166,7 @@ impl World {
                                     arrival_time: arrival_time + Duration::from_millis(100),
                                     envelope: envelope.clone(),
                                 })
-                                .for_each(|msg| self.heap.push(msg));
+                                .for_each(|msg| self.heap.push(Reverse(msg)));
                             if envelope.src.starts_with("c") {
                                 self.trace.0.push(envelope);
                             }
@@ -206,13 +207,15 @@ pub fn simulate(
 ) {
     let mut runner = TestRunner::new(config);
     let generate_messages = prop::collection::vec(
-        generate_message.prop_map(|msg| Entry {
-            arrival_time: Instant::now(),
-            envelope: Envelope {
-                src: "c1".to_string(),
-                dest: "n1".to_string(),
-                body: msg,
-            },
+        generate_message.prop_map(|msg| {
+            Reverse(Entry {
+                arrival_time: Instant::now(),
+                envelope: Envelope {
+                    src: "c1".to_string(),
+                    dest: "n1".to_string(),
+                    body: msg,
+                },
+            })
         }),
         0..20,
     );
