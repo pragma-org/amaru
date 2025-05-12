@@ -162,6 +162,15 @@ mod tests {
             });
         "wrong network shelley"
     )]
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "wrong-network-byron") =>
+        matches Err(InvalidOutputs{invalid_outputs})
+            if matches!(invalid_outputs[0], WithPosition {
+                position: 0,
+                element: InvalidOutput::WrongNetwork { expected: 0, actual: 1 }
+            });
+        "wrong network byron"
+    )]
+    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"); "valid byron")]
     fn outputs(
         (tx, protocol_parameters, yield_output): (
             MintedTransactionBody<'_>,
