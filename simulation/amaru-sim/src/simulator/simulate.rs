@@ -29,7 +29,6 @@ use crate::echo::{EchoMessage, Envelope};
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestError, TestRunner};
 use std::collections::{BTreeMap, BinaryHeap};
-use std::fmt;
 use std::fmt::Debug;
 use std::io::{BufRead, BufReader, Write};
 use std::path::Path;
@@ -62,12 +61,6 @@ type NodeId = String;
 pub struct NodeHandle {
     handle: Box<dyn FnMut(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, String>>,
     close: Box<dyn FnMut()>,
-}
-
-impl Debug for NodeHandle {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "<NodeHandle>")
-    }
 }
 
 pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> Result<NodeHandle, String> {
@@ -196,6 +189,14 @@ impl World {
     }
 }
 
+impl Drop for World {
+    fn drop(&mut self) {
+        self.nodes
+            .values_mut()
+            .for_each(|node_handle| (node_handle.close)());
+    }
+}
+
 pub fn simulate(
     config: Config,
     number_of_nodes: u8,
@@ -219,15 +220,7 @@ pub fn simulate(
         let node_handles: Vec<_> = (1..=number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))
             .collect();
-        println!("{:?}", node_handles);
         let trace = World::new(initial_messages, node_handles).run_world();
-
-        // XXX: How do we close the node handles here? The following doesn't work, because
-        // node_handles has been moved in the line above, and we can also not clone it because of
-        // dyn in the NodeHandle struct.
-        // node_handles
-        //     .into_iter()
-        //     .map(|(_node_id, mut node_handle)| (node_handle.close)());
 
         match property(trace) {
             Ok(()) => (),
@@ -240,7 +233,7 @@ pub fn simulate(
         Err(TestError::Fail(_, value)) => {
             assert!(false, "Found minimal failing case: {:?}", value);
         }
-        Err(TestError::Abort(_)) => todo!(),
+        Err(TestError::Abort(e)) => assert!(false, "Test aborted: {}", e),
     }
 }
 
@@ -258,7 +251,7 @@ mod tests {
     #[test]
     fn simulate_echo() {
         let config = proptest::test_runner::Config {
-            cases: 3,
+            cases: 100,
             verbose: 1,
             ..Default::default()
         };
