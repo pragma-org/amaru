@@ -1,4 +1,4 @@
-use amaru_kernel::{Epoch, Lovelace, Point, StakeCredential};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, Epoch, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
     store::{
         EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
@@ -152,6 +152,14 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         _deposit: Lovelace,
     ) -> Result<Lovelace, StoreError> {
         Ok(0)
+    }
+
+    fn set_protocol_parameters(
+        &self,
+        _epoch: &Epoch,
+        _protocol_parameters: &ProtocolParameters,
+    ) -> Result<(), StoreError> {
+        Ok(())
     }
 
     fn save(

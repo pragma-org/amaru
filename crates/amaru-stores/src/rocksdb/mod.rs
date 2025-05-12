@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    CertificatePointer, Epoch, EraHistory, Lovelace, Point, PoolId, StakeCredential,
-    TransactionInput, TransactionOutput,
+    protocol_parameters::ProtocolParameters, CertificatePointer, Epoch, EraHistory, Lovelace,
+    Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -359,6 +359,21 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         deposit: Lovelace,
     ) -> Result<Lovelace, StoreError> {
         accounts::set(&self.transaction, credential, |balance| balance + deposit)
+    }
+
+    fn set_protocol_parameters(
+        &self,
+        epoch: &Epoch,
+        protocol_parameters: &ProtocolParameters,
+    ) -> Result<(), StoreError> {
+        self.transaction
+            .put(
+                format!("protocol_parameters:{epoch}"),
+                as_value(protocol_parameters),
+            )
+            .map_err(|err| StoreError::Internal(err.into()))?;
+
+        Ok(())
     }
 
     fn save(

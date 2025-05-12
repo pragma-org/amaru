@@ -1,4 +1,4 @@
-use pallas_codec::minicbor::Decoder;
+use pallas_codec::minicbor::{data::Tag, Decoder};
 
 use crate::{cbor, Coin, Epoch, EpochInterval, ExUnits, Lovelace, RationalNumber};
 
@@ -75,13 +75,13 @@ fn decode_rationale(d: &mut Decoder<'_>) -> Result<RationalNumber, cbor::decode:
 impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
-        let min_fee_a = d.u8()? as Coin;
-        let min_fee_b = d.u32()? as Coin;
+        let min_fee_a = decode_u64(d)? as Coin;
+        let min_fee_b = decode_u64(d)? as Coin;
         let max_block_body_size = d.u32()?;
         let max_tx_size = d.u16()? as u32;
         let max_header_size = d.u16()?;
-        let stake_credential_deposit = d.u32()? as Coin;
-        let stake_pool_deposit = d.u32()? as Coin;
+        let stake_credential_deposit = decode_u64(d)? as Coin;
+        let stake_pool_deposit = decode_u64(d)? as Coin;
         let max_epoch = d.u8()? as EpochInterval;
         let optimal_stake_pools_count = d.u16()?;
         let pledge_influence = decode_rationale(d)?;
@@ -200,6 +200,111 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
                 denominator: 10,
             },
         })
+    }
+}
+
+fn encode_rationale<W: cbor::encode::Write>(
+    e: &mut cbor::Encoder<W>,
+    rat: &RationalNumber,
+) -> Result<(), cbor::encode::Error<W::Error>> {
+    e.tag(Tag::new(30))?;
+    e.array(2)?;
+
+    e.u64(rat.numerator)?;
+    e.u64(rat.denominator)?;
+    Ok(())
+}
+
+impl<C> cbor::encode::Encode<C> for ProtocolParameters {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.array(31)?;
+        e.u64(self.min_fee_a)?;
+        e.u64(self.min_fee_b)?;
+        e.u32(self.max_block_body_size)?;
+        e.u32(self.max_tx_size)?;
+        e.u16(self.max_header_size)?;
+        e.u64(self.stake_credential_deposit)?;
+        e.u64(self.stake_pool_deposit)?;
+        e.u32(self.max_epoch)?;
+        e.u16(self.optimal_stake_pools_count)?;
+        encode_rationale(e, &self.pledge_influence)?;
+        encode_rationale(e, &self.monetary_expansion_rate)?;
+
+        encode_rationale(
+            e,
+            &RationalNumber {
+                numerator: 0,
+                denominator: 0,
+            },
+        )?;
+        e.array(2)?;
+        e.u8(0)?;
+        e.u8(0)?;
+        e.u32(0)?;
+
+        e.u16(self.coins_per_utxo_byte as u16)?;
+
+        e.map(3)?;
+        e.u8(0)?;
+        e.encode_with(&self.cost_models.plutus_v1, ctx)?;
+        e.u8(1)?;
+        e.encode_with(&self.cost_models.plutus_v2, ctx)?;
+        e.u8(2)?;
+        e.encode_with(&self.cost_models.plutus_v3, ctx)?;
+
+        e.array(2)?;
+        encode_rationale(e, &self.prices.mem)?;
+        encode_rationale(e, &self.prices.step)?;
+
+        e.array(2)?;
+        e.u32(self.max_tx_ex_units.mem as u32)?;
+        e.u64(self.max_tx_ex_units.steps)?;
+
+        e.array(2)?;
+        e.u32(self.max_block_ex_units.mem as u32)?;
+        e.u64(self.max_block_ex_units.steps)?;
+
+        e.u32(self.max_val_size)?;
+        e.u16(self.collateral_percentage)?;
+        e.u16(self.max_collateral_inputs)?;
+
+        // TODO validate order
+        e.array(5)?;
+        encode_rationale(e, &self.pool_thresholds.no_confidence)?;
+        encode_rationale(e, &self.pool_thresholds.committee)?;
+        encode_rationale(e, &self.pool_thresholds.committee_under_no_confidence)?;
+        encode_rationale(e, &self.pool_thresholds.hard_fork)?;
+        encode_rationale(e, &self.pool_thresholds.security_group)?;
+
+        // TODO validate order
+        e.array(5)?;
+        encode_rationale(e, &self.drep_thresholds.no_confidence)?;
+        encode_rationale(e, &self.drep_thresholds.committee)?;
+        encode_rationale(e, &self.drep_thresholds.committee_under_no_confidence)?;
+        encode_rationale(e, &self.drep_thresholds.constitution)?;
+        encode_rationale(e, &self.drep_thresholds.hard_fork)?;
+        encode_rationale(e, &self.drep_thresholds.protocol_parameters.network_group)?;
+        encode_rationale(e, &self.drep_thresholds.protocol_parameters.economic_group)?;
+        encode_rationale(e, &self.drep_thresholds.protocol_parameters.technical_group)?;
+        encode_rationale(
+            e,
+            &self.drep_thresholds.protocol_parameters.governance_group,
+        )?;
+        encode_rationale(e, &self.drep_thresholds.treasury_withdrawal)?;
+
+        e.u8(self.cc_min_size as u8)?;
+        e.u8(self.cc_max_term_length as u8)?;
+        e.u8(self.gov_action_lifetime as u8)?;
+        e.u64(self.gov_action_deposit)?;
+        e.u64(self.drep_deposit)?;
+        e.u8(self.drep_expiry as u8)?;
+        encode_rationale(e, &self.min_fee_ref_script_coins_per_byte)?;
+
+        Ok(())
     }
 }
 

@@ -308,7 +308,10 @@ fn decode_new_epoch_state(
                     // Constitution
                     d.skip()?;
                     // Current Protocol Params
-                    let _protocol_parameters: ProtocolParameters = d.decode()?;
+                    let current_protocol_parameters: ProtocolParameters = d.decode()?;
+
+                    import_protocol_parameters(db, &epoch, &current_protocol_parameters)?;
+
                     // Previous Protocol Params
                     d.skip()?;
                     // Future Protocol Params
@@ -363,6 +366,17 @@ fn decode_new_epoch_state(
     }
 
     Ok(epoch)
+}
+
+fn import_protocol_parameters(
+    db: &impl Store,
+    epoch: &Epoch,
+    protocol_parameters: &ProtocolParameters,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+    transaction.set_protocol_parameters(epoch, protocol_parameters)?;
+    transaction.commit()?;
+    Ok(())
 }
 
 fn import_block_issuers(
