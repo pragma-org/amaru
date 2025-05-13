@@ -56,6 +56,17 @@ const KEY_PROGRESS: &str = "progress";
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
+fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
+    db: &OptimisticTransactionDB,
+    key: &str,
+) -> Result<Option<T>, StoreError> {
+    db.get(key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(|bytes| cbor::decode(&bytes))
+        .transpose()
+        .map_err(StoreError::Undecodable)
+}
+
 /// An opaque handle for a store implementation of top of RocksDB. The database has the
 /// following structure:
 ///
@@ -160,18 +171,6 @@ impl RocksDB {
     fn transaction_ended(&self) {
         self.ongoing_transaction.set(false);
     }
-
-    fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
-        &self,
-        key: &str,
-    ) -> Result<Option<T>, StoreError> {
-        self.db
-            .get(key)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|bytes| cbor::decode(&bytes))
-            .transpose()
-            .map_err(StoreError::Undecodable)
-    }
 }
 
 #[allow(clippy::panic)]
@@ -198,6 +197,14 @@ fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::De
 macro_rules! impl_ReadOnlyStore {
     (for $($s:ty),+) => {
         $(impl ReadOnlyStore for $s {
+            fn get_protocol_parameters_for(
+                &self,
+                epoch: &Epoch,
+            ) -> Result<ProtocolParameters, StoreError> {
+                get(&self.db, &format!("protocol_parameters:{epoch}"))
+                    .map(|row| row.unwrap_or_default())
+            }
+
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
                 pools::get(&self.db, pool)
             }
@@ -546,8 +553,7 @@ impl Store for RocksDB {
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
-        self.get(KEY_TIP)?
-            .ok_or(StoreError::Tip(TipErrorKind::Missing))
+        get(&self.db, KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
     }
 }
 

@@ -68,6 +68,9 @@ pub enum StoreError {
 // ----------------------------------------------------------------------------
 
 pub trait ReadOnlyStore {
+    /// Get the current protocol parameters for a given epoch, or most recent one
+    fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError>;
+
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
 

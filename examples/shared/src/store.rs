@@ -17,6 +17,13 @@ impl Snapshot for MemoryStore {
 }
 
 impl ReadOnlyStore for MemoryStore {
+    fn get_protocol_parameters_for(
+        &self,
+        _epoch: &Epoch,
+    ) -> Result<ProtocolParameters, StoreError> {
+        Ok(ProtocolParameters::default())
+    }
+
     fn account(
         &self,
         _credential: &amaru_kernel::StakeCredential,
