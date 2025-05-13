@@ -282,7 +282,7 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
         encode_rationale(e, &self.pool_thresholds.security_group)?;
 
         // TODO validate order
-        e.array(5)?;
+        e.array(10)?;
         encode_rationale(e, &self.drep_thresholds.no_confidence)?;
         encode_rationale(e, &self.drep_thresholds.committee)?;
         encode_rationale(e, &self.drep_thresholds.committee_under_no_confidence)?;
