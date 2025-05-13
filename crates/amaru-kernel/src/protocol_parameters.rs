@@ -55,8 +55,9 @@ fn decode_u64(d: &mut Decoder<'_>) -> Result<u64, cbor::decode::Error> {
         cbor::data::Type::U8 => Ok(d.u8()? as u64),
         cbor::data::Type::U16 => Ok(d.u16()? as u64),
         cbor::data::Type::U32 => Ok(d.u32()? as u64),
+        cbor::data::Type::U64 => Ok(d.u64()? as u64),
         _ => Err(cbor::decode::Error::message(
-            "Expected u8 or u16 or u32 for denominator",
+            "Expected u8/u16/u32/u64 type",
         )),
     }
 }
