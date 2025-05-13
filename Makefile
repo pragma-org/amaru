@@ -13,7 +13,7 @@ LISTEN_ADDRESS ?= 0.0.0.0:0
 LEDGER_DIR ?= ./ledger.db
 CHAIN_DIR ?= ./chain.db
 
-.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config  coverage-html coverage-lconv check-llvm-cov
+.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov
 
 help:
 	@echo "\033[1;4mTargets:\033[00m"
