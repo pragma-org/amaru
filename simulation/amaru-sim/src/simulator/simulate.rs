@@ -235,16 +235,16 @@ pub fn simulate(
 
         match property(Trace(trace.to_vec())) {
             Ok(()) => (),
-            Err(reason) => assert!(false, "{}", reason),
+            Err(reason) => prop_assert!(false, "{}", reason),
         }
         Ok(())
     });
     match result {
         Ok(_) => (),
         Err(TestError::Fail(_, value)) => {
-            assert!(false, "Found minimal failing case: {:?}", value);
+            panic!("Found minimal failing case: {:?}", value);
         }
-        Err(TestError::Abort(e)) => assert!(false, "Test aborted: {}", e),
+        Err(TestError::Abort(e)) => panic!("Test aborted: {}", e),
     }
 }
 
