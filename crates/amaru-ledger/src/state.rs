@@ -33,7 +33,7 @@ use amaru_kernel::{
     expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash, Lovelace, MintedBlock,
-    Point, PoolId, Slot, StakeCredential, TransactionInput, TransactionOutput, PROTOCOL_VERSION_9,
+    Point, PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -107,11 +107,9 @@ where
 pub fn recover_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
+    protocol_version: ProtocolVersion,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
-    // FIXME: Obtain from current block
-    let protocol_version = PROTOCOL_VERSION_9;
-
     StakeDistribution::new(
         snapshot,
         protocol_version,
@@ -137,6 +135,7 @@ pub fn stake_distributions(
     db: &impl Store,
     snapshots: &impl HistoricalStores,
     era_history: &EraHistory,
+    protocol_version: ProtocolVersion,
 ) -> Result<VecDeque<StakeDistribution>, StoreError> {
     let mut stake_distributions = VecDeque::new();
     for epoch in latest_epoch - 2..=latest_epoch - 1 {
@@ -144,8 +143,13 @@ pub fn stake_distributions(
         let protocol_parameters = db.get_protocol_parameters_for(&epoch)?;
         let snapshot = snapshots.for_epoch(epoch)?;
         stake_distributions.push_front(
-            recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
-                .map_err(|err| StoreError::Internal(err.into()))?,
+            recover_stake_distribution(
+                &snapshot,
+                era_history,
+                protocol_version,
+                &protocol_parameters,
+            )
+            .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
     Ok(stake_distributions)
@@ -298,6 +302,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[instrument(level = Level::TRACE, skip_all)]
     fn compute_rewards(
         &mut self,
+        protocol_version: ProtocolVersion,
         global_parameters: &GlobalParameters,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<RewardsSummary, StateError> {
@@ -320,6 +325,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         stake_distributions.push_front(recover_stake_distribution(
             &snapshot,
             &self.era_history,
+            protocol_version,
             protocol_parameters,
         )?);
 
@@ -333,6 +339,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[instrument(level = Level::TRACE, skip_all)]
     pub fn forward(
         &mut self,
+        protocol_version: ProtocolVersion,
         global_parameters: &GlobalParameters,
         protocol_parameters: &ProtocolParameters,
         next_state: AnchoredVolatileState,
@@ -359,8 +366,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         if self.rewards_summary.is_none()
             && relative_slot >= From::from(global_parameters.stability_window as u64)
         {
-            self.rewards_summary =
-                Some(self.compute_rewards(global_parameters, protocol_parameters)?);
+            self.rewards_summary = Some(self.compute_rewards(
+                protocol_version,
+                global_parameters,
+                protocol_parameters,
+            )?);
         }
 
         self.volatile.push_back(next_state);

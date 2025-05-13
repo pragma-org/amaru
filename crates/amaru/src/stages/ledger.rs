@@ -1,6 +1,6 @@
 use amaru_kernel::{
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    EraHistory, Hasher, MintedBlock, Point,
+    EraHistory, Hasher, MintedBlock, Point, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -56,8 +56,13 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         global_parameters: &GlobalParameters,
     ) -> Result<(Self, Point), StoreError> {
         let latest_epoch = store.most_recent_snapshot();
-        let stake_distributions =
-            stake_distributions(latest_epoch, &store, &snapshots, era_history)?;
+        let stake_distributions = stake_distributions(
+            latest_epoch,
+            &store,
+            &snapshots,
+            era_history,
+            PROTOCOL_VERSION_9,
+        )?; // FIXME ProtocolVersion should be retrieved from the store
         let state = state::State::new(
             Arc::new(std::sync::Mutex::new(store)),
             snapshots,
@@ -125,7 +130,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
 
         let mut context = self.create_validation_context(&block)?;
-
+        let protocol_version = block.header.header_body.protocol_version;
         match rules::validate_block(&mut context, protocol_parameters, &block) {
             BlockValidation::Err(err) => return Err(err),
             BlockValidation::Invalid(err) => {
@@ -136,6 +141,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 let state: VolatileState = context.into();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
                 self.state.forward(
+                    protocol_version,
                     &self.global_parameters,
                     protocol_parameters,
                     state.anchor(&point, issuer),

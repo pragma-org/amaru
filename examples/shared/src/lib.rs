@@ -2,6 +2,7 @@ use amaru_kernel::{
     cbor, Bytes, Hash, Hasher, MintedBlock, Point,
     PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, EraHistory,
     network::NetworkName, protocol_parameters::{GlobalParameters, ProtocolParameters},
+    PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     context,
@@ -33,7 +34,7 @@ pub fn forward_ledger(raw_block: &str) {
     let store = MemoryStore {};
     let latest_epoch = store.most_recent_snapshot();
     let stake_distributions =
-        stake_distributions(latest_epoch, &store, &store, era_history).unwrap();
+        stake_distributions(latest_epoch, &store, &store, era_history, PROTOCOL_VERSION_9).unwrap();
     let mut state = State::new(Arc::new(Mutex::new(store)), MemoryStore {}, era_history, &global_parameters, stake_distributions);
 
     let point = Point::Specific(
@@ -87,5 +88,5 @@ pub fn forward_ledger(raw_block: &str) {
 
     let volatile_state: VolatileState = context.into();
 
-    state.forward(&global_parameters, &protocol_parameters, volatile_state.anchor(&point, issuer)).unwrap()
+    state.forward(PROTOCOL_VERSION_9, &global_parameters, &protocol_parameters, volatile_state.anchor(&point, issuer)).unwrap()
 }
