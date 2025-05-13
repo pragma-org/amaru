@@ -53,6 +53,9 @@ const KEY_TIP: &str = "tip";
 /// Special key where we store the progress of the database
 const KEY_PROGRESS: &str = "progress";
 
+// Special key where we store the protocol parameters
+const PROTOCOL_PARAMETERS_PREFIX: &str = "ppar";
+
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
@@ -201,7 +204,7 @@ macro_rules! impl_ReadOnlyStore {
                 &self,
                 epoch: &Epoch,
             ) -> Result<ProtocolParameters, StoreError> {
-                get(&self.db, &format!("protocol_parameters:{epoch}"))
+                get(&self.db, &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))
                     .map(|row| row.unwrap_or_default())
             }
 
@@ -375,7 +378,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     ) -> Result<(), StoreError> {
         self.transaction
             .put(
-                format!("protocol_parameters:{epoch}"),
+                format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"),
                 as_value(protocol_parameters),
             )
             .map_err(|err| StoreError::Internal(err.into()))?;
