@@ -31,6 +31,8 @@ pub enum InvalidInputs {
             .join(", ")
     )]
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
+    #[error("input set empty")]
+    EmptyInputSet,
 
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("uncategorized error: {0}")]
@@ -46,6 +48,10 @@ pub fn execute<C>(
 where
     C: UtxoSlice + WitnessSlice,
 {
+    if inputs.is_empty() {
+        return Err(InvalidInputs::EmptyInputSet);
+    }
+
     // Check for disjoint reference inputs.
     let intersection = match &reference_inputs {
         Some(ref_inputs) => ref_inputs
@@ -94,6 +100,14 @@ where
                 };
             }
             None => Err(InvalidInputs::UnknownInput(input.clone()))?,
+        }
+    }
+
+    if let Some(reference_inputs) = reference_inputs {
+        for reference_input in reference_inputs {
+            if let None = context.lookup(reference_input) {
+                return Err(InvalidInputs::UnknownInput(reference_input.clone()));
+            }
         }
     }
 
@@ -146,25 +160,38 @@ mod tests {
     #[test_case(fixture!("578feaed155aa44eb6e0e7780b47f6ce01043d79edabfae60fdb1cb6a3bfefb6"))]
     #[test_case(fixture!("d731b9832921c0cf9294eea0da2de215d0e9afd36126dc6af9af7e8d6310282a"))]
     #[test_case(fixture!("6961d536a1f4d09204d5cfe3cc42949a0e803245fead9a36fad328bf4de9d2f4"))]
+    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "valid-byron-address");
+        "valid byron address"
+    )]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "non-disjoint-reference-inputs") =>
         matches Err(InvalidInputs::NonDisjointRefInputs { intersection })
             if  intersection.len() == 1
                 && InvalidInputs::NonDisjointRefInputs { intersection: intersection.clone() }.to_string() == "inputs included in both reference inputs and spent inputs: intersection [47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab#0]";
-        "Non-Disjoint Reference Inputs")]
+        "Non-Disjoint Reference Inputs"
+    )]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-address-header") =>
         matches Err(InvalidInputs::UncategorizedError(e))
         if e.contains("InvalidHeader");
-        "invalid address header")]
+        "invalid address header"
+    )]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "unknown-input") =>
         matches Err(InvalidInputs::UnknownInput(input))
         if hex::encode(input.transaction_id) == "47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab" && input.index == 2;
-        "unknown input")]
+        "unknown input"
+    )]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-byron-address") =>
         matches Err(InvalidInputs::UncategorizedError(e))
         if e.contains("InvalidByronCbor");
-        "invalid byron payload")]
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "valid-byron-address");
-        "valid byron address")]
+        "invalid byron payload"
+    )]
+    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "empty-input-set") =>
+        matches Err(InvalidInputs::EmptyInputSet);
+        "empty input set"
+    )]
+    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "unknown-reference-input") =>
+        matches Err(InvalidInputs::UnknownInput(..));
+        "unknown reference input"
+    )]
     fn inputs(
         (ctx, tx, expected_traces): (
             AssertPreparationContext,

@@ -264,6 +264,9 @@ pub trait WitnessSlice {
     /// Obtain the full list of required signers collected while traversing the transaction.
     fn required_signers(&mut self) -> BTreeSet<Hash<28>>;
 
+    /// Obtain the full list of require scripts collected while traversing the transaction.
+    fn required_scripts(&self) -> &BTreeSet<Hash<28>>;
+
     /// Obtain the full list of required bootstrap witnesses collected while traversing the
     /// transaction.
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>>;

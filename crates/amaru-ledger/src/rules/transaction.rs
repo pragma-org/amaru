@@ -49,6 +49,9 @@ pub mod voting_procedures;
 pub mod withdrawals;
 pub use withdrawals::InvalidWithdrawals;
 
+pub mod scripts;
+pub use scripts::InvalidScripts;
+
 #[derive(Debug, Error)]
 pub enum InvalidTransaction {
     #[error("invalid inputs: {0}")]
@@ -71,6 +74,9 @@ pub enum InvalidTransaction {
 
     #[error("invalid transaction bootstrap witness: {0}")]
     BootstrapWitnesses(#[from] InvalidBootstrapWitnesses),
+
+    #[error("invalid transaction scripts: {0}")]
+    Scripts(#[from] InvalidScripts),
 
     #[error("invalid transaction metadata: {0}")]
     Metadata(#[from] InvalidTransactionMetadata),
@@ -177,6 +183,12 @@ pub fn execute(
         context,
         transaction_id,
         transaction_witness_set.bootstrap_witness.as_deref(),
+    )?;
+
+    scripts::execute(
+        context,
+        transaction_body.reference_inputs.as_deref(),
+        transaction_witness_set,
     )?;
 
     // At last, consume inputs
