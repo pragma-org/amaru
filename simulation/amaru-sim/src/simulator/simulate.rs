@@ -256,7 +256,7 @@ mod tests {
     fn run_stops_when_no_message_to_process_is_left() {
         let mut world = World::new(Vec::new(), Vec::new());
 
-        assert_eq!(world.run_world(), Trace(Vec::new()));
+        assert_eq!(world.run_world(), &Vec::new());
     }
 
     // NOTE: This will be replaced with a test that uses an in-process NodeHandle later, which
