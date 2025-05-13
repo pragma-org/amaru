@@ -104,47 +104,68 @@ where
     global_parameters: GlobalParameters,
 }
 
+pub fn recover_stake_distribution(
+    snapshots: &impl HistoricalStores,
+    epoch: Epoch,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+) -> Result<StakeDistribution, StateError> {
+    let snapshot = snapshots.for_epoch(epoch)?;
+
+    // FIXME: Obtain from current block
+    let protocol_version = PROTOCOL_VERSION_9;
+
+    StakeDistribution::new(
+        &snapshot,
+        protocol_version,
+        GovernanceSummary::new(
+            &snapshot,
+            protocol_version,
+            era_history,
+            protocol_parameters,
+        )?,
+        protocol_parameters,
+    )
+    .map_err(StateError::Storage)
+}
+
+// NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
+// consensus layer to validate the leader schedule, while the one before that will be
+// consumed for the rewards calculation.
+//
+// We always hold on two stake distributions:
+//
+// - The one from an epoch `e - 1` which is used for the ongoing leader schedule at epoch `e + 1`
+// - The one from an epoch `e - 2` which is used for the rewards calculations at epoch `e + 1`
+//
+// Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
+// the ongoing epoch, not yet finished (and so, not available as snapshot).
+pub fn stake_distributions(
+    latest_epoch: Epoch,
+    db: &impl Store,
+    snapshots: &impl HistoricalStores,
+    era_history: &EraHistory,
+) -> Result<VecDeque<StakeDistribution>, StoreError> {
+    let mut stake_distributions = VecDeque::new();
+    for epoch in latest_epoch - 2..=latest_epoch - 1 {
+        // Retrieve the protocol parameters for the considered epoch
+        let protocol_parameters = db.get_protocol_parameters_for(&epoch)?;
+        stake_distributions.push_front(
+            recover_stake_distribution(snapshots, epoch, era_history, &protocol_parameters)
+                .map_err(|err| StoreError::Internal(err.into()))?,
+        );
+    }
+    Ok(stake_distributions)
+}
+
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
-    #[allow(clippy::unwrap_used)]
-    #[allow(clippy::panic)]
     pub fn new(
         stable: Arc<Mutex<S>>,
         snapshots: HS,
         era_history: &EraHistory,
         global_parameters: &GlobalParameters,
-        protocol_parameters: &ProtocolParameters,
+        stake_distributions: VecDeque<StakeDistribution>,
     ) -> Self {
-        let db = stable.lock().unwrap();
-
-        // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
-        // consensus layer to validate the leader schedule, while the one before that will be
-        // consumed for the rewards calculation.
-        //
-        // We always hold on two stake distributions:
-        //
-        // - The one from an epoch `e - 1` which is used for the ongoing leader schedule at epoch `e + 1`
-        // - The one from an epoch `e - 2` which is used for the rewards calculations at epoch `e + 1`
-        //
-        // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
-        // the ongoing epoch, not yet finished (and so, not available as snapshot).
-        let latest_epoch = db.most_recent_snapshot();
-
-        let mut stake_distributions = VecDeque::new();
-        for epoch in latest_epoch - 2..=latest_epoch - 1 {
-            stake_distributions.push_front(
-                recover_stake_distribution(&snapshots, epoch, era_history, protocol_parameters)
-                    .unwrap_or_else(|e| {
-                        // TODO deal with error
-                        panic!(
-                            "unable to get stake distribution for (epoch={:?}): {e:?}",
-                            epoch
-                        )
-                    }),
-            );
-        }
-
-        drop(db);
-
         Self {
             stable,
 
@@ -398,37 +419,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         Ok(result)
     }
-}
-
-#[allow(clippy::panic)]
-fn recover_stake_distribution(
-    snapshots: &impl HistoricalStores,
-    epoch: Epoch,
-    era_history: &EraHistory,
-    protocol_parameters: &ProtocolParameters,
-) -> Result<StakeDistribution, StateError> {
-    let snapshot = snapshots.for_epoch(epoch).unwrap_or_else(|e| {
-        panic!(
-            "unable to open database snapshot for epoch {:?}: {:?}",
-            epoch, e
-        )
-    });
-
-    // FIXME: Obtain from current block
-    let protocol_version = PROTOCOL_VERSION_9;
-
-    StakeDistribution::new(
-        &snapshot,
-        protocol_version,
-        GovernanceSummary::new(
-            &snapshot,
-            protocol_version,
-            era_history,
-            protocol_parameters,
-        )?,
-        protocol_parameters,
-    )
-    .map_err(StateError::Storage)
 }
 
 // Epoch Transitions

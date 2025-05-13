@@ -25,9 +25,7 @@ use amaru_consensus::{
     ConsensusError, IsHeader,
 };
 use amaru_kernel::{
-    network::NetworkName,
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
-    EraHistory, Hash, Header,
+    network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, Hash, Header,
 };
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB, RocksDBHistoricalStores};
 use consensus::{
@@ -84,14 +82,8 @@ pub fn bootstrap(
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_dir);
     let global_parameters = GlobalParameters::default();
-    let protocol_parameters = ProtocolParameters::default();
-    let (mut ledger, tip) = ledger::ValidateBlockStage::new(
-        store,
-        snapshots,
-        era_history,
-        &global_parameters,
-        &protocol_parameters,
-    );
+    let (mut ledger, tip) =
+        ledger::ValidateBlockStage::new(store, snapshots, era_history, &global_parameters)?;
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()

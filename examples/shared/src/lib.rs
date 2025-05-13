@@ -6,7 +6,8 @@ use amaru_kernel::{
 use amaru_ledger::{
     context,
     rules::{self, block::BlockValidation},
-    state::{State, VolatileState},
+    state::{State, VolatileState, stake_distributions},
+    store::Store,
 };
 use std::{
     collections::BTreeMap,
@@ -29,7 +30,11 @@ pub fn forward_ledger(raw_block: &str) {
 
     let global_parameters = GlobalParameters::default();
     let protocol_parameters = ProtocolParameters::default();
-    let mut state = State::new(Arc::new(Mutex::new(MemoryStore {})), MemoryStore {}, era_history, &global_parameters, &protocol_parameters);
+    let store = MemoryStore {};
+    let latest_epoch = store.most_recent_snapshot();
+    let stake_distributions =
+        stake_distributions(latest_epoch, &store, &store, era_history).unwrap();
+    let mut state = State::new(Arc::new(Mutex::new(store)), MemoryStore {}, era_history, &global_parameters, stake_distributions);
 
     let point = Point::Specific(
         block.header.header_body.slot,

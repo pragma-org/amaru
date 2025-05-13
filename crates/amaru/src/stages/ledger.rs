@@ -9,8 +9,8 @@ use amaru_ledger::{
         block::{BlockValidation, InvalidBlockDetails},
         parse_block,
     },
-    state::{self, BackwardError, VolatileState},
-    store::{HistoricalStores, Store},
+    state::{self, stake_distributions, BackwardError, VolatileState},
+    store::{HistoricalStores, Store, StoreError},
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 use anyhow::Context;
@@ -31,7 +31,6 @@ where
     pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
     pub global_parameters: GlobalParameters,
-    pub protocol_parameters: ProtocolParameters,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
@@ -55,28 +54,29 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         snapshots: HS,
         era_history: &EraHistory,
         global_parameters: &GlobalParameters,
-        protocol_parameters: &ProtocolParameters,
-    ) -> (Self, Point) {
+    ) -> Result<(Self, Point), StoreError> {
+        let latest_epoch = store.most_recent_snapshot();
+        let stake_distributions =
+            stake_distributions(latest_epoch, &store, &snapshots, era_history)?;
         let state = state::State::new(
             Arc::new(std::sync::Mutex::new(store)),
             snapshots,
             era_history,
             global_parameters,
-            protocol_parameters,
+            stake_distributions,
         );
 
         let tip = state.tip().into_owned();
 
-        (
+        Ok((
             Self {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
                 global_parameters: global_parameters.clone(),
-                protocol_parameters: protocol_parameters.clone(),
             },
             tip,
-        )
+        ))
     }
 
     fn create_validation_context(
@@ -191,7 +191,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         unit: &ValidateBlockEvent,
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
-        let protocol_parameters = stage.protocol_parameters.clone();
+        let protocol_parameters = ProtocolParameters::default();
         let result: BlockValidationResult = match unit {
             ValidateBlockEvent::Validated { point, block, span } => stage
                 .roll_forward(point.clone(), block.to_vec(), &protocol_parameters)
