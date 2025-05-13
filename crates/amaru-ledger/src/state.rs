@@ -20,7 +20,7 @@ pub mod volatile_db;
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{
-        columns::pools, EpochTransitionProgress, HistoricalStores, Store, StoreError,
+        columns::pools, EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
         TransactionalContext,
     },
     summary::{
@@ -105,25 +105,17 @@ where
 }
 
 pub fn recover_stake_distribution(
-    snapshots: &impl HistoricalStores,
-    epoch: Epoch,
+    snapshot: &impl Snapshot,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
-    let snapshot = snapshots.for_epoch(epoch)?;
-
     // FIXME: Obtain from current block
     let protocol_version = PROTOCOL_VERSION_9;
 
     StakeDistribution::new(
-        &snapshot,
+        snapshot,
         protocol_version,
-        GovernanceSummary::new(
-            &snapshot,
-            protocol_version,
-            era_history,
-            protocol_parameters,
-        )?,
+        GovernanceSummary::new(snapshot, protocol_version, era_history, protocol_parameters)?,
         protocol_parameters,
     )
     .map_err(StateError::Storage)
@@ -150,8 +142,9 @@ pub fn stake_distributions(
     for epoch in latest_epoch - 2..=latest_epoch - 1 {
         // Retrieve the protocol parameters for the considered epoch
         let protocol_parameters = db.get_protocol_parameters_for(&epoch)?;
+        let snapshot = snapshots.for_epoch(epoch)?;
         stake_distributions.push_front(
-            recover_stake_distribution(snapshots, epoch, era_history, &protocol_parameters)
+            recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
                 .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
@@ -315,14 +308,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let epoch = stake_distribution.epoch + 2;
 
-        #[allow(clippy::panic)]
+        let snapshot = self.snapshots.for_epoch(epoch)?;
         let rewards_summary = RewardsSummary::new(
-            &self.snapshots.for_epoch(epoch).unwrap_or_else(|e| {
-                panic!(
-                    "unable to open database snapshot for epoch {:?}: {:?}",
-                    epoch, e
-                )
-            }),
+            &snapshot,
             stake_distribution,
             global_parameters,
             protocol_parameters,
@@ -330,8 +318,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         .map_err(StateError::Storage)?;
 
         stake_distributions.push_front(recover_stake_distribution(
-            &self.snapshots,
-            epoch,
+            &snapshot,
             &self.era_history,
             protocol_parameters,
         )?);
