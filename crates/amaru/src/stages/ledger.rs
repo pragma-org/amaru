@@ -1,6 +1,6 @@
 use amaru_kernel::{
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
-    EraHistory, Hasher, MintedBlock, Point, PROTOCOL_VERSION_9,
+    protocol_parameters::GlobalParameters, EraHistory, Hasher, MintedBlock, Point,
+    PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -9,7 +9,7 @@ use amaru_ledger::{
         block::{BlockValidation, InvalidBlockDetails},
         parse_block,
     },
-    state::{self, stake_distributions, BackwardError, VolatileState},
+    state::{self, stake_distributions, BackwardError, StateError, VolatileState},
     store::{HistoricalStores, Store, StoreError},
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
@@ -125,13 +125,28 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         &mut self,
         point: Point,
         raw_block: RawBlock,
-        protocol_parameters: &ProtocolParameters,
     ) -> anyhow::Result<Option<InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
+        let slot = point.slot_or_default();
+        let current_epoch = self
+            .state
+            .era_history
+            .slot_to_epoch(slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(slot, e))?;
+
+        // Refresh from the store as those may change every epoch
+        // TODO make sure it's only refreshed when needed
+        #[allow(clippy::unwrap_used)]
+        let protocol_parameters = self
+            .state
+            .stable
+            .lock()
+            .unwrap()
+            .get_protocol_parameters_for(&current_epoch)?;
 
         let mut context = self.create_validation_context(&block)?;
         let protocol_version = block.header.header_body.protocol_version;
-        match rules::validate_block(&mut context, protocol_parameters, &block) {
+        match rules::validate_block(&mut context, &protocol_parameters, &block) {
             BlockValidation::Err(err) => return Err(err),
             BlockValidation::Invalid(err) => {
                 error!("Block invalid: {:?}", err);
@@ -141,9 +156,10 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 let state: VolatileState = context.into();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
                 self.state.forward(
+                    current_epoch,
                     protocol_version,
                     &self.global_parameters,
-                    protocol_parameters,
+                    &protocol_parameters,
                     state.anchor(&point, issuer),
                 )?;
                 Ok(None)
@@ -197,10 +213,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         unit: &ValidateBlockEvent,
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
-        let protocol_parameters = ProtocolParameters::default();
         let result: BlockValidationResult = match unit {
             ValidateBlockEvent::Validated { point, block, span } => stage
-                .roll_forward(point.clone(), block.to_vec(), &protocol_parameters)
+                .roll_forward(point.clone(), block.to_vec())
                 .map(|res| match res {
                     None => BlockValidationResult::BlockValidated {
                         point: point.clone(),

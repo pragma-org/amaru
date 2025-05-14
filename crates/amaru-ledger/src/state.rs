@@ -68,7 +68,7 @@ where
     HS: HistoricalStores,
 {
     /// A handle to the stable store, shared across all ledger instances.
-    stable: Arc<Mutex<S>>,
+    pub stable: Arc<Mutex<S>>,
 
     /// A handle to the stable store, shared across all ledger instances.
     snapshots: HS,
@@ -99,7 +99,7 @@ where
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
 
     /// The era history for the network this store is related to
-    era_history: EraHistory,
+    pub era_history: EraHistory,
 
     global_parameters: GlobalParameters,
 }
@@ -223,15 +223,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     fn apply_block(
         &mut self,
         now_stable: AnchoredVolatileState,
+        current_epoch: Epoch,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StateError> {
-        let start_slot = now_stable.anchor.0.slot_or_default();
-
-        let current_epoch = self
-            .era_history
-            .slot_to_epoch(start_slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
-
         let mut db = self.stable.lock().unwrap();
 
         let tip = db.tip().map_err(StateError::Storage)?;
@@ -241,11 +235,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .slot_to_epoch(tip.slot_or_default())
             .map_err(|e| StateError::ErrorComputingEpoch(tip.slot_or_default(), e))?;
 
+        let epoch_transitioning = current_epoch > tip_epoch;
+
         // The volatile sequence may contain points belonging to two epochs.
         //
         // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
         // epoch than the previously applied block (i.e. the tip of the stable storage).
-        if current_epoch > tip_epoch {
+        if epoch_transitioning {
             epoch_transition(
                 &mut *db,
                 current_epoch,
@@ -283,7 +279,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 // Reset the epoch transition progress once we've successfully applied the first
                 // block of the next epoch.
-                if current_epoch > tip_epoch {
+                if epoch_transitioning {
                     let success = batch
                         .try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
                     if !success {
@@ -339,6 +335,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[instrument(level = Level::TRACE, skip_all)]
     pub fn forward(
         &mut self,
+        current_epoch: Epoch,
         protocol_version: ProtocolVersion,
         global_parameters: &GlobalParameters,
         protocol_parameters: &ProtocolParameters,
@@ -351,7 +348,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 unreachable!("pre-condition: self.volatile.len() >= consensus_security_param")
             });
 
-            self.apply_block(now_stable, protocol_parameters)?;
+            self.apply_block(now_stable, current_epoch, protocol_parameters)?;
         } else {
             trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }

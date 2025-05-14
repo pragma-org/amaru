@@ -88,5 +88,9 @@ pub fn forward_ledger(raw_block: &str) {
 
     let volatile_state: VolatileState = context.into();
 
-    state.forward(PROTOCOL_VERSION_9, &global_parameters, &protocol_parameters, volatile_state.anchor(&point, issuer)).unwrap()
+    let slot = point.slot_or_default();
+    let current_epoch = era_history
+        .slot_to_epoch(slot)
+        .unwrap();
+    state.forward(current_epoch, PROTOCOL_VERSION_9, &global_parameters, &protocol_parameters, volatile_state.anchor(&point, issuer)).unwrap()
 }
