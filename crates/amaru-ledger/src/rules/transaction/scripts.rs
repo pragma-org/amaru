@@ -9,8 +9,8 @@ use crate::context::{UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidScripts {
-    #[error("missing required script witnesses: {0:?}")]
-    MissingRequiredScriptWitnesses(Vec<ScriptHash>),
+    #[error("missing required scripts: missing {0:?}")]
+    MissingRequiredScripts(Vec<ScriptHash>),
     #[error("extraneous script witnesses: extra {0:?}")]
     ExtraneousScriptWitnesses(Vec<ScriptHash>),
 }
@@ -64,9 +64,7 @@ where
         .cloned()
         .collect();
     if !missing_scripts.is_empty() {
-        return Err(InvalidScripts::MissingRequiredScriptWitnesses(
-            missing_scripts,
-        ));
+        return Err(InvalidScripts::MissingRequiredScripts(missing_scripts));
     }
 
     let extra_scripts: Vec<ScriptHash> = provided_scripts
@@ -78,4 +76,57 @@ where
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
+    use amaru_kernel::{include_cbor, include_json, MintedTransactionBody, MintedWitnessSet};
+    use test_case::test_case;
+
+    use super::InvalidScripts;
+
+    macro_rules! fixture {
+        ($hash:literal) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
+            )
+        };
+        ($hash:literal, $variant:literal) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/tx.cbor"
+                )),
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/witness.cbor"
+                )),
+            )
+        };
+    }
+
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e"); "happy path")]
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-scripts") =>
+        matches Err(InvalidScripts::MissingRequiredScripts(..)); "missing required scripts")]
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-script-witness") =>
+        matches Err(InvalidScripts::ExtraneousScriptWitnesses(..)); "extraneous script witness")]
+    fn test_scripts(
+        (mut ctx, tx, witness_set): (
+            AssertValidationContext,
+            MintedTransactionBody<'_>,
+            MintedWitnessSet<'_>,
+        ),
+    ) -> Result<(), InvalidScripts> {
+        super::execute(&mut ctx, tx.reference_inputs.as_deref(), &witness_set)
+    }
 }
