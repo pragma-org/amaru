@@ -7,8 +7,7 @@ where
     C: UtxoSlice + WitnessSlice,
 {
     if let Some(mint) = mint {
-        mint.iter().for_each(|(policy, _)| {
-            context.require_witness(StakeCredential::ScriptHash(policy.clone()))
-        });
+        mint.iter()
+            .for_each(|(policy, _)| context.require_witness(StakeCredential::ScriptHash(*policy)));
     }
 }

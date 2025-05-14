@@ -58,7 +58,7 @@ where
 
     let provided_scripts: BTreeSet<_> = get_provided_scripts(witness_set)
         .into_iter()
-        .chain(provided_reference_scripts.into_iter())
+        .chain(provided_reference_scripts)
         .collect();
 
     let missing_scripts: Vec<ScriptHash> = required_scripts
