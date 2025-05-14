@@ -288,8 +288,8 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_signers)
     }
 
-    fn required_scripts(&self) -> &BTreeSet<Hash<28>> {
-        &self.required_scripts
+    fn required_scripts(&mut self) -> BTreeSet<Hash<28>> {
+        mem::take(&mut self.required_scripts)
     }
 
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>> {

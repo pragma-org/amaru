@@ -56,19 +56,22 @@ where
         })
         .unwrap_or_default();
 
-    let mut provided_scripts = get_provided_scripts(witness_set);
-    provided_scripts.extend(provided_reference_scripts);
+    let provided_scripts: BTreeSet<_> = get_provided_scripts(witness_set)
+        .into_iter()
+        .chain(provided_reference_scripts.into_iter())
+        .collect();
 
     let missing_scripts: Vec<ScriptHash> = required_scripts
         .difference(&provided_scripts)
         .cloned()
         .collect();
+
     if !missing_scripts.is_empty() {
         return Err(InvalidScripts::MissingRequiredScripts(missing_scripts));
     }
 
     let extra_scripts: Vec<ScriptHash> = provided_scripts
-        .difference(required_scripts)
+        .difference(&required_scripts)
         .cloned()
         .collect();
     if !extra_scripts.is_empty() {

@@ -114,9 +114,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
 
         match rules::validate_block(&mut context, ProtocolParameters::default(), &block) {
             BlockValidation::Err(err) => return Err(err),
-            BlockValidation::Invalid(err) => {
-                return Ok(Some(err));
-            }
+            BlockValidation::Invalid(err) => return Ok(Some(err)),
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);

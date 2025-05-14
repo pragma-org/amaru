@@ -52,6 +52,8 @@ pub use withdrawals::InvalidWithdrawals;
 pub mod scripts;
 pub use scripts::InvalidScripts;
 
+pub mod mint;
+
 #[derive(Debug, Error)]
 pub enum InvalidTransaction {
     #[error("invalid inputs: {0}")]
@@ -120,6 +122,8 @@ pub fn execute(
         transaction_body.reference_inputs.as_deref(),
         transaction_body.collateral.as_deref(),
     )?;
+
+    mint::execute(context, transaction_body.mint.as_ref());
 
     outputs::execute(
         protocol_params,
