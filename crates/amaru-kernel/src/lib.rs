@@ -23,9 +23,14 @@ While elements are being contributed upstream, they might transiently live in th
 
 use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
 use num::{rational::Ratio, BigUint};
-use pallas_addresses::{Error, *};
+use pallas_addresses::{
+    byron::{AddrAttrProperty, AddressPayload},
+    Error, *,
+};
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
-use pallas_primitives::conway::{Redeemer, RedeemersKey, RedeemersValue};
+use pallas_primitives::conway::{
+    MintedPostAlonzoTransactionOutput, Redeemer, RedeemersKey, RedeemersValue,
+};
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
@@ -793,6 +798,71 @@ impl HasAddress for TransactionOutput {
     }
 }
 
+impl<'b> HasAddress for PseudoTransactionOutput<MintedPostAlonzoTransactionOutput<'b>> {
+    fn address(&self) -> Result<Address, pallas_addresses::Error> {
+        match self {
+            PseudoTransactionOutput::Legacy(transaction_output) => {
+                Address::from_bytes(&transaction_output.address)
+            }
+            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
+        }
+    }
+}
+
+pub fn to_network_id(network: &Network) -> u8 {
+    match network {
+        Network::Testnet => 0,
+        Network::Mainnet => 1,
+        Network::Other(id) => *id,
+    }
+}
+
+pub trait HasNetwork {
+    /// Returns the Network of a given entity
+    fn has_network(&self) -> Network;
+}
+
+impl HasNetwork for Address {
+    #[allow(clippy::unwrap_used)]
+    fn has_network(&self) -> Network {
+        match self {
+            Address::Byron(address) => address.has_network(),
+            // Safe to unwrap here, as there will always be a network value for self.network as long as it is not Address::Byron (which is handled above)
+            Address::Shelley(_) | Address::Stake(_) => self.network().unwrap(),
+        }
+    }
+}
+
+impl HasNetwork for ByronAddress {
+    /*
+        According to the Byron address specification (https://raw.githubusercontent.com/cardano-foundation/CIPs/master/CIP-0019/CIP-0019-byron-addresses.cddl),
+        the attributes can optionally contain a u32 network discriminant, identifying a specific testnet network.
+
+        When decoding Byron address attributes (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/eras/byron/ledger/impl/src/Cardano/Chain/Common/AddrAttributes.hs#L122-L144),
+        the Haskell node defaults NetworkMagic to NetworkMainOrStage, unless otherwise specified. The discriminant can be any `NetworkMagic` (sometimes referred to as `ProtocolMagic`), identifying a specific testnet.
+        If present, it is Testnet(discriminant).
+
+        It does not, notabtly, validate this discriminant, as evidenced by this conflicting Byron address on Preprod: 2cWKMJemoBaiqkR9D1YZ2xQ2BhVxzauukrsxm8ttZUrto1f7kr5J1tD9uhtEtTc9U4PuF (found in tx 9738801cc4f7e46bb3561a138a403fa8470e8a4faf2df5009023e7bbcdf09cb4).
+        This address encodes a `NetworkMagic` of 1097911063. The `NetworkMagic` of Preprod is 1 (https://book.world.dev.cardano.org/environments/preprod/byron-genesis.json).
+
+
+        As a result, since we are only checking the network of a Byron address for validation, we will mirror the Haskell node logic and disregard the discriminant when fetching the network from an address.
+        (https://github.com/IntersectMBO/cardano-ledger/blob/2d1e94cf96d00ba0da53883c388fa0aba6d74624/libs/cardano-ledger-core/src/Cardano/Ledger/Address.hs#L152)
+    */
+    #[allow(clippy::unwrap_used)]
+    fn has_network(&self) -> Network {
+        // Unwrap is safe, we know that there is a valid address payload if it is a Byron address.
+        let x: AddressPayload = from_cbor(&self.payload.0).unwrap();
+        for attribute in x.attributes.iter() {
+            if let AddrAttrProperty::NetworkTag(_) = attribute {
+                // We are ignoring the network discriminant here, as the Haskell node does
+                return Network::Testnet;
+            }
+        }
+
+        Network::Mainnet
+    }
+}
 pub trait HasOwnership {
     /// Returns ownership credential of a given entity, if any.
     ///
