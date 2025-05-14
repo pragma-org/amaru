@@ -68,7 +68,7 @@ where
     }
 
     let extra_scripts: Vec<ScriptHash> = provided_scripts
-        .difference(&required_scripts)
+        .difference(required_scripts)
         .cloned()
         .collect();
     if !extra_scripts.is_empty() {

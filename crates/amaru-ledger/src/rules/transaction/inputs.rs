@@ -105,7 +105,7 @@ where
 
     if let Some(reference_inputs) = reference_inputs {
         for reference_input in reference_inputs {
-            if let None = context.lookup(reference_input) {
+            if context.lookup(reference_input).is_none() {
                 return Err(InvalidInputs::UnknownInput(reference_input.clone()));
             }
         }

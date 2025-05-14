@@ -94,9 +94,11 @@ impl HasProxy for ScriptRef {
 
 impl From<ScriptRefProxy> for ScriptRef {
     // TODO: Is there a better way to do this? Just brute force to get it working for now...
+    #[allow(clippy::unwrap_used)]
     fn from(value: ScriptRefProxy) -> Self {
         match value {
             ScriptRefProxy::NativeScript(bytes) => {
+                // This code should only be run during tests, so a panic here is fine
                 ScriptRef::NativeScript(from_cbor(bytes.deref()).unwrap())
             }
             ScriptRefProxy::PlutusV1(bytes) => ScriptRef::PlutusV1Script(PlutusScript::<1>(bytes)),
