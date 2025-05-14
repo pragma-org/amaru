@@ -223,9 +223,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     fn apply_block(
         &mut self,
         now_stable: AnchoredVolatileState,
-        current_epoch: Epoch,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StateError> {
+        let start_slot = now_stable.anchor.0.slot_or_default();
+
+        let current_epoch = self
+            .era_history
+            .slot_to_epoch(start_slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
+
         let mut db = self.stable.lock().unwrap();
 
         let tip = db.tip().map_err(StateError::Storage)?;
@@ -335,7 +341,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[instrument(level = Level::TRACE, skip_all)]
     pub fn forward(
         &mut self,
-        current_epoch: Epoch,
         protocol_version: ProtocolVersion,
         global_parameters: &GlobalParameters,
         protocol_parameters: &ProtocolParameters,
@@ -348,7 +353,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 unreachable!("pre-condition: self.volatile.len() >= consensus_security_param")
             });
 
-            self.apply_block(now_stable, current_epoch, protocol_parameters)?;
+            self.apply_block(now_stable, protocol_parameters)?;
         } else {
             trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }
