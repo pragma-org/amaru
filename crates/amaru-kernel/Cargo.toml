@@ -16,7 +16,6 @@ rust-version.workspace = true
 bech32.workspace = true
 hex.workspace = true
 sha3.workspace = true
-num.workspace = true
 pallas-addresses.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
