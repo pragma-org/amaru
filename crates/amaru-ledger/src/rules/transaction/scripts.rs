@@ -18,6 +18,7 @@ pub enum InvalidScripts {
 pub fn execute<C>(
     context: &mut C,
     reference_inputs: Option<&Vec<TransactionInput>>,
+    inputs: &Vec<TransactionInput>,
     witness_set: &MintedWitnessSet<'_>,
 ) -> Result<(), InvalidScripts>
 where
@@ -25,36 +26,36 @@ where
 {
     let required_scripts = context.required_scripts();
 
-    // provided scripts from reference inputs only include ScriptRefs that are required by an input
-    let provided_reference_scripts = reference_inputs
-        .map(|reference_inputs| {
-            reference_inputs
-                .iter()
-                .filter_map(|reference_input| {
-                    context
-                        // We assume that the reference input exists as that's validated during the inputs validation
-                        .lookup(reference_input)
-                        .and_then(|output| match output {
-                            amaru_kernel::PseudoTransactionOutput::PostAlonzo(
-                                transaction_output,
-                            ) => transaction_output
-                                .script_ref
-                                .as_deref()
-                                .and_then(|script_ref| {
-                                    // If there is a provided ScriptRef, make sure it is required by an input
-                                    let hash = script_ref.script_hash();
-                                    if required_scripts.contains(&hash) {
-                                        Some(hash)
-                                    } else {
-                                        None
-                                    }
-                                }),
-                            amaru_kernel::PseudoTransactionOutput::Legacy(_) => None,
+    // provided reference scripts from inputs and reference inputs only include ScriptRefs that are required by an input
+    let provided_reference_scripts = [
+        reference_inputs.unwrap_or(&vec![]).as_slice(),
+        inputs.as_slice(),
+    ]
+    .concat()
+    .iter()
+    .filter_map(|input| {
+        context
+            // We assume that the reference input exists as that's validated during the inputs validation
+            .lookup(input)
+            .and_then(|output| match output {
+                amaru_kernel::PseudoTransactionOutput::PostAlonzo(transaction_output) => {
+                    transaction_output
+                        .script_ref
+                        .as_deref()
+                        .and_then(|script_ref| {
+                            // If there is a provided ScriptRef, make sure it is required by an input
+                            let hash = script_ref.script_hash();
+                            if required_scripts.contains(&hash) {
+                                Some(hash)
+                            } else {
+                                None
+                            }
                         })
-                })
-                .collect::<BTreeSet<_>>()
-        })
-        .unwrap_or_default();
+                }
+                amaru_kernel::PseudoTransactionOutput::Legacy(_) => None,
+            })
+    })
+    .collect::<BTreeSet<_>>();
 
     let provided_scripts: BTreeSet<_> = get_provided_scripts(witness_set)
         .into_iter()
@@ -83,6 +84,8 @@ where
 
 #[cfg(test)]
 mod tests {
+    use std::ops::Deref;
+
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{include_cbor, include_json, MintedTransactionBody, MintedWitnessSet};
     use test_case::test_case;
@@ -130,6 +133,11 @@ mod tests {
             MintedWitnessSet<'_>,
         ),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, tx.reference_inputs.as_deref(), &witness_set)
+        super::execute(
+            &mut ctx,
+            tx.reference_inputs.as_deref(),
+            tx.inputs.deref(),
+            &witness_set,
+        )
     }
 }
