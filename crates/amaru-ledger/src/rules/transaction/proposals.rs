@@ -50,7 +50,13 @@ fn get_proposal_script_hash(proposal: &Proposal) -> Option<ScriptHash> {
         amaru_kernel::GovAction::TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => {
             Some(gov_proposal_hash)
         }
-        _ => None,
+        amaru_kernel::GovAction::ParameterChange(..)
+        | amaru_kernel::GovAction::HardForkInitiation(..)
+        | amaru_kernel::GovAction::TreasuryWithdrawals(..)
+        | amaru_kernel::GovAction::NoConfidence(_)
+        | amaru_kernel::GovAction::UpdateCommittee(..)
+        | amaru_kernel::GovAction::NewConstitution(..)
+        | amaru_kernel::GovAction::Information => None,
     }
 }
 
