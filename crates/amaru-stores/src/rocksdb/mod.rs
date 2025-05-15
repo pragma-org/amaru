@@ -26,7 +26,7 @@ use amaru_ledger::{
 };
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
-use rocksdb::Transaction;
+use rocksdb::{Direction, IteratorMode, ReadOptions, Transaction};
 use std::{
     collections::BTreeSet,
     fmt, fs,
@@ -181,20 +181,25 @@ impl RocksDB {
 fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::Decode<'d, ()>>(
     db: &OptimisticTransactionDB,
     prefix: [u8; PREFIX_LEN],
+    direction: Direction,
 ) -> Result<impl Iterator<Item = (K, V)> + use<'_, K, V>, StoreError> {
-    Ok(db.prefix_iterator(prefix).map(|e| {
-        let (key, value) = e.unwrap();
-        let decoded_key = cbor::decode(&key[PREFIX_LEN..])
-            .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
-        let decoded_value = cbor::decode(&value).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode value ({}) for key ({}): {e:?}",
-                hex::encode(&key),
-                hex::encode(&value)
-            )
-        });
-        (decoded_key, decoded_value)
-    }))
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    Ok(db
+        .iterator_opt(IteratorMode::From(prefix.as_ref(), direction), opts)
+        .map(|e| {
+            let (key, value) = e.unwrap();
+            let decoded_key = cbor::decode(&key[PREFIX_LEN..])
+                .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
+            let decoded_value = cbor::decode(&value).unwrap_or_else(|e| {
+                panic!(
+                    "unable to decode value ({}) for key ({}): {e:?}",
+                    hex::encode(&key),
+                    hex::encode(&value)
+                )
+            });
+            (decoded_key, decoded_value)
+        }))
 }
 
 macro_rules! impl_ReadOnlyStore {
@@ -227,7 +232,7 @@ macro_rules! impl_ReadOnlyStore {
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
             {
-                iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
+                iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX, Direction::Forward)
             }
 
             fn pots(&self) -> Result<Pots, StoreError> {
@@ -238,28 +243,28 @@ macro_rules! impl_ReadOnlyStore {
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
             {
-                iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX)
+                iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX, Direction::Forward)
             }
 
             fn iter_block_issuers(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
             {
-                iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX)
+                iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX, Direction::Forward)
             }
 
             fn iter_pools(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
             {
-                iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
+                iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX, Direction::Forward)
             }
 
             fn iter_dreps(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
             {
-                iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
+                iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX, Direction::Forward)
             }
 
             fn iter_proposals(
@@ -268,7 +273,7 @@ macro_rules! impl_ReadOnlyStore {
                 impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
                 StoreError,
             > {
-                iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
+                iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX, Direction::Forward)
             }
         })*
     }
@@ -541,7 +546,7 @@ impl Store for RocksDB {
         Ok(())
     }
 
-    #[allow(clippy::panic)]
+    #[allow(clippy::panic)] // Expected
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
         if self.ongoing_transaction.get() {
             // Thats a bug in the code, we should never have two transactions at the same time
@@ -592,7 +597,6 @@ pub struct RocksDBSnapshot {
 }
 
 impl Snapshot for RocksDBSnapshot {
-    #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         self.epoch
     }
