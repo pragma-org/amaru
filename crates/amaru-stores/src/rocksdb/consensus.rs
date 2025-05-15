@@ -105,7 +105,7 @@ mod test {
     #[test]
     fn rocksdb_chain_store_can_get_what_it_puts() {
         let tempdir = tempfile::tempdir().unwrap();
-        let basedir = tempdir.into_path().join("rocksdb_chain_store");
+        let basedir = tempdir.keep().join("rocksdb_chain_store");
         let era_history: &EraHistory = NetworkName::Testnet(42).into();
 
         create_dir(&basedir).unwrap();

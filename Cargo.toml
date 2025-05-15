@@ -19,13 +19,13 @@ acto = { version = "0.7.2", features = ["tokio"] }
 anyhow = "1.0.95"
 async-trait = "0.1.83"
 bech32 = "0.11.0"
-clap = { version = "4.5.35", features = ["derive", "env"] }
+clap = { version = "4.5.38", features = ["derive", "env"] }
 futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] }
 hex = "0.4.3"
 indicatif = "0.17.9"
 indoc = "2.0"
-minicbor = "0.25.1"
+minicbor = "0.25.1" # Must match the version used by pallas
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.29.1"
 opentelemetry-otlp = { version = "0.29.0", features = [
@@ -51,9 +51,9 @@ rocksdb = { version = "0.23.0", default-features = false, features = [
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0.128", default-features = false }
 sha3 = "0.10.8"
-sysinfo = "0.34.2"
+sysinfo = "0.35.1"
 thiserror = "2.0.12"
-tokio = { version = "1.40.0", features = ["sync"] }
+tokio = { version = "1.45.0", features = ["sync"] }
 tokio-util = "0.7.12"
 tokio-stream = "0.1.17"
 tracing = "0.1.40"
@@ -82,8 +82,8 @@ kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46
 
 # dev-dependencies
 ctor = "0.4.1"
-tempfile = "3.15.0"
-rand = "0.9.0"
+tempfile = "3.20.0"
+rand = "0.9.1"
 proptest = { version = "1.5.0", default-features = false, features = ["alloc"] }
 insta = "1.41.1"
 envpath = "0.0.1-beta.3"
@@ -91,7 +91,7 @@ criterion = "0.5.1"
 test-case = "3.3.1"
 
 # build-dependencies
-built = "0.7.1"
+built = "0.8.0"
 
 [workspace.lints.rust]
 rust-2018-idioms = "warn"
