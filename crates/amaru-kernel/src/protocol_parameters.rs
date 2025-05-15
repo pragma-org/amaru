@@ -5,7 +5,7 @@ use crate::{cbor, Coin, Epoch, EpochInterval, ExUnits, Lovelace, RationalNumber}
 /// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
 /// Some of the names have been adapted to improve readability.
 /// Also see https://github.com/IntersectMBO/cardano-ledger/blob/d90eb4df4651970972d860e95f1a3697a3de8977/eras/conway/impl/cddl-files/conway.cddl#L324
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProtocolParameters {
     // Network group
     pub max_block_body_size: u32,
@@ -49,6 +49,25 @@ pub struct ProtocolParameters {
     pub drep_expiry: Epoch,
 }
 
+fn decode_u16(d: &mut Decoder<'_>) -> Result<u16, cbor::decode::Error> {
+    #[allow(clippy::wildcard_enum_match_arm)]
+    match d.datatype()? {
+        cbor::data::Type::U8 => Ok(d.u8()? as u16),
+        cbor::data::Type::U16 => Ok(d.u16()?),
+        _ => Err(cbor::decode::Error::message("Expected u8/u16 type")),
+    }
+}
+
+fn decode_u32(d: &mut Decoder<'_>) -> Result<u32, cbor::decode::Error> {
+    #[allow(clippy::wildcard_enum_match_arm)]
+    match d.datatype()? {
+        cbor::data::Type::U8 => Ok(d.u8()? as u32),
+        cbor::data::Type::U16 => Ok(d.u16()? as u32),
+        cbor::data::Type::U32 => Ok(d.u32()?),
+        _ => Err(cbor::decode::Error::message("Expected u8/u16/u32 type")),
+    }
+}
+
 fn decode_u64(d: &mut Decoder<'_>) -> Result<u64, cbor::decode::Error> {
     #[allow(clippy::wildcard_enum_match_arm)]
     match d.datatype()? {
@@ -74,14 +93,14 @@ fn decode_rationale(d: &mut Decoder<'_>) -> Result<RationalNumber, cbor::decode:
 impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
-        let min_fee_a = decode_u64(d)? as Coin;
-        let min_fee_b = decode_u64(d)? as Coin;
+        let min_fee_a = decode_u64(d)?;
+        let min_fee_b = decode_u64(d)?;
         let max_block_body_size = d.u32()?;
-        let max_tx_size = d.u16()? as u32;
+        let max_tx_size = decode_u32(d)?;
         let max_header_size = d.u16()?;
-        let stake_credential_deposit = decode_u64(d)? as Coin;
-        let stake_pool_deposit = decode_u64(d)? as Coin;
-        let max_epoch = d.u8()? as EpochInterval;
+        let stake_credential_deposit = decode_u64(d)?;
+        let stake_pool_deposit = decode_u64(d)?;
+        let max_epoch = d.u32()? as EpochInterval;
         let optimal_stake_pools_count = d.u16()?;
         let pledge_influence = decode_rationale(d)?;
         let monetary_expansion_rate = decode_rationale(d)?;
@@ -92,7 +111,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         d.u8()?; // TODO unknown 9  0
         let _ = d.u32()?; // TODO unknown 170000000
 
-        let coins_per_utxo_byte = d.u16()? as u64;
+        let coins_per_utxo_byte = decode_u64(d)?;
 
         let _ = d.map()?;
         d.u8()?;
@@ -114,12 +133,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         };
         d.array()?;
         let max_block_ex_units = ExUnits {
-            mem: d.u32()? as u64,
+            mem: decode_u64(d)?,
             steps: d.u64()?,
         };
-        let max_val_size = d.u16()? as u32;
-        let collateral_percentage = d.u8()? as u16;
-        let max_collateral_inputs = d.u8()? as u16;
+        let max_val_size = decode_u32(d)?;
+        let collateral_percentage = decode_u16(d)?;
+        let max_collateral_inputs = decode_u16(d)?;
 
         // TODO validate order
         d.array()?;
@@ -146,12 +165,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             },
             treasury_withdrawal: decode_rationale(d)?,
         };
-        let cc_min_size = d.u8()? as u16;
-        let cc_max_term_length = d.u8()? as u32;
-        let gov_action_lifetime = d.u8()? as u32;
+        let cc_min_size = decode_u16(d)?;
+        let cc_max_term_length = decode_u32(d)?;
+        let gov_action_lifetime = decode_u32(d)?;
         let gov_action_deposit = d.u64()?;
-        let drep_deposit = d.u32()? as u64;
-        let drep_expiry = d.u8()? as Epoch;
+        let drep_deposit = decode_u64(d)?;
+        let drep_expiry = decode_u64(d)?;
         let min_fee_ref_script_coins_per_byte = decode_rationale(d)?;
 
         Ok(ProtocolParameters {
@@ -245,7 +264,7 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
         e.u8(0)?;
         e.u32(0)?;
 
-        e.u16(self.coins_per_utxo_byte as u16)?;
+        e.u64(self.coins_per_utxo_byte)?;
 
         e.map(3)?;
         e.u8(0)?;
@@ -260,11 +279,11 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
         encode_rationale(e, &self.prices.step)?;
 
         e.array(2)?;
-        e.u32(self.max_tx_ex_units.mem as u32)?;
+        e.u64(self.max_tx_ex_units.mem)?;
         e.u64(self.max_tx_ex_units.steps)?;
 
         e.array(2)?;
-        e.u32(self.max_block_ex_units.mem as u32)?;
+        e.u64(self.max_block_ex_units.mem)?;
         e.u64(self.max_block_ex_units.steps)?;
 
         e.u32(self.max_val_size)?;
@@ -295,12 +314,12 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
         )?;
         encode_rationale(e, &self.drep_thresholds.treasury_withdrawal)?;
 
-        e.u8(self.cc_min_size as u8)?;
-        e.u8(self.cc_max_term_length as u8)?;
-        e.u8(self.gov_action_lifetime as u8)?;
+        e.u16(self.cc_min_size)?;
+        e.u32(self.cc_max_term_length)?;
+        e.u32(self.gov_action_lifetime)?;
         e.u64(self.gov_action_deposit)?;
         e.u64(self.drep_deposit)?;
-        e.u8(self.drep_expiry as u8)?;
+        e.u64(self.drep_expiry)?;
         encode_rationale(e, &self.min_fee_ref_script_coins_per_byte)?;
 
         Ok(())
@@ -385,20 +404,20 @@ impl Default for GlobalParameters {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prices {
     pub mem: RationalNumber,
     pub step: RationalNumber,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CostModels {
     pub plutus_v1: Vec<i64>,
     pub plutus_v2: Vec<i64>,
     pub plutus_v3: Vec<i64>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PoolThresholds {
     // named `q1` in the spec
     pub no_confidence: RationalNumber,
@@ -412,7 +431,7 @@ pub struct PoolThresholds {
     pub security_group: RationalNumber,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DrepThresholds {
     // named `p1` in the spec
     pub no_confidence: RationalNumber,
@@ -429,7 +448,7 @@ pub struct DrepThresholds {
     pub treasury_withdrawal: RationalNumber,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProtocolParametersThresholds {
     // named `p5a` in the spec
     pub network_group: RationalNumber,
@@ -625,6 +644,179 @@ impl Default for ProtocolParameters {
             gov_action_deposit: 100_000_000_000,
             drep_deposit: 500_000_000,
             drep_expiry: 20,
+        }
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod test {
+    use crate::{prop_cbor_roundtrip, Coin, Epoch, ExUnits,  RationalNumber, protocol_parameters::{CostModels, DrepThresholds, Prices, PoolThresholds, ProtocolParameters, ProtocolParametersThresholds}};
+    use proptest::prelude::*;
+
+    prop_cbor_roundtrip!(ProtocolParameters, any_protocol_paramater());
+
+    prop_compose! {
+        fn any_rational_number()(numerator in any::<u64>(), denominator in any::<u64>()) -> RationalNumber {
+            RationalNumber {
+                numerator,
+                denominator,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn any_ex_units()(
+            mem in any::<u32>(),
+            steps in any::<u64>(),
+        ) -> ExUnits {
+            ExUnits {
+                mem: mem as u64,
+                steps,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn any_cost_models()(
+            plutus_v1 in any::<Vec<i64>>(),
+            plutus_v2 in any::<Vec<i64>>(),
+            plutus_v3 in any::<Vec<i64>>(),
+        ) -> CostModels {
+            CostModels {
+                plutus_v1,
+                plutus_v2,
+                plutus_v3,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn any_pool_thresholds()(
+            no_confidence in any_rational_number(),
+            committee in any_rational_number(),
+            committee_under_no_confidence in any_rational_number(),
+            hard_fork in any_rational_number(),
+            security_group in any_rational_number(),
+        ) -> PoolThresholds {
+            PoolThresholds {
+                no_confidence,
+                committee,
+                committee_under_no_confidence,
+                hard_fork,
+                security_group,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn any_drep_thresholds()(
+            no_confidence in any_rational_number(),
+            committee in any_rational_number(),
+            committee_under_no_confidence in any_rational_number(),
+            constitution in any_rational_number(),
+            hard_fork in any_rational_number(),
+            network_group in any_rational_number(),
+            economic_group in any_rational_number(),
+            technical_group in any_rational_number(),
+            governance_group in any_rational_number(),
+            treasury_withdrawal in any_rational_number(),
+        ) -> DrepThresholds {
+            DrepThresholds {
+                no_confidence,
+                committee,
+                committee_under_no_confidence,
+                constitution,
+                hard_fork,
+                protocol_parameters: ProtocolParametersThresholds {
+                    network_group,
+                    economic_group,
+                    technical_group,
+                    governance_group,
+                },
+                treasury_withdrawal,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn any_prices()(
+            mem in any_rational_number(),
+            step in any_rational_number(),
+        ) -> Prices {
+            Prices {
+                mem,
+                step,
+            }
+        }
+    }
+
+    prop_compose! {
+        fn any_protocol_paramater()(
+            max_block_body_size in any::<u32>(),
+            max_tx_size in any::<u32>(),
+            max_header_size in any::<u16>(),
+            max_tx_ex_units in any_ex_units(),
+            max_block_ex_units in any_ex_units(),
+            max_val_size in any::<u32>(),
+            max_collateral_inputs in any::<u16>(),
+            min_fee_a in any::<Coin>(),
+            min_fee_b in any::<Coin>(),
+            stake_credential_deposit in any::<Coin>(),
+            stake_pool_deposit in any::<Coin>(),
+            monetary_expansion_rate in any_rational_number(),
+            coins_per_utxo_byte in any::<Coin>(),
+            prices in any_prices(),
+            min_fee_ref_script_coins_per_byte in any_rational_number(),
+            max_epoch in any::<u32>(),
+            optimal_stake_pools_count in any::<u16>(),
+            pledge_influence in any_rational_number(),
+            collateral_percentage in any::<u16>(),
+            cost_models in any_cost_models(),
+            pool_thresholds in any_pool_thresholds(),
+            drep_thresholds in any_drep_thresholds(),
+            cc_min_size in any::<u16>(),
+            cc_max_term_length in any::<u32>(),
+            gov_action_lifetime in any::<u32>(),
+            gov_action_deposit in any::<Coin>(),
+            drep_deposit in any::<Coin>(),
+            drep_expiry in any::<Epoch>(),
+        ) -> ProtocolParameters {
+        let default = ProtocolParameters::default();
+        ProtocolParameters {
+            max_block_body_size,
+            max_tx_size,
+            max_header_size,
+            max_tx_ex_units,
+            max_block_ex_units,
+            max_val_size,
+            max_collateral_inputs,
+            min_fee_a,
+            min_fee_b,
+            stake_credential_deposit,
+            stake_pool_deposit,
+            monetary_expansion_rate,
+            treasury_expansion_rate: default.treasury_expansion_rate,
+            coins_per_utxo_byte,
+            prices,
+            min_fee_ref_script_coins_per_byte,
+            max_ref_script_size_per_tx: default.max_ref_script_size_per_tx,
+            max_ref_script_size_per_block: default.max_ref_script_size_per_block,
+            ref_script_cost_stride: default.ref_script_cost_stride,
+            ref_script_cost_multiplier: default.ref_script_cost_multiplier,
+            max_epoch,
+            optimal_stake_pools_count,
+            pledge_influence,
+            collateral_percentage,
+            cost_models,
+            pool_thresholds,
+            drep_thresholds,
+            cc_min_size,
+            cc_max_term_length,
+            gov_action_lifetime,
+            gov_action_deposit,
+            drep_deposit,
+            drep_expiry,
+            }
         }
     }
 }
