@@ -650,7 +650,14 @@ impl Default for ProtocolParameters {
 
 #[cfg(test)]
 pub(crate) mod test {
-    use crate::{prop_cbor_roundtrip, Coin, Epoch, ExUnits,  RationalNumber, protocol_parameters::{CostModels, DrepThresholds, Prices, PoolThresholds, ProtocolParameters, ProtocolParametersThresholds}};
+    use crate::{
+        prop_cbor_roundtrip,
+        protocol_parameters::{
+            CostModels, DrepThresholds, PoolThresholds, Prices, ProtocolParameters,
+            ProtocolParametersThresholds,
+        },
+        Coin, Epoch, ExUnits, RationalNumber,
+    };
     use proptest::prelude::*;
 
     prop_cbor_roundtrip!(ProtocolParameters, any_protocol_paramater());
