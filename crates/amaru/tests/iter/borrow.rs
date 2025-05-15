@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::*;
-use crate::store::rocksdb::common::as_key;
+use amaru_stores::rocksdb::common::as_key;
+use iter_borrow::{new, IterBorrow, KeyValueIterator};
 use pallas_codec::minicbor as cbor;
 use rocksdb::OptimisticTransactionDB;
 use tempfile::Builder;
@@ -60,7 +60,8 @@ fn db_iterator_mutate() {
     let db: OptimisticTransactionDB = OptimisticTransactionDB::open_default(
         Builder::new()
             .prefix("db_iterator_mutate-")
-            .tempdir()?,
+            .tempdir()
+            .unwrap(),
     )
     .unwrap();
 
@@ -114,8 +115,8 @@ fn db_iterator_mutate() {
         let mut iterator: KeyValueIterator<'_, 6, String, Fruit> = new(batch
             .prefix_iterator(prefix)
             .map(|item| item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))));
-
-        handler(Box::new(&mut iterator));
+    
+        handler(Box::new(&mut iterator.as_iter_borrow()));
 
         // Apply updates to the database
         for (k, v) in iterator.into_iter_updates() {
