@@ -48,6 +48,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Fruit {
 }
 
 /// A simple helper function to encode any (serialisable) value to CBOR bytes.
+#[allow(clippy::panic)]
 fn to_cbor<T: cbor::Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
     let mut buffer = Vec::new();
     cbor::encode(&value, &mut buffer)
@@ -110,6 +111,7 @@ fn db_iterator_mutate() {
 
     // Simulate a series of operation on the "fruit" table, deferring updates to a separate
     // 'handler' function.
+    #[allow(clippy::panic)]
     {
         let batch = db.transaction();
         let mut iterator: KeyValueIterator<'_, 6, String, Fruit> = new(batch
