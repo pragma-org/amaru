@@ -1,7 +1,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    get_provided_scripts, HasScriptHash, MintedWitnessSet, ScriptHash, TransactionInput,
+    get_provided_scripts, HasScriptHash, MintedWitnessSet, ScriptHash, ScriptRefWithHash,
+    TransactionInput,
 };
 use thiserror::Error;
 
@@ -46,7 +47,10 @@ where
                             // If there is a provided ScriptRef, make sure it is required by an input
                             let hash = script_ref.script_hash();
                             if required_scripts.contains(&hash) {
-                                Some(hash)
+                                Some(ScriptRefWithHash {
+                                    hash: script_ref.script_hash(),
+                                    script: script_ref.clone(),
+                                })
                             } else {
                                 None
                             }
@@ -63,7 +67,12 @@ where
         .collect();
 
     let missing_scripts: Vec<ScriptHash> = required_scripts
-        .difference(&provided_scripts)
+        .difference(
+            &provided_scripts
+                .iter()
+                .map(ScriptHash::from)
+                .collect::<BTreeSet<_>>(),
+        )
         .cloned()
         .collect();
 
@@ -72,9 +81,13 @@ where
     }
 
     let extra_scripts: Vec<ScriptHash> = provided_scripts
+        .iter()
+        .map(ScriptHash::from)
+        .collect::<BTreeSet<_>>()
         .difference(&required_scripts)
         .cloned()
         .collect();
+
     if !extra_scripts.is_empty() {
         return Err(InvalidScripts::ExtraneousScriptWitnesses(extra_scripts));
     }

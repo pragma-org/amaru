@@ -219,6 +219,30 @@ impl RedeemersExt for Redeemers {
     }
 }
 
+#[derive(Eq, PartialEq)]
+pub struct ScriptRefWithHash {
+    pub hash: ScriptHash,
+    pub script: ScriptRef,
+}
+
+impl PartialOrd for ScriptRefWithHash {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        self.hash.partial_cmp(&other.hash)
+    }
+}
+
+impl Ord for ScriptRefWithHash {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.hash.cmp(&other.hash)
+    }
+}
+
+impl From<&ScriptRefWithHash> for ScriptHash {
+    fn from(value: &ScriptRefWithHash) -> Self {
+        value.hash
+    }
+}
+
 // CBOR conversions
 // ----------------------------------------------------------------------------
 
@@ -723,8 +747,8 @@ pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
 }
 
 /// Collect provided scripts and compute each ScriptHash in a witness set
-pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<ScriptHash> {
-    let mut provided_scripts: BTreeSet<ScriptHash> = BTreeSet::new();
+pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<ScriptRefWithHash> {
+    let mut provided_scripts: BTreeSet<ScriptRefWithHash> = BTreeSet::new();
     provided_scripts.extend(
         witness_set
             .native_script
@@ -732,7 +756,10 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
             .map(|native_scripts| {
                 native_scripts
                     .iter()
-                    .map(|native_script| native_script.script_hash())
+                    .map(|native_script| ScriptRefWithHash {
+                        hash: native_script.script_hash(),
+                        script: PseudoScript::NativeScript(native_script.clone().unwrap()),
+                    })
                     .collect::<BTreeSet<_>>()
             })
             .unwrap_or_default(),
@@ -745,7 +772,10 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
             .map(|plutus_v1_scripts| {
                 plutus_v1_scripts
                     .iter()
-                    .map(|script| script.script_hash())
+                    .map(|script| ScriptRefWithHash {
+                        hash: script.script_hash(),
+                        script: PseudoScript::PlutusV1Script(script.clone()),
+                    })
                     .collect::<BTreeSet<_>>()
             })
             .unwrap_or_default(),
@@ -758,7 +788,10 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
             .map(|plutus_v2_scripts| {
                 plutus_v2_scripts
                     .iter()
-                    .map(|script| script.script_hash())
+                    .map(|script| ScriptRefWithHash {
+                        hash: script.script_hash(),
+                        script: PseudoScript::PlutusV2Script(script.clone()),
+                    })
                     .collect::<BTreeSet<_>>()
             })
             .unwrap_or_default(),
@@ -771,7 +804,10 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
             .map(|plutus_v3_scripts| {
                 plutus_v3_scripts
                     .iter()
-                    .map(|script| script.script_hash())
+                    .map(|script| ScriptRefWithHash {
+                        hash: script.script_hash(),
+                        script: PseudoScript::PlutusV3Script(script.clone()),
+                    })
                     .collect::<BTreeSet<_>>()
             })
             .unwrap_or_default(),
