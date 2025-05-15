@@ -1,0 +1,18 @@
+{
+  "utxo": [
+    [
+      {
+        "transaction_id": "1fbbc920d004a2e5b3854e07347fefdc268218c4cc9d43b8cc65a5d687029eca",
+        "index": 0
+      },
+      {
+        "address": "00de8bcbaa9dca00d04184221a39b6eb1feea604f96d464f8e3c20484fb5f97564c79d450ab5bc2cda0794c31de0676e168798f0d50eda0e6f"
+      }
+    ]
+  ],
+  "required_signers": [],
+  "required_scripts": [
+    "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64"
+  ],
+  "required_bootstrap_signers": []
+}
