@@ -115,7 +115,7 @@ fn db_iterator_mutate() {
         let mut iterator: KeyValueIterator<'_, 6, String, Fruit> = new(batch
             .prefix_iterator(prefix)
             .map(|item| item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))));
-    
+
         handler(Box::new(&mut iterator.as_iter_borrow()));
 
         // Apply updates to the database
