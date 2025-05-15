@@ -57,7 +57,9 @@ fn to_cbor<T: cbor::Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
 #[test]
 fn db_iterator_mutate() {
     let db: OptimisticTransactionDB = OptimisticTransactionDB::open_default(
-        envpath::dirs::get_tmp_random_dir(Some("db_iterator_mutate"), None),
+        Builder::new()
+            .prefix("db_iterator_mutate-")
+            .tempdir()?,
     )
     .unwrap();
 
@@ -166,4 +168,3 @@ fn db_iterator_mutate() {
         }))
     );
 }
-

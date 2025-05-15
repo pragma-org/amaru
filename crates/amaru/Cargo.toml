@@ -47,7 +47,6 @@ amaru-ledger.workspace = true
 amaru-stores.workspace = true
 
 [dev-dependencies]
-envpath = { workspace = true, features = ["rand"] }
 insta = { workspace = true, features = ["json"] }
 proptest.workspace = true
 rand.workspace = true

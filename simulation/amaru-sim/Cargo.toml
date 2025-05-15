@@ -38,7 +38,6 @@ amaru-ouroboros = { path = "../../crates/ouroboros" }
 amaru-stores = { path = "../../crates/amaru-stores" }
 
 [dev-dependencies]
-envpath = { workspace = true, features = ["rand"] }
 insta = { workspace = true, features = ["json"] }
 proptest = {workspace = true, features = ["std"] }
 rand.workspace = true
