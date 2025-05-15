@@ -1,5 +1,166 @@
-use crate::{Message, StageBuildRef, StageRef, State};
-use std::future::Future;
+use crate::{
+    cast_msg,
+    simulation::{airlock_effect, EffectBox, Instant, StageEffect, StageResponse},
+    BoxFuture, Message, Name, StageBuildRef, StageRef, State,
+};
+use std::{fmt::Debug, future::Future, marker::PhantomData, sync::Arc, time::Duration};
+use tokio::sync::oneshot;
+
+pub struct Effects<M, S> {
+    me: StageRef<M, S>,
+    effect: EffectBox,
+    now: Arc<dyn Fn() -> Instant + Send + Sync>,
+    call_responded: Arc<dyn Fn(&Name) + Send + Sync>,
+}
+
+impl<M, S> Clone for Effects<M, S> {
+    fn clone(&self) -> Self {
+        Self {
+            me: self.me.clone(),
+            effect: self.effect.clone(),
+            now: self.now.clone(),
+            call_responded: self.call_responded.clone(),
+        }
+    }
+}
+
+impl<M: Debug, S: Debug> Debug for Effects<M, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Effects")
+            .field("me", &self.me)
+            .field("effect", &self.effect)
+            .finish()
+    }
+}
+
+impl<M: Message, S> Effects<M, S> {
+    pub(crate) fn new(
+        me: StageRef<M, S>,
+        effect: EffectBox,
+        now: Arc<dyn Fn() -> Instant + Send + Sync>,
+        call_responded: Arc<dyn Fn(&Name) + Send + Sync>,
+    ) -> Self {
+        Self {
+            me,
+            effect,
+            now,
+            call_responded,
+        }
+    }
+
+    pub fn me(&self) -> StageRef<M, S> {
+        self.me.clone()
+    }
+
+    pub fn send<Msg: Message, St>(
+        &self,
+        target: &StageRef<Msg, St>,
+        msg: Msg,
+    ) -> BoxFuture<'static, ()> {
+        airlock_effect(
+            &self.effect,
+            StageEffect::Send(target.name(), Box::new(msg)),
+            |_eff| Some(()),
+        )
+    }
+
+    pub fn interrupt(&self) -> BoxFuture<'static, ()> {
+        airlock_effect(&self.effect, StageEffect::Interrupt, |_eff| Some(()))
+    }
+
+    pub fn clock(&self) -> BoxFuture<'static, Instant> {
+        airlock_effect(&self.effect, StageEffect::Clock, |eff| match eff {
+            Some(StageResponse::ClockResponse(instant)) => Some(instant),
+            _ => None,
+        })
+    }
+
+    pub fn wait(&self, duration: Duration) -> BoxFuture<'static, Instant> {
+        airlock_effect(&self.effect, StageEffect::Wait(duration), |eff| match eff {
+            Some(StageResponse::WaitResponse(instant)) => Some(instant),
+            _ => None,
+        })
+    }
+
+    pub fn call<Req: Message, Resp: Message, St>(
+        &self,
+        target: &StageRef<Req, St>,
+        timeout: Duration,
+        msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
+    ) -> BoxFuture<'static, Option<Resp>> {
+        let (response, recv) = oneshot::channel();
+        let now = (self.now)();
+        let deadline = now.checked_add(timeout).expect("timeout too long");
+        let target = target.name();
+        let me = self.me.name();
+        airlock_effect(
+            &self.effect,
+            StageEffect::Call(
+                target,
+                timeout,
+                Box::new(msg(CallRef {
+                    target: me,
+                    deadline,
+                    response,
+                    now: self.now.clone(),
+                    call_responded: self.call_responded.clone(),
+                    _ph: PhantomData,
+                })),
+                recv,
+            ),
+            |eff| match eff {
+                Some(StageResponse::CallResponse(resp)) => Some(Some(
+                    cast_msg::<Resp>(resp).expect("internal messaging type error"),
+                )),
+                Some(StageResponse::CallTimeout) => Some(None),
+                _ => None,
+            },
+        )
+    }
+}
+
+pub struct CallRef<Resp: Message> {
+    pub(crate) target: Name,
+    pub(crate) deadline: Instant,
+    pub(crate) response: oneshot::Sender<Box<dyn Message>>,
+    /// function to obtain the current time
+    pub(crate) now: Arc<dyn Fn() -> Instant + Send + Sync>,
+    /// function to notify the calling stage that the call has been responded to
+    pub(crate) call_responded: Arc<dyn Fn(&Name) + Send + Sync>,
+    _ph: PhantomData<Resp>,
+}
+
+impl<Resp: Message> Debug for CallRef<Resp> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CallRef")
+            .field("target", &self.target)
+            .field("deadline", &self.deadline)
+            .field("now", &(self.now)())
+            .finish()
+    }
+}
+
+impl<Resp: Message> CallRef<Resp> {
+    pub fn send(self, resp: Resp) {
+        let Self {
+            target,
+            deadline,
+            response,
+            now,
+            call_responded,
+            _ph,
+        } = self;
+        if let Err(msg) = response.send(Box::new(resp)) {
+            tracing::warn!(
+                "response to {} was dropped: {:?} (deadline: {})",
+                target,
+                msg,
+                deadline.pretty(now())
+            );
+        }
+        call_responded(&target);
+    }
+}
 
 /// A factory for processing network stages and their wiring.
 ///
@@ -21,9 +182,9 @@ use std::future::Future;
 /// // phase 1: create stages
 /// let stage = network.stage(
 ///     "basic",
-///     async |(mut state, out), msg: u32| {
+///     async |(mut state, out), msg: u32, eff| {
 ///         state += msg;
-///         out.send(state).await?;
+///         eff.send(&out, state).await;
 ///         Ok((state, out))
 ///     },
 ///     (1u32, StageRef::<u32, ()>::noop()),
@@ -71,7 +232,7 @@ pub trait StageGraph {
         state: St,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
-        F: FnMut(St, Msg) -> Fut + 'static + Send,
+        F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
         Fut: Future<Output = anyhow::Result<St>> + 'static + Send;
 
     /// Finalize the given stage.

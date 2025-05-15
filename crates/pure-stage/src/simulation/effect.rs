@@ -1,52 +1,66 @@
+use super::Instant;
 use crate::{Message, Name};
 use std::{any::Any, fmt::Debug, time::Duration};
+use tokio::sync::oneshot;
 
+/// An effect emitted by a stage (in which case T is `Box<dyn Message>`) or an effect
+/// upon whose resumption the stage waits (in which case T is `()`).
 #[derive(Debug)]
 pub(crate) enum StageEffect<T> {
     Receive,
     Send(Name, T),
-    #[allow(dead_code)]
     Clock,
-    #[allow(dead_code)]
     Wait(Duration),
+    Call(Name, Duration, T, oneshot::Receiver<Box<dyn Message>>),
     Interrupt,
 }
 
-impl<T: Debug> StageEffect<T> {
-    pub fn assert_matching(&self, at_name: &Name, other: &Effect) -> anyhow::Result<()> {
+#[derive(Debug)]
+pub(crate) enum StageResponse<T> {
+    Unit,
+    ClockResponse(Instant),
+    WaitResponse(Instant),
+    CallResponse(T),
+    CallTimeout,
+}
+
+impl StageEffect<Box<dyn Message>> {
+    /// Split this effect from the stage into two parts:
+    /// - the marker we remember in the running simulation
+    /// - the effect we emit to the outside world
+    pub fn to_effect(self, at_name: Name) -> (StageEffect<()>, Effect) {
         match self {
-            StageEffect::Receive => {
-                if !matches!(other, Effect::Receive { at_stage } if at_stage == at_name) {
-                    anyhow::bail!("{:?} does not match {:?}", self, other)
-                }
-            }
-            StageEffect::Send(name, _msg) => {
-                // cannot check the message contents because we don’t want to clone it, so
-                // the StageEffect only contains a dummy value (namely `()`)
-                if !matches!(other, Effect::Send { from, to, msg: _ }
-                    if from == at_name && to == name)
-                {
-                    anyhow::bail!("{:?} does not match {:?}", self, other)
-                }
-            }
-            StageEffect::Clock => {
-                if !matches!(other, Effect::Clock { at_stage } if at_stage == at_name) {
-                    anyhow::bail!("{:?} does not match {:?}", self, other)
-                }
-            }
-            StageEffect::Wait(dur) => {
-                if !matches!(other, Effect::Wait { at_stage, duration } if at_stage==at_name && dur == duration)
-                {
-                    anyhow::bail!("{:?} does not match {:?}", self, other)
-                }
-            }
-            StageEffect::Interrupt => {
-                if !matches!(other, Effect::Interrupt { at_stage } if at_stage == at_name) {
-                    anyhow::bail!("{:?} does not match {:?}", self, other)
-                }
-            }
+            StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
+            StageEffect::Send(name, msg) => (
+                StageEffect::Send(name.clone(), ()),
+                Effect::Send {
+                    from: at_name,
+                    to: name,
+                    msg,
+                },
+            ),
+            StageEffect::Clock => (StageEffect::Clock, Effect::Clock { at_stage: at_name }),
+            StageEffect::Wait(duration) => (
+                StageEffect::Wait(duration),
+                Effect::Wait {
+                    at_stage: at_name,
+                    duration,
+                },
+            ),
+            StageEffect::Call(name, timeout, msg, receiver) => (
+                StageEffect::Call(name.clone(), timeout, (), receiver),
+                Effect::Call {
+                    at_stage: at_name,
+                    target: name,
+                    timeout,
+                    msg,
+                },
+            ),
+            StageEffect::Interrupt => (
+                StageEffect::Interrupt,
+                Effect::Interrupt { at_stage: at_name },
+            ),
         }
-        Ok(())
     }
 }
 
@@ -67,6 +81,12 @@ pub enum Effect {
         at_stage: Name,
         duration: Duration,
     },
+    Call {
+        at_stage: Name,
+        target: Name,
+        timeout: Duration,
+        msg: Box<dyn Message>,
+    },
     Interrupt {
         at_stage: Name,
     },
@@ -83,6 +103,7 @@ impl Effect {
             Effect::Send { from, .. } => from,
             Effect::Clock { at_stage, .. } => at_stage,
             Effect::Wait { at_stage, .. } => at_stage,
+            Effect::Call { at_stage, .. } => at_stage,
             Effect::Interrupt { at_stage } => at_stage,
             Effect::Failure { at_stage, .. } => at_stage,
         }

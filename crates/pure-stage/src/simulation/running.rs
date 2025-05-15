@@ -1,14 +1,11 @@
-use super::{Effect, StageData, StageEffect, StageState};
+use super::{Effect, EffectBox, Instant, StageData, StageEffect, StageResponse, StageState};
 use crate::{cast_state, Message, Name, StageRef, State};
-use parking_lot::Mutex;
+use either::Either::{Left, Right};
 use std::{
     collections::{HashMap, VecDeque},
     mem::replace,
-    sync::Arc,
     task::{Context, Poll, Waker},
 };
-
-pub(super) type EffectBox = Arc<Mutex<Option<StageEffect<Box<dyn Message>>>>>;
 
 /// Classification of why [`SimulationRunning::run_until_blocked`] has stopped.
 #[derive(Debug, PartialEq)]
@@ -65,10 +62,14 @@ impl Blocked {
 /// respectively). This means that any interleaving of computations can be exercised.
 /// Where this is not needed, you use [`Self::run_until_blocked`] to automate the
 /// sending and receiving of messages within the simulated processing network.
+///
+/// Note that all stages start out in the state of waiting to receive their first message,
+/// so you need to use [`resume_receive`](Self::resume_receive) to get them running.
+/// See also [`run_until_blocked`](Self::run_until_blocked) for how to achieve this.
 pub struct SimulationRunning {
     stages: HashMap<Name, StageData>,
     effect: EffectBox,
-    runnable: VecDeque<Name>,
+    runnable: VecDeque<(Name, StageResponse<Box<dyn Message>>)>,
     waiting: HashMap<Name, StageEffect<()>>,
     wait_send: HashMap<Name, VecDeque<(Name, Box<dyn Message>)>>,
     mailbox_size: usize,
@@ -78,14 +79,18 @@ impl SimulationRunning {
     pub(super) fn new(
         stages: HashMap<Name, StageData>,
         effect: EffectBox,
-        runnable: VecDeque<Name>,
         mailbox_size: usize,
     ) -> Self {
+        let waiting = stages
+            .keys()
+            .map(|k| (k.clone(), StageEffect::Receive))
+            .collect();
+
         Self {
             stages,
             effect,
-            runnable,
-            waiting: HashMap::new(),
+            runnable: VecDeque::new(),
+            waiting,
             wait_send: HashMap::new(),
             mailbox_size,
         }
@@ -132,72 +137,57 @@ impl SimulationRunning {
     /// and needs more inputs, it could be deadlocked, or a stage is still suspended on an
     /// effect other than send — the latter case is called “busy” for want of a better term).
     pub fn try_effect(&mut self) -> Result<Effect, Blocked> {
-        let Some(name) = self.runnable.pop_front() else {
+        let Some((name, response)) = self.runnable.pop_front() else {
             let reason = block_reason(&self.waiting);
             tracing::info!("blocking for reason: {:?}", reason);
             return Err(reason);
         };
         tracing::info!("resuming stage: {}", name);
-        let data = self.stages.get_mut(&name).unwrap();
-        match &mut data.state {
-            StageState::Idle(_state) => {
-                self.waiting.insert(name.clone(), StageEffect::Receive);
-                Ok(Effect::Receive { at_stage: name })
-            }
-            StageState::Running(pin) => {
-                let result = pin.as_mut().poll(&mut Context::from_waker(Waker::noop()));
-                if let Poll::Ready(result) = result {
-                    match result {
-                        Ok(state) => {
-                            data.state = StageState::Idle(state);
-                            self.waiting.insert(name.clone(), StageEffect::Receive);
-                            Ok(Effect::Receive { at_stage: name })
-                        }
-                        Err(error) => {
-                            data.state = StageState::Failed;
-                            Ok(Effect::Failure {
-                                at_stage: name,
-                                error,
-                            })
-                        }
-                    }
-                } else {
-                    let Some(effect) = self.effect.lock().take() else {
-                        panic!("stage {} was not waiting for any effect", name);
-                    };
-                    match effect {
-                        StageEffect::Receive => {
-                            panic!("receive effect cannot be caused explicitly")
-                        }
-                        StageEffect::Send(to, msg) => {
-                            self.waiting
-                                .insert(name.clone(), StageEffect::Send(to.clone(), ()));
-                            Ok(Effect::Send {
-                                from: name,
-                                to,
-                                msg,
-                            })
-                        }
-                        StageEffect::Clock => {
-                            self.waiting.insert(name.clone(), StageEffect::Clock);
-                            Ok(Effect::Clock { at_stage: name })
-                        }
-                        StageEffect::Wait(duration) => {
-                            self.waiting
-                                .insert(name.clone(), StageEffect::Wait(duration));
-                            Ok(Effect::Wait {
-                                at_stage: name,
-                                duration,
-                            })
-                        }
-                        StageEffect::Interrupt => {
-                            self.waiting.insert(name.clone(), StageEffect::Interrupt);
-                            Ok(Effect::Interrupt { at_stage: name })
-                        }
-                    }
+
+        let data = self
+            .stages
+            .get_mut(&name)
+            .expect("stage was runnable, so it must exist");
+        let StageState::Running(pin) = &mut data.state else {
+            panic!(
+                "runnable stage `{name}` is not running but {:?}",
+                data.state
+            );
+        };
+
+        *self.effect.lock() = Some(Right(response));
+        let result = pin.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+
+        if let Poll::Ready(result) = result {
+            match result {
+                Ok(state) => {
+                    data.state = StageState::Idle(state);
+                    self.waiting.insert(name.clone(), StageEffect::Receive);
+                    Ok(Effect::Receive { at_stage: name })
+                }
+                Err(error) => {
+                    data.state = StageState::Failed;
+                    Ok(Effect::Failure {
+                        at_stage: name,
+                        error,
+                    })
                 }
             }
-            StageState::Failed => panic!("failed stage found in running list"),
+        } else {
+            let stage_effect = match self.effect.lock().take() {
+                Some(Left(effect)) => effect,
+                Some(Right(response)) => {
+                    panic!(
+                        "found response {response:?} instead of effect when polling stage `{name}`"
+                    )
+                }
+                None => {
+                    panic!("stage `{name}` returned without awaiting any tracked effect")
+                }
+            };
+            let (wait_effect, effect) = stage_effect.to_effect(name.clone());
+            self.waiting.insert(name, wait_effect);
+            Ok(effect)
         }
     }
 
@@ -205,6 +195,17 @@ impl SimulationRunning {
     /// resume send and receive effects based on availability of space or messages in the
     /// mailbox in question.
     pub fn run_until_blocked(&mut self) -> Blocked {
+        let may_resume = self
+            .waiting
+            .iter()
+            .filter(|(_, v)| matches!(v, StageEffect::Receive))
+            .map(|(n, _)| n.clone())
+            .collect::<Vec<_>>();
+        for stage in may_resume {
+            // it is okay if this fails, the mailbox may be empty
+            let _ = self.resume_receive_internal(stage);
+        }
+
         loop {
             let effect = match self.try_effect() {
                 Ok(effect) => effect,
@@ -217,7 +218,8 @@ impl SimulationRunning {
                     if data.mailbox.is_empty() {
                         continue;
                     }
-                    self.resume_receive(at_stage.clone());
+                    self.resume_receive_internal(at_stage.clone())
+                        .expect("mailbox is not empty, so resume_receive must succeed");
                     let data = self.stages.get_mut(&at_stage).unwrap();
                     if data.mailbox.len() < self.mailbox_size {
                         if let Some((name, msg)) = self
@@ -226,12 +228,8 @@ impl SimulationRunning {
                             .or_default()
                             .pop_front()
                         {
-                            self.resume_effect(Effect::Send {
-                                from: name,
-                                to: at_stage,
-                                msg,
-                            })
-                            .unwrap();
+                            self.resume_send_internal(name, at_stage, msg)
+                                .expect("mailbox has space, so resume_send must succeed");
                         }
                     }
                 }
@@ -239,16 +237,12 @@ impl SimulationRunning {
                     let data = self.stages.get_mut(&to).unwrap();
                     if data.mailbox.len() < self.mailbox_size {
                         let empty = data.mailbox.is_empty();
-                        data.mailbox.push_back(msg);
+                        self.resume_send_internal(from, to.clone(), msg)
+                            .expect("mailbox has space, so resume_send must succeed");
                         if empty {
-                            // try to resume (unless that has already been done or isn’t necessary right now)
-                            let _ = self.resume_effect(Effect::Receive {
-                                at_stage: to.clone(),
-                            });
+                            // try to resume (could fail because stage not currently waiting for Receive)
+                            let _ = self.resume_receive_internal(to);
                         }
-                        tracing::info!("immediately resuming `{}` after send to `{}`", from, to);
-                        self.waiting.remove(&from);
-                        self.runnable.push_back(from);
                     } else {
                         self.wait_send.entry(to).or_default().push_back((from, msg));
                     }
@@ -259,91 +253,260 @@ impl SimulationRunning {
         }
     }
 
+    /// If a stage is Idle, it is waiting for Receive and NOT runnable.
+    /// If a stage is Running, it may be waiting for a non-Receive effect and may be runnable.
+    /// If a stage is Failed, it is not waiting for any effect and is not runnable.
+    /// A non-Failed stage is either waiting or runnable.
+    fn invariants(&self) {
+        for (name, data) in &self.stages {
+            let waiting = self.waiting.get(name);
+            match &data.state {
+                StageState::Idle(_) => {
+                    if !matches!(waiting, Some(StageEffect::Receive)) {
+                        panic!("stage `{name}` is Idle but waiting for {waiting:?}");
+                    }
+                }
+                StageState::Running(_) => {
+                    if matches!(waiting, Some(StageEffect::Receive)) {
+                        panic!("stage `{name}` is Running but waiting for Receive");
+                    }
+                    if matches!(waiting, None) {
+                        panic!("stage `{name}` is Running but not waiting for any effect");
+                    }
+                }
+                StageState::Failed => {
+                    if waiting.is_some() {
+                        panic!("stage `{name}` is Failed but waiting for {waiting:?}");
+                    }
+                    return;
+                }
+            }
+            let waiting = waiting.is_some();
+            let runnable = self.runnable.iter().any(|(n, _)| n == name);
+            if waiting && runnable {
+                panic!("stage `{name}` is waiting for an effect and runnable");
+            }
+            if !waiting && !runnable {
+                panic!("stage `{name}` is not waiting for an effect and not runnable");
+            }
+        }
+    }
+
     /// Resume an [`Effect::Receive`].
-    ///
-    /// This will panic if the stage was not suspended on such an effect or if there is no message
-    /// available in the mailbox.
-    pub fn resume_receive(&mut self, at_stage: impl AsRef<str>) {
-        self.resume_effect(Effect::Receive {
-            at_stage: at_stage.as_ref().into(),
-        })
-        .unwrap();
+    pub fn resume_receive<Msg, St>(&mut self, at_stage: &StageRef<Msg, St>) -> anyhow::Result<()> {
+        self.resume_receive_internal(at_stage.name())
+    }
+
+    fn resume_receive_internal(&mut self, at_stage: Name) -> anyhow::Result<()> {
+        let waiting_for = self.waiting.get(&at_stage).ok_or_else(|| {
+            anyhow::anyhow!("stage `{}` was not waiting for any effect", at_stage)
+        })?;
+
+        if !matches!(waiting_for, StageEffect::Receive) {
+            anyhow::bail!(
+                "stage `{}` was not waiting for a receive effect, but {:?}",
+                at_stage,
+                waiting_for
+            )
+        }
+
+        let data = self
+            .stages
+            .get_mut(&at_stage)
+            .expect("stage was waiting, so it must exist");
+
+        let msg = data
+            .mailbox
+            .pop_front()
+            .ok_or_else(|| anyhow::anyhow!("mailbox is empty while resuming receive"))?;
+
+        // it is important that all validations (i.e. `?``) happen before this point
+        self.waiting.remove(&at_stage);
+
+        let StageState::Idle(state) = replace(&mut data.state, StageState::Failed) else {
+            panic!(
+                "stage {} must have been Idle, was {:?}",
+                at_stage, data.state
+            );
+        };
+        data.state = StageState::Running((data.transition)(state, msg));
+
+        self.runnable.push_back((at_stage, StageResponse::Unit));
+        Ok(())
     }
 
     /// Resume an [`Effect::Send`].
+    pub fn resume_send<Msg1, Msg2: Message, St1, St2>(
+        &mut self,
+        from: &StageRef<Msg1, St1>,
+        to: &StageRef<Msg2, St2>,
+        msg: Msg2,
+    ) -> anyhow::Result<()> {
+        self.resume_send_internal(from.name(), to.name(), Box::new(msg))
+    }
+
+    fn resume_send_internal(
+        &mut self,
+        from: Name,
+        to: Name,
+        msg: Box<dyn Message>,
+    ) -> anyhow::Result<()> {
+        let waiting_for = self
+            .waiting
+            .get(&from)
+            .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", from))?;
+
+        if !matches!(waiting_for, StageEffect::Send(name, _msg) if name == &to) {
+            anyhow::bail!(
+                "stage `{}` was not waiting for a send effect to `{}`, but {:?}",
+                from,
+                to,
+                waiting_for
+            )
+        }
+
+        let data = self
+            .stages
+            .get_mut(&to)
+            .expect("stage was target of send, so it must exist");
+        if data.mailbox.len() >= self.mailbox_size {
+            anyhow::bail!("mailbox is full while resuming send");
+        }
+
+        // it is important that all validations (i.e. `?``) happen before this point
+        self.waiting.remove(&from);
+
+        data.mailbox.push_back(msg);
+
+        self.runnable.push_back((from, StageResponse::Unit));
+        Ok(())
+    }
+
+    /// Resume an [`Effect::Clock`].
+    pub fn resume_clock<Msg, St>(
+        &mut self,
+        at_stage: &StageRef<Msg, St>,
+        time: Instant,
+    ) -> anyhow::Result<()> {
+        self.resume_clock_internal(at_stage.name(), time)
+    }
+
+    fn resume_clock_internal(&mut self, at_stage: Name, time: Instant) -> anyhow::Result<()> {
+        let waiting_for = self.waiting.get(&at_stage).ok_or_else(|| {
+            anyhow::anyhow!("stage `{}` was not waiting for any effect", at_stage)
+        })?;
+
+        if !matches!(waiting_for, StageEffect::Clock) {
+            anyhow::bail!(
+                "stage `{}` was not waiting for a clock effect, but {:?}",
+                at_stage,
+                waiting_for
+            )
+        }
+
+        // it is important that all validations (i.e. `?``) happen before this point
+        self.waiting.remove(&at_stage);
+
+        self.runnable
+            .push_back((at_stage, StageResponse::ClockResponse(time)));
+        Ok(())
+    }
+
+    /// Resume an [`Effect::Wait`].
     ///
-    /// This will panic if the stage was not suspended on such an effect. No check is performed on
-    /// mailbox capacity.
-    pub fn resume_send<T: Message>(&mut self, from: impl AsRef<str>, to: impl AsRef<str>, msg: T) {
-        self.resume_effect(Effect::Send {
-            from: from.as_ref().into(),
-            to: to.as_ref().into(),
-            msg: Box::new(msg),
-        })
-        .unwrap();
+    /// The given time is the clock when the stage wakes up.
+    pub fn resume_wait<Msg, St>(
+        &mut self,
+        at_stage: &StageRef<Msg, St>,
+        time: Instant,
+    ) -> anyhow::Result<()> {
+        self.resume_wait_internal(at_stage.name(), time)
+    }
+
+    fn resume_wait_internal(&mut self, at_stage: Name, time: Instant) -> anyhow::Result<()> {
+        let waiting_for = self.waiting.get(&at_stage).ok_or_else(|| {
+            anyhow::anyhow!("stage `{}` was not waiting for any effect", at_stage)
+        })?;
+
+        if !matches!(waiting_for, StageEffect::Wait(_duration)) {
+            anyhow::bail!(
+                "stage `{}` was not waiting for a wait effect, but {:?}",
+                at_stage,
+                waiting_for
+            )
+        }
+
+        // it is important that all validations (i.e. `?``) happen before this point
+        self.waiting.remove(&at_stage);
+
+        self.runnable
+            .push_back((at_stage, StageResponse::WaitResponse(time)));
+        Ok(())
+    }
+
+    /// Resume an [`Effect::Call`].
+    ///
+    /// If `msg` is `None`, the call has timed out.
+    pub fn resume_call<Msg, St>(
+        &mut self,
+        at_stage: &StageRef<Msg, St>,
+        msg: Option<Box<dyn Message>>,
+    ) -> anyhow::Result<()> {
+        self.resume_call_internal(at_stage.name(), msg)
+    }
+
+    fn resume_call_internal(
+        &mut self,
+        at_stage: Name,
+        msg: Option<Box<dyn Message>>,
+    ) -> anyhow::Result<()> {
+        let waiting_for = self.waiting.get(&at_stage).ok_or_else(|| {
+            anyhow::anyhow!("stage `{}` was not waiting for any effect", at_stage)
+        })?;
+
+        if !matches!(waiting_for, StageEffect::Call(..)) {
+            anyhow::bail!(
+                "stage `{}` was not waiting for a call effect, but {:?}",
+                at_stage,
+                waiting_for
+            )
+        }
+
+        // it is important that all validations (i.e. `?``) happen before this point
+        self.waiting.remove(&at_stage);
+
+        self.runnable.push_back((
+            at_stage,
+            msg.map(StageResponse::CallResponse)
+                .unwrap_or(StageResponse::CallTimeout),
+        ));
+        Ok(())
     }
 
     /// Resume an [`Effect::Interrupt`].
-    ///
-    /// This will panic if the stage was not suspended on such an effect.
-    pub fn resume_interrupt(&mut self, at_stage: impl AsRef<str>) {
-        self.resume_effect(Effect::Interrupt {
-            at_stage: at_stage.as_ref().into(),
-        })
-        .unwrap();
+    pub fn resume_interrupt<Msg, St>(
+        &mut self,
+        at_stage: &StageRef<Msg, St>,
+    ) -> anyhow::Result<()> {
+        self.resume_interrupt_internal(at_stage.name())
     }
 
-    /// Resume the given effect that was previously returned from [`Self::effect`] or [`Self::try_effect`].
-    pub fn resume_effect(&mut self, effect: Effect) -> anyhow::Result<()> {
-        let at_name = effect.at_stage();
-        let Some(waiting_for) = self.waiting.get(at_name) else {
-            anyhow::bail!("stage `{}` was not waiting for {:?}", at_name, effect)
-        };
-        waiting_for.assert_matching(at_name, &effect)?;
-        tracing::info!(
-            "resuming effect {:?} at {} with {:?}",
-            waiting_for,
-            at_name,
-            effect
-        );
-        self.waiting.remove(at_name);
-        let data = self.stages.get_mut(at_name).unwrap();
-        match effect {
-            Effect::Receive { at_stage } => {
-                // cannot move out of data.state, so replace temporarily with dummy value
-                let state = match replace(&mut data.state, StageState::Failed) {
-                    StageState::Idle(state) => state,
-                    state => {
-                        // it is essential to put the state back, so that erroring does not change the state
-                        data.state = state;
-                        anyhow::bail!("stage {} must have been Idle", at_stage)
-                    }
-                };
-                let Some(msg) = data.mailbox.pop_front() else {
-                    anyhow::bail!("mailbox is empty while resuming receive")
-                };
-                data.state = StageState::Running((data.transition)(state, msg));
-                self.runnable.push_back(at_stage);
-            }
-            Effect::Send { from, to, msg } => {
-                let data = self.stages.get_mut(&to).unwrap();
-                if data.mailbox.len() >= self.mailbox_size {
-                    anyhow::bail!("mailbox is full while resuming send");
-                }
-                data.mailbox.push_back(msg);
-                self.runnable.push_back(from);
-            }
-            Effect::Clock { at_stage, .. } => {
-                self.runnable.push_back(at_stage);
-            }
-            Effect::Wait { at_stage, .. } => {
-                self.runnable.push_back(at_stage);
-            }
-            Effect::Interrupt { at_stage } => {
-                self.runnable.push_back(at_stage);
-            }
-            Effect::Failure { .. } => panic!("failure effect cannot be resumed"),
+    fn resume_interrupt_internal(&mut self, at_stage: Name) -> anyhow::Result<()> {
+        let waiting_for = self.waiting.get(&at_stage).ok_or_else(|| {
+            anyhow::anyhow!("stage `{}` was not waiting for any effect", at_stage)
+        })?;
+
+        if !matches!(waiting_for, StageEffect::Interrupt) {
+            anyhow::bail!(
+                "stage `{}` was not waiting for an interrupt effect",
+                at_stage
+            )
         }
+
+        // it is important that all validations (i.e. `?``) happen before this point
+        self.waiting.remove(&at_stage);
+
+        self.runnable.push_back((at_stage, StageResponse::Unit));
         Ok(())
     }
 }
