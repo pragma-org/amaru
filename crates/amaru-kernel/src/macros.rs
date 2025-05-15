@@ -18,8 +18,8 @@ macro_rules! prop_cbor_roundtrip {
         proptest::proptest! {
             #[test]
             fn $title(val in $strategy) {
-                let bytes = amaru_kernel::to_cbor(&val);
-                proptest::prop_assert_eq!(Some(val), amaru_kernel::from_cbor::<$ty>(&bytes));
+                let bytes = $crate::to_cbor(&val);
+                proptest::prop_assert_eq!(Some(val), $crate::from_cbor::<$ty>(&bytes));
             }
         }
     };
