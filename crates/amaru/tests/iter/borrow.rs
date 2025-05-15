@@ -16,6 +16,7 @@ use super::*;
 use crate::store::rocksdb::common::as_key;
 use pallas_codec::minicbor as cbor;
 use rocksdb::OptimisticTransactionDB;
+use tempfile::Builder;
 
 #[derive(Debug, Clone, PartialEq)]
 struct Fruit {
