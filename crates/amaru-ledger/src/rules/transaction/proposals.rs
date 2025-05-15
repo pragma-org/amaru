@@ -108,7 +108,7 @@ mod tests {
         transaction_index: 0,
     }); "happy path")]
 
-    fn test_mint(
+    fn test_proposals(
         (mut ctx, tx, tx_pointer, expected_traces): (
             AssertValidationContext,
             KeepRaw<'_, MintedTransactionBody<'_>>,
