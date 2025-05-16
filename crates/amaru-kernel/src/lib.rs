@@ -933,6 +933,23 @@ impl HasScriptRef for TransactionOutput {
     }
 }
 
+impl HasDatum for MintedTransactionOutput<'_> {
+    fn has_datum(&self) -> Option<DatumOption> {
+        match self {
+            PseudoTransactionOutput::Legacy(transaction_output) => {
+                transaction_output.datum_hash.map(DatumOption::Hash)
+            }
+            PseudoTransactionOutput::PostAlonzo(transaction_output) => transaction_output
+                .datum_option
+                .as_ref()
+                .and_then(|datum| match datum {
+                    PseudoDatumOption::Hash(hash) => Some(DatumOption::Hash(*hash)),
+                    PseudoDatumOption::Data(_) => None,
+                }),
+        }
+    }
+}
+
 pub fn to_network_id(network: &Network) -> u8 {
     match network {
         Network::Testnet => 0,
