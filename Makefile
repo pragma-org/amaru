@@ -41,9 +41,10 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
 
 import-snapshots: snapshots ## Import snapshots for demo
+	@test -d $^/${NETWORK} || (echo "Error: folder '$^/${NETWORK}' does not exist! Delete manually the 'snapshots' folder" && exit 1)
 	SNAPSHOT_ARGS=""; \
-	for SNAPSHOT in $^/${NETWORK}/*.cbor; do \
-	  	SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
+	for SNAPSHOT in $(wildcard $^/${NETWORK}/*.cbor); do \
+		SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
 	done; \
 	cargo run --release -- import-ledger-state \
 		--ledger-dir "$(LEDGER_DIR)" \
