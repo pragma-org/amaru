@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use amaru_kernel::{
     get_provided_scripts, DatumOption, HasAddress, HasDatum, HasScriptHash, Hash, MintedWitnessSet,
-    PseudoScript, ScriptHash, ScriptRefWithHash, TransactionInput,
+    OriginalHash, PseudoScript, ScriptHash, ScriptRefWithHash, TransactionInput,
 };
 use thiserror::Error;
 
@@ -10,11 +10,15 @@ use crate::context::{UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidScripts {
-    #[error("missing required scripts: missing {0:?}")]
+    #[error("missing required scripts: missing [{}]",
+        .0.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+    )]
     MissingRequiredScripts(Vec<ScriptHash>),
-    #[error("extraneous script witnesses: extra {0:?}")]
+    #[error("extraneous script witnesses: extra [{}]",
+        .0.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+    )]
     ExtraneousScriptWitnesses(Vec<ScriptHash>),
-    #[error("unspendable inputs; missing required datums: [{}]",
+    #[error("unspendable inputs; no datums: [{}]",
         .0
         .iter()
         .map(|input|
@@ -23,7 +27,16 @@ pub enum InvalidScripts {
         .collect::<Vec<_>>()
         .join(", ")
     )]
-    UnpsnedableInputsMissingDatums(Vec<TransactionInput>),
+    UnpsnedableInputsNoDatums(Vec<TransactionInput>),
+    #[error(
+        "missing reuqired datums: missing: [{}] provided [{}]",
+        missing.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+        provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+    )]
+    MissingRequiredDatums {
+        missing: Vec<Hash<32>>,
+        provided: Vec<Hash<32>>,
+    },
 }
 
 // TODO: this can be made MUCH more efficient. Remove clones, don't iterate the same list several times, etc... Lots of low hanging fruit.
@@ -134,7 +147,7 @@ where
         })
         .collect::<Vec<_>>();
 
-    let mut datum_hash_set: BTreeSet<Hash<32>> = BTreeSet::new();
+    let mut input_datum_hashes: BTreeSet<Hash<32>> = BTreeSet::new();
     let mut inputs_missing_datum: Vec<TransactionInput> = Vec::new();
 
     required_script_inputs
@@ -146,17 +159,39 @@ where
                 }
             }
             Some(DatumOption::Hash(hash)) => {
-                datum_hash_set.insert(hash);
+                input_datum_hashes.insert(hash);
             }
             Some(_) => {}
         });
 
     if !inputs_missing_datum.is_empty() {
-        return Err(InvalidScripts::UnpsnedableInputsMissingDatums(
+        return Err(InvalidScripts::UnpsnedableInputsNoDatums(
             inputs_missing_datum,
         ));
     }
 
+    let witness_datum_hashes: BTreeSet<Hash<32>> = witness_set
+        .plutus_data
+        .as_deref()
+        .map(|datums| {
+            datums
+                .iter()
+                .map(|datum| datum.original_hash())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default();
+
+    let unmatched_datums = input_datum_hashes
+        .difference(&witness_datum_hashes)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !unmatched_datums.is_empty() {
+        return Err(InvalidScripts::MissingRequiredDatums {
+            missing: unmatched_datums,
+            provided: input_datum_hashes.into_iter().collect::<Vec<_>>(),
+        });
+    }
     Ok(())
 }
 
