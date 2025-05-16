@@ -84,7 +84,7 @@ dev: ## Compile and run for development with default options
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
 	cargo test --release -p amaru -- --ignored
 
-test-e2-from-scratch: bootstrap demo test-e2e ## Run end-to-end tests from scratch
+test-e2e-from-scratch: bootstrap demo test-e2e ## Run end-to-end tests from scratch
 
 check-llvm-cov: ## Check if cargo-llvm-cov is installed, install if not
 	@if ! cargo llvm-cov --version >/dev/null 2>&1; then \
