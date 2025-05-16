@@ -28,8 +28,8 @@ use pallas_addresses::{
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::{
     conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, Redeemer, RedeemersKey, RedeemersValue,
-        ScriptRef,
+        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemersKey,
+        RedeemersValue,
     },
     PlutusScript,
 };
@@ -65,8 +65,9 @@ pub use pallas_primitives::{
         NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
         ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
         PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, ScriptHash,
-        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
-        VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
+        WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -855,6 +856,23 @@ impl HasDatum for TransactionOutput {
                 // TODO: remove clones
                 transaction_output.datum_option.clone()
             }
+        }
+    }
+}
+
+impl HasDatum for MintedTransactionOutput<'_> {
+    fn has_datum(&self) -> Option<DatumOption> {
+        match self {
+            PseudoTransactionOutput::Legacy(transaction_output) => {
+                transaction_output.datum_hash.map(DatumOption::Hash)
+            }
+            PseudoTransactionOutput::PostAlonzo(transaction_output) => transaction_output
+                .datum_option
+                .as_ref()
+                .and_then(|datum| match datum {
+                    PseudoDatumOption::Hash(hash) => Some(DatumOption::Hash(*hash)),
+                    PseudoDatumOption::Data(_) => None,
+                }),
         }
     }
 }

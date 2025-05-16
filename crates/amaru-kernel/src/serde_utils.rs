@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use pallas_codec::utils::CborWrap;
-use pallas_primitives::{conway::ScriptRef, PlutusScript};
+use pallas_primitives::{
+    conway::{DatumOption, Hash, ScriptRef},
+    PlutusScript,
+};
 
 use crate::{
     from_cbor, Bytes, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
@@ -58,6 +61,7 @@ pub struct TransactionOutputProxy {
     // TODO: support value that is more than just lovelace
     value: Option<u64>,
     script_ref: Option<ScriptRefProxy>,
+    datum: Option<DatumOptionProxy>,
     // TODO: expand this
 }
 
@@ -70,7 +74,7 @@ impl From<TransactionOutputProxy> for TransactionOutput {
         Self::PostAlonzo(PostAlonzoTransactionOutput {
             address: proxy.address,
             value: Value::Coin(proxy.value.unwrap_or_default()),
-            datum_option: None,
+            datum_option: proxy.datum.map(|proxy| DatumOption::from(proxy)),
             script_ref: proxy
                 .script_ref
                 .map(|proxy| CborWrap(ScriptRef::from(proxy))),
@@ -78,7 +82,7 @@ impl From<TransactionOutputProxy> for TransactionOutput {
     }
 }
 
-// ------------------------------------------------------------------------------- TransactionOutput
+// ------------------------------------------------------------------------------- ScriptRef
 
 #[derive(Debug, serde::Deserialize)]
 pub enum ScriptRefProxy {
@@ -93,7 +97,6 @@ impl HasProxy for ScriptRef {
 }
 
 impl From<ScriptRefProxy> for ScriptRef {
-    // TODO: Is there a better way to do this? Just brute force to get it working for now...
     #[allow(clippy::unwrap_used)]
     fn from(value: ScriptRefProxy) -> Self {
         match value {
@@ -104,6 +107,31 @@ impl From<ScriptRefProxy> for ScriptRef {
             ScriptRefProxy::PlutusV1(bytes) => ScriptRef::PlutusV1Script(PlutusScript::<1>(bytes)),
             ScriptRefProxy::PlutusV2(bytes) => ScriptRef::PlutusV2Script(PlutusScript::<2>(bytes)),
             ScriptRefProxy::PlutusV3(bytes) => ScriptRef::PlutusV3Script(PlutusScript::<3>(bytes)),
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------- DatumOption
+
+#[derive(Debug, serde::Deserialize)]
+pub enum DatumOptionProxy {
+    Hash([u8; 32]),
+    Data(Bytes),
+}
+
+impl HasProxy for DatumOption {
+    type Proxy = DatumOptionProxy;
+}
+
+impl From<DatumOptionProxy> for DatumOption {
+    #[allow(clippy::unwrap_used)]
+    fn from(value: DatumOptionProxy) -> Self {
+        match value {
+            DatumOptionProxy::Hash(bytes) => DatumOption::Hash(Hash::new(bytes)),
+            // This code should only be run during tests, so a panic here is fine
+            DatumOptionProxy::Data(data) => {
+                DatumOption::Data(CborWrap(from_cbor(data.deref()).unwrap()))
+            }
         }
     }
 }

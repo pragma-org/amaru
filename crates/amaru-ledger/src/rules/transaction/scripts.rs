@@ -27,15 +27,24 @@ pub enum InvalidScripts {
         .collect::<Vec<_>>()
         .join(", ")
     )]
-    UnpsnedableInputsNoDatums(Vec<TransactionInput>),
+    UnspendableInputsNoDatums(Vec<TransactionInput>),
     #[error(
-        "missing reuqired datums: missing: [{}] provided [{}]",
+        "missing reuqired datums: missing [{}] provided [{}]",
         missing.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
-        provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+    provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
     )]
     MissingRequiredDatums {
         missing: Vec<Hash<32>>,
-        provided: Vec<Hash<32>>,
+        provided: BTreeSet<Hash<32>>,
+    },
+    #[error(
+        "extraneous supplemental datums: allowed: [{}] provided [{}]",
+        allowed.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+        provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+    )]
+    ExtraneousSupplementalDatums {
+        allowed: Vec<Hash<32>>,
+        provided: BTreeSet<Hash<32>>,
     },
 }
 
@@ -51,46 +60,58 @@ where
 {
     let required_scripts = context.required_scripts();
 
-    let resolved_inputs = [
-        reference_inputs.unwrap_or(&vec![]).as_slice(),
-        inputs.as_slice(),
-    ]
-    .concat()
-    .into_iter()
-    .filter_map(|input| {
-        context
-            // We assume that the reference input exists as that's validated during the inputs validation
-            .lookup(&input)
-            .map(|output| (input, output))
-    })
-    .collect::<Vec<_>>();
+    let resolved_inputs = inputs
+        .into_iter()
+        .filter_map(|input| {
+            context
+                // We assume that the input exists as that's validated during the inputs validation
+                .lookup(input)
+                .map(|output| (input, output))
+        })
+        .collect::<Vec<_>>();
+
+    let empty_vec = vec![];
+    let resolved_reference_inputs = reference_inputs
+        .unwrap_or(&empty_vec)
+        .into_iter()
+        .filter_map(|input| {
+            context
+                // We assume that the reference input exists as that's validated during the inputs validation
+                .lookup(input)
+                .map(|output| (input, output))
+        })
+        .collect::<Vec<_>>();
 
     // provided reference scripts from inputs and reference inputs only include ScriptRefs that are required by an input
-    let provided_reference_scripts = resolved_inputs
-        .iter()
-        .filter_map(|(_, output)| {
-            match output {
-                amaru_kernel::PseudoTransactionOutput::PostAlonzo(transaction_output) => {
-                    transaction_output
-                        .script_ref
-                        .as_deref()
-                        .and_then(|script_ref| {
-                            // If there is a provided ScriptRef, make sure it is required by an input
-                            let hash = script_ref.script_hash();
-                            if required_scripts.contains(&hash) {
-                                Some(ScriptRefWithHash {
-                                    hash: script_ref.script_hash(),
-                                    script: script_ref.clone(),
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                }
-                amaru_kernel::PseudoTransactionOutput::Legacy(_) => None,
+    let provided_reference_scripts = [
+        resolved_inputs.as_slice(),
+        resolved_reference_inputs.as_slice(),
+    ]
+    .concat()
+    .iter()
+    .filter_map(|(_, output)| {
+        match output {
+            amaru_kernel::PseudoTransactionOutput::PostAlonzo(transaction_output) => {
+                transaction_output
+                    .script_ref
+                    .as_deref()
+                    .and_then(|script_ref| {
+                        // If there is a provided ScriptRef, make sure it is required by an input
+                        let hash = script_ref.script_hash();
+                        if required_scripts.contains(&hash) {
+                            Some(ScriptRefWithHash {
+                                hash: script_ref.script_hash(),
+                                script: script_ref.clone(),
+                            })
+                        } else {
+                            None
+                        }
+                    })
             }
-        })
-        .collect::<BTreeSet<_>>();
+            amaru_kernel::PseudoTransactionOutput::Legacy(_) => None,
+        }
+    })
+    .collect::<BTreeSet<_>>();
 
     let provided_scripts: BTreeSet<_> = get_provided_scripts(witness_set)
         .into_iter()
@@ -148,14 +169,16 @@ where
         .collect::<Vec<_>>();
 
     let mut input_datum_hashes: BTreeSet<Hash<32>> = BTreeSet::new();
-    let mut inputs_missing_datum: Vec<TransactionInput> = Vec::new();
+    let mut inputs_missing_datum: Vec<&TransactionInput> = Vec::new();
 
     required_script_inputs
-        .iter()
+        .into_iter()
         .for_each(|((input, output), script)| match output.has_datum() {
             None => {
-                if !matches!(script.script, PseudoScript::PlutusV3Script(..)) {
-                    inputs_missing_datum.push(input.clone());
+                if !(matches!(script.script, PseudoScript::PlutusV3Script(..))
+                    || matches!(script.script, PseudoScript::NativeScript(..)))
+                {
+                    inputs_missing_datum.push(input);
                 }
             }
             Some(DatumOption::Hash(hash)) => {
@@ -165,8 +188,11 @@ where
         });
 
     if !inputs_missing_datum.is_empty() {
-        return Err(InvalidScripts::UnpsnedableInputsNoDatums(
-            inputs_missing_datum,
+        return Err(InvalidScripts::UnspendableInputsNoDatums(
+            inputs_missing_datum
+                .into_iter()
+                .cloned()
+                .collect::<Vec<_>>(),
         ));
     }
 
@@ -189,9 +215,28 @@ where
     if !unmatched_datums.is_empty() {
         return Err(InvalidScripts::MissingRequiredDatums {
             missing: unmatched_datums,
-            provided: input_datum_hashes.into_iter().collect::<Vec<_>>(),
+            provided: input_datum_hashes,
         });
     }
+
+    let allowed_supplemental_datum = context.allowed_supplemental_datums();
+    let supplemental_datums = witness_datum_hashes
+        .difference(&input_datum_hashes)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    let extraneous_supplemental_datums = supplemental_datums
+        .difference(&allowed_supplemental_datum)
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !extraneous_supplemental_datums.is_empty() {
+        return Err(InvalidScripts::ExtraneousSupplementalDatums {
+            provided: supplemental_datums,
+            allowed: extraneous_supplemental_datums,
+        });
+    }
+
     Ok(())
 }
 

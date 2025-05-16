@@ -254,6 +254,12 @@ pub trait ProposalsSlice {
 // -------------------------------------------------------------------------------------------------
 
 pub trait WitnessSlice {
+    /// Indicate a datum that may appear in the witness set that isn't required for spending an input
+    fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>);
+
+    /// Obtain the full list of allowed supplemental datums while traversing the transaction
+    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>>;
+
     /// Indicate that a witness is required to be present (and valid) for the corresponding
     /// set of credentials.
     fn require_witness(&mut self, credential: StakeCredential);
