@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    get_provided_scripts, HasScriptHash, MintedWitnessSet, ScriptHash, ScriptRefWithHash,
-    TransactionInput,
+    get_provided_scripts, DatumOption, HasAddress, HasDatum, HasScriptHash, Hash, MintedWitnessSet,
+    PseudoScript, ScriptHash, ScriptRefWithHash, TransactionInput,
 };
 use thiserror::Error;
 
@@ -14,8 +14,19 @@ pub enum InvalidScripts {
     MissingRequiredScripts(Vec<ScriptHash>),
     #[error("extraneous script witnesses: extra {0:?}")]
     ExtraneousScriptWitnesses(Vec<ScriptHash>),
+    #[error("unspendable inputs; missing required datums: [{}]",
+        .0
+        .iter()
+        .map(|input|
+            format!("{}#{}", input.transaction_id, input.index)
+        )
+        .collect::<Vec<_>>()
+        .join(", ")
+    )]
+    UnpsnedableInputsMissingDatums(Vec<TransactionInput>),
 }
 
+// TODO: this can be made MUCH more efficient. Remove clones, don't iterate the same list several times, etc... Lots of low hanging fruit.
 pub fn execute<C>(
     context: &mut C,
     reference_inputs: Option<&Vec<TransactionInput>>,
@@ -27,18 +38,25 @@ where
 {
     let required_scripts = context.required_scripts();
 
-    // provided reference scripts from inputs and reference inputs only include ScriptRefs that are required by an input
-    let provided_reference_scripts = [
+    let resolved_inputs = [
         reference_inputs.unwrap_or(&vec![]).as_slice(),
         inputs.as_slice(),
     ]
     .concat()
-    .iter()
+    .into_iter()
     .filter_map(|input| {
         context
             // We assume that the reference input exists as that's validated during the inputs validation
-            .lookup(input)
-            .and_then(|output| match output {
+            .lookup(&input)
+            .map(|output| (input, output))
+    })
+    .collect::<Vec<_>>();
+
+    // provided reference scripts from inputs and reference inputs only include ScriptRefs that are required by an input
+    let provided_reference_scripts = resolved_inputs
+        .iter()
+        .filter_map(|(_, output)| {
+            match output {
                 amaru_kernel::PseudoTransactionOutput::PostAlonzo(transaction_output) => {
                     transaction_output
                         .script_ref
@@ -57,9 +75,9 @@ where
                         })
                 }
                 amaru_kernel::PseudoTransactionOutput::Legacy(_) => None,
-            })
-    })
-    .collect::<BTreeSet<_>>();
+            }
+        })
+        .collect::<BTreeSet<_>>();
 
     let provided_scripts: BTreeSet<_> = get_provided_scripts(witness_set)
         .into_iter()
@@ -90,6 +108,53 @@ where
 
     if !extra_scripts.is_empty() {
         return Err(InvalidScripts::ExtraneousScriptWitnesses(extra_scripts));
+    }
+
+    let required_script_inputs = resolved_inputs
+        .iter()
+        .filter_map(|input_output| {
+            input_output
+                .1
+                .address()
+                .ok()
+                .and_then(|address| match address {
+                    amaru_kernel::Address::Shelley(shelley_address) => {
+                        if shelley_address.payment().is_script() {
+                            if let Some(script) = provided_scripts
+                                .iter()
+                                .find(|script| &script.hash == shelley_address.payment().as_hash())
+                            {
+                                return Some((input_output, script));
+                            }
+                        }
+                        None
+                    }
+                    amaru_kernel::Address::Byron(_) | amaru_kernel::Address::Stake(_) => None,
+                })
+        })
+        .collect::<Vec<_>>();
+
+    let mut datum_hash_set: BTreeSet<Hash<32>> = BTreeSet::new();
+    let mut inputs_missing_datum: Vec<TransactionInput> = Vec::new();
+
+    required_script_inputs
+        .iter()
+        .for_each(|((input, output), script)| match output.has_datum() {
+            None => {
+                if !matches!(script.script, PseudoScript::PlutusV3Script(..)) {
+                    inputs_missing_datum.push(input.clone());
+                }
+            }
+            Some(DatumOption::Hash(hash)) => {
+                datum_hash_set.insert(hash);
+            }
+            Some(_) => {}
+        });
+
+    if !inputs_missing_datum.is_empty() {
+        return Err(InvalidScripts::UnpsnedableInputsMissingDatums(
+            inputs_missing_datum,
+        ));
     }
 
     Ok(())
