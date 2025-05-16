@@ -128,12 +128,13 @@ pub fn execute(
     mint::execute(context, transaction_body.mint.as_ref());
 
     outputs::execute(
+        context,
         protocol_parameters,
         &network,
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
-        &mut |_index, output| {
+        &mut |context, _index, output| {
             if !is_valid {
                 // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
                 //
@@ -153,10 +154,11 @@ pub fn execute(
     )?;
 
     outputs::execute(
+        context,
         protocol_parameters,
         &network,
         mem::take(&mut transaction_body.outputs),
-        &mut |index, output| {
+        &mut |context, index, output| {
             if is_valid {
                 context.produce(
                     TransactionInput {
