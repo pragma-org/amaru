@@ -34,6 +34,7 @@ pub struct DefaultValidationContext {
     state: VolatileState,
     required_signers: BTreeSet<Hash<28>>,
     required_scripts: BTreeSet<Hash<28>>,
+    required_supplemental_datums: BTreeSet<Hash<32>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
@@ -44,6 +45,7 @@ impl DefaultValidationContext {
             state: VolatileState::default(),
             required_signers: BTreeSet::default(),
             required_scripts: BTreeSet::default(),
+            required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
         }
     }
@@ -240,6 +242,10 @@ impl WitnessSlice for DefaultValidationContext {
         self.required_bootstrap_signers.insert(root);
     }
 
+    fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>) {
+        self.required_supplemental_datums.insert(datum_hash);
+    }
+
     fn required_signers(&mut self) -> BTreeSet<Hash<28>> {
         mem::take(&mut self.required_signers)
     }
@@ -250,5 +256,9 @@ impl WitnessSlice for DefaultValidationContext {
 
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>> {
         mem::take(&mut self.required_bootstrap_signers)
+    }
+
+    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>> {
+        mem::take(&mut self.required_supplemental_datums)
     }
 }
