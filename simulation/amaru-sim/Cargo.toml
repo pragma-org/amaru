@@ -40,7 +40,6 @@ amaru-stores = { path = "../../crates/amaru-stores" }
 anyhow.workspace = true
 
 [dev-dependencies]
-envpath = { workspace = true, features = ["rand"] }
 insta = { workspace = true, features = ["json"] }
 rand.workspace = true
 tempfile.workspace = true
