@@ -59,17 +59,6 @@ const PROTOCOL_PARAMETERS_PREFIX: &str = "ppar";
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
-fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
-    db: &OptimisticTransactionDB,
-    key: &str,
-) -> Result<Option<T>, StoreError> {
-    db.get(key)
-        .map_err(|err| StoreError::Internal(err.into()))?
-        .map(|bytes| cbor::decode(&bytes))
-        .transpose()
-        .map_err(StoreError::Undecodable)
-}
-
 /// An opaque handle for a store implementation of top of RocksDB. The database has the
 /// following structure:
 ///
@@ -174,6 +163,17 @@ impl RocksDB {
     fn transaction_ended(&self) {
         self.ongoing_transaction.set(false);
     }
+}
+
+fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
+    db: &OptimisticTransactionDB,
+    key: &str,
+) -> Result<Option<T>, StoreError> {
+    db.get(key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(|bytes| cbor::decode(&bytes))
+        .transpose()
+        .map_err(StoreError::Undecodable)
 }
 
 #[allow(clippy::panic)]

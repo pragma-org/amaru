@@ -212,7 +212,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         unit: &ValidateBlockEvent,
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
-        let result: BlockValidationResult = match unit {
+        let result = match unit {
             ValidateBlockEvent::Validated { point, block, span } => stage
                 .roll_forward(point.clone(), block.to_vec())
                 .map(|res| match res {

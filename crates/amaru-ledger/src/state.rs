@@ -104,57 +104,6 @@ where
     global_parameters: GlobalParameters,
 }
 
-pub fn recover_stake_distribution(
-    snapshot: &impl Snapshot,
-    era_history: &EraHistory,
-    protocol_version: ProtocolVersion,
-    protocol_parameters: &ProtocolParameters,
-) -> Result<StakeDistribution, StateError> {
-    StakeDistribution::new(
-        snapshot,
-        protocol_version,
-        GovernanceSummary::new(snapshot, protocol_version, era_history, protocol_parameters)?,
-        protocol_parameters,
-    )
-    .map_err(StateError::Storage)
-}
-
-// NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
-// consensus layer to validate the leader schedule, while the one before that will be
-// consumed for the rewards calculation.
-//
-// We always hold on two stake distributions:
-//
-// - The one from an epoch `e - 1` which is used for the ongoing leader schedule at epoch `e + 1`
-// - The one from an epoch `e - 2` which is used for the rewards calculations at epoch `e + 1`
-//
-// Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
-// the ongoing epoch, not yet finished (and so, not available as snapshot).
-pub fn stake_distributions(
-    latest_epoch: Epoch,
-    db: &impl Store,
-    snapshots: &impl HistoricalStores,
-    era_history: &EraHistory,
-    protocol_version: ProtocolVersion,
-) -> Result<VecDeque<StakeDistribution>, StoreError> {
-    let mut stake_distributions = VecDeque::new();
-    for epoch in latest_epoch - 2..=latest_epoch - 1 {
-        // Retrieve the protocol parameters for the considered epoch
-        let protocol_parameters = db.get_protocol_parameters_for(&epoch)?;
-        let snapshot = snapshots.for_epoch(epoch)?;
-        stake_distributions.push_front(
-            recover_stake_distribution(
-                &snapshot,
-                era_history,
-                protocol_version,
-                &protocol_parameters,
-            )
-            .map_err(|err| StoreError::Internal(err.into()))?,
-        );
-    }
-    Ok(stake_distributions)
-}
-
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn new(
         stable: Arc<Mutex<S>>,
@@ -418,6 +367,57 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         Ok(result)
     }
+}
+
+// NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
+// consensus layer to validate the leader schedule, while the one before that will be
+// consumed for the rewards calculation.
+//
+// We always hold on two stake distributions:
+//
+// - The one from an epoch `e - 1` which is used for the ongoing leader schedule at epoch `e + 1`
+// - The one from an epoch `e - 2` which is used for the rewards calculations at epoch `e + 1`
+//
+// Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
+// the ongoing epoch, not yet finished (and so, not available as snapshot).
+pub fn stake_distributions(
+    latest_epoch: Epoch,
+    db: &impl Store,
+    snapshots: &impl HistoricalStores,
+    era_history: &EraHistory,
+    protocol_version: ProtocolVersion,
+) -> Result<VecDeque<StakeDistribution>, StoreError> {
+    let mut stake_distributions = VecDeque::new();
+    for epoch in latest_epoch - 2..=latest_epoch - 1 {
+        // Retrieve the protocol parameters for the considered epoch
+        let protocol_parameters = db.get_protocol_parameters_for(&epoch)?;
+        let snapshot = snapshots.for_epoch(epoch)?;
+        stake_distributions.push_front(
+            recover_stake_distribution(
+                &snapshot,
+                era_history,
+                protocol_version,
+                &protocol_parameters,
+            )
+            .map_err(|err| StoreError::Internal(err.into()))?,
+        );
+    }
+    Ok(stake_distributions)
+}
+
+pub fn recover_stake_distribution(
+    snapshot: &impl Snapshot,
+    era_history: &EraHistory,
+    protocol_version: ProtocolVersion,
+    protocol_parameters: &ProtocolParameters,
+) -> Result<StakeDistribution, StateError> {
+    StakeDistribution::new(
+        snapshot,
+        protocol_version,
+        GovernanceSummary::new(snapshot, protocol_version, era_history, protocol_parameters)?,
+        protocol_parameters,
+    )
+    .map_err(StateError::Storage)
 }
 
 // Epoch Transitions
