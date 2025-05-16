@@ -59,8 +59,8 @@ pub use pallas_primitives::{
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
-        GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
+        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
+        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
         MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
         NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
         ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
@@ -227,7 +227,7 @@ pub struct ScriptRefWithHash {
 
 impl PartialOrd for ScriptRefWithHash {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        self.hash.partial_cmp(&other.hash)
+        Some(self.cmp(other))
     }
 }
 
@@ -837,6 +837,24 @@ impl<'b> HasAddress for PseudoTransactionOutput<MintedPostAlonzoTransactionOutpu
                 Address::from_bytes(&transaction_output.address)
             }
             PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
+        }
+    }
+}
+
+pub trait HasDatum {
+    fn has_datum(&self) -> Option<DatumOption>;
+}
+
+impl HasDatum for TransactionOutput {
+    fn has_datum(&self) -> Option<DatumOption> {
+        match self {
+            PseudoTransactionOutput::Legacy(transaction_output) => {
+                transaction_output.datum_hash.map(DatumOption::Hash)
+            }
+            PseudoTransactionOutput::PostAlonzo(transaction_output) => {
+                // TODO: remove clones
+                transaction_output.datum_option.clone()
+            }
         }
     }
 }
