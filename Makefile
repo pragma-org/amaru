@@ -1,8 +1,8 @@
 NETWORK ?= preprod
-DATA_FOLDER := data/${NETWORK}
-SNAPSHOTS_FILE := ${DATA_FOLDER}/snapshots.json
-NONCES_FILE := ${DATA_FOLDER}/nonces.json
-HEADERS_FILE := ${DATA_FOLDER}/headers.json
+DATA_FOLDER := data/$(NETWORK)
+SNAPSHOTS_FILE := $(DATA_FOLDER)/snapshots.json
+NONCES_FILE := $(DATA_FOLDER)/nonces.json
+HEADERS_FILE := $(DATA_FOLDER)/headers.json
 AMARU_PEER_ADDRESS ?= 127.0.0.1:3000
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
 DEMO_TARGET_EPOCH ?= 182
@@ -12,6 +12,7 @@ COVERAGE_CRATES ?=
 LISTEN_ADDRESS ?= 0.0.0.0:0
 LEDGER_DIR ?= ./ledger.db
 CHAIN_DIR ?= ./chain.db
+BUILD_PROFILE ?= release
 
 .PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov
 
@@ -22,13 +23,13 @@ help:
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
 
-snapshots: ## Download snapshots
-	@mkdir -p $@/${NETWORK}
-	@cat ${SNAPSHOTS_FILE} \
+snapshots/$(NETWORK): ## Download snapshots
+	@mkdir -p $@
+	@cat $(SNAPSHOTS_FILE) \
 		| jq -r '.[] | "\(.point) \(.url)"' \
 		| while read p u; do \
 			echo "Fetching $$p.cbor"; \
-			curl --progress-bar -o - $$u | gunzip > $@/${NETWORK}/$$p.cbor; \
+			curl --progress-bar -o - $$u | gunzip > $@/$$p.cbor; \
 		done
 
 download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
@@ -40,28 +41,28 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/alonzo-genesis.json
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
 
-import-snapshots: snapshots ## Import snapshots for demo
-	@test -d $^/${NETWORK} || (echo "Error: folder '$^/${NETWORK}' does not exist! Delete manually the 'snapshots' folder" && exit 1)
+import-snapshots: snapshots/$(NETWORK) ## Import snapshots for demo
+	@test -d $^ || (echo "Error: folder '$^' does not exist!" && exit 1)
 	SNAPSHOT_ARGS=""; \
-	for SNAPSHOT in $(wildcard $^/${NETWORK}/*.cbor); do \
+	for SNAPSHOT in $(wildcard $^/*.cbor); do \
 		SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
 	done; \
-	cargo run --release -- import-ledger-state \
+	cargo run --profile $(BUILD_PROFILE) -- import-ledger-state \
 		--ledger-dir "$(LEDGER_DIR)" \
 		$$SNAPSHOT_ARGS
 
 import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
-	@HEADERS=$$(jq -r '.[]' ${HEADERS_FILE}); \
+	@HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
 	for HEADER in $$HEADERS; do \
-		cargo run --release -- import-headers \
+		cargo run --profile $(BUILD_PROFILE) -- import-headers \
 			--chain-dir $(CHAIN_DIR) \
-			--peer-address ${AMARU_PEER_ADDRESS} \
+			--peer-address $(AMARU_PEER_ADDRESS) \
 			--starting-point $$HEADER \
 			--count 2; \
 	done
 
 import-nonces: ## Import nonces for demo
-	cargo run --release -- import-nonces \
+	cargo run --profile $(BUILD_PROFILE) -- import-nonces \
 		--chain-dir $(CHAIN_DIR) \
 		--at $$(jq -r .at $(NONCES_FILE)) \
 		--active $$(jq -r .active $(NONCES_FILE)) \
@@ -83,7 +84,7 @@ dev: ## Compile and run for development with default options
 		--listen-address $(LISTEN_ADDRESS)
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
-	cargo test --release -p amaru -- --ignored
+	cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
 
 test-e2e-from-scratch: bootstrap demo test-e2e ## Run end-to-end tests from scratch
 
