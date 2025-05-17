@@ -20,7 +20,9 @@ cargo build --release
 
 > [!IMPORTANT]
 > These instructions assume one starts from scratch, and has access to a running [cardano-node](https://github.com/IntersectMBO/cardano-node/)
-on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network (see bottom of page for more info).
+on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network.
+>
+> To run a local peer, refer to [Cardano's developers portal](https://developers.cardano.org/docs/get-started/cardano-node/running-cardano).
 
 1. Bootstrap the node:
 
@@ -42,11 +44,9 @@ cargo run --release -- daemon \
   --network=preprod
 ```
 
-> [!TIP]
-> Replace `--peer-address` with your Cardano node peer address. It can be either
-> a local or remote node (i.e. any existing node relay), and you can even add multiple peers.
->
-> To run a local peer, refer to [Cardano's developers portal](https://developers.cardano.org/docs/get-started/cardano-node/running-cardano).
+Replace `--peer-address` with your Cardano node peer address. It can be either
+a local or remote node (i.e. any existing node relay), and you can even add
+multiple peers by replicating the option.
 
 > [!TIP]
 > To ensure logs are forwarded to telemetry backend, pass `--with-open-telemetry` as an option _before_ the `daemon` sub-command, eg.
