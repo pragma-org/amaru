@@ -49,41 +49,24 @@ pub struct ProtocolParameters {
     pub drep_expiry: Epoch,
 }
 
-fn decode_u16(d: &mut Decoder<'_>) -> Result<u16, cbor::decode::Error> {
-    #[allow(clippy::wildcard_enum_match_arm)]
-    match d.datatype()? {
-        cbor::data::Type::U8 => Ok(d.u8()? as u16),
-        cbor::data::Type::U16 => Ok(d.u16()?),
-        _ => Err(cbor::decode::Error::message("Expected u8/u16 type")),
+fn allow_tag(d: &mut Decoder<'_>, expected: Tag) -> Result<(), cbor::decode::Error> {
+    if d.datatype()? == cbor::data::Type::Tag {
+        let tag = d.tag()?;
+        if tag != expected {
+            return Err(cbor::decode::Error::message(format!(
+                "invalid CBOR tag: expected {expected} got {tag}"
+            )));
+        }
     }
-}
 
-fn decode_u32(d: &mut Decoder<'_>) -> Result<u32, cbor::decode::Error> {
-    #[allow(clippy::wildcard_enum_match_arm)]
-    match d.datatype()? {
-        cbor::data::Type::U8 => Ok(d.u8()? as u32),
-        cbor::data::Type::U16 => Ok(d.u16()? as u32),
-        cbor::data::Type::U32 => Ok(d.u32()?),
-        _ => Err(cbor::decode::Error::message("Expected u8/u16/u32 type")),
-    }
-}
-
-fn decode_u64(d: &mut Decoder<'_>) -> Result<u64, cbor::decode::Error> {
-    #[allow(clippy::wildcard_enum_match_arm)]
-    match d.datatype()? {
-        cbor::data::Type::U8 => Ok(d.u8()? as u64),
-        cbor::data::Type::U16 => Ok(d.u16()? as u64),
-        cbor::data::Type::U32 => Ok(d.u32()? as u64),
-        cbor::data::Type::U64 => Ok(d.u64()?),
-        _ => Err(cbor::decode::Error::message("Expected u8/u16/u32/u64 type")),
-    }
+    Ok(())
 }
 
 fn decode_rationale(d: &mut Decoder<'_>) -> Result<RationalNumber, cbor::decode::Error> {
-    d.tag()?;
+    allow_tag(d, Tag::new(30))?;
     d.array()?;
-    let numerator = decode_u64(d)?;
-    let denominator = decode_u64(d)?;
+    let numerator = d.u64()?;
+    let denominator = d.u64()?;
     Ok(RationalNumber {
         numerator,
         denominator,
@@ -93,13 +76,13 @@ fn decode_rationale(d: &mut Decoder<'_>) -> Result<RationalNumber, cbor::decode:
 impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.array()?;
-        let min_fee_a = decode_u64(d)?;
-        let min_fee_b = decode_u64(d)?;
+        let min_fee_a = d.u64()?;
+        let min_fee_b = d.u64()?;
         let max_block_body_size = d.u32()?;
-        let max_tx_size = decode_u32(d)?;
+        let max_tx_size = d.u32()?;
         let max_header_size = d.u16()?;
-        let stake_credential_deposit = decode_u64(d)?;
-        let stake_pool_deposit = decode_u64(d)?;
+        let stake_credential_deposit = d.u64()?;
+        let stake_pool_deposit = d.u64()?;
         let max_epoch = d.u32()? as EpochInterval;
         let optimal_stake_pools_count = d.u16()?;
         let pledge_influence = decode_rationale(d)?;
@@ -111,7 +94,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         d.u8()?; // TODO unknown 9  0
         let _ = d.u32()?; // TODO unknown 170000000
 
-        let coins_per_utxo_byte = decode_u64(d)?;
+        let coins_per_utxo_byte = d.u64()?;
 
         let _ = d.map()?;
         d.u8()?;
@@ -133,12 +116,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         };
         d.array()?;
         let max_block_ex_units = ExUnits {
-            mem: decode_u64(d)?,
+            mem: d.u64()?,
             steps: d.u64()?,
         };
-        let max_val_size = decode_u32(d)?;
-        let collateral_percentage = decode_u16(d)?;
-        let max_collateral_inputs = decode_u16(d)?;
+        let max_val_size = d.u32()?;
+        let collateral_percentage = d.u16()?;
+        let max_collateral_inputs = d.u16()?;
 
         // TODO validate order
         d.array()?;
@@ -165,12 +148,12 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
             },
             treasury_withdrawal: decode_rationale(d)?,
         };
-        let cc_min_size = decode_u16(d)?;
-        let cc_max_term_length = decode_u32(d)?;
-        let gov_action_lifetime = decode_u32(d)?;
+        let cc_min_size = d.u16()?;
+        let cc_max_term_length = d.u32()?;
+        let gov_action_lifetime = d.u32()?;
         let gov_action_deposit = d.u64()?;
-        let drep_deposit = decode_u64(d)?;
-        let drep_expiry = decode_u64(d)?;
+        let drep_deposit = d.u64()?;
+        let drep_expiry = d.u64()?;
         let min_fee_ref_script_coins_per_byte = decode_rationale(d)?;
 
         Ok(ProtocolParameters {
