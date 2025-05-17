@@ -25,17 +25,20 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
-
 use anyhow::anyhow;
-use proptest::prelude::*;
-use proptest::test_runner::{Config, TestError, TestRunner};
-use std::cmp::Reverse;
-use std::collections::{BTreeMap, BinaryHeap};
-use std::fmt::Debug;
-use std::io::{BufRead, BufReader, Write};
-use std::path::Path;
-use std::process::{Command, Stdio};
-use std::time::{Duration, Instant};
+use proptest::{
+    prelude::*,
+    test_runner::{Config, TestError, TestRunner},
+};
+use std::{
+    cmp::Reverse,
+    collections::{BTreeMap, BinaryHeap},
+    fmt::Debug,
+    io::{BufRead, BufReader, Write},
+    path::Path,
+    process::{Command, Stdio},
+    time::{Duration, Instant},
+};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry<Msg> {
