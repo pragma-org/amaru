@@ -34,7 +34,7 @@ make bootstrap
 docker-compose -f monitoring/jaeger/docker-compose.yml up
 ```
 
-3. Run the node:
+3. Run Amaru:
 
 ```console
 cargo run --release -- daemon \
@@ -45,6 +45,8 @@ cargo run --release -- daemon \
 > [!TIP]
 > Replace `--peer-address` with your Cardano node peer address. It can be either
 > a local or remote node (i.e. any existing node relay), and you can even add multiple peers.
+>
+> To run a local peer, refer to [Cardano's developers portal](https://developers.cardano.org/docs/get-started/cardano-node/running-cardano).
 
 > [!TIP]
 > To ensure logs are forwarded to telemetry backend, pass `--with-open-telemetry` as an option _before_ the `daemon` sub-command, eg.
@@ -77,22 +79,3 @@ Amaru is the integration point of several other projects / repositories. Amongst
   |
   <a href="https://discord.gg/3nZYCHW9Ns"><img src=".github/discord.svg" alt="Discord" /> Discord</a>
 </p>
-
-## Spinning up a Cardano node on `preprod`
-
-One option to do this is by using the docker image mentioned above:
-
-```sh
-docker pull ghcr.io/intersectmbo/cardano-node:8.9.1
-```
-
-(you may want to check available versions)
-This image requires two volumes:
-
-- `cardano-data:/data` for the blockchain db
-- `cardano-ipc:/ipc` for IPC with other tools
-
-Since we want to use network connections to interact with this node, you’ll want to expose port 3001, at least on `localhost`.
-
-The final and crucial ingredient is to supply the environment variable `NETWORK=preprod`.
-With this, the node with start up, fetch the required config files, and then start syncing blocks from the network; this will take some time.
