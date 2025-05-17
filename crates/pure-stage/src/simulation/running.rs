@@ -2,9 +2,12 @@ use super::{Effect, EffectBox, Instant, StageData, StageEffect, StageResponse, S
 use crate::{cast_state, Message, Name, StageRef, State};
 use either::Either::{Left, Right};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{BinaryHeap, HashMap, VecDeque},
     mem::replace,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     task::{Context, Poll, Waker},
 };
 
@@ -13,6 +16,8 @@ use std::{
 pub enum Blocked {
     /// All stages are suspended on [`Effect::Receive`].
     Idle,
+    /// The simulation is waiting for a wakeup.
+    Sleeping,
     /// All stages are suspended on either [`Effect::Receive`] or [`Effect::Send`].
     Deadlock(Vec<Name>),
     /// The given stage interrupted the simulation.
@@ -31,6 +36,26 @@ impl Blocked {
         }
     }
 
+    /// Assert that the blocking reason is `Sleeping`.
+    pub fn assert_sleeping(&self) {
+        match self {
+            Blocked::Sleeping => {}
+            _ => panic!("expected sleeping, got {:?}", self),
+        }
+    }
+
+    /// Assert that the blocking reason is `Deadlock` by at least the given stages.
+    pub fn assert_deadlock(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
+        let names = names
+            .into_iter()
+            .map(|n| Name::from(n.as_ref()))
+            .collect::<Vec<_>>();
+        match self {
+            Blocked::Deadlock(deadlock) if deadlock.iter().all(|n| names.contains(n)) => {}
+            _ => panic!("expected deadlock by {:?}, got {:?}", names, self),
+        }
+    }
+
     /// Assert that the blocking reason is `Interrupted` by the given stage.
     pub fn assert_interrupted(&self, name: impl AsRef<str>) {
         match self {
@@ -43,7 +68,7 @@ impl Blocked {
         }
     }
 
-    /// Assert that the blocking reason is `Busy` by the given stages.
+    /// Assert that the blocking reason is `Busy` by at least the given stages.
     pub fn assert_busy(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
         let names = names
             .into_iter()
@@ -53,6 +78,47 @@ impl Blocked {
             Blocked::Busy(busy) if names.iter().all(|n| busy.contains(n)) => {}
             _ => panic!("expected busy by {:?}, got {:?}", names, self),
         }
+    }
+}
+
+/// An entry for the sleeping stage heap.
+///
+/// NOTE: the `Ord` implementation is reversed, so that the heap is a min-heap.
+/// The `wakeup` is secondarily ordered according to the address of the closure.
+struct Sleeping {
+    time: u64,
+    wakeup: Box<dyn FnOnce(&mut SimulationRunning) + Send + 'static>,
+}
+
+impl std::fmt::Debug for Sleeping {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Sleeping")
+            .field("time", &self.time)
+            .finish()
+    }
+}
+
+impl Eq for Sleeping {}
+
+impl Ord for Sleeping {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.time.cmp(&other.time).reverse().then_with(|| {
+            let left = self.wakeup.as_ref() as *const _ as *const u8;
+            let right = other.wakeup.as_ref() as *const _ as *const u8;
+            left.addr().cmp(&right.addr())
+        })
+    }
+}
+
+impl PartialEq for Sleeping {
+    fn eq(&self, other: &Self) -> bool {
+        self.time == other.time && std::ptr::eq(self.wakeup.as_ref(), other.wakeup.as_ref())
+    }
+}
+
+impl PartialOrd for Sleeping {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -71,9 +137,11 @@ pub struct SimulationRunning {
     stages: HashMap<Name, StageData>,
     effect: EffectBox,
     clock: Arc<AtomicU64>,
+    now: Arc<dyn Fn() -> Instant + Send + Sync>,
     runnable: VecDeque<(Name, StageResponse<Box<dyn Message>>)>,
     waiting: HashMap<Name, StageEffect<()>>,
     wait_send: HashMap<Name, VecDeque<(Name, Box<dyn Message>)>>,
+    sleeping: BinaryHeap<Sleeping>,
     mailbox_size: usize,
 }
 
@@ -82,6 +150,7 @@ impl SimulationRunning {
         stages: HashMap<Name, StageData>,
         effect: EffectBox,
         clock: Arc<AtomicU64>,
+        now: Arc<dyn Fn() -> Instant + Send + Sync>,
         mailbox_size: usize,
     ) -> Self {
         // all stages start out suspended on Receive
@@ -94,11 +163,45 @@ impl SimulationRunning {
             stages,
             effect,
             clock,
+            now,
             runnable: VecDeque::new(),
             waiting,
             wait_send: HashMap::new(),
+            sleeping: BinaryHeap::new(),
             mailbox_size,
         }
+    }
+
+    pub fn now(&self) -> Instant {
+        (self.now)()
+    }
+
+    pub fn skip_to_next_wakeup(&mut self) -> bool {
+        let Some(Sleeping { time, .. }) = self.sleeping.peek() else {
+            return false;
+        };
+        let target = *time;
+        let now = self.clock.swap(target, Ordering::Relaxed);
+        assert!(now < target, "clock is ahead of next wakeup");
+        while matches!(self.sleeping.peek(), Some(Sleeping { time, .. }) if *time == target) {
+            let Sleeping { wakeup, .. } = self.sleeping.pop().expect("peeked, so must exist");
+            wakeup(self);
+        }
+        true
+    }
+
+    fn schedule_wakeup(
+        &mut self,
+        nanos: u64,
+        wakeup: impl FnOnce(&mut SimulationRunning) + Send + 'static,
+    ) {
+        assert!(nanos > 0, "cannot schedule wakeup with zero delay");
+        let now = self.clock.load(Ordering::Relaxed);
+        let time = now.checked_add(nanos).expect("clock wrapped around");
+        self.sleeping.push(Sleeping {
+            time,
+            wakeup: Box::new(wakeup),
+        });
     }
 
     /// Place messages in the given stage’s mailbox, but don’t resume it.
@@ -143,7 +246,7 @@ impl SimulationRunning {
     /// effect other than send — the latter case is called “busy” for want of a better term).
     pub fn try_effect(&mut self) -> Result<Effect, Blocked> {
         let Some((name, response)) = self.runnable.pop_front() else {
-            let reason = block_reason(&self.waiting);
+            let reason = block_reason(self);
             tracing::info!("blocking for reason: {:?}", reason);
             return Err(reason);
         };
@@ -199,7 +302,19 @@ impl SimulationRunning {
     /// Keep on performing steps using [`Self::try_effect`] while possible and automatically
     /// resume send and receive effects based on availability of space or messages in the
     /// mailbox in question.
+    ///
+    /// See [`Self::run_until_sleeping`] for a variant that stops when the simulation is
+    /// waiting for a wakeup.
     pub fn run_until_blocked(&mut self) -> Blocked {
+        loop {
+            match self.run_until_sleeping_or_blocked() {
+                Blocked::Sleeping => assert!(self.skip_to_next_wakeup()),
+                blocked => return blocked,
+            }
+        }
+    }
+
+    pub fn run_until_sleeping_or_blocked(&mut self) -> Blocked {
         let may_resume = self
             .waiting
             .iter()
@@ -251,6 +366,19 @@ impl SimulationRunning {
                     } else {
                         self.wait_send.entry(to).or_default().push_back((from, msg));
                     }
+                }
+                Effect::Clock { at_stage } => {
+                    self.resume_clock_internal(at_stage, self.now())
+                        .expect("clock effect is always runnable");
+                }
+                Effect::Wait { at_stage, duration } => {
+                    let delay = u64::try_from(duration.as_nanos())
+                        .expect("duration too large")
+                        .max(1);
+                    self.schedule_wakeup(delay, |sim| {
+                        sim.resume_wait_internal(at_stage, sim.now())
+                            .expect("wait effect is always runnable");
+                    });
                 }
                 Effect::Interrupt { at_stage } => return Blocked::Interrupted(at_stage),
                 _ => panic!("unexpected effect {effect:?}"),
@@ -514,23 +642,36 @@ impl SimulationRunning {
     }
 }
 
-fn block_reason(waiting: &HashMap<Name, StageEffect<()>>) -> Blocked {
+fn block_reason(sim: &SimulationRunning) -> Blocked {
+    debug_assert!(sim.runnable.is_empty(), "runnable must be empty");
+    let waiting = &sim.waiting;
     if waiting.values().all(|v| matches!(v, StageEffect::Receive)) {
-        return Blocked::Idle;
+        if sim.sleeping.is_empty() {
+            return Blocked::Idle;
+        }
+        return Blocked::Sleeping;
     }
-    let mut names = Vec::new();
+    let mut send = Vec::new();
     let mut busy = Vec::new();
+    let mut sleep = Vec::new();
     for (k, v) in waiting {
         match v {
-            StageEffect::Send(..) => names.push(k.clone()),
+            StageEffect::Send(..) => send.push(k.clone()),
             StageEffect::Receive => {}
+            StageEffect::Wait(..) => sleep.push(k.clone()),
             _ => busy.push(k.clone()),
         }
     }
-    if busy.is_empty() {
-        Blocked::Deadlock(names)
-    } else {
+
+    if !sleep.is_empty() {
+        assert!(!sim.sleeping.is_empty()); // must be in there because nothing is runnable (yet)
+        Blocked::Sleeping
+    } else if !busy.is_empty() {
         Blocked::Busy(busy)
+    } else if !send.is_empty() {
+        Blocked::Deadlock(send)
+    } else {
+        Blocked::Idle
     }
 }
 

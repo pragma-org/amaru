@@ -104,12 +104,12 @@ pub(crate) fn airlock_effect<Out>(
 /// // then insert some input and check reaction
 /// running.enqueue_msg(&stage, [1]);
 /// running.resume_receive(&stage).unwrap();
-/// running.effect().assert_send("basic", "output", 2u32);
+/// running.effect().assert_send(&stage, &output, 2u32);
 /// running.resume_send(&stage, &output, 2u32).unwrap();
-/// running.effect().assert_receive("basic");
+/// running.effect().assert_receive(&stage);
 ///
 /// running.resume_receive(&output).unwrap();
-/// running.effect().assert_receive("output");
+/// running.effect().assert_receive(&output);
 ///
 /// assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 /// ```
@@ -296,7 +296,7 @@ impl super::StageGraph for SimulationBuilder {
             stages: s,
             effect,
             clock,
-            now: _,
+            now,
             call_responded: _,
             mailbox_size,
         } = self;
@@ -321,6 +321,6 @@ impl super::StageGraph for SimulationBuilder {
             };
             stages.insert(name.clone(), data);
         }
-        SimulationRunning::new(stages, effect, clock, mailbox_size)
+        SimulationRunning::new(stages, effect, clock, now, mailbox_size)
     }
 }

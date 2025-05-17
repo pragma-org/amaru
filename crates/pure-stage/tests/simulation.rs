@@ -2,6 +2,7 @@ use pure_stage::{
     simulation::{Blocked, SimulationBuilder},
     Name, StageGraph, StageRef,
 };
+use std::time::Duration;
 use tracing_subscriber::EnvFilter;
 
 #[test]
@@ -131,4 +132,61 @@ fn backpressure() {
     running.resume_interrupt(&pressure).unwrap();
     running.run_until_blocked().assert_idle();
     assert_eq!(*running.get_state(&pressure).unwrap(), 7);
+}
+
+#[test]
+fn clock() {
+    let mut network = SimulationBuilder::default();
+    let stage = network.stage(
+        "basic",
+        async |_state, msg: u32, eff| {
+            let now = eff.clock().await;
+            let later = eff.wait(Duration::from_secs(1)).await;
+            Ok(Some((msg, now, later)))
+        },
+        None,
+    );
+    let stage = network.wire_up(stage, |_| {});
+    let mut running = network.run();
+
+    running.enqueue_msg(&stage, [42]);
+    let now = running.now();
+    running.run_until_blocked().assert_idle();
+    let later = running.now();
+    assert_eq!(
+        running.get_state(&stage).unwrap(),
+        &Some((42u32, now, later))
+    );
+    assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
+}
+
+#[test]
+fn clock_manual() {
+    let mut network = SimulationBuilder::default();
+    let stage = network.stage(
+        "basic",
+        async |_state, msg: u32, eff| {
+            let now = eff.clock().await;
+            let later = eff.wait(Duration::from_secs(1)).await;
+            Ok(Some((msg, now, later)))
+        },
+        None,
+    );
+    let stage = network.wire_up(stage, |_| {});
+    let mut running = network.run();
+
+    running.enqueue_msg(&stage, [42]);
+    let now = running.now();
+    running.run_until_sleeping_or_blocked().assert_sleeping();
+    assert_eq!(running.get_state(&stage), None);
+
+    assert!(running.skip_to_next_wakeup());
+    running.run_until_sleeping_or_blocked().assert_idle();
+    let later = running.now();
+
+    assert_eq!(
+        running.get_state(&stage).unwrap(),
+        &Some((42u32, now, later))
+    );
+    assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
 }

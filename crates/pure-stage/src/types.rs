@@ -85,7 +85,7 @@ pub fn cast_state<T: State>(this: &dyn State) -> anyhow::Result<&T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Name(String);
 
 impl Name {
