@@ -34,6 +34,7 @@ use amaru_kernel::{
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash, Lovelace, MintedBlock,
     Point, PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -68,7 +69,7 @@ where
     HS: HistoricalStores,
 {
     /// A handle to the stable store, shared across all ledger instances.
-    pub stable: Arc<Mutex<S>>,
+    stable: Arc<Mutex<S>>,
 
     /// A handle to the stable store, shared across all ledger instances.
     snapshots: HS,
@@ -98,22 +99,47 @@ where
     /// duplicate.
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
 
-    /// The era history for the network this store is related to
-    pub era_history: EraHistory,
+    /// The era history for the network this store is related to.
+    era_history: Arc<EraHistory>,
 
-    global_parameters: GlobalParameters,
+    global_parameters: Arc<GlobalParameters>,
+
+    protocol_parameters: Arc<ProtocolParameters>,
 }
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn new(
-        stable: Arc<Mutex<S>>,
+        stable: S,
         snapshots: HS,
-        era_history: &EraHistory,
-        global_parameters: &GlobalParameters,
+        era_history: EraHistory,
+        global_parameters: GlobalParameters,
+    ) -> Result<Self, StoreError> {
+        let stake_distributions =
+            initial_stake_distributions(&stable, &snapshots, &era_history, PROTOCOL_VERSION_9)?; // FIXME ProtocolVersion should be retrieved from the store
+
+        let protocol_parameters =
+            stable.get_protocol_parameters_for(&stable.most_recent_snapshot())?;
+
+        Ok(Self::new_with(
+            stable,
+            snapshots,
+            era_history,
+            global_parameters,
+            protocol_parameters,
+            stake_distributions,
+        ))
+    }
+
+    pub fn new_with(
+        stable: S,
+        snapshots: HS,
+        era_history: EraHistory,
+        global_parameters: GlobalParameters,
+        protocol_parameters: ProtocolParameters,
         stake_distributions: VecDeque<StakeDistribution>,
     ) -> Self {
         Self {
-            stable,
+            stable: Arc::new(Mutex::new(stable)),
 
             snapshots,
 
@@ -133,9 +159,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             stake_distributions: Arc::new(Mutex::new(stake_distributions)),
 
-            era_history: era_history.clone(),
+            era_history: Arc::new(era_history),
 
-            global_parameters: global_parameters.clone(),
+            global_parameters: Arc::new(global_parameters),
+
+            protocol_parameters: Arc::new(protocol_parameters),
         }
     }
 
@@ -147,6 +175,17 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             era_history: self.era_history.clone(),
             global_parameters: self.global_parameters.clone(),
         }
+    }
+
+    pub fn current_epoch(&self, slot: Slot) -> Result<Epoch, StateError> {
+        self.era_history
+            .slot_to_epoch(slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(slot, e))
+    }
+
+    #[allow(clippy::unwrap_used)]
+    pub fn protocol_parameters(&self) -> &ProtocolParameters {
+        &self.protocol_parameters
     }
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
@@ -169,11 +208,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all, fields(point.slot = ?now_stable.anchor.0.slot_or_default()))]
-    fn apply_block(
-        &mut self,
-        now_stable: AnchoredVolatileState,
-        protocol_parameters: &ProtocolParameters,
-    ) -> Result<(), StateError> {
+    fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
         let start_slot = now_stable.anchor.0.slot_or_default();
 
         let current_epoch = self
@@ -201,7 +236,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 &mut *db,
                 current_epoch,
                 self.rewards_summary.take(),
-                protocol_parameters,
+                &self.protocol_parameters,
             )?
         }
 
@@ -214,7 +249,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             remove,
             withdrawals,
             voting_dreps,
-        } = now_stable.into_store_update(current_epoch, protocol_parameters.clone());
+        } = now_stable.into_store_update(current_epoch, &self.protocol_parameters);
 
         let batch = db.create_transaction();
 
@@ -254,8 +289,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     fn compute_rewards(
         &mut self,
         protocol_version: ProtocolVersion,
-        global_parameters: &GlobalParameters,
-        protocol_parameters: &ProtocolParameters,
     ) -> Result<RewardsSummary, StateError> {
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
         let stake_distribution = stake_distributions
@@ -268,8 +301,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let rewards_summary = RewardsSummary::new(
             &snapshot,
             stake_distribution,
-            global_parameters,
-            protocol_parameters,
+            &self.global_parameters,
+            &self.protocol_parameters,
         )
         .map_err(StateError::Storage)?;
 
@@ -277,7 +310,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             &snapshot,
             &self.era_history,
             protocol_version,
-            protocol_parameters,
+            &self.protocol_parameters,
         )?);
 
         Ok(rewards_summary)
@@ -291,18 +324,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn forward(
         &mut self,
         protocol_version: ProtocolVersion,
-        global_parameters: &GlobalParameters,
-        protocol_parameters: &ProtocolParameters,
         next_state: AnchoredVolatileState,
     ) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
-        if self.volatile.len() >= global_parameters.consensus_security_param {
+        if self.volatile.len() >= self.global_parameters.consensus_security_param {
             let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
                 unreachable!("pre-condition: self.volatile.len() >= consensus_security_param")
             });
 
-            self.apply_block(now_stable, protocol_parameters)?;
+            self.apply_block(now_stable)?;
         } else {
             trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }
@@ -315,13 +346,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
         if self.rewards_summary.is_none()
-            && relative_slot >= From::from(global_parameters.stability_window as u64)
+            && relative_slot >= From::from(self.global_parameters.stability_window as u64)
         {
-            self.rewards_summary = Some(self.compute_rewards(
-                protocol_version,
-                global_parameters,
-                protocol_parameters,
-            )?);
+            self.rewards_summary = Some(self.compute_rewards(protocol_version)?);
         }
 
         self.volatile.push_back(next_state);
@@ -380,13 +407,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 //
 // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
 // the ongoing epoch, not yet finished (and so, not available as snapshot).
-pub fn stake_distributions(
-    latest_epoch: Epoch,
+pub fn initial_stake_distributions(
     db: &impl Store,
     snapshots: &impl HistoricalStores,
     era_history: &EraHistory,
     protocol_version: ProtocolVersion,
 ) -> Result<VecDeque<StakeDistribution>, StoreError> {
+    let latest_epoch = db.most_recent_snapshot();
+
     let mut stake_distributions = VecDeque::new();
     for epoch in latest_epoch - 2..=latest_epoch - 1 {
         // Retrieve the protocol parameters for the considered epoch
@@ -402,6 +430,7 @@ pub fn stake_distributions(
             .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
+
     Ok(stake_distributions)
 }
 
@@ -663,8 +692,8 @@ pub fn tick_proposals<'store>(
 // consensus in order to decouple both components.
 pub struct StakeDistributionView {
     view: Arc<Mutex<VecDeque<StakeDistribution>>>,
-    era_history: EraHistory,
-    global_parameters: GlobalParameters,
+    era_history: Arc<EraHistory>,
+    global_parameters: Arc<GlobalParameters>,
 }
 
 impl HasStakeDistribution for StakeDistributionView {

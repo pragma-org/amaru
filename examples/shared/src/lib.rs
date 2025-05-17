@@ -1,19 +1,14 @@
 use amaru_kernel::{
-    cbor, Bytes, Hash, Hasher, MintedBlock, Point,
-    PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, EraHistory,
-    network::NetworkName, protocol_parameters::{GlobalParameters, ProtocolParameters},
-    PROTOCOL_VERSION_9,
+    cbor, network::NetworkName, protocol_parameters::GlobalParameters, Bytes, EraHistory, Hash,
+    Hasher, MintedBlock, Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput,
+    Value, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     context,
     rules::{self, block::BlockValidation},
-    state::{State, VolatileState, stake_distributions},
-    store::Store,
+    state::{State, VolatileState},
 };
-use std::{
-    collections::BTreeMap,
-    sync::{Arc, Mutex},
-};
+use std::collections::BTreeMap;
 use store::MemoryStore;
 
 mod store;
@@ -27,15 +22,17 @@ pub fn forward_ledger(raw_block: &str) {
     let bytes = hex::decode(raw_block).unwrap();
 
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
-    let era_history : &EraHistory = NetworkName::Preprod.into();
+    let era_history: &EraHistory = NetworkName::Preprod.into();
 
     let global_parameters = GlobalParameters::default();
-    let protocol_parameters = ProtocolParameters::default();
     let store = MemoryStore {};
-    let latest_epoch = store.most_recent_snapshot();
-    let stake_distributions =
-        stake_distributions(latest_epoch, &store, &store, era_history, PROTOCOL_VERSION_9).unwrap();
-    let mut state = State::new(Arc::new(Mutex::new(store)), MemoryStore {}, era_history, &global_parameters, stake_distributions);
+    let mut state = State::new(
+        store,
+        MemoryStore {},
+        era_history.clone(),
+        global_parameters.clone(),
+    )
+    .unwrap();
 
     let point = Point::Specific(
         block.header.header_body.slot,
@@ -78,15 +75,15 @@ pub fn forward_ledger(raw_block: &str) {
     ]);
 
     let mut context = context::DefaultValidationContext::new(inputs);
-    if let BlockValidation::Invalid(_err) = rules::validate_block(
-        &mut context,
-        &protocol_parameters,
-        &block,
-    ) {
+    if let BlockValidation::Invalid(_err) =
+        rules::validate_block(&mut context, state.protocol_parameters(), &block)
+    {
         panic!("Failed to validate block")
     };
 
     let volatile_state: VolatileState = context.into();
 
-    state.forward(PROTOCOL_VERSION_9, &global_parameters, &protocol_parameters, volatile_state.anchor(&point, issuer)).unwrap()
+    state
+        .forward(PROTOCOL_VERSION_9, volatile_state.anchor(&point, issuer))
+        .unwrap()
 }

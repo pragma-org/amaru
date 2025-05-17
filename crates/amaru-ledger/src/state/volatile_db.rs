@@ -180,7 +180,7 @@ impl AnchoredVolatileState {
     pub fn into_store_update(
         mut self,
         epoch: Epoch,
-        protocol_parameters: ProtocolParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> StoreUpdate<
         impl Iterator<Item = accounts::Key>,
         store::Columns<
@@ -200,6 +200,8 @@ impl AnchoredVolatileState {
             impl Iterator<Item = proposals::Key>,
         >,
     > {
+        let gov_action_lifetime: Epoch = protocol_parameters.gov_action_lifetime as Epoch;
+
         StoreUpdate {
             point: self.anchor.0,
             issuer: self.anchor.1,
@@ -279,8 +281,7 @@ impl AnchoredVolatileState {
                                     ProposalId::from(proposal_id),
                                     proposals::Value {
                                         proposed_in,
-                                        valid_until: epoch
-                                            + protocol_parameters.gov_action_lifetime as Epoch,
+                                        valid_until: epoch + gov_action_lifetime,
                                         proposal,
                                     },
                                 )),

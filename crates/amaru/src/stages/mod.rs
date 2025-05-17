@@ -82,8 +82,12 @@ pub fn bootstrap(
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_dir);
     let global_parameters = GlobalParameters::default();
-    let (mut ledger, tip) =
-        ledger::ValidateBlockStage::new(store, snapshots, era_history, &global_parameters)?;
+    let (mut ledger, tip) = ledger::ValidateBlockStage::new(
+        store,
+        snapshots,
+        era_history.clone(),
+        global_parameters.clone(),
+    )?;
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()

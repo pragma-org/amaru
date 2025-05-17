@@ -1,7 +1,4 @@
-use amaru_kernel::{
-    protocol_parameters::GlobalParameters, EraHistory, Hasher, MintedBlock, Point,
-    PROTOCOL_VERSION_9,
-};
+use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Hasher, MintedBlock, Point};
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
     rules::{
@@ -9,13 +6,12 @@ use amaru_ledger::{
         block::{BlockValidation, InvalidBlockDetails},
         parse_block,
     },
-    state::{self, stake_distributions, BackwardError, StateError, VolatileState},
+    state::{self, BackwardError, VolatileState},
     store::{HistoricalStores, Store, StoreError},
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 use anyhow::Context;
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
-use std::sync::Arc;
 use tracing::{error, instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
@@ -30,7 +26,6 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
-    pub global_parameters: GlobalParameters,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
@@ -52,24 +47,10 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     pub fn new(
         store: S,
         snapshots: HS,
-        era_history: &EraHistory,
-        global_parameters: &GlobalParameters,
+        era_history: EraHistory,
+        global_parameters: GlobalParameters,
     ) -> Result<(Self, Point), StoreError> {
-        let latest_epoch = store.most_recent_snapshot();
-        let stake_distributions = stake_distributions(
-            latest_epoch,
-            &store,
-            &snapshots,
-            era_history,
-            PROTOCOL_VERSION_9,
-        )?; // FIXME ProtocolVersion should be retrieved from the store
-        let state = state::State::new(
-            Arc::new(std::sync::Mutex::new(store)),
-            snapshots,
-            era_history,
-            global_parameters,
-            stake_distributions,
-        );
+        let state = state::State::new(store, snapshots, era_history, global_parameters)?;
 
         let tip = state.tip().into_owned();
 
@@ -78,7 +59,6 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
-                global_parameters: global_parameters.clone(),
             },
             tip,
         ))
@@ -127,26 +107,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         raw_block: RawBlock,
     ) -> anyhow::Result<Option<InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
-        let slot = point.slot_or_default();
-        let current_epoch = self
-            .state
-            .era_history
-            .slot_to_epoch(slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(slot, e))?;
-
-        // Refresh from the store as those may change every epoch
-        // TODO make sure it's only refreshed when needed
-        #[allow(clippy::unwrap_used)]
-        let protocol_parameters = self
-            .state
-            .stable
-            .lock()
-            .unwrap()
-            .get_protocol_parameters_for(&current_epoch)?;
-
         let mut context = self.create_validation_context(&block)?;
         let protocol_version = block.header.header_body.protocol_version;
-        match rules::validate_block(&mut context, &protocol_parameters, &block) {
+        match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
             BlockValidation::Err(err) => return Err(err),
             BlockValidation::Invalid(err) => {
                 error!("Block invalid: {:?}", err);
@@ -155,12 +118,8 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-                self.state.forward(
-                    protocol_version,
-                    &self.global_parameters,
-                    &protocol_parameters,
-                    state.anchor(&point, issuer),
-                )?;
+                self.state
+                    .forward(protocol_version, state.anchor(&point, issuer))?;
                 Ok(None)
             }
         }
