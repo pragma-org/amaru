@@ -173,8 +173,12 @@ impl PoolState {
         protocol_parameters: &ProtocolParameters,
     ) -> Lovelace {
         let one = SafeRatio::one();
-        let a0 = protocol_parameters.pledge_influence.clone();
-        let a0 = safe_ratio(a0.numerator, a0.denominator);
+
+        let a0 = safe_ratio(
+            protocol_parameters.pledge_influence.numerator,
+            protocol_parameters.pledge_influence.denominator,
+        );
+
         let z0 = safe_ratio(1, protocol_parameters.optimal_stake_pools_count as u64);
 
         let relative_pledge = lovelace_ratio(self.parameters.pledge, total_stake);
@@ -185,7 +189,7 @@ impl PoolState {
         let s = (&z0).min(&relative_stake);
 
         // R / (1 + a0)
-        let left = r / (one + a0.clone());
+        let left = r / (one + &a0);
 
         // σ' + p' × a0 × (σ' - p' × (z0 - σ') / z0) / z0
         //               ⎝___________ z0_factor__________⎠
