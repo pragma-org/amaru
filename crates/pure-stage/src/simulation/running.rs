@@ -4,6 +4,7 @@ use either::Either::{Left, Right};
 use std::{
     collections::{HashMap, VecDeque},
     mem::replace,
+    sync::{atomic::AtomicU64, Arc},
     task::{Context, Poll, Waker},
 };
 
@@ -69,6 +70,7 @@ impl Blocked {
 pub struct SimulationRunning {
     stages: HashMap<Name, StageData>,
     effect: EffectBox,
+    clock: Arc<AtomicU64>,
     runnable: VecDeque<(Name, StageResponse<Box<dyn Message>>)>,
     waiting: HashMap<Name, StageEffect<()>>,
     wait_send: HashMap<Name, VecDeque<(Name, Box<dyn Message>)>>,
@@ -79,8 +81,10 @@ impl SimulationRunning {
     pub(super) fn new(
         stages: HashMap<Name, StageData>,
         effect: EffectBox,
+        clock: Arc<AtomicU64>,
         mailbox_size: usize,
     ) -> Self {
+        // all stages start out suspended on Receive
         let waiting = stages
             .keys()
             .map(|k| (k.clone(), StageEffect::Receive))
@@ -89,6 +93,7 @@ impl SimulationRunning {
         Self {
             stages,
             effect,
+            clock,
             runnable: VecDeque::new(),
             waiting,
             wait_send: HashMap::new(),
@@ -257,6 +262,7 @@ impl SimulationRunning {
     /// If a stage is Running, it may be waiting for a non-Receive effect and may be runnable.
     /// If a stage is Failed, it is not waiting for any effect and is not runnable.
     /// A non-Failed stage is either waiting or runnable.
+    #[cfg(test)]
     fn invariants(&self) {
         for (name, data) in &self.stages {
             let waiting = self.waiting.get(name);
@@ -269,9 +275,6 @@ impl SimulationRunning {
                 StageState::Running(_) => {
                     if matches!(waiting, Some(StageEffect::Receive)) {
                         panic!("stage `{name}` is Running but waiting for Receive");
-                    }
-                    if matches!(waiting, None) {
-                        panic!("stage `{name}` is Running but not waiting for any effect");
                     }
                 }
                 StageState::Failed => {
@@ -529,4 +532,112 @@ fn block_reason(waiting: &HashMap<Name, StageEffect<()>>) -> Blocked {
     } else {
         Blocked::Busy(busy)
     }
+}
+
+#[test]
+fn simulation_invariants() {
+    use crate::{stagegraph::CallRef, StageGraph};
+
+    tracing_subscriber::fmt()
+        .with_test_writer()
+        .with_env_filter(tracing_subscriber::EnvFilter::from_default_env())
+        .try_init()
+        .ok();
+
+    let mut network = super::SimulationBuilder::default();
+    let stage = network.stage(
+        "stage",
+        async |_state, _msg: Option<CallRef<()>>, eff| {
+            eff.send(&eff.me(), None).await;
+            eff.clock().await;
+            eff.wait(std::time::Duration::from_secs(1)).await;
+            eff.call(&eff.me(), std::time::Duration::from_secs(1), |cr| Some(cr))
+                .await;
+            eff.interrupt().await;
+            Ok(true)
+        },
+        false,
+    );
+
+    let stage = network.wire_up(stage, |_| {});
+    let mut sim = network.run();
+
+    let ops: [(
+        Box<dyn Fn(&Effect) -> bool>,
+        Box<
+            dyn Fn(
+                &mut SimulationRunning,
+                &StageRef<Option<CallRef<()>>, bool>,
+            ) -> anyhow::Result<()>,
+        >,
+        &'static str,
+    ); 6] = [
+        (
+            Box::new(|eff: &Effect| matches!(eff, Effect::Receive { .. })),
+            Box::new(|sim, stage| sim.resume_receive(stage)),
+            "resume_receive",
+        ),
+        (
+            Box::new(|eff: &Effect| matches!(eff, Effect::Send { .. })),
+            Box::new(|sim, stage| sim.resume_send(stage, stage, None)),
+            "resume_send",
+        ),
+        (
+            Box::new(|eff: &Effect| matches!(eff, Effect::Clock { .. })),
+            Box::new(|sim, stage| sim.resume_clock(stage, Instant::now())),
+            "resume_clock",
+        ),
+        (
+            Box::new(|eff: &Effect| matches!(eff, Effect::Wait { .. })),
+            Box::new(|sim, stage| sim.resume_wait(stage, Instant::now())),
+            "resume_wait",
+        ),
+        (
+            Box::new(|eff: &Effect| matches!(eff, Effect::Call { .. })),
+            Box::new(|sim, stage| sim.resume_call(stage, None)),
+            "resume_call",
+        ),
+        (
+            Box::new(|eff: &Effect| matches!(eff, Effect::Interrupt { .. })),
+            Box::new(|sim, stage| sim.resume_interrupt(stage)),
+            "resume_interrupt",
+        ),
+    ];
+
+    sim.invariants();
+    sim.enqueue_msg(&stage, [None]);
+    sim.invariants();
+
+    for idx in 0..ops.len() {
+        let effect = if idx == 0 {
+            Effect::Receive {
+                at_stage: "stage".into(),
+            }
+        } else {
+            sim.effect()
+        };
+        tracing::info!("effect {:?}", effect);
+        assert!(
+            ops[idx].0(&effect),
+            "effect {effect:?} should match predicate for `{idx}`"
+        );
+        for (pred, op, name) in &ops {
+            if !pred(&effect) {
+                tracing::info!("op `{}` should not work", name);
+                op(&mut sim, &stage).unwrap_err();
+                sim.invariants();
+            }
+        }
+        for (pred, op, name) in &ops {
+            if pred(&effect) {
+                tracing::info!("op `{}` should work", name);
+                op(&mut sim, &stage).unwrap();
+                sim.invariants();
+            }
+        }
+    }
+    tracing::info!("final invariants");
+    sim.effect().assert_receive(&stage);
+    let state = sim.get_state(&stage).unwrap();
+    assert!(state);
 }

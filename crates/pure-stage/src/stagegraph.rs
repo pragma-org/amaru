@@ -130,6 +130,16 @@ pub struct CallRef<Resp: Message> {
     _ph: PhantomData<Resp>,
 }
 
+impl<Resp: Message + PartialEq> PartialEq for CallRef<Resp> {
+    fn eq(&self, other: &Self) -> bool {
+        self.target == other.target
+            && self.deadline == other.deadline
+            && Arc::ptr_eq(&self.now, &other.now)
+            && Arc::ptr_eq(&self.call_responded, &other.call_responded)
+            && self._ph == other._ph
+    }
+}
+
 impl<Resp: Message> Debug for CallRef<Resp> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CallRef")

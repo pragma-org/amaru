@@ -4,6 +4,15 @@ use std::time::Duration;
 pub struct Instant(tokio::time::Instant);
 
 impl Instant {
+    pub(crate) fn from_tokio(instant: tokio::time::Instant) -> Self {
+        Self(instant)
+    }
+
+    #[allow(dead_code)]
+    pub(crate) fn now() -> Self {
+        Self(tokio::time::Instant::now())
+    }
+
     pub fn pretty(self, now: Self) -> String {
         if let Some(duration) = self.checked_since(now) {
             format!("{:?} in the future", duration)

@@ -8,8 +8,12 @@ use std::{
     collections::{HashMap, VecDeque},
     future::{poll_fn, Future},
     marker::PhantomData,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     task::Poll,
+    time::Duration,
 };
 use tokio::sync::mpsc::unbounded_channel;
 
@@ -112,6 +116,7 @@ pub(crate) fn airlock_effect<Out>(
 pub struct SimulationBuilder {
     stages: HashMap<Name, InitStageData>,
     effect: EffectBox,
+    clock: Arc<AtomicU64>,
     now: Arc<dyn Fn() -> Instant + Send + Sync>,
     call_responded: Arc<dyn Fn(&Name) + Send + Sync>,
     mailbox_size: usize,
@@ -126,10 +131,17 @@ impl SimulationBuilder {
 
 impl Default for SimulationBuilder {
     fn default() -> Self {
+        let clock_base = tokio::time::Instant::now();
+        let clock = Arc::new(AtomicU64::new(0));
+        let clock2 = clock.clone();
+        let now = Arc::new(move || {
+            Instant::from_tokio(clock_base + Duration::from_nanos(clock2.load(Ordering::Relaxed)))
+        });
         Self {
             stages: Default::default(),
             effect: Default::default(),
-            now: Arc::new(|| todo!()),
+            clock,
+            now,
             call_responded: Arc::new(|_| {}),
             mailbox_size: 10,
         }
@@ -283,6 +295,7 @@ impl super::StageGraph for SimulationBuilder {
         let Self {
             stages: s,
             effect,
+            clock,
             now: _,
             call_responded: _,
             mailbox_size,
@@ -308,6 +321,6 @@ impl super::StageGraph for SimulationBuilder {
             };
             stages.insert(name.clone(), data);
         }
-        SimulationRunning::new(stages, effect, mailbox_size)
+        SimulationRunning::new(stages, effect, clock, mailbox_size)
     }
 }

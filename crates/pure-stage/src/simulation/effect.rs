@@ -1,5 +1,5 @@
 use super::Instant;
-use crate::{Message, Name};
+use crate::{Message, Name, StageRef};
 use std::{any::Any, fmt::Debug, time::Duration};
 use tokio::sync::oneshot;
 
@@ -109,24 +109,24 @@ impl Effect {
         }
     }
 
-    pub fn assert_receive(&self, at_stage: impl AsRef<str>) {
+    pub fn assert_receive<Msg, St>(&self, at_stage: &StageRef<Msg, St>) {
         match self {
-            Effect::Receive { at_stage: a } if a.as_str() == at_stage.as_ref() => {}
+            Effect::Receive { at_stage: a } if a == &at_stage.name => {}
             _ => panic!("unexpected effect {self:?}"),
         }
     }
 
-    pub fn assert_send<T: PartialEq + 'static>(
+    pub fn assert_send<Msg1, Msg2: Message + PartialEq, St1, St2>(
         &self,
-        at_stage: impl AsRef<str>,
-        target: impl AsRef<str>,
-        msg: T,
+        at_stage: &StageRef<Msg1, St1>,
+        target: &StageRef<Msg2, St2>,
+        msg: Msg2,
     ) {
         match self {
             Effect::Send { from, to, msg: m }
-                if from.as_str() == at_stage.as_ref()
-                    && to.as_str() == target.as_ref()
-                    && (&**m as &dyn Any).downcast_ref::<T>().unwrap() == &msg => {}
+                if from == &at_stage.name
+                    && to == &target.name
+                    && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg => {}
             _ => panic!("unexpected effect {self:?}"),
         }
     }

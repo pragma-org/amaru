@@ -26,12 +26,12 @@ fn basic() {
     // then insert some input and check reaction
     running.enqueue_msg(&stage, [1]);
     running.resume_receive(&stage).unwrap();
-    running.effect().assert_send("basic", "output", 2u32);
+    running.effect().assert_send(&stage, &output, 2u32);
     running.resume_send(&stage, &output, 2u32).unwrap();
-    running.effect().assert_receive("basic");
+    running.effect().assert_receive(&stage);
 
     running.resume_receive(&output).unwrap();
-    running.effect().assert_receive("output");
+    running.effect().assert_receive(&output);
 
     assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 }
