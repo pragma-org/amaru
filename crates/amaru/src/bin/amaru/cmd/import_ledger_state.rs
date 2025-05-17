@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, Anchor, CertificatePointer, DRep, Epoch, EraHistory, Lovelace, Point,
-    PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential,
-    TransactionInput, TransactionOutput, TransactionPointer, DREP_EXPIRY, GOV_ACTION_LIFETIME,
-    STAKE_CREDENTIAL_DEPOSIT,
+    network::NetworkName, protocol_parameters::ProtocolParameters, Anchor, CertificatePointer,
+    DRep, Epoch, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, Set, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    TransactionPointer,
 };
 use amaru_ledger::{
     self,
@@ -195,166 +195,160 @@ fn decode_new_epoch_state(
     // of blocks either.
     import_block_issuers(db, d.decode()?)?;
 
-    let accounts: HashMap<StakeCredential, Account>;
-    let fees: i64;
-    let treasury: i64;
-    let reserves: i64;
-
     // Epoch State
-    {
-        d.array()?;
+    d.array()?;
 
-        // Epoch State / Account State
-        d.array()?;
-        treasury = d.decode()?;
-        reserves = d.decode()?;
+    // Epoch State / Account State
+    d.array()?;
+    let treasury: i64 = d.decode()?;
+    let reserves: i64 = d.decode()?;
 
-        // Epoch State / Ledger State
-        d.array()?;
+    // Epoch State / Ledger State
+    d.array()?;
 
-        // Epoch State / Ledger State / Cert State
-        {
-            d.array()?;
+    // Epoch State / Ledger State / Cert State
+    d.array()?;
 
-            // Epoch State / Ledger State / Cert State / Voting State
-            {
-                d.array()?;
+    // Epoch State / Ledger State / Cert State / Voting State
+    d.array()?;
 
-                import_dreps(db, era_history, point, epoch, d.decode()?)?;
+    let dreps = d.decode()?;
 
-                // Committee
-                d.skip()?;
+    // Committee
+    d.skip()?;
 
-                // Dormant Epoch
-                d.skip()?;
-            }
+    // Dormant Epoch
+    d.skip()?;
 
-            // Epoch State / Ledger State / Cert State / Pool State
-            {
-                d.array()?;
-                import_stake_pools(
-                    db,
-                    point,
-                    epoch,
-                    // Pools
-                    d.decode()?,
-                    // Updates
-                    d.decode()?,
-                    // Retirements
-                    d.decode()?,
-                )?;
-                // Deposits
-                d.skip()?;
-            }
+    // Epoch State / Ledger State / Cert State / Pool State
+    d.array()?;
+    import_stake_pools(
+        db,
+        point,
+        epoch,
+        // Pools
+        d.decode()?,
+        // Updates
+        d.decode()?,
+        // Retirements
+        d.decode()?,
+    )?;
+    // Deposits
+    d.skip()?;
 
-            // Epoch State / Ledger State / Cert State / Delegation state
-            {
-                d.array()?;
+    // Epoch State / Ledger State / Cert State / Delegation state
+    d.array()?;
 
-                // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
-                {
-                    d.array()?;
-                    // credentials
-                    accounts = d.decode()?;
-                    // pointers
-                    d.skip()?;
-                }
+    // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
+    d.array()?;
 
-                // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
-                d.skip()?;
+    // credentials
+    let accounts: HashMap<StakeCredential, Account> = d.decode()?;
 
-                // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
-                d.skip()?;
+    // pointers
+    d.skip()?;
 
-                // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
-                d.skip()?;
-            }
+    // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
+    d.skip()?;
 
-            // Epoch State / Ledger State / UTxO State
-            {
-                d.array()?;
+    // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
+    d.skip()?;
 
-                import_utxo(
-                    db,
-                    point,
-                    d.decode::<HashMap<TransactionInput, TransactionOutput>>()?
-                        .into_iter()
-                        .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
-                )?;
+    // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
+    d.skip()?;
 
-                let _deposited: u64 = d.decode()?;
+    // Epoch State / Ledger State / UTxO State
+    d.array()?;
 
-                fees = d.decode()?;
+    import_utxo(
+        db,
+        point,
+        d.decode::<HashMap<TransactionInput, TransactionOutput>>()?
+            .into_iter()
+            .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
+    )?;
 
-                // Epoch State / Ledger State / UTxO State / utxosGovState
-                {
-                    d.array()?;
+    let _deposited: u64 = d.decode()?;
 
-                    // Proposals
-                    d.array()?;
-                    d.skip()?; // Proposals roots
-                    import_proposals(db, point, era_history, d.decode()?)?;
+    let fees: i64 = d.decode()?;
 
-                    // Constitutional committee
-                    d.skip()?;
-                    // Constitution
-                    d.skip()?;
-                    // Current Protocol Params
-                    d.skip()?;
-                    // Previous Protocol Params
-                    d.skip()?;
-                    // Future Protocol Params
-                    d.skip()?;
-                    // DRep Pulsing State
-                    d.skip()?;
-                }
+    // Epoch State / Ledger State / UTxO State / utxosGovState
+    d.array()?;
 
-                // Epoch State / Ledger State / UTxO State / utxosStakeDistr
-                d.skip()?;
+    // Proposals
+    d.array()?;
+    // Proposals roots
+    d.skip()?;
+    let proposals: Vec<ProposalState> = d.decode()?;
 
-                // Epoch State / Ledger State / UTxO State / utxosDonation
-                d.skip()?;
-            }
-        }
+    // Constitutional committee
+    d.skip()?;
+    // Constitution
+    d.skip()?;
+    // Current Protocol Params
+    let protocol_parameters = import_protocol_parameters(db, &epoch, d.decode()?)?;
+    import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
+    import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
-        // Epoch State / Snapshots
-        d.skip()?;
-        // Epoch State / NonMyopic
-        d.skip()?;
-    }
+    // Previous Protocol Params
+    d.skip()?;
+    // Future Protocol Params
+    d.skip()?;
+    // DRep Pulsing State
+    d.skip()?;
+
+    // Epoch State / Ledger State / UTxO State / utxosStakeDistr
+    d.skip()?;
+
+    // Epoch State / Ledger State / UTxO State / utxosDonation
+    d.skip()?;
+
+    // Epoch State / Snapshots
+    d.skip()?;
+    // Epoch State / NonMyopic
+    d.skip()?;
 
     // Rewards Update
-    {
-        d.array()?;
-        d.array()?;
-        assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
-        d.array()?;
+    d.array()?;
+    d.array()?;
+    assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
+    d.array()?;
 
-        let delta_treasury: i64 = d.decode()?;
+    let delta_treasury: i64 = d.decode()?;
 
-        let delta_reserves: i64 = d.decode()?;
+    let delta_reserves: i64 = d.decode()?;
 
-        let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode()?;
-        let delta_fees: i64 = d.decode()?;
+    let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode()?;
+    let delta_fees: i64 = d.decode()?;
 
-        // NonMyopic
-        d.skip()?;
+    // NonMyopic
+    d.skip()?;
 
-        import_accounts(db, point, accounts, &mut rewards)?;
+    import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
 
-        let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
-            total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
-        });
+    let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
+        total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
+    });
 
-        import_pots(
-            db,
-            (treasury + delta_treasury) as u64 + unclaimed_rewards,
-            (reserves - delta_reserves) as u64,
-            (fees - delta_fees) as u64,
-        )?;
-    }
+    import_pots(
+        db,
+        (treasury + delta_treasury) as u64 + unclaimed_rewards,
+        (reserves - delta_reserves) as u64,
+        (fees - delta_fees) as u64,
+    )?;
 
     Ok(epoch)
+}
+
+fn import_protocol_parameters(
+    db: &impl Store,
+    epoch: &Epoch,
+    protocol_parameters: ProtocolParameters,
+) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+    transaction.set_protocol_parameters(epoch, &protocol_parameters)?;
+    transaction.commit()?;
+    Ok(protocol_parameters)
 }
 
 fn import_block_issuers(
@@ -455,6 +449,7 @@ fn import_dreps(
     point: &Point,
     epoch: Epoch,
     dreps: HashMap<StakeCredential, DRepState>,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), impl std::error::Error> {
     let mut known_dreps = BTreeMap::new();
 
@@ -517,13 +512,13 @@ fn import_dreps(
                 let (registration_slot, last_interaction) = if epoch == era_first_epoch {
                     let last_interaction = era_first_epoch;
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    if state.expiry > epoch + DREP_EXPIRY {
+                    if state.expiry > epoch + protocol_parameters.drep_expiry {
                         (epoch_bound.start, last_interaction)
                     } else {
                         (epoch_bound.end, last_interaction)
                     }
                 } else {
-                    let last_interaction = state.expiry - DREP_EXPIRY;
+                    let last_interaction = state.expiry - protocol_parameters.drep_expiry;
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     // start or end doesn't matter here.
                     (epoch_bound.start, last_interaction)
@@ -564,6 +559,7 @@ fn import_proposals(
     point: &Point,
     era_history: &EraHistory,
     proposals: Vec<ProposalState>,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
@@ -597,7 +593,8 @@ fn import_proposals(
                                 },
                                 proposal_index,
                             },
-                            valid_until: proposal.proposed_in + GOV_ACTION_LIFETIME,
+                            valid_until: proposal.proposed_in
+                                + protocol_parameters.gov_action_lifetime as Epoch,
                             proposal: proposal.procedure,
                         },
                     ))
@@ -705,6 +702,7 @@ fn import_accounts(
     point: &Point,
     accounts: HashMap<StakeCredential, Account>,
     rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_accounts(|iterator| {
@@ -726,7 +724,7 @@ fn import_accounts(
                 },
             )| {
                 let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
-                    .unwrap_or((0, STAKE_CREDENTIAL_DEPOSIT as u64));
+                    .unwrap_or((0, protocol_parameters.stake_credential_deposit));
 
                 let rewards_update = match rewards_updates.remove(&credential) {
                     None => 0,

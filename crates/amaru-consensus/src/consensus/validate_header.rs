@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{consensus::store::ChainStore, peer::Peer, ConsensusError};
-use amaru_kernel::{to_cbor, Hash, Header, Nonce, Point, ACTIVE_SLOT_COEFF_INVERSE};
+use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point};
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
@@ -36,9 +36,10 @@ pub fn header_is_valid(
     raw_header_body: &[u8],
     epoch_nonce: &Nonce,
     ledger: &dyn HasStakeDistribution,
+    global_parameters: &GlobalParameters,
 ) -> Result<(), ConsensusError> {
-    let active_slot_coeff: FixedDecimal =
-        FixedDecimal::from(1_u64) / FixedDecimal::from(ACTIVE_SLOT_COEFF_INVERSE as u64);
+    let active_slot_coeff: FixedDecimal = FixedDecimal::from(1_u64)
+        / FixedDecimal::from(global_parameters.active_slot_coeff_inverse as u64);
 
     praos::header::assert_all(
         header,
@@ -81,11 +82,16 @@ impl ValidateHeader {
         peer: Peer,
         point: Point,
         header: Header,
+        global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         let Nonces {
             active: ref epoch_nonce,
             ..
-        } = self.store.lock().await.evolve_nonce(&header)?;
+        } = self
+            .store
+            .lock()
+            .await
+            .evolve_nonce(&header, global_parameters)?;
 
         header_is_valid(
             &point,
@@ -93,6 +99,7 @@ impl ValidateHeader {
             to_cbor(&header.header_body).as_slice(),
             epoch_nonce,
             self.ledger.as_ref(),
+            global_parameters,
         )?;
 
         Ok(DecodedChainSyncEvent::RollForward {
@@ -106,6 +113,7 @@ impl ValidateHeader {
     pub async fn handle_chain_sync(
         &mut self,
         chain_sync: DecodedChainSyncEvent,
+        global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         match chain_sync {
             DecodedChainSyncEvent::RollForward {
@@ -113,7 +121,10 @@ impl ValidateHeader {
                 point,
                 header,
                 ..
-            } => self.handle_roll_forward(peer, point, header).await,
+            } => {
+                self.handle_roll_forward(peer, point, header, global_parameters)
+                    .await
+            }
             DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
         }
     }

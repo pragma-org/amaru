@@ -118,9 +118,9 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, Epoch, Hash, Lovelace, PoolId, StakeCredential,
-    ACTIVE_SLOT_COEFF_INVERSE, MAX_LOVELACE_SUPPLY, MONETARY_EXPANSION, OPTIMAL_STAKE_POOLS_COUNT,
-    PLEDGE_INFLUENCE, SHELLEY_EPOCH_LENGTH, STAKE_POOL_DEPOSIT, TREASURY_TAX,
+    expect_stake_credential,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    Epoch, Hash, Lovelace, PoolId, StakeCredential,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
@@ -166,10 +166,20 @@ impl PoolState {
     ///
     /// The results is then used to calculate the _actual rewards_ based on the pool
     /// performances and its actual saturation level.
-    pub fn optimal_rewards(&self, available_rewards: Lovelace, total_stake: Lovelace) -> Lovelace {
+    pub fn optimal_rewards(
+        &self,
+        available_rewards: Lovelace,
+        total_stake: Lovelace,
+        protocol_parameters: &ProtocolParameters,
+    ) -> Lovelace {
         let one = SafeRatio::one();
-        let a0 = &*PLEDGE_INFLUENCE;
-        let z0 = safe_ratio(1, OPTIMAL_STAKE_POOLS_COUNT as u64);
+
+        let a0 = safe_ratio(
+            protocol_parameters.pledge_influence.numerator,
+            protocol_parameters.pledge_influence.denominator,
+        );
+
+        let z0 = safe_ratio(1, protocol_parameters.optimal_stake_pools_count as u64);
 
         let relative_pledge = lovelace_ratio(self.parameters.pledge, total_stake);
         let relative_stake = self.relative_stake(total_stake);
@@ -179,7 +189,7 @@ impl PoolState {
         let s = (&z0).min(&relative_stake);
 
         // R / (1 + a0)
-        let left = r / (one + a0);
+        let left = r / (one + &a0);
 
         // σ' + p' × a0 × (σ' - p' × (z0 - σ') / z0) / z0
         //               ⎝___________ z0_factor__________⎠
@@ -207,11 +217,16 @@ impl PoolState {
         active_stake: Lovelace,
         total_stake: Lovelace,
         owner_stake: Lovelace,
+        protocol_parameters: &ProtocolParameters,
     ) -> Lovelace {
         if self.parameters.pledge <= owner_stake {
             floor_to_lovelace(
                 self.apparent_performances(blocks_ratio, active_stake)
-                    * BigUint::from(self.optimal_rewards(available_rewards, total_stake)),
+                    * BigUint::from(self.optimal_rewards(
+                        available_rewards,
+                        total_stake,
+                        protocol_parameters,
+                    )),
             )
         } else {
             0
@@ -377,32 +392,44 @@ impl RewardsSummary {
     pub fn new(
         db: &impl Snapshot,
         stake_distribution: StakeDistribution,
+        global_parameters: &GlobalParameters,
+        protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, StoreError> {
         let pots = db.pots()?;
 
         let (mut blocks_count, mut blocks_per_pool) = RewardsSummary::count_blocks(db)?;
 
         let efficiency = safe_ratio(
-            blocks_count * ACTIVE_SLOT_COEFF_INVERSE as u64,
-            SHELLEY_EPOCH_LENGTH as u64,
+            blocks_count * global_parameters.active_slot_coeff_inverse as u64,
+            global_parameters.shelley_epoch_length as u64,
         );
 
         blocks_count = blocks_count.max(1);
 
+        let monetary_expansion_rate = &protocol_parameters.monetary_expansion_rate;
+        let monetary_expansion_rate = safe_ratio(
+            monetary_expansion_rate.numerator,
+            monetary_expansion_rate.denominator,
+        );
         let incentives = floor_to_lovelace(
             (&SafeRatio::one()).min(&efficiency)
-                * &*MONETARY_EXPANSION
+                * &monetary_expansion_rate
                 * BigUint::from(pots.reserves),
         );
 
         let total_rewards: Lovelace = incentives + pots.fees;
 
+        let treasury_expansion_rate = &protocol_parameters.treasury_expansion_rate;
+        let treasury_expansion_rate = safe_ratio(
+            treasury_expansion_rate.numerator,
+            treasury_expansion_rate.denominator,
+        );
         let treasury_tax: Lovelace =
-            floor_to_lovelace(&*TREASURY_TAX * BigUint::from(total_rewards));
+            floor_to_lovelace(treasury_expansion_rate * BigUint::from(total_rewards));
 
         let available_rewards: Lovelace = total_rewards - treasury_tax;
 
-        let total_stake: Lovelace = MAX_LOVELACE_SUPPLY - pots.reserves;
+        let total_stake: Lovelace = global_parameters.max_lovelace_supply - pots.reserves;
 
         let mut accounts: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
@@ -421,6 +448,7 @@ impl RewardsSummary {
                         total_stake,
                         &stake_distribution,
                         pool,
+                        protocol_parameters,
                     );
 
                     let rewards = effective_rewards + pool_rewards.leader;
@@ -509,14 +537,18 @@ impl RewardsSummary {
     // rewards calculation for 174 kicks in later in the epoch, the deposit was already added to the
     // treasury... So it won't be present from our snapshot labeled 176 since it happened BEFORE the
     // beginning of the epoch 177.
-    pub fn with_unclaimed_refunds(mut self, db: &impl Snapshot) -> Result<Self, StoreError> {
+    pub fn with_unclaimed_refunds(
+        mut self,
+        db: &impl Snapshot,
+        protocol_parameters: &ProtocolParameters,
+    ) -> Result<Self, StoreError> {
         let leftovers = db.iter_pools()?.try_fold(0, |leftovers, (_, row)| {
             if let Some(account) = pools::Row::tick(
                 Box::new(BorrowableProxy::new(Some(row), |_| {})),
                 self.epoch + 3,
             ) {
                 if db.account(&account)?.is_none() {
-                    return Ok::<_, StoreError>(leftovers + STAKE_POOL_DEPOSIT as u64);
+                    return Ok::<_, StoreError>(leftovers + protocol_parameters.stake_pool_deposit);
                 }
             }
 
@@ -576,6 +608,7 @@ impl RewardsSummary {
         total_stake: Lovelace,
         stake_distribution: &StakeDistribution,
         pool: &PoolState,
+        protocol_parameters: &ProtocolParameters,
     ) -> PoolRewards {
         let owner_stake = pool.owner_stake(&stake_distribution.accounts);
 
@@ -590,6 +623,7 @@ impl RewardsSummary {
             stake_distribution.active_stake,
             total_stake,
             owner_stake,
+            protocol_parameters,
         );
 
         let rewards_leader = pool.leader_rewards(rewards_pot, owner_stake, total_stake);

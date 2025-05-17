@@ -24,7 +24,9 @@ use amaru_consensus::{
     peer::Peer,
     ConsensusError, IsHeader,
 };
-use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header};
+use amaru_kernel::{
+    network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, Hash, Header,
+};
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB, RocksDBHistoricalStores};
 use consensus::{
     fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
@@ -79,7 +81,13 @@ pub fn bootstrap(
     let era_history: &EraHistory = config.network.into();
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_dir);
-    let (mut ledger, tip) = ledger::ValidateBlockStage::new(store, snapshots, era_history);
+    let global_parameters = GlobalParameters::default();
+    let (mut ledger, tip) = ledger::ValidateBlockStage::new(
+        store,
+        snapshots,
+        era_history.clone(),
+        global_parameters.clone(),
+    )?;
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -116,7 +124,7 @@ pub fn bootstrap(
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
-    let mut validate_header_stage = ValidateHeaderStage::new(consensus);
+    let mut validate_header_stage = ValidateHeaderStage::new(consensus, &global_parameters);
 
     let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_ref.clone()));
 
