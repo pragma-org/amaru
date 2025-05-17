@@ -27,7 +27,7 @@ fn basic() {
     // then insert some input and check reaction
     running.enqueue_msg(&stage, [1]);
     running.resume_receive(&stage).unwrap();
-    running.effect().assert_send(&stage, &output, 2u32, None);
+    running.effect().assert_send(&stage, &output, 2u32);
     running.resume_send(&stage, &output, 2u32).unwrap();
     running.effect().assert_receive(&stage);
 
@@ -210,17 +210,42 @@ fn call() {
         "callee",
         async |state, msg: (u32, CallRef<u32>), eff| {
             eff.wait(Duration::from_secs(1)).await;
-            msg.1.send(msg.0 * 2);
+            eff.respond(msg.1, msg.0 * 2).await;
             Ok(state)
         },
         (),
     );
     let caller = network.wire_up(caller, |state| state.1 = callee.sender());
-    let _callee = network.wire_up(callee, |_| {});
+    let callee = network.wire_up(callee, |_| {});
 
-    let mut running = network.run();
+    let mut sim = network.run();
 
-    running.enqueue_msg(&caller, [1]);
-    running.run_until_blocked().assert_idle();
-    assert_eq!(running.get_state(&caller).unwrap().0, 4);
+    sim.enqueue_msg(&caller, [1]);
+    sim.run_until_blocked().assert_idle();
+    assert_eq!(sim.get_state(&caller).unwrap().0, 4);
+
+    // also try manual mode
+    sim.enqueue_msg(&caller, [2]);
+    sim.resume_receive(&caller).unwrap();
+    let (msg, cr) = sim.effect().assert_call(
+        &caller,
+        &callee,
+        |(msg, cr)| (msg + 1, cr),
+        Duration::from_secs(1),
+    );
+
+    let cr2 = cr.dummy();
+    sim.resume_send(&caller, &callee, (msg, cr)).unwrap();
+    // still not runnable, now waiting for response
+    sim.try_effect().unwrap_err().assert_busy([caller.name()]);
+
+    sim.resume_receive(&callee).unwrap();
+    sim.effect().assert_wait(&callee, Duration::from_secs(1));
+    sim.resume_wait(&callee, sim.now()).unwrap();
+    sim.effect().assert_respond(&callee, &cr2, 8);
+    sim.resume_respond(&callee, &cr2, 7).unwrap();
+    sim.effect().assert_receive(&callee);
+    // the processing above has already dealt with sending the response, which has resumed the caller
+    sim.effect().assert_receive(&caller);
+    assert_eq!(sim.get_state(&caller).unwrap().0, 7);
 }

@@ -34,12 +34,12 @@ mod state;
 mod time;
 
 pub(crate) type EffectBox =
-    Arc<Mutex<Option<Either<StageEffect<Box<dyn Message>>, StageResponse<Box<dyn Message>>>>>>;
+    Arc<Mutex<Option<Either<StageEffect<Box<dyn Message>>, StageResponse>>>>;
 
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,
     effect: StageEffect<Box<dyn Message>>,
-    response: impl Fn(Option<StageResponse<Box<dyn Message>>>) -> Option<Out> + Send + 'static,
+    mut response: impl FnMut(Option<StageResponse>) -> Option<Out> + Send + 'static,
 ) -> BoxFuture<'static, Out> {
     let eb = eb.clone();
     let mut effect = Some(effect);

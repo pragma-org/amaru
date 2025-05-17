@@ -126,6 +126,24 @@ impl<M: Message, S> Effects<M, S> {
             },
         )
     }
+
+    pub fn respond<Resp: Message>(&self, cr: CallRef<Resp>, resp: Resp) -> BoxFuture<'static, ()> {
+        airlock_effect(
+            &self.effect,
+            StageEffect::Respond(cr.target.clone(), cr.id, Box::new(resp)),
+            {
+                let mut cr = Some(cr);
+                move |eff| match eff {
+                    Some(StageResponse::RespondResponse(resp)) => {
+                        let cr = cr.take().expect("respond effect can finish only once");
+                        cr.send(cast_msg(resp).expect("internal messaging type error"));
+                        Some(())
+                    }
+                    _ => None,
+                }
+            },
+        )
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -143,6 +161,9 @@ impl CallId {
     }
 }
 
+/// The response channel for a call effect.
+///
+/// In order to respond to the calling stage, use [`Effects::respond`].
 pub struct CallRef<Resp: Message> {
     pub(crate) target: Name,
     pub(crate) id: CallId,
@@ -157,11 +178,7 @@ pub struct CallRef<Resp: Message> {
 
 impl<Resp: Message + PartialEq> PartialEq for CallRef<Resp> {
     fn eq(&self, other: &Self) -> bool {
-        self.target == other.target
-            && self.deadline == other.deadline
-            && Arc::ptr_eq(&self.now, &other.now)
-            && Arc::ptr_eq(&self.call_responded, &other.call_responded)
-            && self._ph == other._ph
+        self.id == other.id
     }
 }
 
@@ -169,6 +186,7 @@ impl<Resp: Message> Debug for CallRef<Resp> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CallRef")
             .field("target", &self.target)
+            .field("id", &self.id)
             .field("deadline", &self.deadline)
             .field("now", &(self.now)())
             .finish()
@@ -176,7 +194,19 @@ impl<Resp: Message> Debug for CallRef<Resp> {
 }
 
 impl<Resp: Message> CallRef<Resp> {
-    pub fn send(self, resp: Resp) {
+    pub fn dummy(&self) -> Self {
+        Self {
+            target: self.target.clone(),
+            id: self.id,
+            deadline: self.deadline,
+            response: oneshot::channel().0,
+            now: self.now.clone(),
+            call_responded: self.call_responded.clone(),
+            _ph: PhantomData,
+        }
+    }
+
+    pub(crate) fn send(self, resp: Resp) {
         let Self {
             target,
             id,

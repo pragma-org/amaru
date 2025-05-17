@@ -1,7 +1,5 @@
 use super::{Effect, EffectBox, Instant, StageData, StageEffect, StageResponse, StageState};
-use crate::{
-    cast_msg, cast_msg_ref, cast_state, stagegraph::CallRef, CallId, Message, Name, StageRef, State,
-};
+use crate::{cast_state, stagegraph::CallRef, CallId, Message, Name, StageRef, State};
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
 use std::{
@@ -141,7 +139,7 @@ pub struct SimulationRunning {
     effect: EffectBox,
     clock: Arc<AtomicU64>,
     now: Arc<dyn Fn() -> Instant + Send + Sync>,
-    runnable: VecDeque<(Name, StageResponse<Box<dyn Message>>)>,
+    runnable: VecDeque<(Name, StageResponse)>,
     waiting: HashMap<Name, StageEffect<()>>,
     wait_send: HashMap<Name, VecDeque<(Name, Box<dyn Message>)>>,
     sleeping: BinaryHeap<Sleeping>,
@@ -370,7 +368,7 @@ impl SimulationRunning {
                     from,
                     to,
                     msg,
-                    timeout: _,
+                    call: _,
                 } => {
                     let data = self.stages.get_mut(&to).unwrap();
                     if data.mailbox.len() < self.mailbox_size {
@@ -396,12 +394,15 @@ impl SimulationRunning {
                             .expect("wait effect is always runnable");
                     });
                 }
-                Effect::Call {
+                Effect::Respond {
                     at_stage,
                     target,
-                    timeout,
+                    id,
                     msg,
-                } => {}
+                } => {
+                    self.resume_respond_internal(at_stage, target, id, msg)
+                        .expect("respond effect is always runnable");
+                }
                 Effect::Interrupt { at_stage } => return Blocked::Interrupted(at_stage),
                 Effect::Failure { at_stage, error } => {
                     panic!("stage `{at_stage}` failed with {error:?}");
@@ -649,6 +650,44 @@ impl SimulationRunning {
         Ok(())
     }
 
+    /// Resume an [`Effect::Respond`].
+    pub fn resume_respond<Msg, St, Resp: Message>(
+        &mut self,
+        at_stage: &StageRef<Msg, St>,
+        cr: &CallRef<Resp>,
+        msg: Resp,
+    ) -> anyhow::Result<()> {
+        self.resume_respond_internal(at_stage.name(), cr.target.clone(), cr.id, Box::new(msg))
+    }
+
+    fn resume_respond_internal(
+        &mut self,
+        at_stage: Name,
+        target: Name,
+        id: CallId,
+        msg: Box<dyn Message>,
+    ) -> anyhow::Result<()> {
+        let waiting_for = self.waiting.get(&at_stage).ok_or_else(|| {
+            anyhow::anyhow!("stage `{}` was not waiting for any effect", at_stage)
+        })?;
+
+        if !matches!(waiting_for, StageEffect::Respond(name, id2, _) if id2 == &id && name == &target)
+        {
+            anyhow::bail!(
+                "stage `{}` was not waiting for a respond effect with id {id:?}, but {:?}",
+                at_stage,
+                waiting_for
+            )
+        }
+
+        // it is important that all validations (i.e. `?``) happen before this point
+        self.waiting.remove(&at_stage);
+
+        self.runnable
+            .push_back((at_stage, StageResponse::RespondResponse(msg)));
+        Ok(())
+    }
+
     /// Resume an [`Effect::Interrupt`].
     pub fn resume_interrupt<Msg, St>(
         &mut self,
@@ -718,7 +757,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
 
 #[test]
 fn simulation_invariants() {
-    use crate::{stagegraph::CallRef, StageGraph};
+    use crate::{cast_msg_ref, stagegraph::CallRef, StageGraph};
 
     tracing_subscriber::fmt()
         .with_test_writer()
@@ -788,9 +827,7 @@ fn simulation_invariants() {
         (
             Box::new(|eff: &Effect| match eff {
                 Effect::Send {
-                    msg,
-                    timeout: Some(_),
-                    ..
+                    msg, call: Some(_), ..
                 } => Some(
                     cast_msg_ref::<Option<CallRef<()>>>(&**msg)
                         .unwrap()
