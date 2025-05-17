@@ -1,9 +1,12 @@
 use super::{Effect, EffectBox, Instant, StageData, StageEffect, StageResponse, StageState};
-use crate::{cast_state, Message, Name, StageRef, State};
+use crate::{
+    cast_msg, cast_msg_ref, cast_state, stagegraph::CallRef, CallId, Message, Name, StageRef, State,
+};
 use either::Either::{Left, Right};
+use parking_lot::Mutex;
 use std::{
     collections::{BinaryHeap, HashMap, VecDeque},
-    mem::replace,
+    mem::{replace, take},
     sync::{
         atomic::{AtomicU64, Ordering},
         Arc,
@@ -142,6 +145,7 @@ pub struct SimulationRunning {
     waiting: HashMap<Name, StageEffect<()>>,
     wait_send: HashMap<Name, VecDeque<(Name, Box<dyn Message>)>>,
     sleeping: BinaryHeap<Sleeping>,
+    responded: Arc<Mutex<Vec<(Name, CallId)>>>,
     mailbox_size: usize,
 }
 
@@ -151,6 +155,7 @@ impl SimulationRunning {
         effect: EffectBox,
         clock: Arc<AtomicU64>,
         now: Arc<dyn Fn() -> Instant + Send + Sync>,
+        responded: Arc<Mutex<Vec<(Name, CallId)>>>,
         mailbox_size: usize,
     ) -> Self {
         // all stages start out suspended on Receive
@@ -168,6 +173,7 @@ impl SimulationRunning {
             waiting,
             wait_send: HashMap::new(),
             sleeping: BinaryHeap::new(),
+            responded,
             mailbox_size,
         }
     }
@@ -266,7 +272,7 @@ impl SimulationRunning {
         *self.effect.lock() = Some(Right(response));
         let result = pin.as_mut().poll(&mut Context::from_waker(Waker::noop()));
 
-        if let Poll::Ready(result) = result {
+        let ret = if let Poll::Ready(result) = result {
             match result {
                 Ok(state) => {
                     data.state = StageState::Idle(state);
@@ -296,14 +302,21 @@ impl SimulationRunning {
             let (wait_effect, effect) = stage_effect.to_effect(name.clone());
             self.waiting.insert(name, wait_effect);
             Ok(effect)
+        };
+
+        let names = take(&mut *self.responded.lock());
+        for (name, id) in names {
+            self.resume_call_internal(name, id).ok();
         }
+
+        ret
     }
 
     /// Keep on performing steps using [`Self::try_effect`] while possible and automatically
     /// resume send and receive effects based on availability of space or messages in the
     /// mailbox in question.
     ///
-    /// See [`Self::run_until_sleeping`] for a variant that stops when the simulation is
+    /// See [`Self::run_until_sleeping_or_blocked`] for a variant that stops when the simulation is
     /// waiting for a wakeup.
     pub fn run_until_blocked(&mut self) -> Blocked {
         loop {
@@ -353,7 +366,12 @@ impl SimulationRunning {
                         }
                     }
                 }
-                Effect::Send { from, to, msg } => {
+                Effect::Send {
+                    from,
+                    to,
+                    msg,
+                    timeout: _,
+                } => {
                     let data = self.stages.get_mut(&to).unwrap();
                     if data.mailbox.len() < self.mailbox_size {
                         let empty = data.mailbox.is_empty();
@@ -372,16 +390,22 @@ impl SimulationRunning {
                         .expect("clock effect is always runnable");
                 }
                 Effect::Wait { at_stage, duration } => {
-                    let delay = u64::try_from(duration.as_nanos())
-                        .expect("duration too large")
-                        .max(1);
+                    let delay = duration_to_nanos(duration);
                     self.schedule_wakeup(delay, |sim| {
                         sim.resume_wait_internal(at_stage, sim.now())
                             .expect("wait effect is always runnable");
                     });
                 }
+                Effect::Call {
+                    at_stage,
+                    target,
+                    timeout,
+                    msg,
+                } => {}
                 Effect::Interrupt { at_stage } => return Blocked::Interrupted(at_stage),
-                _ => panic!("unexpected effect {effect:?}"),
+                Effect::Failure { at_stage, error } => {
+                    panic!("stage `{at_stage}` failed with {error:?}");
+                }
             }
         }
     }
@@ -487,7 +511,7 @@ impl SimulationRunning {
             .get(&from)
             .ok_or_else(|| anyhow::anyhow!("stage `{}` was not waiting for any effect", from))?;
 
-        if !matches!(waiting_for, StageEffect::Send(name, _msg) if name == &to) {
+        if !matches!(waiting_for, StageEffect::Send(name, _msg, _call) if name == &to) {
             anyhow::bail!(
                 "stage `{}` was not waiting for a send effect to `{}`, but {:?}",
                 from,
@@ -505,11 +529,21 @@ impl SimulationRunning {
         }
 
         // it is important that all validations (i.e. `?``) happen before this point
-        self.waiting.remove(&from);
+        let was_waiting = self.waiting.remove(&from);
 
         data.mailbox.push_back(msg);
 
-        self.runnable.push_back((from, StageResponse::Unit));
+        if let Some(StageEffect::Send(name, _msg, Some((timeout, recv, id)))) = was_waiting {
+            self.schedule_wakeup(duration_to_nanos(timeout), move |sim| {
+                sim.resume_call_internal(name, id).ok();
+            });
+            let timeout = self.now().checked_add(timeout).expect("timeout too large");
+            self.waiting
+                .insert(from, StageEffect::Call(to, timeout, (), recv, id));
+        } else {
+            self.runnable.push_back((from, StageResponse::Unit));
+        }
+
         Ok(())
     }
 
@@ -578,24 +612,20 @@ impl SimulationRunning {
     /// Resume an [`Effect::Call`].
     ///
     /// If `msg` is `None`, the call has timed out.
-    pub fn resume_call<Msg, St>(
+    pub fn resume_call<Msg, St, Resp: Message>(
         &mut self,
         at_stage: &StageRef<Msg, St>,
-        msg: Option<Box<dyn Message>>,
+        call: &CallRef<Resp>,
     ) -> anyhow::Result<()> {
-        self.resume_call_internal(at_stage.name(), msg)
+        self.resume_call_internal(at_stage.name(), call.id)
     }
 
-    fn resume_call_internal(
-        &mut self,
-        at_stage: Name,
-        msg: Option<Box<dyn Message>>,
-    ) -> anyhow::Result<()> {
+    fn resume_call_internal(&mut self, at_stage: Name, id: CallId) -> anyhow::Result<()> {
         let waiting_for = self.waiting.get(&at_stage).ok_or_else(|| {
             anyhow::anyhow!("stage `{}` was not waiting for any effect", at_stage)
         })?;
 
-        if !matches!(waiting_for, StageEffect::Call(..)) {
+        if !matches!(waiting_for, StageEffect::Call(_,_,_,_,id2) if id2 == &id) {
             anyhow::bail!(
                 "stage `{}` was not waiting for a call effect, but {:?}",
                 at_stage,
@@ -604,13 +634,18 @@ impl SimulationRunning {
         }
 
         // it is important that all validations (i.e. `?``) happen before this point
-        self.waiting.remove(&at_stage);
+        let Some(StageEffect::Call(_name, _timeout, _msg, mut recv, _id)) =
+            self.waiting.remove(&at_stage)
+        else {
+            panic!("match is guaranteed by the validation above");
+        };
+        let msg = recv
+            .try_recv()
+            .ok()
+            .map(StageResponse::CallResponse)
+            .unwrap_or(StageResponse::CallTimeout);
 
-        self.runnable.push_back((
-            at_stage,
-            msg.map(StageResponse::CallResponse)
-                .unwrap_or(StageResponse::CallTimeout),
-        ));
+        self.runnable.push_back((at_stage, msg));
         Ok(())
     }
 
@@ -640,6 +675,12 @@ impl SimulationRunning {
         self.runnable.push_back((at_stage, StageResponse::Unit));
         Ok(())
     }
+}
+
+fn duration_to_nanos(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_nanos())
+        .expect("duration too large")
+        .max(1)
 }
 
 fn block_reason(sim: &SimulationRunning) -> Blocked {
@@ -704,43 +745,70 @@ fn simulation_invariants() {
     let mut sim = network.run();
 
     let ops: [(
-        Box<dyn Fn(&Effect) -> bool>,
+        Box<dyn Fn(&Effect) -> Option<CallId>>,
         Box<
             dyn Fn(
                 &mut SimulationRunning,
                 &StageRef<Option<CallRef<()>>, bool>,
+                CallId,
             ) -> anyhow::Result<()>,
         >,
         &'static str,
     ); 6] = [
         (
-            Box::new(|eff: &Effect| matches!(eff, Effect::Receive { .. })),
-            Box::new(|sim, stage| sim.resume_receive(stage)),
+            Box::new(|eff: &Effect| {
+                matches!(eff, Effect::Receive { .. }).then(|| CallId::from_u64(0))
+            }),
+            Box::new(|sim, stage, _id| sim.resume_receive(stage)),
             "resume_receive",
         ),
         (
-            Box::new(|eff: &Effect| matches!(eff, Effect::Send { .. })),
-            Box::new(|sim, stage| sim.resume_send(stage, stage, None)),
+            Box::new(|eff: &Effect| {
+                // note that this also matches in the Call case, which is correct;
+                // resume_send will advance the stage to await the response
+                matches!(eff, Effect::Send { .. }).then(|| CallId::from_u64(1))
+            }),
+            Box::new(|sim, stage, _id| sim.resume_send(stage, stage, None)),
             "resume_send",
         ),
         (
-            Box::new(|eff: &Effect| matches!(eff, Effect::Clock { .. })),
-            Box::new(|sim, stage| sim.resume_clock(stage, Instant::now())),
+            Box::new(|eff: &Effect| {
+                matches!(eff, Effect::Clock { .. }).then(|| CallId::from_u64(2))
+            }),
+            Box::new(|sim, stage, _id| sim.resume_clock(stage, Instant::now())),
             "resume_clock",
         ),
         (
-            Box::new(|eff: &Effect| matches!(eff, Effect::Wait { .. })),
-            Box::new(|sim, stage| sim.resume_wait(stage, Instant::now())),
+            Box::new(|eff: &Effect| {
+                matches!(eff, Effect::Wait { .. }).then(|| CallId::from_u64(3))
+            }),
+            Box::new(|sim, stage, _id| sim.resume_wait(stage, Instant::now())),
             "resume_wait",
         ),
         (
-            Box::new(|eff: &Effect| matches!(eff, Effect::Call { .. })),
-            Box::new(|sim, stage| sim.resume_call(stage, None)),
+            Box::new(|eff: &Effect| match eff {
+                Effect::Send {
+                    msg,
+                    timeout: Some(_),
+                    ..
+                } => Some(
+                    cast_msg_ref::<Option<CallRef<()>>>(&**msg)
+                        .unwrap()
+                        .as_ref()
+                        .unwrap()
+                        .id,
+                ),
+                _ => None,
+            }),
+            // resume_call works because resume_send from the second item has already been called
+            Box::new(|sim, stage, id| sim.resume_call_internal(stage.name(), id)),
             "resume_call",
         ),
         (
-            Box::new(|eff: &Effect| matches!(eff, Effect::Interrupt { .. })),
-            Box::new(|sim, stage| sim.resume_interrupt(stage)),
+            Box::new(|eff: &Effect| {
+                matches!(eff, Effect::Interrupt { .. }).then(|| CallId::from_u64(5))
+            }),
+            Box::new(|sim, stage, _id| sim.resume_interrupt(stage)),
             "resume_interrupt",
         ),
     ];
@@ -759,20 +827,20 @@ fn simulation_invariants() {
         };
         tracing::info!("effect {:?}", effect);
         assert!(
-            ops[idx].0(&effect),
+            ops[idx].0(&effect).is_some(),
             "effect {effect:?} should match predicate for `{idx}`"
         );
         for (pred, op, name) in &ops {
-            if !pred(&effect) {
+            if pred(&effect).is_none() {
                 tracing::info!("op `{}` should not work", name);
-                op(&mut sim, &stage).unwrap_err();
+                op(&mut sim, &stage, CallId::from_u64(0)).unwrap_err();
                 sim.invariants();
             }
         }
         for (pred, op, name) in &ops {
-            if pred(&effect) {
+            if let Some(id) = pred(&effect) {
                 tracing::info!("op `{}` should work", name);
-                op(&mut sim, &stage).unwrap();
+                op(&mut sim, &stage, id).unwrap();
                 sim.invariants();
             }
         }

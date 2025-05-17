@@ -1,5 +1,5 @@
 use super::Instant;
-use crate::{Message, Name, StageRef};
+use crate::{CallId, Message, Name, StageRef};
 use std::{any::Any, fmt::Debug, time::Duration};
 use tokio::sync::oneshot;
 
@@ -8,10 +8,21 @@ use tokio::sync::oneshot;
 #[derive(Debug)]
 pub(crate) enum StageEffect<T> {
     Receive,
-    Send(Name, T),
+    Send(
+        Name,
+        T,
+        // this is present in case the send is the first part of a call effect
+        Option<(Duration, oneshot::Receiver<Box<dyn Message>>, CallId)>,
+    ),
     Clock,
     Wait(Duration),
-    Call(Name, Duration, T, oneshot::Receiver<Box<dyn Message>>),
+    Call(
+        Name,
+        Instant,
+        T,
+        oneshot::Receiver<Box<dyn Message>>,
+        CallId,
+    ),
     Interrupt,
 }
 
@@ -31,14 +42,18 @@ impl StageEffect<Box<dyn Message>> {
     pub fn to_effect(self, at_name: Name) -> (StageEffect<()>, Effect) {
         match self {
             StageEffect::Receive => (StageEffect::Receive, Effect::Receive { at_stage: at_name }),
-            StageEffect::Send(name, msg) => (
-                StageEffect::Send(name.clone(), ()),
-                Effect::Send {
-                    from: at_name,
-                    to: name,
-                    msg,
-                },
-            ),
+            StageEffect::Send(name, msg, call) => {
+                let timeout = call.as_ref().map(|(duration, _, _)| *duration);
+                (
+                    StageEffect::Send(name.clone(), (), call),
+                    Effect::Send {
+                        from: at_name,
+                        to: name,
+                        msg,
+                        timeout,
+                    },
+                )
+            }
             StageEffect::Clock => (StageEffect::Clock, Effect::Clock { at_stage: at_name }),
             StageEffect::Wait(duration) => (
                 StageEffect::Wait(duration),
@@ -47,8 +62,8 @@ impl StageEffect<Box<dyn Message>> {
                     duration,
                 },
             ),
-            StageEffect::Call(name, timeout, msg, receiver) => (
-                StageEffect::Call(name.clone(), timeout, (), receiver),
+            StageEffect::Call(name, timeout, msg, receiver, id) => (
+                StageEffect::Call(name.clone(), timeout, (), receiver, id),
                 Effect::Call {
                     at_stage: at_name,
                     target: name,
@@ -73,6 +88,7 @@ pub enum Effect {
         from: Name,
         to: Name,
         msg: Box<dyn Message>,
+        timeout: Option<Duration>,
     },
     Clock {
         at_stage: Name,
@@ -84,7 +100,7 @@ pub enum Effect {
     Call {
         at_stage: Name,
         target: Name,
-        timeout: Duration,
+        timeout: Instant,
         msg: Box<dyn Message>,
     },
     Interrupt {
@@ -121,12 +137,18 @@ impl Effect {
         at_stage: &StageRef<Msg1, St1>,
         target: &StageRef<Msg2, St2>,
         msg: Msg2,
+        timeout: Option<Duration>,
     ) {
         match self {
-            Effect::Send { from, to, msg: m }
-                if from == &at_stage.name
-                    && to == &target.name
-                    && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg => {}
+            Effect::Send {
+                from,
+                to,
+                msg: m,
+                timeout: t,
+            } if from == &at_stage.name
+                && to == &target.name
+                && (&**m as &dyn Any).downcast_ref::<Msg2>().unwrap() == &msg
+                && *t == timeout => {}
             _ => panic!("unexpected effect {self:?}"),
         }
     }
@@ -142,13 +164,24 @@ impl PartialEq for Effect {
                 },
             ) => at_stage == other_at_stage,
             (
-                Effect::Send { from, to, msg },
+                Effect::Send {
+                    from,
+                    to,
+                    msg,
+                    timeout,
+                },
                 Effect::Send {
                     from: other_from,
                     to: other_to,
                     msg: other_msg,
+                    timeout: other_timeout,
                 },
-            ) => from == other_from && to == other_to && msg.eq(&**other_msg),
+            ) => {
+                from == other_from
+                    && to == other_to
+                    && msg.eq(&**other_msg)
+                    && *timeout == *other_timeout
+            }
             (
                 Effect::Clock { at_stage },
                 Effect::Clock {

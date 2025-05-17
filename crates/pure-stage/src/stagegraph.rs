@@ -3,14 +3,23 @@ use crate::{
     simulation::{airlock_effect, EffectBox, Instant, StageEffect, StageResponse},
     BoxFuture, Message, Name, StageBuildRef, StageRef, State,
 };
-use std::{fmt::Debug, future::Future, marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    fmt::Debug,
+    future::Future,
+    marker::PhantomData,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 use tokio::sync::oneshot;
 
 pub struct Effects<M, S> {
     me: StageRef<M, S>,
     effect: EffectBox,
     now: Arc<dyn Fn() -> Instant + Send + Sync>,
-    call_responded: Arc<dyn Fn(&Name) + Send + Sync>,
+    call_responded: Arc<dyn Fn(&Name, CallId) + Send + Sync>,
 }
 
 impl<M, S> Clone for Effects<M, S> {
@@ -38,7 +47,7 @@ impl<M: Message, S> Effects<M, S> {
         me: StageRef<M, S>,
         effect: EffectBox,
         now: Arc<dyn Fn() -> Instant + Send + Sync>,
-        call_responded: Arc<dyn Fn(&Name) + Send + Sync>,
+        call_responded: Arc<dyn Fn(&Name, CallId) + Send + Sync>,
     ) -> Self {
         Self {
             me,
@@ -59,7 +68,7 @@ impl<M: Message, S> Effects<M, S> {
     ) -> BoxFuture<'static, ()> {
         airlock_effect(
             &self.effect,
-            StageEffect::Send(target.name(), Box::new(msg)),
+            StageEffect::Send(target.name(), Box::new(msg), None),
             |_eff| Some(()),
         )
     }
@@ -93,21 +102,21 @@ impl<M: Message, S> Effects<M, S> {
         let deadline = now.checked_add(timeout).expect("timeout too long");
         let target = target.name();
         let me = self.me.name();
+        let id = CallId::new();
+
+        let msg = Box::new(msg(CallRef {
+            target: me,
+            id,
+            deadline,
+            response,
+            now: self.now.clone(),
+            call_responded: self.call_responded.clone(),
+            _ph: PhantomData,
+        }));
+
         airlock_effect(
             &self.effect,
-            StageEffect::Call(
-                target,
-                timeout,
-                Box::new(msg(CallRef {
-                    target: me,
-                    deadline,
-                    response,
-                    now: self.now.clone(),
-                    call_responded: self.call_responded.clone(),
-                    _ph: PhantomData,
-                })),
-                recv,
-            ),
+            StageEffect::Send(target, msg, Some((timeout, recv, id))),
             |eff| match eff {
                 Some(StageResponse::CallResponse(resp)) => Some(Some(
                     cast_msg::<Resp>(resp).expect("internal messaging type error"),
@@ -119,14 +128,30 @@ impl<M: Message, S> Effects<M, S> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct CallId(u64);
+
+impl CallId {
+    fn new() -> Self {
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        Self(COUNTER.fetch_add(1, Ordering::Relaxed))
+    }
+
+    #[cfg(test)]
+    pub(crate) fn from_u64(u: u64) -> Self {
+        Self(u)
+    }
+}
+
 pub struct CallRef<Resp: Message> {
     pub(crate) target: Name,
+    pub(crate) id: CallId,
     pub(crate) deadline: Instant,
     pub(crate) response: oneshot::Sender<Box<dyn Message>>,
     /// function to obtain the current time
     pub(crate) now: Arc<dyn Fn() -> Instant + Send + Sync>,
     /// function to notify the calling stage that the call has been responded to
-    pub(crate) call_responded: Arc<dyn Fn(&Name) + Send + Sync>,
+    pub(crate) call_responded: Arc<dyn Fn(&Name, CallId) + Send + Sync>,
     _ph: PhantomData<Resp>,
 }
 
@@ -154,6 +179,7 @@ impl<Resp: Message> CallRef<Resp> {
     pub fn send(self, resp: Resp) {
         let Self {
             target,
+            id,
             deadline,
             response,
             now,
@@ -168,7 +194,7 @@ impl<Resp: Message> CallRef<Resp> {
                 deadline.pretty(now())
             );
         }
-        call_responded(&target);
+        call_responded(&target, id);
     }
 }
 
@@ -197,13 +223,13 @@ impl<Resp: Message> CallRef<Resp> {
 ///         eff.send(&out, state).await;
 ///         Ok((state, out))
 ///     },
-///     (1u32, StageRef::<u32, ()>::noop()),
+///     (1u32, StageRef::noop::<u32>()),
 /// );
 /// // this is a feature of the SimulationBuilder
 /// let (output, mut rx) = network.output("output");
 ///
 /// // phase 2: wire up stages by injecting targets into their state
-/// let stage = network.wire_up(stage, |state| state.1 = output);
+/// let stage = network.wire_up(stage, |state| state.1 = output.without_state());
 ///
 /// // finalize the network and run it (or make it controllable, in case of SimulationBuilder)
 /// let mut running = network.run();

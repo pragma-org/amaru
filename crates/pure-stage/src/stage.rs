@@ -11,7 +11,7 @@ pub struct StageBuildRef<Msg, St, RefAux> {
 
 impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
     /// Derive the handle that can later be used for sending messages to this stage.
-    pub fn sender(&self) -> StageRef<Msg, ()> {
+    pub fn sender(&self) -> StageRef<Msg, Void> {
         StageRef {
             name: self.name.clone(),
             _ph: PhantomData,
@@ -50,13 +50,25 @@ impl<Msg, State> StageRef<Msg, State> {
         self.name.clone()
     }
 
+    pub fn without_state(&self) -> StageRef<Msg, Void> {
+        StageRef {
+            name: self.name.clone(),
+            _ph: PhantomData,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum Void {}
+
+impl StageRef<(), ()> {
     /// Create a placeholder handle during the stage creation phase of [`StageGraph`](crate::StageGraph)
     /// construction, to initialize the stage state with a value that will later be replaced during
     /// the wiring phase of StageGraph construction.
     ///
     /// If you attempt to use this handle to send messages, it will panic.
-    pub fn noop() -> Self {
-        Self {
+    pub fn noop<Msg>() -> StageRef<Msg, Void> {
+        StageRef {
             name: Name::from("noop"),
             _ph: PhantomData,
         }

@@ -1,6 +1,6 @@
 use pure_stage::{
     simulation::{Blocked, SimulationBuilder},
-    Name, StageGraph, StageRef,
+    CallRef, Name, StageGraph, StageRef,
 };
 use std::time::Duration;
 use tracing_subscriber::EnvFilter;
@@ -15,10 +15,10 @@ fn basic() {
             eff.send(&out, state).await;
             Ok((state, out))
         },
-        (1u32, StageRef::<u32, ()>::noop()),
+        (1u32, StageRef::noop::<u32>()),
     );
     let (output, mut rx) = network.output("output");
-    let stage = network.wire_up(stage, |state| state.1 = output.clone());
+    let stage = network.wire_up(stage, |state| state.1 = output.without_state());
     let mut running = network.run();
 
     // first check that the stages start out suspended on Receive
@@ -27,7 +27,7 @@ fn basic() {
     // then insert some input and check reaction
     running.enqueue_msg(&stage, [1]);
     running.resume_receive(&stage).unwrap();
-    running.effect().assert_send(&stage, &output, 2u32);
+    running.effect().assert_send(&stage, &output, 2u32, None);
     running.resume_send(&stage, &output, 2u32).unwrap();
     running.effect().assert_receive(&stage);
 
@@ -47,10 +47,10 @@ fn automatic() {
             eff.send(&out, state).await;
             Ok((state, out))
         },
-        (1u32, StageRef::<u32, ()>::noop()),
+        (1u32, StageRef::noop::<u32>()),
     );
     let (output, mut rx) = network.output("output");
-    let stage = network.wire_up(stage, |state| state.1 = output);
+    let stage = network.wire_up(stage, |state| state.1 = output.without_state());
     let mut running = network.run();
 
     running.enqueue_msg(&stage, [1, 2, 3]);
@@ -103,7 +103,7 @@ fn backpressure() {
             eff.send(&target, msg).await;
             Ok(target)
         },
-        StageRef::<u32, ()>::noop(),
+        StageRef::noop::<u32>(),
     );
 
     let pressure = network.stage(
@@ -189,4 +189,38 @@ fn clock_manual() {
         &Some((42u32, now, later))
     );
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
+}
+
+#[test]
+fn call() {
+    let mut network = SimulationBuilder::default();
+    let caller = network.stage(
+        "caller",
+        async |(_state, target), msg: u32, eff| {
+            let state = eff
+                .call(&target, Duration::from_secs(1), move |cr| (msg + 1, cr))
+                .await
+                .ok_or_else(|| anyhow::anyhow!("call timed out"))?;
+            Ok((state, target))
+        },
+        (1u32, StageRef::noop::<(u32, CallRef<u32>)>()),
+    );
+
+    let callee = network.stage(
+        "callee",
+        async |state, msg: (u32, CallRef<u32>), eff| {
+            eff.wait(Duration::from_secs(1)).await;
+            msg.1.send(msg.0 * 2);
+            Ok(state)
+        },
+        (),
+    );
+    let caller = network.wire_up(caller, |state| state.1 = callee.sender());
+    let _callee = network.wire_up(callee, |_| {});
+
+    let mut running = network.run();
+
+    running.enqueue_msg(&caller, [1]);
+    running.run_until_blocked().assert_idle();
+    assert_eq!(running.get_state(&caller).unwrap().0, 4);
 }

@@ -1,7 +1,7 @@
 #![allow(clippy::wildcard_enum_match_arm, clippy::unwrap_used, clippy::panic)]
 
 use crate::{
-    cast_msg, BoxFuture, Effects, Message, Name, StageBuildRef, StageGraph, StageRef, State,
+    cast_msg, BoxFuture, CallId, Effects, Message, Name, StageBuildRef, StageGraph, StageRef, State,
 };
 use std::{
     any::Any,
@@ -92,10 +92,10 @@ pub(crate) fn airlock_effect<Out>(
 ///         eff.send(&out, state).await;
 ///         Ok((state, out))
 ///     },
-///     (1u32, StageRef::<u32, ()>::noop()),
+///     (1u32, StageRef::noop::<u32>()),
 /// );
 /// let (output, mut rx) = network.output("output");
-/// let stage = network.wire_up(stage, |state| state.1 = output.clone());
+/// let stage = network.wire_up(stage, |state| state.1 = output.without_state());
 /// let mut running = network.run();
 ///
 /// // first check that the stages start out suspended on Receive
@@ -104,7 +104,7 @@ pub(crate) fn airlock_effect<Out>(
 /// // then insert some input and check reaction
 /// running.enqueue_msg(&stage, [1]);
 /// running.resume_receive(&stage).unwrap();
-/// running.effect().assert_send(&stage, &output, 2u32);
+/// running.effect().assert_send(&stage, &output, 2u32, None);
 /// running.resume_send(&stage, &output, 2u32).unwrap();
 /// running.effect().assert_receive(&stage);
 ///
@@ -118,7 +118,8 @@ pub struct SimulationBuilder {
     effect: EffectBox,
     clock: Arc<AtomicU64>,
     now: Arc<dyn Fn() -> Instant + Send + Sync>,
-    call_responded: Arc<dyn Fn(&Name) + Send + Sync>,
+    call_responded: Arc<dyn Fn(&Name, CallId) + Send + Sync>,
+    responded: Arc<Mutex<Vec<(Name, CallId)>>>,
     mailbox_size: usize,
 }
 
@@ -137,12 +138,22 @@ impl Default for SimulationBuilder {
         let now = Arc::new(move || {
             Instant::from_tokio(clock_base + Duration::from_nanos(clock2.load(Ordering::Relaxed)))
         });
+
+        let responded = Arc::new(Mutex::new(Vec::new()));
+        let responded2 = responded.clone();
+
+        let call_responded = Arc::new(move |name: &Name, id: CallId| {
+            let mut responded = responded2.lock();
+            responded.push((name.clone(), id));
+        });
+
         Self {
             stages: Default::default(),
             effect: Default::default(),
             clock,
             now,
-            call_responded: Arc::new(|_| {}),
+            call_responded,
+            responded,
             mailbox_size: 10,
         }
     }
@@ -298,6 +309,7 @@ impl super::StageGraph for SimulationBuilder {
             clock,
             now,
             call_responded: _,
+            responded,
             mailbox_size,
         } = self;
         let mut stages = HashMap::new();
@@ -321,6 +333,6 @@ impl super::StageGraph for SimulationBuilder {
             };
             stages.insert(name.clone(), data);
         }
-        SimulationRunning::new(stages, effect, clock, now, mailbox_size)
+        SimulationRunning::new(stages, effect, clock, now, responded, mailbox_size)
     }
 }
