@@ -41,6 +41,7 @@ docker-compose -f monitoring/jaeger/docker-compose.yml up
 ```console
 cargo run --release -- daemon \
   --peer-address=127.0.0.1:3000 \
+  --listen-address=0.0.0.0:3001 \
   --network=preprod
 ```
 
