@@ -1,8 +1,21 @@
-use crate::{BoxFuture, Message, Name, StageBuildRef, StageGraph, StageRef, State};
-use std::{future::Future, marker::PhantomData, sync::Arc};
+use crate::{
+    cast_msg,
+    effect::{StageEffect, StageResponse},
+    simulation::EffectBox,
+    BoxFuture, Effects, Instant, Message, Name, StageBuildRef, StageGraph, StageRef, State,
+};
+use either::Either::{Left, Right};
+use parking_lot::Mutex;
+use std::{
+    collections::HashMap,
+    future::Future,
+    marker::PhantomData,
+    sync::Arc,
+    task::{Context, Poll, Waker},
+};
 use tokio::{
     spawn,
-    sync::mpsc::{channel, Receiver},
+    sync::mpsc::{self, Receiver},
     task::JoinHandle,
 };
 
@@ -12,20 +25,30 @@ pub struct SendError {
     target: Name,
 }
 
+struct TokioInner {
+    senders: HashMap<Name, mpsc::Sender<Box<dyn Message>>>,
+    mailbox_size: usize,
+}
+
 /// A [`StageGraph`] implementation that dispatches each stage as a task on the Tokio global pool.
 ///
 /// *This is currently only a minimal sketch that will likely not fit the intended design.
 /// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::simulation::SimulationBuilder)
 /// implementation.*
 pub struct TokioBuilder {
-    tasks: Vec<BoxFuture<'static, anyhow::Result<()>>>,
+    tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, anyhow::Result<()>>>>,
+    inner: TokioInner,
 }
 
 impl StageGraph for TokioBuilder {
     type Running = TokioRunning;
     type RefAux<Msg, State> = (
-        Receiver<Msg>,
-        Box<dyn FnMut(State, Msg) -> BoxFuture<'static, anyhow::Result<State>> + 'static + Send>,
+        Receiver<Box<dyn Message>>,
+        Box<
+            dyn FnMut(State, Msg, Effects<Msg, State>) -> BoxFuture<'static, anyhow::Result<State>>
+                + 'static
+                + Send,
+        >,
     );
 
     fn stage<Msg: Message, St: State, F, Fut>(
@@ -35,24 +58,23 @@ impl StageGraph for TokioBuilder {
         state: St,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
-        F: FnMut(St, Msg) -> Fut + 'static + Send,
+        F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
         Fut: Future<Output = anyhow::Result<St>> + 'static + Send,
     {
         let name = Name::from(name.as_ref());
-        let (tx, rx) = channel(10);
+        if self.inner.senders.contains_key(&name) {
+            panic!("stage named `{name}` already exists");
+        }
+        let (tx, rx) = mpsc::channel(self.inner.mailbox_size / 2);
+        self.inner.senders.insert(name.clone(), tx);
         StageBuildRef {
-            name: name.clone(),
+            name,
             state,
-            network: (rx, Box::new(move |state, msg| Box::pin(f(state, msg)))),
-            send: Arc::new(move |msg| {
-                let tx = tx.clone();
-                let target = name.clone();
-                Box::pin(async move {
-                    tx.send(msg)
-                        .await
-                        .map_err(|_| anyhow::Error::from(SendError { target }))
-                })
-            }),
+            network: (
+                rx,
+                Box::new(move |state, msg, eff| Box::pin(f(state, msg, eff))),
+            ),
+            _ph: PhantomData,
         }
     }
 
@@ -65,29 +87,119 @@ impl StageGraph for TokioBuilder {
             name,
             mut state,
             network: (mut rx, mut ff),
-            send,
+            _ph,
         } = stage;
         f(&mut state);
         let stage_name = name.clone();
-        self.tasks.push(Box::pin(async move {
-            while let Some(msg) = rx.recv().await {
-                state = ff(state, msg).await.inspect_err(|err| {
-                    tracing::error!("stage `{}` error: {:?}", stage_name, err);
-                })?;
-            }
-            Ok(())
+        self.tasks.push(Box::new(move |inner| {
+            Box::pin(async move {
+                let me = StageRef {
+                    name: stage_name.clone(),
+                    _ph: PhantomData,
+                };
+                let effect = Arc::new(Mutex::new(None));
+                let now = Arc::new(|| Instant::from_tokio(tokio::time::Instant::now()));
+                let effects = Effects::new(me, effect.clone(), now);
+                while let Some(msg) = rx.recv().await {
+                    state = interpreter(
+                        &inner,
+                        &effect,
+                        &stage_name,
+                        ff(
+                            state,
+                            cast_msg(msg).expect("internal message type error"),
+                            effects.clone(),
+                        ),
+                    )
+                    .await
+                    .inspect_err(|err| {
+                        tracing::error!("stage `{}` error: {:?}", stage_name, err);
+                    })?;
+                }
+                Ok(())
+            })
         }));
         StageRef {
             name,
-            send,
             _ph: PhantomData,
         }
     }
 
     fn run(self) -> Self::Running {
-        let handles = self.tasks.into_iter().map(spawn).collect();
+        let Self { tasks, inner } = self;
+        let inner = Arc::new(inner);
+        let handles = tasks.into_iter().map(|t| spawn(t(inner.clone()))).collect();
         TokioRunning { handles }
     }
+}
+
+async fn interpreter<St>(
+    inner: &TokioInner,
+    effect: &EffectBox,
+    name: &Name,
+    mut stage: BoxFuture<'static, anyhow::Result<St>>,
+) -> anyhow::Result<St> {
+    loop {
+        let poll = stage.as_mut().poll(&mut Context::from_waker(Waker::noop()));
+        if let Poll::Ready(state) = poll {
+            return state;
+        }
+        let Some(Left(eff)) = effect.lock().take() else {
+            panic!("stage `{name}` used .await on something that was not a stage effect");
+        };
+        let resp = match eff {
+            StageEffect::Receive => {
+                panic!("effect Receive cannot be explicitly awaited (stage `{name}`)")
+            }
+            StageEffect::Send(name, msg, call) => {
+                let tx = inner
+                    .senders
+                    .get(&name)
+                    .expect("stage ref contained unknown name");
+                tx.send(msg).await.map_err(|_| SendError {
+                    target: name.clone(),
+                })?;
+                if let Some((d, rx, _id)) = call {
+                    tokio::time::timeout(d, rx)
+                        .await
+                        .ok()
+                        .and_then(|r| r.ok())
+                        .map(StageResponse::CallResponse)
+                        .unwrap_or(StageResponse::CallTimeout)
+                } else {
+                    StageResponse::Unit
+                }
+            }
+            StageEffect::Clock => StageResponse::ClockResponse(now()),
+            StageEffect::Wait(duration) => {
+                tokio::time::sleep(duration).await;
+                StageResponse::WaitResponse(now())
+            }
+            StageEffect::Call(..) => {
+                panic!("StageEffect::Call cannot be explicitly awaited (stage `{name}`")
+            }
+            StageEffect::Respond(target, _call_id, deadline, sender, msg) => {
+                if let Err(msg) = sender.send(msg) {
+                    tracing::warn!(
+                        "response to {} was dropped: {:?} (deadline: {})",
+                        target,
+                        msg,
+                        deadline.pretty(now())
+                    );
+                }
+                StageResponse::Unit
+            }
+            StageEffect::Interrupt => {
+                tracing::debug!("stage `{name}` interrupt");
+                StageResponse::Unit
+            }
+        };
+        *effect.lock() = Some(Right(resp));
+    }
+}
+
+fn now() -> Instant {
+    Instant::from_tokio(tokio::time::Instant::now())
 }
 
 /// Handle to the running stages.
