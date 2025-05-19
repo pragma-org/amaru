@@ -1,4 +1,5 @@
-use crate::{BoxFuture, Message, State};
+use super::StageEffect;
+use crate::{BoxFuture, Message, Name, State};
 use std::{collections::VecDeque, fmt};
 
 pub enum InitStageState {
@@ -45,7 +46,10 @@ impl fmt::Debug for StageState {
 }
 
 pub struct StageData {
+    pub name: Name,
     pub mailbox: VecDeque<Box<dyn Message>>,
     pub state: StageState,
     pub transition: Transition,
+    pub waiting: Option<StageEffect<()>>,
+    pub senders: VecDeque<(Name, Box<dyn Message>)>,
 }

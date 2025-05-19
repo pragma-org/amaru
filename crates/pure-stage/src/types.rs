@@ -45,6 +45,23 @@ pub fn cast_msg<T: Message>(this: Box<dyn Message>) -> anyhow::Result<T> {
     }
 }
 
+/// Cast a message to a given concrete type, yielding an informative error otherwise
+pub fn cast_msg_ref<T: Message>(this: &dyn Message) -> anyhow::Result<&T> {
+    if (this as &dyn Any).is::<T>() {
+        #[allow(clippy::expect_used)]
+        Ok((this as &dyn Any)
+            .downcast_ref::<T>()
+            .expect("checked above"))
+    } else {
+        anyhow::bail!(
+            "message type error: expected {}, got {:?} ({})",
+            std::any::type_name::<T>(),
+            this,
+            this.type_name()
+        )
+    }
+}
+
 /// Type constraint for messages, which must be self-contained and have a `Debug` instance.
 ///
 /// It is not possible to require an implementation of `PartialEq<Box<dyn Message>>`, but it
@@ -85,7 +102,7 @@ pub fn cast_state<T: State>(this: &dyn State) -> anyhow::Result<&T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct Name(String);
 
 impl Name {
