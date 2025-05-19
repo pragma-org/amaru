@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use tracing::Span;
 use crate::{Point, RawBlock};
+use tracing::Span;
 
 #[derive(Debug, Clone)]
 pub enum ValidateBlockEvent {
@@ -30,7 +30,17 @@ pub enum ValidateBlockEvent {
 
 #[derive(Debug, Clone)]
 pub enum BlockValidationResult {
-    BlockValidated { point: Point, block: RawBlock, span: Span },
-    BlockValidationFailed { point: Point, span: Span },
-    RolledBackTo { rollback_point: Point, span: Span },
+    BlockValidated {
+        point: Point,
+        block: RawBlock,
+        span: Span,
+    },
+    BlockValidationFailed {
+        point: Point,
+        span: Span,
+    },
+    RolledBackTo {
+        rollback_point: Point,
+        span: Span,
+    },
 }

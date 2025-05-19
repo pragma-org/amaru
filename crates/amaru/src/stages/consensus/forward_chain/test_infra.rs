@@ -93,12 +93,16 @@ impl ChainStore<Header> for TestStore {
         unimplemented!()
     }
 
-    fn load_block(&self, hash: &Hash<32>) -> Option<amaru_kernel::RawBlock> {
-        todo!()
+    fn load_block(&self, _hash: &Hash<32>) -> Option<amaru_kernel::RawBlock> {
+        unimplemented!()
     }
 
-    fn store_block(&mut self, hash: &Hash<32>, block: &amaru_kernel::RawBlock) -> Result<(), StoreError> {
-        todo!()
+    fn store_block(
+        &mut self,
+        _hash: &Hash<32>,
+        _block: &amaru_kernel::RawBlock,
+    ) -> Result<(), StoreError> {
+        unimplemented!()
     }
 }
 
@@ -212,11 +216,10 @@ impl Setup {
         let point = self.store.get(&hash(s)).unwrap().point();
         let span = tracing::debug_span!("whatever");
         let f = self.block.send(
-
             BlockValidationResult::BlockValidated {
                 point: point.clone(),
                 span,
-                block: vec![] // FIXME
+                block: vec![], // FIXME
             }
             .into(),
         );

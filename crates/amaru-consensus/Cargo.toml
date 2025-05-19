@@ -19,6 +19,7 @@ pallas-math.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
+tracing-opentelemetry.workspace = true
 tracing.workspace = true
 
 amaru-kernel.workspace = true

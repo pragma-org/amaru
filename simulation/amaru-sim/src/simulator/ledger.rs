@@ -243,11 +243,11 @@ mod test {
 
     impl ChainStore<Header> for FakeConsensusStore {
         fn load_header(&self, _hash: &Hash<32>) -> Option<Header> {
-            todo!()
+            unimplemented!()
         }
 
         fn store_header(&mut self, _hash: &Hash<32>, _header: &Header) -> Result<(), StoreError> {
-            todo!()
+            unimplemented!()
         }
 
         fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
@@ -263,12 +263,16 @@ mod test {
             NetworkName::Testnet(42).into()
         }
 
-        fn load_block(&self, hash: &Hash<32>) -> Option<amaru_kernel::RawBlock> {
-            todo!()
+        fn load_block(&self, _hash: &Hash<32>) -> Option<amaru_kernel::RawBlock> {
+            unimplemented!()
         }
 
-        fn store_block(&mut self, hash: &Hash<32>, block: &amaru_kernel::RawBlock) -> Result<(), StoreError> {
-            todo!()
+        fn store_block(
+            &mut self,
+            _hash: &Hash<32>,
+            _block: &amaru_kernel::RawBlock,
+        ) -> Result<(), StoreError> {
+            unimplemented!()
         }
     }
 

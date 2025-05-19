@@ -16,6 +16,8 @@ use crate::{consensus::store::ChainStore, ConsensusError};
 use amaru_kernel::{block::BlockValidationResult, Header, Point, RawBlock};
 use std::sync::Arc;
 use tokio::sync::Mutex;
+use tracing::{instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub struct StoreBlock {
     store: Arc<Mutex<dyn ChainStore<Header>>>,
@@ -34,23 +36,31 @@ impl StoreBlock {
             .map_err(|e| ConsensusError::StoreBlockFailed(point.clone(), e))
     }
 
+    #[instrument(level = Level::TRACE, skip_all)]
     pub async fn handle_event(
         &self,
         event: BlockValidationResult,
     ) -> Result<BlockValidationResult, ConsensusError> {
         match event {
             BlockValidationResult::BlockValidated { point, block, span } => {
+                Span::current().set_parent(span.context());
                 self.store(&point, &block).await?;
                 Ok(BlockValidationResult::BlockValidated { point, block, span })
-            },
+            }
             BlockValidationResult::BlockValidationFailed { point, span } => {
                 // No action needed for failed validation, just pass through the event
                 Ok(BlockValidationResult::BlockValidationFailed { point, span })
-            },
+            }
             BlockValidationResult::RolledBackTo {
                 rollback_point,
                 span,
-            } => todo!(),
+            } => {
+                // Just pass through the rollback event, no action needed
+                Ok(BlockValidationResult::RolledBackTo {
+                    rollback_point,
+                    span,
+                })
+            }
         }
     }
 }
@@ -84,28 +94,32 @@ mod tests {
             Ok(())
         }
 
-        fn load_header(&self, hash: &Hash<32>) -> Option<Header> {
-            todo!()
+        fn load_header(&self, _hash: &Hash<32>) -> Option<Header> {
+            unimplemented!()
         }
 
-        fn store_header(&mut self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
-            todo!()
+        fn store_header(&mut self, _hash: &Hash<32>, _header: &Header) -> Result<(), StoreError> {
+            unimplemented!()
         }
 
-        fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock> {
-            todo!()
+        fn load_block(&self, _hash: &Hash<32>) -> Option<RawBlock> {
+            unimplemented!()
         }
 
-        fn get_nonces(&self, header: &Hash<32>) -> Option<amaru_ouroboros::Nonces> {
-            todo!()
+        fn get_nonces(&self, _header: &Hash<32>) -> Option<amaru_ouroboros::Nonces> {
+            unimplemented!()
         }
 
-        fn put_nonces(&mut self, header: &Hash<32>, nonces: &amaru_ouroboros::Nonces) -> Result<(), StoreError> {
-            todo!()
+        fn put_nonces(
+            &mut self,
+            _header: &Hash<32>,
+            _nonces: &amaru_ouroboros::Nonces,
+        ) -> Result<(), StoreError> {
+            unimplemented!()
         }
 
         fn era_history(&self) -> &amaru_kernel::EraHistory {
-            todo!()
+            unimplemented!()
         }
     }
 
@@ -130,12 +144,12 @@ mod tests {
         // Call handle_event
         let result = store_block.handle_event(event).await;
 
-        // Since the implementation is todo!(), this will panic
+        // Since the implementation is unimplemented!(), this will panic
         // Once implemented, we would expect:
         assert!(result.is_ok());
+    }
 
-   }
-
+    #[allow(clippy::wildcard_enum_match_arm)]
     #[tokio::test]
     async fn test_handle_event_block_validation_failed() {
         // Setup
@@ -158,10 +172,47 @@ mod tests {
         assert!(result.is_ok());
         let result_event = result.unwrap();
         match result_event {
-            BlockValidationResult::BlockValidationFailed { point: result_point, span: _ } => {
+            BlockValidationResult::BlockValidationFailed {
+                point: result_point,
+                span: _,
+            } => {
                 assert_eq!(result_point, point);
-            },
+            }
             _ => panic!("Expected BlockValidationFailed event"),
         }
-   }
+    }
+
+    #[allow(clippy::wildcard_enum_match_arm)]
+    #[tokio::test]
+    async fn test_handle_event_rolled_back_to() {
+        // Setup
+        let mock_store = Arc::new(Mutex::new(MockChainStore::new()));
+        let store_block = StoreBlock::new(mock_store.clone());
+
+        // Create test data
+        let rollback_point = Point::Specific(100, Hash::from([2; 32]).to_vec());
+        let span = Span::current();
+
+        // Create a RolledBackTo event
+        let event = BlockValidationResult::RolledBackTo {
+            rollback_point: rollback_point.clone(),
+            span,
+        };
+
+        // Call handle_event
+        let result = store_block.handle_event(event).await;
+
+        // Verify the result
+        assert!(result.is_ok());
+        let result_event = result.unwrap();
+        match result_event {
+            BlockValidationResult::RolledBackTo {
+                rollback_point: result_point,
+                span: _,
+            } => {
+                assert_eq!(result_point, rollback_point);
+            }
+            _ => panic!("Expected RolledBackTo event"),
+        }
+    }
 }

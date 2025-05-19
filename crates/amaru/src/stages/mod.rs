@@ -14,7 +14,13 @@
 
 use amaru_consensus::{
     consensus::{
-        chain_selection::{ChainSelector, ChainSelectorBuilder}, select_chain::SelectChain, store::ChainStore, store_block::StoreBlock, store_header::StoreHeader, validate_header::ValidateHeader, ChainSyncEvent
+        chain_selection::{ChainSelector, ChainSelectorBuilder},
+        select_chain::SelectChain,
+        store::ChainStore,
+        store_block::StoreBlock,
+        store_header::StoreHeader,
+        validate_header::ValidateHeader,
+        ChainSyncEvent,
     },
     peer::Peer,
     ConsensusError, IsHeader,
@@ -24,7 +30,10 @@ use amaru_kernel::{
 };
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB, RocksDBHistoricalStores};
 use consensus::{
-    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage, receive_header::ReceiveHeaderStage, select_chain::SelectChainStage, store_block::StoreBlockStage, store_header::StoreHeaderStage, validate_header::ValidateHeaderStage
+    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
+    receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
+    store_block::StoreBlockStage, store_header::StoreHeaderStage,
+    validate_header::ValidateHeaderStage,
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},

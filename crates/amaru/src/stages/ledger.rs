@@ -1,4 +1,8 @@
-use amaru_kernel::{block::{BlockValidationResult, ValidateBlockEvent}, protocol_parameters::GlobalParameters, EraHistory, Hasher, MintedBlock, Point, RawBlock};
+use amaru_kernel::{
+    block::{BlockValidationResult, ValidateBlockEvent},
+    protocol_parameters::GlobalParameters,
+    EraHistory, Hasher, MintedBlock, Point, RawBlock,
+};
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
     rules::{

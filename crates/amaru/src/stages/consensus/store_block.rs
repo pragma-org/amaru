@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_consensus::consensus::{store_block::StoreBlock, DecodedChainSyncEvent};
+use amaru_consensus::consensus::store_block::StoreBlock;
 use amaru_kernel::block::BlockValidationResult;
 use gasket::framework::*;
 

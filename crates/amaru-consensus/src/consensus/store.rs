@@ -236,12 +236,12 @@ mod test {
             NetworkName::Preprod.into()
         }
 
-        fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock> {
-            todo!()
+        fn load_block(&self, _hash: &Hash<32>) -> Option<RawBlock> {
+            unimplemented!()
         }
 
-        fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
-            todo!()
+        fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
+            unimplemented!()
         }
     }
 
