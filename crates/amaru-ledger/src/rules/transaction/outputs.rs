@@ -71,10 +71,9 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        match output.has_datum() {
-            Some(DatumOption::Hash(hash)) => context.allow_supplemental_datum(hash),
-            None | Some(_) => {}
-        };
+        if let Some(DatumOption::Hash(hash)) = output.has_datum() {
+            context.allow_supplemental_datum(hash);
+        }
 
         // TODO: Ensures the validation context can work from references to avoid cloning data.
         yield_output(context, position as u64, TransactionOutput::from(output));
