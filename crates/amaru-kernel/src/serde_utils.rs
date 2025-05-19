@@ -74,7 +74,7 @@ impl From<TransactionOutputProxy> for TransactionOutput {
         Self::PostAlonzo(PostAlonzoTransactionOutput {
             address: proxy.address,
             value: Value::Coin(proxy.value.unwrap_or_default()),
-            datum_option: proxy.datum.map(|proxy| DatumOption::from(proxy)),
+            datum_option: proxy.datum.map(DatumOption::from),
             script_ref: proxy
                 .script_ref
                 .map(|proxy| CborWrap(ScriptRef::from(proxy))),

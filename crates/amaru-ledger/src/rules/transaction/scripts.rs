@@ -52,7 +52,7 @@ pub enum InvalidScripts {
 pub fn execute<C>(
     context: &mut C,
     reference_inputs: Option<&Vec<TransactionInput>>,
-    inputs: &Vec<TransactionInput>,
+    inputs: &[TransactionInput],
     witness_set: &MintedWitnessSet<'_>,
 ) -> Result<(), InvalidScripts>
 where
@@ -61,7 +61,7 @@ where
     let required_scripts = context.required_scripts();
 
     let resolved_inputs = inputs
-        .into_iter()
+        .iter()
         .filter_map(|input| {
             context
                 // We assume that the input exists as that's validated during the inputs validation
@@ -73,7 +73,7 @@ where
     let empty_vec = vec![];
     let resolved_reference_inputs = reference_inputs
         .unwrap_or(&empty_vec)
-        .into_iter()
+        .iter()
         .filter_map(|input| {
             context
                 // We assume that the reference input exists as that's validated during the inputs validation
