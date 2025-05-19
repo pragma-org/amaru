@@ -20,6 +20,7 @@ use amaru_kernel::{
     // instances for some types, and the macro rule handling that seems to be explicitly looking
     // for 'minicbor' in scope, and not an alias of any sort...
     cbor as minicbor,
+    protocol_parameters::ProtocolParameters,
     CertificatePointer,
     Epoch,
     Lovelace,
@@ -67,6 +68,9 @@ pub enum StoreError {
 // ----------------------------------------------------------------------------
 
 pub trait ReadOnlyStore {
+    /// Get the current protocol parameters for a given epoch, or most recent one
+    fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError>;
+
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
 
@@ -199,6 +203,13 @@ pub trait TransactionalContext<'a> {
     /// deposit.
     fn refund(&self, credential: &accounts::Key, deposit: Lovelace)
         -> Result<Lovelace, StoreError>;
+
+    /// Persist ProtocolParameters for a given epoch.
+    fn set_protocol_parameters(
+        &self,
+        epoch: &Epoch,
+        protocol_parameters: &ProtocolParameters,
+    ) -> Result<(), StoreError>;
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.
     fn with_pots(

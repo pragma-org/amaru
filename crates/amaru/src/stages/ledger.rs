@@ -1,6 +1,4 @@
-use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, EraHistory, Hasher, MintedBlock, Point,
-};
+use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Hasher, MintedBlock, Point};
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
     rules::{
@@ -9,13 +7,12 @@ use amaru_ledger::{
         parse_block,
     },
     state::{self, BackwardError, VolatileState},
-    store::{HistoricalStores, Store},
+    store::{HistoricalStores, Store, StoreError},
     BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 use anyhow::Context;
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
-use std::sync::Arc;
-use tracing::{instrument, Level, Span};
+use tracing::{error, instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
@@ -47,23 +44,24 @@ impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
-    pub fn new(store: S, snapshots: HS, era_history: &EraHistory) -> (Self, Point) {
-        let state = state::State::new(
-            Arc::new(std::sync::Mutex::new(store)),
-            snapshots,
-            era_history,
-        );
+    pub fn new(
+        store: S,
+        snapshots: HS,
+        era_history: EraHistory,
+        global_parameters: GlobalParameters,
+    ) -> Result<(Self, Point), StoreError> {
+        let state = state::State::new(store, snapshots, era_history, global_parameters)?;
 
         let tip = state.tip().into_owned();
 
-        (
+        Ok((
             Self {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
             },
             tip,
-        )
+        ))
     }
 
     fn create_validation_context(
@@ -109,18 +107,19 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         raw_block: RawBlock,
     ) -> anyhow::Result<Option<InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
-
         let mut context = self.create_validation_context(&block)?;
-
-        match rules::validate_block(&mut context, ProtocolParameters::default(), &block) {
+        let protocol_version = block.header.header_body.protocol_version;
+        match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
             BlockValidation::Err(err) => return Err(err),
             BlockValidation::Invalid(err) => {
+                error!("Block invalid: {:?}", err);
                 return Ok(Some(err));
             }
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-                self.state.forward(state.anchor(&point, issuer))?;
+                self.state
+                    .forward(protocol_version, state.anchor(&point, issuer))?;
                 Ok(None)
             }
         }

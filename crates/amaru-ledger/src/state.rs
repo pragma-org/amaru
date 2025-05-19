@@ -20,7 +20,7 @@ pub mod volatile_db;
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{
-        columns::pools, EpochTransitionProgress, HistoricalStores, Store, StoreError,
+        columns::pools, EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
         TransactionalContext,
     },
     summary::{
@@ -30,10 +30,11 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential, stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash,
-    Lovelace, MintedBlock, Point, PoolId, Slot, StakeCredential, TransactionInput,
-    TransactionOutput, CONSENSUS_SECURITY_PARAM, MAX_KES_EVOLUTION, PROTOCOL_VERSION_9,
-    SLOTS_PER_KES_PERIOD, STABILITY_WINDOW, STAKE_POOL_DEPOSIT,
+    expect_stake_credential,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash, Lovelace, MintedBlock,
+    Point, PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::TimeHorizonError;
@@ -60,7 +61,7 @@ const EVENT_TARGET: &str = "amaru::ledger::state";
 ///   blocks old; where 'k' is the security parameter of the protocol.
 ///
 /// - A _volatile_ state, which is maintained as a sequence of diff operations to be applied on
-///   top of the _stable_ store. It contains at most 'CONSENSUS_SECURITY_PARAM' entries; old entries
+///   top of the _stable_ store. It contains at most 'GlobalParameters::consensus_security_param' entries; old entries
 ///   get persisted in the stable storage when they are popped out of the volatile state.
 pub struct State<S, HS>
 where
@@ -98,46 +99,47 @@ where
     /// duplicate.
     stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
 
-    /// The era history for the network this store is related to
-    era_history: EraHistory,
+    /// The era history for the network this store is related to.
+    era_history: Arc<EraHistory>,
+
+    global_parameters: Arc<GlobalParameters>,
+
+    protocol_parameters: Arc<ProtocolParameters>,
 }
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
-    #[allow(clippy::unwrap_used)]
-    #[allow(clippy::panic)]
-    pub fn new(stable: Arc<Mutex<S>>, snapshots: HS, era_history: &EraHistory) -> Self {
-        let db = stable.lock().unwrap();
+    pub fn new(
+        stable: S,
+        snapshots: HS,
+        era_history: EraHistory,
+        global_parameters: GlobalParameters,
+    ) -> Result<Self, StoreError> {
+        let stake_distributions =
+            initial_stake_distributions(&stable, &snapshots, &era_history, PROTOCOL_VERSION_9)?; // FIXME ProtocolVersion should be retrieved from the store
 
-        // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
-        // consensus layer to validate the leader schedule, while the one before that will be
-        // consumed for the rewards calculation.
-        //
-        // We always hold on two stake distributions:
-        //
-        // - The one from an epoch `e - 1` which is used for the ongoing leader schedule at epoch `e + 1`
-        // - The one from an epoch `e - 2` which is used for the rewards calculations at epoch `e + 1`
-        //
-        // Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
-        // the ongoing epoch, not yet finished (and so, not available as snapshot).
-        let latest_epoch = db.most_recent_snapshot();
+        let protocol_parameters =
+            stable.get_protocol_parameters_for(&stable.most_recent_snapshot())?;
 
-        let mut stake_distributions = VecDeque::new();
-        for epoch in latest_epoch - 2..=latest_epoch - 1 {
-            stake_distributions.push_front(
-                recover_stake_distribution(&snapshots, epoch, era_history).unwrap_or_else(|e| {
-                    // TODO deal with error
-                    panic!(
-                        "unable to get stake distribution for (epoch={:?}): {e:?}",
-                        epoch
-                    )
-                }),
-            );
-        }
-
-        drop(db);
-
-        Self {
+        Ok(Self::new_with(
             stable,
+            snapshots,
+            era_history,
+            global_parameters,
+            protocol_parameters,
+            stake_distributions,
+        ))
+    }
+
+    pub fn new_with(
+        stable: S,
+        snapshots: HS,
+        era_history: EraHistory,
+        global_parameters: GlobalParameters,
+        protocol_parameters: ProtocolParameters,
+        stake_distributions: VecDeque<StakeDistribution>,
+    ) -> Self {
+        Self {
+            stable: Arc::new(Mutex::new(stable)),
 
             snapshots,
 
@@ -148,7 +150,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             // (1) The consensus must be storing its own state, and in particular, where it has
             //     left the synchronization.
             //
-            // (2) Re-applying 2160 (already synchronized) blocks is _fast-enough_ that it can be
+            // (2) Re-applying GlobalParameters::consensus_security_param (already synchronized) blocks is _fast-enough_ that it can be
             //     done on restart easily. To be measured; if this turns out to be too slow, we
             //     views of the volatile DB on-disk to be able to restore them quickly.
             volatile: VolatileDB::default(),
@@ -157,7 +159,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             stake_distributions: Arc::new(Mutex::new(stake_distributions)),
 
-            era_history: era_history.clone(),
+            era_history: Arc::new(era_history),
+
+            global_parameters: Arc::new(global_parameters),
+
+            protocol_parameters: Arc::new(protocol_parameters),
         }
     }
 
@@ -167,7 +173,19 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         StakeDistributionView {
             view: self.stake_distributions.clone(),
             era_history: self.era_history.clone(),
+            global_parameters: self.global_parameters.clone(),
         }
+    }
+
+    pub fn current_epoch(&self, slot: Slot) -> Result<Epoch, StateError> {
+        self.era_history
+            .slot_to_epoch(slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(slot, e))
+    }
+
+    #[allow(clippy::unwrap_used)]
+    pub fn protocol_parameters(&self) -> &ProtocolParameters {
+        &self.protocol_parameters
     }
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
@@ -207,12 +225,19 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .slot_to_epoch(tip.slot_or_default())
             .map_err(|e| StateError::ErrorComputingEpoch(tip.slot_or_default(), e))?;
 
+        let epoch_transitioning = current_epoch > tip_epoch;
+
         // The volatile sequence may contain points belonging to two epochs.
         //
         // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
         // epoch than the previously applied block (i.e. the tip of the stable storage).
-        if current_epoch > tip_epoch {
-            epoch_transition(&mut *db, current_epoch, self.rewards_summary.take())?
+        if epoch_transitioning {
+            epoch_transition(
+                &mut *db,
+                current_epoch,
+                self.rewards_summary.take(),
+                &self.protocol_parameters,
+            )?
         }
 
         // Persist changes for this block
@@ -224,7 +249,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             remove,
             withdrawals,
             voting_dreps,
-        } = now_stable.into_store_update(current_epoch);
+        } = now_stable.into_store_update(current_epoch, &self.protocol_parameters);
 
         let batch = db.create_transaction();
 
@@ -244,7 +269,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
                 // Reset the epoch transition progress once we've successfully applied the first
                 // block of the next epoch.
-                if current_epoch > tip_epoch {
+                if epoch_transitioning {
                     let success = batch
                         .try_epoch_transition(Some(EpochTransitionProgress::EpochStarted), None)?;
                     if !success {
@@ -261,7 +286,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
-    fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
+    fn compute_rewards(
+        &mut self,
+        protocol_version: ProtocolVersion,
+    ) -> Result<RewardsSummary, StateError> {
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
         let stake_distribution = stake_distributions
             .pop_back()
@@ -269,22 +297,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let epoch = stake_distribution.epoch + 2;
 
-        #[allow(clippy::panic)]
+        let snapshot = self.snapshots.for_epoch(epoch)?;
         let rewards_summary = RewardsSummary::new(
-            &self.snapshots.for_epoch(epoch).unwrap_or_else(|e| {
-                panic!(
-                    "unable to open database snapshot for epoch {:?}: {:?}",
-                    epoch, e
-                )
-            }),
+            &snapshot,
             stake_distribution,
+            &self.global_parameters,
+            &self.protocol_parameters,
         )
         .map_err(StateError::Storage)?;
 
         stake_distributions.push_front(recover_stake_distribution(
-            &self.snapshots,
-            epoch,
+            &snapshot,
             &self.era_history,
+            protocol_version,
+            &self.protocol_parameters,
         )?);
 
         Ok(rewards_summary)
@@ -295,12 +321,16 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// the internal state of the ledger.
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
-    pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
+    pub fn forward(
+        &mut self,
+        protocol_version: ProtocolVersion,
+        next_state: AnchoredVolatileState,
+    ) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
-        if self.volatile.len() >= CONSENSUS_SECURITY_PARAM {
+        if self.volatile.len() >= self.global_parameters.consensus_security_param {
             let now_stable = self.volatile.pop_front().unwrap_or_else(|| {
-                unreachable!("pre-condition: self.volatile.len() >= CONSENSUS_SECURITY_PARAM")
+                unreachable!("pre-condition: self.volatile.len() >= consensus_security_param")
             });
 
             self.apply_block(now_stable)?;
@@ -315,8 +345,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .slot_in_epoch(next_state_slot)
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
-        if self.rewards_summary.is_none() && relative_slot >= From::from(STABILITY_WINDOW as u64) {
-            self.rewards_summary = Some(self.compute_rewards()?);
+        if self.rewards_summary.is_none()
+            && relative_slot >= From::from(self.global_parameters.stability_window as u64)
+        {
+            self.rewards_summary = Some(self.compute_rewards(protocol_version)?);
         }
 
         self.volatile.push_back(next_state);
@@ -364,26 +396,55 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 }
 
-#[allow(clippy::panic)]
-fn recover_stake_distribution(
+// NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
+// consensus layer to validate the leader schedule, while the one before that will be
+// consumed for the rewards calculation.
+//
+// We always hold on two stake distributions:
+//
+// - The one from an epoch `e - 1` which is used for the ongoing leader schedule at epoch `e + 1`
+// - The one from an epoch `e - 2` which is used for the rewards calculations at epoch `e + 1`
+//
+// Note that the most recent snapshot we have is necessarily `e`, since `e + 1` designates
+// the ongoing epoch, not yet finished (and so, not available as snapshot).
+pub fn initial_stake_distributions(
+    db: &impl Store,
     snapshots: &impl HistoricalStores,
-    epoch: Epoch,
     era_history: &EraHistory,
+    protocol_version: ProtocolVersion,
+) -> Result<VecDeque<StakeDistribution>, StoreError> {
+    let latest_epoch = db.most_recent_snapshot();
+
+    let mut stake_distributions = VecDeque::new();
+    for epoch in latest_epoch - 2..=latest_epoch - 1 {
+        // Retrieve the protocol parameters for the considered epoch
+        let protocol_parameters = db.get_protocol_parameters_for(&epoch)?;
+        let snapshot = snapshots.for_epoch(epoch)?;
+        stake_distributions.push_front(
+            recover_stake_distribution(
+                &snapshot,
+                era_history,
+                protocol_version,
+                &protocol_parameters,
+            )
+            .map_err(|err| StoreError::Internal(err.into()))?,
+        );
+    }
+
+    Ok(stake_distributions)
+}
+
+pub fn recover_stake_distribution(
+    snapshot: &impl Snapshot,
+    era_history: &EraHistory,
+    protocol_version: ProtocolVersion,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
-    let snapshot = snapshots.for_epoch(epoch).unwrap_or_else(|e| {
-        panic!(
-            "unable to open database snapshot for epoch {:?}: {:?}",
-            epoch, e
-        )
-    });
-
-    // FIXME: Obtain from current block
-    let protocol_version = PROTOCOL_VERSION_9;
-
     StakeDistribution::new(
-        &snapshot,
+        snapshot,
         protocol_version,
-        GovernanceSummary::new(&snapshot, protocol_version, era_history)?,
+        GovernanceSummary::new(snapshot, protocol_version, era_history, protocol_parameters)?,
+        protocol_parameters,
     )
     .map_err(StateError::Storage)
 }
@@ -396,6 +457,7 @@ fn epoch_transition(
     db: &mut impl Store,
     next_epoch: Epoch,
     rewards_summary: Option<RewardsSummary>,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StateError> {
     // End of epoch
     let batch = db.create_transaction();
@@ -431,7 +493,7 @@ fn epoch_transition(
         Some(EpochTransitionProgress::EpochStarted),
     )?;
     if should_begin_epoch {
-        begin_epoch(&batch, next_epoch)?;
+        begin_epoch(&batch, next_epoch, protocol_parameters)?;
     }
     batch.commit()?;
 
@@ -472,6 +534,7 @@ fn end_epoch<'store>(
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     current_epoch: Epoch,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StoreError> {
     // Reset counters before the epoch begins.
     reset_blocks_count(db)?;
@@ -485,7 +548,7 @@ fn begin_epoch<'store>(
     // step. The accounts are already filtered out when computing rewards, but if any retired pool
     // were to re-register, they would automatically be granted the stake associated to their past
     // delegates.
-    tick_pools(db, current_epoch)?;
+    tick_pools(db, current_epoch, protocol_parameters)?;
 
     // Refund deposit for any proposal that has expired.
     tick_proposals(db, current_epoch)?;
@@ -557,6 +620,7 @@ pub fn refund_many<'store>(
 pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StoreError> {
     let mut refunds = Vec::new();
 
@@ -572,7 +636,7 @@ pub fn tick_pools<'store>(
         db,
         refunds
             .into_iter()
-            .map(|credential| (credential, STAKE_POOL_DEPOSIT as u64)),
+            .map(|credential| (credential, protocol_parameters.stake_pool_deposit)),
     )
 }
 
@@ -628,7 +692,8 @@ pub fn tick_proposals<'store>(
 // consensus in order to decouple both components.
 pub struct StakeDistributionView {
     view: Arc<Mutex<VecDeque<StakeDistribution>>>,
-    era_history: EraHistory,
+    era_history: Arc<EraHistory>,
+    global_parameters: Arc<GlobalParameters>,
 }
 
 impl HasStakeDistribution for StakeDistributionView {
@@ -646,11 +711,11 @@ impl HasStakeDistribution for StakeDistributionView {
     }
 
     fn slot_to_kes_period(&self, slot: u64) -> u64 {
-        slot / SLOTS_PER_KES_PERIOD
+        slot / self.global_parameters.slots_per_kes_period
     }
 
     fn max_kes_evolutions(&self) -> u64 {
-        MAX_KES_EVOLUTION as u64
+        self.global_parameters.max_kes_evolution as u64
     }
 
     fn latest_opcert_sequence_number(&self, _issuer_vkey: &Hash<28>) -> Option<u64> {

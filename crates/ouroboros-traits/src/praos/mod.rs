@@ -45,7 +45,7 @@ Summarizing:
 */
 
 use crate::is_header::IsHeader;
-use amaru_kernel::{cbor, Epoch, Hash, Nonce};
+use amaru_kernel::{cbor, protocol_parameters::GlobalParameters, Epoch, Hash, Nonce};
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct Nonces {
@@ -102,5 +102,9 @@ pub trait Praos<H: IsHeader>: Send + Sync {
     ///
     /// Once the stability window has been reached, the candidate is fixed for the epoch and will
     /// be used once crossing the epoch boundary to produce the next epoch nonce.
-    fn evolve_nonce(&mut self, header: &H) -> Result<Nonces, Self::Error>;
+    fn evolve_nonce(
+        &mut self,
+        header: &H,
+        global_parameters: &GlobalParameters,
+    ) -> Result<Nonces, Self::Error>;
 }

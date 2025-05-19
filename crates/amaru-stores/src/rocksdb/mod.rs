@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    CertificatePointer, Epoch, EraHistory, Lovelace, Point, PoolId, StakeCredential,
-    TransactionInput, TransactionOutput,
+    protocol_parameters::ProtocolParameters, CertificatePointer, Epoch, EraHistory, Lovelace,
+    Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -26,7 +26,7 @@ use amaru_ledger::{
 };
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
-use rocksdb::Transaction;
+use rocksdb::{Direction, IteratorMode, ReadOptions, Transaction};
 use std::{
     collections::BTreeSet,
     fmt, fs,
@@ -52,6 +52,9 @@ const KEY_TIP: &str = "tip";
 
 /// Special key where we store the progress of the database
 const KEY_PROGRESS: &str = "progress";
+
+// Special key where we store the protocol parameters
+const PROTOCOL_PARAMETERS_PREFIX: &str = "ppar";
 
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
@@ -160,18 +163,17 @@ impl RocksDB {
     fn transaction_ended(&self) {
         self.ongoing_transaction.set(false);
     }
+}
 
-    fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
-        &self,
-        key: &str,
-    ) -> Result<Option<T>, StoreError> {
-        self.db
-            .get(key)
-            .map_err(|err| StoreError::Internal(err.into()))?
-            .map(|bytes| cbor::decode(&bytes))
-            .transpose()
-            .map_err(StoreError::Undecodable)
-    }
+fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
+    db: &OptimisticTransactionDB,
+    key: &str,
+) -> Result<Option<T>, StoreError> {
+    db.get(key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(|bytes| cbor::decode(&bytes))
+        .transpose()
+        .map_err(StoreError::Undecodable)
 }
 
 #[allow(clippy::panic)]
@@ -179,25 +181,38 @@ impl RocksDB {
 fn iter<'a, K: Clone + for<'d> cbor::Decode<'d, ()>, V: Clone + for<'d> cbor::Decode<'d, ()>>(
     db: &OptimisticTransactionDB,
     prefix: [u8; PREFIX_LEN],
+    direction: Direction,
 ) -> Result<impl Iterator<Item = (K, V)> + use<'_, K, V>, StoreError> {
-    Ok(db.prefix_iterator(prefix).map(|e| {
-        let (key, value) = e.unwrap();
-        let decoded_key = cbor::decode(&key[PREFIX_LEN..])
-            .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
-        let decoded_value = cbor::decode(&value).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode value ({}) for key ({}): {e:?}",
-                hex::encode(&key),
-                hex::encode(&value)
-            )
-        });
-        (decoded_key, decoded_value)
-    }))
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    Ok(db
+        .iterator_opt(IteratorMode::From(prefix.as_ref(), direction), opts)
+        .map(|e| {
+            let (key, value) = e.unwrap();
+            let decoded_key = cbor::decode(&key[PREFIX_LEN..])
+                .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
+            let decoded_value = cbor::decode(&value).unwrap_or_else(|e| {
+                panic!(
+                    "unable to decode value ({}) for key ({}): {e:?}",
+                    hex::encode(&key),
+                    hex::encode(&value)
+                )
+            });
+            (decoded_key, decoded_value)
+        }))
 }
 
 macro_rules! impl_ReadOnlyStore {
     (for $($s:ty),+) => {
         $(impl ReadOnlyStore for $s {
+            fn get_protocol_parameters_for(
+                &self,
+                epoch: &Epoch,
+            ) -> Result<ProtocolParameters, StoreError> {
+                get(&self.db, &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))
+                    .map(|row| row.unwrap_or_default())
+            }
+
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
                 pools::get(&self.db, pool)
             }
@@ -217,7 +232,7 @@ macro_rules! impl_ReadOnlyStore {
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
             {
-                iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX)
+                iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX, Direction::Forward)
             }
 
             fn pots(&self) -> Result<Pots, StoreError> {
@@ -228,28 +243,28 @@ macro_rules! impl_ReadOnlyStore {
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
             {
-                iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX)
+                iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX, Direction::Forward)
             }
 
             fn iter_block_issuers(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
             {
-                iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX)
+                iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX, Direction::Forward)
             }
 
             fn iter_pools(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
             {
-                iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX)
+                iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX, Direction::Forward)
             }
 
             fn iter_dreps(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
             {
-                iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX)
+                iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX, Direction::Forward)
             }
 
             fn iter_proposals(
@@ -258,7 +273,7 @@ macro_rules! impl_ReadOnlyStore {
                 impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
                 StoreError,
             > {
-                iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX)
+                iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX, Direction::Forward)
             }
         })*
     }
@@ -359,6 +374,21 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         deposit: Lovelace,
     ) -> Result<Lovelace, StoreError> {
         accounts::set(&self.transaction, credential, |balance| balance + deposit)
+    }
+
+    fn set_protocol_parameters(
+        &self,
+        epoch: &Epoch,
+        protocol_parameters: &ProtocolParameters,
+    ) -> Result<(), StoreError> {
+        self.transaction
+            .put(
+                format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"),
+                as_value(protocol_parameters),
+            )
+            .map_err(|err| StoreError::Internal(err.into()))?;
+
+        Ok(())
     }
 
     fn save(
@@ -516,7 +546,7 @@ impl Store for RocksDB {
         Ok(())
     }
 
-    #[allow(clippy::panic)]
+    #[allow(clippy::panic)] // Expected
     fn create_transaction(&self) -> impl TransactionalContext<'_> {
         if self.ongoing_transaction.get() {
             // Thats a bug in the code, we should never have two transactions at the same time
@@ -531,8 +561,7 @@ impl Store for RocksDB {
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
-        self.get(KEY_TIP)?
-            .ok_or(StoreError::Tip(TipErrorKind::Missing))
+        get(&self.db, KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
     }
 }
 
@@ -568,7 +597,6 @@ pub struct RocksDBSnapshot {
 }
 
 impl Snapshot for RocksDBSnapshot {
-    #[allow(clippy::panic)]
     fn epoch(&'_ self) -> Epoch {
         self.epoch
     }

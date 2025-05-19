@@ -21,24 +21,26 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
-use network::PREPROD_SHELLEY_TRANSITION_EPOCH;
-use num::{rational::Ratio, BigUint};
 use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     Error, *,
 };
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
-use pallas_primitives::conway::{
-    MintedPostAlonzoTransactionOutput, Redeemer, RedeemersKey, RedeemersValue,
+use pallas_primitives::{
+    conway::{
+        MintedPostAlonzoTransactionOutput, NativeScript, Redeemer, RedeemersKey, RedeemersValue,
+        ScriptRef,
+    },
+    PlutusScript,
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
     cmp::Ordering,
+    collections::BTreeSet,
     convert::Infallible,
     fmt::{self, Display, Formatter},
     ops::Deref,
-    sync::LazyLock,
 };
 
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
@@ -59,9 +61,9 @@ pub use pallas_primitives::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, Epoch, ExUnitPrices,
         ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, NonEmptySet,
-        PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion,
+        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
+        NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
+        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
         PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, ScriptHash,
         StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
         VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
@@ -84,81 +86,12 @@ pub const PROTOCOL_VERSION_9: ProtocolVersion = (9, 0);
 
 pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 
-/// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
-pub const MAX_LOVELACE_SUPPLY: u64 = 45000000000000000;
-
-/// The maximum depth of a rollback, also known as the security parameter 'k'.
-/// This translates down to the length of our volatile storage, containing states of the ledger
-/// which aren't yet considered final.
-///
-// FIXME: import from genesis configuration
-pub const CONSENSUS_SECURITY_PARAM: usize = 2160;
-
-/// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Shelley's epoch length.
-pub const SHELLEY_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
-
-/// Inverse of the active slot coefficient (i.e. 1/f);
-pub const ACTIVE_SLOT_COEFF_INVERSE: usize = 20;
-
-/// Number of slots in a Shelley epoch
-pub const SHELLEY_EPOCH_LENGTH: usize =
-    ACTIVE_SLOT_COEFF_INVERSE * SHELLEY_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
-
-/// Relative slot from which data of the previous epoch can be considered stable.
-pub const STABILITY_WINDOW: usize = ACTIVE_SLOT_COEFF_INVERSE * CONSENSUS_SECURITY_PARAM * 2;
-
-/// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
-pub const BYRON_EPOCH_LENGTH_SCALE_FACTOR: usize = 10;
-
-/// Number of blocks in a Byron epoch
-pub const BYRON_EPOCH_LENGTH: usize = BYRON_EPOCH_LENGTH_SCALE_FACTOR * CONSENSUS_SECURITY_PARAM;
-
-/// Number of slots in the Byron era, for PreProd
-pub const BYRON_TOTAL_SLOTS: usize = BYRON_EPOCH_LENGTH * PREPROD_SHELLEY_TRANSITION_EPOCH;
-
-/// Value, in Lovelace, that one must deposit when registering a new stake pool
-pub const STAKE_POOL_DEPOSIT: usize = 500000000;
-
-/// Value, in Lovelace, that one must deposit when registering a new stake credential
-pub const STAKE_CREDENTIAL_DEPOSIT: usize = 2000000;
-
-/// Number of slots for a single KES validity period.
-pub const SLOTS_PER_KES_PERIOD: u64 = 129600;
-
-/// Maximum number of KES key evolution. Combined with SLOTS_PER_KES_PERIOD, these values
-/// indicates the validity period of a KES key before a new one is required.
-pub const MAX_KES_EVOLUTION: u8 = 62;
-
-/// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
-/// nonce of the following epoch.
-pub const RANDOMNESS_STABILIZATION_WINDOW: u64 =
-    4 * (CONSENSUS_SECURITY_PARAM as u64) * (ACTIVE_SLOT_COEFF_INVERSE as u64);
-
-// The monetary expansion value, a.k.a ρ
-pub static MONETARY_EXPANSION: LazyLock<Ratio<BigUint>> =
-    LazyLock::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(1000_u64)));
-
-/// Treasury tax, a.k.a τ
-pub static TREASURY_TAX: LazyLock<Ratio<BigUint>> =
-    LazyLock::new(|| Ratio::new_raw(BigUint::from(20_u64), BigUint::from(100_u64)));
-
-/// Pledge influence parameter, a.k.a a0
-pub static PLEDGE_INFLUENCE: LazyLock<Ratio<BigUint>> =
-    LazyLock::new(|| Ratio::new_raw(BigUint::from(3_u64), BigUint::from(10_u64)));
-
-/// The optimal number of stake pools target for the incentives, a.k.a k
-pub const OPTIMAL_STAKE_POOLS_COUNT: usize = 500;
-
-/// Epoch duration after which inactive Proposals are considered expired.
-pub const GOV_ACTION_LIFETIME: u64 = 6;
-
-/// Epoch duration after which inactive DReps are considered expired.
-pub const DREP_EXPIRY: u64 = 20;
-
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
 
 pub type Lovelace = u64;
+
+pub type EpochInterval = u32;
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Point {
@@ -764,7 +697,7 @@ impl HasExUnits for MintedBlock<'_> {
     }
 }
 
-// Calculate the total ex units in a witness set
+/// Calculate the total ex units in a witness set
 pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
     match witness_set.redeemer {
         Some(redeemers) => match redeemers {
@@ -783,6 +716,63 @@ pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
     }
 }
 
+/// Collect provided scripts and compute each ScriptHash in a witness set
+pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<ScriptHash> {
+    let mut provided_scripts: BTreeSet<ScriptHash> = BTreeSet::new();
+    provided_scripts.extend(
+        witness_set
+            .native_script
+            .as_ref()
+            .map(|native_scripts| {
+                native_scripts
+                    .iter()
+                    .map(|native_script| native_script.script_hash())
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default(),
+    );
+
+    provided_scripts.extend(
+        witness_set
+            .plutus_v1_script
+            .as_ref()
+            .map(|plutus_v1_scripts| {
+                plutus_v1_scripts
+                    .iter()
+                    .map(|script| script.script_hash())
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default(),
+    );
+
+    provided_scripts.extend(
+        witness_set
+            .plutus_v2_script
+            .as_ref()
+            .map(|plutus_v2_scripts| {
+                plutus_v2_scripts
+                    .iter()
+                    .map(|script| script.script_hash())
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default(),
+    );
+
+    provided_scripts.extend(
+        witness_set
+            .plutus_v3_script
+            .as_ref()
+            .map(|plutus_v3_scripts| {
+                plutus_v3_scripts
+                    .iter()
+                    .map(|script| script.script_hash())
+                    .collect::<BTreeSet<_>>()
+            })
+            .unwrap_or_default(),
+    );
+
+    provided_scripts
+}
 pub trait HasAddress {
     fn address(&self) -> Result<Address, pallas_addresses::Error>;
 }
@@ -899,6 +889,72 @@ impl HasOwnership for Voter {
                 StakeCredential::ScriptHash(*hash)
             }
         })
+    }
+}
+
+pub trait HasScriptHash {
+    /*
+        ; To compute a script hash, note that you must prepend
+        ; a tag to the bytes of the script before hashing.
+        ; The tag is determined by the language.
+        ; The tags in the Conway era are:
+        ;   "\x00" for multisig scripts
+        ;   "\x01" for Plutus V1 scripts
+        ;   "\x02" for Plutus V2 scripts
+        ;   "\x03" for Plutus V3 scripts
+        ;
+        script_hash = $hash28
+    */
+    fn script_hash(&self) -> ScriptHash;
+}
+
+impl HasScriptHash for ScriptRef {
+    fn script_hash(&self) -> ScriptHash {
+        match self {
+            ScriptRef::NativeScript(native_script) => {
+                let mut buffer: Vec<u8>;
+                buffer = vec![0];
+                // TODO: don't reserialize the native script here
+                let native_script = to_cbor(&native_script);
+                buffer.extend_from_slice(native_script.as_slice());
+                Hasher::<224>::hash(&buffer)
+            }
+            PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
+            PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
+            PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
+        }
+    }
+}
+
+impl HasScriptHash for KeepRaw<'_, NativeScript> {
+    fn script_hash(&self) -> ScriptHash {
+        let mut buffer: Vec<u8> = vec![0];
+        buffer.extend_from_slice(self.raw_cbor());
+        Hasher::<224>::hash(&buffer)
+    }
+}
+
+impl HasScriptHash for PlutusScript<1> {
+    fn script_hash(&self) -> ScriptHash {
+        let mut buffer: Vec<u8> = vec![1];
+        buffer.extend_from_slice(self.as_ref());
+        Hasher::<224>::hash(&buffer)
+    }
+}
+
+impl HasScriptHash for PlutusScript<2> {
+    fn script_hash(&self) -> ScriptHash {
+        let mut buffer: Vec<u8> = vec![2];
+        buffer.extend_from_slice(self.as_ref());
+        Hasher::<224>::hash(&buffer)
+    }
+}
+
+impl HasScriptHash for PlutusScript<3> {
+    fn script_hash(&self) -> ScriptHash {
+        let mut buffer: Vec<u8> = vec![3];
+        buffer.extend_from_slice(self.as_ref());
+        Hasher::<224>::hash(&buffer)
     }
 }
 

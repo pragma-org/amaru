@@ -1,4 +1,8 @@
 NETWORK ?= preprod
+DATA_FOLDER := data/$(NETWORK)
+SNAPSHOTS_FILE := $(DATA_FOLDER)/snapshots.json
+NONCES_FILE := $(DATA_FOLDER)/nonces.json
+HEADERS_FILE := $(DATA_FOLDER)/headers.json
 AMARU_PEER_ADDRESS ?= 127.0.0.1:3000
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
 DEMO_TARGET_EPOCH ?= 182
@@ -8,10 +12,9 @@ COVERAGE_CRATES ?=
 LISTEN_ADDRESS ?= 0.0.0.0:0
 LEDGER_DIR ?= ./ledger.db
 CHAIN_DIR ?= ./chain.db
+BUILD_PROFILE ?= release
 
-.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config  coverage-html coverage-lconv check-llvm-cov
-
-all: help
+.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov
 
 help:
 	@echo "\033[1;4mTargets:\033[00m"
@@ -20,13 +23,9 @@ help:
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
 
-clean-dbs: ## Clean all databases
-	@rm -rf ledger.db
-	@rm -rf $(HASKELL_NODE_CONFIG_DIR)
-
-snapshots: ## Download snapshots
-	mkdir -p $@
-	curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main/data/snapshots.json" \
+snapshots/$(NETWORK): ## Download snapshots
+	@mkdir -p $@
+	@cat $(SNAPSHOTS_FILE) \
 		| jq -r '.[] | "\(.point) \(.url)"' \
 		| while read p u; do \
 			echo "Fetching $$p.cbor"; \
@@ -42,51 +41,52 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/alonzo-genesis.json
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
 
-import-snapshots: snapshots ## Import PreProd snapshots for demo
-	cargo run -- import-ledger-state \
-	--ledger-dir $(LEDGER_DIR) \
-	--snapshot $^/69206375.6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912.cbor \
-	--snapshot $^/69638382.5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7.cbor \
-	--snapshot $^/70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d.cbor
+import-snapshots: snapshots/$(NETWORK) ## Import snapshots for demo
+	@test -d $^ || (echo "Error: folder '$^' does not exist!" && exit 1)
+	SNAPSHOT_ARGS=""; \
+	for SNAPSHOT in $(wildcard $^/*.cbor); do \
+		SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
+	done; \
+	cargo run --profile $(BUILD_PROFILE) -- import-ledger-state \
+		--ledger-dir "$(LEDGER_DIR)" \
+		$$SNAPSHOT_ARGS
 
 import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
-	cargo run -- import-headers \
-	--chain-dir $(CHAIN_DIR) \
-	--peer-address ${AMARU_PEER_ADDRESS} \
-	--starting-point 69638365.4ec0f5a78431fdcc594eab7db91aff7dfd91c13cc93e9fbfe70cd15a86fadfb2 \
-	--count 2
-	cargo run -- import-headers \
-	--chain-dir $(CHAIN_DIR) \
-	--peer-address ${AMARU_PEER_ADDRESS} \
-	--starting-point 70070331.076218aa483344e34620d3277542ecc9e7b382ae2407a60e177bc3700548364c \
-	--count 2
+	@HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
+	for HEADER in $$HEADERS; do \
+		cargo run --profile $(BUILD_PROFILE) -- import-headers \
+			--chain-dir $(CHAIN_DIR) \
+			--peer-address $(AMARU_PEER_ADDRESS) \
+			--starting-point $$HEADER \
+			--count 2; \
+	done
 
-import-nonces: ## Import PreProd nonces for demo
-	cargo run -- import-nonces \
-	--chain-dir $(CHAIN_DIR) \
-	--at 70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d \
-	--active a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a \
-	--candidate 74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6 \
-	--evolving 24bb737ee28652cd99ca41f1f7be568353b4103d769c6e1ddb531fc874dd6718 \
-	--tail 5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7
+import-nonces: ## Import nonces for demo
+	cargo run --profile $(BUILD_PROFILE) -- import-nonces \
+		--chain-dir $(CHAIN_DIR) \
+		--at $$(jq -r .at $(NONCES_FILE)) \
+		--active $$(jq -r .active $(NONCES_FILE)) \
+		--candidate $$(jq -r .candidate $(NONCES_FILE)) \
+		--evolving $$(jq -r .evolving $(NONCES_FILE)) \
+		--tail $$(jq -r .tail $(NONCES_FILE))
 
-clear-db: ## Clear the database
-	rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
+clear-dbs: ## Clear the databases
+	@rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
 
-bootstrap: clear-db import-headers import-nonces import-snapshots ## Bootstrap the node
+bootstrap: clear-dbs import-headers import-nonces import-snapshots ## Bootstrap the node from scratch
 
 dev: ## Compile and run for development with default options
 	cargo run -- daemon \
-	--ledger-dir $(LEDGER_DIR) \
-	--chain-dir $(CHAIN_DIR) \
-	--peer-address $(AMARU_PEER_ADDRESS) \
-	--network=$(NETWORK) \
-	--listen-address $(LISTEN_ADDRESS)
+		--ledger-dir $(LEDGER_DIR) \
+		--chain-dir $(CHAIN_DIR) \
+		--peer-address $(AMARU_PEER_ADDRESS) \
+		--network=$(NETWORK) \
+		--listen-address $(LISTEN_ADDRESS)
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
-	cargo test -p amaru -- --ignored
+	cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
 
-test-e2-from-scratch: clean-dbs bootstrap demo test-e2e ## Run end-to-end tests from scratch
+test-e2e-from-scratch: bootstrap demo test-e2e ## Run end-to-end tests from scratch
 
 check-llvm-cov: ## Check if cargo-llvm-cov is installed, install if not
 	@if ! cargo llvm-cov --version >/dev/null 2>&1; then \

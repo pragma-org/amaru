@@ -43,6 +43,7 @@ impl From<AssertPreparationContext> for AssertValidationContext {
         AssertValidationContext {
             utxo: ctx.utxo,
             required_signers: BTreeSet::default(),
+            required_scripts: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
         }
     }
@@ -84,6 +85,7 @@ pub struct AssertValidationContext {
     #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     required_signers: BTreeSet<Hash<28>>,
+    required_scripts: BTreeSet<Hash<28>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
@@ -262,9 +264,10 @@ impl WitnessSlice for AssertValidationContext {
             StakeCredential::AddrKeyhash(vk_hash) => {
                 self.required_signers.insert(vk_hash);
             }
-            StakeCredential::ScriptHash(..) => {
+            StakeCredential::ScriptHash(script_hash) => {
                 // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
                 // before hand, and here, check whether additional signatures are needed.
+                self.required_scripts.insert(script_hash);
             }
         }
     }
@@ -283,6 +286,10 @@ impl WitnessSlice for AssertValidationContext {
 
     fn required_signers(&mut self) -> BTreeSet<Hash<28>> {
         mem::take(&mut self.required_signers)
+    }
+
+    fn required_scripts(&mut self) -> BTreeSet<Hash<28>> {
+        mem::take(&mut self.required_scripts)
     }
 
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>> {
