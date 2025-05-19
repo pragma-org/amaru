@@ -18,7 +18,7 @@ pallas-crypto.workspace = true
 pallas-math.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
 tracing.workspace = true
 
 amaru-kernel.workspace = true
