@@ -17,6 +17,7 @@ use amaru_consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         select_chain::SelectChain,
         store::ChainStore,
+        store_block::StoreBlock,
         store_header::StoreHeader,
         validate_header::ValidateHeader,
         ChainSyncEvent,
@@ -25,9 +26,12 @@ use amaru_consensus::{
     ConsensusError, IsHeader,
 };
 use amaru_kernel::{
-    network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, Hash, Header,
+    block::{BlockValidationResult, ValidateBlockEvent},
+    network::NetworkName,
+    protocol_parameters::GlobalParameters,
+    EraHistory, Hash, Header,
 };
-use amaru_ledger::{store::in_memory::MemoryStore, BlockValidationResult, ValidateBlockEvent};
+use amaru_ledger::store::in_memory::MemoryStore;
 use amaru_stores::rocksdb::{
     consensus::{InMemConsensusStore, RocksDBStore},
     RocksDB, RocksDBHistoricalStores,
@@ -35,7 +39,8 @@ use amaru_stores::rocksdb::{
 use consensus::{
     fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
     receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
-    store_header::StoreHeaderStage, validate_header::ValidateHeaderStage,
+    store_block::StoreBlockStage, store_header::StoreHeaderStage,
+    validate_header::ValidateHeaderStage,
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
@@ -113,9 +118,9 @@ pub fn bootstrap(
         })
         .collect();
 
-    let mut block_fetch_stage = BlockFetchStage::new(peer_sessions.as_slice());
+    let mut fetch_block_stage = BlockFetchStage::new(peer_sessions.as_slice());
 
-    let mut pulls = peer_sessions
+    let mut stages = peer_sessions
         .iter()
         .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
         .collect::<Vec<_>>();
@@ -143,6 +148,8 @@ pub fn bootstrap(
 
     let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
 
+    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
+
     let mut forward_chain_stage = ForwardChainStage::new(
         None,
         chain_store_ref.clone(),
@@ -155,11 +162,12 @@ pub fn bootstrap(
     let (to_validate_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_store_header, from_validate_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_select_chain, from_store_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_block_fetch, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_fetch_block, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
-    let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = pulls
+    let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = stages
         .iter_mut()
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
@@ -173,39 +181,44 @@ pub fn bootstrap(
     store_header_stage.downstream.connect(to_select_chain);
 
     select_chain_stage.upstream.connect(from_store_header);
-    select_chain_stage.downstream.connect(to_block_fetch);
+    select_chain_stage.downstream.connect(to_fetch_block);
 
-    block_fetch_stage.upstream.connect(from_select_chain);
-    block_fetch_stage.downstream.connect(to_ledger);
+    fetch_block_stage.upstream.connect(from_select_chain);
+    fetch_block_stage.downstream.connect(to_store_block);
 
-    ledger_stage.connect(from_block_fetch, to_block_forward);
+    store_block_stage.upstream.connect(from_fetch_block);
+    store_block_stage.downstream.connect(to_ledger);
+
+    ledger_stage.connect(from_store_block, to_block_forward);
 
     forward_chain_stage.upstream.connect(from_ledger);
 
     // No retry, crash on panics.
     let policy = runtime::Policy::default();
 
-    let mut pulls = pulls
+    let mut stages = stages
         .into_iter()
         .map(|p| spawn_stage(p, policy.clone()))
         .collect::<Vec<_>>();
 
-    let validate_header = spawn_stage(validate_header_stage, policy.clone());
-    let receive_header = spawn_stage(receive_header_stage, policy.clone());
-    let store_header = spawn_stage(store_header_stage, policy.clone());
-    let select_chain = spawn_stage(select_chain_stage, policy.clone());
-    let fetch = spawn_stage(block_fetch_stage, policy.clone());
+    let validate_header = gasket::runtime::spawn_stage(validate_header_stage, policy.clone());
+    let receive_header = gasket::runtime::spawn_stage(receive_header_stage, policy.clone());
+    let store_header = gasket::runtime::spawn_stage(store_header_stage, policy.clone());
+    let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
+    let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
+    let store_block = gasket::runtime::spawn_stage(store_block_stage, policy.clone());
     let ledger = ledger_stage.spawn(policy.clone());
-    let block_forward = spawn_stage(forward_chain_stage, policy.clone());
+    let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
 
-    pulls.push(store_header);
-    pulls.push(receive_header);
-    pulls.push(select_chain);
-    pulls.push(validate_header);
-    pulls.push(fetch);
-    pulls.push(ledger);
-    pulls.push(block_forward);
-    Ok(pulls)
+    stages.push(store_header);
+    stages.push(receive_header);
+    stages.push(select_chain);
+    stages.push(validate_header);
+    stages.push(store_block);
+    stages.push(fetch);
+    stages.push(ledger);
+    stages.push(block_forward);
+    Ok(stages)
 }
 
 type ChainStoreResult = (Tip, Option<Header>, Arc<Mutex<dyn ChainStore<Header>>>);
@@ -375,6 +388,6 @@ mod tests {
 
         let stages = bootstrap(config, vec![]).unwrap();
 
-        assert_eq!(7, stages.len());
+        assert_eq!(8, stages.len());
     }
 }

@@ -16,7 +16,7 @@ use amaru_consensus::{
     consensus::store::{ChainStore, StoreError},
     Nonces,
 };
-use amaru_kernel::{cbor, from_cbor, network::NetworkName, to_cbor, Hash};
+use amaru_kernel::{cbor, from_cbor, network::NetworkName, to_cbor, Hash, RawBlock};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use slot_arithmetic::EraHistory;
@@ -46,6 +46,8 @@ impl RocksDBStore {
 }
 
 const NONCES_PREFIX: [u8; 5] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
+
+const BLOCK_PREFIX: [u8; 5] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
 
 impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
@@ -83,6 +85,24 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 
     fn era_history(&self) -> &EraHistory {
         &self.era_history
+    }
+
+    fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock> {
+        self.db
+            .get_pinned([&BLOCK_PREFIX[..], &hash[..]].concat())
+            .map_err(|e| println!("{:?}", e))
+            .ok()
+            .flatten()
+            .as_deref()
+            .map(|bytes| bytes.into())
+    }
+
+    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
+        self.db
+            .put([&BLOCK_PREFIX[..], &hash[..]].concat(), block)
+            .map_err(|e| StoreError::WriteError {
+                error: e.to_string(),
+            })
     }
 }
 
@@ -125,6 +145,14 @@ impl<H: IsHeader> ChainStore<H> for InMemConsensusStore {
     fn era_history(&self) -> &amaru_kernel::EraHistory {
         NetworkName::Testnet(42).into()
     }
+
+    fn load_block(&self, _hash: &Hash<32>) -> Option<RawBlock> {
+        unimplemented!()
+    }
+
+    fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
+        unimplemented!()
+    }
 }
 
 #[cfg(test)]
@@ -144,7 +172,7 @@ mod test {
     }
 
     #[test]
-    fn rocksdb_chain_store_can_get_what_it_puts() {
+    fn rocksdb_chain_store_can_get_header_it_puts() {
         let tempdir = tempfile::tempdir().unwrap();
         let basedir = tempdir.path().join("rocksdb_chain_store");
         let era_history: &EraHistory = NetworkName::Testnet(42).into();
@@ -163,5 +191,24 @@ mod test {
         store.store_header(&header.hash(), &header).unwrap();
         let header2 = store.load_header(&header.hash()).unwrap();
         assert_eq!(header, header2);
+    }
+
+    #[test]
+    fn rocksdb_chain_store_can_get_block_it_puts() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let basedir = tempdir.path().join("rocksdb_chain_store");
+        let era_history: &EraHistory = NetworkName::Testnet(42).into();
+
+        create_dir(&basedir).unwrap();
+        println!("db created at {:?}", basedir);
+        let mut store =
+            RocksDBStore::new(&basedir, era_history).expect("fail to initialise RocksDB");
+
+        let hash: Hash<32> = random_bytes(32).as_slice().into();
+        let block = vec![1; 64];
+
+        <RocksDBStore as ChainStore<FakeHeader>>::store_block(&mut store, &hash, &block).unwrap();
+        let block2 = <RocksDBStore as ChainStore<FakeHeader>>::load_block(&store, &hash).unwrap();
+        assert_eq!(block, block2);
     }
 }

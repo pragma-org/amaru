@@ -34,5 +34,6 @@ proptest.workspace = true
 rand.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber.workspace = true
 slot-arithmetic = { workspace = true, features = ["test-utils"] }

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Nonce, Point};
+use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Nonce, Point, RawBlock};
 use amaru_ouroboros::{praos::nonce, Nonces};
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;
@@ -43,6 +43,9 @@ where
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
 
+    fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock>;
+    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
+
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
     fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
 
@@ -68,6 +71,14 @@ impl<H: IsHeader> ChainStore<H> for Box<dyn ChainStore<H>> {
 
     fn era_history(&self) -> &EraHistory {
         self.as_ref().era_history()
+    }
+
+    fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock> {
+        self.as_ref().load_block(hash)
+    }
+
+    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
+        self.as_mut().store_block(hash, block)
     }
 }
 
@@ -254,6 +265,14 @@ mod test {
 
         fn era_history(&self) -> &EraHistory {
             NetworkName::Preprod.into()
+        }
+
+        fn load_block(&self, _hash: &Hash<32>) -> Option<RawBlock> {
+            unimplemented!()
+        }
+
+        fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
+            unimplemented!()
         }
     }
 

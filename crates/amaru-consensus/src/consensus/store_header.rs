@@ -54,12 +54,3 @@ impl StoreHeader {
         }
     }
 }
-
-pub async fn store_header(
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
-    point: &Point,
-    header: &Header,
-) -> Result<(), ConsensusError> {
-    let store_header = StoreHeader { store };
-    store_header.store(point, header).await
-}
