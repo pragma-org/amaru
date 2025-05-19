@@ -183,7 +183,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .map_err(|e| StateError::ErrorComputingEpoch(slot, e))
     }
 
-    #[allow(clippy::unwrap_used)]
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         &self.protocol_parameters
     }
