@@ -72,7 +72,7 @@ pub struct NodeHandle {
     close: Box<dyn FnMut()>,
 }
 
-#[allow(dead_code)]
+#[allow(unused)]
 pub fn pure_stage_node_handle(
     mut rx: Receiver<Envelope<EchoMessage>>,
     stage: StageRef<Envelope<EchoMessage>, (u64, StageRef<Envelope<EchoMessage>, Void>)>,
@@ -90,7 +90,7 @@ pub fn pure_stage_node_handle(
     Ok(NodeHandle { handle, close })
 }
 
-#[allow(dead_code)]
+#[allow(unused)]
 pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHandle> {
     let mut child = Command::new(filepath)
         .args(args)
@@ -294,7 +294,7 @@ mod tests {
     #[test]
     #[should_panic]
     fn simulate_pure_stage_echo() {
-        let config = Default::default();
+        let config = Config::default();
 
         let number_of_nodes = 1;
 
@@ -307,27 +307,19 @@ mod tests {
                     if let EchoMessage::Echo { msg_id, echo } = &msg.body {
                         state += 1;
                         // Insert a bug every 5 messages.
-                        let reply;
-                        if state % 5 == 0 {
-                            reply = Envelope {
-                                src: msg.dest,
-                                dest: msg.src,
-                                body: EchoMessage::EchoOk {
-                                    msg_id: state,
-                                    in_reply_to: *msg_id,
-                                    echo: echo.to_string().to_uppercase(),
-                                },
-                            };
+                        let echo_response = if state % 5 == 0 {
+                            echo.to_string().to_uppercase()
                         } else {
-                            reply = Envelope {
-                                src: msg.dest,
-                                dest: msg.src,
-                                body: EchoMessage::EchoOk {
-                                    msg_id: state,
-                                    in_reply_to: *msg_id,
-                                    echo: echo.to_string(),
-                                },
-                            };
+                            echo.to_string()
+                        };
+                        let reply = Envelope {
+                            src: msg.dest,
+                            dest: msg.src,
+                            body: EchoMessage::EchoOk {
+                                msg_id: state,
+                                in_reply_to: *msg_id,
+                                echo: echo_response,
+                            },
                         };
                         println!(" ==> {:?}", reply);
                         eff.send(&out, reply).await;
@@ -348,42 +340,44 @@ mod tests {
             msg_id: 0,
             echo: format!("Please echo {}", i),
         });
-        let property = |trace: Trace| {
-            for msg in trace.0.iter().filter(|msg| msg.src.starts_with("c")) {
-                if let EchoMessage::Echo { msg_id, echo } = &msg.body {
-                    let response = trace.0.iter().find(|resp| {
-                        resp.dest == msg.src
-                            && if let EchoMessage::EchoOk {
-                                in_reply_to,
-                                echo: resp_echo,
-                                ..
-                            } = &resp.body
-                            {
-                                *in_reply_to == *msg_id && *resp_echo == *echo
-                            } else {
-                                false
-                            }
-                    });
+        simulate(
+            config,
+            number_of_nodes,
+            spawn,
+            generate_message,
+            ECHO_PROPERTY,
+        )
+    }
 
-                    if response.is_none() {
-                        let mut err = String::new();
-                        err += &format!(
-                            "No matching response found for echo request:\n    {:?}\n\nTrace:\n",
-                            msg
-                        );
-                        trace
-                            .0
-                            .clone()
-                            .into_iter()
-                            .for_each(|envelope| err += &format!("  {:?}\n", envelope));
-                        return Err(err);
+    // TODO: Take response time into account.
+    const ECHO_PROPERTY: fn(Trace) -> Result<(), String> = |trace: Trace| {
+        for (index, msg) in trace
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_index, msg)| msg.src.starts_with("c"))
+        {
+            if let EchoMessage::Echo { msg_id, echo } = &msg.body {
+                let response = trace.0.split_at(index + 1).1.iter().find(|resp| {
+                        resp.dest == msg.src
+                            && matches!(&resp.body, EchoMessage::EchoOk { in_reply_to, echo: resp_echo, .. }
+                                if in_reply_to == msg_id && resp_echo == echo)
+                    });
+                if response.is_none() {
+                    let mut err = String::new();
+                    err += &format!(
+                        "No matching response found for echo request:\n    {:?}\n\nTrace:\n",
+                        msg
+                    );
+                    for envelope in trace.0 {
+                        err += &format!("  {envelope:?}\n");
                     }
+                    return Err(err);
                 }
             }
-            Ok(())
-        };
-        simulate(config, number_of_nodes, spawn, generate_message, property)
-    }
+        }
+        Ok(())
+    };
 
     // This shows how we can test external binaries. The test is disabled because building and
     // locating a binary on CI, across all platforms, is annoying.
@@ -404,33 +398,12 @@ mod tests {
             msg_id: 0,
             echo: format!("Please echo {}", i),
         });
-        let property = |trace: Trace| {
-            for msg in trace.0.iter().filter(|msg| msg.src.starts_with("c")) {
-                if let EchoMessage::Echo { msg_id, echo } = &msg.body {
-                    let response = trace.0.iter().find(|resp| {
-                        resp.dest == msg.src
-                            && if let EchoMessage::EchoOk {
-                                in_reply_to,
-                                echo: resp_echo,
-                                ..
-                            } = &resp.body
-                            {
-                                *in_reply_to == *msg_id && *resp_echo == *echo
-                            } else {
-                                false
-                            }
-                    });
-
-                    if response.is_none() {
-                        return Err(format!(
-                            "No matching response found for echo request: {:?}",
-                            msg
-                        ));
-                    }
-                }
-            }
-            Ok(())
-        };
-        simulate(config, number_of_nodes, spawn, generate_message, property)
+        simulate(
+            config,
+            number_of_nodes,
+            spawn,
+            generate_message,
+            ECHO_PROPERTY,
+        )
     }
 }
