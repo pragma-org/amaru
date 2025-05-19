@@ -29,7 +29,7 @@ pub enum InvalidScripts {
     )]
     UnspendableInputsNoDatums(Vec<TransactionInput>),
     #[error(
-        "missing reuqired datums: missing [{}] provided [{}]",
+        "missing required datums: missing [{}] provided [{}]",
         missing.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
     provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
     )]
