@@ -24,6 +24,7 @@ pallas-traverse.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+tracing.workspace = true
 
 slot-arithmetic.workspace = true
 

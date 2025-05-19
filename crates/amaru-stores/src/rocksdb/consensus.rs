@@ -16,7 +16,7 @@ use amaru_consensus::{
     consensus::store::{ChainStore, StoreError},
     Nonces,
 };
-use amaru_kernel::{cbor, from_cbor, to_cbor, Hash};
+use amaru_kernel::{cbor, from_cbor, to_cbor, Hash, RawBlock};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use slot_arithmetic::EraHistory;
@@ -83,6 +83,14 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 
     fn era_history(&self) -> &EraHistory {
         &self.era_history
+    }
+
+    fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock> {
+        todo!()
+    }
+
+    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
+        todo!()
     }
 }
 

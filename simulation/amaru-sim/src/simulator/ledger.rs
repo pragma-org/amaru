@@ -262,6 +262,14 @@ mod test {
         fn era_history(&self) -> &amaru_kernel::EraHistory {
             NetworkName::Testnet(42).into()
         }
+
+        fn load_block(&self, hash: &Hash<32>) -> Option<amaru_kernel::RawBlock> {
+            todo!()
+        }
+
+        fn store_block(&mut self, hash: &Hash<32>, block: &amaru_kernel::RawBlock) -> Result<(), StoreError> {
+            todo!()
+        }
     }
 
     #[test]

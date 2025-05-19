@@ -12,10 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod fetch_block;
-pub mod forward_chain;
-pub mod receive_header;
-pub mod select_chain;
-pub mod store_block;
-pub mod store_header;
-pub mod validate_header;
+use tracing::Span;
+use crate::{Point, RawBlock};
+
+#[derive(Debug, Clone)]
+pub enum ValidateBlockEvent {
+    Validated {
+        point: Point,
+        block: RawBlock,
+        span: Span,
+    },
+    Rollback {
+        rollback_point: Point,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockValidationResult {
+    BlockValidated { point: Point, block: RawBlock, span: Span },
+    BlockValidationFailed { point: Point, span: Span },
+    RolledBackTo { rollback_point: Point, span: Span },
+}

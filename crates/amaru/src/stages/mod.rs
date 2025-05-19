@@ -14,12 +14,7 @@
 
 use amaru_consensus::{
     consensus::{
-        chain_selection::{ChainSelector, ChainSelectorBuilder},
-        select_chain::SelectChain,
-        store::ChainStore,
-        store_header::StoreHeader,
-        validate_header::ValidateHeader,
-        ChainSyncEvent,
+        chain_selection::{ChainSelector, ChainSelectorBuilder}, select_chain::SelectChain, store::ChainStore, store_block::StoreBlock, store_header::StoreHeader, validate_header::ValidateHeader, ChainSyncEvent
     },
     peer::Peer,
     ConsensusError, IsHeader,
@@ -29,9 +24,7 @@ use amaru_kernel::{
 };
 use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB, RocksDBHistoricalStores};
 use consensus::{
-    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
-    receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
-    store_header::StoreHeaderStage, validate_header::ValidateHeaderStage,
+    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage, receive_header::ReceiveHeaderStage, select_chain::SelectChainStage, store_block::StoreBlockStage, store_header::StoreHeaderStage, validate_header::ValidateHeaderStage
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
@@ -116,23 +109,25 @@ pub fn bootstrap(
     };
 
     let chain_selector = make_chain_selector(tip.clone(), &chain_store, &peer_sessions)?;
-    let chain_ref = Arc::new(Mutex::new(chain_store));
+    let chain_store_ref = Arc::new(Mutex::new(chain_store));
     let consensus = ValidateHeader::new(
         Box::new(ledger.state.view_stake_distribution()),
-        chain_ref.clone(),
+        chain_store_ref.clone(),
     );
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
     let mut validate_header_stage = ValidateHeaderStage::new(consensus, &global_parameters);
 
-    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_ref.clone()));
+    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
 
     let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
 
+    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
+
     let mut forward_chain_stage = ForwardChainStage::new(
         None,
-        chain_ref.clone(),
+        chain_store_ref.clone(),
         config.network_magic as u64,
         &config.listen_address,
         config.max_downstream_peers,
@@ -144,7 +139,8 @@ pub fn bootstrap(
     let (to_select_chain, from_store_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_fetch, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_block_store, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_block_forward, from_block_store) = gasket::messaging::tokio::mpsc_channel(50);
 
     let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = pulls
         .iter_mut()
@@ -166,8 +162,12 @@ pub fn bootstrap(
     block_fetch_stage.downstream.connect(to_ledger);
 
     ledger.upstream.connect(from_block_fetch);
-    ledger.downstream.connect(to_block_forward);
-    forward_chain_stage.upstream.connect(from_ledger);
+    ledger.downstream.connect(to_block_store);
+
+    store_block_stage.upstream.connect(from_ledger);
+    store_block_stage.downstream.connect(to_block_forward);
+
+    forward_chain_stage.upstream.connect(from_block_store);
 
     // No retry, crash on panics.
     let policy = gasket::runtime::Policy::default();

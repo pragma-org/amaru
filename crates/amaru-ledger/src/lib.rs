@@ -14,31 +14,6 @@
 
 #![feature(try_trait_v2)]
 
-use amaru_kernel::Point;
-use tracing::Span;
-
-pub type RawBlock = Vec<u8>;
-
-#[derive(Debug, Clone)]
-pub enum ValidateBlockEvent {
-    Validated {
-        point: Point,
-        block: RawBlock,
-        span: Span,
-    },
-    Rollback {
-        rollback_point: Point,
-        span: Span,
-    },
-}
-
-#[derive(Debug, Clone)]
-pub enum BlockValidationResult {
-    BlockValidated { point: Point, span: Span },
-    BlockValidationFailed { point: Point, span: Span },
-    RolledBackTo { rollback_point: Point, span: Span },
-}
-
 pub mod context;
 pub mod rules;
 pub mod state;

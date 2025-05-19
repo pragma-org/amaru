@@ -7,8 +7,7 @@ use amaru_consensus::{
     consensus::store::{ChainStore, StoreError},
     IsHeader, Nonces,
 };
-use amaru_kernel::{from_cbor, Hash, Header};
-use amaru_ledger::BlockValidationResult;
+use amaru_kernel::{block::BlockValidationResult, from_cbor, Hash, Header};
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,
     runtime::{spawn_stage, Tether},
@@ -92,6 +91,14 @@ impl ChainStore<Header> for TestStore {
 
     fn era_history(&self) -> &slot_arithmetic::EraHistory {
         unimplemented!()
+    }
+
+    fn load_block(&self, hash: &Hash<32>) -> Option<amaru_kernel::RawBlock> {
+        todo!()
+    }
+
+    fn store_block(&mut self, hash: &Hash<32>, block: &amaru_kernel::RawBlock) -> Result<(), StoreError> {
+        todo!()
     }
 }
 
@@ -205,9 +212,11 @@ impl Setup {
         let point = self.store.get(&hash(s)).unwrap().point();
         let span = tracing::debug_span!("whatever");
         let f = self.block.send(
+
             BlockValidationResult::BlockValidated {
                 point: point.clone(),
                 span,
+                block: vec![] // FIXME
             }
             .into(),
         );

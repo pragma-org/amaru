@@ -1,4 +1,4 @@
-use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Hasher, MintedBlock, Point};
+use amaru_kernel::{block::{BlockValidationResult, ValidateBlockEvent}, protocol_parameters::GlobalParameters, EraHistory, Hasher, MintedBlock, Point, RawBlock};
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
     rules::{
@@ -8,7 +8,6 @@ use amaru_ledger::{
     },
     state::{self, BackwardError, VolatileState},
     store::{HistoricalStores, Store, StoreError},
-    BlockValidationResult, RawBlock, ValidateBlockEvent,
 };
 use anyhow::Context;
 use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
@@ -177,6 +176,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
                 .map(|res| match res {
                     None => BlockValidationResult::BlockValidated {
                         point: point.clone(),
+                        block: block.to_vec(),
                         span: restore_span(span),
                     },
                     Some(_err) => BlockValidationResult::BlockValidationFailed {

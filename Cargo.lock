@@ -127,6 +127,7 @@ dependencies = [
  "slot-arithmetic",
  "test-case",
  "thiserror 2.0.12",
+ "tracing",
 ]
 
 [[package]]
