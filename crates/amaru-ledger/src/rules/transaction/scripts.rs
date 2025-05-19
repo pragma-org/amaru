@@ -294,6 +294,14 @@ mod tests {
         matches Err(InvalidScripts::UnspendableInputsNoDatums(..));
         "unspendable input"
     )]
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-datum") =>
+        matches Err(InvalidScripts::MissingRequiredDatums{..});
+        "missing required datum"
+    )]
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-supplemental-datum") =>
+        matches Err(InvalidScripts::ExtraneousSupplementalDatums{..});
+        "extraneous supplemental datum"
+    )]
     fn test_scripts(
         (mut ctx, tx, witness_set): (
             AssertValidationContext,

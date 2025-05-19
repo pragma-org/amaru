@@ -115,7 +115,7 @@ impl From<ScriptRefProxy> for ScriptRef {
 
 #[derive(Debug, serde::Deserialize)]
 pub enum DatumOptionProxy {
-    Hash([u8; 32]),
+    Hash(Bytes),
     Data(Bytes),
 }
 
@@ -127,7 +127,7 @@ impl From<DatumOptionProxy> for DatumOption {
     #[allow(clippy::unwrap_used)]
     fn from(value: DatumOptionProxy) -> Self {
         match value {
-            DatumOptionProxy::Hash(bytes) => DatumOption::Hash(Hash::new(bytes)),
+            DatumOptionProxy::Hash(bytes) => DatumOption::Hash(Hash::from(bytes.as_slice())),
             // This code should only be run during tests, so a panic here is fine
             DatumOptionProxy::Data(data) => {
                 DatumOption::Data(CborWrap(from_cbor(data.deref()).unwrap()))
