@@ -9,7 +9,7 @@ pub mod tokio;
 mod types;
 
 pub use effect::Effect;
-pub use stage::{StageBuildRef, StageRef};
+pub use stage::{StageBuildRef, StageRef, Void};
 pub use stagegraph::{CallId, CallRef, Effects, StageGraph};
 pub use time::Instant;
 pub use types::{cast_msg, cast_msg_ref, cast_state, BoxFuture, Message, Name, State};
