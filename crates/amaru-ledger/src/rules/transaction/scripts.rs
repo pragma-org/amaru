@@ -31,7 +31,7 @@ pub enum InvalidScripts {
     #[error(
         "missing required datums: missing [{}] provided [{}]",
         missing.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
-    provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+        provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
     )]
     MissingRequiredDatums {
         missing: Vec<Hash<32>>,
@@ -43,7 +43,7 @@ pub enum InvalidScripts {
         provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
     )]
     ExtraneousSupplementalDatums {
-        allowed: Vec<Hash<32>>,
+        allowed: BTreeSet<Hash<32>>,
         provided: BTreeSet<Hash<32>>,
     },
 }
@@ -233,7 +233,7 @@ where
     if !extraneous_supplemental_datums.is_empty() {
         return Err(InvalidScripts::ExtraneousSupplementalDatums {
             provided: supplemental_datums,
-            allowed: extraneous_supplemental_datums,
+            allowed: allowed_supplemental_datum,
         });
     }
 
