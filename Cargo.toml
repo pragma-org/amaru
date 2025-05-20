@@ -22,7 +22,7 @@ bech32 = "0.11.0"
 clap = { version = "4.5.38", features = ["derive", "env"] }
 either = "1.15"
 futures-util = "0.3.31"
-gasket = { version = "0.8.0", features = ["derive"] }
+gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
 hex = "0.4.3"
 indicatif = "0.17.9"
 indoc = "2.0"
@@ -87,7 +87,7 @@ tempfile = "3.20.0"
 rand = "0.9.1"
 proptest = { version = "1.5.0", default-features = false, features = ["alloc"] }
 insta = "1.41.1"
-criterion = "0.5.1"
+criterion = "0.6.0"
 test-case = "3.3.1"
 
 # build-dependencies
