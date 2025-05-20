@@ -1,30 +1,70 @@
 #![allow(clippy::wildcard_enum_match_arm, clippy::unwrap_used, clippy::panic)]
 
-use crate::{cast_msg, BoxFuture, Message, Name, StageBuildRef, StageGraph, StageRef, State};
+use crate::{
+    cast_msg,
+    effect::{StageEffect, StageResponse},
+    BoxFuture, Effects, Instant, Message, Name, StageBuildRef, StageGraph, StageRef, State,
+};
 use std::{
     any::Any,
     collections::{HashMap, VecDeque},
     future::{poll_fn, Future},
     marker::PhantomData,
-    sync::Arc,
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc,
+    },
     task::Poll,
+    time::Duration,
 };
 use tokio::sync::mpsc::unbounded_channel;
 
-pub use effect::Effect;
-pub use interrupt::Interrupter;
 pub use receiver::Receiver;
 pub use running::{Blocked, SimulationRunning};
 
-use effect::StageEffect;
-use running::EffectBox;
+use either::Either;
+use parking_lot::Mutex;
 use state::{InitStageData, InitStageState, StageData, StageState, Transition};
 
-mod effect;
-mod interrupt;
 mod receiver;
 mod running;
 mod state;
+
+pub(crate) type EffectBox =
+    Arc<Mutex<Option<Either<StageEffect<Box<dyn Message>>, StageResponse>>>>;
+
+pub(crate) fn airlock_effect<Out>(
+    eb: &EffectBox,
+    effect: StageEffect<Box<dyn Message>>,
+    mut response: impl FnMut(Option<StageResponse>) -> Option<Out> + Send + 'static,
+) -> BoxFuture<'static, Out> {
+    let eb = eb.clone();
+    let mut effect = Some(effect);
+    Box::pin(poll_fn(move |_| {
+        let mut eb = eb.lock();
+        if let Some(effect) = effect.take() {
+            match eb.take() {
+                Some(Either::Left(x)) => panic!("effect already set: {:?}", x),
+                // it is either Some(Right(Unit)) after Receive or None otherwise
+                Some(Either::Right(StageResponse::Unit)) | None => {}
+                Some(Either::Right(resp)) => {
+                    panic!("effect airlock contains leftover response: {:?}", resp)
+                }
+            }
+            *eb = Some(Either::Left(effect));
+            Poll::Pending
+        } else {
+            let Some(out) = eb.take() else {
+                return Poll::Pending;
+            };
+            let out = match out {
+                Either::Left(x) => panic!("expected response, got effect: {:?}", x),
+                Either::Right(x) => response(Some(x)),
+            };
+            out.map(Poll::Ready).unwrap_or(Poll::Pending)
+        }
+    }))
+}
 
 /// A fully controllable and deterministic [`StageGraph`] for testing purposes.
 ///
@@ -44,38 +84,37 @@ mod state;
 /// let mut network = SimulationBuilder::default();
 /// let stage = network.stage(
 ///     "basic",
-///     async |(mut state, out), msg: u32| {
+///     async |(mut state, out), msg: u32, eff| {
 ///         state += msg;
-///         out.send(state).await?;
+///         eff.send(&out, state).await;
 ///         Ok((state, out))
 ///     },
-///     (1u32, StageRef::<u32, ()>::noop()),
+///     (1u32, StageRef::noop::<u32>()),
 /// );
 /// let (output, mut rx) = network.output("output");
-/// let stage = network.wire_up(stage, |state| state.1 = output);
+/// let stage = network.wire_up(stage, |state| state.1 = output.without_state());
 /// let mut running = network.run();
 ///
-/// // first check that the stages start receiving
-/// running.effect().assert_receive("output");
-/// running.effect().assert_receive("basic");
+/// // first check that the stages start out suspended on Receive
 /// running.try_effect().unwrap_err().assert_idle();
 ///
 /// // then insert some input and check reaction
 /// running.enqueue_msg(&stage, [1]);
-/// running.resume_receive("basic");
-/// running.effect().assert_send("basic", "output", 2u32);
-/// running.resume_send("basic", "output", 2u32);
-/// running.effect().assert_receive("basic");
+/// running.resume_receive(&stage).unwrap();
+/// running.effect().assert_send(&stage, &output, 2u32);
+/// running.resume_send(&stage, &output, 2u32).unwrap();
+/// running.effect().assert_receive(&stage);
 ///
-/// running.resume_receive("output");
-/// running.effect().assert_receive("output");
+/// running.resume_receive(&output).unwrap();
+/// running.effect().assert_receive(&output);
 ///
 /// assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 /// ```
 pub struct SimulationBuilder {
     stages: HashMap<Name, InitStageData>,
-    runnable: VecDeque<Name>,
     effect: EffectBox,
+    clock: Arc<AtomicU64>,
+    now: Arc<dyn Fn() -> Instant + Send + Sync>,
     mailbox_size: usize,
 }
 
@@ -88,10 +127,18 @@ impl SimulationBuilder {
 
 impl Default for SimulationBuilder {
     fn default() -> Self {
+        let clock_base = tokio::time::Instant::now();
+        let clock = Arc::new(AtomicU64::new(0));
+        let clock2 = clock.clone();
+        let now = Arc::new(move || {
+            Instant::from_tokio(clock_base + Duration::from_nanos(clock2.load(Ordering::Relaxed)))
+        });
+
         Self {
             stages: Default::default(),
-            runnable: Default::default(),
             effect: Default::default(),
+            clock,
+            now,
             mailbox_size: 10,
         }
     }
@@ -108,21 +155,13 @@ impl SimulationBuilder {
         let (tx, rx) = unbounded_channel();
         let stage = self.stage(
             &name,
-            move |_st, msg| {
+            move |_st, msg, _eff| {
                 let tx = tx.clone();
                 async move { tx.send(msg).map_err(|_| anyhow::anyhow!("channel closed")) }
             },
             (),
         );
-        let StageRef { name, send, .. } = self.wire_up(stage, |_| {});
-        (
-            StageRef {
-                name,
-                send,
-                _ph: PhantomData,
-            },
-            Receiver::new(rx),
-        )
+        (self.wire_up(stage, |_| {}), Receiver::new(rx))
     }
 
     /// Construct a stage that sends received messages to a [`Receiver`] that is also returned.
@@ -143,7 +182,7 @@ impl SimulationBuilder {
     /// running.run_until_blocked().assert_interrupted("output");
     /// assert_eq!(rx.drain().collect::<Vec<_>>(), vec![1]);
     ///
-    /// running.resume_interrupt("output");
+    /// running.resume_interrupt(&output);
     /// assert_eq!(rx.drain().collect::<Vec<_>>(), vec![]);
     ///
     /// running.run_until_blocked().assert_idle();
@@ -155,39 +194,22 @@ impl SimulationBuilder {
         interrupt: impl Fn(&T) -> bool + Send + 'static,
     ) -> (StageRef<T, ()>, Receiver<T>) {
         let (tx, rx) = unbounded_channel();
-        let inter = self.interrupter();
         let stage = self.stage(
             &name,
-            move |_st, msg| {
+            move |_st, msg, eff| {
                 let tx = tx.clone();
-                let interrupt = interrupt(&msg).then(|| inter.clone());
+                let interrupt = interrupt(&msg);
                 async move {
-                    if let Some(interrupt) = interrupt {
-                        interrupt.interrupt().await?;
+                    if interrupt {
+                        eff.interrupt().await;
                     }
                     tx.send(msg).map_err(|_| anyhow::anyhow!("channel closed"))
                 }
             },
             (),
         );
-        let StageRef { name, send, .. } = self.wire_up(stage, |_| {});
-        (
-            StageRef {
-                name,
-                send,
-                _ph: PhantomData,
-            },
-            Receiver::new(rx),
-        )
-    }
-
-    /// Construct a factory for interruption effects.
-    ///
-    /// This can be cloned and used in multiple stages to interrupt an ongoing simulation
-    /// while using [`SimulationRunning::run_until_blocked`] when you don’t want the network to run
-    /// until no further actions can be taken automatically.
-    pub fn interrupter(&self) -> Interrupter {
-        Interrupter::new(self.effect.clone())
+        let stage = self.wire_up(stage, |_| {});
+        (stage, Receiver::new(rx))
     }
 }
 
@@ -202,15 +224,20 @@ impl super::StageGraph for SimulationBuilder {
         state: St,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
-        F: FnMut(St, Msg) -> Fut + 'static + Send,
+        F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
         Fut: Future<Output = anyhow::Result<St>> + 'static + Send,
     {
         let name = Name::from(name.as_ref());
+        let me = StageRef {
+            name: name.clone(),
+            _ph: PhantomData,
+        };
+        let effects = Effects::new(me, self.effect.clone(), self.now.clone());
         let transition: Transition =
             Box::new(move |state: Box<dyn State>, msg: Box<dyn Message>| {
                 let state = (state as Box<dyn Any>).downcast::<St>().unwrap();
                 let msg = cast_msg::<Msg>(msg).unwrap();
-                let state = f(*state, msg);
+                let state = f(*state, msg, effects.clone());
                 Box::pin(async move { Ok(Box::new(state.await?) as Box<dyn State>) })
             });
 
@@ -225,34 +252,11 @@ impl super::StageGraph for SimulationBuilder {
             panic!("stage {name} already exists with state {:?}", old.state);
         }
 
-        let effect = self.effect.clone();
-        let target = name.clone();
-        let send = Arc::new(move |msg: Msg| {
-            let mut eff = Some(StageEffect::Send(
-                target.clone(),
-                Box::new(msg) as Box<dyn Message>,
-            ));
-            let effect = effect.clone();
-            Box::pin(poll_fn(move |_| {
-                if let Some(eff) = eff.take() {
-                    let mut effect = effect.lock();
-                    assert!(effect.is_none(), "effect already set");
-                    *effect = Some(eff);
-                    Poll::Pending
-                } else {
-                    match *effect.lock() {
-                        None => Poll::Ready(Ok(())),
-                        _ => Poll::Pending,
-                    }
-                }
-            })) as BoxFuture<'static, anyhow::Result<()>>
-        });
-
         StageBuildRef {
             name,
             state,
-            send,
             network: (),
+            _ph: PhantomData,
         }
     }
 
@@ -265,18 +269,15 @@ impl super::StageGraph for SimulationBuilder {
             name,
             mut state,
             network: (),
-            send,
+            _ph,
         } = stage;
 
         f(&mut state);
         let data = self.stages.get_mut(&name).unwrap();
         data.state = InitStageState::Idle(Box::new(state));
 
-        self.runnable.push_back(name.clone());
-
         StageRef {
             name,
-            send,
             _ph: PhantomData,
         }
     }
@@ -285,7 +286,8 @@ impl super::StageGraph for SimulationBuilder {
         let Self {
             stages: s,
             effect,
-            runnable,
+            clock,
+            now,
             mailbox_size,
         } = self;
         let mut stages = HashMap::new();
@@ -303,12 +305,15 @@ impl super::StageGraph for SimulationBuilder {
                 InitStageState::Idle(state) => StageState::Idle(state),
             };
             let data = StageData {
+                name: name.clone(),
                 mailbox,
                 state,
                 transition,
+                waiting: Some(StageEffect::Receive),
+                senders: VecDeque::new(),
             };
-            stages.insert(name.clone(), data);
+            stages.insert(name, data);
         }
-        SimulationRunning::new(stages, effect, runnable, mailbox_size)
+        SimulationRunning::new(stages, effect, clock, now, mailbox_size)
     }
 }
