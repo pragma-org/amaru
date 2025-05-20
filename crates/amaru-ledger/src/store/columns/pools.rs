@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, expect_stake_credential, Epoch, PoolId, PoolParams, StakeCredential};
+use amaru_kernel::{cbor, expect_stake_credential, PoolId, PoolParams, StakeCredential};
 use iter_borrow::IterBorrow;
+use slot_arithmetic::Epoch;
 use tracing::{debug, trace};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::pools";
@@ -303,9 +304,12 @@ pub(crate) mod tests {
                 .map(|(epoch, _)| {
                     let future_params = || {
                         prop_oneof![
-                            (1..3u64).prop_map(move |offset| (None, epoch as u64 + offset)),
-                            any_pool_params()
-                                .prop_map(move |params| (Some(params), epoch as u64 + 1))
+                            (1..3u64)
+                                .prop_map(move |offset| (None, Epoch::from(epoch as u64) + offset)),
+                            any_pool_params().prop_map(move |params| (
+                                Some(params),
+                                Epoch::from(epoch as u64 + 1)
+                            ))
                         ]
                     };
                     prop::collection::vec(future_params(), 0..3)
@@ -318,7 +322,7 @@ pub(crate) mod tests {
 
     proptest! {
         #[test]
-        fn prop_decode_after_extend(row in any_row(), future_params in any_future_params(100)) {
+        fn prop_decode_after_extend(row in any_row(), future_params in any_future_params(Epoch::from(100))) {
             let mut bytes = Vec::new();
             cbor::encode(&row, &mut bytes)
                 .unwrap_or_else(|e| panic!("unable to encode value to CBOR: {e:?}"));
@@ -352,7 +356,7 @@ pub(crate) mod tests {
             for (current_epoch, updates) in updates.into_iter().enumerate() {
                 // Apply model's changes at the epoch boundary
                 if let Some(retirement) = model.retiring {
-                    if retirement <= current_epoch as u64 {
+                    if retirement <= Epoch::from(current_epoch as u64) {
                         model.current = None;
                     }
                 }
@@ -386,7 +390,7 @@ pub(crate) mod tests {
                 });
 
                 // Process them through row ticks, and ensure conformance with the model
-                Row::tick(Box::new(&mut row), current_epoch as Epoch);
+                Row::tick(Box::new(&mut row), Epoch::from(current_epoch as u64));
                 match row.as_mut() {
                     None => {
                         // Re-register the pool if we end up de-registering it.
@@ -403,7 +407,7 @@ pub(crate) mod tests {
                             "current_epoch = {current_epoch:?}, model = {model:?}",
                         );
                         assert!(
-                            row.future_params.iter().filter(|(_, epoch)| epoch <= &(current_epoch as u64)).count() == 0,
+                            row.future_params.iter().filter(|(_, epoch)| epoch <= &(Epoch::from(current_epoch as u64))).count() == 0,
                             "future params = {:?}",
                             row.future_params,
                         );

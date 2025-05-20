@@ -1,6 +1,6 @@
 use pallas_codec::minicbor::{data::Tag, Decoder};
 
-use crate::{cbor, Coin, Epoch, EpochInterval, ExUnits, Lovelace, RationalNumber};
+use crate::{cbor, Coin, EpochInterval, ExUnits, Lovelace, RationalNumber};
 
 /// Model from https://github.com/IntersectMBO/formal-ledger-specifications/blob/master/src/Ledger/PParams.lagda
 /// Some of the names have been adapted to improve readability.
@@ -46,7 +46,7 @@ pub struct ProtocolParameters {
     pub gov_action_lifetime: EpochInterval,
     pub gov_action_deposit: Coin,
     pub drep_deposit: Coin,
-    pub drep_expiry: Epoch,
+    pub drep_expiry: EpochInterval,
 }
 
 fn allow_tag(d: &mut Decoder<'_>, expected: Tag) -> Result<(), cbor::decode::Error> {
@@ -83,7 +83,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         let max_header_size = d.u16()?;
         let stake_credential_deposit = d.u64()?;
         let stake_pool_deposit = d.u64()?;
-        let max_epoch = d.u32()? as EpochInterval;
+        let max_epoch = d.u32()?;
         let optimal_stake_pools_count = d.u16()?;
         let pledge_influence = decode_rationale(d)?;
         let monetary_expansion_rate = decode_rationale(d)?;
@@ -153,7 +153,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
         let gov_action_lifetime = d.u32()?;
         let gov_action_deposit = d.u64()?;
         let drep_deposit = d.u64()?;
-        let drep_expiry = d.u64()?;
+        let drep_expiry = d.decode_with(ctx)?;
         let min_fee_ref_script_coins_per_byte = decode_rationale(d)?;
 
         Ok(ProtocolParameters {
@@ -302,7 +302,7 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
         e.u32(self.gov_action_lifetime)?;
         e.u64(self.gov_action_deposit)?;
         e.u64(self.drep_deposit)?;
-        e.u64(self.drep_expiry)?;
+        e.encode_with(self.drep_expiry, ctx)?;
         encode_rationale(e, &self.min_fee_ref_script_coins_per_byte)?;
 
         Ok(())
@@ -639,7 +639,7 @@ pub(crate) mod test {
             CostModels, DrepThresholds, PoolThresholds, Prices, ProtocolParameters,
             ProtocolParametersThresholds,
         },
-        Coin, Epoch, ExUnits, RationalNumber,
+        Coin, ExUnits, RationalNumber,
     };
     use proptest::prelude::*;
 
@@ -769,7 +769,7 @@ pub(crate) mod test {
             gov_action_lifetime in any::<u32>(),
             gov_action_deposit in any::<Coin>(),
             drep_deposit in any::<Coin>(),
-            drep_expiry in any::<Epoch>(),
+            drep_expiry in any::<u32>(),
         ) -> ProtocolParameters {
         let default = ProtocolParameters::default();
         ProtocolParameters {

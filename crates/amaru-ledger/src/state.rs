@@ -32,12 +32,12 @@ use crate::{
 use amaru_kernel::{
     expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, stake_credential_type, Epoch, EraHistory, Hash, Lovelace, MintedBlock,
-    Point, PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    stake_credential_hash, stake_credential_type, EraHistory, Hash, Lovelace, MintedBlock, Point,
+    PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput, TransactionOutput,
     PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
-use slot_arithmetic::TimeHorizonError;
+use slot_arithmetic::{Epoch, TimeHorizonError};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -345,7 +345,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
         if self.rewards_summary.is_none()
-            && relative_slot >= From::from(self.global_parameters.stability_window as u64)
+            && relative_slot >= Slot::from(self.global_parameters.stability_window as u64)
         {
             self.rewards_summary = Some(self.compute_rewards(protocol_version)?);
         }
@@ -451,7 +451,7 @@ pub fn recover_stake_distribution(
 // Epoch Transitions
 // ----------------------------------------------------------------------------
 
-#[instrument(level = Level::INFO, skip_all, fields(from = next_epoch - 1, into = next_epoch))]
+#[instrument(level = Level::INFO, skip_all, fields(from = ?next_epoch - 1, into = ?next_epoch))]
 fn epoch_transition(
     db: &mut impl Store,
     next_epoch: Epoch,
@@ -709,8 +709,8 @@ impl HasStakeDistribution for StakeDistributionView {
         })
     }
 
-    fn slot_to_kes_period(&self, slot: u64) -> u64 {
-        slot / self.global_parameters.slots_per_kes_period
+    fn slot_to_kes_period(&self, slot: Slot) -> u64 {
+        u64::from(slot) / self.global_parameters.slots_per_kes_period
     }
 
     fn max_kes_evolutions(&self) -> u64 {

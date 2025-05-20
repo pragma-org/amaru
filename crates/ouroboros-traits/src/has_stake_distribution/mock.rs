@@ -50,8 +50,8 @@ impl HasStakeDistribution for MockLedgerState {
         })
     }
 
-    fn slot_to_kes_period(&self, slot: u64) -> u64 {
-        slot / self.slots_per_kes_period
+    fn slot_to_kes_period(&self, slot: Slot) -> u64 {
+        u64::from(slot) / self.slots_per_kes_period
     }
 
     fn max_kes_evolutions(&self) -> u64 {

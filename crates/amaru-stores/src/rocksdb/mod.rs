@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, CertificatePointer, Epoch, EraHistory, Lovelace,
-    Point, PoolId, StakeCredential, TransactionInput, TransactionOutput,
+    protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace, Point,
+    PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -27,6 +27,7 @@ use amaru_ledger::{
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
 use rocksdb::{Direction, IteratorMode, ReadOptions, Transaction};
+use slot_arithmetic::Epoch;
 use std::{
     collections::BTreeSet,
     fmt, fs,

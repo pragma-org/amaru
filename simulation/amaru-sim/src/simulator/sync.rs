@@ -252,7 +252,7 @@ mod test {
         let header_hash = Hasher::<256>::hash(header.raw_cbor());
         Fwd {
             msg_id: 1,
-            slot: From::from(1234),
+            slot: Slot::from(1234),
             hash: header_hash.to_vec().into(),
             header: header_bytes.into(),
         }
@@ -280,7 +280,7 @@ mod test {
                 ..
             } => {
                 assert_eq!(peer.name, "peer1");
-                assert_eq!(point.slot_or_default(), From::from(1234));
+                assert_eq!(point.slot_or_default(), Slot::from(1234));
                 assert_eq!(Hash::from(&point), expected_hash);
                 assert_eq!(raw_header, hex::decode(TEST_HEADER).unwrap());
             }
@@ -334,14 +334,14 @@ mod test {
             (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| {
                 ChainSyncMessage::Fwd {
                     msg_id,
-                    slot: From::from(slot),
+                    slot: Slot::from(slot),
                     hash: hash.to_vec().into(),
                     header: Bytes { bytes: vec![] },
                 }
             }),
             (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| Bck {
                 msg_id,
-                slot: From::from(slot),
+                slot: Slot::from(slot),
                 hash: hash.to_vec().into()
             })
         ]

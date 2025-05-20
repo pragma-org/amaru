@@ -23,11 +23,12 @@ use crate::{
 };
 use amaru_kernel::{
     expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
-    DRep, Epoch, HasLovelace, Lovelace, Network, PoolId, ProtocolVersion, StakeCredential,
+    DRep, HasLovelace, Lovelace, Network, PoolId, ProtocolVersion, StakeCredential,
     PROTOCOL_VERSION_10,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use serde::ser::SerializeStruct;
+use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::info;
 

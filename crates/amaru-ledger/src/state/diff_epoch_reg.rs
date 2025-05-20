@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Epoch;
 use std::collections::BTreeMap;
+
+use slot_arithmetic::Epoch;
 
 /// A compact data-structure tracking deferred registration & unregistration changes in a key:value
 /// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
@@ -158,9 +159,12 @@ impl<'a, V> Fold<'a, V> {
 mod tests {
     use super::*;
     use proptest::prelude::*;
-    use std::collections::{btree_map, BTreeMap};
+    use std::{
+        collections::{btree_map, BTreeMap},
+        sync::LazyLock,
+    };
 
-    pub const MAX_EPOCH: Epoch = 4;
+    pub static MAX_EPOCH: LazyLock<Epoch> = LazyLock::new(|| Epoch::from(4));
 
     prop_compose! {
         fn any_diff()(
@@ -227,7 +231,7 @@ mod tests {
             v in
                 any::<u8>(),
             epoch in
-                prop_oneof![Just(None), (0..max_epoch).prop_map(Some)]
+                prop_oneof![Just(None), (Epoch::from(0)..max_epoch).prop_map(Some)]
         ) -> Message<char, u8> {
             match epoch {
                 None => Message::Register(k, v),
@@ -238,8 +242,8 @@ mod tests {
     }
 
     fn any_message_sequence() -> impl Strategy<Value = Vec<(Epoch, Vec<Message<char, u8>>)>> {
-        let any_block = || prop::collection::vec(any_message(MAX_EPOCH), 0..5);
-        prop::collection::vec(0..MAX_EPOCH, 1..30).prop_flat_map(move |mut epochs| {
+        let any_block = || prop::collection::vec(any_message(*MAX_EPOCH), 0..5);
+        prop::collection::vec(Epoch::from(0)..*MAX_EPOCH, 1..30).prop_flat_map(move |mut epochs| {
             epochs.sort();
             prop::collection::vec(any_block(), epochs.len()).prop_map(move |msgs| {
                 epochs
@@ -269,7 +273,7 @@ mod tests {
         #[test]
         fn prop_messages_are_in_ascending_epoch(msgs in any_message_sequence()) {
             msgs.into_iter().fold(0, |current_epoch, (epoch, _)| {
-                assert!(epoch <= MAX_EPOCH);
+                assert!(epoch <= *MAX_EPOCH);
                 assert!(epoch >= current_epoch);
                 epoch
             });

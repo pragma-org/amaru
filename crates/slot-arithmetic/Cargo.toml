@@ -18,5 +18,7 @@ minicbor.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 
+
 [dev-dependencies]
 proptest.workspace = true
+proptest-derive.workspace = true

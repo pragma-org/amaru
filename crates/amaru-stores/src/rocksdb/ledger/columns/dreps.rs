@@ -13,12 +13,13 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_kernel::{CertificatePointer, Epoch, StakeCredential};
+use amaru_kernel::{CertificatePointer, StakeCredential};
 use amaru_ledger::store::{
     columns::dreps::{Key, Row, Value, EVENT_TARGET},
     StoreError,
 };
 use rocksdb::Transaction;
+use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 use tracing::error;
 

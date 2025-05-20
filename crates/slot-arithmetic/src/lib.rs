@@ -12,10 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::fmt::Display;
+#![feature(step_trait)]
+
+use std::{
+    fmt::Display,
+    iter::Step,
+    ops::{Add, Mul, Sub},
+    str::FromStr,
+};
 
 use minicbor::{Decode, Decoder, Encode};
+
 use serde::{Deserialize, Serialize};
+
+#[cfg(test)]
+use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize, Default)]
 #[repr(transparent)]
@@ -74,11 +85,113 @@ impl<'b, C> Decode<'b, C> for Slot {
     }
 }
 
+#[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize, Default)]
+#[repr(transparent)]
+pub struct Epoch(u64);
+
+#[cfg(test)]
+impl Arbitrary for Epoch {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        (0..u64::MAX).prop_map(Epoch::from).boxed()
+    }
+}
+
+impl Display for Epoch {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+impl FromStr for Epoch {
+    type Err = std::num::ParseIntError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        s.parse::<u64>().map(Epoch)
+    }
+}
+
+impl From<u64> for Epoch {
+    fn from(epoch: u64) -> Epoch {
+        Epoch(epoch)
+    }
+}
+
+impl From<Epoch> for u64 {
+    fn from(epoch: Epoch) -> u64 {
+        epoch.0
+    }
+}
+
+impl<C> Encode<C> for Epoch {
+    fn encode<W: minicbor::encode::Write>(
+        &self,
+        e: &mut minicbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), minicbor::encode::Error<W::Error>> {
+        self.0.encode(e, ctx)
+    }
+}
+
+impl<'b, C> Decode<'b, C> for Epoch {
+    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+        d.u64().map(Epoch)
+    }
+}
+
+impl Add<u64> for Epoch {
+    type Output = Self;
+
+    fn add(self, rhs: u64) -> Self::Output {
+        Epoch(self.0 + rhs)
+    }
+}
+
+impl Sub<u64> for Epoch {
+    type Output = Self;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        Epoch(self.0 - rhs)
+    }
+}
+
+impl Sub<Epoch> for Epoch {
+    type Output = u64;
+
+    fn sub(self, rhs: Epoch) -> Self::Output {
+        self.0 - rhs.0
+    }
+}
+
+impl Mul<u64> for Epoch {
+    type Output = Self;
+
+    fn mul(self, rhs: u64) -> Self::Output {
+        Epoch(self.0 * rhs)
+    }
+}
+
+impl Step for Epoch {
+    fn steps_between(start: &Self, end: &Self) -> (usize, Option<usize>) {
+        u64::steps_between(&start.0, &end.0)
+    }
+
+    fn forward_checked(start: Self, count: usize) -> Option<Self> {
+        u64::forward_checked(start.0, count).map(Epoch)
+    }
+
+    fn backward_checked(start: Self, count: usize) -> Option<Self> {
+        u64::backward_checked(start.0, count).map(Epoch)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Bound {
     pub time_ms: u64, // Milliseconds
     pub slot: Slot,
-    pub epoch: u64,
+    pub epoch: Epoch,
 }
 
 #[allow(dead_code)]
@@ -87,7 +200,7 @@ impl Bound {
         Bound {
             time_ms: 0,
             slot: Slot(0),
-            epoch: 0,
+            epoch: Epoch(0),
         }
     }
 }
@@ -108,11 +221,11 @@ impl<C> Encode<C> for Bound {
 }
 
 impl<'b, C> Decode<'b, C> for Bound {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
+    fn decode(d: &mut Decoder<'b>, ctx: &mut C) -> Result<Self, minicbor::decode::Error> {
         let _ = d.array()?;
         let time_ms = d.u64()?;
         let slot = d.decode()?;
-        let epoch = d.u64()?;
+        let epoch = d.decode_with(ctx)?;
         d.skip()?;
         Ok(Bound {
             time_ms,
@@ -297,7 +410,7 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
-    pub fn slot_to_epoch(&self, slot: Slot) -> Result<u64, TimeHorizonError> {
+    pub fn slot_to_epoch(&self, slot: Slot) -> Result<Epoch, TimeHorizonError> {
         for era in &self.eras {
             if era.start.slot > slot {
                 return Err(TimeHorizonError::InvalidEraHistory);
@@ -314,14 +427,14 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
-    pub fn next_epoch_first_slot(&self, epoch: u64) -> Result<Slot, TimeHorizonError> {
+    pub fn next_epoch_first_slot(&self, epoch: Epoch) -> Result<Slot, TimeHorizonError> {
         for era in &self.eras {
             if era.start.epoch > epoch {
                 return Err(TimeHorizonError::InvalidEraHistory);
             }
             if era.end.epoch > epoch {
                 let start_of_next_epoch = match era.start.slot {
-                    Slot(s) => (epoch - era.start.epoch + 1) * era.params.epoch_size_slots + s,
+                    Slot(s) => (epoch.0 - era.start.epoch.0 + 1) * era.params.epoch_size_slots + s,
                 };
                 return Ok(Slot(start_of_next_epoch));
             }
@@ -330,7 +443,7 @@ impl EraHistory {
     }
 
     /// Find the first epoch of the era from which this epoch belongs.
-    pub fn era_first_epoch(&self, epoch: u64) -> Result<u64, TimeHorizonError> {
+    pub fn era_first_epoch(&self, epoch: Epoch) -> Result<Epoch, TimeHorizonError> {
         for era in &self.eras {
             if epoch < era.end.epoch {
                 return Ok(era.start.epoch);
@@ -339,7 +452,7 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
-    pub fn epoch_bounds(&self, epoch: u64) -> Result<EpochBounds, TimeHorizonError> {
+    pub fn epoch_bounds(&self, epoch: Epoch) -> Result<EpochBounds, TimeHorizonError> {
         for era in &self.eras {
             if era.start.epoch > epoch {
                 return Err(TimeHorizonError::InvalidEraHistory);
@@ -349,8 +462,9 @@ impl EraHistory {
             if era.end.epoch > epoch {
                 let epochs_elapsed = epoch - era.start.epoch;
                 let offset = era.start.slot;
-                let start = offset.offset_by(era.params.epoch_size_slots * epochs_elapsed);
-                let end = offset.offset_by(era.params.epoch_size_slots * (epochs_elapsed + 1));
+                let slots_elapsed = epochs_elapsed * era.params.epoch_size_slots;
+                let start = offset.offset_by(slots_elapsed);
+                let end = offset.offset_by(era.params.epoch_size_slots + slots_elapsed);
                 return Ok(EpochBounds { start, end });
             }
         }
@@ -380,14 +494,14 @@ mod tests {
     use std::cmp::{max, min};
 
     prop_compose! {
-        fn arbitrary_bound()(time_ms in any::<u64>(), slot in any::<u64>(), epoch in any::<u64>()) -> Bound {
+        fn arbitrary_bound()(time_ms in any::<u64>(), slot in any::<u64>(), epoch in any::<Epoch>()) -> Bound {
             Bound {
                 time_ms, slot: Slot(slot), epoch
             }
         }
     }
     prop_compose! {
-        fn arbitrary_bound_for_epoch(epoch: u64)(time_ms in any::<u64>(), slot in any::<u64>()) -> Bound {
+        fn arbitrary_bound_for_epoch(epoch: Epoch)(time_ms in any::<u64>(), slot in any::<u64>()) -> Bound {
             Bound {
                 time_ms, slot: Slot(slot), epoch
             }
@@ -411,7 +525,7 @@ mod tests {
             first_epoch in Just(min(b1, b2) as u64),
             last_epoch in Just(max(b1, b2) as u64),
             params in Just(params),
-            start in arbitrary_bound_for_epoch(max(b1, b2) as u64),
+            start in arbitrary_bound_for_epoch(Epoch::from(max(b1, b2) as u64)),
         ) -> Summary {
                 let epochs_elapsed = last_epoch - first_epoch;
                 let slots_elapsed = epochs_elapsed * params.epoch_size_slots;
@@ -419,7 +533,7 @@ mod tests {
                 let end = Bound {
                     time_ms: start.time_ms + time_elapsed,
                     slot: start.slot.offset_by(slots_elapsed),
-                    epoch: last_epoch,
+                    epoch: Epoch::from(last_epoch),
                 };
                 Summary { start, end, params }
             }
@@ -454,13 +568,13 @@ mod tests {
             // construct a summary from the boundary pair
             let mut summaries = vec![];
             for (boundary, prev_era_params) in boundaries.iter().zip(era_params.iter()) {
-                let epochs_elapsed = boundary - prev_bound.epoch;
+                let epochs_elapsed = boundary - prev_bound.epoch.0;
                 let slots_elapsed = epochs_elapsed * prev_era_params.epoch_size_slots;
                 let time_elapsed = slots_elapsed * prev_era_params.slot_length;
                 let new_bound = Bound {
                     time_ms: prev_bound.time_ms + time_elapsed,
                     slot: prev_bound.slot.offset_by(slots_elapsed),
-                    epoch: *boundary,
+                    epoch: Epoch(*boundary),
                 };
 
                 summaries.push(Summary {
@@ -486,12 +600,12 @@ mod tests {
                 start: Bound {
                     time_ms: 0,
                     slot: Slot(0),
-                    epoch: 0,
+                    epoch: Epoch(0),
                 },
                 end: Bound {
                     time_ms: 864000000,
                     slot: Slot(864000),
-                    epoch: 10,
+                    epoch: Epoch(10),
                 },
                 params: default_params(),
             }],
@@ -505,12 +619,12 @@ mod tests {
                     start: Bound {
                         time_ms: 0,
                         slot: Slot(0),
-                        epoch: 0,
+                        epoch: Epoch(0),
                     },
                     end: Bound {
                         time_ms: 86400000,
                         slot: Slot(86400),
-                        epoch: 1,
+                        epoch: Epoch(1),
                     },
                     params: default_params(),
                 },
@@ -518,12 +632,12 @@ mod tests {
                     start: Bound {
                         time_ms: 86400000,
                         slot: Slot(86400),
-                        epoch: 1,
+                        epoch: Epoch(1),
                     },
                     end: Bound {
                         time_ms: 172800000,
                         slot: Slot(172800),
-                        epoch: 2,
+                        epoch: Epoch(2),
                     },
                     params: default_params(),
                 },
@@ -548,20 +662,20 @@ mod tests {
     #[test]
     fn epoch_bounds_example_1() {
         let eras = one_era();
-        assert_eq!(eras.epoch_bounds(1).unwrap().start, Slot(86400));
+        assert_eq!(eras.epoch_bounds(Epoch(1)).unwrap().start, Slot(86400));
     }
 
     #[test]
     fn epoch_bounds_example_2() {
         let eras = one_era();
-        assert_eq!(eras.epoch_bounds(1).unwrap().end, Slot(172800));
+        assert_eq!(eras.epoch_bounds(Epoch(1)).unwrap().end, Slot(172800));
     }
 
     #[test]
     fn epoch_bounds_fails_after_time_horizon() {
         let eras = one_era();
         assert_eq!(
-            eras.epoch_bounds(10),
+            eras.epoch_bounds(Epoch(10)),
             Err(TimeHorizonError::PastTimeHorizon)
         );
     }
@@ -570,21 +684,21 @@ mod tests {
     fn slot_to_epoch_example_1() {
         let eras = one_era();
         let e = eras.slot_to_epoch(Slot(0));
-        assert_eq!(e, Ok(0));
+        assert_eq!(e, Ok(Epoch(0)));
     }
 
     #[test]
     fn slot_to_epoch_example_2() {
         let eras = one_era();
         let e = eras.slot_to_epoch(Slot(86399));
-        assert_eq!(e, Ok(0));
+        assert_eq!(e, Ok(Epoch(0)));
     }
 
     #[test]
     fn slot_to_epoch_example_3() {
         let eras = one_era();
         let e = eras.slot_to_epoch(Slot(864000));
-        assert_eq!(e, Ok(10));
+        assert_eq!(e, Ok(Epoch(10)));
     }
 
     #[test]
@@ -597,20 +711,20 @@ mod tests {
     #[test]
     fn next_epoch_first_slot() {
         let eras = one_era();
-        assert_eq!(eras.next_epoch_first_slot(0), Ok(Slot(86400)));
+        assert_eq!(eras.next_epoch_first_slot(Epoch(0)), Ok(Slot(86400)));
     }
 
     #[test]
     fn next_epoch_first_slot_at_eras_boundary() {
         let eras = two_eras();
-        assert_eq!(eras.next_epoch_first_slot(1), Ok(Slot(172800)));
+        assert_eq!(eras.next_epoch_first_slot(Epoch(1)), Ok(Slot(172800)));
     }
 
     #[test]
     fn next_epoch_first_slot_beyond_end_of_history() {
         let eras = two_eras();
         assert_eq!(
-            eras.next_epoch_first_slot(2),
+            eras.next_epoch_first_slot(Epoch(2)),
             Err(TimeHorizonError::PastTimeHorizon)
         );
     }
@@ -660,12 +774,12 @@ mod tests {
                     start: Bound {
                         time_ms: 100000,
                         slot: Slot(100),
-                        epoch: 1,
+                        epoch: Epoch(1),
                     },
                     end: Bound {
                         time_ms: 186400000,
                         slot: Slot(86500),
-                        epoch: 2,
+                        epoch: Epoch(2),
                     },
                     params: default_params(),
                 },
@@ -673,12 +787,12 @@ mod tests {
                     start: Bound {
                         time_ms: 186400000,
                         slot: Slot(50), // This is invalid - earlier than first era's start
-                        epoch: 2,
+                        epoch: Epoch(2),
                     },
                     end: Bound {
                         time_ms: 272800000,
                         slot: Slot(86450),
-                        epoch: 3,
+                        epoch: Epoch(3),
                     },
                     params: default_params(),
                 },
@@ -698,12 +812,12 @@ mod tests {
                     start: Bound {
                         time_ms: 0,
                         slot: Slot(0),
-                        epoch: 0,
+                        epoch: Epoch(0),
                     },
                     end: Bound {
                         time_ms: 86400000,
                         slot: Slot(86400),
-                        epoch: 1,
+                        epoch: Epoch(1),
                     },
                     params: default_params(),
                 },
@@ -711,12 +825,12 @@ mod tests {
                     start: Bound {
                         time_ms: 86400000,
                         slot: Slot(186400), // Gap of 100000 slots
-                        epoch: 1,
+                        epoch: Epoch(1),
                     },
                     end: Bound {
                         time_ms: 172800000,
                         slot: Slot(272800),
-                        epoch: 2,
+                        epoch: Epoch(2),
                     },
                     params: default_params(),
                 },

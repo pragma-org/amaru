@@ -19,6 +19,7 @@ use crate::{
 };
 use amaru_kernel::{Header, Nonce};
 use amaru_ouroboros_traits::HasStakeDistribution;
+use slot_arithmetic::Slot;
 use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
 use thiserror::Error;
 
@@ -66,7 +67,7 @@ pub fn assert_all<'a>(
     active_slot_coeff: &'a FixedDecimal,
 ) -> Result<Vec<Assertion<'a>>, AssertHeaderError> {
     // Grab all the values we need to validate the block
-    let absolute_slot = header.header_body.slot;
+    let absolute_slot = Slot::from(header.header_body.slot);
     let issuer = ed25519::PublicKey::from(<[u8; ed25519::PublicKey::SIZE]>::try_from(
         &header.header_body.issuer_vkey[..],
     )?);
@@ -80,7 +81,7 @@ pub fn assert_all<'a>(
         Hash<{ vrf::PublicKey::HASH_SIZE }>,
         FixedDecimal,
     ) = ledger_state
-        .get_pool(From::from(absolute_slot), &pool)
+        .get_pool(absolute_slot, &pool)
         .map(|pool| {
             (
                 pool.vrf,

@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Lovelace, PoolId, Slot, VrfKeyhash};
+use amaru_kernel::{Lovelace, PoolId, VrfKeyhash};
+use slot_arithmetic::Slot;
 
 pub mod mock;
 
@@ -33,7 +34,7 @@ pub trait HasStakeDistribution: Send + Sync {
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary>;
 
     /// Calculate the KES period given an absolute slot and some shelley-genesis values
-    fn slot_to_kes_period(&self, slot: u64) -> u64;
+    fn slot_to_kes_period(&self, slot: Slot) -> u64;
 
     /// Get the maximum number of KES evolutions from the ledger state
     fn max_kes_evolutions(&self) -> u64;

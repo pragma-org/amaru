@@ -59,8 +59,8 @@ pub use pallas_primitives::{
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, Epoch, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
+        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, ExUnitPrices, ExUnits,
+        GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
         MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
         NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
         ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
@@ -102,8 +102,8 @@ pub enum Point {
 impl Point {
     pub fn slot_or_default(&self) -> Slot {
         match self {
-            Point::Origin => From::from(0),
-            Point::Specific(slot, _) => From::from(*slot),
+            Point::Origin => Slot::from(0),
+            Point::Specific(slot, _) => Slot::from(*slot),
         }
     }
 }
@@ -1004,8 +1004,8 @@ mod test {
         };
 
         (
-            new_pointer((From::from(left.0), left.1, left.2)),
-            new_pointer((From::from(right.0), right.1, right.2)),
+            new_pointer((Slot::from(left.0), left.1, left.2)),
+            new_pointer((Slot::from(right.0), right.1, right.2)),
         )
     }
 
