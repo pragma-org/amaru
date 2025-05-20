@@ -99,7 +99,7 @@ pub fn bootstrap(
         })
         .collect();
 
-    let mut block_fetch_stage = BlockFetchStage::new(peer_sessions.as_slice());
+    let mut fetch_block_stage = BlockFetchStage::new(peer_sessions.as_slice());
 
     let mut pulls = peer_sessions
         .iter()
@@ -146,10 +146,10 @@ pub fn bootstrap(
     let (to_validate_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_store_header, from_validate_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_select_chain, from_store_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_block_fetch, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_ledger, from_block_fetch) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_block_store, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_block_forward, from_block_store) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_fetch_block, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
     let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = pulls
         .iter_mut()
@@ -165,18 +165,18 @@ pub fn bootstrap(
     store_header_stage.downstream.connect(to_select_chain);
 
     select_chain_stage.upstream.connect(from_store_header);
-    select_chain_stage.downstream.connect(to_block_fetch);
+    select_chain_stage.downstream.connect(to_fetch_block);
 
-    block_fetch_stage.upstream.connect(from_select_chain);
-    block_fetch_stage.downstream.connect(to_ledger);
+    fetch_block_stage.upstream.connect(from_select_chain);
+    fetch_block_stage.downstream.connect(to_store_block);
 
-    ledger.upstream.connect(from_block_fetch);
-    ledger.downstream.connect(to_block_store);
+    store_block_stage.upstream.connect(from_fetch_block);
+    store_block_stage.downstream.connect(to_ledger);
 
-    store_block_stage.upstream.connect(from_ledger);
-    store_block_stage.downstream.connect(to_block_forward);
+    ledger.upstream.connect(from_store_block);
+    ledger.downstream.connect(to_block_forward);
 
-    forward_chain_stage.upstream.connect(from_block_store);
+    forward_chain_stage.upstream.connect(from_ledger);
 
     // No retry, crash on panics.
     let policy = gasket::runtime::Policy::default();
@@ -190,7 +190,7 @@ pub fn bootstrap(
     let receive_header = gasket::runtime::spawn_stage(receive_header_stage, policy.clone());
     let store_header = gasket::runtime::spawn_stage(store_header_stage, policy.clone());
     let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
-    let fetch = gasket::runtime::spawn_stage(block_fetch_stage, policy.clone());
+    let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
 

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{consensus::store::ChainStore, ConsensusError};
-use amaru_kernel::{block::BlockValidationResult, Header, Point, RawBlock};
+use amaru_kernel::{block::ValidateBlockEvent, Header, Point, RawBlock};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
@@ -36,27 +36,18 @@ impl StoreBlock {
 
     pub async fn handle_event(
         &self,
-        event: BlockValidationResult,
-    ) -> Result<BlockValidationResult, ConsensusError> {
+        event: ValidateBlockEvent,
+    ) -> Result<ValidateBlockEvent, ConsensusError> {
         match event {
-            BlockValidationResult::BlockValidated { point, block, span } => {
-                self.store(&point, &block).await?;
-                Ok(BlockValidationResult::BlockValidated { point, block, span })
-            }
-            BlockValidationResult::BlockValidationFailed { point, span } => {
-                // No action needed for failed validation, just pass through the event
-                Ok(BlockValidationResult::BlockValidationFailed { point, span })
-            }
-            BlockValidationResult::RolledBackTo {
-                rollback_point,
-                span,
+            ValidateBlockEvent::Validated {
+                ref point,
+                ref block,
+                ..
             } => {
-                // Just pass through the rollback event, no action needed
-                Ok(BlockValidationResult::RolledBackTo {
-                    rollback_point,
-                    span,
-                })
+                self.store(point, block).await?;
+                Ok(event)
             }
+            ValidateBlockEvent::Rollback { .. } => Ok(event),
         }
     }
 }
@@ -131,7 +122,7 @@ mod tests {
         let span = Span::current();
 
         // Create a BlockValidated event
-        let event = BlockValidationResult::BlockValidated {
+        let event = ValidateBlockEvent::Validated {
             point: point.clone(),
             block: block.clone(),
             span,
@@ -147,39 +138,6 @@ mod tests {
 
     #[allow(clippy::wildcard_enum_match_arm)]
     #[tokio::test]
-    async fn test_handle_event_block_validation_failed() {
-        // Setup
-        let mock_store = Arc::new(Mutex::new(MockChainStore::new()));
-        let store_block = StoreBlock::new(mock_store.clone());
-
-        // Create test data
-        let point = Point::Specific(123, Hash::from([1; 32]).to_vec());
-        let span = Span::current();
-
-        // Create a BlockValidationFailed event
-        let event = BlockValidationResult::BlockValidationFailed {
-            point: point.clone(),
-            span,
-        };
-
-        // Call handle_event
-        let result = store_block.handle_event(event).await;
-
-        assert!(result.is_ok());
-        let result_event = result.unwrap();
-        match result_event {
-            BlockValidationResult::BlockValidationFailed {
-                point: result_point,
-                span: _,
-            } => {
-                assert_eq!(result_point, point);
-            }
-            _ => panic!("Expected BlockValidationFailed event"),
-        }
-    }
-
-    #[allow(clippy::wildcard_enum_match_arm)]
-    #[tokio::test]
     async fn test_handle_event_rolled_back_to() {
         // Setup
         let mock_store = Arc::new(Mutex::new(MockChainStore::new()));
@@ -190,7 +148,7 @@ mod tests {
         let span = Span::current();
 
         // Create a RolledBackTo event
-        let event = BlockValidationResult::RolledBackTo {
+        let event = ValidateBlockEvent::Rollback {
             rollback_point: rollback_point.clone(),
             span,
         };
@@ -202,7 +160,7 @@ mod tests {
         assert!(result.is_ok());
         let result_event = result.unwrap();
         match result_event {
-            BlockValidationResult::RolledBackTo {
+            ValidateBlockEvent::Rollback {
                 rollback_point: result_point,
                 span: _,
             } => {

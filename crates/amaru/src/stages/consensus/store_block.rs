@@ -13,16 +13,16 @@
 // limitations under the License.
 
 use amaru_consensus::consensus::store_block::StoreBlock;
-use amaru_kernel::block::BlockValidationResult;
+use amaru_kernel::block::ValidateBlockEvent;
 use gasket::framework::*;
 
-pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
-pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
+pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
+pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 
 #[derive(Stage)]
 #[stage(
     name = "consensus.store_block",
-    unit = "BlockValidationResult",
+    unit = "ValidateBlockEvent",
     worker = "Worker"
 )]
 pub struct StoreBlockStage {
@@ -40,7 +40,7 @@ impl StoreBlockStage {
         }
     }
 
-    async fn handle_event(&mut self, event: BlockValidationResult) -> Result<(), WorkerError> {
+    async fn handle_event(&mut self, event: ValidateBlockEvent) -> Result<(), WorkerError> {
         let event = self
             .store_block
             .handle_event(event)
@@ -64,7 +64,7 @@ impl gasket::framework::Worker<StoreBlockStage> for Worker {
     async fn schedule(
         &mut self,
         stage: &mut StoreBlockStage,
-    ) -> Result<WorkSchedule<BlockValidationResult>, WorkerError> {
+    ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.or_panic()?;
 
         Ok(WorkSchedule::Unit(unit.payload))
@@ -72,7 +72,7 @@ impl gasket::framework::Worker<StoreBlockStage> for Worker {
 
     async fn execute(
         &mut self,
-        unit: &BlockValidationResult,
+        unit: &ValidateBlockEvent,
         stage: &mut StoreBlockStage,
     ) -> Result<(), WorkerError> {
         stage.handle_event(unit.clone()).await
