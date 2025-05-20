@@ -24,15 +24,6 @@ help:
 	@echo "\033[1;4mConfiguration:\033[00m"
 	@grep -E '^[a-zA-Z0-9_]+ \?= '  Makefile | sort | while read -r l; do printf "  \033[36m$$(echo $$l | cut -f 1 -d'=')\033[00m=$$(echo $$l | cut -f 2- -d'=')\n"; done
 
-snapshots/$(NETWORK): ## Download snapshots
-	@mkdir -p $@
-	@cat $(SNAPSHOTS_FILE) \
-		| jq -r '.[] | "\(.point) \(.url)"' \
-		| while read p u; do \
-			echo "Fetching $$p.cbor"; \
-			curl --progress-bar -o - $$u | gunzip > $@/$$p.cbor; \
-		done
-
 download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	mkdir -p $(HASKELL_NODE_CONFIG_DIR)
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/config.json
@@ -42,9 +33,20 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/alonzo-genesis.json
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
 
+snapshots/$(NETWORK): ## Download snapshots
+	@if [ ! -f "${SNAPSHOTS_FILE}" ]; then echo "SNAPSHOTS_FILE not found: ${SNAPSHOTS_FILE}"; exit 1; fi; \
+	mkdir -p $@ \
+	cat $(SNAPSHOTS_FILE) \
+		| jq -r '.[] | "\(.point) \(.url)"' \
+		| while read p u; do \
+			echo "Fetching $$p.cbor"; \
+			curl --progress-bar -o - $$u | gunzip > $@/$$p.cbor; \
+		done
+
 import-snapshots: snapshots/$(NETWORK) ## Import snapshots for demo
-	@test -d $^ || (echo "Error: folder '$^' does not exist!" && exit 1)
-	SNAPSHOT_ARGS=""; \
+	@SNAPSHOT_ARGS=""; \
+	CBOR_FILES=$$(find "$^" -maxdepth 1 -name '*.cbor'); \
+	if [ -z "$$CBOR_FILES" ]; then echo "No .cbor files found in $^"; exit 1; fi; \
 	for SNAPSHOT in $(wildcard $^/*.cbor); do \
 		SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
 	done; \
@@ -53,7 +55,8 @@ import-snapshots: snapshots/$(NETWORK) ## Import snapshots for demo
 		$$SNAPSHOT_ARGS
 
 import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
-	@HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
+	@if [ ! -f "$(HEADERS_FILE)" ]; then echo "HEADERS_FILE not found: $(HEADERS_FILE)"; exit 1; fi; \
+	HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
 	for HEADER in $$HEADERS; do \
 		cargo run --profile $(BUILD_PROFILE) -- import-headers \
 			--chain-dir $(CHAIN_DIR) \
@@ -63,6 +66,7 @@ import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
 	done
 
 import-nonces: ## Import nonces for demo
+	@if [ ! -f "$(NONCES_FILE)" ]; then echo "NONCES_FILE not found: $(NONCES_FILE)"; exit 1; fi; \
 	cargo run --profile $(BUILD_PROFILE) -- import-nonces \
 		--chain-dir $(CHAIN_DIR) \
 		--at $$(jq -r .at $(NONCES_FILE)) \
