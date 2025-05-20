@@ -355,38 +355,6 @@ pub struct GlobalParameters {
     pub randomness_stabilization_window: u64,
 }
 
-impl Default for GlobalParameters {
-    fn default() -> Self {
-        // https://cips.cardano.org/cip/CIP-9
-        let consensus_security_param = 2160;
-        let active_slot_coeff_inverse = 20;
-        let shelley_epoch_length_scale_factor = 10;
-        let shelley_epoch_length = active_slot_coeff_inverse
-            * shelley_epoch_length_scale_factor
-            * consensus_security_param;
-        let byron_epoch_length_scale_factor = 10;
-        let byron_epoch_length = byron_epoch_length_scale_factor * consensus_security_param;
-        let shelley_transition_epoch = 4;
-        Self {
-            consensus_security_param,
-            shelley_epoch_length_scale_factor,
-            active_slot_coeff_inverse,
-            byron_epoch_length_scale_factor,
-            shelley_transition_epoch,
-            max_lovelace_supply: 45_000_000_000_000_000,
-            slots_per_kes_period: 129_600,
-            max_kes_evolution: 62,
-            shelley_epoch_length,
-            stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
-            byron_epoch_length,
-            byron_total_slots: byron_epoch_length * shelley_transition_epoch,
-            randomness_stabilization_window: (4
-                * consensus_security_param
-                * active_slot_coeff_inverse) as u64,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Prices {
     pub mem: RationalNumber,

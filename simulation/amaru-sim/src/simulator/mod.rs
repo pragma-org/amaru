@@ -86,13 +86,13 @@ pub async fn run(args: Args) {
 pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
     // NOTE: the output writer is behind a mutex because otherwise it's problematic to borrow
     // it as mutable in the inner loop of run simulator
+    let network = NetworkName::Testnet(42);
     let output_writer = Arc::new(Mutex::new(OutputWriter::new()));
 
-    let global_parameters = GlobalParameters::default();
+    let global_parameters: &GlobalParameters = network.into();
     let stake_distribution: FakeStakeDistribution =
-        FakeStakeDistribution::from_file(&args.stake_distribution_file, &global_parameters)
-            .unwrap();
-    let era_history = NetworkName::Testnet(42).into();
+        FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
+    let era_history = network.into();
 
     let mut chain_store =
         RocksDBStore::new(args.chain_dir.clone(), era_history).unwrap_or_else(|e| {
@@ -141,6 +141,7 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
     let mut select_chain = SelectChain::new(chain_selector);
 
     run_simulator(
+        network.into(),
         &mut input_reader,
         output_writer,
         chain_ref,
@@ -152,6 +153,7 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
 }
 
 async fn run_simulator(
+    global_parameters: &GlobalParameters,
     input_reader: &mut impl MessageReader,
     output_writer: Arc<Mutex<OutputWriter>>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
@@ -182,7 +184,7 @@ async fn run_simulator(
                             header,
                             ..
                         } => validate_header
-                            .handle_roll_forward(peer, point, header, &GlobalParameters::default())
+                            .handle_roll_forward(peer, point, header, global_parameters)
                             .await
                             .expect("unexpected error on roll forward"),
                         DecodedChainSyncEvent::Rollback { .. } => event,

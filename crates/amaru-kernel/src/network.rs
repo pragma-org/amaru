@@ -17,6 +17,8 @@ use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
 use slot_arithmetic::{Epoch, Slot};
 
+use crate::protocol_parameters::GlobalParameters;
+
 /// Era history for Preprod retrieved with:
 ///
 /// ```bash
@@ -188,6 +190,46 @@ impl From<NetworkName> for &EraHistory {
             NetworkName::Preprod => &PREPROD_ERA_HISTORY,
             NetworkName::Preview => todo!(),
             NetworkName::Testnet(_) => &TESTNET_ERA_HISTORY,
+        }
+    }
+}
+
+static PREPROD_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
+    // https://cips.cardano.org/cip/CIP-9
+    let consensus_security_param = 2160;
+    let active_slot_coeff_inverse = 20;
+    let shelley_epoch_length_scale_factor = 10;
+    let shelley_epoch_length =
+        active_slot_coeff_inverse * shelley_epoch_length_scale_factor * consensus_security_param;
+    let byron_epoch_length_scale_factor = 10;
+    let byron_epoch_length = byron_epoch_length_scale_factor * consensus_security_param;
+    let shelley_transition_epoch = 4;
+    GlobalParameters {
+        consensus_security_param,
+        shelley_epoch_length_scale_factor,
+        active_slot_coeff_inverse,
+        byron_epoch_length_scale_factor,
+        shelley_transition_epoch,
+        max_lovelace_supply: 45_000_000_000_000_000,
+        slots_per_kes_period: 129_600,
+        max_kes_evolution: 62,
+        shelley_epoch_length,
+        stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
+        byron_epoch_length,
+        byron_total_slots: byron_epoch_length * shelley_transition_epoch,
+        randomness_stabilization_window: (4 * consensus_security_param * active_slot_coeff_inverse)
+            as u64,
+    }
+});
+
+#[allow(clippy::todo)]
+impl From<NetworkName> for &GlobalParameters {
+    fn from(value: NetworkName) -> Self {
+        match value {
+            NetworkName::Mainnet => todo!(),
+            NetworkName::Preprod => &PREPROD_GLOBAL_PARAMETERS,
+            NetworkName::Preview => todo!(),
+            NetworkName::Testnet(_) => todo!(),
         }
     }
 }

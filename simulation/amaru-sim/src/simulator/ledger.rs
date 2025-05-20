@@ -171,7 +171,7 @@ pub struct ConsensusContext {
 #[cfg(test)]
 mod test {
     use amaru_consensus::consensus::store::{ChainStore, StoreError};
-    use amaru_kernel::{network::NetworkName, protocol_parameters::GlobalParameters, Header};
+    use amaru_kernel::{network::NetworkName, Header};
 
     use super::populate_chain_store;
 
@@ -194,7 +194,7 @@ mod test {
         let stake_distribution_file = "tests/data/stake-distribution.json";
         let stake_distribution = FakeStakeDistribution::from_file(
             &PathBuf::from(stake_distribution_file),
-            &GlobalParameters::default(),
+            NetworkName::Preprod.into(),
         )
         .unwrap();
         let pool_id: Hash<28> = amaru_kernel::Hash::from(
@@ -213,7 +213,7 @@ mod test {
         let stake_distribution_file = "tests/data/stake-distribution.json";
         let stake_distribution = FakeStakeDistribution::from_file(
             &PathBuf::from(stake_distribution_file),
-            &GlobalParameters::default(),
+            NetworkName::Preprod.into(),
         )
         .unwrap();
         let pool_id: Hash<28> = amaru_kernel::Hash::from(

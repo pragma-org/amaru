@@ -81,7 +81,7 @@ pub fn bootstrap(
     let era_history: &EraHistory = config.network.into();
     let store = RocksDB::new(&config.ledger_dir, era_history)?;
     let snapshots = RocksDBHistoricalStores::new(&config.ledger_dir);
-    let global_parameters = GlobalParameters::default();
+    let global_parameters: &GlobalParameters = config.network.into();
     let (mut ledger, tip) = ledger::ValidateBlockStage::new(
         store,
         snapshots,
@@ -124,7 +124,7 @@ pub fn bootstrap(
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
-    let mut validate_header_stage = ValidateHeaderStage::new(consensus, &global_parameters);
+    let mut validate_header_stage = ValidateHeaderStage::new(consensus, global_parameters);
 
     let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_ref.clone()));
 
