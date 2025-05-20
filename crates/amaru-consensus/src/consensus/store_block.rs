@@ -16,8 +16,6 @@ use crate::{consensus::store::ChainStore, ConsensusError};
 use amaru_kernel::{block::BlockValidationResult, Header, Point, RawBlock};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{instrument, Level, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub struct StoreBlock {
     store: Arc<Mutex<dyn ChainStore<Header>>>,
@@ -36,14 +34,12 @@ impl StoreBlock {
             .map_err(|e| ConsensusError::StoreBlockFailed(point.clone(), e))
     }
 
-    #[instrument(level = Level::TRACE, skip_all)]
     pub async fn handle_event(
         &self,
         event: BlockValidationResult,
     ) -> Result<BlockValidationResult, ConsensusError> {
         match event {
             BlockValidationResult::BlockValidated { point, block, span } => {
-                Span::current().set_parent(span.context());
                 self.store(&point, &block).await?;
                 Ok(BlockValidationResult::BlockValidated { point, block, span })
             }

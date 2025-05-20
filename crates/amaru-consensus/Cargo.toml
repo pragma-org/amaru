@@ -18,8 +18,7 @@ pallas-crypto.workspace = true
 pallas-math.workspace = true
 rayon.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "macros"] }
-tracing-opentelemetry.workspace = true
+tokio.workspace = true
 tracing.workspace = true
 
 amaru-kernel.workspace = true
@@ -36,4 +35,5 @@ proptest.workspace = true
 rand.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
 tracing-subscriber.workspace = true
