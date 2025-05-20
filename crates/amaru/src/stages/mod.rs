@@ -101,7 +101,7 @@ pub fn bootstrap(
 
     let mut fetch_block_stage = BlockFetchStage::new(peer_sessions.as_slice());
 
-    let mut pulls = peer_sessions
+    let mut stages = peer_sessions
         .iter()
         .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
         .collect::<Vec<_>>();
@@ -151,7 +151,7 @@ pub fn bootstrap(
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
-    let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = pulls
+    let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = stages
         .iter_mut()
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
@@ -181,7 +181,7 @@ pub fn bootstrap(
     // No retry, crash on panics.
     let policy = gasket::runtime::Policy::default();
 
-    let mut pulls = pulls
+    let mut stages = stages
         .into_iter()
         .map(|p| gasket::runtime::spawn_stage(p, policy.clone()))
         .collect::<Vec<_>>();
@@ -191,17 +191,19 @@ pub fn bootstrap(
     let store_header = gasket::runtime::spawn_stage(store_header_stage, policy.clone());
     let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
+    let store_block = gasket::runtime::spawn_stage(store_block_stage, policy.clone());
     let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
     let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
 
-    pulls.push(store_header);
-    pulls.push(receive_header);
-    pulls.push(select_chain);
-    pulls.push(validate_header);
-    pulls.push(fetch);
-    pulls.push(ledger);
-    pulls.push(block_forward);
-    Ok(pulls)
+    stages.push(store_header);
+    stages.push(receive_header);
+    stages.push(select_chain);
+    stages.push(validate_header);
+    stages.push(store_block);
+    stages.push(fetch);
+    stages.push(ledger);
+    stages.push(block_forward);
+    Ok(stages)
 }
 
 fn make_chain_selector(
