@@ -23,6 +23,7 @@ cargo build --release
 on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network.
 >
 > To run a local peer, refer to [Cardano's developers portal](https://developers.cardano.org/docs/get-started/cardano-node/running-cardano).
+> Make sure your peer listens to port `3001` or adapt the `AMARU_PEER_ADDRESS` environment variable (e.g. `export AMARU_PEER_ADDRESS=127.0.0.1:3002`)
 
 1. Bootstrap the node:
 
@@ -40,8 +41,7 @@ docker-compose -f monitoring/jaeger/docker-compose.yml up
 
 ```console
 cargo run --release -- daemon \
-  --peer-address=127.0.0.1:3000 \
-  --listen-address=0.0.0.0:3001 \
+  --peer-address=127.0.0.1:3001 \
   --network=preprod
 ```
 
@@ -54,7 +54,7 @@ multiple peers by replicating the option.
 >
 > ```console
 > cargo run --release -- --with-open-telemetry daemon \
->  --peer-address=127.0.0.1:3000 \
+>  --peer-address=127.0.0.1:3001 \
 >  --network=preprod
 > ```
 
