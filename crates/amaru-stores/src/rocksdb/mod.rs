@@ -579,7 +579,7 @@ impl RocksDBHistoricalStores {
             epoch,
             db: OptimisticTransactionDB::open(
                 &opts,
-                base_dir.join(PathBuf::from(format!("{epoch:?}"))),
+                base_dir.join(PathBuf::from(format!("{epoch}"))),
             )
             .map_err(|err| StoreError::Internal(err.into()))?,
         })
