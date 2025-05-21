@@ -378,8 +378,8 @@ pub(crate) mod tests {
         prop_compose! {
             fn any_committee_registration()(
                 credential in any_stake_credential(),
-                epoch in any::<Epoch>(),
-            ) -> (StakeCredential, Epoch) {
+                epoch in any::<u64>(),
+            ) -> (StakeCredential, u64) {
                 (credential, epoch)
             }
         }
