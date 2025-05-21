@@ -407,7 +407,10 @@ mod tests {
         if v9 == v10 {
             Consistent(v10.into())
         } else {
-            Inconsistent { v9: v9.into(), v10: v10.into() }
+            Inconsistent {
+                v9: v9.into(),
+                v10: v10.into(),
+            }
         }
     }
 
