@@ -25,7 +25,7 @@ use minicbor::{Decode, Decoder, Encode};
 
 use serde::{Deserialize, Serialize};
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 use proptest::prelude::{Arbitrary, BoxedStrategy, Strategy};
 
 #[derive(Clone, Debug, Copy, PartialEq, PartialOrd, Ord, Eq, Serialize, Deserialize, Default)]
@@ -89,7 +89,7 @@ impl<'b, C> Decode<'b, C> for Slot {
 #[repr(transparent)]
 pub struct Epoch(u64);
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 impl Arbitrary for Epoch {
     type Parameters = ();
     type Strategy = BoxedStrategy<Self>;

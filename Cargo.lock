@@ -215,6 +215,7 @@ dependencies = [
  "rand 0.9.1",
  "serde",
  "serde_json",
+ "slot-arithmetic",
  "tempfile",
  "test-case",
  "tokio",

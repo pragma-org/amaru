@@ -17,7 +17,10 @@ hex.workspace = true
 minicbor.workspace = true
 serde.workspace = true
 thiserror.workspace = true
-
+proptest = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest.workspace = true
+
+[features]
+test-utils = ["proptest"]

@@ -284,7 +284,7 @@ pub(crate) mod tests {
             .prop_flat_map(|epochs| {
                 epochs
                     .into_iter()
-                    .map(any_future_params)
+                    .map(|u: u64| any_future_params(Epoch::from(u)))
                     .collect::<Vec<_>>()
             })
             .prop_flat_map(|future_params| {
