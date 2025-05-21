@@ -142,7 +142,7 @@ async fn import_one(
     let db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = Epoch::from(decode_new_epoch_state(&db, &bytes, &point, era_history)?);
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,

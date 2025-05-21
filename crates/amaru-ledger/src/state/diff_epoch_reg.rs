@@ -228,7 +228,7 @@ mod tests {
             v in
                 any::<u8>(),
             epoch in
-                prop_oneof![Just(None), (0..max_epoch).prop_map(|e| Some(e))]
+                prop_oneof![Just(None), (0..max_epoch).prop_map(Some)]
         ) -> Message<char, u8> {
             match epoch {
                 None => Message::Register(k, v),
