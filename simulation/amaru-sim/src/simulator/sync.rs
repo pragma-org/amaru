@@ -18,10 +18,11 @@ use amaru_consensus::{
     consensus::{ChainSyncEvent, ValidateHeaderEvent},
     peer::Peer,
 };
-use amaru_kernel::{self, Point, Slot};
+use amaru_kernel::{self, Point};
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};
+use slot_arithmetic::Slot;
 use tokio::io::{stdin, stdout, AsyncBufReadExt, BufReader, Lines, Stdin, Stdout};
 use tokio_util::codec::{FramedWrite, LinesCodec};
 use tracing::{error, Span};
@@ -231,6 +232,7 @@ mod test {
         prelude::{BoxedStrategy, *},
         proptest,
     };
+    use slot_arithmetic::Slot;
     use tracing::trace_span;
 
     use super::{
