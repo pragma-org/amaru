@@ -451,7 +451,7 @@ pub fn recover_stake_distribution(
 // Epoch Transitions
 // ----------------------------------------------------------------------------
 
-#[instrument(level = Level::INFO, skip_all, fields(from = ?next_epoch - 1, into = ?next_epoch))]
+#[instrument(level = Level::INFO, skip_all, fields(from = %next_epoch - 1, into = %next_epoch))]
 fn epoch_transition(
     db: &mut impl Store,
     next_epoch: Epoch,
