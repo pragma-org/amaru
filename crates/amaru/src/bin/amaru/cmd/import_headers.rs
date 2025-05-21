@@ -65,7 +65,7 @@ use What::*;
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let era_history = args.network.into();
-    let mut db = RocksDBStore::new(args.chain_dir, era_history)?;
+    let mut db = RocksDBStore::new(&args.chain_dir, era_history)?;
 
     let peer_client = Arc::new(Mutex::new(
         PeerClient::connect(

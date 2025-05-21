@@ -16,11 +16,11 @@ use amaru_consensus::{
     consensus::store::{ChainStore, StoreError},
     Nonces,
 };
-use amaru_kernel::{cbor, from_cbor, to_cbor, Hash};
+use amaru_kernel::{cbor, from_cbor, network::NetworkName, to_cbor, Hash};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use slot_arithmetic::EraHistory;
-use std::path::PathBuf;
+use std::{collections::HashMap, path::PathBuf};
 use tracing::{instrument, Level};
 
 pub struct RocksDBStore {
@@ -30,16 +30,16 @@ pub struct RocksDBStore {
 }
 
 impl RocksDBStore {
-    pub fn new(basedir: PathBuf, era_history: &EraHistory) -> Result<Self, StoreError> {
+    pub fn new(basedir: &PathBuf, era_history: &EraHistory) -> Result<Self, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         Ok(Self {
-            db: OptimisticTransactionDB::open(&opts, &basedir).map_err(|e| {
+            db: OptimisticTransactionDB::open(&opts, basedir).map_err(|e| {
                 StoreError::OpenError {
                     error: e.to_string(),
                 }
             })?,
-            basedir,
+            basedir: basedir.clone(),
             era_history: era_history.clone(),
         })
     }
@@ -86,6 +86,47 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
     }
 }
 
+pub struct InMemConsensusStore {
+    nonces: HashMap<Hash<32>, Nonces>,
+}
+
+impl Default for InMemConsensusStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InMemConsensusStore {
+    pub fn new() -> InMemConsensusStore {
+        InMemConsensusStore {
+            nonces: HashMap::new(),
+        }
+    }
+}
+
+impl<H: IsHeader> ChainStore<H> for InMemConsensusStore {
+    fn load_header(&self, _hash: &Hash<32>) -> Option<H> {
+        unimplemented!()
+    }
+
+    fn store_header(&mut self, _hash: &Hash<32>, _header: &H) -> Result<(), StoreError> {
+        unimplemented!()
+    }
+
+    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+        self.nonces.get(header).cloned()
+    }
+
+    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+        self.nonces.insert(*header, nonces.clone());
+        Ok(())
+    }
+
+    fn era_history(&self) -> &amaru_kernel::EraHistory {
+        NetworkName::Testnet(42).into()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -110,7 +151,7 @@ mod test {
 
         create_dir(&basedir).unwrap();
         let mut store =
-            RocksDBStore::new(basedir.clone(), era_history).expect("fail to initialise RocksDB");
+            RocksDBStore::new(&basedir, era_history).expect("fail to initialise RocksDB");
 
         let header = FakeHeader {
             block_number: 1,

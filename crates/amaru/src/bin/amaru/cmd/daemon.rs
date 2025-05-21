@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::metrics::track_system_metrics;
-use amaru::stages::{bootstrap, Config};
+use amaru::stages::{bootstrap, Config, StorePath};
 use amaru_kernel::network::NetworkName;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -110,8 +110,8 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
 
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
     Ok(Config {
-        ledger_dir: args.ledger_dir,
-        chain_dir: args.chain_dir,
+        ledger_store: StorePath::OnDisk(args.ledger_dir),
+        chain_store: StorePath::OnDisk(args.chain_dir),
         upstream_peers: args.peer_address,
         network: args.network,
         network_magic: args.network.to_network_magic(),
