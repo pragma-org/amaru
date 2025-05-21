@@ -1,8 +1,9 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, ops::Deref};
 
 use amaru_kernel::{
-    get_provided_scripts, DatumOption, HasAddress, HasDatum, HasScriptHash, Hash, MintedWitnessSet,
-    OriginalHash, PseudoScript, ScriptHash, ScriptRefWithHash, TransactionInput,
+    get_provided_scripts, script_purpose_to_string, to_redeemer_keys, DatumOption, HasAddress,
+    HasDatum, HasScriptHash, Hash, MintedWitnessSet, OriginalHash, PseudoScript, RedeemersKey,
+    ScriptHash, ScriptRef, ScriptRefWithHash, TransactionInput,
 };
 use thiserror::Error;
 
@@ -46,6 +47,11 @@ pub enum InvalidScripts {
         allowed: BTreeSet<Hash<32>>,
         provided: BTreeSet<Hash<32>>,
     },
+    #[error(
+        "missing expected redeemers: missing[{}]",
+        missing.iter().map(|redeemer_key| format!("({},{})", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", ")
+    )]
+    MissingRedeemers { missing: Vec<RedeemersKey> },
 }
 
 // TODO: this can be made MUCH more efficient. Remove clones, don't iterate the same list several times, etc... Lots of low hanging fruit.
@@ -98,7 +104,10 @@ where
                     .and_then(|script_ref| {
                         // If there is a provided ScriptRef, make sure it is required by an input
                         let hash = script_ref.script_hash();
-                        if required_scripts.contains(&hash) {
+                        if required_scripts
+                            .iter()
+                            .any(|required_script| required_script.hash == hash)
+                        {
                             Some(ScriptRefWithHash {
                                 hash: script_ref.script_hash(),
                                 script: script_ref.clone(),
@@ -118,13 +127,18 @@ where
         .chain(provided_reference_scripts)
         .collect();
 
-    let missing_scripts: Vec<ScriptHash> = required_scripts
-        .difference(
-            &provided_scripts
-                .iter()
-                .map(ScriptHash::from)
-                .collect::<BTreeSet<_>>(),
-        )
+    let provided_script_hashes = provided_scripts
+        .iter()
+        .map(ScriptHash::from)
+        .collect::<BTreeSet<_>>();
+
+    let required_script_hashes = required_scripts
+        .iter()
+        .map(ScriptHash::from)
+        .collect::<BTreeSet<_>>();
+
+    let missing_scripts: Vec<ScriptHash> = required_script_hashes
+        .difference(&provided_script_hashes)
         .cloned()
         .collect();
 
@@ -132,11 +146,8 @@ where
         return Err(InvalidScripts::MissingRequiredScripts(missing_scripts));
     }
 
-    let extra_scripts: Vec<ScriptHash> = provided_scripts
-        .iter()
-        .map(ScriptHash::from)
-        .collect::<BTreeSet<_>>()
-        .difference(&required_scripts)
+    let extra_scripts: Vec<ScriptHash> = provided_script_hashes
+        .difference(&required_script_hashes)
         .cloned()
         .collect();
 
@@ -234,6 +245,44 @@ where
         return Err(InvalidScripts::ExtraneousSupplementalDatums {
             provided: supplemental_datums,
             allowed: allowed_supplemental_datum,
+        });
+    }
+
+    // TODO: refactor all the required redeemers logic. This is really gross...
+
+    let redeemers_needed = required_scripts
+        .iter()
+        .filter(|required_script| {
+            provided_scripts
+                .iter()
+                .find(|provided_script| required_script.hash == provided_script.hash)
+                .and_then(|provided_script| {
+                    if matches!(provided_script.script, ScriptRef::NativeScript(..)) {
+                        None
+                    } else {
+                        Some(true)
+                    }
+                })
+                .unwrap_or_default()
+        })
+        .map(RedeemersKey::from)
+        .collect::<Vec<_>>();
+
+    let redeemers_provided = witness_set
+        .redeemer
+        .as_ref()
+        .map(|redeemer| to_redeemer_keys(redeemer.deref()))
+        .unwrap_or_default();
+
+    let missing_redeemers = redeemers_needed
+        .iter()
+        .filter(|redeemer| !redeemers_provided.contains(redeemer))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !missing_redeemers.is_empty() {
+        return Err(InvalidScripts::MissingRedeemers {
+            missing: missing_redeemers,
         });
     }
 
