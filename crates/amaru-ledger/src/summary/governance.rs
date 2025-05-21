@@ -405,9 +405,9 @@ mod tests {
         let v10 = test_with(PROTOCOL_VERSION_10);
 
         if v9 == v10 {
-            Consistent(v10)
+            Consistent(v10.into())
         } else {
-            Inconsistent { v9, v10 }
+            Inconsistent { v9: v9.into(), v10: v10.into() }
         }
     }
 

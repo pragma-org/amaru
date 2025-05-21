@@ -274,8 +274,8 @@ mod tests {
         fn prop_messages_are_in_ascending_epoch(msgs in any_message_sequence()) {
             msgs.into_iter().fold(0, |current_epoch, (epoch, _)| {
                 assert!(epoch <= *MAX_EPOCH);
-                assert!(epoch >= current_epoch);
-                epoch
+                assert!(epoch >= current_epoch.into());
+                epoch.into()
             });
         }
     }
