@@ -1,4 +1,4 @@
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Epoch, Lovelace, Point, StakeCredential};
+use amaru_kernel::{protocol_parameters::ProtocolParameters, Lovelace, Point, StakeCredential};
 use amaru_ledger::{
     store::{
         EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
@@ -6,13 +6,14 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
+use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 
 pub struct MemoryStore {}
 
 impl Snapshot for MemoryStore {
     fn epoch(&self) -> Epoch {
-        10
+        Epoch::from(10)
     }
 }
 
@@ -277,7 +278,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
 
 impl Store for MemoryStore {
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        Ok(vec![3])
+        Ok(vec![Epoch::from(3)])
     }
     fn next_snapshot(&self, _epoch: Epoch) -> Result<(), amaru_ledger::store::StoreError> {
         Ok(())
