@@ -129,7 +129,6 @@ pub fn execute(
     mint::execute(context, transaction_body.mint.as_ref());
 
     outputs::execute(
-        context,
         protocol_parameters,
         &network,
         mem::take(&mut transaction_body.collateral_return)
@@ -159,7 +158,6 @@ pub fn execute(
     )?;
 
     outputs::execute(
-        context,
         protocol_parameters,
         &network,
         mem::take(&mut transaction_body.outputs),

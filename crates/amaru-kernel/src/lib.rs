@@ -31,11 +31,12 @@ use pallas_codec::{
 };
 use pallas_primitives::{
     conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemersKey,
+        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
         RedeemersValue,
     },
     DatumHash, PlutusData, PlutusScript,
 };
+use serde::Deserialize;
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
@@ -62,15 +63,15 @@ pub use pallas_primitives::{
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
-        NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
-        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, ScriptHash,
-        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
-        WitnessSet,
+        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, Epoch,
+        ExUnitPrices, ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw,
+        MintedBlock, MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet,
+        Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers,
+        RedeemersKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -97,6 +98,63 @@ pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 pub type Lovelace = u64;
 
 pub type EpochInterval = u32;
+
+pub type ScriptPurpose = RedeemerTag;
+
+#[derive(Clone, Eq, PartialEq, Debug, Deserialize)]
+pub struct RequiredScript {
+    pub hash: ScriptHash,
+    pub index: u32,
+    pub purpose: ScriptPurpose,
+}
+
+impl PartialOrd for RequiredScript {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl From<RequiredScript> for ScriptHash {
+    fn from(value: RequiredScript) -> Self {
+        value.hash
+    }
+}
+
+impl From<&RequiredScript> for ScriptHash {
+    fn from(value: &RequiredScript) -> Self {
+        value.hash
+    }
+}
+
+impl Ord for RequiredScript {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.hash.cmp(&other.hash) {
+            Ordering::Equal => match self.purpose.as_index().cmp(&other.purpose.as_index()) {
+                Ordering::Equal => self.index.cmp(&other.index),
+                other_ordering => other_ordering,
+            },
+            other_ordering => other_ordering,
+        }
+    }
+}
+
+impl From<RequiredScript> for RedeemersKey {
+    fn from(value: RequiredScript) -> Self {
+        RedeemersKey {
+            tag: value.purpose,
+            index: value.index,
+        }
+    }
+}
+
+impl From<&RequiredScript> for RedeemersKey {
+    fn from(value: &RequiredScript) -> Self {
+        RedeemersKey {
+            tag: value.purpose,
+            index: value.index,
+        }
+    }
+}
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Point {
@@ -933,23 +991,6 @@ impl HasScriptRef for TransactionOutput {
     }
 }
 
-impl HasDatum for MintedTransactionOutput<'_> {
-    fn has_datum(&self) -> Option<DatumOption> {
-        match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => {
-                transaction_output.datum_hash.map(DatumOption::Hash)
-            }
-            PseudoTransactionOutput::PostAlonzo(transaction_output) => transaction_output
-                .datum_option
-                .as_ref()
-                .and_then(|datum| match datum {
-                    PseudoDatumOption::Hash(hash) => Some(DatumOption::Hash(*hash)),
-                    PseudoDatumOption::Data(_) => None,
-                }),
-        }
-    }
-}
-
 pub fn to_network_id(network: &Network) -> u8 {
     match network {
         Network::Testnet => 0,
@@ -1109,6 +1150,23 @@ impl HasScriptHash for PlutusScript<3> {
     }
 }
 
+pub trait HasIndex {
+    fn as_index(&self) -> u32;
+}
+
+impl HasIndex for ScriptPurpose {
+    fn as_index(&self) -> u32 {
+        match self {
+            RedeemerTag::Spend => 0,
+            RedeemerTag::Mint => 1,
+            RedeemerTag::Cert => 2,
+            RedeemerTag::Reward => 3,
+            RedeemerTag::Vote => 4,
+            RedeemerTag::Propose => 5,
+        }
+    }
+}
+
 /// Construct the bootstrap root from a bootstrap witness
 pub fn to_root(witness: &BootstrapWitness) -> Hash<28> {
     // CBOR header for data that will be encoded
@@ -1129,6 +1187,33 @@ pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
     ExUnits {
         mem: left.mem + right.mem,
         steps: left.steps + right.steps,
+    }
+}
+
+/// Convert Redeemers to a list of RedeemersKey
+// TODO: cleanup clone?
+pub fn to_redeemer_keys(redeemers: &Redeemers) -> Vec<RedeemersKey> {
+    match redeemers {
+        Redeemers::List(redeemers) => redeemers
+            .deref()
+            .iter()
+            .map(|redeemer| RedeemersKey {
+                tag: redeemer.tag,
+                index: redeemer.index,
+            })
+            .collect(),
+        Redeemers::Map(redeemers) => redeemers.deref().iter().map(|(k, _)| k.clone()).collect(),
+    }
+}
+
+pub fn script_purpose_to_string(purpose: ScriptPurpose) -> String {
+    match purpose {
+        RedeemerTag::Spend => "Spend".to_string(),
+        RedeemerTag::Mint => "Mint".to_string(),
+        RedeemerTag::Cert => "Cert".to_string(),
+        RedeemerTag::Reward => "Reward".to_string(),
+        RedeemerTag::Vote => "Vote".to_string(),
+        RedeemerTag::Propose => "Propose".to_string(),
     }
 }
 

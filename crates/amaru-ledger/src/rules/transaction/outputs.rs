@@ -12,13 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    context::{UtxoSlice, WitnessSlice},
-    rules::{format_vec, WithPosition},
-};
+use crate::rules::{format_vec, WithPosition};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_network_id, DatumOption, HasAddress, HasDatum,
-    HasNetwork, Lovelace, MintedTransactionOutput, Network, TransactionOutput,
+    protocol_parameters::ProtocolParameters, to_network_id, HasAddress, HasNetwork, Lovelace,
+    MintedTransactionOutput, Network, TransactionOutput,
 };
 use thiserror::Error;
 
@@ -53,16 +50,12 @@ pub enum InvalidOutput {
     UncategorizedError(String),
 }
 
-pub fn execute<C>(
-    context: &mut C,
+pub fn execute(
     protocol_parameters: &ProtocolParameters,
     network: &Network,
     outputs: Vec<MintedTransactionOutput<'_>>,
-    yield_output: &mut impl FnMut(&mut C, u64, TransactionOutput),
-) -> Result<(), InvalidOutputs>
-where
-    C: WitnessSlice + UtxoSlice,
-{
+    yield_output: &mut impl FnMut(u64, TransactionOutput),
+) -> Result<(), InvalidOutputs> {
     let mut invalid_outputs = Vec::new();
     for (position, output) in outputs.into_iter().enumerate() {
         inherent_value::execute(protocol_parameters, &output)
@@ -71,13 +64,8 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        match output.has_datum() {
-            Some(DatumOption::Hash(hash)) => context.allow_supplemental_datum(hash),
-            None | Some(_) => {}
-        };
-
         // TODO: Ensures the validation context can work from references to avoid cloning data.
-        yield_output(context, position as u64, TransactionOutput::from(output));
+        yield_output(position as u64, TransactionOutput::from(output));
     }
 
     if !invalid_outputs.is_empty() {
@@ -201,9 +189,6 @@ mod tests {
             }
         };
         super::execute(
-            &mut AssertValidationContext::from(AssertPreparationContext {
-                utxo: BTreeMap::new(),
-            }),
             &protocol_parameters,
             &Network::Testnet,
             tx.outputs,

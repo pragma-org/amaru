@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crate::context::{DRepsSlice, WitnessSlice};
-use amaru_kernel::{NonEmptyKeyValuePairs, ProposalId, StakeCredential, Voter, VotingProcedure};
+use amaru_kernel::{
+    NonEmptyKeyValuePairs, ProposalId, ScriptPurpose, StakeCredential, Voter, VotingProcedure,
+};
 
 pub(crate) fn execute<C>(
     context: &mut C,
@@ -22,27 +24,37 @@ pub(crate) fn execute<C>(
     C: WitnessSlice + DRepsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
-        voting_procedures.iter().for_each(|(voter, _)| {
-            let credential = match voter {
-                Voter::ConstitutionalCommitteeKey(hash) | Voter::StakePoolKey(hash) => {
-                    StakeCredential::AddrKeyhash(*hash)
-                }
-                Voter::ConstitutionalCommitteeScript(hash) => StakeCredential::ScriptHash(*hash),
-                Voter::DRepKey(hash) => {
-                    let credential = StakeCredential::AddrKeyhash(*hash);
-                    context.vote(credential.clone());
-                    credential
-                }
+        voting_procedures
+            .iter()
+            .enumerate()
+            .for_each(|(index, (voter, _))| {
+                let credential = match voter {
+                    Voter::ConstitutionalCommitteeKey(hash) | Voter::StakePoolKey(hash) => {
+                        StakeCredential::AddrKeyhash(*hash)
+                    }
+                    Voter::ConstitutionalCommitteeScript(hash) => {
+                        StakeCredential::ScriptHash(*hash)
+                    }
+                    Voter::DRepKey(hash) => {
+                        let credential = StakeCredential::AddrKeyhash(*hash);
+                        context.vote(credential.clone());
+                        credential
+                    }
 
-                Voter::DRepScript(hash) => {
-                    let credential = StakeCredential::ScriptHash(*hash);
-                    context.vote(credential.clone());
-                    credential
-                }
-            };
+                    Voter::DRepScript(hash) => {
+                        let credential = StakeCredential::ScriptHash(*hash);
+                        context.vote(credential.clone());
+                        credential
+                    }
+                };
 
-            context.require_witness(credential);
-        });
+                match credential {
+                    StakeCredential::ScriptHash(hash) => {
+                        context.require_script_witness(hash, index as u32, ScriptPurpose::Vote)
+                    }
+                    StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                }
+            });
     }
 }
 

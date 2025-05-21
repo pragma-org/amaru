@@ -21,8 +21,9 @@ use crate::{
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    AddrKeyhash, Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, StakeCredential, TransactionInput,
+    TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -34,7 +35,7 @@ pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     state: VolatileState,
     required_signers: BTreeSet<Hash<28>>,
-    required_scripts: BTreeSet<Hash<28>>,
+    required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<32>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
@@ -226,17 +227,23 @@ impl ProposalsSlice for DefaultValidationContext {
 }
 
 impl WitnessSlice for DefaultValidationContext {
-    fn require_witness(&mut self, credential: StakeCredential) {
-        match credential {
-            StakeCredential::AddrKeyhash(vk_hash) => {
-                self.required_signers.insert(vk_hash);
-            }
-            StakeCredential::ScriptHash(script_hash) => {
-                // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
-                // before hand, and here, check whether additional signatures are needed.
-                self.required_scripts.insert(script_hash);
-            }
-        }
+    fn require_vkey_witness(&mut self, key_hash: AddrKeyhash) {
+        // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
+        // before hand, and here, check whether additional signatures are needed.
+        self.required_signers.insert(key_hash);
+    }
+
+    fn require_script_witness(
+        &mut self,
+        script_hash: amaru_kernel::ScriptHash,
+        index: u32,
+        script_purpose: amaru_kernel::ScriptPurpose,
+    ) {
+        self.required_scripts.insert(RequiredScript {
+            hash: script_hash,
+            index,
+            purpose: script_purpose,
+        });
     }
 
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
@@ -251,7 +258,7 @@ impl WitnessSlice for DefaultValidationContext {
         mem::take(&mut self.required_signers)
     }
 
-    fn required_scripts(&mut self) -> BTreeSet<Hash<28>> {
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript> {
         mem::take(&mut self.required_scripts)
     }
 
