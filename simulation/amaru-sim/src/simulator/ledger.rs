@@ -18,6 +18,7 @@ use amaru_ouroboros::{HasStakeDistribution, Nonces, PoolSummary};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use serde_json::Error;
+use slot_arithmetic::{Epoch, Slot};
 use std::{fs::File, io::BufReader, path::Path};
 
 /// Stake data for a single pool.
@@ -100,8 +101,8 @@ impl HasStakeDistribution for FakeStakeDistribution {
             })
     }
 
-    fn slot_to_kes_period(&self, slot: u64) -> u64 {
-        slot / self.slots_per_kes_period
+    fn slot_to_kes_period(&self, slot: Slot) -> u64 {
+        u64::from(slot) / self.slots_per_kes_period
     }
 
     fn max_kes_evolutions(&self) -> u64 {
@@ -141,7 +142,7 @@ pub(crate) fn populate_chain_store(
         evolving: store.nonce,
         candidate: store.nonce,
         tail: *header,
-        epoch: 0,
+        epoch: Epoch::from(0),
     };
 
     chain_store.put_nonces(header, &nonces).map_err(IoError)?;

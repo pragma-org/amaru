@@ -290,7 +290,7 @@ fn load_tip_from_store<'a>(
 ) -> &'a mut ChainSelectorBuilder<Header> {
     match tip {
         Origin => builder,
-        Specific(..) => match chain_store.load_header(&Slot::from(&tip)) {
+        Specific(..) => match chain_store.load_header(&From::from(&tip)) {
             None => panic!("Tip {:?} not found in chain store", tip),
             Some(header) => builder.set_tip(&header),
         },
