@@ -161,7 +161,7 @@ mod tests {
     use proptest::prelude::*;
     use std::collections::{btree_map, BTreeMap};
 
-    pub static MAX_EPOCH: u64 = 4;
+    pub const MAX_EPOCH: u64 = 4;
 
     prop_compose! {
         fn any_diff()(
@@ -240,7 +240,7 @@ mod tests {
 
     fn any_message_sequence() -> impl Strategy<Value = Vec<(Epoch, Vec<Message<char, u8>>)>> {
         let any_block = || prop::collection::vec(any_message(MAX_EPOCH), 0..5);
-        prop::collection::vec(0u64..MAX_EPOCH, 1..30).prop_flat_map(move |epochs| {
+        prop::collection::vec(0..MAX_EPOCH, 1..30).prop_flat_map(move |epochs| {
             let mut epochs: Vec<Epoch> = epochs.into_iter().map(Epoch::from).collect();
             epochs.sort();
             prop::collection::vec(any_block(), epochs.len()).prop_map(move |msgs| {
