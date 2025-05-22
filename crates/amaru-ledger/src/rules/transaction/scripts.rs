@@ -132,13 +132,16 @@ where
         return Err(InvalidScripts::MissingRequiredScripts(missing_scripts));
     }
 
-    let extra_scripts: Vec<ScriptHash> = provided_scripts
-        .iter()
-        .map(ScriptHash::from)
-        .collect::<BTreeSet<_>>()
-        .difference(&required_scripts)
-        .cloned()
-        .collect();
+    let extra_scripts: Vec<ScriptHash> =
+        provided_scripts
+            .iter()
+            .fold(Vec::new(), |mut accum, script| {
+                if !required_scripts.contains(&script.hash) {
+                    accum.push(script.hash);
+                }
+
+                accum
+            });
 
     if !extra_scripts.is_empty() {
         return Err(InvalidScripts::ExtraneousScriptWitnesses(extra_scripts));
