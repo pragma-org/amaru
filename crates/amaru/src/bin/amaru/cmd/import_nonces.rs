@@ -60,7 +60,7 @@ pub struct Args {
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let era_history = args.network.into();
     let mut db =
-        Box::new(RocksDBStore::new(args.chain_dir, era_history)?) as Box<dyn ChainStore<Header>>;
+        Box::new(RocksDBStore::new(&args.chain_dir, era_history)?) as Box<dyn ChainStore<Header>>;
 
     let header_hash = Hash::from(&args.at);
 

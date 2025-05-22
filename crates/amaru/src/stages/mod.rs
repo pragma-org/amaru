@@ -27,7 +27,11 @@ use amaru_consensus::{
 use amaru_kernel::{
     network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, Hash, Header,
 };
-use amaru_stores::rocksdb::{consensus::RocksDBStore, RocksDB, RocksDBHistoricalStores};
+use amaru_ledger::{store::in_memory::MemoryStore, BlockValidationResult, ValidateBlockEvent};
+use amaru_stores::rocksdb::{
+    consensus::{InMemConsensusStore, RocksDBStore},
+    RocksDB, RocksDBHistoricalStores,
+};
 use consensus::{
     fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
     receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
@@ -35,13 +39,11 @@ use consensus::{
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
-    runtime::Tether,
+    runtime::{self, spawn_stage, Tether},
 };
-use pallas_network::{
-    facades::PeerClient,
-    miniprotocols::{chainsync::Tip, Point},
-};
-use std::{path::PathBuf, sync::Arc};
+use ledger::ValidateBlockStage;
+use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
+use std::{error::Error, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 pub mod consensus;
@@ -50,14 +52,35 @@ pub mod pull;
 
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
 
+/// Whether or not data is stored on disk or in memory.
+#[derive(Clone, Debug)]
+pub enum StorePath {
+    InMem,
+    OnDisk(PathBuf),
+}
+
 pub struct Config {
-    pub ledger_dir: PathBuf,
-    pub chain_dir: PathBuf,
+    pub ledger_store: StorePath,
+    pub chain_store: StorePath,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
     pub network_magic: u32,
     pub listen_address: String,
     pub max_downstream_peers: usize,
+}
+
+impl Default for Config {
+    fn default() -> Config {
+        Config {
+            ledger_store: StorePath::OnDisk(PathBuf::from("./ledger.db")),
+            chain_store: StorePath::OnDisk(PathBuf::from("./chain.db.1")),
+            upstream_peers: vec![],
+            network: NetworkName::Preprod,
+            network_magic: 1,
+            listen_address: "0.0.0.0:3000".to_string(),
+            max_downstream_peers: 10,
+        }
+    }
 }
 
 /// A session with a peer, including the peer itself and a client to communicate with it.
@@ -73,21 +96,14 @@ impl PeerSession {
     }
 }
 
+#[allow(clippy::todo)]
 pub fn bootstrap(
     config: Config,
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
-    // FIXME: Take from config / command args
     let era_history: &EraHistory = config.network.into();
-    let store = RocksDB::new(&config.ledger_dir, era_history)?;
-    let snapshots = RocksDBHistoricalStores::new(&config.ledger_dir);
-    let global_parameters = GlobalParameters::default();
-    let (mut ledger, tip) = ledger::ValidateBlockStage::new(
-        store,
-        snapshots,
-        era_history.clone(),
-        global_parameters.clone(),
-    )?;
+
+    let (global_parameters, mut ledger_stage, tip) = make_ledger(&config, era_history)?;
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -103,36 +119,33 @@ pub fn bootstrap(
         .iter()
         .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
         .collect::<Vec<_>>();
-    let chain_store = RocksDBStore::new(config.chain_dir.clone(), era_history)?;
 
-    let our_tip = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
-        #[allow(clippy::expect_used)]
-        let header: Header = chain_store
-            .load_header(&Hash::from(&**hash))
-            .expect("Tip not found");
-        Tip(header.pallas_point(), header.block_height())
-    } else {
-        Tip(Point::Origin, 0)
+    let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
+
+    let chain_selector = make_chain_selector(&header, &peer_sessions)?;
+    let consensus = match ledger_stage {
+        LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
+            Box::new(validate_block_stage.state.view_stake_distribution()),
+            chain_store_ref.clone(),
+        ),
+
+        LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(
+            Box::new(validate_block_stage.state.view_stake_distribution()),
+            chain_store_ref.clone(),
+        ),
     };
-
-    let chain_selector = make_chain_selector(tip.clone(), &chain_store, &peer_sessions)?;
-    let chain_ref = Arc::new(Mutex::new(chain_store));
-    let consensus = ValidateHeader::new(
-        Box::new(ledger.state.view_stake_distribution()),
-        chain_ref.clone(),
-    );
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
     let mut validate_header_stage = ValidateHeaderStage::new(consensus, &global_parameters);
 
-    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_ref.clone()));
+    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
 
     let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
 
     let mut forward_chain_stage = ForwardChainStage::new(
         None,
-        chain_ref.clone(),
+        chain_store_ref.clone(),
         config.network_magic as u64,
         &config.listen_address,
         config.max_downstream_peers,
@@ -165,25 +178,25 @@ pub fn bootstrap(
     block_fetch_stage.upstream.connect(from_select_chain);
     block_fetch_stage.downstream.connect(to_ledger);
 
-    ledger.upstream.connect(from_block_fetch);
-    ledger.downstream.connect(to_block_forward);
+    ledger_stage.connect(from_block_fetch, to_block_forward);
+
     forward_chain_stage.upstream.connect(from_ledger);
 
     // No retry, crash on panics.
-    let policy = gasket::runtime::Policy::default();
+    let policy = runtime::Policy::default();
 
     let mut pulls = pulls
         .into_iter()
-        .map(|p| gasket::runtime::spawn_stage(p, policy.clone()))
+        .map(|p| spawn_stage(p, policy.clone()))
         .collect::<Vec<_>>();
 
-    let validate_header = gasket::runtime::spawn_stage(validate_header_stage, policy.clone());
-    let receive_header = gasket::runtime::spawn_stage(receive_header_stage, policy.clone());
-    let store_header = gasket::runtime::spawn_stage(store_header_stage, policy.clone());
-    let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
-    let fetch = gasket::runtime::spawn_stage(block_fetch_stage, policy.clone());
-    let ledger = gasket::runtime::spawn_stage(ledger, policy.clone());
-    let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
+    let validate_header = spawn_stage(validate_header_stage, policy.clone());
+    let receive_header = spawn_stage(receive_header_stage, policy.clone());
+    let store_header = spawn_stage(store_header_stage, policy.clone());
+    let select_chain = spawn_stage(select_chain_stage, policy.clone());
+    let fetch = spawn_stage(block_fetch_stage, policy.clone());
+    let ledger = ledger_stage.spawn(policy.clone());
+    let block_forward = spawn_stage(forward_chain_stage, policy.clone());
 
     pulls.push(store_header);
     pulls.push(receive_header);
@@ -195,17 +208,115 @@ pub fn bootstrap(
     Ok(pulls)
 }
 
-fn make_chain_selector(
+type ChainStoreResult = (Tip, Option<Header>, Arc<Mutex<dyn ChainStore<Header>>>);
+
+#[allow(clippy::todo, clippy::panic)]
+fn make_chain_store(
+    config: &Config,
+    era_history: &EraHistory,
     tip: amaru_kernel::Point,
-    chain_store: &impl ChainStore<Header>,
+) -> Result<ChainStoreResult, Box<dyn Error>> {
+    let chain_store: Box<dyn ChainStore<Header>> = match config.chain_store {
+        StorePath::InMem => Box::new(InMemConsensusStore::new()),
+        StorePath::OnDisk(ref chain_dir) => Box::new(RocksDBStore::new(chain_dir, era_history)?),
+    };
+
+    let (our_tip, header) = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
+        #[allow(clippy::expect_used)]
+        let header: Header = chain_store
+            .load_header(&Hash::from(&**hash))
+            .expect("Tip not found");
+        (
+            Tip(header.pallas_point(), header.block_height()),
+            Some(header),
+        )
+    } else {
+        (Tip(pallas_network::miniprotocols::Point::Origin, 0), None)
+    };
+
+    let chain_store_ref: Arc<Mutex<dyn ChainStore<Header>>> = Arc::new(Mutex::new(chain_store));
+    Ok((our_tip, header, chain_store_ref))
+}
+
+enum LedgerStage {
+    InMemLedgerStage(ValidateBlockStage<MemoryStore, MemoryStore>),
+    OnDiskLedgerStage(ValidateBlockStage<RocksDB, RocksDBHistoricalStores>),
+}
+
+impl LedgerStage {
+    fn spawn(self, policy: runtime::Policy) -> Tether {
+        match self {
+            LedgerStage::InMemLedgerStage(validate_block_stage) => {
+                spawn_stage(validate_block_stage, policy)
+            }
+            LedgerStage::OnDiskLedgerStage(validate_block_stage) => {
+                spawn_stage(validate_block_stage, policy)
+            }
+        }
+    }
+
+    fn connect(
+        &mut self,
+        from_store_block: gasket::messaging::tokio::ChannelRecvAdapter<ValidateBlockEvent>,
+        to_block_forward: gasket::messaging::tokio::ChannelSendAdapter<BlockValidationResult>,
+    ) {
+        match self {
+            LedgerStage::InMemLedgerStage(validate_block_stage) => {
+                validate_block_stage.upstream.connect(from_store_block);
+                validate_block_stage.downstream.connect(to_block_forward);
+            }
+            LedgerStage::OnDiskLedgerStage(validate_block_stage) => {
+                validate_block_stage.upstream.connect(from_store_block);
+                validate_block_stage.downstream.connect(to_block_forward);
+            }
+        }
+    }
+}
+
+fn make_ledger(
+    config: &Config,
+    era_history: &EraHistory,
+) -> Result<(GlobalParameters, LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
+    let global_parameters = GlobalParameters::default();
+    match config.ledger_store {
+        StorePath::InMem => {
+            let (ledger, tip) = ledger::ValidateBlockStage::new(
+                MemoryStore {},
+                MemoryStore {},
+                era_history.clone(),
+                global_parameters.clone(),
+            )?;
+            Ok((
+                global_parameters,
+                LedgerStage::InMemLedgerStage(ledger),
+                tip,
+            ))
+        }
+        StorePath::OnDisk(ref ledger_dir) => {
+            let (ledger, tip) = ledger::ValidateBlockStage::new(
+                RocksDB::new(ledger_dir, era_history)?,
+                RocksDBHistoricalStores::new(ledger_dir),
+                era_history.clone(),
+                global_parameters.clone(),
+            )?;
+            Ok((
+                global_parameters,
+                LedgerStage::OnDiskLedgerStage(ledger),
+                tip,
+            ))
+        }
+    }
+}
+
+fn make_chain_selector(
+    header: &Option<Header>,
     peers: &Vec<PeerSession>,
 ) -> Result<Arc<Mutex<ChainSelector<Header>>>, ConsensusError> {
     let mut builder = ChainSelectorBuilder::new();
 
-    #[allow(clippy::panic)]
-    match chain_store.load_header(&Hash::from(&tip)) {
-        None => panic!("Tip {:?} not found in chain store", tip),
-        Some(header) => builder.set_tip(&header),
+    match header {
+        Some(h) => builder.set_tip(h),
+        None => &builder,
     };
 
     for peer in peers {
@@ -247,5 +358,23 @@ pub trait AsTip {
 impl AsTip for Header {
     fn as_tip(&self) -> Tip {
         Tip(self.pallas_point(), self.block_height())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{bootstrap, Config, StorePath::*};
+
+    #[test]
+    fn bootstrap_all_stages() {
+        let config = Config {
+            ledger_store: InMem,
+            chain_store: InMem,
+            ..Config::default()
+        };
+
+        let stages = bootstrap(config, vec![]).unwrap();
+
+        assert_eq!(7, stages.len());
     }
 }
