@@ -14,6 +14,5 @@ publish = false
 [dependencies]
 amaru-kernel = { path = "../../crates/amaru-kernel" }
 amaru-ledger = { path = "../../crates/amaru-ledger" }
-slot-arithmetic = { path = "../../crates/slot-arithmetic" }
 
 hex.workspace = true
