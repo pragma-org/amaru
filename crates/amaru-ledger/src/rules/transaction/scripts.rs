@@ -174,13 +174,12 @@ where
     required_script_inputs
         .into_iter()
         .for_each(|((input, output), script)| match output.has_datum() {
-            None => {
-                if !(matches!(script.script, PseudoScript::PlutusV3Script(..))
-                    || matches!(script.script, PseudoScript::NativeScript(..)))
-                {
+            None => match script.script {
+                PseudoScript::PlutusV1Script(..) | PseudoScript::PlutusV2Script(..) => {
                     inputs_missing_datum.push(input);
                 }
-            }
+                PseudoScript::NativeScript(..) | PseudoScript::PlutusV3Script(..) => {}
+            },
             Some(DatumOption::Hash(hash)) => {
                 input_datum_hashes.insert(hash);
             }
