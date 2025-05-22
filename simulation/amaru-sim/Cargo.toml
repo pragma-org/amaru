@@ -23,6 +23,7 @@ pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 proptest = {workspace = true, features = ["std"] }
+pure-stage.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal", "io-util"] }
 tokio-stream.workspace = true
 tokio-util.workspace = true

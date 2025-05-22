@@ -25,6 +25,9 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
+use pure_stage::simulation::{Receiver, SimulationRunning};
+use pure_stage::{StageRef, Void};
+
 use anyhow::anyhow;
 use proptest::{
     prelude::*,
@@ -62,14 +65,30 @@ impl<Msg: PartialEq> Eq for Entry<Msg> {}
 
 type NodeId = String;
 
-// TODO: should be RK's handle to interact with a node
 pub struct NodeHandle {
     handle:
         Box<dyn FnMut(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, anyhow::Error>>,
     close: Box<dyn FnMut()>,
 }
 
-#[allow(dead_code)]
+#[allow(unused)]
+pub fn pure_stage_node_handle(
+    mut rx: Receiver<Envelope<EchoMessage>>,
+    stage: StageRef<Envelope<EchoMessage>, (u64, StageRef<Envelope<EchoMessage>, Void>)>,
+    mut running: SimulationRunning,
+) -> anyhow::Result<NodeHandle> {
+    let handle = Box::new(move |msg: Envelope<EchoMessage>| {
+        running.enqueue_msg(&stage, [msg]);
+        running.run_until_blocked().assert_idle();
+        Ok(rx.drain().collect::<Vec<_>>())
+    });
+
+    let close = Box::new(move || ());
+
+    Ok(NodeHandle { handle, close })
+}
+
+#[allow(unused)]
 pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHandle> {
     let mut child = Command::new(filepath)
         .args(args)
@@ -244,8 +263,15 @@ pub fn simulate(
     });
     match result {
         Ok(_) => (),
-        Err(TestError::Fail(_, value)) => {
-            panic!("Found minimal failing case: {:?}", value);
+        Err(TestError::Fail(what, entries)) => {
+            let mut err = String::new();
+            entries
+                .into_iter()
+                .for_each(|entry| err += &format!("  {:?}\n", entry.0.envelope));
+            panic!(
+                "Found minimal failing case:\n\n{}\nError message:\n\n  {}",
+                err, what
+            )
         }
         Err(TestError::Abort(e)) => panic!("Test aborted: {}", e),
     }
@@ -254,6 +280,7 @@ pub fn simulate(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pure_stage::{simulation::SimulationBuilder, StageGraph, StageRef};
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
@@ -262,11 +289,99 @@ mod tests {
         assert_eq!(world.run_world(), &Vec::new());
     }
 
-    // NOTE: This will be replaced with a test that uses an in-process NodeHandle later, which
-    // avoids the problem of locating and spawning the binary.
+    #[test]
+    #[should_panic]
+    fn simulate_pure_stage_echo() {
+        let config = Config::default();
+
+        let number_of_nodes = 1;
+
+        let spawn: fn() -> NodeHandle = || {
+            println!("*** Spawning node!");
+            let mut network = SimulationBuilder::default();
+            let stage = network.stage(
+                "echo",
+                async |(mut state, out), msg: Envelope<EchoMessage>, eff| {
+                    if let EchoMessage::Echo { msg_id, echo } = &msg.body {
+                        state += 1;
+                        // Insert a bug every 5 messages.
+                        let echo_response = if state % 5 == 0 {
+                            echo.to_string().to_uppercase()
+                        } else {
+                            echo.to_string()
+                        };
+                        let reply = Envelope {
+                            src: msg.dest,
+                            dest: msg.src,
+                            body: EchoMessage::EchoOk {
+                                msg_id: state,
+                                in_reply_to: *msg_id,
+                                echo: echo_response,
+                            },
+                        };
+                        println!(" ==> {:?}", reply);
+                        eff.send(&out, reply).await;
+                        Ok((state, out))
+                    } else {
+                        panic!("Got a message that wasn't an echo: {:?}", msg.body)
+                    }
+                },
+                (0u64, StageRef::noop::<Envelope<EchoMessage>>()),
+            );
+            let (output, rx) = network.output("output");
+            let stage = network.wire_up(stage, |state| state.1 = output.without_state());
+            let running = network.run();
+
+            pure_stage_node_handle(rx, stage, running).unwrap()
+        };
+        let generate_message = (0..128u8).prop_map(|i| EchoMessage::Echo {
+            msg_id: 0,
+            echo: format!("Please echo {}", i),
+        });
+        simulate(
+            config,
+            number_of_nodes,
+            spawn,
+            generate_message,
+            ECHO_PROPERTY,
+        )
+    }
+
+    // TODO: Take response time into account.
+    const ECHO_PROPERTY: fn(Trace) -> Result<(), String> = |trace: Trace| {
+        for (index, msg) in trace
+            .0
+            .iter()
+            .enumerate()
+            .filter(|(_index, msg)| msg.src.starts_with("c"))
+        {
+            if let EchoMessage::Echo { msg_id, echo } = &msg.body {
+                let response = trace.0.split_at(index + 1).1.iter().find(|resp| {
+                        resp.dest == msg.src
+                            && matches!(&resp.body, EchoMessage::EchoOk { in_reply_to, echo: resp_echo, .. }
+                                if in_reply_to == msg_id && resp_echo == echo)
+                    });
+                if response.is_none() {
+                    let mut err = String::new();
+                    err += &format!(
+                        "No matching response found for echo request:\n    {:?}\n\nTrace:\n",
+                        msg
+                    );
+                    for envelope in trace.0 {
+                        err += &format!("  {envelope:?}\n");
+                    }
+                    return Err(err);
+                }
+            }
+        }
+        Ok(())
+    };
+
+    // This shows how we can test external binaries. The test is disabled because building and
+    // locating a binary on CI, across all platforms, is annoying.
     #[allow(dead_code)]
     #[ignore]
-    fn simulate_echo() {
+    fn blackbox_test_echo() {
         let config = proptest::test_runner::Config {
             cases: 100,
             verbose: 1,
@@ -281,7 +396,12 @@ mod tests {
             msg_id: 0,
             echo: format!("Please echo {}", i),
         });
-        let property = |_trace| Ok(()); // XXX: Actually check that we get the right responses.
-        simulate(config, number_of_nodes, spawn, generate_message, property)
+        simulate(
+            config,
+            number_of_nodes,
+            spawn,
+            generate_message,
+            ECHO_PROPERTY,
+        )
     }
 }
