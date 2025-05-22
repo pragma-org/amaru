@@ -299,7 +299,10 @@ jobs:
         working-directory: simulation/amaru-sim
 
       - name: Setup GHC and cabal
-        run: curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+        uses: haskell-actions/setup@v2  
+        with:  
+          ghc-version: '9.6.7'  
+          cabal-version: '3.14'  
 
       - name: Build moskstraumen
         run: |
