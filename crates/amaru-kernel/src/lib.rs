@@ -220,26 +220,47 @@ impl RedeemersExt for Redeemers {
     }
 }
 
-#[derive(Eq, PartialEq)]
-pub struct ScriptRefWithHash {
-    pub hash: ScriptHash,
-    pub script: ScriptRef,
+// This allows us to avoid cloning, but it's a pretty awful API.
+// Ideally, this is something that Pallas would own and cleanup.
+#[derive(Debug, PartialEq, Eq)]
+pub enum BorrowedPseudoScript<'a, T1> {
+    NativeScript(&'a T1),
+    PlutusV1Script(&'a PlutusScript<1>),
+    PlutusV2Script(&'a PlutusScript<2>),
+    PlutusV3Script(&'a PlutusScript<3>),
 }
 
-impl PartialOrd for ScriptRefWithHash {
+#[derive(Eq, PartialEq)]
+pub struct ScriptRefWithHash<'a> {
+    pub hash: ScriptHash,
+    pub script: BorrowedPseudoScript<'a, NativeScript>,
+}
+
+impl<'a> From<&'a PseudoScript<NativeScript>> for BorrowedPseudoScript<'a, NativeScript> {
+    fn from(value: &'a PseudoScript<NativeScript>) -> Self {
+        match value {
+            PseudoScript::NativeScript(script) => BorrowedPseudoScript::NativeScript(script),
+            PseudoScript::PlutusV1Script(script) => BorrowedPseudoScript::PlutusV1Script(script),
+            PseudoScript::PlutusV2Script(script) => BorrowedPseudoScript::PlutusV2Script(script),
+            PseudoScript::PlutusV3Script(script) => BorrowedPseudoScript::PlutusV3Script(script),
+        }
+    }
+}
+
+impl PartialOrd for ScriptRefWithHash<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ScriptRefWithHash {
+impl Ord for ScriptRefWithHash<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         self.hash.cmp(&other.hash)
     }
 }
 
-impl From<&ScriptRefWithHash> for ScriptHash {
-    fn from(value: &ScriptRefWithHash) -> Self {
+impl From<&ScriptRefWithHash<'_>> for ScriptHash {
+    fn from(value: &ScriptRefWithHash<'_>) -> Self {
         value.hash
     }
 }
@@ -748,8 +769,10 @@ pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
 }
 
 /// Collect provided scripts and compute each ScriptHash in a witness set
-pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<ScriptRefWithHash> {
-    let mut provided_scripts: BTreeSet<ScriptRefWithHash> = BTreeSet::new();
+pub fn get_provided_scripts<'a>(
+    witness_set: &'a MintedWitnessSet<'_>,
+) -> BTreeSet<ScriptRefWithHash<'a>> {
+    let mut provided_scripts: BTreeSet<ScriptRefWithHash<'a>> = BTreeSet::new();
     provided_scripts.extend(
         witness_set
             .native_script
@@ -759,7 +782,7 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
                     .iter()
                     .map(|native_script| ScriptRefWithHash {
                         hash: native_script.script_hash(),
-                        script: PseudoScript::NativeScript(native_script.clone().unwrap()),
+                        script: BorrowedPseudoScript::NativeScript(native_script.deref()),
                     })
                     .collect::<BTreeSet<_>>()
             })
@@ -775,7 +798,7 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
                     .iter()
                     .map(|script| ScriptRefWithHash {
                         hash: script.script_hash(),
-                        script: PseudoScript::PlutusV1Script(script.clone()),
+                        script: BorrowedPseudoScript::PlutusV1Script(script),
                     })
                     .collect::<BTreeSet<_>>()
             })
@@ -791,7 +814,7 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
                     .iter()
                     .map(|script| ScriptRefWithHash {
                         hash: script.script_hash(),
-                        script: PseudoScript::PlutusV2Script(script.clone()),
+                        script: BorrowedPseudoScript::PlutusV2Script(script),
                     })
                     .collect::<BTreeSet<_>>()
             })
@@ -807,7 +830,7 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
                     .iter()
                     .map(|script| ScriptRefWithHash {
                         hash: script.script_hash(),
-                        script: PseudoScript::PlutusV3Script(script.clone()),
+                        script: BorrowedPseudoScript::PlutusV3Script(script),
                     })
                     .collect::<BTreeSet<_>>()
             })
@@ -885,6 +908,25 @@ impl HasDatum for MintedTransactionOutput<'_> {
                     PseudoDatumOption::Hash(hash) => Some(DatumOption::Hash(*hash)),
                     PseudoDatumOption::Data(_) => None,
                 }),
+        }
+    }
+}
+
+pub trait HasScriptRef {
+    fn has_script_ref(&self) -> Option<ScriptRefWithHash<'_>>;
+}
+
+impl HasScriptRef for TransactionOutput {
+    fn has_script_ref(&self) -> Option<ScriptRefWithHash<'_>> {
+        match self {
+            TransactionOutput::PostAlonzo(transaction_output) => transaction_output
+                .script_ref
+                .as_deref()
+                .map(|script_ref| ScriptRefWithHash {
+                    hash: script_ref.script_hash(),
+                    script: script_ref.into(),
+                }),
+            TransactionOutput::Legacy(_) => None,
         }
     }
 }

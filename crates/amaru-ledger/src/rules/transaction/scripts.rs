@@ -1,9 +1,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    display_collection, get_provided_scripts, DatumOption, HasAddress, HasDatum, HasScriptHash,
-    Hash, MintedWitnessSet, OriginalHash, PseudoScript, ScriptHash, ScriptRefWithHash,
-    TransactionInput,
+    display_collection, get_provided_scripts, BorrowedPseudoScript, DatumOption, HasAddress,
+    HasDatum, HasScriptRef, Hash, MintedWitnessSet, OriginalHash, ScriptHash, TransactionInput,
 };
 use thiserror::Error;
 
@@ -93,26 +92,13 @@ where
     .concat()
     .iter()
     .filter_map(|(_, output)| {
-        match output {
-            amaru_kernel::PseudoTransactionOutput::PostAlonzo(transaction_output) => {
-                transaction_output
-                    .script_ref
-                    .as_deref()
-                    .and_then(|script_ref| {
-                        // If there is a provided ScriptRef, make sure it is required by an input
-                        let hash = script_ref.script_hash();
-                        if required_scripts.contains(&hash) {
-                            Some(ScriptRefWithHash {
-                                hash: script_ref.script_hash(),
-                                script: script_ref.clone(),
-                            })
-                        } else {
-                            None
-                        }
-                    })
+        if let Some(script_ref) = output.has_script_ref() {
+            if required_scripts.contains(&script_ref.hash) {
+                return Some(script_ref);
             }
-            amaru_kernel::PseudoTransactionOutput::Legacy(_) => None,
         }
+
+        None
     })
     .collect::<BTreeSet<_>>();
 
@@ -181,10 +167,12 @@ where
         .into_iter()
         .for_each(|((input, output), script)| match output.has_datum() {
             None => match script.script {
-                PseudoScript::PlutusV1Script(..) | PseudoScript::PlutusV2Script(..) => {
+                BorrowedPseudoScript::PlutusV1Script(..)
+                | BorrowedPseudoScript::PlutusV2Script(..) => {
                     inputs_missing_datum.push(input);
                 }
-                PseudoScript::NativeScript(..) | PseudoScript::PlutusV3Script(..) => {}
+                BorrowedPseudoScript::NativeScript(..)
+                | BorrowedPseudoScript::PlutusV3Script(..) => {}
             },
             Some(DatumOption::Hash(hash)) => {
                 input_datum_hashes.insert(hash);
