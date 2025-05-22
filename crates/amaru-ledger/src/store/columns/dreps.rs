@@ -13,8 +13,9 @@
 // limitations under the License.
 
 use crate::state::diff_bind::Resettable;
-use amaru_kernel::{cbor, Anchor, CertificatePointer, Epoch, Lovelace, StakeCredential};
+use amaru_kernel::{cbor, Anchor, CertificatePointer, Lovelace, StakeCredential};
 use iter_borrow::IterBorrow;
+use slot_arithmetic::Epoch;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";
 
@@ -92,10 +93,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 pub(crate) mod tests {
     use super::Row;
     use amaru_kernel::{
-        prop_cbor_roundtrip, Anchor, CertificatePointer, Epoch, Hash, Lovelace, Slot,
-        TransactionPointer,
+        prop_cbor_roundtrip, Anchor, CertificatePointer, Hash, Lovelace, Slot, TransactionPointer,
     };
     use proptest::{option, prelude::*, string};
+    use slot_arithmetic::Epoch;
 
     prop_cbor_roundtrip!(Row, any_row());
 

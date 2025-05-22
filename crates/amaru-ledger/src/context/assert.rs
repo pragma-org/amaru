@@ -20,10 +20,11 @@ use crate::context::{
 };
 use amaru_kernel::{
     serde_utils, stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep,
-    Epoch, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential,
+    Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential,
     TransactionInput, TransactionOutput,
 };
 use core::mem;
+use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::{instrument, Level};
 

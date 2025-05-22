@@ -17,10 +17,10 @@ mod backward_compatibility;
 use crate::store::{columns::dreps, Snapshot, StoreError};
 use amaru_kernel::{
     expect_stake_credential, network::EraHistory, protocol_parameters::ProtocolParameters, Anchor,
-    CertificatePointer, DRep, Epoch, EpochInterval, Lovelace, ProtocolVersion, Slot,
-    StakeCredential, TransactionPointer,
+    CertificatePointer, DRep, EpochInterval, Lovelace, ProtocolVersion, Slot, StakeCredential,
+    TransactionPointer,
 };
-use slot_arithmetic::TimeHorizonError;
+use slot_arithmetic::{Epoch, TimeHorizonError};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]
@@ -94,7 +94,7 @@ impl GovernanceSummary {
         let mandate = drep_mandate_calculator(
             protocol_version,
             protocol_parameters.gov_action_lifetime,
-            protocol_parameters.drep_expiry,
+            protocol_parameters.drep_expiry as u64,
             era_history,
             current_epoch,
             proposals,
@@ -240,7 +240,7 @@ impl GovernanceSummary {
 fn drep_mandate_calculator(
     protocol_version: ProtocolVersion,
     governance_action_lifetime: EpochInterval,
-    drep_expiry: Epoch,
+    drep_expiry: u64,
     era_history: &EraHistory,
     current_epoch: Epoch,
     proposals: BTreeSet<(TransactionPointer, Epoch)>,
@@ -268,7 +268,7 @@ fn drep_mandate_calculator(
             // epoch with no proposal but on the last slot is arguably dormant. But as a
             // consequence, we may also label as dormant epochs with proposals submitted on the
             // very first slot too.
-            (*start + 1..=*start + governance_action_lifetime as Epoch).collect::<BTreeSet<_>>()
+            (*start + 1..=*start + governance_action_lifetime as u64).collect::<BTreeSet<_>>()
         })
         .collect::<BTreeSet<Epoch>>();
 
@@ -355,7 +355,7 @@ fn drep_mandate_calculator(
                     }
                 };
 
-                bonus_bug_dormant + v10_onwards(registered_at, last_interaction)
+                v10_onwards(registered_at, last_interaction) + bonus_bug_dormant
             },
         );
     }
@@ -373,8 +373,8 @@ mod tests {
 
     #[derive(Debug, PartialEq)]
     enum EpochResult {
-        Consistent(Epoch),
-        Inconsistent { v9: Epoch, v10: Epoch },
+        Consistent(u64),
+        Inconsistent { v9: u64, v10: u64 },
     }
 
     fn test_drep_mandate(
@@ -405,9 +405,12 @@ mod tests {
         let v10 = test_with(PROTOCOL_VERSION_10);
 
         if v9 == v10 {
-            Consistent(v10)
+            Consistent(v10.into())
         } else {
-            Inconsistent { v9, v10 }
+            Inconsistent {
+                v9: v9.into(),
+                v10: v10.into(),
+            }
         }
     }
 
@@ -431,16 +434,16 @@ mod tests {
     #[test_case(135,    None, 13 => Inconsistent { v9: 25, v10: 23 })]
     fn test_drep_mandate_no_dormant_period(
         registered_at: u64,
-        last_interaction: Option<Epoch>,
-        current_epoch: Epoch,
+        last_interaction: Option<u64>,
+        current_epoch: u64,
     ) -> EpochResult {
         test_drep_mandate(
             3,                // governance_action_lifetime
             10,               // drep_expiry
             vec![ptr(85, 0)], // proposals
             registered_at,
-            last_interaction,
-            current_epoch,
+            last_interaction.map(Epoch::from),
+            Epoch::from(current_epoch),
         )
     }
 
@@ -468,16 +471,16 @@ mod tests {
     #[test_case(136,     None, 13 => Consistent(23))]
     fn test_drep_mandate_single_dormant_period(
         registered_at: u64,
-        last_interaction: Option<Epoch>,
-        current_epoch: Epoch,
+        last_interaction: Option<u64>,
+        current_epoch: u64,
     ) -> EpochResult {
         test_drep_mandate(
             3,                             // governance_action_lifetime
             10,                            // drep_expiry
             vec![ptr(85, 0), ptr(135, 0)], // proposals
             registered_at,
-            last_interaction,
-            current_epoch,
+            last_interaction.map(Epoch::from),
+            Epoch::from(current_epoch),
         )
     }
 
@@ -507,16 +510,16 @@ mod tests {
     #[test_case(150,    None, 15 => Inconsistent{ v9: 26, v10: 25 })]
     fn test_drep_mandate_multiple_dormant_periods(
         registered_at: u64,
-        last_interaction: Option<Epoch>,
-        current_epoch: Epoch,
+        last_interaction: Option<u64>,
+        current_epoch: u64,
     ) -> EpochResult {
         test_drep_mandate(
             3,                                        // governance_action_lifetime
             10,                                       // drep_expiry
             vec![ptr(5, 0), ptr(65, 0), ptr(115, 0)], // proposals
             registered_at,
-            last_interaction,
-            current_epoch,
+            last_interaction.map(Epoch::from),
+            Epoch::from(current_epoch),
         )
     }
 }

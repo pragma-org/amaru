@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Epoch;
 use std::collections::BTreeMap;
+
+use slot_arithmetic::Epoch;
 
 /// A compact data-structure tracking deferred registration & unregistration changes in a key:value
 /// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but
@@ -160,7 +161,7 @@ mod tests {
     use proptest::prelude::*;
     use std::collections::{btree_map, BTreeMap};
 
-    pub const MAX_EPOCH: Epoch = 4;
+    pub const MAX_EPOCH: u64 = 4;
 
     prop_compose! {
         fn any_diff()(
@@ -217,11 +218,11 @@ mod tests {
     #[derive(Debug, Clone)]
     pub enum Message<K, V> {
         Register(K, V),
-        Unregister(K, Epoch),
+        Unregister(K, u64),
     }
 
     prop_compose! {
-        fn any_message(max_epoch: Epoch)(
+        fn any_message(max_epoch: u64)(
             k in
                 prop_oneof![Just('a'), Just('b'), Just('c')],
             v in
@@ -239,7 +240,8 @@ mod tests {
 
     fn any_message_sequence() -> impl Strategy<Value = Vec<(Epoch, Vec<Message<char, u8>>)>> {
         let any_block = || prop::collection::vec(any_message(MAX_EPOCH), 0..5);
-        prop::collection::vec(0..MAX_EPOCH, 1..30).prop_flat_map(move |mut epochs| {
+        prop::collection::vec(0..MAX_EPOCH, 1..30).prop_flat_map(move |epochs| {
+            let mut epochs: Vec<Epoch> = epochs.into_iter().map(Epoch::from).collect();
             epochs.sort();
             prop::collection::vec(any_block(), epochs.len()).prop_map(move |msgs| {
                 epochs
@@ -252,7 +254,7 @@ mod tests {
                             blk.into_iter()
                                 .map(|msg| {
                                     if let Message::Unregister(k, offset) = msg {
-                                        Message::Unregister(k, 1 + epoch + offset)
+                                        Message::Unregister(k, (epoch + offset + 1).into())
                                     } else {
                                         msg
                                     }
@@ -269,9 +271,9 @@ mod tests {
         #[test]
         fn prop_messages_are_in_ascending_epoch(msgs in any_message_sequence()) {
             msgs.into_iter().fold(0, |current_epoch, (epoch, _)| {
-                assert!(epoch <= MAX_EPOCH);
-                assert!(epoch >= current_epoch);
-                epoch
+                assert!(epoch <= Epoch::from(MAX_EPOCH));
+                assert!(epoch >= Epoch::from(current_epoch));
+                epoch.into()
             });
         }
     }
@@ -315,7 +317,7 @@ mod tests {
                             }
                         }
                         Message::Unregister(k, e) => {
-                            model.retiring.insert(*k, *e);
+                            model.retiring.insert(*k, Epoch::from(*e));
                         }
                     }
                 }
@@ -329,7 +331,7 @@ mod tests {
                 for msg in blk {
                     match msg {
                         Message::Register(k, v) => diff.register(*k, *v),
-                        Message::Unregister(k, e) => diff.unregister(*k, *e),
+                        Message::Unregister(k, e) => diff.unregister(*k, Epoch::from(*e)),
                     }
                 }
                 real.push((*epoch, diff));

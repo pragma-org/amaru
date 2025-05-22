@@ -18,10 +18,11 @@ use amaru_consensus::{
     consensus::{ChainSyncEvent, ValidateHeaderEvent},
     peer::Peer,
 };
-use amaru_kernel::{self, Point, Slot};
+use amaru_kernel::{self, Point};
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};
+use slot_arithmetic::Slot;
 use tokio::io::{stdin, stdout, AsyncBufReadExt, BufReader, Lines, Stdin, Stdout};
 use tokio_util::codec::{FramedWrite, LinesCodec};
 use tracing::{error, Span};
@@ -231,6 +232,7 @@ mod test {
         prelude::{BoxedStrategy, *},
         proptest,
     };
+    use slot_arithmetic::Slot;
     use tracing::trace_span;
 
     use super::{
@@ -252,7 +254,7 @@ mod test {
         let header_hash = Hasher::<256>::hash(header.raw_cbor());
         Fwd {
             msg_id: 1,
-            slot: From::from(1234),
+            slot: Slot::from(1234),
             hash: header_hash.to_vec().into(),
             header: header_bytes.into(),
         }
@@ -280,7 +282,7 @@ mod test {
                 ..
             } => {
                 assert_eq!(peer.name, "peer1");
-                assert_eq!(point.slot_or_default(), From::from(1234));
+                assert_eq!(point.slot_or_default(), Slot::from(1234));
                 assert_eq!(Hash::from(&point), expected_hash);
                 assert_eq!(raw_header, hex::decode(TEST_HEADER).unwrap());
             }
@@ -334,14 +336,14 @@ mod test {
             (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| {
                 ChainSyncMessage::Fwd {
                     msg_id,
-                    slot: From::from(slot),
+                    slot: Slot::from(slot),
                     hash: hash.to_vec().into(),
                     header: Bytes { bytes: vec![] },
                 }
             }),
             (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| Bck {
                 msg_id,
-                slot: From::from(slot),
+                slot: Slot::from(slot),
                 hash: hash.to_vec().into()
             })
         ]

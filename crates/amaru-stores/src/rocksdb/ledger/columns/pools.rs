@@ -13,12 +13,12 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_kernel::Epoch;
 use amaru_ledger::store::{
     columns::pools::{Key, Row, Value, EVENT_TARGET},
     StoreError,
 };
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
+use slot_arithmetic::Epoch;
 use tracing::error;
 
 /// Name prefixed used for storing Pool entries. UTF-8 encoding for "pool"

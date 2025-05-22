@@ -17,6 +17,7 @@
 //! <https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-03>
 
 pub use pallas_primitives::babbage::{derive_tagged_vrf_output, VrfDerivation as Derivation};
+use slot_arithmetic::Slot;
 use std::{array::TryFromSliceError, ops::Deref};
 
 use crate::{Hash, Hasher};
@@ -117,9 +118,9 @@ impl Input {
     pub const SIZE: usize = 32;
 
     /// Create a new input challenge from an absolute slot number and an epoch entropy (a.k.a η0)
-    pub fn new(absolute_slot: u64, epoch_nonce: &Hash<32>) -> Self {
+    pub fn new(absolute_slot: Slot, epoch_nonce: &Hash<32>) -> Self {
         let mut hasher = Hasher::<{ 8 * Self::SIZE }>::new();
-        hasher.input(&absolute_slot.to_be_bytes());
+        hasher.input(&u64::from(absolute_slot).to_be_bytes());
         hasher.input(epoch_nonce.as_ref());
         Input(hasher.finalize())
     }

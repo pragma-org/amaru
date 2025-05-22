@@ -20,6 +20,7 @@ use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Certificate, CertificatePointer, DRep, NonEmptySet,
     PoolId, PoolParams, StakeCredential, TransactionPointer,
 };
+use slot_arithmetic::Epoch;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -113,7 +114,7 @@ where
 
         Certificate::PoolRetirement(id, epoch) => {
             context.require_witness(StakeCredential::AddrKeyhash(id));
-            PoolsSlice::retire(context, id, epoch);
+            PoolsSlice::retire(context, id, Epoch::from(epoch));
             Ok(())
         }
 

@@ -14,9 +14,8 @@
 
 use amaru_kernel::{
     network::NetworkName, protocol_parameters::ProtocolParameters, Anchor, CertificatePointer,
-    DRep, Epoch, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, Set, Slot, StakeCredential, TransactionInput, TransactionOutput,
-    TransactionPointer,
+    DRep, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    Set, Slot, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer,
 };
 use amaru_ledger::{
     self,
@@ -29,6 +28,7 @@ use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_codec::minicbor as cbor;
+use slot_arithmetic::Epoch;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
     fs, iter,
@@ -154,7 +154,7 @@ async fn import_one(
     )?;
     transaction.commit()?;
 
-    let snapshot = db.snapshots()?.last().map(|s| s + 1).unwrap_or(epoch);
+    let snapshot = db.snapshots()?.last().map(|s| *s + 1).unwrap_or(epoch);
     db.next_snapshot(snapshot)?;
 
     let transaction = db.create_transaction();
@@ -176,13 +176,13 @@ fn decode_new_epoch_state(
     bytes: &[u8],
     point: &Point,
     era_history: &EraHistory,
-) -> Result<u64, Box<dyn std::error::Error>> {
+) -> Result<Epoch, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
 
     d.array()?;
 
     // EpochNo
-    let epoch = d.u64()?;
+    let epoch = Epoch::from(d.u64()?);
     assert_eq!(epoch, era_history.slot_to_epoch(point.slot_or_default())?);
 
     // Previous blocks made
@@ -512,13 +512,13 @@ fn import_dreps(
                 let (registration_slot, last_interaction) = if epoch == era_first_epoch {
                     let last_interaction = era_first_epoch;
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    if state.expiry > epoch + protocol_parameters.drep_expiry {
+                    if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
                         (epoch_bound.start, last_interaction)
                     } else {
                         (epoch_bound.end, last_interaction)
                     }
                 } else {
-                    let last_interaction = state.expiry - protocol_parameters.drep_expiry;
+                    let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     // start or end doesn't matter here.
                     (epoch_bound.start, last_interaction)
@@ -594,7 +594,7 @@ fn import_proposals(
                                 proposal_index,
                             },
                             valid_until: proposal.proposed_in
-                                + protocol_parameters.gov_action_lifetime as Epoch,
+                                + protocol_parameters.gov_action_lifetime as u64,
                             proposal: proposal.procedure,
                         },
                     ))

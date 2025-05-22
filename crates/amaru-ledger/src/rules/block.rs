@@ -25,6 +25,7 @@ use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
     OriginalHash, StakeCredential, TransactionPointer,
 };
+use slot_arithmetic::Slot;
 use std::{
     ops::{ControlFlow, Deref, FromResidual, Try},
     process::{ExitCode, Termination},
@@ -168,7 +169,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             });
 
         let pointer = TransactionPointer {
-            slot: From::from(block.header.header_body.slot),
+            slot: Slot::from(block.header.header_body.slot),
             transaction_index: i as usize, // From u32
         };
 

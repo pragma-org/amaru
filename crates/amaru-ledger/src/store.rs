@@ -22,7 +22,6 @@ use amaru_kernel::{
     cbor as minicbor,
     protocol_parameters::ProtocolParameters,
     CertificatePointer,
-    Epoch,
     Lovelace,
     Point,
     PoolId,
@@ -31,6 +30,7 @@ use amaru_kernel::{
     TransactionOutput,
 };
 use columns::*;
+use slot_arithmetic::Epoch;
 use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
 use thiserror::Error;
 

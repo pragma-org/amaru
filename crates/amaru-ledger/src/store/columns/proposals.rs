@@ -12,8 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Epoch, Proposal, ProposalId, ProposalPointer};
+use amaru_kernel::{cbor, Proposal, ProposalId, ProposalPointer};
 use iter_borrow::IterBorrow;
+use slot_arithmetic::Epoch;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 
@@ -224,7 +225,7 @@ pub(crate) mod tests {
             max_block_header_size in option::of(any::<u64>()),
             key_deposit in option::of(any::<Lovelace>()),
             pool_deposit in option::of(any::<Lovelace>()),
-            maximum_epoch in option::of(any::<Epoch>()),
+            maximum_epoch in option::of(any::<u64>()),
             desired_number_of_stake_pools in option::of(any::<u64>()),
             pool_pledge_influence in option::of(any_unit_interval()),
             expansion_rate in option::of(any_unit_interval()),
@@ -241,11 +242,11 @@ pub(crate) mod tests {
             pool_voting_thresholds in option::of(any_pool_voting_thresholds()),
             drep_voting_thresholds in option::of(any_drep_voting_thresholds()),
             min_committee_size in option::of(any::<u64>()),
-            committee_term_limit in option::of(any::<Epoch>()),
-            governance_action_validity_period in option::of(any::<Epoch>()),
+            committee_term_limit in option::of(any::<u64>()),
+            governance_action_validity_period in option::of(any::<u64>()),
             governance_action_deposit in option::of(any::<Lovelace>()),
             drep_deposit in option::of(any::<Lovelace>()),
-            drep_inactivity_period in option::of(any::<Epoch>()),
+            drep_inactivity_period in option::of(any::<u64>()),
             minfee_refscript_cost_per_byte in option::of(any_unit_interval()),
         ) -> ProtocolParamUpdate {
             ProtocolParamUpdate {
@@ -377,8 +378,8 @@ pub(crate) mod tests {
         prop_compose! {
             fn any_committee_registration()(
                 credential in any_stake_credential(),
-                epoch in any::<Epoch>(),
-            ) -> (StakeCredential, Epoch) {
+                epoch in any::<u64>(),
+            ) -> (StakeCredential, u64) {
                 (credential, epoch)
             }
         }

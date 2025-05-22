@@ -12,7 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Epoch, EpochInterval, Slot, TransactionPointer};
+use amaru_kernel::{EpochInterval, Slot, TransactionPointer};
+use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 
 // In Version 9, the number of dormant epochs depends on the moment the DRep registers *within the
@@ -31,7 +32,7 @@ pub(crate) fn drep_bonus_mandate(
     governance_action_lifetime: EpochInterval,
     proposals: &BTreeSet<(TransactionPointer, Epoch)>,
     (registered_at, registered_in): (Slot, Epoch),
-) -> Epoch {
+) -> u64 {
     let proposal_until_registration = proposals
         .iter()
         .filter(|(_, proposed_in)| proposed_in <= &registered_in)
@@ -98,13 +99,13 @@ fn last_dormant_period<'a>(
     proposals: BTreeSet<&'a (TransactionPointer, Epoch)>,
 ) -> LastDormantEpoch<'a> {
     let dormant_period = |previous_epoch, current_epoch| {
-        if previous_epoch <= current_epoch + governance_action_lifetime as Epoch {
+        if previous_epoch <= current_epoch + governance_action_lifetime as u64 {
             None
         } else {
             // We iterate on a BTreeSet in reverse order, so when in dormant periods, the previous
             // epoch is necessarily larger than the current one. And we've just guaranteed there's
             // a gap that is greater than the governance_action_lifetime between both.
-            Some(previous_epoch - current_epoch - governance_action_lifetime as Epoch)
+            Some(previous_epoch - current_epoch - governance_action_lifetime as u64)
         }
     };
 
@@ -151,6 +152,7 @@ pub(crate) mod tests {
         network::{Bound, EraParams, Summary},
         EraHistory,
     };
+    use slot_arithmetic::Epoch;
     use std::sync::LazyLock;
     use test_case::test_case;
 
@@ -161,13 +163,13 @@ pub(crate) mod tests {
         eras: vec![Summary {
             start: Bound {
                 time_ms: 0,
-                slot: From::from(0),
-                epoch: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
             },
             end: Bound {
                 time_ms: 1000000,
-                slot: From::from(1000),
-                epoch: 100,
+                slot: Slot::from(1000),
+                epoch: Epoch::from(100),
             },
             params: EraParams {
                 epoch_size_slots: 10,
@@ -230,10 +232,10 @@ pub(crate) mod tests {
         => Some((Some(ptr(145, 0).0), 5))
     )]
     fn test_last_dormant_period(
-        current_epoch: Epoch,
+        current_epoch: u64,
         proposals: Vec<(TransactionPointer, Epoch)>,
     ) -> Option<(Option<TransactionPointer>, u64)> {
-        match last_dormant_period(3, current_epoch, proposals.iter().collect()) {
+        match last_dormant_period(3, Epoch::from(current_epoch), proposals.iter().collect()) {
             LastDormantEpoch::Empty { .. } | LastDormantEpoch::None { .. } => None,
             LastDormantEpoch::Last {
                 ending_at, length, ..

@@ -20,9 +20,10 @@ use super::{
 use crate::store::{self, columns::*};
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Anchor, CertificatePointer, ComparableProposalId,
-    DRep, Epoch, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    DRep, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
     StakeCredential, TransactionInput, TransactionOutput,
 };
+use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tracing::error;
 
@@ -200,7 +201,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = proposals::Key>,
         >,
     > {
-        let gov_action_lifetime: Epoch = protocol_parameters.gov_action_lifetime as Epoch;
+        let gov_action_lifetime = protocol_parameters.gov_action_lifetime as u64;
 
         StoreUpdate {
             point: self.anchor.0,

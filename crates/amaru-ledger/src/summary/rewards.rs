@@ -120,7 +120,7 @@ use crate::{
 use amaru_kernel::{
     expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    Epoch, Hash, Lovelace, PoolId, StakeCredential,
+    Hash, Lovelace, PoolId, StakeCredential,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use num::{
@@ -128,6 +128,7 @@ use num::{
     BigUint,
 };
 use serde::ser::SerializeStruct;
+use slot_arithmetic::Epoch;
 use std::collections::BTreeMap;
 use tracing::info;
 

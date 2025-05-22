@@ -159,6 +159,7 @@ mod test {
     use amaru_kernel::{from_cbor, hash, network::NetworkName, to_cbor, Header};
     use amaru_ouroboros_traits::{IsHeader, Praos};
     use proptest::{prelude::*, prop_compose, proptest};
+    use slot_arithmetic::Epoch;
     use std::{collections::BTreeMap, sync::LazyLock};
 
     // Epoch 164's last header
@@ -167,7 +168,7 @@ mod test {
     // Epoch 165's before-last header
     include_header!(PREPROD_HEADER_70070331, 70070331);
     static PREPROD_NONCES_70070331: LazyLock<Nonces> = LazyLock::new(|| Nonces {
-        epoch: 165,
+        epoch: Epoch::from(165),
         active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
         candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6",),
         evolving: hash!("9b945f3c45b140f796f0d2ec81c48b50730044bf75eb7208c85f6195f68e9b8c"),
@@ -177,7 +178,7 @@ mod test {
     // Epoch 165's last header
     include_header!(PREPROD_HEADER_70070379, 70070379);
     static PREPROD_NONCES_70070379: LazyLock<Nonces> = LazyLock::new(|| Nonces {
-        epoch: 165,
+        epoch: Epoch::from(165),
         active: hash!("a7c4477e9fcfd519bf7dcba0d4ffe35a399125534bc8c60fa89ff6b50a060a7a"),
         candidate: hash!("74fe03b10c4f52dd41105a16b5f6a11015ec890a001a5253db78a779fe43f6b6"),
         evolving: hash!("24bb737ee28652cd99ca41f1f7be568353b4103d769c6e1ddb531fc874dd6718"),
@@ -187,7 +188,7 @@ mod test {
     // Epoch 166's first header
     include_header!(PREPROD_HEADER_70070426, 70070426);
     static PREPROD_NONCES_70070426: LazyLock<Nonces> = LazyLock::new(|| Nonces {
-        epoch: 166,
+        epoch: Epoch::from(166),
         active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d"),
         candidate: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c",),
         evolving: hash!("fd6b302f9e0f02cdc784b3d6ca4652788a6e2c5b27f5771509846ee2beb7508c"),
@@ -197,7 +198,7 @@ mod test {
     // Epoch 166's second header
     include_header!(PREPROD_HEADER_70070464, 70070464);
     static PREPROD_NONCES_70070464: LazyLock<Nonces> = LazyLock::new(|| Nonces {
-        epoch: 166,
+        epoch: Epoch::from(166),
         active: hash!("b2853ec951e7ed91b674a47c8276189f414e22b19d61d9da0ac7490801e4bf0d"),
         candidate: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
         evolving: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
@@ -308,7 +309,7 @@ mod test {
             evolving in any::<[u8; 32]>(),
             candidate in any::<[u8; 32]>(),
             tail in any::<[u8; 32]>(),
-            epoch in any::<u64>(),
+            epoch in any::<Epoch>(),
         ) -> Nonces {
             Nonces {
                 active: Nonce::from(active),

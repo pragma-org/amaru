@@ -17,9 +17,10 @@ mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Epoch, Hash, Lovelace, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
 };
+use slot_arithmetic::Epoch;
 use std::{collections::BTreeSet, fmt, marker::PhantomData};
 
 pub use default::*;

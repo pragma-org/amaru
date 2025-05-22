@@ -66,7 +66,6 @@ dependencies = [
  "pallas-codec",
  "pallas-crypto",
  "pallas-network",
- "pallas-primitives",
  "pallas-traverse",
  "proptest",
  "rand 0.9.1",
@@ -187,6 +186,7 @@ name = "amaru-ouroboros-traits"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "slot-arithmetic",
 ]
 
 [[package]]
@@ -215,6 +215,7 @@ dependencies = [
  "rand 0.9.1",
  "serde",
  "serde_json",
+ "slot-arithmetic",
  "tempfile",
  "test-case",
  "tokio",

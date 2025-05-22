@@ -25,7 +25,7 @@ use amaru_ledger::{
     },
 };
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot};
-use pallas_primitives::Epoch;
+use slot_arithmetic::Epoch;
 use std::{
     collections::BTreeMap,
     path::PathBuf,
@@ -84,7 +84,8 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[test_case(179)]
 #[ignore]
 #[allow(clippy::unwrap_used)]
-fn compare_preprod_snapshot(epoch: Epoch) {
+fn compare_preprod_snapshot(epoch: u64) {
+    let epoch = Epoch::from(epoch);
     let snapshot = db(epoch);
     let global_parameters = GlobalParameters::default();
     let protocol_parameters = ProtocolParameters::default();
@@ -125,7 +126,7 @@ fn compare_preprod_snapshot(epoch: Epoch) {
 }
 
 fn preprod_protocol_version(epoch: Epoch) -> ProtocolVersion {
-    if epoch <= 180 {
+    if epoch <= Epoch::from(180) {
         return PROTOCOL_VERSION_9;
     }
 
