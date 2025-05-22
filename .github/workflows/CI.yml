@@ -309,5 +309,5 @@ jobs:
 
       - name: Run simulation
         run: |
-          RUST_BACKTRACE=1 cabal run blackbox-test -- ../../target/debug/simulator amaru 1 10 --peer-address=127.0.0.1:3001  --stake-distribution-file data/stake.json
+          RUST_BACKTRACE=1 cabal run blackbox-test -- ../../target/debug/simulator amaru 1 10 --disable-shrinking --stake-distribution-file data/stake.json --consensus-context-file data/context.json
         working-directory: simulation-testing/moskstraumen
