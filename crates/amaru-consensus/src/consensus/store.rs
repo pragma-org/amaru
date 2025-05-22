@@ -49,6 +49,28 @@ where
     fn era_history(&self) -> &EraHistory;
 }
 
+impl<H: IsHeader> ChainStore<H> for Box<dyn ChainStore<H>> {
+    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
+        self.as_ref().load_header(hash)
+    }
+
+    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
+        self.as_mut().store_header(hash, header)
+    }
+
+    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+        self.as_ref().get_nonces(header)
+    }
+
+    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+        self.as_mut().put_nonces(header, nonces)
+    }
+
+    fn era_history(&self) -> &EraHistory {
+        self.as_ref().era_history()
+    }
+}
+
 #[derive(Error, Debug)]
 pub enum NoncesError {
     #[error("cannot find nonces: unknown parent {parent} from header {header}")]

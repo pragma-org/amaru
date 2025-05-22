@@ -170,16 +170,18 @@ pub struct ConsensusContext {
 
 #[cfg(test)]
 mod test {
-    use amaru_consensus::consensus::store::{ChainStore, StoreError};
-    use amaru_kernel::{network::NetworkName, Header};
+    use amaru_consensus::consensus::store::ChainStore;
+    use amaru_kernel::network::NetworkName;
+    use amaru_ouroboros::fake::FakeHeader;
+    use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 
     use super::populate_chain_store;
 
     use super::FakeStakeDistribution;
-    use amaru_ouroboros::{HasStakeDistribution, Nonces};
+    use amaru_ouroboros::HasStakeDistribution;
     use pallas_crypto::hash::Hash;
     use rand::{rngs::StdRng, RngCore, SeedableRng};
-    use std::{collections::HashMap, path::PathBuf};
+    use std::path::PathBuf;
 
     /// FIXME: already exists in chain_selection test module
     pub fn random_bytes(arg: u32) -> Vec<u8> {
@@ -230,45 +232,10 @@ mod test {
         )
     }
 
-    struct FakeConsensusStore {
-        nonces: HashMap<Hash<32>, Nonces>,
-    }
-
-    impl FakeConsensusStore {
-        pub(crate) fn new() -> FakeConsensusStore {
-            FakeConsensusStore {
-                nonces: HashMap::new(),
-            }
-        }
-    }
-
-    impl ChainStore<Header> for FakeConsensusStore {
-        fn load_header(&self, _hash: &Hash<32>) -> Option<Header> {
-            todo!()
-        }
-
-        fn store_header(&mut self, _hash: &Hash<32>, _header: &Header) -> Result<(), StoreError> {
-            todo!()
-        }
-
-        fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-            self.nonces.get(header).cloned()
-        }
-
-        fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
-            self.nonces.insert(*header, nonces.clone());
-            Ok(())
-        }
-
-        fn era_history(&self) -> &amaru_kernel::EraHistory {
-            NetworkName::Testnet(42).into()
-        }
-    }
-
     #[test]
     fn populate_chain_store_nonces_from_context_file() {
         let consensus_store_file = "tests/data/consensus-context.json";
-        let mut consensus_store = FakeConsensusStore::new();
+        let mut consensus_store = InMemConsensusStore::new();
         let expected_nonce = amaru_kernel::Hash::from(
             hex::decode("ec08f270a044fb94bf61f9870e928a96cf75027d1f0e9f5dead0651b40849a89")
                 .unwrap()
@@ -285,7 +252,12 @@ mod test {
 
         assert_eq!(
             expected_nonce,
-            consensus_store.get_nonces(&genesis_hash).unwrap().active
+            <InMemConsensusStore as ChainStore<FakeHeader>>::get_nonces(
+                &consensus_store,
+                &genesis_hash
+            )
+            .unwrap()
+            .active
         );
     }
 }

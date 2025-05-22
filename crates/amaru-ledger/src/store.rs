@@ -13,6 +13,7 @@
 // limitations under the License.
 
 pub mod columns;
+pub mod in_memory;
 
 use crate::summary::Pots;
 use amaru_kernel::{

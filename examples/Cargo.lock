@@ -25,7 +25,6 @@ dependencies = [
  "amaru-kernel",
  "amaru-ledger",
  "hex",
- "slot-arithmetic",
 ]
 
 [[package]]
