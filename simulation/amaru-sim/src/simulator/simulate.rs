@@ -65,7 +65,6 @@ impl<Msg: PartialEq> Eq for Entry<Msg> {}
 
 type NodeId = String;
 
-// TODO: should be RK's handle to interact with a node
 pub struct NodeHandle {
     handle:
         Box<dyn FnMut(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, anyhow::Error>>,
@@ -79,7 +78,6 @@ pub fn pure_stage_node_handle(
     mut running: SimulationRunning,
 ) -> anyhow::Result<NodeHandle> {
     let handle = Box::new(move |msg: Envelope<EchoMessage>| {
-        println!("handle called on message:\n  {:?}", msg);
         running.enqueue_msg(&stage, [msg]);
         running.run_until_blocked().assert_idle();
         Ok(rx.drain().collect::<Vec<_>>())
