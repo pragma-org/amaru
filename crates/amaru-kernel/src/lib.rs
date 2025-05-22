@@ -816,6 +816,18 @@ pub fn get_provided_scripts(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<Scri
 
     provided_scripts
 }
+
+pub fn display_collection<T>(collection: impl IntoIterator<Item = T>) -> String
+where
+    T: std::fmt::Display,
+{
+    collection
+        .into_iter()
+        .map(|item| item.to_string())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 pub trait HasAddress {
     fn address(&self) -> Result<Address, pallas_addresses::Error>;
 }

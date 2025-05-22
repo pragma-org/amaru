@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    get_provided_scripts, DatumOption, HasAddress, HasDatum, HasScriptHash, Hash, MintedWitnessSet,
-    OriginalHash, PseudoScript, ScriptHash, ScriptRefWithHash, TransactionInput,
+    display_collection, get_provided_scripts, DatumOption, HasAddress, HasDatum, HasScriptHash,
+    Hash, MintedWitnessSet, OriginalHash, PseudoScript, ScriptHash, ScriptRefWithHash,
+    TransactionInput,
 };
 use thiserror::Error;
 
@@ -10,13 +11,9 @@ use crate::context::{UtxoSlice, WitnessSlice};
 
 #[derive(Debug, Error)]
 pub enum InvalidScripts {
-    #[error("missing required scripts: missing [{}]",
-        .0.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
-    )]
+    #[error("missing required scripts: missing [{}]", display_collection(.0))]
     MissingRequiredScripts(Vec<ScriptHash>),
-    #[error("extraneous script witnesses: extra [{}]",
-        .0.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
-    )]
+    #[error("extraneous script witnesses: extra [{}]", display_collection(.0))]
     ExtraneousScriptWitnesses(Vec<ScriptHash>),
     #[error("unspendable inputs; no datums: [{}]",
         .0
@@ -30,8 +27,8 @@ pub enum InvalidScripts {
     UnspendableInputsNoDatums(Vec<TransactionInput>),
     #[error(
         "missing required datums: missing [{}] provided [{}]",
-        missing.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
-        provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+        display_collection(missing),
+        display_collection(provided)
     )]
     MissingRequiredDatums {
         missing: Vec<Hash<32>>,
@@ -39,8 +36,8 @@ pub enum InvalidScripts {
     },
     #[error(
         "extraneous supplemental datums: allowed: [{}] provided [{}]",
-        allowed.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
-        provided.iter().map(|hash| hash.to_string()).collect::<Vec<_>>().join(", "),
+        display_collection(allowed),
+        display_collection(provided)
     )]
     ExtraneousSupplementalDatums {
         allowed: BTreeSet<Hash<32>>,
