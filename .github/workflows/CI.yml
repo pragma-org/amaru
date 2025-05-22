@@ -296,7 +296,7 @@ jobs:
 
       - name: Build amaru
         run: cargo build
-        working-directory: simulation
+        working-directory: simulation/amaru-sim
 
       - name: Setup GHC and cabal
         run: curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
