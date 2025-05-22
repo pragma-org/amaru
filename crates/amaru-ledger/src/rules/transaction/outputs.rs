@@ -17,8 +17,8 @@ use crate::{
     rules::{format_vec, WithPosition},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_network_id, DatumOption, HasAddress, HasDatum,
-    HasNetwork, Lovelace, MintedTransactionOutput, Network, TransactionOutput,
+    protocol_parameters::ProtocolParameters, to_network_id, HasAddress, HasDatumHash, HasNetwork,
+    Lovelace, MintedTransactionOutput, Network, TransactionOutput,
 };
 use thiserror::Error;
 
@@ -71,7 +71,7 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        if let Some(DatumOption::Hash(hash)) = output.has_datum() {
+        if let Some(hash) = output.has_datum_hash() {
             context.allow_supplemental_datum(hash);
         }
 

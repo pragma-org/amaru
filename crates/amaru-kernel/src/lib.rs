@@ -877,37 +877,36 @@ impl<'b> HasAddress for PseudoTransactionOutput<MintedPostAlonzoTransactionOutpu
     }
 }
 
-pub trait HasDatum {
-    fn has_datum(&self) -> Option<DatumOption>;
+pub trait HasDatumHash {
+    fn has_datum_hash(&self) -> Option<Hash<32>>;
 }
 
-impl HasDatum for TransactionOutput {
-    fn has_datum(&self) -> Option<DatumOption> {
+impl HasDatumHash for TransactionOutput {
+    fn has_datum_hash(&self) -> Option<Hash<32>> {
         match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => {
-                transaction_output.datum_hash.map(DatumOption::Hash)
-            }
+            PseudoTransactionOutput::Legacy(transaction_output) => transaction_output.datum_hash,
             PseudoTransactionOutput::PostAlonzo(transaction_output) => {
-                // TODO: remove clones
-                transaction_output.datum_option.clone()
+                if let Some(PseudoDatumOption::Hash(hash)) = transaction_output.datum_option {
+                    Some(hash)
+                } else {
+                    None
+                }
             }
         }
     }
 }
 
-impl HasDatum for MintedTransactionOutput<'_> {
-    fn has_datum(&self) -> Option<DatumOption> {
+impl HasDatumHash for MintedTransactionOutput<'_> {
+    fn has_datum_hash(&self) -> Option<Hash<32>> {
         match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => {
-                transaction_output.datum_hash.map(DatumOption::Hash)
+            PseudoTransactionOutput::Legacy(transaction_output) => transaction_output.datum_hash,
+            PseudoTransactionOutput::PostAlonzo(transaction_output) => {
+                if let Some(PseudoDatumOption::Hash(hash)) = transaction_output.datum_option {
+                    Some(hash)
+                } else {
+                    None
+                }
             }
-            PseudoTransactionOutput::PostAlonzo(transaction_output) => transaction_output
-                .datum_option
-                .as_ref()
-                .and_then(|datum| match datum {
-                    PseudoDatumOption::Hash(hash) => Some(DatumOption::Hash(*hash)),
-                    PseudoDatumOption::Data(_) => None,
-                }),
         }
     }
 }
