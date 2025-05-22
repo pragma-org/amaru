@@ -17,7 +17,7 @@
 use std::{
     fmt::Display,
     iter::Step,
-    ops::{Add, Mul, Sub},
+    ops::{Add, Sub},
     str::FromStr,
 };
 
@@ -162,14 +162,6 @@ impl Sub<Epoch> for Epoch {
 
     fn sub(self, rhs: Epoch) -> Self::Output {
         self.0 - rhs.0
-    }
-}
-
-impl Mul<u64> for Epoch {
-    type Output = Self;
-
-    fn mul(self, rhs: u64) -> Self::Output {
-        Epoch(self.0 * rhs)
     }
 }
 
