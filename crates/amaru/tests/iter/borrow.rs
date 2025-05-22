@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::*;
-use crate::store::rocksdb::common::as_key;
+use amaru_stores::rocksdb::common::as_key;
+use iter_borrow::{new, IterBorrow, KeyValueIterator};
 use pallas_codec::minicbor as cbor;
 use rocksdb::OptimisticTransactionDB;
+use tempfile::Builder;
 
 #[derive(Debug, Clone, PartialEq)]
 struct Fruit {
@@ -47,6 +48,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for Fruit {
 }
 
 /// A simple helper function to encode any (serialisable) value to CBOR bytes.
+#[allow(clippy::panic)]
 fn to_cbor<T: cbor::Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
     let mut buffer = Vec::new();
     cbor::encode(&value, &mut buffer)
@@ -57,7 +59,10 @@ fn to_cbor<T: cbor::Encode<()> + std::fmt::Debug>(value: T) -> Vec<u8> {
 #[test]
 fn db_iterator_mutate() {
     let db: OptimisticTransactionDB = OptimisticTransactionDB::open_default(
-        envpath::dirs::get_tmp_random_dir(Some("db_iterator_mutate"), None),
+        Builder::new()
+            .prefix("db_iterator_mutate-")
+            .tempdir()
+            .unwrap(),
     )
     .unwrap();
 
@@ -106,13 +111,14 @@ fn db_iterator_mutate() {
 
     // Simulate a series of operation on the "fruit" table, deferring updates to a separate
     // 'handler' function.
+    #[allow(clippy::panic)]
     {
         let batch = db.transaction();
         let mut iterator: KeyValueIterator<'_, 6, String, Fruit> = new(batch
             .prefix_iterator(prefix)
             .map(|item| item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))));
 
-        handler(Box::new(&mut iterator));
+        handler(Box::new(&mut iterator.as_iter_borrow()));
 
         // Apply updates to the database
         for (k, v) in iterator.into_iter_updates() {
@@ -166,4 +172,3 @@ fn db_iterator_mutate() {
         }))
     );
 }
-

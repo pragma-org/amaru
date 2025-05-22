@@ -27,7 +27,6 @@ amaru-ouroboros-traits.workspace = true
 slot-arithmetic.workspace = true
 
 [dev-dependencies]
-envpath.workspace = true
 hex.workspace = true
 insta.workspace = true
 minicbor.workspace = true
