@@ -62,24 +62,30 @@ where
 
     let resolved_inputs = inputs
         .iter()
-        .filter_map(|input| {
-            context
-                // We assume that the input exists as that's validated during the inputs validation
-                .lookup(input)
-                .map(|output| (input, output))
-        })
+        .map(
+            |input| match context.lookup(input).map(|output| (input, output)) {
+                Some(resolved) => resolved,
+                None => unreachable!(
+                    "found an input that doesn't exist in the utxo slice: {:?}",
+                    input
+                ),
+            },
+        )
         .collect::<Vec<_>>();
 
     let empty_vec = vec![];
     let resolved_reference_inputs = reference_inputs
         .unwrap_or(&empty_vec)
         .iter()
-        .filter_map(|input| {
-            context
-                // We assume that the reference input exists as that's validated during the inputs validation
-                .lookup(input)
-                .map(|output| (input, output))
-        })
+        .map(
+            |input| match context.lookup(input).map(|output| (input, output)) {
+                Some(resolved) => resolved,
+                None => unreachable!(
+                    "found a reference input that doesn't exist in the utxo slice: {:?}",
+                    input
+                ),
+            },
+        )
         .collect::<Vec<_>>();
 
     // provided reference scripts from inputs and reference inputs only include ScriptRefs that are required by an input
