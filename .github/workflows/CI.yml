@@ -285,3 +285,29 @@ jobs:
             cargo-wasm32-unknown-unknown
       - name: Run make
         run: make
+
+  simulation:
+    name: Simulation
+    runs-on: ubuntu-latest
+    if: ${{ !github.event.pull_request.draft }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build amaru
+        run: cargo build
+        working-directory: simulation
+
+      - name: Setup GHC and cabal
+        run: curl --proto '=https' --tlsv1.2 -sSf https://get-ghcup.haskell.org | sh
+
+      - name: Build moskstraumen
+        run: |
+          git clone https://github.com/pragma-org/simulation-testing
+          cd simulation-testing/moskstraumen
+          cabal build all
+
+      - name: Run simulation
+        run: |
+          RUST_BACKTRACE=1 cabal run blackbox-test -- ../../target/debug/simulator amaru 1 --peer-address=127.0.0.1:3001  --stake-distribution-file data/stake.json
+        working-directory: simulation-testing/moskstraumen
