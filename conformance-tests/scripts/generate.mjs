@@ -9,17 +9,11 @@ if (Number.isNaN(epoch)) {
   console.log(`Invalid or missing epoch number.
 
 Usage:
-    ./generate.js <EPOCH>`);
+    ./generate.mjs <EPOCH>`);
   process.exit(1);
 }
 
 const $ = JsonBig({ useNativeBigInt: true });
-
-const DREP_TYPES = {
-  "noConfidence": "no_confidence",
-  "abstain": "abstain",
-  "registered": "registered",
-};
 
 const { additionalStakeAddresses } = loadConfig();
 const pools = load("pools", epoch);
