@@ -15,12 +15,6 @@ Usage:
 
 const $ = JsonBig({ useNativeBigInt: true });
 
-const DREP_TYPES = {
-  "noConfidence": "no_confidence",
-  "abstain": "abstain",
-  "registered": "registered",
-};
-
 const { additionalStakeAddresses } = loadConfig();
 const pools = load("pools", epoch + 1);
 const epochState = load("epoch-state", epoch + 1);
