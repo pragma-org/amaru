@@ -14,8 +14,9 @@
 
 use crate::context::ValidationContext;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, MintedTransactionBody,
-    MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, BorrowedDatumOption, HasDatum, KeepRaw,
+    MintedTransactionBody, MintedWitnessSet, Network, OriginalHash, TransactionInput,
+    TransactionPointer,
 };
 use core::mem;
 use std::ops::Deref;
@@ -134,6 +135,10 @@ pub fn execute(
             .map(|x| vec![x])
             .unwrap_or_default(),
         &mut |_index, output| {
+            if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
+                context.allow_supplemental_datum(*hash);
+            }
+
             if !is_valid {
                 // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
                 //
@@ -157,6 +162,10 @@ pub fn execute(
         &network,
         mem::take(&mut transaction_body.outputs),
         &mut |index, output| {
+            if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
+                context.allow_supplemental_datum(*hash);
+            }
+
             if is_valid {
                 context.produce(
                     TransactionInput {
