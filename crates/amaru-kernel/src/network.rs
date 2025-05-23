@@ -152,6 +152,141 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     }
 });
 
+/// Era history for Preview retrieved with:
+///
+/// ```bash
+/// curl -X POST "https://preview.koios.rest/api/v1/ogmios"
+///  -H 'accept: application/json'
+///  -H 'content-type: application/json'
+///  -d '{"jsonrpc":"2.0","method":"queryLedgerState/eraSummaries"}' | jq -c '.result'
+/// ```
+///
+static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
+    let preprod_eras: [Summary; 7] = [
+        Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+            end: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+            params: EraParams {
+                epoch_size_slots: 4320,
+                slot_length: 20000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+            end: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+            params: EraParams {
+                epoch_size_slots: 86400,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(5),
+            },
+            end: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+
+            params: EraParams {
+                epoch_size_slots: 86400,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+            end: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+
+            params: EraParams {
+                epoch_size_slots: 86400,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+            end: Bound {
+                time_ms: 259200000,
+                slot: Slot::from(259200),
+                epoch: Epoch::from(3),
+            },
+
+            params: EraParams {
+                epoch_size_slots: 86400,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 259200000,
+                slot: Slot::from(259200),
+                epoch: Epoch::from(12),
+            },
+            end: Bound {
+                time_ms: 55814400000,
+                slot: Slot::from(55814400),
+                epoch: Epoch::from(646),
+            },
+
+            params: EraParams {
+                epoch_size_slots: 86400,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 55814400000,
+                slot: Slot::from(55814400),
+                epoch: Epoch::from(646),
+            },
+            end: Bound {
+                time_ms: 81302400000,
+                slot: Slot::from(81302400),
+                epoch: Epoch::from(941),
+            },
+
+            params: EraParams {
+                epoch_size_slots: 86400,
+                slot_length: 1000,
+            },
+        },
+    ];
+
+    EraHistory {
+        eras: preprod_eras.to_vec(),
+    }
+});
+
 /// A default era history for testnets
 ///
 /// This default `EraHistory` contains a single era which covers 1000 epochs,
@@ -186,7 +321,7 @@ impl From<NetworkName> for &EraHistory {
         match value {
             NetworkName::Mainnet => todo!(),
             NetworkName::Preprod => &PREPROD_ERA_HISTORY,
-            NetworkName::Preview => todo!(),
+            NetworkName::Preview => &PREVIEW_ERA_HISTORY,
             NetworkName::Testnet(_) => &TESTNET_ERA_HISTORY,
         }
     }
