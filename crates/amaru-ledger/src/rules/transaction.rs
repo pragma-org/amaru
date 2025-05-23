@@ -14,8 +14,9 @@
 
 use crate::context::ValidationContext;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, MintedTransactionBody,
-    MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, HasDatumHash, KeepRaw,
+    MintedTransactionBody, MintedWitnessSet, Network, OriginalHash, TransactionInput,
+    TransactionPointer,
 };
 use core::mem;
 use std::ops::Deref;
@@ -128,13 +129,16 @@ pub fn execute(
     mint::execute(context, transaction_body.mint.as_ref());
 
     outputs::execute(
-        context,
         protocol_parameters,
         &network,
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
-        &mut |context, _index, output| {
+        &mut |_index, output| {
+            if let Some(hash) = output.has_datum_hash() {
+                context.allow_supplemental_datum(hash);
+            }
+
             if !is_valid {
                 // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
                 //
@@ -154,11 +158,14 @@ pub fn execute(
     )?;
 
     outputs::execute(
-        context,
         protocol_parameters,
         &network,
         mem::take(&mut transaction_body.outputs),
-        &mut |context, index, output| {
+        &mut |index, output| {
+            if let Some(hash) = output.has_datum_hash() {
+                context.allow_supplemental_datum(hash);
+            }
+
             if is_valid {
                 context.produce(
                     TransactionInput {
