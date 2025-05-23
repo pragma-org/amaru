@@ -905,7 +905,7 @@ impl HasDatum for TransactionOutput {
             PseudoTransactionOutput::Legacy(transaction_output) => transaction_output
                 .datum_hash
                 .as_ref()
-                .map(|hash| BorrowedDatumOption::Hash(hash)),
+                .map(BorrowedDatumOption::Hash),
             PseudoTransactionOutput::PostAlonzo(transaction_output) => transaction_output
                 .datum_option
                 .as_ref()
