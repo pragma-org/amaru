@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    display_collection, get_provided_scripts, BorrowedPseudoScript, HasAddress, HasDatumHash,
-    HasScriptRef, Hash, MintedWitnessSet, OriginalHash, ScriptHash, TransactionInput,
+    display_collection, get_provided_scripts, BorrowedDatumOption, BorrowedPseudoScript,
+    HasAddress, HasDatum, HasScriptRef, Hash, MintedWitnessSet, OriginalHash, ScriptHash,
+    TransactionInput,
 };
 use thiserror::Error;
 
@@ -165,7 +166,7 @@ where
 
     required_script_inputs
         .into_iter()
-        .for_each(|((input, output), script)| match output.has_datum_hash() {
+        .for_each(|((input, output), script)| match output.has_datum() {
             None => match script.script {
                 BorrowedPseudoScript::PlutusV1Script(..)
                 | BorrowedPseudoScript::PlutusV2Script(..) => {
@@ -174,9 +175,10 @@ where
                 BorrowedPseudoScript::NativeScript(..)
                 | BorrowedPseudoScript::PlutusV3Script(..) => {}
             },
-            Some(hash) => {
-                input_datum_hashes.insert(hash);
+            Some(BorrowedDatumOption::Hash(hash)) => {
+                input_datum_hashes.insert(*hash);
             }
+            Some(..) => {}
         });
 
     if !inputs_missing_datum.is_empty() {

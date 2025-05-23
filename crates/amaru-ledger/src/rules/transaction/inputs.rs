@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crate::context::{UtxoSlice, WitnessSlice};
-use amaru_kernel::{AddrType, Address, HasAddress, HasDatumHash, HasOwnership, TransactionInput};
+use amaru_kernel::{
+    AddrType, Address, BorrowedDatumOption, HasAddress, HasDatum, HasOwnership, TransactionInput,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -62,8 +64,8 @@ where
             }
 
             if let Some(output) = context.lookup(reference_input) {
-                if let Some(hash) = output.has_datum_hash() {
-                    context.allow_supplemental_datum(hash);
+                if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
+                    context.allow_supplemental_datum(*hash);
                 }
             } else {
                 return Err(InvalidInputs::UnknownInput(reference_input.clone()));

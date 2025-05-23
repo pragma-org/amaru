@@ -25,13 +25,16 @@ use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     Error, *,
 };
-use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
+use pallas_codec::{
+    minicbor::{decode, encode, Decode, Decoder, Encode, Encoder},
+    utils::CborWrap,
+};
 use pallas_primitives::{
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemersKey,
         RedeemersValue,
     },
-    PlutusScript,
+    DatumHash, PlutusData, PlutusScript,
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
@@ -228,6 +231,21 @@ pub enum BorrowedPseudoScript<'a, T1> {
     PlutusV1Script(&'a PlutusScript<1>),
     PlutusV2Script(&'a PlutusScript<2>),
     PlutusV3Script(&'a PlutusScript<3>),
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub enum BorrowedDatumOption<'a> {
+    Hash(&'a DatumHash),
+    Data(&'a CborWrap<PlutusData>),
+}
+
+impl<'a> From<&'a DatumOption> for BorrowedDatumOption<'a> {
+    fn from(value: &'a DatumOption) -> Self {
+        match value {
+            PseudoDatumOption::Hash(hash) => Self::Hash(hash),
+            PseudoDatumOption::Data(cbor_wrap) => Self::Data(cbor_wrap),
+        }
+    }
 }
 
 #[derive(Eq, PartialEq)]
@@ -877,36 +895,21 @@ impl<'b> HasAddress for PseudoTransactionOutput<MintedPostAlonzoTransactionOutpu
     }
 }
 
-pub trait HasDatumHash {
-    fn has_datum_hash(&self) -> Option<Hash<32>>;
+pub trait HasDatum {
+    fn has_datum(&self) -> Option<BorrowedDatumOption<'_>>;
 }
 
-impl HasDatumHash for TransactionOutput {
-    fn has_datum_hash(&self) -> Option<Hash<32>> {
+impl HasDatum for TransactionOutput {
+    fn has_datum(&self) -> Option<BorrowedDatumOption<'_>> {
         match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => transaction_output.datum_hash,
-            PseudoTransactionOutput::PostAlonzo(transaction_output) => {
-                if let Some(PseudoDatumOption::Hash(hash)) = transaction_output.datum_option {
-                    Some(hash)
-                } else {
-                    None
-                }
-            }
-        }
-    }
-}
-
-impl HasDatumHash for MintedTransactionOutput<'_> {
-    fn has_datum_hash(&self) -> Option<Hash<32>> {
-        match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => transaction_output.datum_hash,
-            PseudoTransactionOutput::PostAlonzo(transaction_output) => {
-                if let Some(PseudoDatumOption::Hash(hash)) = transaction_output.datum_option {
-                    Some(hash)
-                } else {
-                    None
-                }
-            }
+            PseudoTransactionOutput::Legacy(transaction_output) => transaction_output
+                .datum_hash
+                .as_ref()
+                .map(|hash| BorrowedDatumOption::Hash(hash)),
+            PseudoTransactionOutput::PostAlonzo(transaction_output) => transaction_output
+                .datum_option
+                .as_ref()
+                .map(BorrowedDatumOption::from),
         }
     }
 }

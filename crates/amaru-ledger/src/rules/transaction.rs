@@ -14,7 +14,7 @@
 
 use crate::context::ValidationContext;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, HasDatumHash, KeepRaw,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, BorrowedDatumOption, HasDatum, KeepRaw,
     MintedTransactionBody, MintedWitnessSet, Network, OriginalHash, TransactionInput,
     TransactionPointer,
 };
@@ -135,8 +135,8 @@ pub fn execute(
             .map(|x| vec![x])
             .unwrap_or_default(),
         &mut |_index, output| {
-            if let Some(hash) = output.has_datum_hash() {
-                context.allow_supplemental_datum(hash);
+            if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
+                context.allow_supplemental_datum(*hash);
             }
 
             if !is_valid {
@@ -162,8 +162,8 @@ pub fn execute(
         &network,
         mem::take(&mut transaction_body.outputs),
         &mut |index, output| {
-            if let Some(hash) = output.has_datum_hash() {
-                context.allow_supplemental_datum(hash);
+            if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
+                context.allow_supplemental_datum(*hash);
             }
 
             if is_valid {

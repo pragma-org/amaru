@@ -98,13 +98,21 @@ fn validate_network(
 #[cfg(test)]
 mod tests {
 
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, MintedTransactionBody, Network,
-        TransactionOutput,
+        include_cbor, protocol_parameters::ProtocolParameters, BorrowedDatumOption, HasDatum,
+        MintedTransactionBody, Network, TransactionOutput,
     };
     use test_case::test_case;
 
-    use crate::rules::{transaction::outputs::InvalidOutput, WithPosition};
+    use crate::{
+        context::{
+            assert::{AssertPreparationContext, AssertValidationContext},
+            WitnessSlice,
+        },
+        rules::{transaction::outputs::InvalidOutput, WithPosition},
+    };
 
     use super::InvalidOutputs;
 
@@ -113,7 +121,6 @@ mod tests {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 ProtocolParameters::default(),
-                &mut |_, _| {},
             )
         };
         ($hash:literal, $variant:literal) => {
@@ -126,14 +133,12 @@ mod tests {
                     "/tx.cbor"
                 )),
                 ProtocolParameters::default(),
-                &mut |_, _| {},
             )
         };
         ($hash:literal, $pp:expr) => {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 $pp,
-                &mut |_, _| {},
             )
         };
     }
@@ -173,12 +178,16 @@ mod tests {
     )]
     #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"); "valid byron")]
     fn outputs(
-        (tx, protocol_parameters, yield_output): (
-            MintedTransactionBody<'_>,
-            ProtocolParameters,
-            &mut impl FnMut(u64, TransactionOutput),
-        ),
+        (tx, protocol_parameters): (MintedTransactionBody<'_>, ProtocolParameters),
     ) -> Result<(), InvalidOutputs> {
+        let mut context = AssertValidationContext::from(AssertPreparationContext {
+            utxo: BTreeMap::new(),
+        });
+        let yield_output = &mut |_index, output: TransactionOutput| {
+            if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
+                context.allow_supplemental_datum(*hash);
+            }
+        };
         super::execute(
             &protocol_parameters,
             &Network::Testnet,
