@@ -41,11 +41,10 @@ impl StoreBlockStage {
     }
 
     async fn handle_event(&mut self, event: ValidateBlockEvent) -> Result<(), WorkerError> {
-        let event = self
-            .store_block
-            .handle_event(event)
-            .await
-            .map_err(|_| WorkerError::Recv)?;
+        let event = self.store_block.handle_event(event).await.map_err(|e| {
+            tracing::error!(?e, "Failed to handle store block event");
+            WorkerError::Recv
+        })?;
 
         self.downstream.send(event.into()).await.or_panic()?;
 
