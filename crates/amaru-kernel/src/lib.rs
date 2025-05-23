@@ -167,6 +167,8 @@ impl<'b> Decode<'b, ()> for Point {
 /// Convenient type alias to any kind of block
 pub type RawBlock = Vec<u8>;
 
+pub const EMPTY_BLOCK: Vec<u8> = vec![];
+
 pub type TransactionId = Hash<32>;
 
 pub type PoolId = Hash<28>;

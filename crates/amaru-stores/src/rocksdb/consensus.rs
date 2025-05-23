@@ -87,14 +87,14 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
         &self.era_history
     }
 
-    fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock> {
+    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
         self.db
             .get_pinned([&BLOCK_PREFIX[..], &hash[..]].concat())
-            .map_err(|e| println!("{:?}", e))
-            .ok()
-            .flatten()
-            .as_deref()
-            .map(|bytes| bytes.into())
+            .map_err(|e| StoreError::ReadError {
+                error: e.to_string(),
+            })?
+            .ok_or(StoreError::NotFound { hash: *hash })
+            .map(|bytes| bytes.as_ref().into())
     }
 
     fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
@@ -146,7 +146,7 @@ impl<H: IsHeader> ChainStore<H> for InMemConsensusStore {
         NetworkName::Testnet(42).into()
     }
 
-    fn load_block(&self, _hash: &Hash<32>) -> Option<RawBlock> {
+    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
         unimplemented!()
     }
 
@@ -171,15 +171,18 @@ mod test {
         buffer
     }
 
-    #[test]
-    fn rocksdb_chain_store_can_get_header_it_puts() {
+    fn initialise_test_store() -> RocksDBStore {
         let tempdir = tempfile::tempdir().unwrap();
         let basedir = tempdir.path().join("rocksdb_chain_store");
         let era_history: &EraHistory = NetworkName::Testnet(42).into();
 
         create_dir(&basedir).unwrap();
-        let mut store =
-            RocksDBStore::new(&basedir, era_history).expect("fail to initialise RocksDB");
+        RocksDBStore::new(&basedir, era_history).expect("fail to initialise RocksDB")
+    }
+
+    #[test]
+    fn rocksdb_chain_store_can_get_header_it_puts() {
+        let mut store = initialise_test_store();
 
         let header = FakeHeader {
             block_number: 1,
@@ -195,14 +198,7 @@ mod test {
 
     #[test]
     fn rocksdb_chain_store_can_get_block_it_puts() {
-        let tempdir = tempfile::tempdir().unwrap();
-        let basedir = tempdir.path().join("rocksdb_chain_store");
-        let era_history: &EraHistory = NetworkName::Testnet(42).into();
-
-        create_dir(&basedir).unwrap();
-        println!("db created at {:?}", basedir);
-        let mut store =
-            RocksDBStore::new(&basedir, era_history).expect("fail to initialise RocksDB");
+        let mut store = initialise_test_store();
 
         let hash: Hash<32> = random_bytes(32).as_slice().into();
         let block = vec![1; 64];
@@ -210,5 +206,22 @@ mod test {
         <RocksDBStore as ChainStore<FakeHeader>>::store_block(&mut store, &hash, &block).unwrap();
         let block2 = <RocksDBStore as ChainStore<FakeHeader>>::load_block(&store, &hash).unwrap();
         assert_eq!(block, block2);
+    }
+
+    #[test]
+    fn rocksdb_chain_store_returns_not_found_for_nonexistent_block() {
+        let store = initialise_test_store();
+
+        let nonexistent_hash: Hash<32> = random_bytes(32).as_slice().into();
+
+        let result =
+            <RocksDBStore as ChainStore<FakeHeader>>::load_block(&store, &nonexistent_hash);
+
+        assert_eq!(
+            Err(StoreError::NotFound {
+                hash: nonexistent_hash
+            }),
+            result
+        );
     }
 }

@@ -7,7 +7,7 @@ use amaru_consensus::{
     consensus::store::{ChainStore, StoreError},
     IsHeader, Nonces,
 };
-use amaru_kernel::{block::BlockValidationResult, from_cbor, Hash, Header};
+use amaru_kernel::{block::BlockValidationResult, from_cbor, Hash, Header, RawBlock, EMPTY_BLOCK};
 use gasket::{
     messaging::tokio::ChannelRecvAdapter,
     runtime::{spawn_stage, Tether},
@@ -93,7 +93,7 @@ impl ChainStore<Header> for TestStore {
         unimplemented!()
     }
 
-    fn load_block(&self, _hash: &Hash<32>) -> Option<amaru_kernel::RawBlock> {
+    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
         unimplemented!()
     }
 
@@ -219,7 +219,7 @@ impl Setup {
             BlockValidationResult::BlockValidated {
                 point: point.clone(),
                 span,
-                block: vec![], // FIXME
+                block: EMPTY_BLOCK,
             }
             .into(),
         );

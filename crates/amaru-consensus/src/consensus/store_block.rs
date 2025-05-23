@@ -89,7 +89,7 @@ mod tests {
             unimplemented!()
         }
 
-        fn load_block(&self, _hash: &Hash<32>) -> Option<RawBlock> {
+        fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
             unimplemented!()
         }
 

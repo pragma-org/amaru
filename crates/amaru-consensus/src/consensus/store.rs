@@ -20,17 +20,21 @@ use slot_arithmetic::TimeHorizonError;
 use std::fmt::Display;
 use thiserror::Error;
 
-#[derive(Error, Debug)]
+#[derive(Error, PartialEq, Debug)]
 pub enum StoreError {
     WriteError { error: String },
+    ReadError { error: String },
     OpenError { error: String },
+    NotFound { hash: Hash<32> },
 }
 
 impl Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             StoreError::WriteError { error } => write!(f, "WriteError: {}", error),
+            StoreError::ReadError { error } => write!(f, "ReadError: {}", error),
             StoreError::OpenError { error } => write!(f, "OpenError: {}", error),
+            StoreError::NotFound { hash } => write!(f, "NotFound: {}", hash),
         }
     }
 }
@@ -43,7 +47,7 @@ where
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
 
-    fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock>;
+    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError>;
     fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
 
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
@@ -73,7 +77,7 @@ impl<H: IsHeader> ChainStore<H> for Box<dyn ChainStore<H>> {
         self.as_ref().era_history()
     }
 
-    fn load_block(&self, hash: &Hash<32>) -> Option<RawBlock> {
+    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
         self.as_ref().load_block(hash)
     }
 
@@ -267,7 +271,7 @@ mod test {
             NetworkName::Preprod.into()
         }
 
-        fn load_block(&self, _hash: &Hash<32>) -> Option<RawBlock> {
+        fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
             unimplemented!()
         }
 
