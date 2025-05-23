@@ -29,7 +29,7 @@ use crate::protocol_parameters::GlobalParameters;
 /// ```
 ///
 static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-    let preprod_eras: [Summary; 7] = [
+    let eras: [Summary; 7] = [
         Summary {
             start: Bound {
                 time_ms: 0,
@@ -150,7 +150,7 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     ];
 
     EraHistory {
-        eras: preprod_eras.to_vec(),
+        eras: eras.to_vec(),
     }
 });
 
@@ -164,7 +164,7 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 /// ```
 ///
 static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-    let preprod_eras: [Summary; 7] = [
+    let eras: [Summary; 7] = [
         Summary {
             start: Bound {
                 time_ms: 0,
@@ -285,7 +285,7 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     ];
 
     EraHistory {
-        eras: preprod_eras.to_vec(),
+        eras: eras.to_vec(),
     }
 });
 
@@ -294,7 +294,7 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
 /// This default `EraHistory` contains a single era which covers 1000 epochs,
 /// with a slot length of 1 second and epoch size of 432000 slots.
 static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-    let default_testnet_eras: [Summary; 1] = [Summary {
+    let eras: [Summary; 1] = [Summary {
         start: Bound {
             time_ms: 0,
             slot: Slot::from(0),
@@ -313,7 +313,7 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     }];
 
     EraHistory {
-        eras: default_testnet_eras.to_vec(),
+        eras: eras.to_vec(),
     }
 });
 
