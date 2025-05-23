@@ -97,7 +97,6 @@ fn validate_network(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::BTreeMap;
 
     use amaru_kernel::{
         include_cbor, protocol_parameters::ProtocolParameters, MintedTransactionBody, Network,
@@ -105,10 +104,7 @@ mod tests {
     };
     use test_case::test_case;
 
-    use crate::{
-        context::assert::{AssertPreparationContext, AssertValidationContext},
-        rules::{transaction::outputs::InvalidOutput, WithPosition},
-    };
+    use crate::rules::{transaction::outputs::InvalidOutput, WithPosition};
 
     use super::InvalidOutputs;
 
