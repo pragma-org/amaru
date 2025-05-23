@@ -86,14 +86,15 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
 #[allow(clippy::unwrap_used)]
 fn compare_preprod_snapshot(epoch: u64) {
     let epoch = Epoch::from(epoch);
+    let network = NetworkName::Preprod;
     let snapshot = db(epoch);
-    let global_parameters = GlobalParameters::default();
+    let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
 
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
-        NetworkName::Preprod.into(),
+        network.into(),
         &protocol_parameters,
     )
     .unwrap();
@@ -115,7 +116,7 @@ fn compare_preprod_snapshot(epoch: u64) {
     let rewards_summary = RewardsSummary::new(
         snapshot_from_the_future.as_ref(),
         stake_distr,
-        &global_parameters,
+        global_parameters,
         &protocol_parameters,
     )
     .unwrap()

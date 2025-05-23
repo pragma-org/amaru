@@ -402,7 +402,7 @@ impl RewardsSummary {
 
         let efficiency = safe_ratio(
             blocks_count * global_parameters.active_slot_coeff_inverse as u64,
-            global_parameters.shelley_epoch_length as u64,
+            global_parameters.epoch_length as u64,
         );
 
         blocks_count = blocks_count.max(1);

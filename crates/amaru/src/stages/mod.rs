@@ -108,7 +108,8 @@ pub fn bootstrap(
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     let era_history: &EraHistory = config.network.into();
 
-    let (global_parameters, mut ledger_stage, tip) = make_ledger(&config, era_history)?;
+    let global_parameters: &GlobalParameters = config.network.into();
+    let (mut ledger_stage, tip) = make_ledger(&config, era_history, global_parameters)?;
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -142,7 +143,7 @@ pub fn bootstrap(
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
-    let mut validate_header_stage = ValidateHeaderStage::new(consensus, &global_parameters);
+    let mut validate_header_stage = ValidateHeaderStage::new(consensus, global_parameters);
 
     let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
 
@@ -289,8 +290,8 @@ impl LedgerStage {
 fn make_ledger(
     config: &Config,
     era_history: &EraHistory,
-) -> Result<(GlobalParameters, LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
-    let global_parameters = GlobalParameters::default();
+    global_parameters: &GlobalParameters,
+) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
     match config.ledger_store {
         StorePath::InMem => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
@@ -299,11 +300,7 @@ fn make_ledger(
                 era_history.clone(),
                 global_parameters.clone(),
             )?;
-            Ok((
-                global_parameters,
-                LedgerStage::InMemLedgerStage(ledger),
-                tip,
-            ))
+            Ok((LedgerStage::InMemLedgerStage(ledger), tip))
         }
         StorePath::OnDisk(ref ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
@@ -312,11 +309,7 @@ fn make_ledger(
                 era_history.clone(),
                 global_parameters.clone(),
             )?;
-            Ok((
-                global_parameters,
-                LedgerStage::OnDiskLedgerStage(ledger),
-                tip,
-            ))
+            Ok((LedgerStage::OnDiskLedgerStage(ledger), tip))
         }
     }
 }
