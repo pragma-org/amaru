@@ -15,7 +15,7 @@
 use crate::{Point, RawBlock};
 use tracing::Span;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum ValidateBlockEvent {
     Validated {
         point: Point,

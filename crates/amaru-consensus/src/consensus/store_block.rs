@@ -36,7 +36,7 @@ impl StoreBlock {
 
     pub async fn handle_event(
         &self,
-        event: ValidateBlockEvent,
+        event: &ValidateBlockEvent,
     ) -> Result<ValidateBlockEvent, ConsensusError> {
         match event {
             ValidateBlockEvent::Validated {
@@ -45,9 +45,9 @@ impl StoreBlock {
                 ..
             } => {
                 self.store(point, block).await?;
-                Ok(event)
+                Ok(event.clone())
             }
-            ValidateBlockEvent::Rollback { .. } => Ok(event),
+            ValidateBlockEvent::Rollback { .. } => Ok(event.clone()),
         }
     }
 }
@@ -111,62 +111,46 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_handle_event_block_validated() {
-        // Setup
+    async fn handle_event_returns_passed_event_when_forwarding_given_store_succeeds() {
         let mock_store = Arc::new(Mutex::new(MockChainStore::new()));
         let store_block = StoreBlock::new(mock_store.clone());
 
-        // Create test data
-        let point = Point::Specific(123, Hash::from([1; 32]).to_vec());
-        let block = vec![0, 1, 2, 3];
-        let span = Span::current();
-
-        // Create a BlockValidated event
         let event = ValidateBlockEvent::Validated {
-            point: point.clone(),
-            block: block.clone(),
-            span,
+            point: Point::Specific(123, Hash::from([1; 32]).to_vec()),
+            block: vec![0, 1, 2, 3],
+            span: Span::current(),
         };
 
-        // Call handle_event
-        let result = store_block.handle_event(event).await;
+        let result = store_block.handle_event(&event).await;
 
-        // Since the implementation is unimplemented!(), this will panic
-        // Once implemented, we would expect:
+        // we don't care about checking the data is stored properly as the underlying
+        // storage is a mock anyway, we just verify that IF the storage does not
+        // fail, we return ()
         assert!(result.is_ok());
     }
 
     #[allow(clippy::wildcard_enum_match_arm)]
     #[tokio::test]
-    async fn test_handle_event_rolled_back_to() {
-        // Setup
+    async fn handle_event_returns_passed_event_when_rollbacking() {
         let mock_store = Arc::new(Mutex::new(MockChainStore::new()));
         let store_block = StoreBlock::new(mock_store.clone());
 
-        // Create test data
-        let rollback_point = Point::Specific(100, Hash::from([2; 32]).to_vec());
-        let span = Span::current();
+        let expected_rollback_point = Point::Specific(100, Hash::from([2; 32]).to_vec());
 
-        // Create a RolledBackTo event
         let event = ValidateBlockEvent::Rollback {
-            rollback_point: rollback_point.clone(),
-            span,
+            rollback_point: expected_rollback_point.clone(),
+            span: Span::current(),
         };
 
-        // Call handle_event
-        let result = store_block.handle_event(event).await;
+        let result = store_block.handle_event(&event).await.unwrap();
 
-        // Verify the result
-        assert!(result.is_ok());
-        let result_event = result.unwrap();
-        match result_event {
-            ValidateBlockEvent::Rollback {
-                rollback_point: result_point,
-                span: _,
-            } => {
-                assert_eq!(result_point, rollback_point);
+        match result {
+            ValidateBlockEvent::Validated { .. } => {
+                panic!("expected Rollback event")
             }
-            _ => panic!("Expected RolledBackTo event"),
+            ValidateBlockEvent::Rollback { rollback_point, .. } => {
+                assert_eq!(rollback_point, expected_rollback_point)
+            }
         }
     }
 }
