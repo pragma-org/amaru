@@ -15,8 +15,7 @@
 use crate::stages::PallasPoint;
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime};
 use amaru_consensus::{consensus::store::ChainStore, IsHeader};
-use amaru_kernel::{Hash, Header};
-use amaru_ledger::BlockValidationResult;
+use amaru_kernel::{block::BlockValidationResult, Hash, Header};
 use client_protocol::{client_protocols, ClientProtocolMsg};
 use gasket::framework::*;
 use pallas_network::{
@@ -251,7 +250,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
         stage: &mut ForwardChainStage,
     ) -> Result<(), WorkerError> {
         match unit {
-            Unit::Block(BlockValidationResult::BlockValidated { point, span }) => {
+            Unit::Block(BlockValidationResult::BlockValidated { point, span, .. }) => {
                 // FIXME: this span is just a placeholder to hold a link to t
                 // the parent, it will be filled once we had the storage and
                 // forwarding logic.

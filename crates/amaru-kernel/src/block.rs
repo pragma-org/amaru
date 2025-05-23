@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,62 +12,34 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Header, Point};
+use crate::{Point, RawBlock};
 use tracing::Span;
 
-use crate::peer::Peer;
-
-pub mod chain_selection;
-pub mod receive_header;
-pub mod select_chain;
-pub mod store;
-pub mod store_block;
-pub mod store_header;
-pub mod validate_header;
-
-pub const EVENT_TARGET: &str = "amaru::consensus";
-
-#[derive(Clone, Debug)]
-pub enum ChainSyncEvent {
-    RollForward {
-        peer: Peer,
-        point: Point,
-        raw_header: Vec<u8>,
-        span: Span,
-    },
-    Rollback {
-        peer: Peer,
-        rollback_point: Point,
-        span: Span,
-    },
-}
-
-#[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)]
-pub enum DecodedChainSyncEvent {
-    RollForward {
-        peer: Peer,
-        point: Point,
-        header: Header,
-        span: Span,
-    },
-    Rollback {
-        peer: Peer,
-        rollback_point: Point,
-        span: Span,
-    },
-}
-
-#[derive(Clone, Debug)]
-#[allow(clippy::large_enum_variant)]
-pub enum ValidateHeaderEvent {
+#[derive(Debug, PartialEq, Clone)]
+pub enum ValidateBlockEvent {
     Validated {
-        peer: Peer,
         point: Point,
+        block: RawBlock,
         span: Span,
     },
     Rollback {
-        peer: Peer,
+        rollback_point: Point,
+        span: Span,
+    },
+}
+
+#[derive(Debug, Clone)]
+pub enum BlockValidationResult {
+    BlockValidated {
+        point: Point,
+        block: RawBlock,
+        span: Span,
+    },
+    BlockValidationFailed {
+        point: Point,
+        span: Span,
+    },
+    RolledBackTo {
         rollback_point: Point,
         span: Span,
     },

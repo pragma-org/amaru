@@ -37,6 +37,8 @@ pub enum ConsensusError {
     InvalidHeader(Point, AssertHeaderError),
     #[error("Failed to store header at {0:?}: {1}")]
     StoreHeaderFailed(Point, consensus::store::StoreError),
+    #[error("Failed to store block body at {0:?}: {1}")]
+    StoreBlockFailed(Point, consensus::store::StoreError),
     #[error("Failed to decode header at {0:?}")]
     CannotDecodeHeader(Point),
     #[error("Unknown peer {0:?}, bailing out")]

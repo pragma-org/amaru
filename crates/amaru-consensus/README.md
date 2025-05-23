@@ -40,6 +40,6 @@ Stages:
 * [store header](src/consensus/store_header.rs): store valid (and invalid?) headers indexed by hash
 * [select chain](src/consensus/select_chain.rs): proceed to chain (candidate) selection, possibly changing the current best chain,
 * [fetch block](../amaru/src/stages/consensus/fetch_block.rs): fetch block body corresponding to the new header, if any.
-* [validate block](../amaru/src/stages/ledger.rs): validate the fetched block against its parent ledger state
-* store block: store valid (and invalid) block bodies, indexed by header hash. _Not implemented yet_
+* [store block](src/consensus/store_block.rs): store valid (and invalid) block bodies, indexed by header hash. The blocks are stored _before_ validation in order to support [_pipelining_](https://iohk.io/en/blog/posts/2022/02/01/introducing-pipelining-cardanos-consensus-layer-scaling-solution/)
+* [validate block](../amaru/src/stages/ledger.rs): validate the block body against its parent ledger state
 * [forward chain](../amaru/src/stages/consensus/forward_chain/): forward newly selected chain to downstream peers (chain followers)

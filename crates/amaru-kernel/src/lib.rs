@@ -74,6 +74,7 @@ pub use serde_json as json;
 pub use sha3;
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 
+pub mod block;
 pub mod macros;
 pub mod network;
 pub mod protocol_parameters;
@@ -162,6 +163,11 @@ impl<'b> Decode<'b, ()> for Point {
         }
     }
 }
+
+/// Convenient type alias to any kind of block
+pub type RawBlock = Vec<u8>;
+
+pub const EMPTY_BLOCK: Vec<u8> = vec![];
 
 pub type TransactionId = Hash<32>;
 
