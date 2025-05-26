@@ -14,7 +14,7 @@ Usage:
 const { points, additionalStakeAddresses } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", `config/${network}.json`)));
 
 function outDir(prefix, point) {
-  return path.join(import.meta.dirname, "..", "data", prefix, `${point.epoch}.json`);
+  return path.join(import.meta.dirname, "..", `data${network}`, prefix, `${point.epoch}.json`);
 }
 
 const queries = [
@@ -66,6 +66,7 @@ const result = await ogmios(async (ws, done) => {
       if (error) {
         if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
           console.error(`[error ${error.code}] ${error.message} (${error.data})`);
+          console.error(`Failed to fetch data for point ${point.slot} (${point.epoch})`);
           return process.exit(1);
         }
 
@@ -94,6 +95,7 @@ const result = await ogmios(async (ws, done) => {
       next();
     });
 
+    //ws.rpc("queryLedgerState/tip");
     ws.rpc("acquireLedgerState", { point });
   }
 
