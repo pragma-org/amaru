@@ -9,7 +9,7 @@ if (Number.isNaN(epoch)) {
   console.log(`Invalid or missing epoch number.
 
 Usage:
-    ./generate.js <EPOCH>`);
+    ./generate.mjs <EPOCH>`);
   process.exit(1);
 }
 
