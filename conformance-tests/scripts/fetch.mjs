@@ -16,6 +16,8 @@ Arguments:
 
 const configFile = path.join(import.meta.dirname, "..", `config/${network}.json`);
 
+const snapshotsDir = path.join(import.meta.dirname, "..", "..", "snapshots", network);
+
 // Each point corresponds to the last point of the associated epoch.
 const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
 
@@ -133,7 +135,7 @@ function step(ws, i, point, done) {
     process.stderr.write(`${point.slot} => querying...`);
 
     if (snapshots.includes(point.epoch)) {
-      const to = path.join(import.meta.dirname, "..", "data", "snapshots", `${point.epoch}.cbor`);
+      const to = path.join(snapshotsDir, `${point.slot}.${point.id}.cbor`);
       await ws.queryLedgerState("dump", { to });
     }
 
@@ -173,7 +175,7 @@ function collectAddressType(addressType) {
 }
 
 function outDir(prefix, point) {
-  return path.join(import.meta.dirname, "..", "data", prefix, `${point.epoch}.json`);
+  return path.join(import.meta.dirname, "..", "data", network, prefix, `${point.epoch}.json`);
 }
 
 function fetchRewardsProvenance(ws) {
