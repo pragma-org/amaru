@@ -2,8 +2,16 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ogmios, Json } from "@cardano-ogmios/mdk";
 
+const network = process.env.NETWORK;
+if (!network) {
+  console.log(`Missing network.
+
+Usage:
+    ./fetch.mjs <NETWORK>`);
+  process.exit(1);
+}
 // Each point corresponds to the last point of the associated epoch.
-const { points, additionalStakeAddresses } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
+const { points, additionalStakeAddresses } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", `config/${network}.json`)));
 
 function outDir(prefix, point) {
   return path.join(import.meta.dirname, "..", "data", prefix, `${point.epoch}.json`);
