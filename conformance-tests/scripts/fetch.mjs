@@ -34,6 +34,18 @@ const queries = [
       return outDir("pots", point);
     },
   },
+    {
+    query: fetchNewEpochState,
+    getFilename(point) {
+      return outDir("new-epoch-state", point);
+    },
+  },
+  {
+    query: fetchNonces,
+    getFilename(point) {
+      return outDir("nonces", point);
+    },
+  },
 ]
 
 const result = await ogmios(async (ws, done) => {
@@ -130,4 +142,12 @@ async function fetchDRepsDelegations(ws) {
 
 function fetchPots(ws) {
   return ws.queryLedgerState("treasuryAndReserves")
+}
+
+function fetchNewEpochState(ws) {
+  return ws.queryLedgerState("dump");
+}
+
+function fetchNonces(ws) {
+  return ws.queryLedgerState("nonces");
 }
