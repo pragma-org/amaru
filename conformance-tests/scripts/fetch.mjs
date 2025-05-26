@@ -3,11 +3,21 @@ import * as path from "node:path";
 import { bech32 } from 'bech32';
 import { ogmios, Json } from "@cardano-ogmios/mdk";
 
+const network = (process.args[1] ?? "").toLowerCase();
+if (!["preview", "preprod", "mainnet"].includes(network)) {
+  console.log(`Missing or invalid network.
+Usage:
+    ./fetch.mjs <NETWORK>
+
+Arguments:
+    NETWORK:  One of 'preview', 'preprod' or 'mainnet'`);
+  process.exit(1);
+}
+
+const configFile = path.join(import.meta.dirname, "..", `config/${network}.json`);
+
 // Each point corresponds to the last point of the associated epoch.
-const {
-  points,
-  additionalStakeAddresses,
-} = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
+const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
 
 const additionalStakeKeys = additionalStakeAddresses.reduce(collectAddressType(14), []);
 
@@ -36,6 +46,12 @@ const queries = [
     query: fetchPots,
     getFilename(point) {
       return outDir("pots", point);
+    },
+  },
+  {
+    query: fetchNonces,
+    getFilename(point) {
+      return outDir("nonces", point);
     },
   },
 ]
@@ -115,6 +131,11 @@ function step(ws, i, point, done) {
 
     process.stderr.clearLine(0);
     process.stderr.write(`${point.slot} => querying...`);
+
+    if (snapshots.includes(point.epoch)) {
+      const to = path.join(import.meta.dirname, "..", "data", "snapshots", `${point.epoch}.cbor`);
+      await ws.queryLedgerState("dump", { to });
+    }
 
     let result;
     for (let q = 0; q < queries.length; q += 1) {
@@ -250,4 +271,8 @@ function fetchPots(ws) {
 
 function fetchPools(ws) {
   return ws.queryLedgerState("stakePools", { includeStake: true });
+}
+
+function fetchNonces(ws) {
+  return ws.queryLedgerState("nonces");
 }
