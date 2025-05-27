@@ -33,6 +33,7 @@ use amaru_kernel::{
     Slot,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
+use anyhow::Error;
 use bytes::Bytes;
 use clap::Parser;
 use gasket::framework::WorkerError;
@@ -41,6 +42,8 @@ use proptest::{
     prelude::{BoxedStrategy, Strategy},
     test_runner::Config,
 };
+use pure_stage::{StageGraph, Void};
+use pure_stage::{simulation::SimulationBuilder, StageRef};
 use simulate::{simulate, NodeHandle, Trace};
 use std::{path::PathBuf, sync::Arc};
 use sync::{
@@ -115,7 +118,7 @@ pub async fn bootstrap(args: Args) {
     let mut store_header = StoreHeader::new(chain_ref.clone());
     let mut select_chain = SelectChain::new(chain_selector);
 
-    run_simulator(&mut consensus, &mut store_header, &mut select_chain).await;
+    run_simulator(&stake_distribution, &chain_ref, &mut store_header, &mut select_chain).await;
 }
 
 const CHAIN_PROPERTY: fn(Trace<ChainSyncMessage>) -> Result<(), String> =
@@ -155,14 +158,32 @@ fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
 }
 
 async fn run_simulator(
-    _validate_header: &mut ValidateHeader,
+    stake_distribution: &FakeStakeDistribution,
+    chain_ref: &Arc<Mutex<RocksDBStore>>,
     _store_header: &mut StoreHeader,
     _select_chain: &mut SelectChain,
 ) {
     let config = Config::default();
     let number_of_nodes = 1;
-    let spawn: fn() -> NodeHandle<ChainSyncMessage> = || {
+    let spawn: fn() -> NodeHandle<ChainSyncMessage> = move || {
         println!("*** Spawning node!");
+        let mut network = SimulationBuilder::default();
+
+        let validate_header_stage = network.stage(
+            "validate_header",
+            async |(mut state, out),
+                   msg: Envelope<ChainSyncMessage>,
+                   eff|
+                                 -> Result<(u64, StageRef<Envelope<ChainSyncMessage>, Void>), Error> {
+                       match msg.body {
+                        ChainSyncMessage::Init { msg_id, node_id, node_ids } => todo!(),
+                        ChainSyncMessage::InitOk { in_reply_to } => todo!(),
+                        ChainSyncMessage::Fwd { msg_id, slot, hash, header } => todo!(),
+                        ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
+                    } },
+            (ValidateHeader::new(Box::new(stake_distribution), chain_ref.clone()), StageRef::noop::<Envelope<ChainSyncMessage>>()),
+        );
+
         todo!()
     };
 
