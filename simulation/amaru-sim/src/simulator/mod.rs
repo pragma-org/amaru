@@ -78,19 +78,12 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) {
-    let input_reader = StdinMessageReader::new();
-    let consensus = bootstrap(args, input_reader);
-
-    consensus.await;
+    bootstrap(args).await;
 }
 
-pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
-    // NOTE: the output writer is behind a mutex because otherwise it's problematic to borrow
-    // it as mutable in the inner loop of run simulator
-    let network = NetworkName::Testnet(42);
-    let output_writer = Arc::new(Mutex::new(OutputWriter::new()));
-
+pub async fn bootstrap(args: Args) {
     let global_parameters: &GlobalParameters = network.into();
+
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
     let era_history = network.into();
@@ -110,41 +103,17 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
     )
     .unwrap();
 
-    let peer_addresses = read_peer_addresses_from_init(&mut input_reader)
-        .await
-        .unwrap();
-
-    info!("using upstream peer addresses: {:?}", peer_addresses);
-
-    {
-        let mut w = output_writer.lock().await;
-        let msg = Envelope {
-            src: "n1".to_string(),
-            dest: "c0".to_string(),
-            body: ChainSyncMessage::InitOk { in_reply_to: 0 },
-        };
-
-        w.write(vec![msg]).await;
-    }
     let chain_selector = make_chain_selector(
         Origin,
         &chain_store,
-        &peer_addresses
-            .iter()
-            .map(|a| Peer::new(&a.clone()))
-            .collect::<Vec<_>>(),
+        &vec![]
     );
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = ValidateHeader::new(Box::new(stake_distribution), chain_ref.clone());
-
     let mut store_header = StoreHeader::new(chain_ref.clone());
     let mut select_chain = SelectChain::new(chain_selector);
 
     run_simulator(
-        network.into(),
-        &mut input_reader,
-        output_writer,
-        chain_ref,
         &mut consensus,
         &mut store_header,
         &mut select_chain,
@@ -153,118 +122,67 @@ pub async fn bootstrap<T: MessageReader>(args: Args, mut input_reader: T) {
 }
 
 async fn run_simulator(
-    global_parameters: &GlobalParameters,
-    input_reader: &mut impl MessageReader,
-    output_writer: Arc<Mutex<OutputWriter>>,
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
-    validate_header: &mut ValidateHeader,
-    store_header: &mut StoreHeader,
-    select_chain: &mut SelectChain,
+    _validate_header: &mut ValidateHeader,
+    _store_header: &mut StoreHeader,
+    _select_chain: &mut SelectChain,
 ) {
     loop {
         let span = tracing::info_span!("simulator");
-        match input_reader.read().await {
-            Err(err) => {
-                tracing::error!("Error reading message: {:?}", err);
-                break;
-            }
-            Ok(msg) => {
-                // receive stage
-                let chain_sync_event =
-                    mk_message(msg, span).and_then(|chain_sync: ChainSyncEvent| {
-                        handle_chain_sync(chain_sync).map_err(|_| WorkerError::Recv)
-                    });
-
-                // validate stage
-                let validation_event = match chain_sync_event {
-                    Ok(event) => match event {
-                        DecodedChainSyncEvent::RollForward {
-                            peer,
-                            point,
-                            header,
-                            ..
-                        } => validate_header
-                            .handle_roll_forward(peer, point, header, global_parameters)
-                            .await
-                            .expect("unexpected error on roll forward"),
-                        DecodedChainSyncEvent::Rollback { .. } => event,
-                    },
-                    Err(_) => panic!("got error validating chain sync"),
-                };
-
-                // store header stage
-                let store_event = match store_header.handle_event(validation_event).await {
-                    Ok(stored) => stored,
-                    Err(_) => panic!("got error storing event"),
-                };
-
-                // chain selection stage
-                match select_chain.handle_chain_sync(store_event).await {
-                    Ok(events) => {
-                        let mut w = output_writer.lock().await;
-                        write_events(&mut w, &store, &events).await;
-                    }
-                    Err(e) => {
-                        tracing::error!("Error processing event: {:?}", e);
-                        return;
-                    }
-                }
-            }
-        }
+        break;
     }
     info!("no more messages to process, exiting");
 }
 
-async fn write_events(
-    output_writer: &mut OutputWriter,
-    store: &Arc<Mutex<dyn ChainStore<Header>>>,
-    events: &[ValidateHeaderEvent],
-) {
-    let mut msgs = vec![];
-    let s = store.lock().await;
-    for e in events {
-        match e {
-            ValidateHeaderEvent::Validated { point, .. } => {
-                let h: Hash<32> = point.into();
-                let hdr = s.load_header(&h).unwrap();
-                let fwd = ChainSyncMessage::Fwd {
-                    msg_id: 0, // FIXME
-                    slot: point.slot_or_default(),
-                    hash: Bytes {
-                        bytes: (*h).to_vec(),
-                    },
-                    header: Bytes {
-                        bytes: to_cbor(&hdr),
-                    },
-                };
-                let envelope = Envelope {
-                    src: "n1".to_string(),
-                    dest: "c1".to_string(),
-                    body: fwd,
-                };
-                msgs.push(envelope);
-            }
-            ValidateHeaderEvent::Rollback { rollback_point, .. } => {
-                let h: Hash<32> = rollback_point.into();
-                let fwd = ChainSyncMessage::Bck {
-                    msg_id: 0, // FIXME
-                    slot: rollback_point.slot_or_default(),
-                    hash: Bytes {
-                        bytes: (*h).to_vec(),
-                    },
-                };
-                let envelope = Envelope {
-                    src: "n1".to_string(),
-                    dest: "c1".to_string(),
-                    body: fwd,
-                };
-                msgs.push(envelope);
-            }
-        }
-    }
+// async fn write_events(
+//     output_writer: &mut OutputWriter,
+//     store: &Arc<Mutex<dyn ChainStore<Header>>>,
+//     events: &[ValidateHeaderEvent],
+// ) {
+//     let mut msgs = vec![];
+//     let s = store.lock().await;
+//     for e in events {
+//         match e {
+//             ValidateHeaderEvent::Validated { point, .. } => {
+//                 let h: Hash<32> = point.into();
+//                 let hdr = s.load_header(&h).unwrap();
+//                 let fwd = ChainSyncMessage::Fwd {
+//                     msg_id: 0, // FIXME
+//                     slot: point.slot_or_default(),
+//                     hash: Bytes {
+//                         bytes: (*h).to_vec(),
+//                     },
+//                     header: Bytes {
+//                         bytes: to_cbor(&hdr),
+//                     },
+//                 };
+//                 let envelope = Envelope {
+//                     src: "n1".to_string(),
+//                     dest: "c1".to_string(),
+//                     body: fwd,
+//                 };
+//                 msgs.push(envelope);
+//             }
+//             ValidateHeaderEvent::Rollback { rollback_point, .. } => {
+//                 let h: Hash<32> = rollback_point.into();
+//                 let fwd = ChainSyncMessage::Bck {
+//                     msg_id: 0, // FIXME
+//                     slot: rollback_point.slot_or_default(),
+//                     hash: Bytes {
+//                         bytes: (*h).to_vec(),
+//                     },
+//                 };
+//                 let envelope = Envelope {
+//                     src: "n1".to_string(),
+//                     dest: "c1".to_string(),
+//                     body: fwd,
+//                 };
+//                 msgs.push(envelope);
+//             }
+//         }
+//     }
 
-    output_writer.write(msgs).await;
-}
+//     output_writer.write(msgs).await;
+// }
 
 fn make_chain_selector(
     tip: Point,
