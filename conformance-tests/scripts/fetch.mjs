@@ -42,12 +42,12 @@ const queries = [
       return outDir("pots", point);
     },
   },
-    {
+    /*{
     query: fetchNewEpochState,
     getFilename(point) {
       return outDir("new-epoch-state", point);
     },
-  },
+  },*/
   {
     query: fetchNonces,
     getFilename(point) {
