@@ -3,7 +3,7 @@ mod output;
 mod receiver;
 mod sender;
 pub mod simulation;
-mod stage_ref;
+pub mod stage_ref;
 mod stagegraph;
 mod time;
 pub mod tokio;
