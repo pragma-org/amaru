@@ -65,9 +65,8 @@ impl<Msg: PartialEq> Eq for Entry<Msg> {}
 
 type NodeId = String;
 
-pub struct NodeHandle {
-    handle:
-        Box<dyn FnMut(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, anyhow::Error>>,
+pub struct NodeHandle<Msg> {
+    handle: Box<dyn FnMut(Envelope<Msg>) -> Result<Vec<Envelope<Msg>>, anyhow::Error>>,
     close: Box<dyn FnMut()>,
 }
 
@@ -76,7 +75,7 @@ pub fn pure_stage_node_handle(
     mut rx: Receiver<Envelope<EchoMessage>>,
     stage: StageRef<Envelope<EchoMessage>, (u64, StageRef<Envelope<EchoMessage>, Void>)>,
     mut running: SimulationRunning,
-) -> anyhow::Result<NodeHandle> {
+) -> anyhow::Result<NodeHandle<EchoMessage>> {
     let handle = Box::new(move |msg: Envelope<EchoMessage>| {
         running.enqueue_msg(&stage, [msg]);
         running.run_until_blocked().assert_idle();
@@ -89,7 +88,7 @@ pub fn pure_stage_node_handle(
 }
 
 #[allow(unused)]
-pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHandle> {
+pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHandle<EchoMessage>> {
     let mut child = Command::new(filepath)
         .args(args)
         .stdin(Stdio::piped())
@@ -138,7 +137,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHa
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Trace(pub Vec<Envelope<EchoMessage>>);
+pub struct Trace<Msg>(pub Vec<Envelope<Msg>>);
 
 #[derive(Debug, PartialEq)]
 pub enum Next {
@@ -146,17 +145,17 @@ pub enum Next {
     Continue,
 }
 
-pub struct World {
-    heap: BinaryHeap<Reverse<Entry<EchoMessage>>>,
-    nodes: BTreeMap<NodeId, NodeHandle>,
-    trace: Trace,
+pub struct World<Msg> {
+    heap: BinaryHeap<Reverse<Entry<Msg>>>,
+    nodes: BTreeMap<NodeId, NodeHandle<Msg>>,
+    trace: Trace<Msg>,
 }
 
 #[allow(dead_code)]
-impl World {
+impl<Msg : PartialEq + Clone> World<Msg> {
     pub fn new(
-        initial_messages: Vec<Reverse<Entry<EchoMessage>>>,
-        node_handles: Vec<(NodeId, NodeHandle)>,
+        initial_messages: Vec<Reverse<Entry<Msg>>>,
+        node_handles: Vec<(NodeId, NodeHandle<Msg>)>,
     ) -> Self {
         World {
             heap: BinaryHeap::from(initial_messages),
@@ -181,8 +180,8 @@ impl World {
                     Some(node) => match (node.handle)(envelope.clone()) {
                         Ok(outgoing) => {
                             let (client_responses, outputs): (
-                                Vec<Envelope<EchoMessage>>,
-                                Vec<Envelope<EchoMessage>>,
+                                Vec<Envelope<Msg>>,
+                                Vec<Envelope<Msg>>,
                             ) = outgoing
                                 .into_iter()
                                 .partition(|msg| msg.dest.starts_with("c"));
@@ -210,14 +209,14 @@ impl World {
         }
     }
 
-    pub fn run_world(&mut self) -> &[Envelope<EchoMessage>] {
+    pub fn run_world(&mut self) -> &[Envelope<Msg>] {
         let prev = self.trace.0.len();
         while self.step_world() == Next::Continue {}
         &self.trace.0[prev..]
     }
 }
 
-impl Drop for World {
+impl<Msg> Drop for World<Msg> {
     fn drop(&mut self) {
         self.nodes
             .values_mut()
@@ -229,9 +228,9 @@ impl Drop for World {
 pub fn simulate(
     config: Config,
     number_of_nodes: u8,
-    spawn: fn() -> NodeHandle,
+    spawn: fn() -> NodeHandle<EchoMessage>,
     generate_message: impl Strategy<Value = EchoMessage>,
-    property: fn(Trace) -> Result<(), String>,
+    property: fn(Trace<EchoMessage>) -> Result<(), String>,
 ) {
     let mut runner = TestRunner::new(config);
     let generate_messages = prop::collection::vec(
@@ -284,7 +283,7 @@ mod tests {
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
-        let mut world = World::new(Vec::new(), Vec::new());
+        let mut world: World<EchoMessage> = World::new(Vec::new(), Vec::new());
 
         assert_eq!(world.run_world(), &Vec::new());
     }
@@ -296,7 +295,7 @@ mod tests {
 
         let number_of_nodes = 1;
 
-        let spawn: fn() -> NodeHandle = || {
+        let spawn: fn() -> NodeHandle<EchoMessage> = || {
             println!("*** Spawning node!");
             let mut network = SimulationBuilder::default();
             let stage = network.stage(
@@ -389,7 +388,7 @@ mod tests {
         };
 
         let number_of_nodes = 1;
-        let spawn: fn() -> NodeHandle = || {
+        let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
         let generate_message = (0..128u8).prop_map(|i| EchoMessage::Echo {
