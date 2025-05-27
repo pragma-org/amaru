@@ -2,7 +2,7 @@
 
 mod effect;
 pub mod simulation;
-mod stage;
+pub mod stage;
 mod stagegraph;
 mod time;
 pub mod tokio;
