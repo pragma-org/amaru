@@ -14,7 +14,7 @@ Usage:
 const { points, additionalStakeAddresses } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", `config/${network}.json`)));
 
 function outDir(prefix, point) {
-  return path.join(import.meta.dirname, "..", `data${network}`, prefix, `${point.epoch}.json`);
+  return path.join(import.meta.dirname, "..", `data/${network}`, prefix, `${point.epoch}.json`);
 }
 
 const queries = [
@@ -95,7 +95,6 @@ const result = await ogmios(async (ws, done) => {
       next();
     });
 
-    //ws.rpc("queryLedgerState/tip");
     ws.rpc("acquireLedgerState", { point });
   }
 
