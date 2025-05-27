@@ -45,6 +45,7 @@ use tokio::sync::Mutex;
 use tracing::info;
 
 mod bytes;
+pub mod generate;
 mod ledger;
 mod simulate;
 mod sync;
