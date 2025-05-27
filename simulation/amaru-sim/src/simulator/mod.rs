@@ -30,12 +30,18 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
     to_cbor, Hash, Header,
     Point::{self, *},
+    Slot,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use bytes::Bytes;
 use clap::Parser;
 use gasket::framework::WorkerError;
 use ledger::{populate_chain_store, FakeStakeDistribution};
+use proptest::{
+    prelude::{BoxedStrategy, Strategy},
+    test_runner::Config,
+};
+use simulate::{simulate, NodeHandle, Trace};
 use std::{path::PathBuf, sync::Arc};
 use sync::{
     mk_message, read_peer_addresses_from_init, ChainSyncMessage, MessageReader, OutputWriter,
@@ -103,22 +109,49 @@ pub async fn bootstrap(args: Args) {
     )
     .unwrap();
 
-    let chain_selector = make_chain_selector(
-        Origin,
-        &chain_store,
-        &vec![]
-    );
+    let chain_selector = make_chain_selector(Origin, &chain_store, &vec![]);
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = ValidateHeader::new(Box::new(stake_distribution), chain_ref.clone());
     let mut store_header = StoreHeader::new(chain_ref.clone());
     let mut select_chain = SelectChain::new(chain_selector);
 
-    run_simulator(
-        &mut consensus,
-        &mut store_header,
-        &mut select_chain,
-    )
-    .await;
+    run_simulator(&mut consensus, &mut store_header, &mut select_chain).await;
+}
+
+const CHAIN_PROPERTY: fn(Trace<ChainSyncMessage>) -> Result<(), String> =
+    |trace: Trace<ChainSyncMessage>| Ok(());
+
+fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
+    use proptest::{collection::vec, prelude::*};
+
+    prop_oneof![
+        (any::<u64>(), any::<String>(), vec(any::<String>(), 0..10)).prop_map(
+            |(msg_id, node_id, node_ids)| ChainSyncMessage::Init {
+                msg_id,
+                node_id,
+                node_ids
+            }
+        ),
+        (any::<u64>()).prop_map(|msg_id| ChainSyncMessage::InitOk {
+            in_reply_to: msg_id
+        }),
+        (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| {
+            ChainSyncMessage::Fwd {
+                msg_id,
+                slot: Slot::from(slot),
+                hash: hash.to_vec().into(),
+                header: Bytes { bytes: vec![] },
+            }
+        }),
+        (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| {
+            ChainSyncMessage::Bck {
+                msg_id,
+                slot: Slot::from(slot),
+                hash: hash.to_vec().into(),
+            }
+        })
+    ]
+    .boxed()
 }
 
 async fn run_simulator(
@@ -126,11 +159,20 @@ async fn run_simulator(
     _store_header: &mut StoreHeader,
     _select_chain: &mut SelectChain,
 ) {
-    loop {
-        let span = tracing::info_span!("simulator");
-        break;
-    }
-    info!("no more messages to process, exiting");
+    let config = Config::default();
+    let number_of_nodes = 1;
+    let spawn: fn() -> NodeHandle<ChainSyncMessage> = || {
+        println!("*** Spawning node!");
+        todo!()
+    };
+
+    simulate(
+        config,
+        number_of_nodes,
+        spawn,
+        arbitrary_message(),
+        CHAIN_PROPERTY,
+    )
 }
 
 // async fn write_events(

@@ -25,8 +25,8 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
-use pure_stage::simulation::SimulationRunning;
-use pure_stage::{Receiver, StageRef, Void};
+use pure_stage::simulation::{Receiver, SimulationRunning};
+use pure_stage::StageRef;
 
 use anyhow::anyhow;
 use proptest::{
@@ -73,7 +73,10 @@ pub struct NodeHandle<Msg> {
 #[allow(unused)]
 pub fn pure_stage_node_handle(
     mut rx: Receiver<Envelope<EchoMessage>>,
-    stage: StageRef<Envelope<EchoMessage>, (u64, StageRef<Envelope<EchoMessage>, Void>)>,
+    stage: StageRef<
+        Envelope<EchoMessage>,
+        (u64, StageRef<Envelope<EchoMessage>, pure_stage::Void>),
+    >,
     mut running: SimulationRunning,
 ) -> anyhow::Result<NodeHandle<EchoMessage>> {
     let handle = Box::new(move |msg: Envelope<EchoMessage>| {
@@ -152,7 +155,7 @@ pub struct World<Msg> {
 }
 
 #[allow(dead_code)]
-impl<Msg : PartialEq + Clone> World<Msg> {
+impl<Msg: PartialEq + Clone> World<Msg> {
     pub fn new(
         initial_messages: Vec<Reverse<Entry<Msg>>>,
         node_handles: Vec<(NodeId, NodeHandle<Msg>)>,
@@ -225,13 +228,15 @@ impl<Msg> Drop for World<Msg> {
 }
 
 #[allow(dead_code)]
-pub fn simulate(
+pub fn simulate<Msg>(
     config: Config,
     number_of_nodes: u8,
-    spawn: fn() -> NodeHandle<EchoMessage>,
-    generate_message: impl Strategy<Value = EchoMessage>,
-    property: fn(Trace<EchoMessage>) -> Result<(), String>,
-) {
+    spawn: fn() -> NodeHandle<Msg>,
+    generate_message: impl Strategy<Value = Msg>,
+    property: fn(Trace<Msg>) -> Result<(), String>,
+) where
+    Msg: Debug + PartialEq + Clone,
+{
     let mut runner = TestRunner::new(config);
     let generate_messages = prop::collection::vec(
         generate_message.prop_map(|msg| {
@@ -347,7 +352,9 @@ mod tests {
     }
 
     // TODO: Take response time into account.
-    const ECHO_PROPERTY: fn(Trace) -> Result<(), String> = |trace: Trace| {
+    const ECHO_PROPERTY: fn(Trace<EchoMessage>) -> Result<(), String> = |trace: Trace<
+        EchoMessage,
+    >| {
         for (index, msg) in trace
             .0
             .iter()
