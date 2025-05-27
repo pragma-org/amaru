@@ -17,7 +17,7 @@ use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header,
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{instrument, Level, Span};
 
@@ -56,8 +56,14 @@ pub fn header_is_valid(
 }
 
 pub struct ValidateHeader {
-    ledger: Box<dyn HasStakeDistribution>,
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
+    pub ledger: Box<dyn HasStakeDistribution>,
+    pub store: Arc<Mutex<dyn ChainStore<Header>>>,
+}
+
+impl fmt::Debug for ValidateHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        todo!()
+    }
 }
 
 impl ValidateHeader {

@@ -228,14 +228,15 @@ impl<Msg> Drop for World<Msg> {
 }
 
 #[allow(dead_code)]
-pub fn simulate<Msg>(
+pub fn simulate<Msg, F>(
     config: Config,
     number_of_nodes: u8,
-    spawn: fn() -> NodeHandle<Msg>,
+    spawn: F,
     generate_message: impl Strategy<Value = Msg>,
     property: fn(Trace<Msg>) -> Result<(), String>,
 ) where
     Msg: Debug + PartialEq + Clone,
+    F: Fn() -> NodeHandle<Msg>
 {
     let mut runner = TestRunner::new(config);
     let generate_messages = prop::collection::vec(
