@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
+use std::{collections::BTreeSet, ops::Deref};
 
 use amaru_kernel::{
-    display_collection, get_provided_scripts, BorrowedDatumOption, BorrowedPseudoScript,
-    HasAddress, HasDatum, HasScriptRef, Hash, MintedWitnessSet, OriginalHash, ScriptHash,
-    TransactionInput,
+    display_collection, get_provided_scripts, script_purpose_to_string, to_redeemer_keys,
+    BorrowedDatumOption, BorrowedPseudoScript, HasAddress, HasDatum, HasScriptRef, Hash,
+    MintedWitnessSet, OriginalHash, RedeemersKey, ScriptHash, ScriptRefWithHash, TransactionInput,
 };
 use thiserror::Error;
 
@@ -43,6 +43,11 @@ pub enum InvalidScripts {
         allowed: BTreeSet<Hash<32>>,
         provided: BTreeSet<Hash<32>>,
     },
+    #[error(
+        "missing expected redeemers: missing[{}]",
+        missing.iter().map(|redeemer_key| format!("({},{})", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", ")
+    )]
+    MissingRedeemers { missing: Vec<RedeemersKey> },
 }
 
 // TODO: this can be made MUCH more efficient. Remove clones, don't iterate the same list several times, etc... Lots of low hanging fruit.
@@ -56,34 +61,31 @@ where
     C: UtxoSlice + WitnessSlice,
 {
     let required_scripts = context.required_scripts();
+    let allowed_supplemental_datums = context.allowed_supplemental_datums();
 
-    let resolved_inputs = inputs
-        .iter()
-        .map(
-            |input| match context.lookup(input).map(|output| (input, output)) {
-                Some(resolved) => resolved,
-                None => unreachable!(
-                    "found an input that doesn't exist in the utxo slice: {:?}",
-                    input
-                ),
-            },
-        )
-        .collect::<Vec<_>>();
+    // Now do all the lookups and collect the results
+    let mut resolved_inputs = Vec::new();
+    for input in inputs {
+        match context.lookup(input) {
+            Some(output) => resolved_inputs.push((input, output)),
+            None => unreachable!(
+                "found an input that doesn't exist in the utxo slice: {:?}",
+                input
+            ),
+        }
+    }
 
     let empty_vec = vec![];
-    let resolved_reference_inputs = reference_inputs
-        .unwrap_or(&empty_vec)
-        .iter()
-        .map(
-            |input| match context.lookup(input).map(|output| (input, output)) {
-                Some(resolved) => resolved,
-                None => unreachable!(
-                    "found a reference input that doesn't exist in the utxo slice: {:?}",
-                    input
-                ),
-            },
-        )
-        .collect::<Vec<_>>();
+    let mut resolved_reference_inputs = Vec::new();
+    for input in reference_inputs.unwrap_or(&empty_vec) {
+        match context.lookup(input) {
+            Some(output) => resolved_reference_inputs.push((input, output)),
+            None => unreachable!(
+                "found a reference input that doesn't exist in the utxo slice: {:?}",
+                input
+            ),
+        }
+    }
 
     // provided reference scripts from inputs and reference inputs only include ScriptRefs that are required by an input
     let provided_reference_scripts = [
@@ -94,8 +96,14 @@ where
     .iter()
     .filter_map(|(_, output)| {
         if let Some(script_ref) = output.has_script_ref() {
-            if required_scripts.contains(&script_ref.hash) {
-                return Some(script_ref);
+            if required_scripts
+                .iter()
+                .any(|required_script| required_script.hash == script_ref.hash)
+            {
+                return Some(ScriptRefWithHash {
+                    hash: script_ref.hash,
+                    script: script_ref.script,
+                });
             }
         }
 
@@ -108,13 +116,18 @@ where
         .chain(provided_reference_scripts)
         .collect();
 
-    let missing_scripts: Vec<ScriptHash> = required_scripts
-        .difference(
-            &provided_scripts
-                .iter()
-                .map(ScriptHash::from)
-                .collect::<BTreeSet<_>>(),
-        )
+    let provided_script_hashes = provided_scripts
+        .iter()
+        .map(ScriptHash::from)
+        .collect::<BTreeSet<_>>();
+
+    let required_script_hashes = required_scripts
+        .iter()
+        .map(ScriptHash::from)
+        .collect::<BTreeSet<_>>();
+
+    let missing_scripts: Vec<ScriptHash> = required_script_hashes
+        .difference(&provided_script_hashes)
         .cloned()
         .collect();
 
@@ -126,7 +139,10 @@ where
         provided_scripts
             .iter()
             .fold(Vec::new(), |mut accum, script| {
-                if !required_scripts.contains(&script.hash) {
+                if !required_scripts
+                    .iter()
+                    .any(|required_script| required_script.hash == script.hash)
+                {
                     accum.push(script.hash);
                 }
 
@@ -213,21 +229,57 @@ where
         });
     }
 
-    let allowed_supplemental_datum = context.allowed_supplemental_datums();
     let supplemental_datums = witness_datum_hashes
         .difference(&input_datum_hashes)
         .cloned()
         .collect::<BTreeSet<_>>();
 
     let extraneous_supplemental_datums = supplemental_datums
-        .difference(&allowed_supplemental_datum)
+        .difference(&allowed_supplemental_datums)
         .cloned()
         .collect::<Vec<_>>();
 
     if !extraneous_supplemental_datums.is_empty() {
         return Err(InvalidScripts::ExtraneousSupplementalDatums {
             provided: supplemental_datums,
-            allowed: allowed_supplemental_datum,
+            allowed: allowed_supplemental_datums,
+        });
+    }
+
+    // TODO: refactor all the required redeemers logic. This is really gross...
+
+    let redeemers_needed = required_scripts
+        .iter()
+        .filter(|required_script| {
+            provided_scripts
+                .iter()
+                .find(|provided_script| required_script.hash == provided_script.hash)
+                .and_then(|provided_script| match provided_script.script {
+                    BorrowedPseudoScript::NativeScript(_) => None,
+                    BorrowedPseudoScript::PlutusV1Script(..)
+                    | BorrowedPseudoScript::PlutusV2Script(..)
+                    | BorrowedPseudoScript::PlutusV3Script(..) => Some(true),
+                })
+                .unwrap_or_default()
+        })
+        .map(RedeemersKey::from)
+        .collect::<Vec<_>>();
+
+    let redeemers_provided = witness_set
+        .redeemer
+        .as_ref()
+        .map(|redeemer| to_redeemer_keys(redeemer.deref()))
+        .unwrap_or_default();
+
+    let missing_redeemers = redeemers_needed
+        .iter()
+        .filter(|redeemer| !redeemers_provided.contains(redeemer))
+        .cloned()
+        .collect::<Vec<_>>();
+
+    if !missing_redeemers.is_empty() {
+        return Err(InvalidScripts::MissingRedeemers {
+            missing: missing_redeemers,
         });
     }
 

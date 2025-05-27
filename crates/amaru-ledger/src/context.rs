@@ -17,8 +17,9 @@ mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    AddrKeyhash, Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptPurpose, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use slot_arithmetic::Epoch;
 use std::{collections::BTreeSet, fmt, marker::PhantomData};
@@ -260,9 +261,16 @@ pub trait WitnessSlice {
     /// Obtain the full list of allowed supplemental datums while traversing the transaction
     fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>>;
 
-    /// Indicate that a witness is required to be present (and valid) for the corresponding
-    /// set of credentials.
-    fn require_witness(&mut self, credential: StakeCredential);
+    /// Indicate that a vkey witness is required to be present (and valid) for the given key hash
+    fn require_vkey_witness(&mut self, key_hash: AddrKeyhash);
+
+    /// Indicate that a script witness is required to be present (and valid) for the given script hash and purpose
+    fn require_script_witness(
+        &mut self,
+        script_hash: ScriptHash,
+        index: u32,
+        script_purpose: ScriptPurpose,
+    );
 
     /// Indicate that a bootstrap witness is required to be present (and valid) for the corresponding
     /// root.
@@ -272,7 +280,7 @@ pub trait WitnessSlice {
     fn required_signers(&mut self) -> BTreeSet<Hash<28>>;
 
     /// Obtain the full list of require scripts collected while traversing the transaction.
-    fn required_scripts(&mut self) -> BTreeSet<Hash<28>>;
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript>;
 
     /// Obtain the full list of required bootstrap witnesses collected while traversing the
     /// transaction.

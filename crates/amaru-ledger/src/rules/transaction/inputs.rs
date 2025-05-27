@@ -14,7 +14,8 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, BorrowedDatumOption, HasAddress, HasDatum, HasOwnership, TransactionInput,
+    AddrType, Address, BorrowedDatumOption, HasAddress, HasDatum, HasOwnership, ScriptPurpose,
+    TransactionInput,
 };
 use thiserror::Error;
 
@@ -81,7 +82,7 @@ where
     // FIXME: Collaterals should probably only be acknowledged when the transaction is failing; and
     // vice-versa for inputs.
     let collaterals = collaterals.map(|x| x.as_slice()).unwrap_or(&[]);
-    for input in [inputs.as_slice(), collaterals].concat().iter() {
+    for (index, input) in [inputs.as_slice(), collaterals].concat().iter().enumerate() {
         match context.lookup(input) {
             Some(output) => {
                 // In theory, we could receive a stake address as an output destination here and it would be valid...
@@ -93,7 +94,14 @@ where
                 })?;
 
                 if let Some(credential) = address.credential() {
-                    context.require_witness(credential);
+                    match credential {
+                        amaru_kernel::StakeCredential::ScriptHash(hash) => {
+                            context.require_script_witness(hash, index as u32, ScriptPurpose::Spend)
+                        }
+                        amaru_kernel::StakeCredential::AddrKeyhash(hash) => {
+                            context.require_vkey_witness(hash)
+                        }
+                    }
                 }
 
                 if let Address::Byron(byron_address) = address {

@@ -1,4 +1,4 @@
-use amaru_kernel::{Multiasset, NonZeroInt, StakeCredential};
+use amaru_kernel::{Multiasset, NonZeroInt, ScriptPurpose};
 
 use crate::context::{UtxoSlice, WitnessSlice};
 
@@ -7,8 +7,9 @@ where
     C: UtxoSlice + WitnessSlice,
 {
     if let Some(mint) = mint {
-        mint.iter()
-            .for_each(|(policy, _)| context.require_witness(StakeCredential::ScriptHash(*policy)));
+        mint.iter().enumerate().for_each(|(index, (policy, _))| {
+            context.require_script_witness(*policy, index as u32, ScriptPurpose::Mint)
+        });
     }
 }
 
