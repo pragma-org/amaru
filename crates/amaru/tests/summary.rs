@@ -15,7 +15,7 @@
 use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+    ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     store::Snapshot,
@@ -92,11 +92,6 @@ fn compare_preprod_snapshot(epoch: u64) {
     let protocol_parameters = ProtocolParameters::default();
 
     let network_name = NetworkName::Preprod;
-    let network = if network_name == NetworkName::Mainnet {
-        Network::Mainnet
-    } else {
-        Network::Testnet
-    };
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
@@ -114,7 +109,7 @@ fn compare_preprod_snapshot(epoch: u64) {
     .unwrap();
     insta::assert_json_snapshot!(
         format!("stake_distribution_{}", epoch),
-        stake_distr.for_network(network),
+        stake_distr.for_network(network_name.into()),
     );
 
     let snapshot_from_the_future = db(epoch + 2);
