@@ -91,10 +91,16 @@ fn compare_preprod_snapshot(epoch: u64) {
     let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
 
+    let network_name = NetworkName::Preprod;
+    let network = if network_name == NetworkName::Mainnet {
+        Network::Mainnet
+    } else {
+        Network::Testnet
+    };
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
-        network.into(),
+        network_name.into(),
         &protocol_parameters,
     )
     .unwrap();
@@ -108,7 +114,7 @@ fn compare_preprod_snapshot(epoch: u64) {
     .unwrap();
     insta::assert_json_snapshot!(
         format!("stake_distribution_{}", epoch),
-        stake_distr.for_network(Network::Testnet),
+        stake_distr.for_network(network),
     );
 
     let snapshot_from_the_future = db(epoch + 2);
