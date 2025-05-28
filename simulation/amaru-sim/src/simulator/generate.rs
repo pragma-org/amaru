@@ -34,7 +34,7 @@ struct StakePools {
     chains: Vec<Block>,
 }
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, PartialEq, Debug, Deserialize)]
 struct Block {
     hash: String,
     header: String,
@@ -108,13 +108,13 @@ fn recreate_children(parent_hash: &String, blocks: &[Block]) -> Vec<Chain> {
         .collect()
 }
 
-fn find_ancestors(chain: &Chain, target_hash: &str) -> Vec<String> {
-    fn helper(chain: &Chain, target_hash: &str, ancestors: &mut Vec<String>) -> bool {
+fn find_ancestors(chain: &Chain, target_hash: &str) -> Vec<Block> {
+    fn helper(chain: &Chain, target_hash: &str, ancestors: &mut Vec<Block>) -> bool {
         if chain.block.hash == *target_hash {
             return true;
         }
 
-        ancestors.push(chain.block.hash.clone());
+        ancestors.push(chain.block.clone());
 
         for child in &chain.children {
             if helper(&child, target_hash, ancestors) {
@@ -131,12 +131,12 @@ fn find_ancestors(chain: &Chain, target_hash: &str) -> Vec<String> {
     result
 }
 
-fn generate_inputs_from_chain<R: Rng>(chain0: Chain, rng: &mut R) -> Vec<ChainSyncMessage> {
+fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainSyncMessage> {
     let mut messages = Vec::new();
     let mut msg_id = 0;
 
     fn walk_chain<R: Rng>(
-        chain0: Chain,
+        chain0: &Chain,
         chain: &Chain,
         messages: &mut Vec<ChainSyncMessage>,
         msg_id: &mut u64,
@@ -155,32 +155,60 @@ fn generate_inputs_from_chain<R: Rng>(chain0: Chain, rng: &mut R) -> Vec<ChainSy
         });
         *msg_id += 1;
         if chain.children.is_empty() {
-            let _ancestors = find_ancestors(&chain0, &chain.block.hash).reverse();
-            todo!("backtrack")
+            // Backtrack.
+            let mut ancestors: Vec<Block> = find_ancestors(&chain0.clone(), &chain.block.hash);
+            ancestors.reverse();
+            for ancestor in &ancestors {
+                // XXX: Only go back to ancestors that have unvisited children.
+                messages.push(ChainSyncMessage::Bck {
+                    msg_id: *msg_id,
+                    slot: Slot::from(ancestor.slot),
+                    hash: Bytes {
+                        bytes: ancestor.hash.clone().as_bytes().to_vec(),
+                    },
+                });
+                *msg_id += 1;
+                let ancestor_chain = find_chain(&chain0.clone(), &ancestor.hash)
+                    .expect("ancestor has to be in the original chain");
+                walk_chain(chain0, &ancestor_chain, messages, msg_id, rng, visited)
+            }
         } else {
-            let child_count = chain.children.len();
-
             let already_visited: HashSet<usize> = visited
                 .get(&chain.block.hash)
                 .unwrap_or(&HashSet::new())
                 .clone();
 
-            let not_visited: Vec<usize> = (0..child_count)
+            let not_visited: Vec<usize> = (0..chain.children.len())
                 .collect::<HashSet<usize>>()
                 .difference(&already_visited)
                 .cloned()
                 .collect();
 
             if not_visited.is_empty() {
-                todo!("backtrack")
+                // Backtrack.
+                let mut ancestors: Vec<Block> = find_ancestors(&chain0.clone(), &chain.block.hash);
+                ancestors.reverse();
+                for ancestor in &ancestors {
+                    // XXX: Only go back to ancestors that have unvisited children.
+                    messages.push(ChainSyncMessage::Bck {
+                        msg_id: *msg_id,
+                        slot: Slot::from(ancestor.slot),
+                        hash: Bytes {
+                            bytes: ancestor.hash.clone().as_bytes().to_vec(),
+                        },
+                    });
+                    *msg_id += 1;
+                    let ancestor_chain = find_chain(&chain0.clone(), &ancestor.hash)
+                        .expect("ancestor has to be in the original chain");
+                    walk_chain(chain0, &ancestor_chain, messages, msg_id, rng, visited)
+                }
             } else {
-                let not_visited_index: usize = rng.random_range(0..not_visited.len());
-                let index = not_visited[not_visited_index];
+                let random_not_visited_index = rng.random_range(0..not_visited.len());
+                let index = not_visited[random_not_visited_index];
                 visited
                     .entry(chain.block.hash.clone())
                     .and_modify(|visited_indices| {
                         let _bool = visited_indices.insert(index);
-                        ()
                     });
                 walk_chain(
                     chain0,
@@ -193,13 +221,27 @@ fn generate_inputs_from_chain<R: Rng>(chain0: Chain, rng: &mut R) -> Vec<ChainSy
             }
         }
     }
-    //        }),
-    //            ChainSyncMessage::Bck {
-    //                msg_id,
-    //                slot: u32
-    //                hash: String
+
+    fn find_chain(chain: &Chain, hash: &String) -> Option<Chain> {
+        if chain.block.hash == *hash {
+            Some(chain.clone())
+        } else {
+            for child in &chain.children {
+                if child.block.hash == *hash {
+                    return Some(child.clone());
+                } else {
+                    match find_chain(&child, hash) {
+                        None => continue,
+                        Some(child_chain) => return Some(child_chain),
+                    }
+                }
+            }
+            None
+        }
+    }
+
     walk_chain(
-        chain0.clone(),
+        &chain0,
         &chain0,
         &mut messages,
         &mut msg_id,
@@ -214,7 +256,7 @@ pub fn generate_inputs<R: Rng>(rng: &mut R) -> Vec<ChainSyncMessage> {
     match parse_json(data.as_bytes()) {
         Ok(blocks) => {
             let chain = recreate_chain(blocks);
-            generate_inputs_from_chain(chain, rng)
+            generate_inputs_from_chain(&chain, rng)
         }
         Err(err) => panic!("{}", err),
     }
@@ -259,12 +301,12 @@ mod test {
         };
 
         let chain = Chain {
-            block: block_a,
+            block: block_a.clone(),
             children: vec![
                 Chain {
-                    block: block_b,
+                    block: block_b.clone(),
                     children: vec![Chain {
-                        block: block_c,
+                        block: block_c.clone(),
                         children: Vec::new(),
                     }],
                 },
@@ -274,9 +316,9 @@ mod test {
                 },
             ],
         };
-        assert!(find_ancestors(&chain, "a") == Vec::<String>::new());
-        assert!(find_ancestors(&chain, "c") == vec!["a", "b"]);
-        assert!(find_ancestors(&chain, "d") == vec!["a"]);
+        assert!(find_ancestors(&chain, "a") == Vec::<Block>::new());
+        assert!(find_ancestors(&chain, "c") == vec![block_a, block_b.clone()]);
+        assert!(find_ancestors(&chain, "d") == vec![block_b]);
     }
 
     #[test]
@@ -330,5 +372,25 @@ mod test {
             }
         }
         result
+    }
+
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
+
+    #[test]
+    fn test_generate_inputs() {
+        let data = read_chain_json();
+        match parse_json(data.as_bytes()) {
+            Ok(blocks) => {
+                let seed = 123;
+                let mut rng = StdRng::seed_from_u64(seed);
+                let chain = recreate_chain(blocks);
+                let inputs = generate_inputs_from_chain(&chain, &mut rng);
+                for input in &inputs {
+                    println!("{:?}\n", input);
+                }
+            }
+            Err(e) => eprintln!("Error parsing JSON: {}", e),
+        }
     }
 }
