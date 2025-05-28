@@ -875,11 +875,11 @@ impl<'b> HasAddress for PseudoTransactionOutput<MintedPostAlonzoTransactionOutpu
 }
 
 pub trait HasDatum {
-    fn has_datum(&self) -> Option<BorrowedDatumOption<'_>>;
+    fn datum(&self) -> Option<BorrowedDatumOption<'_>>;
 }
 
 impl HasDatum for TransactionOutput {
-    fn has_datum(&self) -> Option<BorrowedDatumOption<'_>> {
+    fn datum(&self) -> Option<BorrowedDatumOption<'_>> {
         match self {
             PseudoTransactionOutput::Legacy(transaction_output) => transaction_output
                 .datum_hash

@@ -14,9 +14,8 @@
 
 use crate::context::ValidationContext;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, BorrowedDatumOption, HasDatum, KeepRaw,
-    MintedTransactionBody, MintedWitnessSet, Network, OriginalHash, TransactionInput,
-    TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, MintedTransactionBody,
+    MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
 };
 use core::mem;
 use std::ops::Deref;
@@ -129,52 +128,44 @@ pub fn execute(
     mint::execute(context, transaction_body.mint.as_ref());
 
     outputs::execute(
+        context,
         protocol_parameters,
         &network,
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
-        &mut |_index, output| {
-            if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
-                context.allow_supplemental_datum(*hash);
+        |_index| {
+            if is_valid {
+                return None;
             }
 
-            if !is_valid {
-                // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
-                //
-                // NOTE(2): We must process collateral before processing normal outputs, or, store
-                // the output length elsewhere since after having consumed the outputs, the .len()
-                // will always return zero.
-                let offset = transaction_body.outputs.len() as u64;
-                context.produce(
-                    TransactionInput {
-                        transaction_id,
-                        index: offset,
-                    },
-                    output,
-                );
-            }
+            // NOTE(1): Collateral outputs are indexed based off the number of normal outputs.
+            //
+            // NOTE(2): We must process collateral before processing normal outputs, or, store
+            // the output length elsewhere since after having consumed the outputs, the .len()
+            // will always return zero.
+            let offset = transaction_body.outputs.len() as u64;
+            Some(TransactionInput {
+                transaction_id,
+                index: offset,
+            })
         },
     )?;
 
     outputs::execute(
+        context,
         protocol_parameters,
         &network,
         mem::take(&mut transaction_body.outputs),
-        &mut |index, output| {
-            if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
-                context.allow_supplemental_datum(*hash);
+        |index| {
+            if !is_valid {
+                return None;
             }
 
-            if is_valid {
-                context.produce(
-                    TransactionInput {
-                        transaction_id,
-                        index,
-                    },
-                    output,
-                );
-            }
+            Some(TransactionInput {
+                transaction_id,
+                index,
+            })
         },
     )?;
 

@@ -64,7 +64,7 @@ where
             }
 
             if let Some(output) = context.lookup(reference_input) {
-                if let Some(BorrowedDatumOption::Hash(hash)) = output.has_datum() {
+                if let Some(BorrowedDatumOption::Hash(hash)) = output.datum() {
                     context.allow_supplemental_datum(*hash);
                 }
             } else {

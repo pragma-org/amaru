@@ -165,7 +165,7 @@ where
 
     required_script_inputs
         .into_iter()
-        .for_each(|((input, output), script)| match output.has_datum() {
+        .for_each(|((input, output), script)| match output.datum() {
             None => match script.script {
                 BorrowedScript::PlutusV1Script(..) | BorrowedScript::PlutusV2Script(..) => {
                     inputs_missing_datum.push(input);
