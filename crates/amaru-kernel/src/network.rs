@@ -14,6 +14,7 @@
 
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
+use pallas_addresses::Network;
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
 use slot_arithmetic::{Epoch, Slot};
 
@@ -229,6 +230,16 @@ impl std::str::FromStr for NetworkName {
                     .map(NetworkName::Testnet)
                     .map_err(|e| e.to_string())
             }
+        }
+    }
+}
+
+impl From<NetworkName> for Network {
+    fn from(value: NetworkName) -> Self {
+        if value == NetworkName::Mainnet {
+            Network::Mainnet
+        } else {
+            Network::Testnet
         }
     }
 }
