@@ -84,7 +84,7 @@
     "d6ba9b7509eac866288ff5072d2a18205ac56f744bc82dcd808cb8fe",
     "fb39ea6bb975ea6de4a2c51572234dc584c89beccc09a49934389e51"
   ],
-
-  "required_signers": [],
-  "required_bootstrap_signers": []
+  "required_supplemental_datums": [
+    "80d9f5c0530bcac6ba06bce4ddb0ea9b4bcc8f684d9051f438fbaf7dd9b6d49f"
+  ]
 }
