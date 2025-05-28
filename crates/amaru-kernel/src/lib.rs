@@ -1007,16 +1007,14 @@ impl HasOwnership for Voter {
 
 pub trait HasScriptHash {
     /*
-        ; To compute a script hash, note that you must prepend
-        ; a tag to the bytes of the script before hashing.
-        ; The tag is determined by the language.
-        ; The tags in the Conway era are:
-        ;   "\x00" for multisig scripts
-        ;   "\x01" for Plutus V1 scripts
-        ;   "\x02" for Plutus V2 scripts
-        ;   "\x03" for Plutus V3 scripts
-        ;
-        script_hash = $hash28
+        To compute a script hash, one must prepend a tag to the bytes of the script before hashing.
+
+        The tag (u8) is determined by the language, as such:
+
+          0 for native scripts
+          1 for Plutus V1 scripts
+          2 for Plutus V2 scripts
+          3 for Plutus V3 scripts
     */
     fn script_hash(&self) -> ScriptHash;
 }
@@ -1027,7 +1025,19 @@ impl HasScriptHash for ScriptRef {
             ScriptRef::NativeScript(native_script) => {
                 let mut buffer: Vec<u8>;
                 buffer = vec![0];
-                // TODO: don't reserialize the native script here
+                // FIXME: don't reserialize the native script here.
+                //
+                // This happens because scripts may be found in reference inputs, which have been
+                // stripped from their 'KeepRaw' structure already and thus; have lost their
+                // 'original' bytes.
+                //
+                // While native scripts are simple in essence, they don't have any canonical form.
+                // For example, an array of signatures (all-of) may be serialised as definite or
+                // indefinite. Which will change serialisation and hash.
+                //
+                // Rather than reserialising them when storing them in db, we shall keep their
+                // original bytes and possibly only deserialise on-demand (we only need to
+                // deserialise them if their execution is required).
                 let native_script = to_cbor(&native_script);
                 buffer.extend_from_slice(native_script.as_slice());
                 Hasher::<224>::hash(&buffer)
