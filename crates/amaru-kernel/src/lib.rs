@@ -791,68 +791,47 @@ pub fn get_provided_scripts<'a>(
     witness_set: &'a MintedWitnessSet<'_>,
 ) -> BTreeSet<ScriptRefWithHash<'a>> {
     let mut provided_scripts: BTreeSet<ScriptRefWithHash<'a>> = BTreeSet::new();
-    provided_scripts.extend(
-        witness_set
-            .native_script
-            .as_ref()
-            .map(|native_scripts| {
-                native_scripts
-                    .iter()
-                    .map(|native_script| ScriptRefWithHash {
-                        hash: native_script.script_hash(),
-                        script: BorrowedScript::NativeScript(native_script.deref()),
-                    })
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default(),
-    );
 
-    provided_scripts.extend(
-        witness_set
-            .plutus_v1_script
-            .as_ref()
-            .map(|plutus_v1_scripts| {
-                plutus_v1_scripts
-                    .iter()
-                    .map(|script| ScriptRefWithHash {
-                        hash: script.script_hash(),
-                        script: BorrowedScript::PlutusV1Script(script),
-                    })
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default(),
-    );
+    if let Some(native_scripts) = witness_set.native_script.as_ref() {
+        provided_scripts.extend(
+            native_scripts
+                .iter()
+                .map(|native_script| ScriptRefWithHash {
+                    hash: native_script.script_hash(),
+                    script: BorrowedScript::NativeScript(native_script.deref()),
+                }),
+        )
+    };
 
-    provided_scripts.extend(
-        witness_set
-            .plutus_v2_script
-            .as_ref()
-            .map(|plutus_v2_scripts| {
-                plutus_v2_scripts
-                    .iter()
-                    .map(|script| ScriptRefWithHash {
-                        hash: script.script_hash(),
-                        script: BorrowedScript::PlutusV2Script(script),
-                    })
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default(),
-    );
+    fn collect_plutus_scripts<'a, const VERSION: usize, A>(
+        accum: &mut A,
+        scripts: Option<&'a NonEmptySet<PlutusScript<VERSION>>>,
+        lift: impl Fn(&'a PlutusScript<VERSION>) -> BorrowedScript<'a>,
+    ) where
+        A: Extend<ScriptRefWithHash<'a>>,
+    {
+        if let Some(plutus_scripts) = scripts {
+            accum.extend(plutus_scripts.iter().map(|script| ScriptRefWithHash {
+                hash: script.script_hash(),
+                script: lift(script),
+            }))
+        }
+    }
 
-    provided_scripts.extend(
-        witness_set
-            .plutus_v3_script
-            .as_ref()
-            .map(|plutus_v3_scripts| {
-                plutus_v3_scripts
-                    .iter()
-                    .map(|script| ScriptRefWithHash {
-                        hash: script.script_hash(),
-                        script: BorrowedScript::PlutusV3Script(script),
-                    })
-                    .collect::<BTreeSet<_>>()
-            })
-            .unwrap_or_default(),
+    collect_plutus_scripts(
+        &mut provided_scripts,
+        witness_set.plutus_v1_script.as_ref(),
+        BorrowedScript::PlutusV1Script,
+    );
+    collect_plutus_scripts(
+        &mut provided_scripts,
+        witness_set.plutus_v2_script.as_ref(),
+        BorrowedScript::PlutusV2Script,
+    );
+    collect_plutus_scripts(
+        &mut provided_scripts,
+        witness_set.plutus_v3_script.as_ref(),
+        BorrowedScript::PlutusV3Script,
     );
 
     provided_scripts
@@ -1068,25 +1047,9 @@ impl HasScriptHash for KeepRaw<'_, NativeScript> {
     }
 }
 
-impl HasScriptHash for PlutusScript<1> {
+impl<const VERSION: usize> HasScriptHash for PlutusScript<VERSION> {
     fn script_hash(&self) -> ScriptHash {
-        let mut buffer: Vec<u8> = vec![1];
-        buffer.extend_from_slice(self.as_ref());
-        Hasher::<224>::hash(&buffer)
-    }
-}
-
-impl HasScriptHash for PlutusScript<2> {
-    fn script_hash(&self) -> ScriptHash {
-        let mut buffer: Vec<u8> = vec![2];
-        buffer.extend_from_slice(self.as_ref());
-        Hasher::<224>::hash(&buffer)
-    }
-}
-
-impl HasScriptHash for PlutusScript<3> {
-    fn script_hash(&self) -> ScriptHash {
-        let mut buffer: Vec<u8> = vec![3];
+        let mut buffer: Vec<u8> = vec![VERSION as u8];
         buffer.extend_from_slice(self.as_ref());
         Hasher::<224>::hash(&buffer)
     }
