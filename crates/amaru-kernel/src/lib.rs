@@ -226,11 +226,22 @@ impl RedeemersExt for Redeemers {
 // This allows us to avoid cloning, but it's a pretty awful API.
 // Ideally, this is something that Pallas would own and cleanup.
 #[derive(Debug, PartialEq, Eq)]
-pub enum BorrowedPseudoScript<'a, T1> {
-    NativeScript(&'a T1),
+pub enum BorrowedScript<'a> {
+    NativeScript(&'a NativeScript),
     PlutusV1Script(&'a PlutusScript<1>),
     PlutusV2Script(&'a PlutusScript<2>),
     PlutusV3Script(&'a PlutusScript<3>),
+}
+
+impl<'a> From<&'a PseudoScript<NativeScript>> for BorrowedScript<'a> {
+    fn from(value: &'a PseudoScript<NativeScript>) -> Self {
+        match value {
+            PseudoScript::NativeScript(script) => BorrowedScript::NativeScript(script),
+            PseudoScript::PlutusV1Script(script) => BorrowedScript::PlutusV1Script(script),
+            PseudoScript::PlutusV2Script(script) => BorrowedScript::PlutusV2Script(script),
+            PseudoScript::PlutusV3Script(script) => BorrowedScript::PlutusV3Script(script),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -251,18 +262,7 @@ impl<'a> From<&'a DatumOption> for BorrowedDatumOption<'a> {
 #[derive(Eq, PartialEq)]
 pub struct ScriptRefWithHash<'a> {
     pub hash: ScriptHash,
-    pub script: BorrowedPseudoScript<'a, NativeScript>,
-}
-
-impl<'a> From<&'a PseudoScript<NativeScript>> for BorrowedPseudoScript<'a, NativeScript> {
-    fn from(value: &'a PseudoScript<NativeScript>) -> Self {
-        match value {
-            PseudoScript::NativeScript(script) => BorrowedPseudoScript::NativeScript(script),
-            PseudoScript::PlutusV1Script(script) => BorrowedPseudoScript::PlutusV1Script(script),
-            PseudoScript::PlutusV2Script(script) => BorrowedPseudoScript::PlutusV2Script(script),
-            PseudoScript::PlutusV3Script(script) => BorrowedPseudoScript::PlutusV3Script(script),
-        }
-    }
+    pub script: BorrowedScript<'a>,
 }
 
 impl PartialOrd for ScriptRefWithHash<'_> {
@@ -800,7 +800,7 @@ pub fn get_provided_scripts<'a>(
                     .iter()
                     .map(|native_script| ScriptRefWithHash {
                         hash: native_script.script_hash(),
-                        script: BorrowedPseudoScript::NativeScript(native_script.deref()),
+                        script: BorrowedScript::NativeScript(native_script.deref()),
                     })
                     .collect::<BTreeSet<_>>()
             })
@@ -816,7 +816,7 @@ pub fn get_provided_scripts<'a>(
                     .iter()
                     .map(|script| ScriptRefWithHash {
                         hash: script.script_hash(),
-                        script: BorrowedPseudoScript::PlutusV1Script(script),
+                        script: BorrowedScript::PlutusV1Script(script),
                     })
                     .collect::<BTreeSet<_>>()
             })
@@ -832,7 +832,7 @@ pub fn get_provided_scripts<'a>(
                     .iter()
                     .map(|script| ScriptRefWithHash {
                         hash: script.script_hash(),
-                        script: BorrowedPseudoScript::PlutusV2Script(script),
+                        script: BorrowedScript::PlutusV2Script(script),
                     })
                     .collect::<BTreeSet<_>>()
             })
@@ -848,7 +848,7 @@ pub fn get_provided_scripts<'a>(
                     .iter()
                     .map(|script| ScriptRefWithHash {
                         hash: script.script_hash(),
-                        script: BorrowedPseudoScript::PlutusV3Script(script),
+                        script: BorrowedScript::PlutusV3Script(script),
                     })
                     .collect::<BTreeSet<_>>()
             })
