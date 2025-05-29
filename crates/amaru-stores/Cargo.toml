@@ -26,6 +26,11 @@ amaru-ouroboros-traits.workspace = true
 iter-borrow.workspace = true
 slot-arithmetic.workspace = true
 
+thiserror.workspace = true
+minicbor.workspace = true
+serde.workspace = true
+indicatif.workspace = true
+
 [dev-dependencies]
 proptest.workspace = true
 tempfile.workspace = true

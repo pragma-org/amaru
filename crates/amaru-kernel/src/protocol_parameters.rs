@@ -1,4 +1,6 @@
 use pallas_codec::minicbor::{data::Tag, Decoder};
+use pallas_primitives::CostModel;
+use pallas_primitives::conway::CostModels;
 
 use crate::{cbor, Coin, EpochInterval, ExUnits, Lovelace, RationalNumber};
 
@@ -96,14 +98,19 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
 
         let coins_per_utxo_byte = d.u64()?;
 
-        let _ = d.map()?;
-        d.u8()?;
-        let plutus_v1 = d.decode_with(ctx)?;
-        d.u8()?;
-        let plutus_v2 = d.decode_with(ctx)?;
-        d.u8()?;
-        let plutus_v3 = d.decode_with(ctx)?;
-
+        let mut plutus_v1 = None;
+        let mut plutus_v2 = None;
+        let mut plutus_v3 = None;
+        let i = d.map_iter_with::<C, u8, CostModel>(ctx)?;
+        for item in i {
+            let (k, v) = item?;
+            match k {
+                0 => { plutus_v1 = Some(v); }
+                1 => { plutus_v2 = Some(v); }
+                2 => { plutus_v3 = Some(v); }
+                _ => {}
+            }
+        }
         d.array()?;
         let prices = Prices {
             mem: decode_rationale(d)?,
@@ -249,13 +256,29 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
 
         e.u64(self.coins_per_utxo_byte)?;
 
-        e.map(3)?;
-        e.u8(0)?;
-        e.encode_with(&self.cost_models.plutus_v1, ctx)?;
-        e.u8(1)?;
-        e.encode_with(&self.cost_models.plutus_v2, ctx)?;
-        e.u8(2)?;
-        e.encode_with(&self.cost_models.plutus_v3, ctx)?;
+        let mut count = 0;
+        if self.cost_models.plutus_v1.is_some() {
+            count += 1;
+        }
+        if self.cost_models.plutus_v2.is_some() {
+            count += 1;
+        }
+        if self.cost_models.plutus_v3.is_some() {
+            count += 1;
+        }
+        e.map(count)?;
+        if let Some(&ref v) = &self.cost_models.plutus_v1.as_ref() {
+            e.u8(0)?;
+            e.encode_with(&v, ctx)?;
+        }
+        if let Some(&ref v) = &self.cost_models.plutus_v2.as_ref() {
+            e.u8(1)?;
+            e.encode_with(&v, ctx)?;
+        }
+        if let Some(&ref v) = &self.cost_models.plutus_v3.as_ref() {
+            e.u8(2)?;
+            e.encode_with(&v, ctx)?;
+        }
 
         e.array(2)?;
         encode_rationale(e, &self.prices.mem)?;
@@ -347,13 +370,6 @@ pub struct GlobalParameters {
 pub struct Prices {
     pub mem: RationalNumber,
     pub step: RationalNumber,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CostModels {
-    pub plutus_v1: Vec<i64>,
-    pub plutus_v2: Vec<i64>,
-    pub plutus_v3: Vec<i64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -459,7 +475,7 @@ impl Default for ProtocolParameters {
             },
             collateral_percentage: 150,
             cost_models: CostModels {
-                plutus_v1: vec![
+                plutus_v1: Some(vec![
                     100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356,
                     4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 100,
                     100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010, 178, 0, 1, 22151, 32,
@@ -472,8 +488,8 @@ impl Default for ProtocolParameters {
                     1457325, 64566, 4, 20467, 1, 4, 0, 141992, 32, 100788, 420, 1, 1, 81663, 32,
                     59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623, 32, 53384111,
                     14333, 10,
-                ],
-                plutus_v2: vec![
+                ]),
+                plutus_v2: Some(vec![
                     100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356,
                     4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 100,
                     100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010, 178, 0, 1, 22151, 32,
@@ -486,8 +502,8 @@ impl Default for ProtocolParameters {
                     270652, 22588, 4, 1457325, 64566, 4, 20467, 1, 4, 0, 141992, 32, 100788, 420,
                     1, 1, 81663, 32, 59498, 32, 20142, 32, 24588, 32, 20744, 32, 25933, 32, 24623,
                     32, 43053543, 10, 53384111, 14333, 10, 43574283, 26308, 10,
-                ],
-                plutus_v3: vec![
+                ]),
+                plutus_v3: Some(vec![
                     100788, 420, 1, 1, 1000, 173, 0, 1, 1000, 59957, 4, 1, 11183, 32, 201305, 8356,
                     4, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 16000, 100, 100,
                     100, 16000, 100, 94375, 32, 132994, 32, 61462, 4, 72010, 178, 0, 1, 22151, 32,
@@ -509,7 +525,7 @@ impl Default for ProtocolParameters {
                     100181, 726, 719, 0, 1, 100181, 726, 719, 0, 1, 107878, 680, 0, 1, 95336, 1,
                     281145, 18848, 0, 1, 180194, 159, 1, 1, 158519, 8942, 0, 1, 159378, 8813, 0, 1,
                     107490, 3298, 1, 106057, 655, 1, 1964219, 24520, 3,
-                ],
+                ]),
             },
             pool_thresholds: PoolThresholds {
                 no_confidence: RationalNumber {
@@ -629,9 +645,9 @@ pub(crate) mod test {
             plutus_v3 in any::<Vec<i64>>(),
         ) -> CostModels {
             CostModels {
-                plutus_v1,
-                plutus_v2,
-                plutus_v3,
+                plutus_v1: Some(plutus_v1),
+                plutus_v2: Some(plutus_v2),
+                plutus_v3: Some(plutus_v3),
             }
         }
     }
