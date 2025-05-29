@@ -14,7 +14,8 @@
 
 use amaru_consensus::{consensus::store::ChainStore, Nonces};
 use amaru_kernel::{
-    default_chain_dir, network::NetworkName, EraHistory, Hash, Header, Nonce, Point,
+    default_chain_dir, network::NetworkName, EraHistory, Hash, Header, Nonce, Point, parse_nonce,
+    parse_point,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
@@ -29,23 +30,23 @@ pub struct Args {
     chain_dir: Option<PathBuf>,
 
     /// Point for which nonces data is imported.
-    #[arg(long, value_name = "POINT", value_parser = super::parse_point)]
+    #[arg(long, value_name = "POINT", value_parser = parse_point)]
     at: Point,
 
     /// Epoch active nonce at the specified point.
-    #[arg(long, value_name = "NONCE", value_parser = super::parse_nonce)]
+    #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
     active: Nonce,
 
     /// Next epoch's candidate nonce
-    #[arg(long, value_name = "NONCE", value_parser = super::parse_nonce)]
+    #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
     candidate: Nonce,
 
     /// Protocol evolving nonce vaue at the specified point.
-    #[arg(long, value_name = "NONCE", value_parser = super::parse_nonce)]
+    #[arg(long, value_name = "NONCE", value_parser = parse_nonce)]
     evolving: Nonce,
 
     /// The previous epoch last block header hash
-    #[arg(long, value_name = "HEADER-HASH", value_parser = super::parse_nonce)]
+    #[arg(long, value_name = "HEADER-HASH", value_parser = parse_nonce)]
     tail: Hash<32>,
 
     /// Network the nonces are imported for
@@ -75,7 +76,7 @@ where
     D: Deserializer<'de>,
 {
     let buf = <&str>::deserialize(deserializer)?;
-    super::parse_point(buf)
+    parse_point(buf)
         .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to nonce: {:?}", e)))
 }
 

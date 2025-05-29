@@ -1,0 +1,4 @@
+[submodule "cardano-blueprint"]
+	path = cardano-blueprint
+	url = https://github.com/rrruko/cardano-blueprint
+	branch = rrruko/ledger-conformance-test-vectors

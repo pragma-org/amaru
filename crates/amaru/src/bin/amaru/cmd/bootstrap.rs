@@ -12,18 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::{
+    import_headers::import_headers,
+    import_ledger_state::import_all_from_directory,
+    import_nonces::{import_nonces, InitialNonces},
+};
+use crate::cmd::DEFAULT_NETWORK;
+use amaru::snapshots_dir;
+use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName, parse_point};
+use async_compression::tokio::bufread::GzipDecoder;
+use clap::{arg, Parser};
+use futures_util::TryStreamExt;
+use serde::Deserialize;
 use std::{
     error::Error,
     io,
     path::{Path, PathBuf},
 };
-
-use amaru::snapshots_dir;
-use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
-use async_compression::tokio::bufread::GzipDecoder;
-use clap::{arg, Parser};
-use futures_util::TryStreamExt;
-use serde::Deserialize;
 use thiserror::Error;
 use tokio::{
     fs::{self, File},
@@ -31,14 +36,6 @@ use tokio::{
 };
 use tokio_util::io::StreamReader;
 use tracing::info;
-
-use crate::cmd::DEFAULT_NETWORK;
-
-use super::{
-    import_headers::import_headers,
-    import_ledger_state::import_all_from_directory,
-    import_nonces::{import_nonces, InitialNonces},
-};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -136,7 +133,7 @@ async fn import_headers_for_network(
     let points: Vec<String> = serde_json::from_str(&content)?;
     let mut initial_headers = Vec::new();
     for point_string in points {
-        match super::parse_point(&point_string) {
+        match parse_point(&point_string) {
             Ok(point) => initial_headers.push(point),
             Err(e) => tracing::warn!("Ignoring malformed header point '{}': {}", point_string, e),
         }
