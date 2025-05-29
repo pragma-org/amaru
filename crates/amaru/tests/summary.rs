@@ -15,7 +15,7 @@
 use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+    ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     store::Snapshot,
@@ -65,26 +65,26 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-#[test_case(163)]
-#[test_case(164)]
-#[test_case(165)]
-#[test_case(166)]
-#[test_case(167)]
-#[test_case(168)]
-#[test_case(169)]
-#[test_case(170)]
-#[test_case(171)]
-#[test_case(172)]
-#[test_case(173)]
-#[test_case(174)]
-#[test_case(175)]
-#[test_case(176)]
-#[test_case(177)]
-#[test_case(178)]
-#[test_case(179)]
+#[test_case(NetworkName::Preprod, 163)]
+#[test_case(NetworkName::Preprod, 164)]
+#[test_case(NetworkName::Preprod, 165)]
+#[test_case(NetworkName::Preprod, 166)]
+#[test_case(NetworkName::Preprod, 167)]
+#[test_case(NetworkName::Preprod, 168)]
+#[test_case(NetworkName::Preprod, 169)]
+#[test_case(NetworkName::Preprod, 170)]
+#[test_case(NetworkName::Preprod, 171)]
+#[test_case(NetworkName::Preprod, 172)]
+#[test_case(NetworkName::Preprod, 173)]
+#[test_case(NetworkName::Preprod, 174)]
+#[test_case(NetworkName::Preprod, 175)]
+#[test_case(NetworkName::Preprod, 176)]
+#[test_case(NetworkName::Preprod, 177)]
+#[test_case(NetworkName::Preprod, 178)]
+#[test_case(NetworkName::Preprod, 179)]
 #[ignore]
 #[allow(clippy::unwrap_used)]
-fn compare_preprod_snapshot(epoch: u64) {
+fn compare_preprod_snapshot(network_name: NetworkName, epoch: u64) {
     let epoch = Epoch::from(epoch);
     let snapshot = db(epoch);
     let global_parameters = GlobalParameters::default();
@@ -93,7 +93,7 @@ fn compare_preprod_snapshot(epoch: u64) {
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         preprod_protocol_version(epoch),
-        NetworkName::Preprod.into(),
+        network_name.into(),
         &protocol_parameters,
     )
     .unwrap();
@@ -105,10 +105,15 @@ fn compare_preprod_snapshot(epoch: u64) {
         &protocol_parameters,
     )
     .unwrap();
-    insta::assert_json_snapshot!(
-        format!("stake_distribution_{}", epoch),
-        stake_distr.for_network(Network::Testnet),
-    );
+
+    insta::with_settings!({
+        snapshot_path => format!("snapshots/{}", network_name)
+    }, {
+        insta::assert_json_snapshot!(
+            format!("stake_distribution_{}", epoch),
+            stake_distr.for_network(network_name.into()),
+        );
+    });
 
     let snapshot_from_the_future = db(epoch + 2);
 
@@ -122,7 +127,14 @@ fn compare_preprod_snapshot(epoch: u64) {
     .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &protocol_parameters)
     .unwrap();
 
-    insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
+    insta::with_settings!({
+        snapshot_path => format!("snapshots/{}", network_name)
+    }, {
+        insta::assert_json_snapshot!(
+        format!("rewards_summary_{}", epoch),
+        rewards_summary
+        );
+    });
 }
 
 fn preprod_protocol_version(epoch: Epoch) -> ProtocolVersion {
