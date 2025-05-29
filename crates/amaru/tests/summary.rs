@@ -106,10 +106,15 @@ fn compare_preprod_snapshot(network_name: NetworkName, epoch: u64) {
         &protocol_parameters,
     )
     .unwrap();
-    insta::assert_json_snapshot!(
-        format!("{}/stake_distribution_{}", network_name, epoch),
-        stake_distr.for_network(network_name.into()),
-    );
+
+    insta::with_settings!({
+        snapshot_path => format!("snapshots/{}", network_name)
+    }, {
+        insta::assert_json_snapshot!(
+            format!("stake_distribution_{}", epoch),
+            stake_distr.for_network(network_name.into()),
+        );
+    });
 
     let snapshot_from_the_future = db(epoch + 2);
 
@@ -123,10 +128,14 @@ fn compare_preprod_snapshot(network_name: NetworkName, epoch: u64) {
     .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &protocol_parameters)
     .unwrap();
 
-    insta::assert_json_snapshot!(
-        format!("{}/rewards_summary_{}", network_name, epoch),
+    insta::with_settings!({
+        snapshot_path => format!("snapshots/{}", network_name)
+    }, {
+        insta::assert_json_snapshot!(
+        format!("rewards_summary_{}", epoch),
         rewards_summary
-    );
+        );
+    });
 }
 
 fn preprod_protocol_version(epoch: Epoch) -> ProtocolVersion {
