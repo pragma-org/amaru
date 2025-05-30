@@ -80,9 +80,28 @@
     ]
   ],
   "required_scripts": [
-    "da9525463841173ad1230b1d5a1b5d0a3116bbdeb4412327148a1b7a",
-    "d6ba9b7509eac866288ff5072d2a18205ac56f744bc82dcd808cb8fe",
-    "fb39ea6bb975ea6de4a2c51572234dc584c89beccc09a49934389e51"
+    {
+      "hash": "da9525463841173ad1230b1d5a1b5d0a3116bbdeb4412327148a1b7a",
+      "index": 0,
+      "purpose": "Spend",
+      "datum_option": {
+        "Hash": "0000000000000000000000000000000000000000000000000000000000000000"
+      }
+    },
+    {
+      "hash": "da9525463841173ad1230b1d5a1b5d0a3116bbdeb4412327148a1b7a",
+      "index": 1,
+      "purpose": "Spend",
+      "datum_option": {
+        "Data": "d8799fd8799f581ccee2228a9f9e02dbc54671a2fb762a2ac1282c92b87bccb5c1fec574ffd8799fd8799f581ccee2228a9f9e02dbc54671a2fb762a2ac1282c92b87bccb5c1fec574ffd8799fd8799fd8799f581c959026f154221e88873225d54ce63919bf0fa861e4c65d985d22a606ffffffffd87980d8799fd8799f581ccee2228a9f9e02dbc54671a2fb762a2ac1282c92b87bccb5c1fec574ffd8799fd8799fd8799f581c959026f154221e88873225d54ce63919bf0fa861e4c65d985d22a606ffffffffd87980d8799f581cd6aae2059baee188f74917493cf7637e679cd219bdfbbf4dcbeb1d0b58204b1d023b1ef06f922cc2d85a670c095b2fa150305c022f627c2e836825e4f981ffd87c9fd87a80d8799f1904a2ff1a0331418dd87a80ff1a000aae60d87a80ff"
+      }
+    },
+
+    {
+      "hash": "fb39ea6bb975ea6de4a2c51572234dc584c89beccc09a49934389e51",
+      "index": 0,
+      "purpose": "Reward"
+    }
   ],
   "provided_script_refs": [
     [

@@ -14,8 +14,8 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, BorrowedDatumOption, HasAddress, HasDatum, HasOwnership, HasScriptRef,
-    TransactionInput,
+    AddrType, Address, BorrowedDatumOption, DatumOption, HasAddress, HasDatum, HasScriptRef,
+    RequiredScript, ScriptPurpose, TransactionInput,
 };
 use thiserror::Error;
 
@@ -36,7 +36,6 @@ pub enum InvalidInputs {
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
     #[error("input set empty")]
     EmptyInputSet,
-
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("uncategorized error: {0}")]
     UncategorizedError(String),
@@ -74,6 +73,7 @@ where
                     Some(BorrowedDatumOption::Hash(hash)) => Some(*hash),
                     _ => None,
                 };
+
                 // FIXME: we are currently cloning the script reference.
                 // This is necessary because the context can't store a reference to the script references as the context necessarily
                 // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
@@ -101,9 +101,9 @@ where
     // FIXME: Collaterals should probably only be acknowledged when the transaction is failing; and
     // vice-versa for inputs.
     let collaterals = collaterals.map(|x| x.as_slice()).unwrap_or(&[]);
-    for input in [inputs.as_slice(), collaterals].concat().iter() {
+    for (index, input) in [inputs.as_slice(), collaterals].concat().iter().enumerate() {
         // Extract data first, then drop output, then mutate context
-        let (address, script_ref) = {
+        let (address, script_ref, datum_option) = {
             let output = context
                 .lookup(input)
                 .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
@@ -115,35 +115,48 @@ where
                 ))
             })?;
 
+            let datum = output.datum();
+
             // FIXME: we are currently cloning the script reference.
             // This is necessary because the context can't store a reference to the script references as the context necessarily
             // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
             // struct with a lifetime that matches that given transaction.
             let script_ref = output.has_script_ref().cloned();
 
-            (address, script_ref)
+            (address, script_ref, datum)
         };
 
-        if let Some(credential) = address.credential() {
-            context.require_witness(credential);
+        match address {
+            Address::Byron(byron_address) => {
+                let payload = byron_address.decode().map_err(|e| {
+                    InvalidInputs::UncategorizedError(format!(
+                        "Invalid byron address payload. (error {:?}) address: {:?}",
+                        e, byron_address
+                    ))
+                })?;
+
+                if let AddrType::PubKey = payload.addrtype {
+                    context.require_bootstrap_witness(payload.root);
+                };
+            }
+            Address::Shelley(shelley_address) => {
+                if shelley_address.payment().is_script() {
+                    context.require_script_witness(RequiredScript {
+                        hash: *shelley_address.payment().as_hash(),
+                        index: index as u32,
+                        purpose: ScriptPurpose::Spend,
+                        datum_option: datum_option.map(DatumOption::from),
+                    });
+                } else {
+                    context.require_vkey_witness(*shelley_address.payment().as_hash());
+                }
+            }
+            Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         }
 
         if let Some(script_ref) = script_ref {
             context.provide_script_reference(script_ref);
         }
-
-        if let Address::Byron(byron_address) = address {
-            let payload = byron_address.decode().map_err(|e| {
-                InvalidInputs::UncategorizedError(format!(
-                    "Invalid byron address payload. (error {:?}) address: {:?}",
-                    e, byron_address
-                ))
-            })?;
-
-            if let AddrType::PubKey = payload.addrtype {
-                context.require_bootstrap_witness(payload.root);
-            };
-        };
     }
 
     Ok(())
