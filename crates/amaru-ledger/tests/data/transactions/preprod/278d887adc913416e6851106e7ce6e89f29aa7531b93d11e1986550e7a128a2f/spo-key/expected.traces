@@ -1,1 +1,1 @@
-[{"credential":{"hash":"ed11d1ad4d95806b4443576724a4c5b57b93dc15eca5a3f46d235a9e","type":"verification_key"},"name":"require_witness_span"}]
+[{"hash":"ed11d1ad4d95806b4443576724a4c5b57b93dc15eca5a3f46d235a9e","name":"require_vkey_witness_span"}]
