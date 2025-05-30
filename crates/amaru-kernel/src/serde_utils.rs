@@ -15,7 +15,7 @@
 use pallas_codec::utils::CborWrap;
 use pallas_primitives::{
     conway::{DatumOption, Hash, ScriptRef},
-    PlutusScript,
+    PlutusScript, ScriptHash,
 };
 
 use crate::{
@@ -119,6 +119,14 @@ impl From<ScriptRefProxy> for ScriptRef {
             ScriptRefProxy::PlutusV3(bytes) => ScriptRef::PlutusV3Script(PlutusScript::<3>(bytes)),
         }
     }
+}
+
+// -------------------------------------------------------------------------------- ScriptHash
+
+impl HasProxy for ScriptHash {
+    // NOTE: ScriptHash already defines a serde::Deserialize instance. The trait 'From' is
+    // also reflexive, so this works.
+    type Proxy = ScriptHash;
 }
 
 // ------------------------------------------------------------------------------- DatumOption
