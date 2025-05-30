@@ -64,13 +64,13 @@ pub use pallas_primitives::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
         ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
-        NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
-        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
-        PseudoTransactionOutput, RationalNumber, Redeemers, Relay, RewardAccount, ScriptHash,
-        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
-        WitnessSet,
+        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
+        MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
+        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -894,19 +894,15 @@ impl HasDatum for TransactionOutput {
 }
 
 pub trait HasScriptRef {
-    fn has_script_ref(&self) -> Option<ScriptRefWithHash<'_>>;
+    fn has_script_ref(&self) -> Option<&ScriptRef>;
 }
 
 impl HasScriptRef for TransactionOutput {
-    fn has_script_ref(&self) -> Option<ScriptRefWithHash<'_>> {
+    fn has_script_ref(&self) -> Option<&ScriptRef> {
         match self {
-            TransactionOutput::PostAlonzo(transaction_output) => transaction_output
-                .script_ref
-                .as_deref()
-                .map(|script_ref| ScriptRefWithHash {
-                    hash: script_ref.script_hash(),
-                    script: script_ref.into(),
-                }),
+            TransactionOutput::PostAlonzo(transaction_output) => {
+                transaction_output.script_ref.as_deref()
+            }
             TransactionOutput::Legacy(_) => None,
         }
     }
@@ -1017,6 +1013,21 @@ pub trait HasScriptHash {
           3 for Plutus V3 scripts
     */
     fn script_hash(&self) -> ScriptHash;
+}
+
+impl HasScriptHash for MintedScriptRef<'_> {
+    fn script_hash(&self) -> ScriptHash {
+        match self {
+            PseudoScript::NativeScript(native_script) => {
+                let mut buffer: Vec<u8> = vec![0];
+                buffer.extend_from_slice(native_script.raw_cbor());
+                Hasher::<224>::hash(&buffer)
+            }
+            PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
+            PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
+            PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
+        }
+    }
 }
 
 impl HasScriptHash for ScriptRef {

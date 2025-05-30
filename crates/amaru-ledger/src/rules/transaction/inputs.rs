@@ -14,7 +14,8 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, BorrowedDatumOption, HasAddress, HasDatum, HasOwnership, TransactionInput,
+    AddrType, Address, BorrowedDatumOption, HasAddress, HasDatum, HasOwnership, HasScriptRef,
+    TransactionInput,
 };
 use thiserror::Error;
 
@@ -63,15 +64,34 @@ where
                 intersection.push(reference_input.clone());
             }
 
-            if let Some(output) = context.lookup(reference_input) {
-                if let Some(BorrowedDatumOption::Hash(hash)) = output.datum() {
-                    context.allow_supplemental_datum(*hash);
-                }
-            } else {
-                return Err(InvalidInputs::UnknownInput(reference_input.clone()));
+            // We have to drop the output before mutating context, otherwise we have a mutable borrow and an immutable borrow at the same time
+            let (datum_hash, script_ref) = {
+                let output = context
+                    .lookup(reference_input)
+                    .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
+
+                let datum_hash = match output.datum() {
+                    Some(BorrowedDatumOption::Hash(hash)) => Some(*hash),
+                    _ => None,
+                };
+                // FIXME: we are currently cloning the script reference.
+                // This is necessary because the context can't store a reference to the script references as the context necessarily
+                // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
+                // struct with a lifetime that matches that given transaction.
+                let script_ref = output.has_script_ref().cloned();
+
+                (datum_hash, script_ref)
+            };
+
+            if let Some(hash) = datum_hash {
+                context.allow_supplemental_datum(hash);
+            }
+            if let Some(script_ref) = script_ref {
+                context.provide_script_reference(script_ref);
             }
         }
     }
+
     if !intersection.is_empty() {
         return Err(InvalidInputs::NonDisjointRefInputs { intersection });
     }
@@ -82,35 +102,48 @@ where
     // vice-versa for inputs.
     let collaterals = collaterals.map(|x| x.as_slice()).unwrap_or(&[]);
     for input in [inputs.as_slice(), collaterals].concat().iter() {
-        match context.lookup(input) {
-            Some(output) => {
-                // In theory, we could receive a stake address as an output destination here and it would be valid...
-                let address = output.address().map_err(|e| {
-                    InvalidInputs::UncategorizedError(format!(
-                        "Invalid output address. (error {:?}) output: {:?}",
-                        e, output,
-                    ))
-                })?;
+        // Extract data first, then drop output, then mutate context
+        let (address, script_ref) = {
+            let output = context
+                .lookup(input)
+                .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
 
-                if let Some(credential) = address.credential() {
-                    context.require_witness(credential);
-                }
+            let address = output.address().map_err(|e| {
+                InvalidInputs::UncategorizedError(format!(
+                    "Invalid output address. (error {:?}) output: {:?}",
+                    e, output,
+                ))
+            })?;
 
-                if let Address::Byron(byron_address) = address {
-                    let payload = byron_address.decode().map_err(|e| {
-                        InvalidInputs::UncategorizedError(format!(
-                            "Invalid byron address payload. (error {:?}) address: {:?}",
-                            e, byron_address
-                        ))
-                    })?;
+            // FIXME: we are currently cloning the script reference.
+            // This is necessary because the context can't store a reference to the script references as the context necessarily
+            // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
+            // struct with a lifetime that matches that given transaction.
+            let script_ref = output.has_script_ref().cloned();
 
-                    if let AddrType::PubKey = payload.addrtype {
-                        context.require_bootstrap_witness(payload.root);
-                    };
-                };
-            }
-            None => Err(InvalidInputs::UnknownInput(input.clone()))?,
+            (address, script_ref)
+        };
+
+        if let Some(credential) = address.credential() {
+            context.require_witness(credential);
         }
+
+        if let Some(script_ref) = script_ref {
+            context.provide_script_reference(script_ref);
+        }
+
+        if let Address::Byron(byron_address) = address {
+            let payload = byron_address.decode().map_err(|e| {
+                InvalidInputs::UncategorizedError(format!(
+                    "Invalid byron address payload. (error {:?}) address: {:?}",
+                    e, byron_address
+                ))
+            })?;
+
+            if let AddrType::PubKey = payload.addrtype {
+                context.require_bootstrap_witness(payload.root);
+            };
+        };
     }
 
     Ok(())

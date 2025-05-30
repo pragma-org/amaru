@@ -193,7 +193,6 @@ pub fn execute(
 
     scripts::execute(
         context,
-        transaction_body.reference_inputs.as_deref(),
         transaction_body.inputs.deref(),
         transaction_witness_set,
     )?;

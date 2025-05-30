@@ -2,7 +2,8 @@ use std::collections::BTreeSet;
 
 use amaru_kernel::{
     display_collection, get_provided_scripts, BorrowedDatumOption, BorrowedScript, HasAddress,
-    HasDatum, HasScriptRef, Hash, MintedWitnessSet, OriginalHash, ScriptHash, TransactionInput,
+    HasDatum, Hash, MintedWitnessSet, OriginalHash, ScriptHash, ScriptRefWithHash,
+    TransactionInput,
 };
 use thiserror::Error;
 
@@ -47,7 +48,6 @@ pub enum InvalidScripts {
 // TODO: this can be made MUCH more efficient. Remove clones, don't iterate the same list several times, etc... Lots of low hanging fruit.
 pub fn execute<C>(
     context: &mut C,
-    reference_inputs: Option<&Vec<TransactionInput>>,
     inputs: &[TransactionInput],
     witness_set: &MintedWitnessSet<'_>,
 ) -> Result<(), InvalidScripts>
@@ -55,6 +55,22 @@ where
     C: UtxoSlice + WitnessSlice,
 {
     let required_scripts = context.required_scripts();
+    let provided_script_refs = context.provided_script_references();
+
+    // we only consider script references required by the transaction
+    let script_references = provided_script_refs
+        .iter()
+        .filter_map(|(script_hash, script_ref)| {
+            if required_scripts.contains(&script_hash) {
+                Some(ScriptRefWithHash {
+                    hash: *script_hash,
+                    script: script_ref.into(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect::<BTreeSet<_>>();
 
     let resolved_inputs = inputs
         .iter()
@@ -69,42 +85,9 @@ where
         )
         .collect::<Vec<_>>();
 
-    let empty_vec = vec![];
-    let resolved_reference_inputs = reference_inputs
-        .unwrap_or(&empty_vec)
-        .iter()
-        .map(
-            |input| match context.lookup(input).map(|output| (input, output)) {
-                Some(resolved) => resolved,
-                None => unreachable!(
-                    "found a reference input that doesn't exist in the utxo slice: {:?}",
-                    input
-                ),
-            },
-        )
-        .collect::<Vec<_>>();
-
-    // provided reference scripts from inputs and reference inputs only include ScriptRefs that are required by an input
-    let provided_reference_scripts = [
-        resolved_inputs.as_slice(),
-        resolved_reference_inputs.as_slice(),
-    ]
-    .concat()
-    .iter()
-    .filter_map(|(_, output)| {
-        if let Some(script_ref) = output.has_script_ref() {
-            if required_scripts.contains(&script_ref.hash) {
-                return Some(script_ref);
-            }
-        }
-
-        None
-    })
-    .collect::<BTreeSet<_>>();
-
     let provided_scripts: BTreeSet<_> = get_provided_scripts(witness_set)
         .into_iter()
-        .chain(provided_reference_scripts)
+        .chain(script_references)
         .collect();
 
     let missing_scripts: Vec<ScriptHash> = required_scripts
@@ -303,11 +286,6 @@ mod tests {
             MintedWitnessSet<'_>,
         ),
     ) -> Result<(), InvalidScripts> {
-        super::execute(
-            &mut ctx,
-            tx.reference_inputs.as_deref(),
-            tx.inputs.deref(),
-            &witness_set,
-        )
+        super::execute(&mut ctx, tx.inputs.deref(), &witness_set)
     }
 }
