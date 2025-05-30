@@ -14,8 +14,8 @@
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    Nullable, Proposal, ProposalId, ProposalPointer, ScriptHash, StakeCredential, TransactionId,
-    TransactionPointer,
+    Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptPurpose,
+    TransactionId, TransactionPointer,
 };
 
 pub(crate) fn execute<C>(
@@ -27,7 +27,12 @@ pub(crate) fn execute<C>(
 {
     for (proposal_index, proposal) in proposals.unwrap_or_default().into_iter().enumerate() {
         if let Some(script_hash) = get_proposal_script_hash(&proposal) {
-            context.require_witness(StakeCredential::ScriptHash(script_hash));
+            context.require_script_witness(RequiredScript {
+                hash: script_hash,
+                index: proposal_index as u32,
+                purpose: ScriptPurpose::Propose,
+                datum_option: None,
+            });
         }
 
         let pointer = ProposalPointer {

@@ -15,7 +15,7 @@
 use pallas_codec::utils::CborWrap;
 use pallas_primitives::{
     conway::{DatumOption, Hash, ScriptRef},
-    PlutusScript, ScriptHash,
+    PlutusScript,
 };
 
 use crate::{
@@ -42,6 +42,16 @@ where
         .into_iter()
         .map(|(k, v)| (K::from(k), V::from(v)))
         .collect())
+}
+
+pub fn deserialize_option_proxy<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: HasProxy,
+    T::Proxy: serde::Deserialize<'de>,
+{
+    let option: Option<T::Proxy> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(option.map(T::from))
 }
 
 // -------------------------------------------------------------------------------- TransactionInput
@@ -109,14 +119,6 @@ impl From<ScriptRefProxy> for ScriptRef {
             ScriptRefProxy::PlutusV3(bytes) => ScriptRef::PlutusV3Script(PlutusScript::<3>(bytes)),
         }
     }
-}
-
-// -------------------------------------------------------------------------------- ScriptHash
-
-impl HasProxy for ScriptHash {
-    // NOTE: ScriptHash already defines a serde::Deserialize instance. The trait 'From' is
-    // also reflexive, so this works.
-    type Proxy = ScriptHash;
 }
 
 // ------------------------------------------------------------------------------- DatumOption

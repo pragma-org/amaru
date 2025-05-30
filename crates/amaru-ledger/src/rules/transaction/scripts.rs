@@ -1,9 +1,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    display_collection, get_provided_scripts, BorrowedDatumOption, BorrowedScript, HasAddress,
-    HasDatum, Hash, MintedWitnessSet, OriginalHash, ScriptHash, ScriptRefWithHash,
-    TransactionInput,
+    display_collection, get_provided_scripts, BorrowedScript, DatumOption, Hash, MintedWitnessSet,
+    OriginalHash, RequiredScript, ScriptHash, ScriptPurpose, ScriptRefWithHash,
 };
 use thiserror::Error;
 
@@ -15,16 +14,11 @@ pub enum InvalidScripts {
     MissingRequiredScripts(Vec<ScriptHash>),
     #[error("extraneous script witnesses: extra [{}]", display_collection(.0))]
     ExtraneousScriptWitnesses(Vec<ScriptHash>),
-    #[error("unspendable inputs; no datums: [{}]",
-        .0
-        .iter()
-        .map(|input|
-            format!("{}#{}", input.transaction_id, input.index)
-        )
-        .collect::<Vec<_>>()
-        .join(", ")
+    #[error(
+        "unspendable inputs; no datums. Input indices: [{}]",
+        display_collection(.0)
     )]
-    UnspendableInputsNoDatums(Vec<TransactionInput>),
+    UnspendableInputsNoDatums(Vec<u32>),
     #[error(
         "missing required datums: missing [{}] provided [{}]",
         display_collection(missing),
@@ -45,23 +39,23 @@ pub enum InvalidScripts {
     },
 }
 
-// TODO: this can be made MUCH more efficient. Remove clones, don't iterate the same list several times, etc... Lots of low hanging fruit.
-pub fn execute<C>(
-    context: &mut C,
-    inputs: &[TransactionInput],
-    witness_set: &MintedWitnessSet<'_>,
-) -> Result<(), InvalidScripts>
+pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice,
 {
     let required_scripts = context.required_scripts();
+    let required_script_hashes = required_scripts
+        .iter()
+        .map(ScriptHash::from)
+        .collect::<BTreeSet<_>>();
+
     let provided_script_refs = context.provided_script_references();
 
     // we only consider script references required by the transaction
     let script_references = provided_script_refs
         .iter()
         .filter_map(|(script_hash, script_ref)| {
-            if required_scripts.contains(&script_hash) {
+            if required_script_hashes.contains(script_hash) {
                 Some(ScriptRefWithHash {
                     hash: *script_hash,
                     script: script_ref.into(),
@@ -72,25 +66,12 @@ where
         })
         .collect::<BTreeSet<_>>();
 
-    let resolved_inputs = inputs
-        .iter()
-        .map(
-            |input| match context.lookup(input).map(|output| (input, output)) {
-                Some(resolved) => resolved,
-                None => unreachable!(
-                    "found an input that doesn't exist in the utxo slice: {:?}",
-                    input
-                ),
-            },
-        )
-        .collect::<Vec<_>>();
-
     let provided_scripts: BTreeSet<_> = get_provided_scripts(witness_set)
         .into_iter()
         .chain(script_references)
         .collect();
 
-    let missing_scripts: Vec<ScriptHash> = required_scripts
+    let missing_scripts: Vec<ScriptHash> = required_script_hashes
         .difference(
             &provided_scripts
                 .iter()
@@ -108,7 +89,7 @@ where
         provided_scripts
             .iter()
             .fold(Vec::new(), |mut accum, script| {
-                if !required_scripts.contains(&script.hash) {
+                if !required_script_hashes.contains(&script.hash) {
                     accum.push(script.hash);
                 }
 
@@ -119,54 +100,50 @@ where
         return Err(InvalidScripts::ExtraneousScriptWitnesses(extra_scripts));
     }
 
-    let required_script_inputs = resolved_inputs
+    let required_spending_scripts = required_scripts
         .iter()
-        .filter_map(|input_output| {
-            input_output
-                .1
-                .address()
-                .ok()
-                .and_then(|address| match address {
-                    amaru_kernel::Address::Shelley(shelley_address) => {
-                        if shelley_address.payment().is_script() {
-                            if let Some(script) = provided_scripts
-                                .iter()
-                                .find(|script| &script.hash == shelley_address.payment().as_hash())
-                            {
-                                return Some((input_output, script));
-                            }
-                        }
-                        None
-                    }
-                    amaru_kernel::Address::Byron(_) | amaru_kernel::Address::Stake(_) => None,
-                })
+        .filter_map(|required_script| {
+            if required_script.purpose == ScriptPurpose::Spend {
+                if let Some(script) = provided_scripts
+                    .iter()
+                    .find(|script| script.hash == required_script.hash)
+                {
+                    return Some((required_script, &script.script));
+                }
+            }
+            None
         })
         .collect::<Vec<_>>();
 
     let mut input_datum_hashes: BTreeSet<Hash<32>> = BTreeSet::new();
-    let mut inputs_missing_datum: Vec<&TransactionInput> = Vec::new();
+    let mut input_indices_missing_datum = Vec::new();
 
-    required_script_inputs
-        .into_iter()
-        .for_each(|((input, output), script)| match output.datum() {
-            None => match script.script {
+    required_spending_scripts.iter().for_each(
+        |(
+            RequiredScript {
+                index,
+                datum_option,
+                hash: _,
+                purpose: _,
+            },
+            script,
+        )| match datum_option {
+            None => match script {
                 BorrowedScript::PlutusV1Script(..) | BorrowedScript::PlutusV2Script(..) => {
-                    inputs_missing_datum.push(input);
+                    input_indices_missing_datum.push(*index);
                 }
                 BorrowedScript::NativeScript(..) | BorrowedScript::PlutusV3Script(..) => {}
             },
-            Some(BorrowedDatumOption::Hash(hash)) => {
+            Some(DatumOption::Hash(hash)) => {
                 input_datum_hashes.insert(*hash);
             }
             Some(..) => {}
-        });
+        },
+    );
 
-    if !inputs_missing_datum.is_empty() {
+    if !input_indices_missing_datum.is_empty() {
         return Err(InvalidScripts::UnspendableInputsNoDatums(
-            inputs_missing_datum
-                .into_iter()
-                .cloned()
-                .collect::<Vec<_>>(),
+            input_indices_missing_datum,
         ));
     }
 
@@ -216,10 +193,8 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::ops::Deref;
-
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{include_cbor, include_json, MintedTransactionBody, MintedWitnessSet};
+    use amaru_kernel::{include_cbor, include_json, MintedWitnessSet};
     use test_case::test_case;
 
     use super::InvalidScripts;
@@ -228,20 +203,12 @@ mod tests {
         ($hash:literal) => {
             (
                 fixture_context!($hash),
-                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 include_cbor!(concat!("transactions/preprod/", $hash, "/witness.cbor")),
             )
         };
         ($hash:literal, $variant:literal) => {
             (
                 fixture_context!($hash, $variant),
-                include_cbor!(concat!(
-                    "transactions/preprod/",
-                    $hash,
-                    "/",
-                    $variant,
-                    "/tx.cbor"
-                )),
                 include_cbor!(concat!(
                     "transactions/preprod/",
                     $hash,
@@ -280,12 +247,8 @@ mod tests {
         "extraneous supplemental datum"
     )]
     fn test_scripts(
-        (mut ctx, tx, witness_set): (
-            AssertValidationContext,
-            MintedTransactionBody<'_>,
-            MintedWitnessSet<'_>,
-        ),
+        (mut ctx, witness_set): (AssertValidationContext, MintedWitnessSet<'_>),
     ) -> Result<(), InvalidScripts> {
-        super::execute(&mut ctx, tx.inputs.deref(), &witness_set)
+        super::execute(&mut ctx, &witness_set)
     }
 }

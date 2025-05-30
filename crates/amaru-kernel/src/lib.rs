@@ -31,8 +31,8 @@ use pallas_codec::{
 };
 use pallas_primitives::{
     conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemersKey,
-        RedeemersValue,
+        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
+        RedeemersKey, RedeemersValue,
     },
     DatumHash, PlutusData, PlutusScript,
 };
@@ -97,6 +97,67 @@ pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 pub type Lovelace = u64;
 
 pub type EpochInterval = u32;
+
+pub type ScriptPurpose = RedeemerTag;
+
+#[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
+pub struct RequiredScript {
+    pub hash: ScriptHash,
+    pub index: u32,
+    pub purpose: ScriptPurpose,
+    #[serde(default, deserialize_with = "serde_utils::deserialize_option_proxy")]
+    pub datum_option: Option<DatumOption>,
+}
+
+impl PartialOrd for RequiredScript {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl From<RequiredScript> for ScriptHash {
+    fn from(value: RequiredScript) -> Self {
+        value.hash
+    }
+}
+
+impl From<&RequiredScript> for ScriptHash {
+    fn from(value: &RequiredScript) -> Self {
+        value.hash
+    }
+}
+
+impl Ord for RequiredScript {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.hash.cmp(&other.hash) {
+            Ordering::Equal => match self.purpose.as_index().cmp(&other.purpose.as_index()) {
+                Ordering::Equal => self.index.cmp(&other.index),
+                other_ordering @ Ordering::Less | other_ordering @ Ordering::Greater => {
+                    other_ordering
+                }
+            },
+            other_ordering @ Ordering::Less | other_ordering @ Ordering::Greater => other_ordering,
+        }
+    }
+}
+
+impl From<RequiredScript> for RedeemersKey {
+    fn from(value: RequiredScript) -> Self {
+        RedeemersKey {
+            tag: value.purpose,
+            index: value.index,
+        }
+    }
+}
+
+impl From<&RequiredScript> for RedeemersKey {
+    fn from(value: &RequiredScript) -> Self {
+        RedeemersKey {
+            tag: value.purpose,
+            index: value.index,
+        }
+    }
+}
 
 #[derive(Clone, Eq, PartialEq, Hash, Debug)]
 pub enum Point {
@@ -255,6 +316,18 @@ impl<'a> From<&'a DatumOption> for BorrowedDatumOption<'a> {
         match value {
             PseudoDatumOption::Hash(hash) => Self::Hash(hash),
             PseudoDatumOption::Data(cbor_wrap) => Self::Data(cbor_wrap),
+        }
+    }
+}
+
+// FIXME: we are cloning here. Can we avoid that?
+impl From<BorrowedDatumOption<'_>> for DatumOption {
+    fn from(value: BorrowedDatumOption<'_>) -> Self {
+        match value {
+            BorrowedDatumOption::Hash(hash) => Self::Hash(*hash),
+            BorrowedDatumOption::Data(cbor_wrap) => {
+                Self::Data(CborWrap(cbor_wrap.to_owned().unwrap()))
+            }
         }
     }
 }
@@ -1089,6 +1162,23 @@ pub fn to_root(witness: &BootstrapWitness) -> Hash<28> {
 
     let sha_digest = sha_hasher.finalize();
     Hasher::<224>::hash(&sha_digest)
+}
+
+pub trait HasIndex {
+    fn as_index(&self) -> u32;
+}
+
+impl HasIndex for ScriptPurpose {
+    fn as_index(&self) -> u32 {
+        match self {
+            RedeemerTag::Spend => 0,
+            RedeemerTag::Mint => 1,
+            RedeemerTag::Cert => 2,
+            RedeemerTag::Reward => 3,
+            RedeemerTag::Vote => 4,
+            RedeemerTag::Propose => 5,
+        }
+    }
 }
 
 /// Create a new `ExUnits` that is the sum of two `ExUnits`

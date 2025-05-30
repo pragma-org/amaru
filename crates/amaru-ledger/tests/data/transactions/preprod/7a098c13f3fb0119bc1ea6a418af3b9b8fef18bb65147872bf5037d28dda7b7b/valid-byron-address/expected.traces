@@ -1,6 +1,6 @@
 [ {"name":"require_bootstrap_witness_span","bootstrap_witness": {"hash":"8518129a3c0df8e33c40e04b8d26ad3b0422d0fa9ca9255806a3f38b"}}
-, {"name":"require_witness_span","credential": {"hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","type":"script"}}
-, {"name":"require_witness_span","credential": {"hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","type":"script"}}
-, {"name":"require_witness_span","credential": {"hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749","type":"script"}}
+, {"name":"require_script_witness_span", "hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"}
+, {"name":"require_script_witness_span", "hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"}
+, {"name":"require_script_witness_span", "hash":"4e3b75eb68829ca9e63b541f3645f78afe8d119932a7a2528171e749"}
 , {"name":"require_bootstrap_witness_span","bootstrap_witness": {"hash":"8518129a3c0df8e33c40e04b8d26ad3b0422d0fa9ca9255806a3f38b"}}
 ]

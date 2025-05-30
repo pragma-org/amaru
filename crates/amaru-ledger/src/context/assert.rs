@@ -19,9 +19,10 @@ use crate::context::{
     UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    serde_utils, stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep,
-    HasScriptHash, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ScriptHash,
-    ScriptRef, StakeCredential, TransactionInput, TransactionOutput,
+    serde_utils, stake_credential_hash, stake_credential_type, AddrKeyhash, Anchor,
+    CertificatePointer, DRep, HasScriptHash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput,
+    TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -90,7 +91,7 @@ pub struct AssertValidationContext {
     #[serde(default)]
     required_signers: BTreeSet<Hash<28>>,
     #[serde(default)]
-    required_scripts: BTreeSet<Hash<28>>,
+    required_scripts: BTreeSet<RequiredScript>,
     #[serde(default, deserialize_with = "serde_utils::deserialize_map_proxy")]
     provided_script_refs: BTreeMap<ScriptHash, ScriptRef>,
     #[serde(default)]
@@ -263,23 +264,26 @@ impl WitnessSlice for AssertValidationContext {
     #[instrument(
         level = Level::TRACE,
         fields(
-            credential.type = %stake_credential_type(&credential),
-            credential.hash = %stake_credential_hash(&credential),
+            hash = %vkey_hash
         )
         skip_all,
-        name = "require_witness"
+        name = "require_vkey_witness"
     )]
-    fn require_witness(&mut self, credential: StakeCredential) {
-        match credential {
-            StakeCredential::AddrKeyhash(vk_hash) => {
-                self.required_signers.insert(vk_hash);
-            }
-            StakeCredential::ScriptHash(script_hash) => {
-                // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
-                // before hand, and here, check whether additional signatures are needed.
-                self.required_scripts.insert(script_hash);
-            }
-        }
+    fn require_vkey_witness(&mut self, vkey_hash: AddrKeyhash) {
+        self.required_signers.insert(vkey_hash);
+    }
+
+    // TODO: add purpose to fields
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            hash = %script.hash
+        )
+        skip_all,
+        name = "require_script_witness"
+    )]
+    fn require_script_witness(&mut self, script: RequiredScript) {
+        self.required_scripts.insert(script);
     }
 
     fn provide_script_reference(&mut self, script_ref: ScriptRef) {
@@ -303,7 +307,7 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_signers)
     }
 
-    fn required_scripts(&mut self) -> BTreeSet<Hash<28>> {
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript> {
         mem::take(&mut self.required_scripts)
     }
 

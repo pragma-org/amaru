@@ -16,7 +16,7 @@ use crate::{
     context::{AccountsSlice, WitnessSlice},
     rules::TransactionField,
 };
-use amaru_kernel::{Address, HasOwnership, Lovelace, RewardAccount};
+use amaru_kernel::{Address, HasOwnership, Lovelace, RequiredScript, RewardAccount, ScriptPurpose};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -52,7 +52,18 @@ where
                         position,
                     })?;
 
-                context.require_witness(credential.clone());
+                match credential {
+                    amaru_kernel::StakeCredential::ScriptHash(hash) => context
+                        .require_script_witness(RequiredScript {
+                            hash,
+                            index: position as u32,
+                            purpose: ScriptPurpose::Reward,
+                            datum_option: None,
+                        }),
+                    amaru_kernel::StakeCredential::AddrKeyhash(hash) => {
+                        context.require_vkey_witness(hash)
+                    }
+                };
 
                 context.withdraw_from(credential);
 
