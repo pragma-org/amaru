@@ -14,7 +14,8 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, BorrowedDatumOption, HasAddress, HasDatum, HasOwnership, TransactionInput,
+    AddrType, Address, BorrowedDatumOption, DatumOption, HasAddress, HasDatum, HasScriptRef,
+    RequiredScript, ScriptPurpose, TransactionInput,
 };
 use thiserror::Error;
 
@@ -35,7 +36,6 @@ pub enum InvalidInputs {
     NonDisjointRefInputs { intersection: Vec<TransactionInput> },
     #[error("input set empty")]
     EmptyInputSet,
-
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("uncategorized error: {0}")]
     UncategorizedError(String),
@@ -63,15 +63,35 @@ where
                 intersection.push(reference_input.clone());
             }
 
-            if let Some(output) = context.lookup(reference_input) {
-                if let Some(BorrowedDatumOption::Hash(hash)) = output.datum() {
-                    context.allow_supplemental_datum(*hash);
-                }
-            } else {
-                return Err(InvalidInputs::UnknownInput(reference_input.clone()));
+            // We have to drop the output before mutating context, otherwise we have a mutable borrow and an immutable borrow at the same time
+            let (datum_hash, script_ref) = {
+                let output = context
+                    .lookup(reference_input)
+                    .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
+
+                let datum_hash = match output.datum() {
+                    Some(BorrowedDatumOption::Hash(hash)) => Some(*hash),
+                    _ => None,
+                };
+
+                // FIXME: we are currently cloning the script reference.
+                // This is necessary because the context can't store a reference to the script references as the context necessarily
+                // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
+                // struct with a lifetime that matches that given transaction.
+                let script_ref = output.has_script_ref().cloned();
+
+                (datum_hash, script_ref)
+            };
+
+            if let Some(hash) = datum_hash {
+                context.allow_supplemental_datum(hash);
+            }
+            if let Some(script_ref) = script_ref {
+                context.provide_script_reference(script_ref);
             }
         }
     }
+
     if !intersection.is_empty() {
         return Err(InvalidInputs::NonDisjointRefInputs { intersection });
     }
@@ -81,35 +101,61 @@ where
     // FIXME: Collaterals should probably only be acknowledged when the transaction is failing; and
     // vice-versa for inputs.
     let collaterals = collaterals.map(|x| x.as_slice()).unwrap_or(&[]);
-    for input in [inputs.as_slice(), collaterals].concat().iter() {
-        match context.lookup(input) {
-            Some(output) => {
-                // In theory, we could receive a stake address as an output destination here and it would be valid...
-                let address = output.address().map_err(|e| {
+    for (index, input) in [inputs.as_slice(), collaterals].concat().iter().enumerate() {
+        // Extract data first, then drop output, then mutate context
+        let (address, script_ref, datum_option) = {
+            let output = context
+                .lookup(input)
+                .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
+
+            let address = output.address().map_err(|e| {
+                InvalidInputs::UncategorizedError(format!(
+                    "Invalid output address. (error {:?}) output: {:?}",
+                    e, output,
+                ))
+            })?;
+
+            let datum = output.datum();
+
+            // FIXME: we are currently cloning the script reference.
+            // This is necessary because the context can't store a reference to the script references as the context necessarily
+            // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
+            // struct with a lifetime that matches that given transaction.
+            let script_ref = output.has_script_ref().cloned();
+
+            (address, script_ref, datum)
+        };
+
+        match address {
+            Address::Byron(byron_address) => {
+                let payload = byron_address.decode().map_err(|e| {
                     InvalidInputs::UncategorizedError(format!(
-                        "Invalid output address. (error {:?}) output: {:?}",
-                        e, output,
+                        "Invalid byron address payload. (error {:?}) address: {:?}",
+                        e, byron_address
                     ))
                 })?;
 
-                if let Some(credential) = address.credential() {
-                    context.require_witness(credential);
-                }
-
-                if let Address::Byron(byron_address) = address {
-                    let payload = byron_address.decode().map_err(|e| {
-                        InvalidInputs::UncategorizedError(format!(
-                            "Invalid byron address payload. (error {:?}) address: {:?}",
-                            e, byron_address
-                        ))
-                    })?;
-
-                    if let AddrType::PubKey = payload.addrtype {
-                        context.require_bootstrap_witness(payload.root);
-                    };
+                if let AddrType::PubKey = payload.addrtype {
+                    context.require_bootstrap_witness(payload.root);
                 };
             }
-            None => Err(InvalidInputs::UnknownInput(input.clone()))?,
+            Address::Shelley(shelley_address) => {
+                if shelley_address.payment().is_script() {
+                    context.require_script_witness(RequiredScript {
+                        hash: *shelley_address.payment().as_hash(),
+                        index: index as u32,
+                        purpose: ScriptPurpose::Spend,
+                        datum_option: datum_option.map(DatumOption::from),
+                    });
+                } else {
+                    context.require_vkey_witness(*shelley_address.payment().as_hash());
+                }
+            }
+            Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
+        }
+
+        if let Some(script_ref) = script_ref {
+            context.provide_script_reference(script_ref);
         }
     }
 

@@ -17,11 +17,16 @@ mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    AddrKeyhash, Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use slot_arithmetic::Epoch;
-use std::{collections::BTreeSet, fmt, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    marker::PhantomData,
+};
 
 pub use default::*;
 
@@ -257,24 +262,33 @@ pub trait WitnessSlice {
     /// Indicate a datum that may appear in the witness set that isn't required for spending an input
     fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>);
 
-    /// Obtain the full list of allowed supplemental datums while traversing the transaction
-    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>>;
+    /// Provide a reference that appeared in the transaction that can be used for validation
+    fn provide_script_reference(&mut self, script_ref: ScriptRef);
 
-    /// Indicate that a witness is required to be present (and valid) for the corresponding
-    /// set of credentials.
-    fn require_witness(&mut self, credential: StakeCredential);
+    /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
+    fn require_script_witness(&mut self, script: RequiredScript);
+
+    /// Indicate that a vkey witness is required to be present (and valid) for the corresponding
+    /// key hash.
+    fn require_vkey_witness(&mut self, vkey_hash: AddrKeyhash);
 
     /// Indicate that a bootstrap witness is required to be present (and valid) for the corresponding
     /// root.
     fn require_bootstrap_witness(&mut self, root: Hash<28>);
 
+    /// Obtain the full list of allowed supplemental datums while traversing the transaction
+    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>>;
+
     /// Obtain the full list of required signers collected while traversing the transaction.
     fn required_signers(&mut self) -> BTreeSet<Hash<28>>;
 
     /// Obtain the full list of require scripts collected while traversing the transaction.
-    fn required_scripts(&mut self) -> BTreeSet<Hash<28>>;
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript>;
 
     /// Obtain the full list of required bootstrap witnesses collected while traversing the
     /// transaction.
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>>;
+
+    /// Obtain the full list of provided script reference collected while traversing the trasaction.
+    fn provided_script_references(&mut self) -> BTreeMap<ScriptHash, ScriptRef>;
 }

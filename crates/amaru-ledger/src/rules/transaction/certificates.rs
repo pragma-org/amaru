@@ -18,7 +18,7 @@ use crate::context::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Certificate, CertificatePointer, DRep, NonEmptySet,
-    PoolId, PoolParams, StakeCredential, TransactionPointer,
+    PoolId, PoolParams, RequiredScript, ScriptPurpose, StakeCredential, TransactionPointer,
 };
 use slot_arithmetic::Epoch;
 use thiserror::Error;
@@ -96,7 +96,7 @@ where
             relays,
             pool_metadata: metadata,
         } => {
-            context.require_witness(StakeCredential::AddrKeyhash(id));
+            context.require_vkey_witness(id);
             let params = PoolParams {
                 id,
                 vrf,
@@ -113,7 +113,7 @@ where
         }
 
         Certificate::PoolRetirement(id, epoch) => {
-            context.require_witness(StakeCredential::AddrKeyhash(id));
+            context.require_vkey_witness(id);
             PoolsSlice::retire(context, id, Epoch::from(epoch));
             Ok(())
         }
@@ -138,7 +138,17 @@ where
             //
             // See https://github.com/IntersectMBO/cardano-ledger/blob/81637a1c2250225fef47399dd56f80d87384df32/eras/conway/impl/src/Cardano/Ledger/Conway/TxCert.hs#L698
             if deposit > 0 {
-                context.require_witness(credential.clone());
+                match credential {
+                    StakeCredential::ScriptHash(hash) => {
+                        context.require_script_witness(RequiredScript {
+                            hash,
+                            index: pointer.certificate_index as u32,
+                            purpose: ScriptPurpose::Cert,
+                            datum_option: None,
+                        })
+                    }
+                    StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+                };
             }
 
             AccountsSlice::register(
@@ -154,19 +164,49 @@ where
         }
 
         Certificate::StakeDeregistration(credential) | Certificate::UnReg(credential, _) => {
-            context.require_witness(credential.clone());
+            match credential {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: pointer.certificate_index as u32,
+                        purpose: ScriptPurpose::Cert,
+                        datum_option: None,
+                    })
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
             AccountsSlice::unregister(context, credential);
             Ok(())
         }
 
         Certificate::StakeDelegation(credential, pool) => {
-            context.require_witness(credential.clone());
+            match credential {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: pointer.certificate_index as u32,
+                        purpose: ScriptPurpose::Cert,
+                        datum_option: None,
+                    })
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
             context.delegate_pool(credential, pool)?;
             Ok(())
         }
 
         Certificate::RegDRepCert(drep, deposit, anchor) => {
-            context.require_witness(drep.clone());
+            match drep {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: pointer.certificate_index as u32,
+                        purpose: ScriptPurpose::Cert,
+                        datum_option: None,
+                    })
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
             DRepsSlice::register(
                 context,
                 drep,
@@ -180,31 +220,81 @@ where
         }
 
         Certificate::UnRegDRepCert(drep, refund) => {
-            context.require_witness(drep.clone());
+            match drep {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: pointer.certificate_index as u32,
+                        purpose: ScriptPurpose::Cert,
+                        datum_option: None,
+                    })
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
             DRepsSlice::unregister(context, drep, refund, pointer);
             Ok(())
         }
 
         Certificate::UpdateDRepCert(drep, anchor) => {
-            context.require_witness(drep.clone());
+            match drep {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: pointer.certificate_index as u32,
+                        purpose: ScriptPurpose::Cert,
+                        datum_option: None,
+                    })
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
             DRepsSlice::update(context, drep, Option::from(anchor))?;
             Ok(())
         }
 
         Certificate::VoteDeleg(credential, drep) => {
-            context.require_witness(credential.clone());
+            match credential {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: pointer.certificate_index as u32,
+                        purpose: ScriptPurpose::Cert,
+                        datum_option: None,
+                    })
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
             AccountsSlice::delegate_vote(context, credential, drep, pointer)?;
             Ok(())
         }
 
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
-            context.require_witness(cold_credential.clone());
+            match cold_credential {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: pointer.certificate_index as u32,
+                        purpose: ScriptPurpose::Cert,
+                        datum_option: None,
+                    })
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
             CommitteeSlice::delegate_cold_key(context, cold_credential, hot_credential)?;
             Ok(())
         }
 
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
-            context.require_witness(cold_credential.clone());
+            match cold_credential {
+                StakeCredential::ScriptHash(hash) => {
+                    context.require_script_witness(RequiredScript {
+                        hash,
+                        index: pointer.certificate_index as u32,
+                        purpose: ScriptPurpose::Cert,
+                        datum_option: None,
+                    })
+                }
+                StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
+            };
             CommitteeSlice::resign(context, cold_credential, Option::from(anchor))?;
             Ok(())
         }

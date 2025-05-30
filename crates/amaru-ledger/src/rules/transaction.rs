@@ -191,12 +191,7 @@ pub fn execute(
         transaction_witness_set.bootstrap_witness.as_deref(),
     )?;
 
-    scripts::execute(
-        context,
-        transaction_body.reference_inputs.as_deref(),
-        transaction_body.inputs.deref(),
-        transaction_witness_set,
-    )?;
+    scripts::execute(context, transaction_witness_set)?;
 
     // At last, consume inputs
     if is_valid {

@@ -21,8 +21,9 @@ use crate::{
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, HasScriptHash, Hash, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -33,8 +34,9 @@ use tracing::trace;
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     state: VolatileState,
+    provided_script_refs: BTreeMap<ScriptHash, ScriptRef>,
     required_signers: BTreeSet<Hash<28>>,
-    required_scripts: BTreeSet<Hash<28>>,
+    required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<32>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
@@ -45,6 +47,7 @@ impl DefaultValidationContext {
             utxo,
             state: VolatileState::default(),
             required_signers: BTreeSet::default(),
+            provided_script_refs: BTreeMap::new(),
             required_scripts: BTreeSet::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
@@ -226,17 +229,17 @@ impl ProposalsSlice for DefaultValidationContext {
 }
 
 impl WitnessSlice for DefaultValidationContext {
-    fn require_witness(&mut self, credential: StakeCredential) {
-        match credential {
-            StakeCredential::AddrKeyhash(vk_hash) => {
-                self.required_signers.insert(vk_hash);
-            }
-            StakeCredential::ScriptHash(script_hash) => {
-                // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
-                // before hand, and here, check whether additional signatures are needed.
-                self.required_scripts.insert(script_hash);
-            }
-        }
+    fn require_vkey_witness(&mut self, vkey_hash: amaru_kernel::AddrKeyhash) {
+        self.required_signers.insert(vkey_hash);
+    }
+
+    fn require_script_witness(&mut self, script: RequiredScript) {
+        self.required_scripts.insert(script);
+    }
+
+    fn provide_script_reference(&mut self, script_ref: ScriptRef) {
+        self.provided_script_refs
+            .insert(script_ref.script_hash(), script_ref);
     }
 
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
@@ -251,7 +254,7 @@ impl WitnessSlice for DefaultValidationContext {
         mem::take(&mut self.required_signers)
     }
 
-    fn required_scripts(&mut self) -> BTreeSet<Hash<28>> {
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript> {
         mem::take(&mut self.required_scripts)
     }
 
@@ -261,5 +264,9 @@ impl WitnessSlice for DefaultValidationContext {
 
     fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>> {
         mem::take(&mut self.required_supplemental_datums)
+    }
+
+    fn provided_script_references(&mut self) -> BTreeMap<ScriptHash, ScriptRef> {
+        mem::take(&mut self.provided_script_refs)
     }
 }
