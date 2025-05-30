@@ -74,7 +74,10 @@ where
                     Some(BorrowedDatumOption::Hash(hash)) => Some(*hash),
                     _ => None,
                 };
-
+                // FIXME: we are currently cloning the script reference.
+                // This is necessary because the context can't store a reference to the script references as the context necessarily
+                // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
+                // struct with a lifetime that matches that given transaction.
                 let script_ref = output.has_script_ref().cloned();
 
                 (datum_hash, script_ref)
@@ -112,6 +115,10 @@ where
                 ))
             })?;
 
+            // FIXME: we are currently cloning the script reference.
+            // This is necessary because the context can't store a reference to the script references as the context necessarily
+            // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
+            // struct with a lifetime that matches that given transaction.
             let script_ref = output.has_script_ref().cloned();
 
             (address, script_ref)
