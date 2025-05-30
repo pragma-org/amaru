@@ -20,8 +20,8 @@ use crate::context::{
 };
 use amaru_kernel::{
     serde_utils, stake_credential_hash, stake_credential_type, Anchor, CertificatePointer, DRep,
-    Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, StakeCredential,
-    TransactionInput, TransactionOutput,
+    HasScriptHash, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ScriptHash,
+    ScriptRef, StakeCredential, TransactionInput, TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -45,6 +45,7 @@ impl From<AssertPreparationContext> for AssertValidationContext {
             utxo: ctx.utxo,
             required_signers: BTreeSet::default(),
             required_scripts: BTreeSet::default(),
+            provided_script_refs: BTreeMap::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
         }
@@ -90,6 +91,8 @@ pub struct AssertValidationContext {
     required_signers: BTreeSet<Hash<28>>,
     #[serde(default)]
     required_scripts: BTreeSet<Hash<28>>,
+    #[serde(default, deserialize_with = "serde_utils::deserialize_map_proxy")]
+    provided_script_refs: BTreeMap<ScriptHash, ScriptRef>,
     #[serde(default)]
     required_supplemental_datums: BTreeSet<Hash<32>>,
     #[serde(default)]
@@ -279,6 +282,11 @@ impl WitnessSlice for AssertValidationContext {
         }
     }
 
+    fn provide_script_reference(&mut self, script_ref: ScriptRef) {
+        self.provided_script_refs
+            .insert(script_ref.script_hash(), script_ref);
+    }
+
     #[instrument(
         level = Level::TRACE,
         fields(
@@ -309,5 +317,9 @@ impl WitnessSlice for AssertValidationContext {
 
     fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>> {
         mem::take(&mut self.required_supplemental_datums)
+    }
+
+    fn provided_script_references(&mut self) -> BTreeMap<ScriptHash, ScriptRef> {
+        mem::take(&mut self.provided_script_refs)
     }
 }

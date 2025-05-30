@@ -21,8 +21,9 @@ use crate::{
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, HasScriptHash, Hash, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, ScriptHash, ScriptRef, StakeCredential, TransactionInput,
+    TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -33,6 +34,7 @@ use tracing::trace;
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     state: VolatileState,
+    provided_script_refs: BTreeMap<ScriptHash, ScriptRef>,
     required_signers: BTreeSet<Hash<28>>,
     required_scripts: BTreeSet<Hash<28>>,
     required_supplemental_datums: BTreeSet<Hash<32>>,
@@ -45,6 +47,7 @@ impl DefaultValidationContext {
             utxo,
             state: VolatileState::default(),
             required_signers: BTreeSet::default(),
+            provided_script_refs: BTreeMap::new(),
             required_scripts: BTreeSet::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
@@ -239,6 +242,11 @@ impl WitnessSlice for DefaultValidationContext {
         }
     }
 
+    fn provide_script_reference(&mut self, script_ref: ScriptRef) {
+        self.provided_script_refs
+            .insert(script_ref.script_hash(), script_ref);
+    }
+
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
         self.required_bootstrap_signers.insert(root);
     }
@@ -261,5 +269,9 @@ impl WitnessSlice for DefaultValidationContext {
 
     fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>> {
         mem::take(&mut self.required_supplemental_datums)
+    }
+
+    fn provided_script_references(&mut self) -> BTreeMap<ScriptHash, ScriptRef> {
+        mem::take(&mut self.provided_script_refs)
     }
 }
