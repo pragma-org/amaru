@@ -273,6 +273,15 @@ impl WitnessSlice for AssertValidationContext {
         self.required_signers.insert(vkey_hash);
     }
 
+    // TODO: add purpose to fields
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            hash = %script.hash
+        )
+        skip_all,
+        name = "require_script_witness"
+    )]
     fn require_script_witness(&mut self, script: RequiredScript) {
         self.required_scripts.insert(script);
     }
