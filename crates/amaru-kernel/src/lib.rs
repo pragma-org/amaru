@@ -132,9 +132,11 @@ impl Ord for RequiredScript {
         match self.hash.cmp(&other.hash) {
             Ordering::Equal => match self.purpose.as_index().cmp(&other.purpose.as_index()) {
                 Ordering::Equal => self.index.cmp(&other.index),
-                other_ordering => other_ordering,
+                other_ordering @ Ordering::Less | other_ordering @ Ordering::Greater => {
+                    other_ordering
+                }
             },
-            other_ordering => other_ordering,
+            other_ordering @ Ordering::Less | other_ordering @ Ordering::Greater => other_ordering,
         }
     }
 }
