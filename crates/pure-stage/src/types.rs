@@ -1,4 +1,4 @@
-use std::{any::Any, fmt, future::Future, pin::Pin};
+use std::{any::Any, borrow::Borrow, fmt, future::Future, pin::Pin, sync::Arc};
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -10,8 +10,15 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 ///
 /// See [`cast_msg`](cast_msg) for a utility function casting a generic message to a concrete type.
 pub trait Message: Any + fmt::Debug + Send + 'static {
+    /// Check for equality with another dynamically typed message.
+    ///
+    /// This is useful for implementing `PartialEq` for types containing boxed messages.
     fn eq(&self, other: &dyn Message) -> bool;
-    fn type_name(&self) -> &str;
+
+    /// Get the type name of the message given a reference to a message.
+    ///
+    /// When the type is statically known, use `std::any::type_name::<T>()` instead.
+    fn type_name(&self) -> &'static str;
 }
 impl<T: Any + fmt::Debug + Send + PartialEq + 'static> Message for T {
     fn eq(&self, other: &dyn Message) -> bool {
@@ -20,45 +27,40 @@ impl<T: Any + fmt::Debug + Send + PartialEq + 'static> Message for T {
         };
         self == other
     }
-    fn type_name(&self) -> &str {
+    fn type_name(&self) -> &'static str {
         std::any::type_name::<T>()
     }
 }
 
-/// Cast a message to a given concrete type, yielding an informative error otherwise
-pub fn cast_msg<T: Message>(this: Box<dyn Message>) -> anyhow::Result<T> {
-    // we could get rid of this .is/.downcast duplication only if we don't print
-    // the actual Debug representation of the message; since this is only used
-    // in testing, it is probably okay
-    if (&*this as &dyn Any).is::<T>() {
-        #[allow(clippy::expect_used)]
-        Ok(*(this as Box<dyn Any>)
-            .downcast::<T>()
-            .expect("checked above"))
-    } else {
-        anyhow::bail!(
-            "message type error: expected {}, got {:?} ({})",
-            std::any::type_name::<T>(),
-            this,
-            (*this).type_name()
-        )
+impl dyn Message {
+    /// Cast a message to a given concrete type.
+    pub fn cast_ref<T: Message>(&self) -> Option<&T> {
+        (self as &dyn Any).downcast_ref::<T>()
+    }
+
+    /// Cast a message to a given concrete type, yielding an informative error otherwise
+    pub fn cast<T: Message>(self: Box<Self>) -> anyhow::Result<Box<T>> {
+        if (&*self as &dyn Any).is::<T>() {
+            #[allow(clippy::expect_used)]
+            Ok(Box::new(
+                *(self as Box<dyn Any>)
+                    .downcast::<T>()
+                    .expect("checked above"),
+            ))
+        } else {
+            anyhow::bail!(
+                "message type error: expected {}, got {:?} ({})",
+                std::any::type_name::<T>(),
+                self,
+                (*self).type_name()
+            )
+        }
     }
 }
 
-/// Cast a message to a given concrete type, yielding an informative error otherwise
-pub fn cast_msg_ref<T: Message>(this: &dyn Message) -> anyhow::Result<&T> {
-    if (this as &dyn Any).is::<T>() {
-        #[allow(clippy::expect_used)]
-        Ok((this as &dyn Any)
-            .downcast_ref::<T>()
-            .expect("checked above"))
-    } else {
-        anyhow::bail!(
-            "message type error: expected {}, got {:?} ({})",
-            std::any::type_name::<T>(),
-            this,
-            this.type_name()
-        )
+impl PartialEq for dyn Message {
+    fn eq(&self, other: &Self) -> bool {
+        self.type_id() == other.type_id() && Message::eq(self, other)
     }
 }
 
@@ -78,36 +80,45 @@ impl<T: Any + fmt::Debug + Send + 'static> State for T {
     }
 }
 
-/// Cast a state to a given concrete type, yielding an informative error otherwise
-///
-/// NOTE that Rust coercion rules for trait references mean that you can pass
-/// `&Box<dyn State>`, which will compile fine but it won't work because then
-/// the original type of the State will be erased.
-pub fn cast_state<T: State>(this: &dyn State) -> anyhow::Result<&T> {
-    // we could get rid of this .is/.downcast duplication only if we don't print
-    // the actual Debug representation of the message; since this is only used
-    // in testing, it is probably okay
-    if (this as &dyn Any).is::<T>() {
-        #[allow(clippy::expect_used)]
-        Ok((this as &dyn Any)
-            .downcast_ref::<T>()
-            .expect("checked above"))
-    } else {
-        anyhow::bail!(
-            "state type error: expected {}, got {:?} ({})",
-            std::any::type_name::<T>(),
-            this,
-            this.type_name()
-        )
+impl dyn State {
+    /// Cast a state to a given concrete type.
+    pub fn cast_ref<T: State>(&self) -> Option<&T> {
+        (self as &dyn Any).downcast_ref::<T>()
+    }
+
+    /// Cast a state to a given concrete type, yielding an informative error otherwise
+    pub fn cast<T: State>(self: Box<Self>) -> anyhow::Result<Box<T>> {
+        if (&*self as &dyn Any).is::<T>() {
+            #[allow(clippy::expect_used)]
+            Ok(Box::new(
+                *(self as Box<dyn Any>)
+                    .downcast::<T>()
+                    .expect("checked above"),
+            ))
+        } else {
+            anyhow::bail!(
+                "state type error: expected {}, got {:?} ({})",
+                std::any::type_name::<T>(),
+                self,
+                (*self).type_name()
+            )
+        }
     }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct Name(String);
+pub struct Name(Arc<str>);
 
 impl Name {
     pub fn as_str(&self) -> &str {
-        self.0.as_str()
+        &self.0
+    }
+
+    pub fn append(&self, other: &str) -> Self {
+        let mut new = String::with_capacity(self.0.len() + other.len());
+        new.push_str(&self.0);
+        new.push_str(other);
+        Self(new.into())
     }
 }
 
@@ -117,9 +128,15 @@ impl AsRef<str> for Name {
     }
 }
 
+impl Borrow<str> for Name {
+    fn borrow(&self) -> &str {
+        self.as_str()
+    }
+}
+
 impl From<&str> for Name {
     fn from(value: &str) -> Self {
-        Self(value.to_owned())
+        Self(value.into())
     }
 }
 
@@ -131,20 +148,42 @@ impl fmt::Display for Name {
 
 #[cfg(test)]
 mod test {
-    use super::Message;
-    use crate::{cast_msg, cast_state, State};
+    use crate::{Message, State};
 
     #[test]
     fn message() {
         let s = Box::new("hello".to_owned()) as Box<dyn Message>;
         assert_eq!(format!("{s:?}"), "\"hello\"");
         assert_eq!(
-            cast_msg::<&'static str>(s).unwrap_err().to_string(),
+            s.cast::<&'static str>().unwrap_err().to_string(),
             "message type error: expected &str, got \"hello\" (alloc::string::String)"
         );
 
         let s = Box::new("hello".to_owned()) as Box<dyn Message>;
-        assert_eq!(cast_msg::<String>(s).unwrap(), "hello");
+        assert_eq!(*s.cast::<String>().unwrap(), "hello");
+
+        // the following tests show that this type of cast is robust regarding
+        // auto-dereferencing, which is a common source of confusion when using
+        // trait objects.
+
+        let r0 = 1u32;
+        let r1: &dyn Message = &r0;
+        let r2 = &r1;
+        let r3 = &r2;
+
+        assert_eq!(r1.cast_ref::<u32>().unwrap(), &1);
+        assert_eq!(r2.cast_ref::<u32>().unwrap(), &1);
+        assert_eq!(r3.cast_ref::<u32>().unwrap(), &1);
+
+        let r0: Box<dyn Message> = Box::new(1u32);
+        let r1 = &r0;
+        let r2 = &r1;
+        let r3 = &r2;
+
+        assert_eq!(r0.cast_ref::<u32>().unwrap(), &1);
+        assert_eq!(r1.cast_ref::<u32>().unwrap(), &1);
+        assert_eq!(r2.cast_ref::<u32>().unwrap(), &1);
+        assert_eq!(r3.cast_ref::<u32>().unwrap(), &1);
     }
 
     #[test]
@@ -152,11 +191,11 @@ mod test {
         let s = Box::new("hello".to_owned()) as Box<dyn State>;
         assert_eq!(format!("{s:?}"), "\"hello\"");
         assert_eq!(
-            cast_state::<&'static str>(&*s).unwrap_err().to_string(),
+            s.cast::<&'static str>().unwrap_err().to_string(),
             "state type error: expected &str, got \"hello\" (alloc::string::String)"
         );
 
         let s = Box::new("hello".to_owned()) as Box<dyn State>;
-        assert_eq!(cast_state::<String>(&*s).unwrap(), "hello");
+        assert_eq!(*s.cast::<String>().unwrap(), "hello");
     }
 }

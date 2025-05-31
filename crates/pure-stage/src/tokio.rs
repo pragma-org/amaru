@@ -1,8 +1,7 @@
 use crate::{
-    cast_msg,
     effect::{StageEffect, StageResponse},
     simulation::EffectBox,
-    BoxFuture, Effects, Instant, Message, Name, StageBuildRef, StageGraph, StageRef, State,
+    BoxFuture, Effects, Instant, Message, Name, Sender, StageBuildRef, StageGraph, StageRef, State,
 };
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
@@ -14,7 +13,7 @@ use std::{
     task::{Context, Poll, Waker},
 };
 use tokio::{
-    spawn,
+    runtime::Handle,
     sync::mpsc::{self, Receiver},
     task::JoinHandle,
 };
@@ -27,7 +26,18 @@ pub struct SendError {
 
 struct TokioInner {
     senders: HashMap<Name, mpsc::Sender<Box<dyn Message>>>,
+    now: Arc<dyn Fn() -> Instant + Send + Sync>,
     mailbox_size: usize,
+}
+
+impl Default for TokioInner {
+    fn default() -> Self {
+        Self {
+            senders: Default::default(),
+            now: Arc::new(|| Instant::from_tokio(tokio::time::Instant::now())),
+            mailbox_size: 10,
+        }
+    }
 }
 
 /// A [`StageGraph`] implementation that dispatches each stage as a task on the Tokio global pool.
@@ -35,6 +45,7 @@ struct TokioInner {
 /// *This is currently only a minimal sketch that will likely not fit the intended design.
 /// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::simulation::SimulationBuilder)
 /// implementation.*
+#[derive(Default)]
 pub struct TokioBuilder {
     tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, anyhow::Result<()>>>>,
     inner: TokioInner,
@@ -42,6 +53,7 @@ pub struct TokioBuilder {
 
 impl StageGraph for TokioBuilder {
     type Running = TokioRunning;
+
     type RefAux<Msg, State> = (
         Receiver<Box<dyn Message>>,
         Box<
@@ -55,21 +67,17 @@ impl StageGraph for TokioBuilder {
         &mut self,
         name: impl AsRef<str>,
         mut f: F,
-        state: St,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
         Fut: Future<Output = anyhow::Result<St>> + 'static + Send,
     {
-        let name = Name::from(name.as_ref());
-        if self.inner.senders.contains_key(&name) {
-            panic!("stage named `{name}` already exists");
-        }
-        let (tx, rx) = mpsc::channel(self.inner.mailbox_size / 2);
+        // THIS MUST MATCH THE SIMULATION BUILDER
+        let name = Name::from(&*format!("{}-{}", name.as_ref(), self.inner.senders.len()));
+        let (tx, rx) = mpsc::channel(self.inner.mailbox_size);
         self.inner.senders.insert(name.clone(), tx);
         StageBuildRef {
             name,
-            state,
             network: (
                 rx,
                 Box::new(move |state, msg, eff| Box::pin(f(state, msg, eff))),
@@ -78,18 +86,17 @@ impl StageGraph for TokioBuilder {
         }
     }
 
+    #[allow(clippy::expect_used)]
     fn wire_up<Msg: Message, St: State>(
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
-        f: impl FnOnce(&mut St),
+        mut state: St,
     ) -> StageRef<Msg, St> {
         let StageBuildRef {
             name,
-            mut state,
             network: (mut rx, mut ff),
             _ph,
         } = stage;
-        f(&mut state);
         let stage_name = name.clone();
         self.tasks.push(Box::new(move |inner| {
             Box::pin(async move {
@@ -98,8 +105,8 @@ impl StageGraph for TokioBuilder {
                     _ph: PhantomData,
                 };
                 let effect = Arc::new(Mutex::new(None));
-                let now = Arc::new(|| Instant::from_tokio(tokio::time::Instant::now()));
-                let effects = Effects::new(me, effect.clone(), now);
+                let sender = mk_sender(&stage_name, &inner);
+                let effects = Effects::new(me, effect.clone(), inner.now.clone(), sender);
                 while let Some(msg) = rx.recv().await {
                     state = interpreter(
                         &inner,
@@ -107,7 +114,7 @@ impl StageGraph for TokioBuilder {
                         &stage_name,
                         ff(
                             state,
-                            cast_msg(msg).expect("internal message type error"),
+                            *msg.cast::<Msg>().expect("internal message type error"),
                             effects.clone(),
                         ),
                     )
@@ -125,12 +132,38 @@ impl StageGraph for TokioBuilder {
         }
     }
 
-    fn run(self) -> Self::Running {
+    #[allow(clippy::expect_used)]
+    fn sender<Msg: Message, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
+        mk_sender(&stage.name, &self.inner)
+    }
+
+    fn run(self, rt: Handle) -> Self::Running {
         let Self { tasks, inner } = self;
         let inner = Arc::new(inner);
-        let handles = tasks.into_iter().map(|t| spawn(t(inner.clone()))).collect();
+        let handles = tasks
+            .into_iter()
+            .map(|t| rt.spawn(t(inner.clone())))
+            .collect();
         TokioRunning { handles }
     }
+}
+
+#[allow(clippy::expect_used)]
+fn mk_sender<Msg: Message>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg> {
+    let tx = inner
+        .senders
+        .get(stage_name)
+        .expect("stage ref contained unknown name")
+        .clone();
+    let sender = Sender::new(Arc::new(move |msg: Msg| {
+        let tx = tx.clone();
+        Box::pin(async move {
+            tx.send(Box::new(msg))
+                .await
+                .map_err(|msg| *msg.0.cast::<Msg>().expect("message was just boxed"))
+        })
+    }));
+    sender
 }
 
 async fn interpreter<St>(
@@ -144,14 +177,19 @@ async fn interpreter<St>(
         if let Poll::Ready(state) = poll {
             return state;
         }
+        #[allow(clippy::panic)]
         let Some(Left(eff)) = effect.lock().take() else {
             panic!("stage `{name}` used .await on something that was not a stage effect");
         };
         let resp = match eff {
             StageEffect::Receive => {
-                panic!("effect Receive cannot be explicitly awaited (stage `{name}`)")
+                #[allow(clippy::panic)]
+                {
+                    panic!("effect Receive cannot be explicitly awaited (stage `{name}`)")
+                }
             }
             StageEffect::Send(name, msg, call) => {
+                #[allow(clippy::expect_used)]
                 let tx = inner
                     .senders
                     .get(&name)
@@ -176,7 +214,10 @@ async fn interpreter<St>(
                 StageResponse::WaitResponse(now())
             }
             StageEffect::Call(..) => {
-                panic!("StageEffect::Call cannot be explicitly awaited (stage `{name}`")
+                #[allow(clippy::panic)]
+                {
+                    panic!("StageEffect::Call cannot be explicitly awaited (stage `{name}`")
+                }
             }
             StageEffect::Respond(target, _call_id, deadline, sender, msg) => {
                 if let Err(msg) = sender.send(msg) {
@@ -189,9 +230,9 @@ async fn interpreter<St>(
                 }
                 StageResponse::Unit
             }
-            StageEffect::Interrupt => {
-                tracing::debug!("stage `{name}` interrupt");
-                StageResponse::Unit
+            StageEffect::External(effect) => {
+                tracing::debug!("stage `{name}` external effect: {:?}", effect);
+                StageResponse::ExternalResponse(effect.run().await)
             }
         };
         *effect.lock() = Some(Right(resp));

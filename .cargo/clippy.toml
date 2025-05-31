@@ -1,5 +1,5 @@
 allow-expect-in-tests = true
 allow-panic-in-tests = true
 allow-unwrap-in-tests = true
-type-complexity-threshold = 400
+type-complexity-threshold = 600
 enum-variant-size-threshold = 1024
