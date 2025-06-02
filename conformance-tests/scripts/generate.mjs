@@ -106,7 +106,12 @@ const dreps = Object.keys(drepsDelegations)
   });
 
 // Relative source  of the snapshot test in the target crate.
-const source = "crates/amaru/src/ledger/rewards.rs";
+const source = "crates/amaru-ledger/src/summary/rewards.rs";
+const exists = fs.existsSync(`../${source}`);
+if (!exists) {
+  console.error(`Source file ${source} does not exist.`);
+  process.exit(1);
+}
 
 // ---------- Rewards summary snapshot
 
