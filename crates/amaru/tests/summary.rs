@@ -65,30 +65,12 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-#[test_case(NetworkName::Preprod, 163)]
-#[test_case(NetworkName::Preprod, 164)]
-#[test_case(NetworkName::Preprod, 165)]
-#[test_case(NetworkName::Preprod, 166)]
-#[test_case(NetworkName::Preprod, 167)]
-#[test_case(NetworkName::Preprod, 168)]
-#[test_case(NetworkName::Preprod, 169)]
-#[test_case(NetworkName::Preprod, 170)]
-#[test_case(NetworkName::Preprod, 171)]
-#[test_case(NetworkName::Preprod, 172)]
-#[test_case(NetworkName::Preprod, 173)]
-#[test_case(NetworkName::Preprod, 174)]
-#[test_case(NetworkName::Preprod, 175)]
-#[test_case(NetworkName::Preprod, 176)]
-#[test_case(NetworkName::Preprod, 177)]
-#[test_case(NetworkName::Preprod, 178)]
-#[test_case(NetworkName::Preprod, 179)]
-#[ignore]
+include!("compare_snapshot_test_cases.incl");
+
 #[allow(clippy::unwrap_used)]
-fn compare_preprod_snapshot(network_name: NetworkName, epoch: u64) {
-    let epoch = Epoch::from(epoch);
+fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
     let network = NetworkName::Preprod;
-    let snapshot = db(epoch);
-    let global_parameters: &GlobalParameters = network.into();
+    let snapshot = db(epoch);    let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
 
     let dreps = GovernanceSummary::new(
