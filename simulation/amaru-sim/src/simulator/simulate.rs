@@ -25,8 +25,8 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
-use pure_stage::simulation::{Receiver, SimulationRunning};
-use pure_stage::{StageRef, Void};
+use pure_stage::simulation::SimulationRunning;
+use pure_stage::{Receiver, StageRef, Void};
 
 use anyhow::anyhow;
 use proptest::{
@@ -280,7 +280,7 @@ pub fn simulate(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pure_stage::{simulation::SimulationBuilder, StageGraph, StageRef};
+    use pure_stage::{simulation::SimulationBuilder, StageGraph};
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
@@ -326,11 +326,11 @@ mod tests {
                         panic!("Got a message that wasn't an echo: {:?}", msg.body)
                     }
                 },
-                (0u64, StageRef::noop::<Envelope<EchoMessage>>()),
             );
-            let (output, rx) = network.output("output");
-            let stage = network.wire_up(stage, |state| state.1 = output.without_state());
-            let running = network.run();
+            let (output, rx) = network.output("output", 10);
+            let stage = network.wire_up(stage, (0u64, output.without_state()));
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let running = network.run(rt.handle().clone());
 
             pure_stage_node_handle(rx, stage, running).unwrap()
         };

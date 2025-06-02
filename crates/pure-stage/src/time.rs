@@ -39,3 +39,18 @@ impl Instant {
         self.0.checked_sub(duration).map(Self)
     }
 }
+
+#[test]
+fn instant() {
+    let now = Instant::now();
+    let later = now.checked_add(Duration::from_secs(1)).unwrap();
+
+    assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
+    assert_eq!(now.checked_since(later), None);
+
+    assert_eq!(later.saturating_since(now), Duration::from_secs(1));
+    assert_eq!(now.saturating_since(later), Duration::from_secs(0));
+
+    assert_eq!(now.checked_add(Duration::from_secs(1)).unwrap(), later);
+    assert_eq!(later.checked_sub(Duration::from_secs(1)).unwrap(), now);
+}
