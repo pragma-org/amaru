@@ -69,7 +69,13 @@ fn generated_compare_snapshot_test_cases() {
     let mut file = File::create(&dest_path).unwrap();
     for (network, epoch) in test_cases {
         let network_name: NetworkName = network.parse().unwrap();
-        writeln!(file, "#[test_case(NetworkName::{}, {})]", network_name_to_string(&network_name), epoch).unwrap();
+        writeln!(
+            file,
+            "#[test_case(NetworkName::{}, {})]",
+            network_name_to_string(&network_name),
+            epoch
+        )
+        .unwrap();
     }
 
     let test_content = "
