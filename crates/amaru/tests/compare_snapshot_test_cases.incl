@@ -1,0 +1,22 @@
+#[test_case(NetworkName::Preprod, 163)]
+#[test_case(NetworkName::Preprod, 164)]
+#[test_case(NetworkName::Preprod, 165)]
+#[test_case(NetworkName::Preprod, 166)]
+#[test_case(NetworkName::Preprod, 167)]
+#[test_case(NetworkName::Preprod, 168)]
+#[test_case(NetworkName::Preprod, 169)]
+#[test_case(NetworkName::Preprod, 170)]
+#[test_case(NetworkName::Preprod, 171)]
+#[test_case(NetworkName::Preprod, 172)]
+#[test_case(NetworkName::Preprod, 173)]
+#[test_case(NetworkName::Preprod, 174)]
+#[test_case(NetworkName::Preprod, 175)]
+#[test_case(NetworkName::Preprod, 176)]
+#[test_case(NetworkName::Preprod, 177)]
+#[test_case(NetworkName::Preprod, 178)]
+#[test_case(NetworkName::Preprod, 179)]
+#[ignore]
+pub fn compare_snapshot_test_case(network_name: NetworkName, epoch: u64) {
+    let epoch = Epoch::from(epoch);
+    compare_snapshot(network_name, epoch)
+}
