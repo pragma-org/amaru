@@ -30,6 +30,7 @@ fn network_name_to_string(network: &NetworkName) -> String {
     }
 }
 
+#[allow(clippy::unwrap_used)]
 fn generated_compare_snapshot_test_cases() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated_compare_snapshot_test_cases.rs");
