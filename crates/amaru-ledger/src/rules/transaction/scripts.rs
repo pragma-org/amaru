@@ -1,8 +1,9 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    display_collection, get_provided_scripts, BorrowedScript, DatumOption, Hash, MintedWitnessSet,
-    OriginalHash, RequiredScript, ScriptHash, ScriptPurpose, ScriptRefWithHash,
+    display_collection, get_provided_scripts, script_purpose_to_string, BorrowedScript,
+    DatumOption, Hash, MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash,
+    ScriptPurpose, ScriptRefWithHash,
 };
 use thiserror::Error;
 
@@ -37,6 +38,10 @@ pub enum InvalidScripts {
         allowed: BTreeSet<Hash<32>>,
         provided: BTreeSet<Hash<32>>,
     },
+    #[error("extraneous redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
+    ExtraneousRedeemers(Vec<RedeemersKey>),
+    #[error("missing redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
+    MissingRedeemers(Vec<RedeemersKey>),
 }
 
 pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
@@ -48,6 +53,7 @@ where
         .iter()
         .map(ScriptHash::from)
         .collect::<BTreeSet<_>>();
+    let allowed_supplemental_datum = context.allowed_supplemental_datums();
 
     let provided_script_refs = context.known_scripts();
 
@@ -71,13 +77,11 @@ where
         .chain(script_references)
         .collect();
 
+    let provided_script_hashes: BTreeSet<ScriptHash> =
+        provided_scripts.iter().map(|script| script.hash).collect();
+
     let missing_scripts: Vec<ScriptHash> = required_script_hashes
-        .difference(
-            &provided_scripts
-                .iter()
-                .map(ScriptHash::from)
-                .collect::<BTreeSet<_>>(),
-        )
+        .difference(&provided_script_hashes)
         .cloned()
         .collect();
 
@@ -85,59 +89,56 @@ where
         return Err(InvalidScripts::MissingRequiredScripts(missing_scripts));
     }
 
-    let extra_scripts: Vec<ScriptHash> =
-        provided_scripts
-            .iter()
-            .fold(Vec::new(), |mut accum, script| {
-                if !required_script_hashes.contains(&script.hash) {
-                    accum.push(script.hash);
-                }
-
-                accum
-            });
+    let extra_scripts: Vec<ScriptHash> = provided_script_hashes
+        .difference(&required_script_hashes)
+        .copied()
+        .collect();
 
     if !extra_scripts.is_empty() {
         return Err(InvalidScripts::ExtraneousScriptWitnesses(extra_scripts));
     }
 
-    let required_spending_scripts = required_scripts
-        .iter()
+    let required_scripts = required_scripts
+        .into_iter()
         .filter_map(|required_script| {
-            if required_script.purpose == ScriptPurpose::Spend {
-                if let Some(script) = provided_scripts
-                    .iter()
-                    .find(|script| script.hash == required_script.hash)
-                {
-                    return Some((required_script, &script.script));
-                }
+            if let Some(script) = provided_scripts
+                .iter()
+                .find(|script| script.hash == required_script.hash)
+            {
+                return Some((required_script, &script.script));
+            } else {
+                unreachable!("required script found missing after validation");
             }
-            None
         })
         .collect::<Vec<_>>();
 
     let mut input_datum_hashes: BTreeSet<Hash<32>> = BTreeSet::new();
     let mut input_indices_missing_datum = Vec::new();
 
-    required_spending_scripts.iter().for_each(
+    required_scripts.iter().for_each(
         |(
             RequiredScript {
                 index,
                 datum_option,
                 hash: _,
-                purpose: _,
+                purpose,
             },
             script,
-        )| match datum_option {
-            None => match script {
-                BorrowedScript::PlutusV1Script(..) | BorrowedScript::PlutusV2Script(..) => {
-                    input_indices_missing_datum.push(*index);
-                }
-                BorrowedScript::NativeScript(..) | BorrowedScript::PlutusV3Script(..) => {}
-            },
-            Some(DatumOption::Hash(hash)) => {
-                input_datum_hashes.insert(*hash);
+        )| {
+            if purpose == &ScriptPurpose::Spend {
+                match datum_option {
+                    None => match script {
+                        BorrowedScript::PlutusV1Script(..) | BorrowedScript::PlutusV2Script(..) => {
+                            input_indices_missing_datum.push(*index);
+                        }
+                        BorrowedScript::NativeScript(..) | BorrowedScript::PlutusV3Script(..) => {}
+                    },
+                    Some(DatumOption::Hash(hash)) => {
+                        input_datum_hashes.insert(*hash);
+                    }
+                    Some(..) => {}
+                };
             }
-            Some(..) => {}
         },
     );
 
@@ -170,7 +171,6 @@ where
         });
     }
 
-    let allowed_supplemental_datum = context.allowed_supplemental_datums();
     let supplemental_datums = witness_datum_hashes
         .difference(&input_datum_hashes)
         .cloned()
@@ -186,6 +186,59 @@ where
             provided: supplemental_datums,
             allowed: allowed_supplemental_datum,
         });
+    }
+
+    let mut redeemers_required = required_scripts
+        .iter()
+        .filter_map(|(required_script, script)| match script {
+            BorrowedScript::PlutusV1Script(..)
+            | BorrowedScript::PlutusV2Script(..)
+            | BorrowedScript::PlutusV3Script(..) => Some(RedeemersKey::from(required_script)),
+            BorrowedScript::NativeScript(_) => None,
+        })
+        .collect::<Vec<_>>();
+
+    let mut extra_redeemers = Vec::new();
+
+    if let Some(redeemers) = witness_set.redeemer.as_deref() {
+        match redeemers {
+            amaru_kernel::Redeemers::List(redeemers) => {
+                redeemers.iter().for_each(|redeemer| {
+                    let provided = RedeemersKey {
+                        tag: redeemer.tag,
+                        index: redeemer.index,
+                    };
+                    if let Some(index) = redeemers_required
+                        .iter()
+                        .position(|required| required == &provided)
+                    {
+                        redeemers_required.remove(index);
+                    } else {
+                        extra_redeemers.push(provided);
+                    }
+                });
+            }
+            amaru_kernel::Redeemers::Map(redeemers) => {
+                redeemers.iter().for_each(|(provided, _)| {
+                    if let Some(index) = redeemers_required
+                        .iter()
+                        .position(|required| required == provided)
+                    {
+                        redeemers_required.remove(index);
+                    } else {
+                        extra_redeemers.push(provided.clone());
+                    }
+                });
+            }
+        }
+    }
+
+    if !redeemers_required.is_empty() {
+        return Err(InvalidScripts::MissingRedeemers(redeemers_required));
+    }
+
+    if !extra_redeemers.is_empty() {
+        return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
     }
 
     Ok(())
@@ -245,6 +298,14 @@ mod tests {
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-supplemental-datum") =>
         matches Err(InvalidScripts::ExtraneousSupplementalDatums{..});
         "extraneous supplemental datum"
+    )]
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "missing-required-redeemer") =>
+        matches Err(InvalidScripts::MissingRedeemers{..});
+        "missing required redeemer"
+    )]
+    #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "extraneous-redeemer") =>
+        matches Err(InvalidScripts::ExtraneousRedeemers{..});
+        "extraneous redeemer"
     )]
     fn test_scripts(
         (mut ctx, witness_set): (AssertValidationContext, MintedWitnessSet<'_>),
