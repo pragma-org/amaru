@@ -60,3 +60,4 @@ rocksdb.workspace = true
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
+amaru-kernel.workspace = true
