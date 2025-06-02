@@ -77,9 +77,10 @@ fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
     let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
 
+    let protocol_version = protocol_version(epoch);
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
-        preprod_protocol_version(epoch),
+        protocol_version,
         network_name.into(),
         &protocol_parameters,
     )
@@ -87,7 +88,7 @@ fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
 
     let stake_distr = StakeDistribution::new(
         snapshot.as_ref(),
-        preprod_protocol_version(epoch),
+        protocol_version,
         dreps,
         &protocol_parameters,
     )
@@ -124,7 +125,7 @@ fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
     });
 }
 
-fn preprod_protocol_version(epoch: Epoch) -> ProtocolVersion {
+fn protocol_version(epoch: Epoch) -> ProtocolVersion {
     if epoch <= Epoch::from(180) {
         return PROTOCOL_VERSION_9;
     }
