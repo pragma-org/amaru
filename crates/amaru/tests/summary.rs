@@ -70,7 +70,8 @@ include!("compare_snapshot_test_cases.incl");
 #[allow(clippy::unwrap_used)]
 fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
     let network = NetworkName::Preprod;
-    let snapshot = db(epoch);    let global_parameters: &GlobalParameters = network.into();
+    let snapshot = db(epoch);
+    let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
 
     let dreps = GovernanceSummary::new(
