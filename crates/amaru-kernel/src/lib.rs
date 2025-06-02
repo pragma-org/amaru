@@ -32,7 +32,7 @@ use pallas_codec::{
 use pallas_primitives::{
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
-        RedeemersKey, RedeemersValue,
+        RedeemersValue,
     },
     DatumHash, PlutusData, PlutusScript,
 };
@@ -67,10 +67,10 @@ pub use pallas_primitives::{
         MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
         MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
-        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers,
+        RedeemersKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -1164,11 +1164,37 @@ impl HasIndex for ScriptPurpose {
     }
 }
 
+pub fn script_purpose_to_string(purpose: ScriptPurpose) -> String {
+    match purpose {
+        RedeemerTag::Spend => "Spend".to_string(),
+        RedeemerTag::Mint => "Mint".to_string(),
+        RedeemerTag::Cert => "Cert".to_string(),
+        RedeemerTag::Reward => "Reward".to_string(),
+        RedeemerTag::Vote => "Vote".to_string(),
+        RedeemerTag::Propose => "Propose".to_string(),
+    }
+}
+
 /// Create a new `ExUnits` that is the sum of two `ExUnits`
 pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
     ExUnits {
         mem: left.mem + right.mem,
         steps: left.steps + right.steps,
+    }
+}
+
+// FIXME: cleanup clones?
+pub fn to_redeemer_keys(redeemers: &Redeemers) -> Vec<RedeemersKey> {
+    match redeemers {
+        Redeemers::List(redeemers) => redeemers
+            .deref()
+            .iter()
+            .map(|redeemer| RedeemersKey {
+                tag: redeemer.tag,
+                index: redeemer.index,
+            })
+            .collect(),
+        Redeemers::Map(redeemers) => redeemers.deref().iter().map(|(k, _)| k.clone()).collect(),
     }
 }
 
