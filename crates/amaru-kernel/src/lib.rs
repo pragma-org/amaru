@@ -115,12 +115,6 @@ impl PartialOrd for RequiredScript {
     }
 }
 
-impl From<RequiredScript> for ScriptHash {
-    fn from(value: RequiredScript) -> Self {
-        value.hash
-    }
-}
-
 impl From<&RequiredScript> for ScriptHash {
     fn from(value: &RequiredScript) -> Self {
         value.hash
@@ -132,20 +126,9 @@ impl Ord for RequiredScript {
         match self.hash.cmp(&other.hash) {
             Ordering::Equal => match self.purpose.as_index().cmp(&other.purpose.as_index()) {
                 Ordering::Equal => self.index.cmp(&other.index),
-                other_ordering @ Ordering::Less | other_ordering @ Ordering::Greater => {
-                    other_ordering
-                }
+                by_purpose @ Ordering::Less | by_purpose @ Ordering::Greater => by_purpose,
             },
-            other_ordering @ Ordering::Less | other_ordering @ Ordering::Greater => other_ordering,
-        }
-    }
-}
-
-impl From<RequiredScript> for RedeemersKey {
-    fn from(value: RequiredScript) -> Self {
-        RedeemersKey {
-            tag: value.purpose,
-            index: value.index,
+            by_hash @ Ordering::Less | by_hash @ Ordering::Greater => by_hash,
         }
     }
 }
