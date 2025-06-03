@@ -155,7 +155,9 @@ jobs:
       AMARU_PEER_ADDRESS: 127.0.0.1:3001
     strategy:
       matrix:
-        network: [preprod]
+        network:
+          - name: preprod
+            magic: 1
         cardano_node_version: [10.1.4]
     steps:
       - uses: actions/checkout@v4
@@ -170,11 +172,11 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           # The path should match the one used for the 'Nightly Sync' workflow.
-          path: ${{ runner.temp }}/db-${{ matrix.network }}
+          path: ${{ runner.temp }}/db-${{ matrix.network.name }}
           # The key should also match
-          key: cardano-node-ogmios-${{ matrix.network }}
+          key: cardano-node-ogmios-${{ matrix.network.name }}
           restore-keys: |
-            cardano-node-ogmios-${{ matrix.network }}
+            cardano-node-ogmios-${{ matrix.network.name }}
 
       - name: Check if cardano-node-db is available
         if: steps.cache-cardano-node-db.outputs.cache-hit == ''
@@ -187,9 +189,9 @@ jobs:
         shell: bash
         run: |
           docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
-          make HASKELL_NODE_CONFIG_DIR=cardano-node-config NETWORK=${{ matrix.network }} download-haskell-config
+          make HASKELL_NODE_CONFIG_DIR=cardano-node-config NETWORK=${{ matrix.network.name }} download-haskell-config
           docker run -d --name cardano-node \
-            -v ${{ runner.temp }}/db-${{ matrix.network }}:/db \
+            -v ${{ runner.temp }}/db-${{ matrix.network.name }}:/db \
             -v ${{ runner.temp }}/ipc:/ipc \
             -v ./cardano-node-config:/config \
             -v ./cardano-node-config:/genesis \
@@ -264,9 +266,9 @@ jobs:
           set -eux
 
           if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            export DEMO_TARGET_EPOCH=$($PWD/cardano-cli-bin/cardano-cli query tip --${{ matrix.network }})
+            export DEMO_TARGET_EPOCH=$($PWD/cardano-cli-bin/cardano-cli query tip --testnet-magic ${{ matrix.network.magic }})
           fi
-          export DEMO_TARGET_EPOCH=$($PWD/cardano-cli-bin/cardano-cli query tip --${{ matrix.network }})
+          export DEMO_TARGET_EPOCH=$($PWD/cardano-cli-bin/cardano-cli query tip --testnet-magic ${{ matrix.network.magic }})
           make demo
 
       - name: Run tests
@@ -282,8 +284,8 @@ jobs:
       - uses: actions/cache/save@v4
         if: github.event_name == 'push'
         with:
-          path: ${{ runner.temp }}/db-${{ matrix.network }}
-          key: cardano-node-ogmios-${{ matrix.network }}-${{ steps.timestamp.outputs.value }}
+          path: ${{ runner.temp }}/db-${{ matrix.network.name }}
+          key: cardano-node-ogmios-${{ matrix.network.name }}-${{ steps.timestamp.outputs.value }}
 
   examples:
     name: Examples
