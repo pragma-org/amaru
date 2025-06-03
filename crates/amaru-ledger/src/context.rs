@@ -311,6 +311,7 @@ pub fn blanket_known_scripts<C>(
 ) -> BTreeMap<ScriptHash, &'_ ScriptRef>
 where
     C: UtxoSlice,
+    I: IntoIterator<Item = (ScriptHash, ScriptLocation)>,
 {
     let mut scripts = BTreeMap::new();
 
