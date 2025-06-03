@@ -13,7 +13,7 @@
 // limitations under the License.
 
 /// A single peer in the network, with a unique identifier.
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, Hash, Clone, PartialOrd, Ord)]
 pub struct Peer {
     pub name: String,
 }

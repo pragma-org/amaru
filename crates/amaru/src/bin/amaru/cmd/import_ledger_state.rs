@@ -30,7 +30,7 @@ use indicatif::{ProgressBar, ProgressStyle};
 use pallas_codec::minicbor as cbor;
 use slot_arithmetic::Epoch;
 use std::{
-    collections::{BTreeMap, BTreeSet, HashMap},
+    collections::{BTreeMap, BTreeSet},
     fs, iter,
     path::PathBuf,
     sync::LazyLock,
@@ -243,7 +243,7 @@ fn decode_new_epoch_state(
     d.array()?;
 
     // credentials
-    let accounts: HashMap<StakeCredential, Account> = d.decode()?;
+    let accounts: BTreeMap<StakeCredential, Account> = d.decode()?;
 
     // pointers
     d.skip()?;
@@ -263,7 +263,7 @@ fn decode_new_epoch_state(
     import_utxo(
         db,
         point,
-        d.decode::<HashMap<TransactionInput, TransactionOutput>>()?
+        d.decode::<BTreeMap<TransactionInput, TransactionOutput>>()?
             .into_iter()
             .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
     )?;
@@ -318,7 +318,7 @@ fn decode_new_epoch_state(
 
     let delta_reserves: i64 = d.decode()?;
 
-    let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode()?;
+    let mut rewards: BTreeMap<StakeCredential, Set<Reward>> = d.decode()?;
     let delta_fees: i64 = d.decode()?;
 
     // NonMyopic
@@ -353,7 +353,7 @@ fn import_protocol_parameters(
 
 fn import_block_issuers(
     db: &impl Store,
-    blocks: HashMap<PoolId, u64>,
+    blocks: BTreeMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_block_issuers(|iterator| {
@@ -448,7 +448,7 @@ fn import_dreps(
     era_history: &EraHistory,
     point: &Point,
     epoch: Epoch,
-    dreps: HashMap<StakeCredential, DRepState>,
+    dreps: BTreeMap<StakeCredential, DRepState>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), impl std::error::Error> {
     let mut known_dreps = BTreeMap::new();
@@ -615,9 +615,9 @@ fn import_stake_pools(
     db: &impl Store,
     point: &Point,
     epoch: Epoch,
-    pools: HashMap<PoolId, PoolParams>,
-    updates: HashMap<PoolId, PoolParams>,
-    retirements: HashMap<PoolId, Epoch>,
+    pools: BTreeMap<PoolId, PoolParams>,
+    updates: BTreeMap<PoolId, PoolParams>,
+    retirements: BTreeMap<PoolId, Epoch>,
 ) -> Result<(), impl std::error::Error> {
     let mut state = amaru_ledger::state::diff_epoch_reg::DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
@@ -700,8 +700,8 @@ fn import_pots(
 fn import_accounts(
     db: &impl Store,
     point: &Point,
-    accounts: HashMap<StakeCredential, Account>,
-    rewards_updates: &mut HashMap<StakeCredential, Set<Reward>>,
+    accounts: BTreeMap<StakeCredential, Account>,
+    rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();

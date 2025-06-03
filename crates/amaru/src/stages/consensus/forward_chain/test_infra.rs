@@ -20,7 +20,7 @@ use pallas_network::{
     },
 };
 use std::{
-    collections::HashMap, fs::File, future::Future, path::Path, str::FromStr, sync::Arc,
+    collections::BTreeMap, fs::File, future::Future, path::Path, str::FromStr, sync::Arc,
     time::Duration,
 };
 use tokio::{
@@ -30,7 +30,7 @@ use tokio::{
 use tracing_subscriber::EnvFilter;
 
 #[derive(Debug, Clone)]
-pub struct TestStore(HashMap<Hash<32>, Header>);
+pub struct TestStore(BTreeMap<Hash<32>, Header>);
 
 impl TestStore {
     pub fn len(&self) -> usize {
@@ -121,7 +121,7 @@ pub fn mk_store(path: impl AsRef<Path>) -> TestStore {
         .as_array()
         .unwrap();
 
-    let mut store = HashMap::new();
+    let mut store = BTreeMap::new();
 
     for header in headers {
         let hash = header.pointer("/hash").unwrap().as_str().unwrap();

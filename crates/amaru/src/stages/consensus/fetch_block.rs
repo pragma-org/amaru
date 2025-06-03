@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
@@ -32,7 +32,7 @@ pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
     worker = "Worker"
 )]
 pub struct BlockFetchStage {
-    pub peer_sessions: HashMap<Peer, PeerSession>,
+    pub peer_sessions: BTreeMap<Peer, PeerSession>,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
 }
@@ -42,7 +42,7 @@ impl BlockFetchStage {
         let peer_sessions = sessions
             .iter()
             .map(|p| (p.peer.clone(), p.clone()))
-            .collect::<HashMap<_, _>>();
+            .collect::<BTreeMap<_, _>>();
         Self {
             peer_sessions,
             upstream: Default::default(),

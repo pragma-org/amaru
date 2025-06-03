@@ -21,7 +21,7 @@ use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
 use pallas_primitives::babbage;
 use serde::{Deserialize, Deserializer, Serialize};
-use std::{collections::HashMap, fs::File, io::BufReader};
+use std::{collections::BTreeMap, fs::File, io::BufReader};
 
 /// Context from which a header has been generated.
 ///
@@ -58,7 +58,7 @@ struct GeneratorContext {
     #[serde(deserialize_with = "deserialize_nonce")]
     nonce: Hash<32>,
     #[serde(rename = "ocertCounters")]
-    operational_certificate_counters: HashMap<Hash<28>, u64>,
+    operational_certificate_counters: BTreeMap<Hash<28>, u64>,
     #[serde(rename = "activeSlotCoeff")]
     active_slot_coeff: f64,
 }
