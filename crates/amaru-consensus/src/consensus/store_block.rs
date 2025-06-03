@@ -58,19 +58,19 @@ mod tests {
 
     use super::*;
     use amaru_kernel::{Hash, Point, RawBlock};
-    use std::sync::Arc;
+    use std::{collections::BTreeMap, sync::Arc};
     use tokio::sync::Mutex;
     use tracing::Span;
 
     // Mock implementation of ChainStore for testing
     struct MockChainStore {
-        stored_blocks: std::collections::HashMap<Hash<32>, RawBlock>,
+        stored_blocks: BTreeMap<Hash<32>, RawBlock>,
     }
 
     impl MockChainStore {
         fn new() -> Self {
             Self {
-                stored_blocks: std::collections::HashMap::new(),
+                stored_blocks: BTreeMap::new(),
             }
         }
     }

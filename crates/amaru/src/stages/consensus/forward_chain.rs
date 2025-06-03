@@ -22,7 +22,7 @@ use pallas_network::{
     facades::PeerServer,
     miniprotocols::{chainsync::Tip, Point},
 };
-use std::{cell::RefCell, collections::HashMap, sync::Arc};
+use std::{cell::RefCell, collections::BTreeMap, sync::Arc};
 use tokio::{
     net::TcpListener,
     sync::{
@@ -354,7 +354,7 @@ async fn client_supervisor(
     store: Arc<Mutex<dyn ChainStore<Header>>>,
     max_peers: usize,
 ) {
-    let mut clients = HashMap::new();
+    let mut clients = BTreeMap::new();
     while let Some(msg) = cell.recv().await.has_senders() {
         match msg {
             ActoMsgSuper::Message(ClientMsg::Peer(peer, tip)) => {
