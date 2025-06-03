@@ -253,9 +253,9 @@ jobs:
 
           mkdir -p cardano-cli-bin
           tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
-
-          # Add to PATH
-          echo "export PATH=\$PATH:$PWD/cardano-cli-bin" >> $GITHUB_ENV
+          mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
+          ls $PWD/cardano-cli-bin/
+          chmod +x cardano-cli-bin/cardano-cli
 
       - name: Run node
         timeout-minutes: 30
@@ -264,9 +264,9 @@ jobs:
           set -eux
 
           if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            export DEMO_TARGET_EPOCH=$(cardano-cli query tip --${{ matrix.network }})
+            export DEMO_TARGET_EPOCH=$($PWD/cardano-cli-bin/cardano-cli query tip --${{ matrix.network }})
           fi
-          export DEMO_TARGET_EPOCH=$(cardano-cli query tip --${{ matrix.network }})
+          export DEMO_TARGET_EPOCH=$($PWD/cardano-cli-bin/cardano-cli query tip --${{ matrix.network }})
           make demo
 
       - name: Run tests
