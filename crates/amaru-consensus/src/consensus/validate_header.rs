@@ -55,6 +55,7 @@ pub fn header_is_valid(
     .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
+#[derive(Clone)]
 pub struct ValidateHeader {
     pub ledger: Arc<dyn HasStakeDistribution>,
     pub store: Arc<Mutex<dyn ChainStore<Header>>>,
