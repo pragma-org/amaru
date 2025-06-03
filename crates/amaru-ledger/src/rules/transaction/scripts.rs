@@ -49,16 +49,16 @@ where
         .map(ScriptHash::from)
         .collect::<BTreeSet<_>>();
 
-    let provided_script_refs = context.provided_script_references();
+    let provided_script_refs = context.known_scripts();
 
     // we only consider script references required by the transaction
     let script_references = provided_script_refs
-        .iter()
+        .into_iter()
         .filter_map(|(script_hash, script_ref)| {
-            if required_script_hashes.contains(script_hash) {
+            if required_script_hashes.contains(&script_hash) {
                 Some(ScriptRefWithHash {
-                    hash: *script_hash,
-                    script: script_ref.into(),
+                    hash: script_hash,
+                    script: BorrowedScript::from(script_ref),
                 })
             } else {
                 None

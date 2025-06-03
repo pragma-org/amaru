@@ -14,16 +14,16 @@
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice,
-        DelegateError, PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError,
-        UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+        blanket_known_scripts, AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState,
+        DRepsSlice, DelegateError, PoolsSlice, PotsSlice, ProposalsSlice, RegisterError,
+        ScriptLocation, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
     },
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, HasScriptHash, Hash, Lovelace, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
-    TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput,
+    TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -34,7 +34,7 @@ use tracing::trace;
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     state: VolatileState,
-    provided_script_refs: BTreeMap<ScriptHash, ScriptRef>,
+    known_scripts: BTreeMap<ScriptHash, ScriptLocation>,
     required_signers: BTreeSet<Hash<28>>,
     required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<32>>,
@@ -47,7 +47,7 @@ impl DefaultValidationContext {
             utxo,
             state: VolatileState::default(),
             required_signers: BTreeSet::default(),
-            provided_script_refs: BTreeMap::new(),
+            known_scripts: BTreeMap::new(),
             required_scripts: BTreeSet::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
@@ -237,9 +237,8 @@ impl WitnessSlice for DefaultValidationContext {
         self.required_scripts.insert(script);
     }
 
-    fn provide_script_reference(&mut self, script_ref: ScriptRef) {
-        self.provided_script_refs
-            .insert(script_ref.script_hash(), script_ref);
+    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation) {
+        self.known_scripts.insert(script_hash, location);
     }
 
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
@@ -266,7 +265,7 @@ impl WitnessSlice for DefaultValidationContext {
         mem::take(&mut self.required_supplemental_datums)
     }
 
-    fn provided_script_references(&mut self) -> BTreeMap<ScriptHash, ScriptRef> {
-        mem::take(&mut self.provided_script_refs)
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
+        blanket_known_scripts(self, self.known_scripts.iter())
     }
 }

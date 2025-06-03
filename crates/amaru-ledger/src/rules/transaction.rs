@@ -121,8 +121,14 @@ pub fn execute(
     inputs::execute(
         context,
         transaction_body.inputs.deref(),
-        transaction_body.reference_inputs.as_deref(),
-        transaction_body.collateral.as_deref(),
+        transaction_body
+            .reference_inputs
+            .as_deref()
+            .map(|vec| vec.as_slice()),
+        transaction_body
+            .collateral
+            .as_deref()
+            .map(|vec| vec.as_slice()),
     )?;
 
     mint::execute(context, transaction_body.mint.as_ref());

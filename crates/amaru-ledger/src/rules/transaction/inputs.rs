@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{UtxoSlice, WitnessSlice};
+use crate::context::{ScriptLocation, UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, BorrowedDatumOption, DatumOption, HasAddress, HasDatum, HasScriptRef,
-    RequiredScript, ScriptPurpose, TransactionInput,
+    AddrType, Address, BorrowedDatumOption, DatumOption, HasAddress, HasDatum, HasScriptHash,
+    HasScriptRef, RequiredScript, ScriptPurpose, TransactionInput, TransactionOutput,
 };
 use thiserror::Error;
 
@@ -43,9 +43,9 @@ pub enum InvalidInputs {
 
 pub fn execute<C>(
     context: &mut C,
-    inputs: &Vec<TransactionInput>,
-    reference_inputs: Option<&Vec<TransactionInput>>,
-    collaterals: Option<&Vec<TransactionInput>>,
+    inputs: &[TransactionInput],
+    reference_inputs: Option<&[TransactionInput]>,
+    collaterals: Option<&[TransactionInput]>,
 ) -> Result<(), InvalidInputs>
 where
     C: UtxoSlice + WitnessSlice,
@@ -61,33 +61,27 @@ where
             // Non-disjoint reference inputs
             if inputs.contains(reference_input) {
                 intersection.push(reference_input.clone());
+                continue;
             }
 
-            // We have to drop the output before mutating context, otherwise we have a mutable borrow and an immutable borrow at the same time
-            let (datum_hash, script_ref) = {
-                let output = context
-                    .lookup(reference_input)
-                    .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
+            let output = context
+                .lookup(reference_input)
+                .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
 
-                let datum_hash = match output.datum() {
-                    Some(BorrowedDatumOption::Hash(hash)) => Some(*hash),
-                    _ => None,
-                };
-
-                // FIXME: we are currently cloning the script reference.
-                // This is necessary because the context can't store a reference to the script references as the context necessarily
-                // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
-                // struct with a lifetime that matches that given transaction.
-                let script_ref = output.has_script_ref().cloned();
-
-                (datum_hash, script_ref)
+            let datum_hash = match output.datum() {
+                Some(BorrowedDatumOption::Hash(hash)) => Some(*hash),
+                None | Some(BorrowedDatumOption::Data(..)) => None,
             };
+
+            if let Some(script) = output.has_script_ref() {
+                context.acknowledge_script(
+                    script.script_hash(),
+                    ScriptLocation::AtReferenceInput(reference_input.clone()),
+                )
+            }
 
             if let Some(hash) = datum_hash {
                 context.allow_supplemental_datum(hash);
-            }
-            if let Some(script_ref) = script_ref {
-                context.provide_script_reference(script_ref);
             }
         }
     }
@@ -96,35 +90,16 @@ where
         return Err(InvalidInputs::NonDisjointRefInputs { intersection });
     }
 
-    // Collect witnesses
-    //
-    // FIXME: Collaterals should probably only be acknowledged when the transaction is failing; and
-    // vice-versa for inputs.
-    let collaterals = collaterals.map(|x| x.as_slice()).unwrap_or(&[]);
-    for (index, input) in [inputs.as_slice(), collaterals].concat().iter().enumerate() {
-        // Extract data first, then drop output, then mutate context
-        let (address, script_ref, datum_option) = {
-            let output = context
-                .lookup(input)
-                .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
+    for (index, input) in inputs.iter().enumerate() {
+        let output = context
+            .lookup(input)
+            .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
 
-            let address = output.address().map_err(|e| {
-                InvalidInputs::UncategorizedError(format!(
-                    "Invalid output address. (error {:?}) output: {:?}",
-                    e, output,
-                ))
-            })?;
+        let address = parse_address(output)?;
 
-            let datum = output.datum();
+        let datum = output.datum();
 
-            // FIXME: we are currently cloning the script reference.
-            // This is necessary because the context can't store a reference to the script references as the context necessarily
-            // outlives the script references. Perhaps the solution is to have each transaction construct a "Transient State"
-            // struct with a lifetime that matches that given transaction.
-            let script_ref = output.has_script_ref().cloned();
-
-            (address, script_ref, datum)
-        };
+        let script = output.has_script_ref().map(|script| script.script_hash());
 
         match address {
             Address::Byron(byron_address) => {
@@ -145,7 +120,7 @@ where
                         hash: *shelley_address.payment().as_hash(),
                         index: index as u32,
                         purpose: ScriptPurpose::Spend,
-                        datum_option: datum_option.map(DatumOption::from),
+                        datum_option: datum.map(DatumOption::from),
                     });
                 } else {
                     context.require_vkey_witness(*shelley_address.payment().as_hash());
@@ -154,12 +129,32 @@ where
             Address::Stake(_) => unreachable!("found a stake address in a TransactionOutput"),
         }
 
-        if let Some(script_ref) = script_ref {
-            context.provide_script_reference(script_ref);
+        if let Some(script_hash) = script {
+            context.acknowledge_script(script_hash, ScriptLocation::AtInput(input.clone()));
         }
     }
 
+    for _collateral in collaterals.iter() {
+        // FIXME: Handle collaterals properly here. They differ from normal inputs in a few ways:
+        //
+        // - Script-locked addresses aren't allowed.
+        // - Datums and scripts located at collateral are ignored.
+        //
+        // Collaterals used to be checked in the same loop as inputs, which was wrong but also
+        // showed a gap in testing (the case where a script/datum is only provided in a collateral
+        // input should be caught by the test suite).
+    }
+
     Ok(())
+}
+
+fn parse_address(output: &TransactionOutput) -> Result<Address, InvalidInputs> {
+    output.address().map_err(|e| {
+        InvalidInputs::UncategorizedError(format!(
+            "Invalid output address. (error {:?}) output: {:?}",
+            e, output,
+        ))
+    })
 }
 
 #[cfg(test)]
@@ -248,13 +243,13 @@ mod tests {
         ),
     ) -> Result<(), InvalidInputs> {
         assert_trace(
-            || {
-                let mut validation_context = AssertValidationContext::from(ctx.clone());
+            move || {
+                let mut validation_context = AssertValidationContext::from(ctx);
                 super::execute(
                     &mut validation_context,
                     &tx.inputs,
-                    tx.reference_inputs.as_deref(),
-                    tx.collateral.as_deref(),
+                    tx.reference_inputs.as_deref().map(|vec| vec.as_slice()),
+                    tx.collateral.as_deref().map(|vec| vec.as_slice()),
                 )
             },
             expected_traces,

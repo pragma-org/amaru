@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::HasScriptRef;
 pub(crate) mod assert;
 mod default;
 
@@ -258,12 +259,18 @@ pub trait ProposalsSlice {
 // Witnesses
 // -------------------------------------------------------------------------------------------------
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum ScriptLocation {
+    AtInput(TransactionInput),
+    AtReferenceInput(TransactionInput),
+}
+
 pub trait WitnessSlice {
     /// Indicate a datum that may appear in the witness set that isn't required for spending an input
     fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>);
 
-    /// Provide a reference that appeared in the transaction that can be used for validation
-    fn provide_script_reference(&mut self, script_ref: ScriptRef);
+    /// Acknowledge presence of a script in the transaction by its location, to use for later validations.
+    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation);
 
     /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
     fn require_script_witness(&mut self, script: RequiredScript);
@@ -289,6 +296,38 @@ pub trait WitnessSlice {
     /// transaction.
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>>;
 
-    /// Obtain the full list of provided script reference collected while traversing the trasaction.
-    fn provided_script_references(&mut self) -> BTreeMap<ScriptHash, ScriptRef>;
+    /// Obtain the full list of known scripts collected while traversing the transaction.
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef>;
+}
+
+/// Implement 'known_script' using the provided script locations and a script context that is at
+/// least a UtxoSlice.
+///
+/// Note that re-constructing the known scripts is relatively fast as the lookup are in logarithmic
+/// times, and no allocation (other than the BTreeMap) is happening whatsoever.
+pub fn blanket_known_scripts<'a, C>(
+    context: &'a C,
+    iterator: impl Iterator<Item = (&'a ScriptHash, &'a ScriptLocation)>,
+) -> BTreeMap<ScriptHash, &'a ScriptRef>
+where
+    C: UtxoSlice,
+{
+    let mut scripts = BTreeMap::new();
+
+    for (script_hash, location) in iterator {
+        let lookup = |input| {
+            UtxoSlice::lookup(context, input)
+                .and_then(|output| output.has_script_ref())
+                .unwrap_or_else(|| unreachable!("no script at expected location: {location:?}"))
+        };
+
+        match location {
+            ScriptLocation::AtInput(input) => scripts.insert(*script_hash, lookup(input)),
+            ScriptLocation::AtReferenceInput(ref_input) => {
+                scripts.insert(*script_hash, lookup(ref_input))
+            }
+        };
+    }
+
+    scripts
 }

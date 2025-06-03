@@ -13,16 +13,16 @@
 // limitations under the License.
 
 use crate::context::{
-    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice, DelegateError,
-    Hash, PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
-    PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
-    UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+    blanket_known_scripts, AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState,
+    DRepsSlice, DelegateError, Hash, PoolsSlice, PotsSlice, PreparationContext,
+    PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
+    RegisterError, ScriptLocation, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
+    WitnessSlice,
 };
 use amaru_kernel::{
     serde_utils, stake_credential_hash, stake_credential_type, AddrKeyhash, Anchor,
-    CertificatePointer, DRep, HasScriptHash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput,
-    TransactionOutput,
+    CertificatePointer, DRep, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput, TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -46,7 +46,7 @@ impl From<AssertPreparationContext> for AssertValidationContext {
             utxo: ctx.utxo,
             required_signers: BTreeSet::default(),
             required_scripts: BTreeSet::default(),
-            provided_script_refs: BTreeMap::default(),
+            known_scripts: BTreeMap::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
         }
@@ -92,8 +92,8 @@ pub struct AssertValidationContext {
     required_signers: BTreeSet<Hash<28>>,
     #[serde(default)]
     required_scripts: BTreeSet<RequiredScript>,
-    #[serde(default, deserialize_with = "serde_utils::deserialize_map_proxy")]
-    provided_script_refs: BTreeMap<ScriptHash, ScriptRef>,
+    #[serde(default)]
+    known_scripts: BTreeMap<ScriptHash, ScriptLocation>,
     #[serde(default)]
     required_supplemental_datums: BTreeSet<Hash<32>>,
     #[serde(default)]
@@ -286,9 +286,8 @@ impl WitnessSlice for AssertValidationContext {
         self.required_scripts.insert(script);
     }
 
-    fn provide_script_reference(&mut self, script_ref: ScriptRef) {
-        self.provided_script_refs
-            .insert(script_ref.script_hash(), script_ref);
+    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation) {
+        self.known_scripts.insert(script_hash, location);
     }
 
     #[instrument(
@@ -323,7 +322,7 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_supplemental_datums)
     }
 
-    fn provided_script_references(&mut self) -> BTreeMap<ScriptHash, ScriptRef> {
-        mem::take(&mut self.provided_script_refs)
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
+        blanket_known_scripts(self, self.known_scripts.iter())
     }
 }

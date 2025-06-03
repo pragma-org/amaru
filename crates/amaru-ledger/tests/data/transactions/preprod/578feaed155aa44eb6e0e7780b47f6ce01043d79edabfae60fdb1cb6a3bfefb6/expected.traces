@@ -22,5 +22,4 @@
 , {"name":"require_script_witness_span","hash":"44376a5f63342097a4f20401088c62da272639e60644a9ec1d70f444"}
 , {"name":"require_vkey_witness_span","hash":"69d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab"}
 , {"name":"require_vkey_witness_span","hash":"69d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab"}
-, {"name":"require_vkey_witness_span","hash":"69d992b3a4f5426fd336ac054ba738e977c22fe1e4731a7697f130ab"}
 ]
