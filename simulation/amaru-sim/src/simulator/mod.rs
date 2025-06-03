@@ -44,7 +44,7 @@ use proptest::{
 };
 use pure_stage::{simulation::SimulationBuilder, StageRef};
 use pure_stage::{StageGraph, Void};
-use simulate::{simulate, NodeHandle, Trace};
+use simulate::{pure_stage_node_handle, simulate, NodeHandle, Trace};
 use std::{path::PathBuf, sync::Arc};
 use sync::{
     mk_message, read_peer_addresses_from_init, ChainSyncMessage, MessageReader, OutputWriter,
@@ -162,6 +162,7 @@ async fn run_simulator(
     _store_header: &mut StoreHeader,
     _select_chain: &mut SelectChain,
 ) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
     let config = Config::default();
     let number_of_nodes = 1;
     let spawn = move || {
@@ -195,10 +196,13 @@ async fn run_simulator(
                     } => todo!(),
                     ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
                 }
-            }
+            },
         );
 
-        todo!()
+        let (output, rx) = network.output("output", 10);
+        let basic = network.wire_up(validate_header_stage, (init_st, output.without_state()));
+        let running = network.run(rt.handle().clone());
+        pure_stage_node_handle(rx, basic, running).unwrap()
     };
 
     simulate(
