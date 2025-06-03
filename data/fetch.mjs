@@ -42,6 +42,10 @@ if (includeSnapshots) {
 
 // Each point corresponds to the last point of the associated epoch.
 const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
+if (!snapshots || !Array.isArray(snapshots)) {
+  console.error(`Invalid or missing snapshots in ${configFile}`);
+  process.exit(1);
+}
 
 const additionalStakeKeys = additionalStakeAddresses.reduce(collectAddressType(14), []);
 
