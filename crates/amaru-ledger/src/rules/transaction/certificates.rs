@@ -18,7 +18,8 @@ use crate::context::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Certificate, CertificatePointer, DRep, NonEmptySet,
-    PoolId, PoolParams, RequiredScript, ScriptPurpose, StakeCredential, TransactionPointer,
+    PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose, StakeCredential,
+    TransactionPointer,
 };
 use slot_arithmetic::Epoch;
 use thiserror::Error;
@@ -84,6 +85,17 @@ fn execute_one<C>(
 where
     C: PoolsSlice + AccountsSlice + DRepsSlice + CommitteeSlice + WitnessSlice,
 {
+    // Promote a ScriptHash into a RequiredScript, with additional context needed to defer the
+    // validation of the script.
+    let into_required_script = |hash: ScriptHash| -> RequiredScript {
+        RequiredScript {
+            hash,
+            index: pointer.certificate_index as u32,
+            purpose: ScriptPurpose::Cert,
+            datum_option: None,
+        }
+    };
+
     match certificate {
         Certificate::PoolRegistration {
             operator: id,
@@ -140,12 +152,7 @@ where
             if deposit > 0 {
                 match credential {
                     StakeCredential::ScriptHash(hash) => {
-                        context.require_script_witness(RequiredScript {
-                            hash,
-                            index: pointer.certificate_index as u32,
-                            purpose: ScriptPurpose::Cert,
-                            datum_option: None,
-                        })
+                        context.require_script_witness(into_required_script(hash))
                     }
                     StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 };
@@ -166,12 +173,7 @@ where
         Certificate::StakeDeregistration(credential) | Certificate::UnReg(credential, _) => {
             match credential {
                 StakeCredential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: pointer.certificate_index as u32,
-                        purpose: ScriptPurpose::Cert,
-                        datum_option: None,
-                    })
+                    context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
@@ -182,12 +184,7 @@ where
         Certificate::StakeDelegation(credential, pool) => {
             match credential {
                 StakeCredential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: pointer.certificate_index as u32,
-                        purpose: ScriptPurpose::Cert,
-                        datum_option: None,
-                    })
+                    context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
@@ -198,12 +195,7 @@ where
         Certificate::RegDRepCert(drep, deposit, anchor) => {
             match drep {
                 StakeCredential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: pointer.certificate_index as u32,
-                        purpose: ScriptPurpose::Cert,
-                        datum_option: None,
-                    })
+                    context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
@@ -222,12 +214,7 @@ where
         Certificate::UnRegDRepCert(drep, refund) => {
             match drep {
                 StakeCredential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: pointer.certificate_index as u32,
-                        purpose: ScriptPurpose::Cert,
-                        datum_option: None,
-                    })
+                    context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
@@ -238,12 +225,7 @@ where
         Certificate::UpdateDRepCert(drep, anchor) => {
             match drep {
                 StakeCredential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: pointer.certificate_index as u32,
-                        purpose: ScriptPurpose::Cert,
-                        datum_option: None,
-                    })
+                    context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
@@ -254,12 +236,7 @@ where
         Certificate::VoteDeleg(credential, drep) => {
             match credential {
                 StakeCredential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: pointer.certificate_index as u32,
-                        purpose: ScriptPurpose::Cert,
-                        datum_option: None,
-                    })
+                    context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
@@ -270,12 +247,7 @@ where
         Certificate::AuthCommitteeHot(cold_credential, hot_credential) => {
             match cold_credential {
                 StakeCredential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: pointer.certificate_index as u32,
-                        purpose: ScriptPurpose::Cert,
-                        datum_option: None,
-                    })
+                    context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
@@ -286,12 +258,7 @@ where
         Certificate::ResignCommitteeCold(cold_credential, anchor) => {
             match cold_credential {
                 StakeCredential::ScriptHash(hash) => {
-                    context.require_script_witness(RequiredScript {
-                        hash,
-                        index: pointer.certificate_index as u32,
-                        purpose: ScriptPurpose::Cert,
-                        datum_option: None,
-                    })
+                    context.require_script_witness(into_required_script(hash))
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
