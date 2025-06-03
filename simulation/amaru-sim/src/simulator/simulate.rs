@@ -25,8 +25,8 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
-use pure_stage::StageRef;
 use pure_stage::{simulation::SimulationRunning, Receiver};
+use pure_stage::{StageBuildRef, StageRef};
 
 use anyhow::anyhow;
 use proptest::{
@@ -71,13 +71,14 @@ pub struct NodeHandle<Msg> {
 }
 
 #[allow(unused)]
-pub fn pure_stage_node_handle<Msg>(
+pub fn pure_stage_node_handle<Msg, St>(
     mut rx: Receiver<Envelope<Msg>>,
-    stage: StageRef<Envelope<Msg>, (u64, StageRef<Envelope<Msg>, pure_stage::Void>)>,
+    stage: StageRef<Envelope<Msg>, St>,
     mut running: SimulationRunning,
 ) -> anyhow::Result<NodeHandle<Msg>>
 where
     Msg: PartialEq + Send + Debug + 'static,
+    St: 'static,
 {
     let handle = Box::new(move |msg: Envelope<Msg>| {
         running.enqueue_msg(&stage, [msg]);
