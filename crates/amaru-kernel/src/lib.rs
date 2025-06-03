@@ -1183,7 +1183,7 @@ pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
     }
 }
 
-// FIXME: cleanup clones?
+// TODO: provide a From implementation in Pallas
 pub fn to_redeemer_keys(redeemers: &Redeemers) -> Vec<RedeemersKey> {
     match redeemers {
         Redeemers::List(redeemers) => redeemers
