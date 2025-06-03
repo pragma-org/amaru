@@ -86,13 +86,12 @@ pub struct Args {
     pub start_header: Hash<32>,
 }
 
-pub async fn run(args: Args) {
-    bootstrap(args).await;
+pub fn run(rt : tokio::runtime::Runtime, args: Args) {
+    bootstrap(rt, args);
 }
 
-pub async fn bootstrap(args: Args) {
+pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     let global_parameters: &GlobalParameters = network.into();
-
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
     let era_history = network.into();
@@ -117,8 +116,9 @@ pub async fn bootstrap(args: Args) {
     let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
     let mut store_header = StoreHeader::new(chain_ref.clone());
     let mut select_chain = SelectChain::new(chain_selector);
+    let rt = tokio::runtime::Runtime::new().unwrap();
 
-    run_simulator(&mut consensus, &mut store_header, &mut select_chain).await;
+    run_simulator(rt, &mut consensus, &mut store_header, &mut select_chain);
 }
 
 const CHAIN_PROPERTY: fn(Trace<ChainSyncMessage>) -> Result<(), String> =
@@ -157,12 +157,12 @@ fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
     .boxed()
 }
 
-async fn run_simulator(
+fn run_simulator(
+    rt:  tokio::runtime::Runtime,
     validate_header: &mut ValidateHeader,
     _store_header: &mut StoreHeader,
     _select_chain: &mut SelectChain,
 ) {
-    let rt = tokio::runtime::Runtime::new().unwrap();
     let config = Config::default();
     let number_of_nodes = 1;
     let spawn = move || {
