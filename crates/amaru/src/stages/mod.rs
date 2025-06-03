@@ -131,12 +131,12 @@ pub fn bootstrap(
     let chain_selector = make_chain_selector(&header, &peer_sessions)?;
     let consensus = match ledger_stage {
         LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
-            Box::new(validate_block_stage.state.view_stake_distribution()),
+            Arc::new(validate_block_stage.state.view_stake_distribution()),
             chain_store_ref.clone(),
         ),
 
         LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(
-            Box::new(validate_block_stage.state.view_stake_distribution()),
+            Arc::new(validate_block_stage.state.view_stake_distribution()),
             chain_store_ref.clone(),
         ),
     };

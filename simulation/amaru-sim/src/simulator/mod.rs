@@ -114,7 +114,7 @@ pub async fn bootstrap(args: Args) {
 
     let chain_selector = make_chain_selector(Origin, &chain_store, &vec![]);
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let mut consensus = ValidateHeader::new(Box::new(stake_distribution), chain_ref.clone());
+    let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
     let mut store_header = StoreHeader::new(chain_ref.clone());
     let mut select_chain = SelectChain::new(chain_selector);
 
@@ -168,7 +168,7 @@ async fn run_simulator(
         println!("*** Spawning node!");
         let mut network = SimulationBuilder::default();
         let init_st = ValidateHeader {
-            ledger: validate_header.ledger,
+            ledger: validate_header.ledger.clone(),
             store: validate_header.store.clone(),
         };
         let validate_header_stage = network.stage(
@@ -195,8 +195,7 @@ async fn run_simulator(
                     } => todo!(),
                     ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
                 }
-            },
-            (init_st, StageRef::noop::<Envelope<ChainSyncMessage>>()),
+            }
         );
 
         todo!()

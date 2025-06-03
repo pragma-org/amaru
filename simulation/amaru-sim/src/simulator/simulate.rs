@@ -25,7 +25,7 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
-use pure_stage::simulation::{Receiver, SimulationRunning};
+use pure_stage::{simulation::SimulationRunning, Receiver};
 use pure_stage::StageRef;
 
 use anyhow::anyhow;
@@ -236,7 +236,7 @@ pub fn simulate<Msg, F>(
     property: fn(Trace<Msg>) -> Result<(), String>,
 ) where
     Msg: Debug + PartialEq + Clone,
-    F: Fn() -> NodeHandle<Msg>
+    F: Fn() -> NodeHandle<Msg>,
 {
     let mut runner = TestRunner::new(config);
     let generate_messages = prop::collection::vec(
