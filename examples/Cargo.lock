@@ -43,7 +43,6 @@ dependencies = [
  "sha3",
  "slot-arithmetic",
  "thiserror 2.0.12",
- "tracing",
 ]
 
 [[package]]

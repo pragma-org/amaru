@@ -72,8 +72,9 @@ include!(concat!(
 
 #[allow(clippy::unwrap_used)]
 fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
+    let network = NetworkName::Preprod;
     let snapshot = db(epoch);
-    let global_parameters = GlobalParameters::default();
+    let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
 
     let protocol_version = protocol_version(epoch);
@@ -107,7 +108,7 @@ fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
     let rewards_summary = RewardsSummary::new(
         snapshot_from_the_future.as_ref(),
         stake_distr,
-        &global_parameters,
+        global_parameters,
         &protocol_parameters,
     )
     .unwrap()

@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use crate::context::{UtxoSlice, WitnessSlice};
-use amaru_kernel::{AddrType, Address, HasAddress, HasOwnership, TransactionInput};
+use amaru_kernel::{
+    AddrType, Address, BorrowedDatumOption, HasAddress, HasDatum, HasOwnership, TransactionInput,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -52,16 +54,24 @@ where
         return Err(InvalidInputs::EmptyInputSet);
     }
 
-    // Check for disjoint reference inputs.
-    let intersection = match &reference_inputs {
-        Some(ref_inputs) => ref_inputs
-            .iter()
-            .filter(|ref_input| inputs.contains(ref_input))
-            .cloned()
-            .collect(),
-        None => Vec::new(),
-    };
+    let mut intersection = Vec::new();
 
+    if let Some(reference_inputs) = reference_inputs {
+        for reference_input in reference_inputs {
+            // Non-disjoint reference inputs
+            if inputs.contains(reference_input) {
+                intersection.push(reference_input.clone());
+            }
+
+            if let Some(output) = context.lookup(reference_input) {
+                if let Some(BorrowedDatumOption::Hash(hash)) = output.datum() {
+                    context.allow_supplemental_datum(*hash);
+                }
+            } else {
+                return Err(InvalidInputs::UnknownInput(reference_input.clone()));
+            }
+        }
+    }
     if !intersection.is_empty() {
         return Err(InvalidInputs::NonDisjointRefInputs { intersection });
     }
@@ -100,14 +110,6 @@ where
                 };
             }
             None => Err(InvalidInputs::UnknownInput(input.clone()))?,
-        }
-    }
-
-    if let Some(reference_inputs) = reference_inputs {
-        for reference_input in reference_inputs {
-            if context.lookup(reference_input).is_none() {
-                return Err(InvalidInputs::UnknownInput(reference_input.clone()));
-            }
         }
     }
 

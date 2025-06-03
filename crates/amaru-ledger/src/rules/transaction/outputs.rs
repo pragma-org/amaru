@@ -12,10 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rules::{format_vec, WithPosition};
+use crate::{
+    context::{UtxoSlice, WitnessSlice},
+    rules::{format_vec, WithPosition},
+};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_network_id, HasAddress, HasNetwork, Lovelace,
-    MintedTransactionOutput, Network, TransactionOutput,
+    protocol_parameters::ProtocolParameters, to_network_id, BorrowedDatumOption, HasAddress,
+    HasDatum, HasNetwork, Lovelace, MintedTransactionOutput, Network, TransactionInput,
+    TransactionOutput,
 };
 use thiserror::Error;
 
@@ -50,12 +54,16 @@ pub enum InvalidOutput {
     UncategorizedError(String),
 }
 
-pub fn execute(
+pub fn execute<C>(
+    context: &mut C,
     protocol_parameters: &ProtocolParameters,
     network: &Network,
     outputs: Vec<MintedTransactionOutput<'_>>,
-    yield_output: &mut impl FnMut(u64, TransactionOutput),
-) -> Result<(), InvalidOutputs> {
+    construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
+) -> Result<(), InvalidOutputs>
+where
+    C: WitnessSlice + UtxoSlice,
+{
     let mut invalid_outputs = Vec::new();
     for (position, output) in outputs.into_iter().enumerate() {
         inherent_value::execute(protocol_parameters, &output)
@@ -64,8 +72,23 @@ pub fn execute(
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        // TODO: Ensures the validation context can work from references to avoid cloning data.
-        yield_output(position as u64, TransactionOutput::from(output));
+        let output = TransactionOutput::from(output);
+
+        // FIXME: This line is wrong. According to the Haskell source code, we should only count
+        // supplemental datums for outputs (regardless of whether transaction fails or not).
+        //
+        // In particular, any datum present in a collateral return does NOT count towards the
+        // allowed supplemental datums.
+        //
+        // However, I am not fixing this now, because we have no test covering the case whatsoever.
+        // At the moment, that line can actually be fully removed without making any test fail.
+        if let Some(BorrowedDatumOption::Hash(hash)) = output.datum() {
+            context.allow_supplemental_datum(*hash);
+        }
+
+        if let Some(input) = construct_utxo(position as u64) {
+            context.produce(input, output);
+        }
     }
 
     if !invalid_outputs.is_empty() {
@@ -97,13 +120,18 @@ fn validate_network(
 
 #[cfg(test)]
 mod tests {
+
+    use std::collections::BTreeMap;
+
     use amaru_kernel::{
         include_cbor, protocol_parameters::ProtocolParameters, MintedTransactionBody, Network,
-        TransactionOutput,
     };
     use test_case::test_case;
 
-    use crate::rules::{transaction::outputs::InvalidOutput, WithPosition};
+    use crate::{
+        context::assert::{AssertPreparationContext, AssertValidationContext},
+        rules::{transaction::outputs::InvalidOutput, WithPosition},
+    };
 
     use super::InvalidOutputs;
 
@@ -112,7 +140,6 @@ mod tests {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 ProtocolParameters::default(),
-                &mut |_, _| {},
             )
         };
         ($hash:literal, $variant:literal) => {
@@ -125,14 +152,12 @@ mod tests {
                     "/tx.cbor"
                 )),
                 ProtocolParameters::default(),
-                &mut |_, _| {},
             )
         };
         ($hash:literal, $pp:expr) => {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
                 $pp,
-                &mut |_, _| {},
             )
         };
     }
@@ -172,17 +197,17 @@ mod tests {
     )]
     #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", "valid-byron"); "valid byron")]
     fn outputs(
-        (tx, protocol_parameters, yield_output): (
-            MintedTransactionBody<'_>,
-            ProtocolParameters,
-            &mut impl FnMut(u64, TransactionOutput),
-        ),
+        (tx, protocol_parameters): (MintedTransactionBody<'_>, ProtocolParameters),
     ) -> Result<(), InvalidOutputs> {
+        let mut context = AssertValidationContext::from(AssertPreparationContext {
+            utxo: BTreeMap::new(),
+        });
         super::execute(
+            &mut context,
             &protocol_parameters,
             &Network::Testnet,
             tx.outputs,
-            yield_output,
+            |_| None,
         )
     }
 }

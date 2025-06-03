@@ -1,144 +1,23 @@
 use crate::{
-    cast_msg,
-    effect::{StageEffect, StageResponse},
-    simulation::{airlock_effect, EffectBox},
-    BoxFuture, Instant, Message, Name, StageBuildRef, StageRef, State,
+    Effects, Instant, Message, Name, OutputEffect, Receiver, Sender, StageBuildRef, StageRef,
+    State, Void,
 };
 use std::{
     fmt::Debug,
     future::Future,
     marker::PhantomData,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
-    time::Duration,
+    sync::atomic::{AtomicU64, Ordering},
 };
-use tokio::sync::oneshot;
-
-pub struct Effects<M, S> {
-    me: StageRef<M, S>,
-    effect: EffectBox,
-    now: Arc<dyn Fn() -> Instant + Send + Sync>,
-}
-
-impl<M, S> Clone for Effects<M, S> {
-    fn clone(&self) -> Self {
-        Self {
-            me: self.me.clone(),
-            effect: self.effect.clone(),
-            now: self.now.clone(),
-        }
-    }
-}
-
-impl<M: Debug, S: Debug> Debug for Effects<M, S> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Effects")
-            .field("me", &self.me)
-            .field("effect", &self.effect)
-            .finish()
-    }
-}
-
-impl<M: Message, S> Effects<M, S> {
-    pub(crate) fn new(
-        me: StageRef<M, S>,
-        effect: EffectBox,
-        now: Arc<dyn Fn() -> Instant + Send + Sync>,
-    ) -> Self {
-        Self { me, effect, now }
-    }
-
-    pub fn me(&self) -> StageRef<M, S> {
-        self.me.clone()
-    }
-
-    pub fn send<Msg: Message, St>(
-        &self,
-        target: &StageRef<Msg, St>,
-        msg: Msg,
-    ) -> BoxFuture<'static, ()> {
-        airlock_effect(
-            &self.effect,
-            StageEffect::Send(target.name(), Box::new(msg), None),
-            |_eff| Some(()),
-        )
-    }
-
-    pub fn interrupt(&self) -> BoxFuture<'static, ()> {
-        airlock_effect(&self.effect, StageEffect::Interrupt, |_eff| Some(()))
-    }
-
-    pub fn clock(&self) -> BoxFuture<'static, Instant> {
-        airlock_effect(&self.effect, StageEffect::Clock, |eff| match eff {
-            Some(StageResponse::ClockResponse(instant)) => Some(instant),
-            _ => None,
-        })
-    }
-
-    pub fn wait(&self, duration: Duration) -> BoxFuture<'static, Instant> {
-        airlock_effect(&self.effect, StageEffect::Wait(duration), |eff| match eff {
-            Some(StageResponse::WaitResponse(instant)) => Some(instant),
-            _ => None,
-        })
-    }
-
-    pub fn call<Req: Message, Resp: Message, St>(
-        &self,
-        target: &StageRef<Req, St>,
-        timeout: Duration,
-        msg: impl FnOnce(CallRef<Resp>) -> Req + Send + 'static,
-    ) -> BoxFuture<'static, Option<Resp>> {
-        let (response, recv) = oneshot::channel();
-        let now = (self.now)();
-        let deadline = now.checked_add(timeout).expect("timeout too long");
-        let target = target.name();
-        let me = self.me.name();
-        let id = CallId::new();
-
-        let msg = Box::new(msg(CallRef {
-            target: me,
-            id,
-            deadline,
-            response,
-            _ph: PhantomData,
-        }));
-
-        airlock_effect(
-            &self.effect,
-            StageEffect::Send(target, msg, Some((timeout, recv, id))),
-            |eff| match eff {
-                Some(StageResponse::CallResponse(resp)) => Some(Some(
-                    cast_msg::<Resp>(resp).expect("internal messaging type error"),
-                )),
-                Some(StageResponse::CallTimeout) => Some(None),
-                _ => None,
-            },
-        )
-    }
-
-    pub fn respond<Resp: Message>(&self, cr: CallRef<Resp>, resp: Resp) -> BoxFuture<'static, ()> {
-        let CallRef {
-            target,
-            id,
-            deadline,
-            response,
-            _ph,
-        } = cr;
-        airlock_effect(
-            &self.effect,
-            StageEffect::Respond(target, id, deadline, response, Box::new(resp)),
-            |_eff| Some(()),
-        )
-    }
-}
+use tokio::{
+    runtime::Handle,
+    sync::{mpsc, oneshot},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct CallId(u64);
 
 impl CallId {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         Self(COUNTER.fetch_add(1, Ordering::Relaxed))
     }
@@ -157,7 +36,7 @@ pub struct CallRef<Resp: Message> {
     pub(crate) id: CallId,
     pub(crate) deadline: Instant,
     pub(crate) response: oneshot::Sender<Box<dyn Message>>,
-    _ph: PhantomData<Resp>,
+    pub(crate) _ph: PhantomData<Resp>,
 }
 
 impl<Resp: Message + PartialEq> PartialEq for CallRef<Resp> {
@@ -206,28 +85,26 @@ impl<Resp: Message> CallRef<Resp> {
 ///
 /// Example:
 /// ```rust
-/// use pure_stage::{StageGraph, simulation::SimulationBuilder, StageRef};
+/// use pure_stage::{StageGraph, simulation::SimulationBuilder};
 ///
 /// let mut network = SimulationBuilder::default();
 ///
 /// // phase 1: create stages
-/// let stage = network.stage(
-///     "basic",
-///     async |(mut state, out), msg: u32, eff| {
-///         state += msg;
-///         eff.send(&out, state).await;
-///         Ok((state, out))
-///     },
-///     (1u32, StageRef::noop::<u32>()),
-/// );
+/// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
+///     state += msg;
+///     eff.send(&out, state).await;
+///     Ok((state, out))
+/// });
 /// // this is a feature of the SimulationBuilder
-/// let (output, mut rx) = network.output("output");
+/// let (output, mut rx) = network.output("output", 10);
 ///
 /// // phase 2: wire up stages by injecting targets into their state
-/// let stage = network.wire_up(stage, |state| state.1 = output.without_state());
+/// let stage = network.wire_up(stage, (1u32, output.without_state()));
 ///
 /// // finalize the network and run it (or make it controllable, in case of SimulationBuilder)
-/// let mut running = network.run();
+/// // (this needs a Tokio runtime for executing external effects)
+/// let rt = tokio::runtime::Runtime::new().unwrap();
+/// let mut running = network.run(rt.handle().clone());
 /// ```
 pub trait StageGraph {
     type Running;
@@ -236,7 +113,7 @@ pub trait StageGraph {
     /// Create a stage from an asynchronous transition function (state × message → state) and
     /// an initial state.
     ///
-    /// The provided name needs to be unique within this `StageGraph`.
+    /// _The provided name will be made unique within this `StageGraph` by appending a number!_
     ///
     /// **IMPORTANT:** While the transition function is asynchronous, it cannot await asynchronous
     /// effects other than those constructed by this library.
@@ -260,7 +137,6 @@ pub trait StageGraph {
         &mut self,
         name: impl AsRef<str>,
         f: F,
-        state: St,
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
@@ -277,7 +153,7 @@ pub trait StageGraph {
     fn wire_up<Msg: Message, St: State>(
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
-        f: impl FnOnce(&mut St),
+        state: St,
     ) -> StageRef<Msg, St>;
 
     /// Consume this network builder and start the network — the precise meaning of this
@@ -286,5 +162,30 @@ pub trait StageGraph {
     /// For example [`TokioBuilder`](crate::tokio::TokioBuilder) will spawn each stage as
     /// a task while [`SimulationBuilder`](crate::simulation::SimulationBuilder) won’t
     /// run anything unless explicitly requested by a test procedure.
-    fn run(self) -> Self::Running;
+    fn run(self, rt: Handle) -> Self::Running;
+
+    /// Obtain a handle for sending messages to the given stage from outside the network.
+    fn sender<Msg: Message, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg>;
+
+    /// Utility function to create an output for the network.
+    ///
+    /// The returned [`Receiver`] can be used synchronously (e.g. in tests) or as an
+    /// asynchronous [`Stream`](futures_util::Stream).
+    fn output<Msg: Message + PartialEq>(
+        &mut self,
+        name: impl AsRef<str>,
+        send_queue_size: usize,
+    ) -> (StageRef<Msg, Void>, Receiver<Msg>) {
+        let name = Name::from(name.as_ref());
+        let (tx, rx) = mpsc::channel(send_queue_size);
+
+        let output = self.stage(name, async |tx: mpsc::Sender<Msg>, msg: Msg, eff| {
+            eff.external(OutputEffect::new(eff.me().name(), msg, tx.clone()))
+                .await;
+            Ok(tx)
+        });
+        let output = self.wire_up(output, tx);
+
+        (output.without_state(), Receiver::new(rx))
+    }
 }

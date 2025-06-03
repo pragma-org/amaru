@@ -1,15 +1,21 @@
-#![allow(clippy::panic, clippy::expect_used)]
-
 mod effect;
+mod output;
+mod receiver;
+mod sender;
 pub mod simulation;
-mod stage;
+mod stage_ref;
 mod stagegraph;
 mod time;
 pub mod tokio;
 mod types;
+mod util;
 
-pub use effect::Effect;
-pub use stage::{StageBuildRef, StageRef, Void};
-pub use stagegraph::{CallId, CallRef, Effects, StageGraph};
+pub use effect::{Effect, Effects, ExternalEffect, ExternalEffectAPI};
+pub use output::OutputEffect;
+pub use receiver::Receiver;
+pub use sender::Sender;
+pub use stage_ref::{StageBuildRef, StageRef};
+pub use stagegraph::{CallId, CallRef, StageGraph};
 pub use time::Instant;
-pub use types::{cast_msg, cast_msg_ref, cast_state, BoxFuture, Message, Name, State};
+pub use types::{BoxFuture, Message, Name, State};
+pub use util::Void;
