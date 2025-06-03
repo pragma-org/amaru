@@ -4,7 +4,7 @@ use super::{
 use crate::{stagegraph::CallRef, CallId, Effect, ExternalEffect, Message, Name, StageRef, State};
 use either::Either::{Left, Right};
 use std::{
-    collections::{BinaryHeap, BTreeMap, VecDeque},
+    collections::{BTreeMap, BinaryHeap, VecDeque},
     mem::{replace, take},
     sync::{
         atomic::{AtomicU64, Ordering},
