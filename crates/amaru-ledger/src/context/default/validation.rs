@@ -266,6 +266,7 @@ impl WitnessSlice for DefaultValidationContext {
     }
 
     fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
-        blanket_known_scripts(self, self.known_scripts.iter())
+        let known_scripts = mem::take(&mut self.known_scripts);
+        blanket_known_scripts(self, known_scripts.into_iter())
     }
 }

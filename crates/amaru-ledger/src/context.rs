@@ -305,26 +305,26 @@ pub trait WitnessSlice {
 ///
 /// Note that re-constructing the known scripts is relatively fast as the lookup are in logarithmic
 /// times, and no allocation (other than the BTreeMap) is happening whatsoever.
-pub fn blanket_known_scripts<'a, C>(
-    context: &'a C,
-    iterator: impl Iterator<Item = (&'a ScriptHash, &'a ScriptLocation)>,
-) -> BTreeMap<ScriptHash, &'a ScriptRef>
+pub fn blanket_known_scripts<C>(
+    context: &'_ mut C,
+    known_scripts: impl Iterator<Item = (ScriptHash, ScriptLocation)>,
+) -> BTreeMap<ScriptHash, &'_ ScriptRef>
 where
     C: UtxoSlice,
 {
     let mut scripts = BTreeMap::new();
 
-    for (script_hash, location) in iterator {
+    for (script_hash, location) in known_scripts {
         let lookup = |input| {
             UtxoSlice::lookup(context, input)
                 .and_then(|output| output.has_script_ref())
                 .unwrap_or_else(|| unreachable!("no script at expected location: {location:?}"))
         };
 
-        match location {
-            ScriptLocation::AtInput(input) => scripts.insert(*script_hash, lookup(input)),
+        match &location {
+            ScriptLocation::AtInput(input) => scripts.insert(script_hash, lookup(input)),
             ScriptLocation::AtReferenceInput(ref_input) => {
-                scripts.insert(*script_hash, lookup(ref_input))
+                scripts.insert(script_hash, lookup(ref_input))
             }
         };
     }
