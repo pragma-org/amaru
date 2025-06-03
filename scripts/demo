@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -euo pipefail
+
 exitWithUsage () {
   echo -e "\033[1;31mError: missing argument(s)!\033[00m\n"
   echo -e "\033[1;32mUsage:\033[00m\n    $0 PEER_ADDRESS LISTEN_ADDRESS TARGET_EPOCH [NETWORK]\n"
@@ -29,7 +31,7 @@ LEDGER_DIR=${LEDGER_DIR:-./ledger.db}
 CHAIN_DIR=${CHAIN_DIR:-./chain.db}
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
-set -eo pipefail
+
 AMARU_TRACE="amaru=info" cargo run --release -- --with-json-traces daemon \
            --peer-address="${PEER_ADDRESS}" \
            --listen-address="${LISTEN_ADDRESS}" \
