@@ -1,0 +1,18 @@
+#!/bin/bash
+
+set -e
+
+echo "Running clippy..."
+
+if cargo clippy-amaru 2>&1; then
+    echo ""
+else
+    echo "Discovered a clippy issue"
+    echo ""
+    echo "Please fix the clippy issues before committing."
+    echo "You can run 'cargo clippy-amaru' to see the full output."
+    echo ""
+    echo "To bypass this check (not recommended), use:"
+    echo "  git commit --no-verify"
+    exit 1
+fi
