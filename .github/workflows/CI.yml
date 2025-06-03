@@ -255,7 +255,7 @@ jobs:
           tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
 
           # Add to PATH
-          echo "$PWD/cardano-cli-bin" >> $GITHUB_PATH
+          echo "export PATH=\$PATH:$PWD/cardano-cli-bin" >> $GITHUB_ENV
 
       - name: Run node
         timeout-minutes: 30
