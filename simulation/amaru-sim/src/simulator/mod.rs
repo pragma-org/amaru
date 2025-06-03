@@ -42,7 +42,7 @@ use proptest::{
     prelude::{BoxedStrategy, Strategy},
     test_runner::Config,
 };
-use pure_stage::{simulation::SimulationBuilder, StageRef};
+use pure_stage::{simulation::SimulationBuilder, ExternalEffect, ExternalEffectAPI, StageRef};
 use pure_stage::{StageGraph, Void};
 use simulate::{pure_stage_node_handle, simulate, NodeHandle, Trace};
 use std::{path::PathBuf, sync::Arc};
@@ -86,7 +86,7 @@ pub struct Args {
     pub start_header: Hash<32>,
 }
 
-pub fn run(rt : tokio::runtime::Runtime, args: Args) {
+pub fn run(rt: tokio::runtime::Runtime, args: Args) {
     bootstrap(rt, args);
 }
 
@@ -157,8 +157,32 @@ fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
     .boxed()
 }
 
+#[derive(Debug)]
+struct ValidateEffect {
+    peer: Peer,
+    point: Point,
+    header: Header,
+    global: GlobalParameters,
+    validate_header: ValidateHeader,
+}
+
+impl ExternalEffect for ValidateEffect {
+    fn run(self: Box<Self>) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::Message>> {
+        self.validate_header
+            .handle_roll_forward(self.peer, self.point, self.header, &self.global)
+    }
+
+    fn test_eq(&self, other: &dyn ExternalEffect) -> bool {
+        todo!()
+    }
+}
+
+impl ExternalEffectAPI for ValidateEffect {
+    type Response = ();
+}
+
 fn run_simulator(
-    rt:  tokio::runtime::Runtime,
+    rt: tokio::runtime::Runtime,
     validate_header: &mut ValidateHeader,
     _store_header: &mut StoreHeader,
     _select_chain: &mut SelectChain,
@@ -167,53 +191,75 @@ fn run_simulator(
     let number_of_nodes = 1;
     let spawn = move || {
         println!("*** Spawning node!");
+        let global: GlobalParameters;
         let mut network = SimulationBuilder::default();
         let init_st = ValidateHeader {
             ledger: validate_header.ledger.clone(),
             store: validate_header.store.clone(),
         };
-        let validate_header_stage = network.stage(
-            "validate_header",
-            async |(mut state, out),
+
+        let receive_stage = network.stage(
+            "receive_header",
+            async |(_state, out),
                    msg: Envelope<ChainSyncMessage>,
                    eff|
-                   -> Result<
-                (ValidateHeader, StageRef<Envelope<ChainSyncMessage>, Void>),
-                Error,
-            > {
-                match msg.body {
-                    ChainSyncMessage::Init {
-                        msg_id,
-                        node_id,
-                        node_ids,
-                    } => {
-                        let reply_msg = ChainSyncMessage::InitOk {
-                            in_reply_to: msg_id,
-                        };
-                        let reply = Envelope {
-                            src: msg.dest,
-                            dest: msg.src,
-                            body: reply_msg,
-                        };
-                        eff.send(&out, reply).await
-                    }
-                    ChainSyncMessage::InitOk { in_reply_to } => todo!(),
-                    ChainSyncMessage::Fwd {
-                        msg_id,
-                        slot,
-                        hash,
-                        header,
-                    } => todo!(),
-                    ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
-                };
-                Ok((state, out))
+                   -> Result<((), StageRef<Envelope<DecodedChainSyncEvent>, Void>), Error> {
+                // match msg.body {
+                //     ChainSyncMessage::Init {
+                //         msg_id,
+                //         node_id,
+                //         node_ids,
+                //     } => {
+                //         let reply_msg = ChainSyncMessage::InitOk {
+                //             in_reply_to: msg_id,
+                //         };
+                //         let reply = Envelope {
+                //             src: msg.dest,
+                //             dest: msg.src,
+                //             body: reply_msg,
+                //         };
+                //         eff.send(&out, reply).await
+                //     }
+                //     ChainSyncMessage::InitOk { .. } => unreachable!(),
+                //     ChainSyncMessage::Fwd {
+                //         msg_id,
+                //         slot,
+                //         hash,
+                //         header,
+                //     } => {
+                //         let decoded = handle_chain_sync(ChainSyncEvent::RollForward {
+                //             peer: Peer::new(&msg.src),
+                //             point: Point::Specific(slot.into(), hash.into()),
+                //             raw_header: header.into(),
+                //             span,
+                //         })?;
+                //         eff.send(&out, decoded).await
+                //     }
+                //     ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
+                // };
+                Ok(((), out))
             },
         );
 
+        let validate_header_stage = network.stage(
+            "validate_header",
+            async |(mut state, out),
+                   msg: Envelope<DecodedChainSyncEvent>,
+                   eff|
+                   -> Result<
+                (
+                    ValidateHeader,
+                    StageRef<Envelope<DecodedChainSyncEvent>, Void>,
+                ),
+                Error,
+            > { Ok((state, out)) },
+        );
+
         let (output, rx) = network.output("output", 10);
-        let basic = network.wire_up(validate_header_stage, (init_st, output.without_state()));
+        let receive = network.wire_up(receive_stage, ((), validate_header_stage.sender()));
+        let validate = network.wire_up(validate_header_stage, (init_st, output.without_state()));
         let running = network.run(rt.handle().clone());
-        pure_stage_node_handle(rx, basic, running).unwrap()
+        pure_stage_node_handle(rx, receive, running).unwrap()
     };
 
     simulate(
