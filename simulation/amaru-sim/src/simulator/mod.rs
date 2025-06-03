@@ -186,7 +186,17 @@ async fn run_simulator(
                         msg_id,
                         node_id,
                         node_ids,
-                    } => todo!(),
+                    } => {
+                        let reply_msg = ChainSyncMessage::InitOk {
+                            in_reply_to: msg_id,
+                        };
+                        let reply = Envelope {
+                            src: msg.dest,
+                            dest: msg.src,
+                            body: reply_msg,
+                        };
+                        eff.send(&out, reply).await
+                    }
                     ChainSyncMessage::InitOk { in_reply_to } => todo!(),
                     ChainSyncMessage::Fwd {
                         msg_id,
@@ -195,7 +205,8 @@ async fn run_simulator(
                         header,
                     } => todo!(),
                     ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
-                }
+                };
+                Ok((state, out))
             },
         );
 
