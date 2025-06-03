@@ -20,9 +20,10 @@ pub fn forward_ledger(raw_block: &str) {
     let bytes = hex::decode(raw_block).unwrap();
 
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
-    let era_history: &EraHistory = NetworkName::Preprod.into();
+    let network = NetworkName::Preprod;
+    let era_history: &EraHistory = network.into();
 
-    let global_parameters = GlobalParameters::default();
+    let global_parameters: &GlobalParameters = network.into();
     let store = MemoryStore {};
     let mut state = State::new(
         store,
