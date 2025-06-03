@@ -56,19 +56,19 @@ pub fn header_is_valid(
 }
 
 pub struct ValidateHeader {
-    pub ledger: Box<dyn HasStakeDistribution>,
+    pub ledger: Arc<dyn HasStakeDistribution>,
     pub store: Arc<Mutex<dyn ChainStore<Header>>>,
 }
 
 impl fmt::Debug for ValidateHeader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
         todo!()
     }
 }
 
 impl ValidateHeader {
     pub fn new(
-        ledger: Box<dyn HasStakeDistribution>,
+        ledger: Arc<dyn HasStakeDistribution>,
         store: Arc<Mutex<dyn ChainStore<Header>>>,
     ) -> Self {
         Self { ledger, store }
