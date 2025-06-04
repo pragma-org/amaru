@@ -15,7 +15,7 @@
 use rand::Rng;
 use serde::Deserialize;
 use serde_json::Result;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 
@@ -152,7 +152,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
         messages: &mut Vec<ChainSyncMessage>,
         msg_id: &mut u64,
         rng: &mut R,
-        visited: &mut HashMap<String, BTreeSet<usize>>,
+        visited: &mut BTreeMap<String, BTreeSet<usize>>,
     ) {
         let already_visited: BTreeSet<usize> = visited
             .get(&chain.block.hash)
@@ -225,7 +225,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
         messages: &mut Vec<ChainSyncMessage>,
         msg_id: &mut u64,
         rng: &mut R,
-        visited: &mut HashMap<String, BTreeSet<usize>>,
+        visited: &mut BTreeMap<String, BTreeSet<usize>>,
         height: u32,
     ) {
         let mut ancestors: Vec<Block> = find_ancestors(chain0, &chain.block.hash);
@@ -289,7 +289,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
         &mut messages,
         &mut msg_id,
         rng,
-        &mut HashMap::new(),
+        &mut BTreeMap::new(),
     );
     messages
 }
