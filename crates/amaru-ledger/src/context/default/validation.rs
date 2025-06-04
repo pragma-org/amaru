@@ -14,15 +14,16 @@
 
 use crate::{
     context::{
-        AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState, DRepsSlice,
-        DelegateError, PoolsSlice, PotsSlice, ProposalsSlice, RegisterError, UnregisterError,
-        UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+        blanket_known_scripts, AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState,
+        DRepsSlice, DelegateError, PoolsSlice, PotsSlice, ProposalsSlice, RegisterError,
+        ScriptLocation, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
     },
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
     Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput,
+    TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -33,8 +34,9 @@ use tracing::trace;
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     state: VolatileState,
+    known_scripts: BTreeMap<ScriptHash, ScriptLocation>,
     required_signers: BTreeSet<Hash<28>>,
-    required_scripts: BTreeSet<Hash<28>>,
+    required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<32>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
@@ -45,6 +47,7 @@ impl DefaultValidationContext {
             utxo,
             state: VolatileState::default(),
             required_signers: BTreeSet::default(),
+            known_scripts: BTreeMap::new(),
             required_scripts: BTreeSet::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
@@ -226,17 +229,16 @@ impl ProposalsSlice for DefaultValidationContext {
 }
 
 impl WitnessSlice for DefaultValidationContext {
-    fn require_witness(&mut self, credential: StakeCredential) {
-        match credential {
-            StakeCredential::AddrKeyhash(vk_hash) => {
-                self.required_signers.insert(vk_hash);
-            }
-            StakeCredential::ScriptHash(script_hash) => {
-                // FIXME: Also account for native scripts. We should pre-fetch necessary scripts
-                // before hand, and here, check whether additional signatures are needed.
-                self.required_scripts.insert(script_hash);
-            }
-        }
+    fn require_vkey_witness(&mut self, vkey_hash: amaru_kernel::AddrKeyhash) {
+        self.required_signers.insert(vkey_hash);
+    }
+
+    fn require_script_witness(&mut self, script: RequiredScript) {
+        self.required_scripts.insert(script);
+    }
+
+    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation) {
+        self.known_scripts.insert(script_hash, location);
     }
 
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
@@ -251,7 +253,7 @@ impl WitnessSlice for DefaultValidationContext {
         mem::take(&mut self.required_signers)
     }
 
-    fn required_scripts(&mut self) -> BTreeSet<Hash<28>> {
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript> {
         mem::take(&mut self.required_scripts)
     }
 
@@ -261,5 +263,10 @@ impl WitnessSlice for DefaultValidationContext {
 
     fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>> {
         mem::take(&mut self.required_supplemental_datums)
+    }
+
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
+        let known_scripts = mem::take(&mut self.known_scripts);
+        blanket_known_scripts(self, known_scripts.into_iter())
     }
 }
