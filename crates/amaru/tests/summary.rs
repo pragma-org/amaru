@@ -77,7 +77,7 @@ fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
     let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
 
-    let protocol_version = protocol_version(epoch);
+    let protocol_version = protocol_version(epoch, network_name);
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         protocol_version,
@@ -125,8 +125,8 @@ fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
     });
 }
 
-fn protocol_version(epoch: Epoch) -> ProtocolVersion {
-    if epoch <= Epoch::from(180) {
+fn protocol_version(epoch: Epoch, network_name: NetworkName) -> ProtocolVersion {
+    if network_name == NetworkName::Preprod && epoch <= Epoch::from(180) {
         return PROTOCOL_VERSION_9;
     }
 
