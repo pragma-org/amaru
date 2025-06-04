@@ -1,3 +1,5 @@
+use std::ops::Deref;
+
 use amaru_kernel::{Multiasset, NonZeroInt, RequiredScript, ScriptPurpose};
 
 use crate::context::{UtxoSlice, WitnessSlice};
@@ -7,14 +9,19 @@ where
     C: UtxoSlice + WitnessSlice,
 {
     if let Some(mint) = mint {
-        mint.iter().enumerate().for_each(|(index, (policy, _))| {
+        let mut indices: Vec<usize> = (0..mint.len()).collect();
+        indices.sort_by(|&a, &b| mint[a].0.cmp(&mint[b].0));
+
+        let mint = mint.deref();
+        for (mint_index, original_index) in indices.iter().enumerate() {
+            let (policy, _) = mint[*original_index];
             context.require_script_witness(RequiredScript {
-                hash: *policy,
-                index: index as u32,
+                hash: policy,
+                index: mint_index as u32,
                 purpose: ScriptPurpose::Mint,
                 datum_option: None,
             })
-        });
+        }
     }
 }
 
