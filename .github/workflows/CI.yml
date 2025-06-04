@@ -244,7 +244,7 @@ jobs:
           key: ${{ runner.OS }}-ledger-cache-v6-${{ steps.timestamp.outputs.value }}
 
       - name: Install Cardano CLI
-        # if: github.event_name != 'pull_request'
+        if: github.event_name != 'pull_request'
         run: |
           set -eux
 
@@ -269,7 +269,6 @@ jobs:
             # If this is a push event, we want to test all revolut epochs
             export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
           fi
-          export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
           make demo
 
       - name: Run tests
