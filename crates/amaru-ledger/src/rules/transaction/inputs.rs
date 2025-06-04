@@ -90,7 +90,17 @@ where
         return Err(InvalidInputs::NonDisjointRefInputs { intersection });
     }
 
-    for (index, input) in inputs.iter().enumerate() {
+    /*
+    The Haskell node sorts inputs lexicographically when deserializing.
+    Pallas does not do this, and just provides a representation of exactly the bytes on the wire.
+
+    As a result, we have to access the inputs in the correct lexicographical order, so that required scripts are indexed correctly
+    */
+    let mut indices: Vec<usize> = (0..inputs.len()).collect();
+    indices.sort_by(|&a, &b| inputs[a].cmp(&inputs[b]));
+
+    for (input_index, original_index) in indices.iter().enumerate() {
+        let input = &inputs[*original_index];
         let output = context
             .lookup(input)
             .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
@@ -118,7 +128,7 @@ where
                 if shelley_address.payment().is_script() {
                     context.require_script_witness(RequiredScript {
                         hash: *shelley_address.payment().as_hash(),
-                        index: index as u32,
+                        index: input_index as u32,
                         purpose: ScriptPurpose::Spend,
                         datum_option: datum.map(DatumOption::from),
                     });
