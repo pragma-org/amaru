@@ -115,7 +115,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
             BlockValidation::Err(err) => return Err(err),
             BlockValidation::Invalid(err) => {
-                error!("Block invalid: {:?}", err);
+                error!("Block invalid: {}", err);
                 return Ok(Some(err));
             }
             BlockValidation::Valid(()) => {

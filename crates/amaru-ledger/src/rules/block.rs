@@ -27,6 +27,7 @@ use amaru_kernel::{
 };
 use slot_arithmetic::Slot;
 use std::{
+    fmt::Display,
     ops::{ControlFlow, Deref, FromResidual, Try},
     process::{ExitCode, Termination},
 };
@@ -58,6 +59,47 @@ pub enum BlockValidation<A, E> {
     Valid(A),
     Invalid(InvalidBlockDetails),
     Err(E),
+}
+
+fn display_ex_units(ex_units: &ExUnits) -> String {
+    format!(
+        "ExUnits {{ mem: {}, steps: {} }}",
+        ex_units.mem, ex_units.steps
+    )
+}
+
+impl Display for InvalidBlockDetails {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            InvalidBlockDetails::BlockSizeMismatch { supplied, actual } => {
+                write!(
+                    f,
+                    "Block size mismatch: supplied {}, actual {}",
+                    supplied, actual
+                )
+            }
+            InvalidBlockDetails::TooManyExUnits { provided, max } => {
+                write!(
+                    f,
+                    "Too many ExUnits: provided {}, max {}",
+                    display_ex_units(provided),
+                    display_ex_units(max)
+                )
+            }
+            InvalidBlockDetails::HeaderSizeTooBig { supplied, max } => {
+                write!(f, "Header size too big: supplied {}, max {}", supplied, max)
+            }
+            InvalidBlockDetails::Transaction {
+                transaction_hash,
+                transaction_index,
+                violation,
+            } => write!(
+                f,
+                "Transaction {} at index {} is invalid: {}",
+                transaction_hash, transaction_index, violation
+            ),
+        }
+    }
 }
 
 impl<A> BlockValidation<A, anyhow::Error> {
