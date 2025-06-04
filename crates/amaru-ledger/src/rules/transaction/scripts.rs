@@ -100,12 +100,12 @@ where
 
     let required_scripts = required_scripts
         .into_iter()
-        .filter_map(|required_script| {
+        .map(|required_script| {
             if let Some(script) = provided_scripts
                 .iter()
                 .find(|script| script.hash == required_script.hash)
             {
-                return Some((required_script, &script.script));
+                (required_script, &script.script)
             } else {
                 unreachable!("required script found missing after validation");
             }
