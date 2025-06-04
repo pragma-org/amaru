@@ -31,7 +31,7 @@ fn network_name_to_string(network: &NetworkName) -> String {
 }
 
 #[allow(clippy::unwrap_used)]
-fn generated_compare_snapshot_test_cases() {
+fn generate_compare_snapshot_test_cases() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = Path::new(&out_dir).join("generated_compare_snapshot_test_cases.rs");
 
@@ -92,5 +92,5 @@ fn generated_compare_snapshot_test_cases() {
 fn main() {
     built::write_built_file().expect("Failed to acquire build-time information");
 
-    generated_compare_snapshot_test_cases();
+    generate_compare_snapshot_test_cases();
 }
