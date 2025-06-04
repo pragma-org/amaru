@@ -1183,21 +1183,6 @@ pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
     }
 }
 
-// TODO: provide a From implementation in Pallas
-pub fn to_redeemer_keys(redeemers: &Redeemers) -> Vec<RedeemersKey> {
-    match redeemers {
-        Redeemers::List(redeemers) => redeemers
-            .deref()
-            .iter()
-            .map(|redeemer| RedeemersKey {
-                tag: redeemer.tag,
-                index: redeemer.index,
-            })
-            .collect(),
-        Redeemers::Map(redeemers) => redeemers.deref().iter().map(|(k, _)| k.clone()).collect(),
-    }
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
