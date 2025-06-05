@@ -63,7 +63,7 @@ pub struct ValidateHeader {
 
 impl fmt::Debug for ValidateHeader {
     fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        unimplemented!()
     }
 }
 

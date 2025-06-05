@@ -15,13 +15,19 @@
 use crate::{consensus::store::ChainStore, ConsensusError};
 use amaru_kernel::{Header, Point};
 use amaru_ouroboros_traits::IsHeader;
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
 
 use super::DecodedChainSyncEvent;
 
 pub struct StoreHeader {
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
+    pub store: Arc<Mutex<dyn ChainStore<Header>>>,
+}
+
+impl fmt::Debug for StoreHeader {
+    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        unimplemented!()
+    }
 }
 
 impl StoreHeader {
