@@ -6,6 +6,13 @@ We are still early code-wise so it is a bit hard to provide any guidance here.
 We will adjust and amend these instructions as soon as we feel ready to welcome
 contributions from that side.
 
+### Git Hook
+We provide git hooks to lint code before it gets checked in CI/CD, simplfying the contribution process. To setup the hooks, please run:
+
+```bash
+./scripts/setup-hooks.sh
+```
+
 ## Using radicle
 
 While most of the activity on Amaru happens on [GitHub](https://github.com/pragma-org/amaru) is also compatible with Radicle, a decentralized code collaboration platform. This allows developers to collaborate on Amaru's development in a more decentralized manner.
