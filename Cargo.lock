@@ -197,7 +197,6 @@ dependencies = [
  "amaru",
  "amaru-consensus",
  "amaru-kernel",
- "amaru-ledger",
  "amaru-ouroboros",
  "amaru-stores",
  "anyhow",
