@@ -337,15 +337,18 @@ mod tests {
 
             pure_stage_node_handle(rx, stage, running).unwrap()
         };
-        let generate_message = (0..128u8).prop_map(|i| EchoMessage::Echo {
-            msg_id: 0,
-            echo: format!("Please echo {}", i),
-        });
+        let generate_messages = prop::collection::vec(
+            (0..128u8).prop_map(|i| EchoMessage::Echo {
+                msg_id: 0,
+                echo: format!("Please echo {}", i),
+            }),
+            0..20,
+        );
         simulate(
             config,
             number_of_nodes,
             spawn,
-            generate_message,
+            generate_messages,
             ECHO_PROPERTY,
         )
     }
@@ -397,15 +400,18 @@ mod tests {
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
-        let generate_message = (0..128u8).prop_map(|i| EchoMessage::Echo {
-            msg_id: 0,
-            echo: format!("Please echo {}", i),
-        });
+        let generate_messages = prop::collection::vec(
+            (0..128u8).prop_map(|i| EchoMessage::Echo {
+                msg_id: 0,
+                echo: format!("Please echo {}", i),
+            }),
+            0..20,
+        );
         simulate(
             config,
             number_of_nodes,
             spawn,
-            generate_message,
+            generate_messages,
             ECHO_PROPERTY,
         )
     }
