@@ -21,6 +21,7 @@ use serde_json::Result;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
+use std::path::PathBuf;
 
 use super::bytes::Bytes;
 use super::sync::ChainSyncMessage;
@@ -65,8 +66,8 @@ struct Chain {
     children: Vec<Chain>,
 }
 
-fn read_chain_json(file_path: &str) -> String {
-    fs::read_to_string(file_path).expect("Should have been able to read the chain.json file")
+fn read_chain_json(file_path: &PathBuf) -> String {
+    fs::read_to_string(file_path).unwrap_or_else(|_| panic!("cannot find blocktree file '{}', use --block-tree-file <FILE> to set the file to load block tree from", file_path.display()))
 }
 
 fn parse_json(bytes: &[u8]) -> Result<Vec<Block>> {
@@ -297,7 +298,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
     messages
 }
 
-pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &str) -> Result<Vec<ChainSyncMessage>> {
+pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &PathBuf) -> Result<Vec<ChainSyncMessage>> {
     let data = read_chain_json(file_path);
     match parse_json(data.as_bytes()) {
         Ok(blocks) => {
@@ -309,7 +310,7 @@ pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &str) -> Result<Vec<Chain
 }
 
 pub fn generate_inputs_strategy(
-    file_path: &str,
+    file_path: &PathBuf,
 ) -> impl Strategy<Value = Vec<ChainSyncMessage>> + use<'_> {
     any::<u64>().prop_map(|seed| {
         let mut rng = StdRng::seed_from_u64(seed);
@@ -319,6 +320,8 @@ pub fn generate_inputs_strategy(
 
 #[cfg(test)]
 mod test {
+    use std::path::Path;
+
     use crate::simulator::generate::*;
 
     #[test]
@@ -381,7 +384,7 @@ mod test {
 
     #[test]
     fn test_recreate_chain() {
-        let data = read_chain_json("tests/data/chain.json");
+        let data = read_chain_json(&Path::new("tests/data/chain.json").into());
         match parse_json(data.as_bytes()) {
             Ok(blocks) => {
                 let chain = recreate_chain(blocks);
@@ -434,7 +437,7 @@ mod test {
 
     #[test]
     fn test_generate_inputs() {
-        let data = read_chain_json("tests/data/chain.json");
+        let data = read_chain_json(&Path::new("tests/data/chain.json").into());
         match parse_json(data.as_bytes()) {
             Ok(blocks) => {
                 let seed = 1234;
