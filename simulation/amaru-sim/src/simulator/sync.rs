@@ -80,6 +80,12 @@ pub struct StdinMessageReader {
     reader: Lines<BufReader<Stdin>>,
 }
 
+impl Default for StdinMessageReader {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl StdinMessageReader {
     pub fn new() -> Self {
         let reader = BufReader::new(stdin()).lines();
@@ -118,16 +124,22 @@ impl MessageReader for StringMessageReader {
 }
 
 pub struct OutputWriter {
-    writer: FramedWrite<Stdout, LinesCodec>,
+    pub writer: FramedWrite<Stdout, LinesCodec>,
+}
+
+impl Default for OutputWriter {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl OutputWriter {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         let writer = FramedWrite::new(stdout(), LinesCodec::new());
         Self { writer }
     }
 
-    pub(crate) async fn write(&mut self, messages: Vec<Envelope<ChainSyncMessage>>) {
+    pub async fn write(&mut self, messages: Vec<Envelope<ChainSyncMessage>>) {
         for msg in messages {
             let line = serde_json::to_string(&msg).unwrap();
             self.writer.send(line).await.unwrap();

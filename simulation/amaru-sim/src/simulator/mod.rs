@@ -30,22 +30,21 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
     Hash, Header,
     Point::{self, *},
-    Slot,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::Error;
-use bytes::Bytes;
 use clap::Parser;
 use generate::generate_inputs_strategy;
 use ledger::{populate_chain_store, FakeStakeDistribution};
-use proptest::{prelude::BoxedStrategy, test_runner::Config};
+use proptest::test_runner::Config;
 use pure_stage::{simulation::SimulationBuilder, StageRef};
 use pure_stage::{StageGraph, Void};
 use simulate::{pure_stage_node_handle, simulate, Trace};
 use std::{path::PathBuf, sync::Arc};
-use sync::ChainSyncMessage;
 use tokio::sync::Mutex;
 use tracing::Span;
+
+pub use sync::*;
 
 mod bytes;
 pub mod generate;
@@ -74,6 +73,10 @@ pub struct Args {
     #[arg(long, default_value = "./data")]
     pub data_dir: PathBuf,
 
+    /// Generated "block tree" file in JSON
+    #[arg(long, default_value = "./chain.json")]
+    pub block_tree_file: PathBuf,
+
     /// Starting point for the (simulated) chain.
     /// Default to genesis hash, eg. all-zero hash.
     #[arg(long, default_value_t = Hash::from([0; 32]))]
@@ -89,6 +92,7 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     let global_parameters: &GlobalParameters = network.into();
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
+    let chain_data_path = args.block_tree_file;
     let era_history = network.into();
 
     let mut chain_store = RocksDBStore::new(&args.chain_dir, era_history).unwrap_or_else(|e| {
@@ -111,12 +115,12 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
     let mut store_header = StoreHeader::new(chain_ref.clone());
     let mut select_chain = SelectChain::new(chain_selector);
-    let rt = tokio::runtime::Runtime::new().unwrap();
 
     run_simulator(
         rt,
         global_parameters.clone(),
         &mut consensus,
+        &chain_data_path,
         &mut store_header,
         &mut select_chain,
     );
@@ -125,43 +129,11 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
 const CHAIN_PROPERTY: fn(Trace<ChainSyncMessage>) -> Result<(), String> =
     |_trace: Trace<ChainSyncMessage>| Ok(());
 
-fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
-    use proptest::{collection::vec, prelude::*};
-
-    prop_oneof![
-        (any::<u64>(), any::<String>(), vec(any::<String>(), 0..10)).prop_map(
-            |(msg_id, node_id, node_ids)| ChainSyncMessage::Init {
-                msg_id,
-                node_id,
-                node_ids
-            }
-        ),
-        (any::<u64>()).prop_map(|msg_id| ChainSyncMessage::InitOk {
-            in_reply_to: msg_id
-        }),
-        (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| {
-            ChainSyncMessage::Fwd {
-                msg_id,
-                slot: Slot::from(slot),
-                hash: hash.to_vec().into(),
-                header: Bytes { bytes: vec![] },
-            }
-        }),
-        (any::<u64>(), any::<u64>(), any::<[u8; 32]>()).prop_map(|(msg_id, slot, hash)| {
-            ChainSyncMessage::Bck {
-                msg_id,
-                slot: Slot::from(slot),
-                hash: hash.to_vec().into(),
-            }
-        })
-    ]
-    .boxed()
-}
-
 fn run_simulator(
     rt: tokio::runtime::Runtime,
     global: GlobalParameters,
     validate_header: &mut ValidateHeader,
+    chain_data_path: &PathBuf,
     _store_header: &mut StoreHeader,
     _select_chain: &mut SelectChain,
 ) {
@@ -284,61 +256,10 @@ fn run_simulator(
         config,
         number_of_nodes,
         spawn,
-        generate_inputs_strategy("tests/data/chain.json"),
+        generate_inputs_strategy(chain_data_path),
         CHAIN_PROPERTY,
     )
 }
-
-// async fn write_events(
-//     output_writer: &mut OutputWriter,
-//     store: &Arc<Mutex<dyn ChainStore<Header>>>,
-//     events: &[ValidateHeaderEvent],
-// ) {
-//     let mut msgs = vec![];
-//     let s = store.lock().await;
-//     for e in events {
-//         match e {
-//             ValidateHeaderEvent::Validated { point, .. } => {
-//                 let h: Hash<32> = point.into();
-//                 let hdr = s.load_header(&h).unwrap();
-//                 let fwd = ChainSyncMessage::Fwd {
-//                     msg_id: 0, // FIXME
-//                     slot: point.slot_or_default(),
-//                     hash: Bytes {
-//                         bytes: (*h).to_vec(),
-//                     },
-//                     header: Bytes {
-//                         bytes: to_cbor(&hdr),
-//                     },
-//                 };
-//                 let envelope = Envelope {
-//                     src: "n1".to_string(),
-//                     dest: "c1".to_string(),
-//                     body: fwd,
-//                 };
-//                 msgs.push(envelope);
-//             }
-//             ValidateHeaderEvent::Rollback { rollback_point, .. } => {
-//                 let h: Hash<32> = rollback_point.into();
-//                 let fwd = ChainSyncMessage::Bck {
-//                     msg_id: 0, // FIXME
-//                     slot: rollback_point.slot_or_default(),
-//                     hash: Bytes {
-//                         bytes: (*h).to_vec(),
-//                     },
-//                 };
-//                 let envelope = Envelope {
-//                     src: "n1".to_string(),
-//                     dest: "c1".to_string(),
-//                     body: fwd,
-//                 };
-//                 msgs.push(envelope);
-//             }
-//         }
-//     }
-
-//     output_writer.write(msgs).await;
-// }
 
 fn make_chain_selector(
     tip: Point,
