@@ -97,6 +97,7 @@ dependencies = [
  "pallas-crypto",
  "pallas-math",
  "proptest",
+ "pure-stage",
  "rand 0.9.1",
  "rayon",
  "serde_json",

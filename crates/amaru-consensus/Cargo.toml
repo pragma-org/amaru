@@ -24,6 +24,7 @@ tracing.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
+pure-stage.workspace = true
 slot-arithmetic.workspace = true
 
 [dev-dependencies]

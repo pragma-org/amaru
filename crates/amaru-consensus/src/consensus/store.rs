@@ -86,7 +86,7 @@ impl<H: IsHeader> ChainStore<H> for Box<dyn ChainStore<H>> {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq)]
 pub enum NoncesError {
     #[error("cannot find nonces: unknown parent {parent} from header {header}")]
     UnknownParent { header: Hash<32>, parent: Hash<32> },
