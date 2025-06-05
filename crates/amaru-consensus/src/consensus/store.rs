@@ -313,7 +313,7 @@ mod test {
                 &PREPROD_HEADER_69638382,
                 (&PREPROD_HEADER_70070331, &PREPROD_NONCES_70070331),
                 &PREPROD_HEADER_70070379,
-                &GlobalParameters::default()
+                NetworkName::Preprod.into()
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070379)
@@ -327,7 +327,7 @@ mod test {
                 &PREPROD_HEADER_69638382,
                 (&PREPROD_HEADER_70070379, &PREPROD_NONCES_70070379),
                 &PREPROD_HEADER_70070426,
-                &GlobalParameters::default()
+                NetworkName::Preprod.into()
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070426)
@@ -341,7 +341,7 @@ mod test {
                 &PREPROD_HEADER_70070379,
                 (&PREPROD_HEADER_70070426, &PREPROD_NONCES_70070426),
                 &PREPROD_HEADER_70070464,
-                &GlobalParameters::default()
+                NetworkName::Preprod.into()
             )
             .as_ref(),
             Some(&*PREPROD_NONCES_70070464)

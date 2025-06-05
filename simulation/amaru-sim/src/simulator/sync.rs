@@ -23,6 +23,7 @@ use futures_util::sink::SinkExt;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};
 use slot_arithmetic::Slot;
+use std::fmt;
 use tokio::io::{stdin, stdout, AsyncBufReadExt, BufReader, Lines, Stdin, Stdout};
 use tokio_util::codec::{FramedWrite, LinesCodec};
 use tracing::{error, Span};
@@ -134,7 +135,7 @@ impl OutputWriter {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, PartialEq, Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChainSyncMessage {
     Init {
@@ -156,6 +157,54 @@ pub enum ChainSyncMessage {
         slot: Slot,
         hash: Bytes,
     },
+}
+
+impl fmt::Debug for ChainSyncMessage {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChainSyncMessage::Init {
+                msg_id,
+                node_id,
+                node_ids,
+            } => f
+                .debug_struct("Init")
+                .field("msg_id", msg_id)
+                .field("node_id", node_id)
+                .field("node_ids", node_ids)
+                .finish(),
+            ChainSyncMessage::InitOk { in_reply_to } => f
+                .debug_struct("InitOk")
+                .field("in_reply_to", in_reply_to)
+                .finish(),
+            ChainSyncMessage::Fwd {
+                msg_id,
+                slot,
+                hash,
+                header,
+            } => f
+                .debug_struct("Fwd")
+                .field("msg_id", msg_id)
+                .field("slot", slot)
+                .field(
+                    "hash",
+                    &String::from_utf8_lossy(&hash.bytes.as_slice()[..hash.bytes.len().min(6)]),
+                )
+                .field(
+                    "header",
+                    &String::from_utf8_lossy(&header.bytes.as_slice()[..header.bytes.len().min(8)]),
+                )
+                .finish(),
+            ChainSyncMessage::Bck { msg_id, slot, hash } => f
+                .debug_struct("Bck")
+                .field("msg_id", msg_id)
+                .field("slot", slot)
+                .field(
+                    "hash",
+                    &String::from_utf8_lossy(&hash.bytes.as_slice()[..hash.bytes.len().min(6)]),
+                )
+                .finish(),
+        }
+    }
 }
 
 impl From<&ValidateHeaderEvent> for ChainSyncMessage {

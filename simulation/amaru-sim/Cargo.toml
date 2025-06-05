@@ -10,10 +10,8 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
-[package.metadata.cargo-machete]
-ignored = ["amaru-consensus", "amaru-kernel", "amaru-ledger", "amaru-ouroboros", "hex", "pallas-codec", "pallas-crypto", "pallas-primitives"]
-
 [dependencies]
+anyhow.workspace = true
 async-trait.workspace = true
 clap.workspace = true
 futures-util.workspace = true
@@ -24,22 +22,21 @@ pallas-crypto.workspace = true
 pallas-primitives.workspace = true
 proptest = {workspace = true, features = ["std"] }
 pure-stage.workspace = true
+rand.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 tokio = { workspace = true, features = ["rt", "rt-multi-thread", "signal", "io-util"] }
 tokio-stream.workspace = true
 tokio-util.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 
 amaru = { path = "../../crates/amaru" }
 amaru-kernel = { path = "../../crates/amaru-kernel" }
 amaru-consensus = { path = "../../crates/amaru-consensus" }
-amaru-ledger = { path = "../../crates/amaru-ledger" }
 amaru-ouroboros = { path = "../../crates/ouroboros" }
 amaru-stores = { path = "../../crates/amaru-stores" }
 slot-arithmetic = { path = "../../crates/slot-arithmetic" }
-anyhow.workspace = true
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }

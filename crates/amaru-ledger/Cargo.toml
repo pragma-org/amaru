@@ -25,14 +25,11 @@ amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 slot-arithmetic.workspace = true
 tracing-json.workspace = true
-proptest = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest.workspace = true
+proptest = { workspace = true, features = [ "std" ] }
+slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
 test-case.workspace = true
-
-[features]
-test-utils = ["proptest"]
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [

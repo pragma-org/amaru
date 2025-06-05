@@ -121,8 +121,14 @@ pub fn execute(
     inputs::execute(
         context,
         transaction_body.inputs.deref(),
-        transaction_body.reference_inputs.as_deref(),
-        transaction_body.collateral.as_deref(),
+        transaction_body
+            .reference_inputs
+            .as_deref()
+            .map(|vec| vec.as_slice()),
+        transaction_body
+            .collateral
+            .as_deref()
+            .map(|vec| vec.as_slice()),
     )?;
 
     mint::execute(context, transaction_body.mint.as_ref());
@@ -191,12 +197,7 @@ pub fn execute(
         transaction_witness_set.bootstrap_witness.as_deref(),
     )?;
 
-    scripts::execute(
-        context,
-        transaction_body.reference_inputs.as_deref(),
-        transaction_body.inputs.deref(),
-        transaction_witness_set,
-    )?;
+    scripts::execute(context, transaction_witness_set)?;
 
     // At last, consume inputs
     if is_valid {

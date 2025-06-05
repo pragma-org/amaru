@@ -4,7 +4,7 @@ use super::{
 use crate::{stagegraph::CallRef, CallId, Effect, ExternalEffect, Message, Name, StageRef, State};
 use either::Either::{Left, Right};
 use std::{
-    collections::{BinaryHeap, HashMap, VecDeque},
+    collections::{BTreeMap, BinaryHeap, VecDeque},
     mem::{replace, take},
     sync::{
         atomic::{AtomicU64, Ordering},
@@ -158,7 +158,7 @@ pub enum OverrideResult<In, Out> {
 /// so you need to use [`resume_receive`](Self::resume_receive) to get them running.
 /// See also [`run_until_blocked`](Self::run_until_blocked) for how to achieve this.
 pub struct SimulationRunning {
-    stages: HashMap<Name, StageData>,
+    stages: BTreeMap<Name, StageData>,
     inputs: Inputs,
     effect: EffectBox,
     clock: Arc<AtomicU64>,
@@ -174,7 +174,7 @@ pub struct SimulationRunning {
 
 impl SimulationRunning {
     pub(super) fn new(
-        stages: HashMap<Name, StageData>,
+        stages: BTreeMap<Name, StageData>,
         inputs: Inputs,
         effect: EffectBox,
         clock: Arc<AtomicU64>,

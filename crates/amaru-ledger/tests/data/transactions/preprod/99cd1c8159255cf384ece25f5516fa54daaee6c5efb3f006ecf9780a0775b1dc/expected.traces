@@ -1,3 +1,3 @@
-[ {"credential":{"hash":"ef6ed47a6917a3cbbeb46561e8853da969343794d66128598a34af2c","type":"script"},"name":"require_witness_span"}
-, {"credential":{"hash":"f654f6a31f6c4cc2c39a169f2c022404aa9f19d43137b0448b219a3e","type":"script"},"name":"require_witness_span"}
+[ {"hash":"ef6ed47a6917a3cbbeb46561e8853da969343794d66128598a34af2c","name":"require_script_witness_span"}
+, {"hash":"f654f6a31f6c4cc2c39a169f2c022404aa9f19d43137b0448b219a3e","name":"require_script_witness_span"}
 ]

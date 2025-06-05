@@ -17,7 +17,7 @@ use amaru_kernel::{cbor, Point};
 use amaru_ouroboros::HASH_SIZE;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::BTreeMap, fmt::Debug};
 use tracing::{instrument, Level};
 
 /// A fragment of the chain, represented by a list of headers
@@ -169,7 +169,7 @@ impl<H: IsHeader> From<Option<H>> for Tip<H> {
 /// the selection logic
 pub struct ChainSelector<H: IsHeader> {
     tip: Tip<H>,
-    peers_chains: HashMap<Peer, Fragment<H>>,
+    peers_chains: BTreeMap<Peer, Fragment<H>>,
 }
 
 /// Definition of a fork.

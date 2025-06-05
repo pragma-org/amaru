@@ -9,22 +9,27 @@ exitWithUsage () {
   exit 1
 }
 
-PEER_ADDRESS=$1
+BUILD_PROFILE=$1
+if [ -z "$BUILD_PROFILE" ]; then
+  exitWithUsage
+fi
+
+PEER_ADDRESS=$2
 if [ -z "$PEER_ADDRESS" ]; then
   exitWithUsage
 fi
 
-LISTEN_ADDRESS=$2
+LISTEN_ADDRESS=$3
 if [ -z "$LISTEN_ADDRESS" ]; then
   exitWithUsage
 fi
 
-TARGET_EPOCH=$3
+TARGET_EPOCH=$4
 if [ -z "$TARGET_EPOCH" ]; then
   exitWithUsage
 fi
 
-NETWORK=${4:-preprod}
+NETWORK=${5:-preprod}
 
 LEDGER_DIR=${LEDGER_DIR:-./ledger.db}
 
@@ -32,7 +37,7 @@ CHAIN_DIR=${CHAIN_DIR:-./chain.db}
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 
-AMARU_TRACE="amaru=info" cargo run --release -- --with-json-traces daemon \
+AMARU_TRACE="amaru=info" cargo run --profile $BUILD_PROFILE -- --with-json-traces daemon \
            --peer-address="${PEER_ADDRESS}" \
            --listen-address="${LISTEN_ADDRESS}" \
            --network="${NETWORK}" \

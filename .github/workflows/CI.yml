@@ -5,7 +5,7 @@ on:
   push:
     branches: ["main"]
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [opened, synchronize, reopened, converted_to_draft, ready_for_review]
     branches: ["*"]
 
 env:
@@ -42,16 +42,20 @@ jobs:
         environments:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+
           - runner: macos-latest
             target: aarch64-apple-darwin
+
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
             command: test --profile dev-debug
+
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
             packages: -p amaru-consensus -p amaru-ledger -p amaru-ouroboros -p slot-arithmetic
             command: build
             setup: rustup target add wasm32-unknown-unknown
+
           - runner: ubuntu-latest
             target: riscv32im-risc0-zkvm-elf
             packages: -p amaru-ledger -p slot-arithmetic
@@ -62,11 +66,13 @@ jobs:
               /home/runner/.risc0/bin/rzup install
               rustup toolchain add nightly-x86_64-unknown-linux-gnu
               rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
+
           - runner: ubuntu-24.04
             target: aarch64-unknown-linux-musl
             command: test
             setup: rustup target add aarch64-unknown-linux-musl
             cross-compile: true
+
     timeout-minutes: 30
     runs-on: ${{ matrix.environments.runner }}
     steps:
@@ -211,7 +217,7 @@ jobs:
 
       - name: Build Amaru
         run: |
-          cargo test --release --no-run -p amaru
+          cargo test --no-run -p amaru
 
       - name: Cache Amaru's ledger.db
         id: cache-ledger-db
@@ -229,13 +235,13 @@ jobs:
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
         run: |
-          make bootstrap
+          make BUILD_PROFILE=test bootstrap
 
       - name: Light bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit != ''
         run: |
-          make import-headers
-          make import-nonces
+          make BUILD_PROFILE=test import-headers
+          make BUILD_PROFILE=test import-nonces
 
       - uses: actions/cache/save@v4
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
@@ -269,11 +275,11 @@ jobs:
             # If this is a push event, we want to test all revolut epochs
             export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
           fi
-          make demo
+          make BUILD_PROFILE=test demo
 
       - name: Run tests
         run: |
-          make test-e2e
+          make BUILD_PROFILE=test test-e2e
 
       - name: Teardown haskell node
         shell: bash
@@ -318,15 +324,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
+
       - name: Build amaru
-        run: cargo build
+        run: cargo build --profile test
         working-directory: simulation/amaru-sim
 
       - name: Setup GHC and cabal
-        uses: haskell-actions/setup@v2  
-        with:  
-          ghc-version: '9.6.7'  
-          cabal-version: '3.14'  
+        uses: haskell-actions/setup@v2
+        with:
+          ghc-version: '9.6.7'
+          cabal-version: '3.14'
 
       - name: Build moskstraumen
         run: |

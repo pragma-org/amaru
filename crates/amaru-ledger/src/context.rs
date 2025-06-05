@@ -12,16 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::HasScriptRef;
 pub(crate) mod assert;
 mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, StakeCredential, TransactionInput, TransactionOutput,
+    AddrKeyhash, Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use slot_arithmetic::Epoch;
-use std::{collections::BTreeSet, fmt, marker::PhantomData};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    marker::PhantomData,
+};
 
 pub use default::*;
 
@@ -253,28 +259,75 @@ pub trait ProposalsSlice {
 // Witnesses
 // -------------------------------------------------------------------------------------------------
 
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+pub enum ScriptLocation {
+    AtInput(TransactionInput),
+    AtReferenceInput(TransactionInput),
+}
+
 pub trait WitnessSlice {
     /// Indicate a datum that may appear in the witness set that isn't required for spending an input
     fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>);
 
-    /// Obtain the full list of allowed supplemental datums while traversing the transaction
-    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>>;
+    /// Acknowledge presence of a script in the transaction by its location, to use for later validations.
+    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation);
 
-    /// Indicate that a witness is required to be present (and valid) for the corresponding
-    /// set of credentials.
-    fn require_witness(&mut self, credential: StakeCredential);
+    /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
+    fn require_script_witness(&mut self, script: RequiredScript);
+
+    /// Indicate that a vkey witness is required to be present (and valid) for the corresponding
+    /// key hash.
+    fn require_vkey_witness(&mut self, vkey_hash: AddrKeyhash);
 
     /// Indicate that a bootstrap witness is required to be present (and valid) for the corresponding
     /// root.
     fn require_bootstrap_witness(&mut self, root: Hash<28>);
 
+    /// Obtain the full list of allowed supplemental datums while traversing the transaction
+    fn allowed_supplemental_datums(&mut self) -> BTreeSet<Hash<32>>;
+
     /// Obtain the full list of required signers collected while traversing the transaction.
     fn required_signers(&mut self) -> BTreeSet<Hash<28>>;
 
     /// Obtain the full list of require scripts collected while traversing the transaction.
-    fn required_scripts(&mut self) -> BTreeSet<Hash<28>>;
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript>;
 
     /// Obtain the full list of required bootstrap witnesses collected while traversing the
     /// transaction.
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>>;
+
+    /// Obtain the full list of known scripts collected while traversing the transaction.
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef>;
+}
+
+/// Implement 'known_script' using the provided script locations and a script context that is at
+/// least a UtxoSlice.
+///
+/// Note that re-constructing the known scripts is relatively fast as the lookup are in logarithmic
+/// times, and no allocation (other than the BTreeMap) is happening whatsoever.
+pub fn blanket_known_scripts<C>(
+    context: &'_ mut C,
+    known_scripts: impl Iterator<Item = (ScriptHash, ScriptLocation)>,
+) -> BTreeMap<ScriptHash, &'_ ScriptRef>
+where
+    C: UtxoSlice,
+{
+    let mut scripts = BTreeMap::new();
+
+    for (script_hash, location) in known_scripts {
+        let lookup = |input| {
+            UtxoSlice::lookup(context, input)
+                .and_then(|output| output.has_script_ref())
+                .unwrap_or_else(|| unreachable!("no script at expected location: {location:?}"))
+        };
+
+        match &location {
+            ScriptLocation::AtInput(input) => scripts.insert(script_hash, lookup(input)),
+            ScriptLocation::AtReferenceInput(ref_input) => {
+                scripts.insert(script_hash, lookup(ref_input))
+            }
+        };
+    }
+
+    scripts
 }

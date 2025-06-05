@@ -316,17 +316,11 @@ pub struct GlobalParameters {
     /// which aren't yet considered final.
     pub consensus_security_param: usize,
 
-    /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Shelley's epoch length.
-    pub shelley_epoch_length_scale_factor: usize,
+    /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine the epoch length.
+    pub epoch_length_scale_factor: usize,
 
     /// Inverse of the active slot coefficient (i.e. 1/f);
     pub active_slot_coeff_inverse: usize,
-
-    /// Multiplier applied to the CONSENSUS_SECURITY_PARAM to determine Byron's epoch length.
-    pub byron_epoch_length_scale_factor: usize,
-
-    /// Epoch number in which the network transitioned to Shelley.
-    pub shelley_transition_epoch: usize,
 
     /// Maximum supply of Ada, in lovelace (1 Ada = 1,000,000 Lovelace)
     pub max_lovelace_supply: Lovelace,
@@ -338,53 +332,15 @@ pub struct GlobalParameters {
     /// indicates the validity period of a KES key before a new one is required.
     pub max_kes_evolution: u8,
 
-    /// Number of slots in a Shelley epoch
-    pub shelley_epoch_length: usize,
+    /// Number of slots in an epoch
+    pub epoch_length: usize,
 
     /// Relative slot from which data of the previous epoch can be considered stable.
     pub stability_window: usize,
 
-    /// Number of blocks in a Byron epoch
-    pub byron_epoch_length: usize,
-
-    /// Number of slots in the Byron era
-    pub byron_total_slots: usize,
-
     /// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
     /// nonce of the following epoch.
     pub randomness_stabilization_window: u64,
-}
-
-impl Default for GlobalParameters {
-    fn default() -> Self {
-        // https://cips.cardano.org/cip/CIP-9
-        let consensus_security_param = 2160;
-        let active_slot_coeff_inverse = 20;
-        let shelley_epoch_length_scale_factor = 10;
-        let shelley_epoch_length = active_slot_coeff_inverse
-            * shelley_epoch_length_scale_factor
-            * consensus_security_param;
-        let byron_epoch_length_scale_factor = 10;
-        let byron_epoch_length = byron_epoch_length_scale_factor * consensus_security_param;
-        let shelley_transition_epoch = 4;
-        Self {
-            consensus_security_param,
-            shelley_epoch_length_scale_factor,
-            active_slot_coeff_inverse,
-            byron_epoch_length_scale_factor,
-            shelley_transition_epoch,
-            max_lovelace_supply: 45_000_000_000_000_000,
-            slots_per_kes_period: 129_600,
-            max_kes_evolution: 62,
-            shelley_epoch_length,
-            stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
-            byron_epoch_length,
-            byron_total_slots: byron_epoch_length * shelley_transition_epoch,
-            randomness_stabilization_window: (4
-                * consensus_security_param
-                * active_slot_coeff_inverse) as u64,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

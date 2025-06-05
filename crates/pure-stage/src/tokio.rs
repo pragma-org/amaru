@@ -6,7 +6,7 @@ use crate::{
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
 use std::{
-    collections::HashMap,
+    collections::BTreeMap,
     future::Future,
     marker::PhantomData,
     sync::Arc,
@@ -25,7 +25,7 @@ pub struct SendError {
 }
 
 struct TokioInner {
-    senders: HashMap<Name, mpsc::Sender<Box<dyn Message>>>,
+    senders: BTreeMap<Name, mpsc::Sender<Box<dyn Message>>>,
     now: Arc<dyn Fn() -> Instant + Send + Sync>,
     mailbox_size: usize,
 }

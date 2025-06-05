@@ -20,7 +20,7 @@ use amaru_kernel::{cbor, from_cbor, network::NetworkName, to_cbor, Hash, RawBloc
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use slot_arithmetic::EraHistory;
-use std::{collections::HashMap, path::PathBuf};
+use std::{collections::BTreeMap, path::PathBuf};
 use tracing::{instrument, Level};
 
 pub struct RocksDBStore {
@@ -107,7 +107,7 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 }
 
 pub struct InMemConsensusStore {
-    nonces: HashMap<Hash<32>, Nonces>,
+    nonces: BTreeMap<Hash<32>, Nonces>,
 }
 
 impl Default for InMemConsensusStore {
@@ -119,7 +119,7 @@ impl Default for InMemConsensusStore {
 impl InMemConsensusStore {
     pub fn new() -> InMemConsensusStore {
         InMemConsensusStore {
-            nonces: HashMap::new(),
+            nonces: BTreeMap::new(),
         }
     }
 }

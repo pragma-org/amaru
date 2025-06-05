@@ -11,7 +11,7 @@ use crate::{
 };
 use std::{
     any::Any,
-    collections::{HashMap, VecDeque},
+    collections::{BTreeMap, VecDeque},
     future::{poll_fn, Future},
     marker::PhantomData,
     sync::{
@@ -116,7 +116,7 @@ pub(crate) fn airlock_effect<Out>(
 /// assert_eq!(rx.drain().collect::<Vec<_>>(), vec![2]);
 /// ```
 pub struct SimulationBuilder {
-    stages: HashMap<Name, InitStageData>,
+    stages: BTreeMap<Name, InitStageData>,
     effect: EffectBox,
     clock: Arc<AtomicU64>,
     now: Arc<dyn Fn() -> Instant + Send + Sync>,
@@ -235,7 +235,7 @@ impl super::StageGraph for SimulationBuilder {
             mailbox_size,
             inputs,
         } = self;
-        let mut stages = HashMap::new();
+        let mut stages = BTreeMap::new();
         for (
             name,
             InitStageData {

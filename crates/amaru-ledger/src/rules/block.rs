@@ -23,7 +23,7 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
-    OriginalHash, StakeCredential, TransactionPointer,
+    OriginalHash, TransactionPointer,
 };
 use slot_arithmetic::Slot;
 use std::{
@@ -207,7 +207,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             .unwrap_or(&[])
             .iter()
             .for_each(|vk_hash| {
-                context.require_witness(StakeCredential::AddrKeyhash(*vk_hash));
+                context.require_vkey_witness(*vk_hash);
             });
 
         let pointer = TransactionPointer {

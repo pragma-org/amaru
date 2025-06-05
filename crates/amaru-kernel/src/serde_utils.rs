@@ -44,6 +44,16 @@ where
         .collect())
 }
 
+pub fn deserialize_option_proxy<'de, T, D>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: HasProxy,
+    T::Proxy: serde::Deserialize<'de>,
+{
+    let option: Option<T::Proxy> = serde::Deserialize::deserialize(deserializer)?;
+    Ok(option.map(T::from))
+}
+
 // -------------------------------------------------------------------------------- TransactionInput
 
 impl HasProxy for TransactionInput {
