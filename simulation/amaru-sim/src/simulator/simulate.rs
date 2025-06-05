@@ -229,26 +229,27 @@ pub fn simulate<Msg, F>(
     config: Config,
     number_of_nodes: u8,
     spawn: F,
-    generate_message: impl Strategy<Value = Msg>,
+    generate_messages: impl Strategy<Value = Vec<Msg>>,
     property: fn(Trace<Msg>) -> Result<(), String>,
 ) where
     Msg: Debug + PartialEq + Clone,
     F: Fn() -> NodeHandle<Msg>,
 {
     let mut runner = TestRunner::new(config);
-    let generate_messages = prop::collection::vec(
-        generate_message.prop_map(|msg| {
-            Reverse(Entry {
-                arrival_time: Instant::now(),
-                envelope: Envelope {
-                    src: "c1".to_string(),
-                    dest: "n1".to_string(),
-                    body: msg,
-                },
+    let generate_messages = generate_messages.prop_map(|msgs| {
+        msgs.into_iter()
+            .map(|msg| {
+                Reverse(Entry {
+                    arrival_time: Instant::now(),
+                    envelope: Envelope {
+                        src: "c1".to_string(),
+                        dest: "n1".to_string(),
+                        body: msg,
+                    },
+                })
             })
-        }),
-        0..20,
-    );
+            .collect()
+    });
     let result = runner.run(&generate_messages, |initial_messages| {
         let node_handles: Vec<_> = (1..=number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))

@@ -36,6 +36,7 @@ use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::Error;
 use bytes::Bytes;
 use clap::Parser;
+use generate::generate_inputs_strategy;
 use ledger::{populate_chain_store, FakeStakeDistribution};
 use proptest::{prelude::BoxedStrategy, test_runner::Config};
 use pure_stage::{simulation::SimulationBuilder, StageRef};
@@ -283,7 +284,7 @@ fn run_simulator(
         config,
         number_of_nodes,
         spawn,
-        arbitrary_message(),
+        generate_inputs_strategy("tests/data/chain.json"),
         CHAIN_PROPERTY,
     )
 }
