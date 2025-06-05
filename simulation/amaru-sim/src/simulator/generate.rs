@@ -294,6 +294,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
     messages
 }
 
+// TODO: should be written as a strategy?
 pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &str) -> Result<Vec<ChainSyncMessage>> {
     let data = read_chain_json(file_path);
     match parse_json(data.as_bytes()) {

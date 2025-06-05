@@ -25,8 +25,8 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
+use pure_stage::StageRef;
 use pure_stage::{simulation::SimulationRunning, Receiver};
-use pure_stage::{StageBuildRef, StageRef};
 
 use anyhow::anyhow;
 use proptest::{

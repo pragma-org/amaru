@@ -17,11 +17,12 @@ use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header,
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
+use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, StageRef, Void};
 use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{instrument, Level, Span};
 
-use super::DecodedChainSyncEvent;
+use super::{store::NoncesError, DecodedChainSyncEvent};
 
 #[instrument(
     level = Level::TRACE,
@@ -67,6 +68,61 @@ impl fmt::Debug for ValidateHeader {
     }
 }
 
+struct EvolveNonceEffect {
+    store: Arc<Mutex<dyn ChainStore<Header>>>,
+    header: Header,
+    global_parameters: GlobalParameters,
+}
+
+impl EvolveNonceEffect {
+    fn new(
+        store: Arc<Mutex<dyn ChainStore<Header>>>,
+        header: Header,
+        global_parameters: GlobalParameters,
+    ) -> Self {
+        Self {
+            store,
+            header,
+            global_parameters,
+        }
+    }
+}
+
+impl fmt::Debug for EvolveNonceEffect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvolveNonceEffect")
+            .field("header", &self.header)
+            .field("global_parameters", &self.global_parameters)
+            .finish()
+    }
+}
+
+impl ExternalEffect for EvolveNonceEffect {
+    fn run(self: Box<Self>) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::Message>> {
+        Box::pin(async move {
+            let result = self
+                .store
+                .lock()
+                .await
+                .evolve_nonce(&self.header, &self.global_parameters);
+            Box::new(result) as Box<dyn pure_stage::Message>
+        })
+    }
+
+    fn test_eq(&self, other: &dyn ExternalEffect) -> bool {
+        other
+            .cast_ref::<Self>()
+            .map(|other| {
+                self.header == other.header && self.global_parameters == other.global_parameters
+            })
+            .unwrap_or(false)
+    }
+}
+
+impl ExternalEffectAPI for EvolveNonceEffect {
+    type Response = Result<Nonces, NoncesError>;
+}
+
 impl ValidateHeader {
     pub fn new(
         ledger: Arc<dyn HasStakeDistribution>,
@@ -86,6 +142,14 @@ impl ValidateHeader {
     )]
     pub async fn handle_roll_forward(
         &mut self,
+        eff: &Effects<
+            DecodedChainSyncEvent,
+            (
+                ValidateHeader,
+                GlobalParameters,
+                StageRef<DecodedChainSyncEvent, Void>,
+            ),
+        >,
         peer: Peer,
         point: Point,
         header: Header,
@@ -94,11 +158,13 @@ impl ValidateHeader {
         let Nonces {
             active: ref epoch_nonce,
             ..
-        } = self
-            .store
-            .lock()
-            .await
-            .evolve_nonce(&header, global_parameters)?;
+        } = eff
+            .external(EvolveNonceEffect::new(
+                self.store.clone(),
+                header.clone(),
+                global_parameters.clone(),
+            ))
+            .await?;
 
         header_is_valid(
             &point,
@@ -119,6 +185,14 @@ impl ValidateHeader {
 
     pub async fn handle_chain_sync(
         &mut self,
+        eff: &Effects<
+            DecodedChainSyncEvent,
+            (
+                ValidateHeader,
+                GlobalParameters,
+                StageRef<DecodedChainSyncEvent, Void>,
+            ),
+        >,
         chain_sync: DecodedChainSyncEvent,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
@@ -129,7 +203,7 @@ impl ValidateHeader {
                 header,
                 ..
             } => {
-                self.handle_roll_forward(peer, point, header, global_parameters)
+                self.handle_roll_forward(eff, peer, point, header, global_parameters)
                     .await
             }
             DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),

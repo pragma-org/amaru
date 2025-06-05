@@ -21,14 +21,14 @@ use amaru_consensus::{
         store::ChainStore,
         store_header::StoreHeader,
         validate_header::ValidateHeader,
-        ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
+        ChainSyncEvent, DecodedChainSyncEvent,
     },
     peer::Peer,
 };
 use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::GlobalParameters,
-    to_cbor, Hash, Header,
+    Hash, Header,
     Point::{self, *},
     Slot,
 };
@@ -36,22 +36,15 @@ use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::Error;
 use bytes::Bytes;
 use clap::Parser;
-use gasket::framework::WorkerError;
 use ledger::{populate_chain_store, FakeStakeDistribution};
-use proptest::{
-    prelude::{BoxedStrategy, Strategy},
-    test_runner::Config,
-};
-use pure_stage::{simulation::SimulationBuilder, ExternalEffect, ExternalEffectAPI, StageRef};
+use proptest::{prelude::BoxedStrategy, test_runner::Config};
+use pure_stage::{simulation::SimulationBuilder, StageRef};
 use pure_stage::{StageGraph, Void};
-use simulate::{pure_stage_node_handle, simulate, NodeHandle, Trace};
+use simulate::{pure_stage_node_handle, simulate, Trace};
 use std::{path::PathBuf, sync::Arc};
-use sync::{
-    mk_message, read_peer_addresses_from_init, ChainSyncMessage, MessageReader, OutputWriter,
-    StdinMessageReader,
-};
+use sync::ChainSyncMessage;
 use tokio::sync::Mutex;
-use tracing::{info, Span};
+use tracing::Span;
 
 mod bytes;
 pub mod generate;
@@ -119,11 +112,17 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     let mut select_chain = SelectChain::new(chain_selector);
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    run_simulator(rt, &mut consensus, &mut store_header, &mut select_chain);
+    run_simulator(
+        rt,
+        global_parameters.clone(),
+        &mut consensus,
+        &mut store_header,
+        &mut select_chain,
+    );
 }
 
 const CHAIN_PROPERTY: fn(Trace<ChainSyncMessage>) -> Result<(), String> =
-    |trace: Trace<ChainSyncMessage>| Ok(());
+    |_trace: Trace<ChainSyncMessage>| Ok(());
 
 fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
     use proptest::{collection::vec, prelude::*};
@@ -160,6 +159,7 @@ fn arbitrary_message() -> BoxedStrategy<ChainSyncMessage> {
 
 fn run_simulator(
     rt: tokio::runtime::Runtime,
+    global: GlobalParameters,
     validate_header: &mut ValidateHeader,
     _store_header: &mut StoreHeader,
     _select_chain: &mut SelectChain,
@@ -168,7 +168,6 @@ fn run_simulator(
     let number_of_nodes = 1;
     let spawn = move || {
         println!("*** Spawning node!");
-        let global: GlobalParameters;
         let mut network = SimulationBuilder::default();
         let init_st = ValidateHeader {
             ledger: validate_header.ledger.clone(),
@@ -193,11 +192,7 @@ fn run_simulator(
                 Error,
             > {
                 match msg.body {
-                    ChainSyncMessage::Init {
-                        msg_id,
-                        node_id,
-                        node_ids,
-                    } => {
+                    ChainSyncMessage::Init { msg_id, .. } => {
                         let reply_msg = ChainSyncMessage::InitOk {
                             in_reply_to: msg_id,
                         };
@@ -210,10 +205,7 @@ fn run_simulator(
                     }
                     ChainSyncMessage::InitOk { .. } => (),
                     ChainSyncMessage::Fwd {
-                        msg_id,
-                        slot,
-                        hash,
-                        header,
+                        slot, hash, header, ..
                     } => {
                         let decoded = handle_chain_sync(ChainSyncEvent::RollForward {
                             peer: Peer::new(&msg.src),
@@ -223,23 +215,29 @@ fn run_simulator(
                         })?;
                         eff.send(&downstream, decoded).await
                     }
-                    ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
+                    ChainSyncMessage::Bck { .. } => todo!(),
                 };
                 Ok(((), downstream, out))
             },
         );
 
-        let validate_header_stage =
-            network.stage(
-                "validate_header",
-                async |(state, out),
-                       _msg: DecodedChainSyncEvent,
-                       _eff|
-                       -> Result<
-                    (ValidateHeader, StageRef<DecodedChainSyncEvent, Void>),
-                    Error,
-                > { Ok((state, out)) },
-            );
+        let validate_header_stage = network.stage(
+            "validate_header",
+            async |(mut state, global, out),
+                   msg: DecodedChainSyncEvent,
+                   eff|
+                   -> Result<
+                (
+                    ValidateHeader,
+                    GlobalParameters,
+                    StageRef<DecodedChainSyncEvent, Void>,
+                ),
+                Error,
+            > {
+                let _result = state.handle_chain_sync(&eff, msg, &global).await;
+                Ok((state, global, out))
+            },
+        );
 
         let store_header_stage = network.stage(
             "store_header",
@@ -269,7 +267,7 @@ fn run_simulator(
         );
         network.wire_up(
             validate_header_stage,
-            (init_st, store_header_stage.sender()),
+            (init_st, global.clone(), store_header_stage.sender()),
         );
         network.wire_up(
             store_header_stage,

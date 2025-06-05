@@ -42,19 +42,19 @@ impl ValidateHeaderStage {
         }
     }
 
-    async fn handle_event(&mut self, unit: DecodedChainSyncEvent) -> Result<(), WorkerError> {
-        let event = self
-            .consensus
-            .handle_chain_sync(unit, &self.global_parameters)
-            .await
-            .map_err(|_| WorkerError::Recv)?;
+    async fn handle_event(&mut self, _unit: DecodedChainSyncEvent) -> Result<(), WorkerError> {
+        unimplemented!()
 
-        self.downstream
-            .send(event.into())
-            .await
-            .map_err(|_| WorkerError::Panic)?;
+        // let event = self
+        //     .consensus
+        //     .handle_chain_sync(unit, &self.global_parameters)
+        //     .await
+        //     .map_err(|_| WorkerError::Recv)?;
 
-        Ok(())
+        // self.downstream
+        //     .send(event.into())
+        //     .await
+        //     .map_err(|_| WorkerError::Panic)?;
     }
 }
 
