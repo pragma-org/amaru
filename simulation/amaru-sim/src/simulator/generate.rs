@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use proptest::prelude::*;
+use rand::rngs::StdRng;
 use rand::Rng;
+use rand::SeedableRng;
 use serde::Deserialize;
 use serde_json::Result;
 use std::collections::{BTreeMap, BTreeSet};
@@ -294,7 +297,6 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
     messages
 }
 
-// TODO: should be written as a strategy?
 pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &str) -> Result<Vec<ChainSyncMessage>> {
     let data = read_chain_json(file_path);
     match parse_json(data.as_bytes()) {
@@ -304,6 +306,15 @@ pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &str) -> Result<Vec<Chain
         }
         Err(err) => Err(err),
     }
+}
+
+pub fn generate_inputs_strategy(
+    file_path: &str,
+) -> impl Strategy<Value = Vec<ChainSyncMessage>> + use<'_> {
+    any::<u64>().prop_map(|seed| {
+        let mut rng = StdRng::seed_from_u64(seed);
+        generate_inputs(&mut rng, file_path).unwrap()
+    })
 }
 
 #[cfg(test)]
@@ -419,19 +430,6 @@ mod test {
             }
         }
         result
-    }
-
-    use rand::rngs::StdRng;
-    use rand::SeedableRng;
-
-    #[test]
-    fn test_seedable_prng() {
-        let seed = 12345;
-        for _i in 0..10000 {
-            let mut rng = StdRng::seed_from_u64(seed);
-            let random = rng.random_range(0..10);
-            assert_eq!(random, 5)
-        }
     }
 
     #[test]
