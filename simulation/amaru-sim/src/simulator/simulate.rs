@@ -90,7 +90,6 @@ where
     Ok(NodeHandle { handle, close })
 }
 
-#[allow(unused)]
 pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHandle<EchoMessage>> {
     let mut child = Command::new(filepath)
         .args(args)
@@ -154,7 +153,6 @@ pub struct World<Msg> {
     trace: Trace<Msg>,
 }
 
-#[allow(dead_code)]
 impl<Msg: PartialEq + Clone> World<Msg> {
     pub fn new(
         initial_messages: Vec<Reverse<Entry<Msg>>>,
@@ -227,7 +225,6 @@ impl<Msg> Drop for World<Msg> {
     }
 }
 
-#[allow(dead_code)]
 pub fn simulate<Msg, F>(
     config: Config,
     number_of_nodes: u8,
