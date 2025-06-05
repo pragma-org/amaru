@@ -51,7 +51,7 @@ use sync::{
     StdinMessageReader,
 };
 use tokio::sync::Mutex;
-use tracing::info;
+use tracing::{info, Span};
 
 mod bytes;
 pub mod generate;
@@ -181,53 +181,60 @@ fn run_simulator(
 
         let receive_stage = network.stage(
             "receive_header",
-            async |(_state, out),
+            async |(_state, downstream, out),
                    msg: Envelope<ChainSyncMessage>,
                    eff|
-                   -> Result<((), StageRef<DecodedChainSyncEvent, Void>), Error> {
-                // match msg.body {
-                //     ChainSyncMessage::Init {
-                //         msg_id,
-                //         node_id,
-                //         node_ids,
-                //     } => {
-                //         let reply_msg = ChainSyncMessage::InitOk {
-                //             in_reply_to: msg_id,
-                //         };
-                //         let reply = Envelope {
-                //             src: msg.dest,
-                //             dest: msg.src,
-                //             body: reply_msg,
-                //         };
-                //         eff.send(&out, reply).await
-                //     }
-                //     ChainSyncMessage::InitOk { .. } => unreachable!(),
-                //     ChainSyncMessage::Fwd {
-                //         msg_id,
-                //         slot,
-                //         hash,
-                //         header,
-                //     } => {
-                //         let decoded = handle_chain_sync(ChainSyncEvent::RollForward {
-                //             peer: Peer::new(&msg.src),
-                //             point: Point::Specific(slot.into(), hash.into()),
-                //             raw_header: header.into(),
-                //             span,
-                //         })?;
-                //         eff.send(&out, decoded).await
-                //     }
-                //     ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
-                // };
-                Ok(((), out))
+                   -> Result<
+                (
+                    (),
+                    StageRef<DecodedChainSyncEvent, Void>,
+                    StageRef<Envelope<ChainSyncMessage>, Void>,
+                ),
+                Error,
+            > {
+                match msg.body {
+                    ChainSyncMessage::Init {
+                        msg_id,
+                        node_id,
+                        node_ids,
+                    } => {
+                        let reply_msg = ChainSyncMessage::InitOk {
+                            in_reply_to: msg_id,
+                        };
+                        let reply = Envelope {
+                            src: msg.dest,
+                            dest: msg.src,
+                            body: reply_msg,
+                        };
+                        eff.send(&out, reply).await
+                    }
+                    ChainSyncMessage::InitOk { .. } => (),
+                    ChainSyncMessage::Fwd {
+                        msg_id,
+                        slot,
+                        hash,
+                        header,
+                    } => {
+                        let decoded = handle_chain_sync(ChainSyncEvent::RollForward {
+                            peer: Peer::new(&msg.src),
+                            point: Point::Specific(slot.into(), hash.into()),
+                            raw_header: header.into(),
+                            span: Span::current(),
+                        })?;
+                        eff.send(&downstream, decoded).await
+                    }
+                    ChainSyncMessage::Bck { msg_id, slot, hash } => todo!(),
+                };
+                Ok(((), downstream, out))
             },
         );
 
         let validate_header_stage =
             network.stage(
                 "validate_header",
-                async |(mut state, out),
-                       msg: DecodedChainSyncEvent,
-                       eff|
+                async |(state, out),
+                       _msg: DecodedChainSyncEvent,
+                       _eff|
                        -> Result<
                     (ValidateHeader, StageRef<DecodedChainSyncEvent, Void>),
                     Error,
@@ -237,8 +244,8 @@ fn run_simulator(
         let store_header_stage = network.stage(
             "store_header",
             async |(store, downstream),
-                   msg: DecodedChainSyncEvent,
-                   eff|
+                   _msg: DecodedChainSyncEvent,
+                   _eff|
                    -> Result<
                 (StoreHeader, StageRef<DecodedChainSyncEvent, Void>),
                 Error,
@@ -248,21 +255,27 @@ fn run_simulator(
         let propagate_header_stage = network.stage(
             "propagate_header",
             async |downstream,
-                   msg: DecodedChainSyncEvent,
-                   eff|
+                   _msg: DecodedChainSyncEvent,
+                   _eff|
                    -> Result<StageRef<Envelope<ChainSyncMessage>, Void>, Error> {
                 Ok(downstream)
             },
         );
 
         let (output, rx) = network.output("output", 10);
-        let receive = network.wire_up(receive_stage, ((), validate_header_stage.sender()));
-        let validate = network.wire_up(
+        let receive = network.wire_up(
+            receive_stage,
+            ((), validate_header_stage.sender(), output.clone()),
+        );
+        network.wire_up(
             validate_header_stage,
             (init_st, store_header_stage.sender()),
         );
-        let store = network.wire_up(store_header_stage, (init_store, propagate_header_stage.sender()));
-        let propagate = network.wire_up(propagate_header_stage, output.without_state());
+        network.wire_up(
+            store_header_stage,
+            (init_store, propagate_header_stage.sender()),
+        );
+        network.wire_up(propagate_header_stage, output.without_state());
 
         let running = network.run(rt.handle().clone());
         pure_stage_node_handle(rx, receive, running).unwrap()
