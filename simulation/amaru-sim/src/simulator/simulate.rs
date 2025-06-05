@@ -70,7 +70,6 @@ pub struct NodeHandle<Msg> {
     close: Box<dyn FnMut()>,
 }
 
-#[allow(unused)]
 pub fn pure_stage_node_handle<Msg, St>(
     mut rx: Receiver<Envelope<Msg>>,
     stage: StageRef<Envelope<Msg>, St>,
