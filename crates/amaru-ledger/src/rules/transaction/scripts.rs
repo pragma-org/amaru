@@ -203,21 +203,39 @@ where
     if let Some(redeemers) = witness_set.redeemer.as_deref() {
         match redeemers {
             amaru_kernel::Redeemers::List(redeemers) => {
+                /* It's possible that a list could have a (tag, index) tuple present more than once.
+                The haskell node removes duplicates, keeping the last value present
+                See (https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626):
+                    - The Map.fromList behavior is documented here: https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList
+
+                This will be relevant during Phase 2 validation as well, so when that edge case inevitably pops up, refer back to this
+
+                In this case, we don't care about the data provided in the redeemer, we only care about the presence of a needed redeemer.
+                Therefore, order doesn't matter in this case.
+                */
+                let mut processed_keys: Vec<RedeemersKey> = Vec::new();
                 redeemers.iter().for_each(|redeemer| {
                     let provided = RedeemersKey {
                         tag: redeemer.tag,
                         index: redeemer.index,
                     };
-                    if let Some(index) = redeemers_required
-                        .iter()
-                        .position(|required| required == &provided)
-                    {
-                        redeemers_required.remove(index);
-                    } else {
-                        extra_redeemers.push(provided);
+
+                    if !processed_keys.contains(&provided) {
+                        if let Some(index) = redeemers_required
+                            .iter()
+                            .position(|required| required == &provided)
+                        {
+                            redeemers_required.remove(index);
+                        } else {
+                            extra_redeemers.push(provided.clone());
+                        }
+
+                        processed_keys.push(provided);
                     }
                 });
             }
+
+            // A map guarantees uniqueness of the RedeemerKey, therefore we don't need to do the same uniquness logic
             amaru_kernel::Redeemers::Map(redeemers) => {
                 redeemers.iter().for_each(|(provided, _)| {
                     if let Some(index) = redeemers_required
@@ -307,6 +325,7 @@ mod tests {
         matches Err(InvalidScripts::ExtraneousRedeemers{..});
         "extraneous redeemer"
     )]
+    #[test_case(fixture!("83036e0c9851c1df44157a8407b1daa34f25549e0644f432e655bd80b0429eba"); "duplicate redeemers")]
     fn test_scripts(
         (mut ctx, witness_set): (AssertValidationContext, MintedWitnessSet<'_>),
     ) -> Result<(), InvalidScripts> {
