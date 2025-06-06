@@ -2,11 +2,19 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { ogmios, Json } from "@cardano-ogmios/mdk";
 
+const network = process.env.NETWORK;
+if (!network) {
+  console.log(`Missing network.
+
+Usage:
+    ./fetch.mjs <NETWORK>`);
+  process.exit(1);
+}
 // Each point corresponds to the last point of the associated epoch.
-const { points, additionalStakeAddresses } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
+const { points, additionalStakeAddresses } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", `config/${network}.json`)));
 
 function outDir(prefix, point) {
-  return path.join(import.meta.dirname, "..", "data", prefix, `${point.epoch}.json`);
+  return path.join(import.meta.dirname, "..", `data/${network}`, prefix, `${point.epoch}.json`);
 }
 
 const queries = [
@@ -34,6 +42,18 @@ const queries = [
       return outDir("pots", point);
     },
   },
+    /*{
+    query: fetchNewEpochState,
+    getFilename(point) {
+      return outDir("new-epoch-state", point);
+    },
+  },*/
+  {
+    query: fetchNonces,
+    getFilename(point) {
+      return outDir("nonces", point);
+    },
+  },
 ]
 
 const result = await ogmios(async (ws, done) => {
@@ -46,6 +66,7 @@ const result = await ogmios(async (ws, done) => {
       if (error) {
         if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
           console.error(`[error ${error.code}] ${error.message} (${error.data})`);
+          console.error(`Failed to fetch data for point ${point.slot} (${point.epoch})`);
           return process.exit(1);
         }
 
@@ -130,4 +151,12 @@ async function fetchDRepsDelegations(ws) {
 
 function fetchPots(ws) {
   return ws.queryLedgerState("treasuryAndReserves")
+}
+
+function fetchNewEpochState(ws) {
+  return ws.queryLedgerState("dump");
+}
+
+function fetchNonces(ws) {
+  return ws.queryLedgerState("nonces");
 }
