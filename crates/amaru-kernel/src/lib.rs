@@ -31,7 +31,7 @@ use pallas_codec::{
 };
 use pallas_primitives::{
     conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
+        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
         RedeemersValue,
     },
     DatumHash, PlutusData, PlutusScript,
@@ -67,8 +67,8 @@ pub use pallas_primitives::{
         MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
         MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers,
-        RedeemersKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
         TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
         Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
