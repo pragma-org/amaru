@@ -14,7 +14,7 @@
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bytes {
     pub bytes: Vec<u8>,
 }
@@ -40,6 +40,16 @@ impl<'de> Deserialize<'de> for Bytes {
 impl From<Vec<u8>> for Bytes {
     fn from(bytes: Vec<u8>) -> Self {
         Bytes { bytes }
+    }
+}
+
+impl TryFrom<&str> for Bytes {
+    type Error = hex::FromHexError;
+
+    fn try_from(hex_string: &str) -> Result<Self, Self::Error> {
+        Ok(Bytes {
+            bytes: hex::decode(hex_string)?,
+        })
     }
 }
 

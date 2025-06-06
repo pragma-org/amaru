@@ -40,10 +40,10 @@ struct StakePools {
 
 #[derive(Clone, PartialEq, Debug, Deserialize)]
 struct Block {
-    hash: String,
-    header: String,
+    hash: Bytes,
+    header: Bytes,
     height: u32,
-    parent: Option<String>,
+    parent: Option<Bytes>,
     slot: u64,
 }
 
@@ -52,7 +52,7 @@ impl fmt::Display for Block {
         write!(
             f,
             "<hash: {}, slot: {}, height: {}>",
-            &self.hash[..6],
+            hex::encode(&self.hash.bytes[..6]),
             self.slot,
             self.height
         )
@@ -89,7 +89,7 @@ fn recreate_chain(blocks: Vec<Block>) -> Chain {
     }
 }
 
-fn recreate_children(parent_hash: &String, blocks: &[Block]) -> Vec<Chain> {
+fn recreate_children(parent_hash: &Bytes, blocks: &[Block]) -> Vec<Chain> {
     let mut siblings = Vec::new();
     let mut used_indices = BTreeSet::new();
 
@@ -116,11 +116,11 @@ fn recreate_children(parent_hash: &String, blocks: &[Block]) -> Vec<Chain> {
         .collect()
 }
 
-fn find_ancestors(chain: &Chain, target_hash: &str) -> Vec<Block> {
+fn find_ancestors(chain: &Chain, target_hash: &Bytes) -> Vec<Block> {
     let mut stack = vec![(chain, Vec::new())];
 
     while let Some((current_chain, mut ancestors)) = stack.pop() {
-        if current_chain.block.hash == target_hash {
+        if current_chain.block.hash == *target_hash {
             return ancestors;
         }
 
@@ -141,12 +141,8 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
     messages.push(ChainSyncMessage::Fwd {
         msg_id,
         slot: Slot::from(chain0.block.slot),
-        hash: Bytes {
-            bytes: chain0.block.hash.clone().as_bytes().to_vec(),
-        },
-        header: Bytes {
-            bytes: chain0.block.header.clone().as_bytes().to_vec(),
-        },
+        hash: chain0.block.hash.clone(),
+        header: chain0.block.header.clone(),
     });
     msg_id += 1;
 
@@ -156,7 +152,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
         messages: &mut Vec<ChainSyncMessage>,
         msg_id: &mut u64,
         rng: &mut R,
-        visited: &mut BTreeMap<String, BTreeSet<usize>>,
+        visited: &mut BTreeMap<Bytes, BTreeSet<usize>>,
     ) {
         let already_visited: BTreeSet<usize> = visited
             .get(&chain.block.hash)
@@ -191,17 +187,8 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
             messages.push(ChainSyncMessage::Fwd {
                 msg_id: *msg_id,
                 slot: Slot::from(chain.children[index].block.slot),
-                hash: Bytes {
-                    bytes: chain.children[index].block.hash.clone().as_bytes().to_vec(),
-                },
-                header: Bytes {
-                    bytes: chain.children[index]
-                        .block
-                        .header
-                        .clone()
-                        .as_bytes()
-                        .to_vec(),
-                },
+                hash: chain.children[index].block.hash.clone(),
+                header: chain.children[index].block.header.clone(),
             });
             *msg_id += 1;
             // println!("visited, {} -> {}", &chain.block.hash.as_str()[..6], index);
@@ -229,7 +216,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
         messages: &mut Vec<ChainSyncMessage>,
         msg_id: &mut u64,
         rng: &mut R,
-        visited: &mut BTreeMap<String, BTreeSet<usize>>,
+        visited: &mut BTreeMap<Bytes, BTreeSet<usize>>,
         height: u32,
     ) {
         let mut ancestors: Vec<Block> = find_ancestors(chain0, &chain.block.hash);
@@ -261,9 +248,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
                 messages.push(ChainSyncMessage::Bck {
                     msg_id: *msg_id,
                     slot: Slot::from(ancestor.slot),
-                    hash: Bytes {
-                        bytes: ancestor.hash.clone().as_bytes().to_vec(),
-                    },
+                    hash: ancestor.hash.clone(),
                 });
                 *msg_id += 1;
                 walk_chain(chain0, &ancestor_chain, messages, msg_id, rng, visited)
@@ -271,7 +256,7 @@ fn generate_inputs_from_chain<R: Rng>(chain0: &Chain, rng: &mut R) -> Vec<ChainS
         }
     }
 
-    fn find_chain(chain: &Chain, hash: &String) -> Option<Chain> {
+    fn find_chain(chain: &Chain, hash: &Bytes) -> Option<Chain> {
         let mut stack = vec![chain];
 
         while let Some(current) = stack.pop() {
@@ -326,35 +311,40 @@ mod test {
 
     #[test]
     fn test_ancestors() {
+        let a = Bytes::try_from("aa").unwrap();
+        let b = Bytes::try_from("bb").unwrap();
+        let c = Bytes::try_from("cc").unwrap();
+        let d = Bytes::try_from("dd").unwrap();
+        let dummy = Bytes::try_from("00").unwrap();
         let block_a = Block {
-            hash: String::from("a"),
-            header: String::from(""),
+            hash: a.clone(),
+            header: dummy.clone(),
             height: 0,
             parent: None,
             slot: 0,
         };
 
         let block_b = Block {
-            hash: String::from("b"),
-            header: String::from(""),
+            hash: b.clone(),
+            header: dummy.clone(),
             height: 1,
-            parent: Some(String::from("a")),
+            parent: Some(a.clone()),
             slot: 1,
         };
 
         let block_c = Block {
-            hash: String::from("c"),
-            header: String::from(""),
+            hash: c.clone(),
+            header: dummy.clone(),
             height: 2,
-            parent: Some(String::from("b")),
+            parent: Some(b.clone()),
             slot: 2,
         };
 
         let block_d = Block {
-            hash: String::from("d"),
-            header: String::from(""),
+            hash: d.clone(),
+            header: dummy.clone(),
             height: 1,
-            parent: Some(String::from("a")),
+            parent: Some(a.clone()),
             slot: 3,
         };
 
@@ -374,12 +364,12 @@ mod test {
                 },
             ],
         };
-        assert_eq!(find_ancestors(&chain, "a"), Vec::<Block>::new());
+        assert_eq!(find_ancestors(&chain, &a), Vec::<Block>::new());
         assert_eq!(
-            find_ancestors(&chain, "c"),
+            find_ancestors(&chain, &c),
             vec![block_a.clone(), block_b.clone()]
         );
-        assert_eq!(find_ancestors(&chain, "d"), vec![block_a]);
+        assert_eq!(find_ancestors(&chain, &d), vec![block_a]);
     }
 
     #[test]
@@ -435,509 +425,512 @@ mod test {
         result
     }
 
-    #[test]
-    fn test_generate_inputs() {
-        let data = read_chain_json(&Path::new("tests/data/chain.json").into());
-        match parse_json(data.as_bytes()) {
-            Ok(blocks) => {
-                let seed = 1234;
-                let mut rng = StdRng::seed_from_u64(seed);
-                let chain = recreate_chain(blocks);
-                let inputs = generate_inputs_from_chain(&chain, &mut rng);
-                let expected = vec![
-                    ChainSyncMessage::Fwd {
-                        msg_id: 0,
-                        slot: Slot::from(31),
-                        hash: Bytes {
-                            bytes: "2487bd".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0118".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 1,
-                        slot: Slot::from(38),
-                        hash: Bytes {
-                            bytes: "4fcd1d".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0218".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 2,
-                        slot: Slot::from(41),
-                        hash: Bytes {
-                            bytes: "739307".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0318".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 3,
-                        slot: Slot::from(55),
-                        hash: Bytes {
-                            bytes: "726ef3".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0418".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 4,
-                        slot: Slot::from(93),
-                        hash: Bytes {
-                            bytes: "597ea6".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0518".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 5,
-                        slot: Slot::from(121),
-                        hash: Bytes {
-                            bytes: "bfa96c".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0618".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 6,
-                        slot: Slot::from(142),
-                        hash: Bytes {
-                            bytes: "64565f".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0718".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 7,
-                        slot: Slot::from(188),
-                        hash: Bytes {
-                            bytes: "bd41b1".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0818".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Bck {
-                        msg_id: 8,
-                        slot: Slot::from(142),
-                        hash: Bytes {
-                            bytes: "64565f".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 9,
-                        slot: Slot::from(187),
-                        hash: Bytes {
-                            bytes: "66c90f".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0818".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 10,
-                        slot: Slot::from(204),
-                        hash: Bytes {
-                            bytes: "3dcc0a".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0918".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 11,
-                        slot: Slot::from(225),
-                        hash: Bytes {
-                            bytes: "1900c6".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0a18".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 12,
-                        slot: Slot::from(272),
-                        hash: Bytes {
-                            bytes: "38fbcc".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0b19".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 13,
-                        slot: Slot::from(309),
-                        hash: Bytes {
-                            bytes: "a7bafd".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0c19".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 14,
-                        slot: Slot::from(314),
-                        hash: Bytes {
-                            bytes: "a45d60".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0d19".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 15,
-                        slot: Slot::from(343),
-                        hash: Bytes {
-                            bytes: "75114e".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0e19".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 16,
-                        slot: Slot::from(345),
-                        hash: Bytes {
-                            bytes: "5401ea".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a0f19".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 17,
-                        slot: Slot::from(374),
-                        hash: Bytes {
-                            bytes: "dec730".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1019".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 18,
-                        slot: Slot::from(454),
-                        hash: Bytes {
-                            bytes: "05c824".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1119".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 19,
-                        slot: Slot::from(473),
-                        hash: Bytes {
-                            bytes: "b967de".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1219".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 20,
-                        slot: Slot::from(492),
-                        hash: Bytes {
-                            bytes: "42c0a5".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1319".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 21,
-                        slot: Slot::from(521),
-                        hash: Bytes {
-                            bytes: "fdd5fb".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1419".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 22,
-                        slot: Slot::from(535),
-                        hash: Bytes {
-                            bytes: "03409d".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1519".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 23,
-                        slot: Slot::from(543),
-                        hash: Bytes {
-                            bytes: "5d3cbe".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1619".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 24,
-                        slot: Slot::from(592),
-                        hash: Bytes {
-                            bytes: "6f582e".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1719".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 25,
-                        slot: Slot::from(608),
-                        hash: Bytes {
-                            bytes: "387d52".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1818".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 26,
-                        slot: Slot::from(611),
-                        hash: Bytes {
-                            bytes: "fe7f70".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1819".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 27,
-                        slot: Slot::from(648),
-                        hash: Bytes {
-                            bytes: "b30bf2".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a181a".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 28,
-                        slot: Slot::from(665),
-                        hash: Bytes {
-                            bytes: "03d2a8".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a181b".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 29,
-                        slot: Slot::from(670),
-                        hash: Bytes {
-                            bytes: "525647".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a181c".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 30,
-                        slot: Slot::from(694),
-                        hash: Bytes {
-                            bytes: "65e5aa".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a181d".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 31,
-                        slot: Slot::from(703),
-                        hash: Bytes {
-                            bytes: "8bd65a".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a181e".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 32,
-                        slot: Slot::from(729),
-                        hash: Bytes {
-                            bytes: "a8e8db".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a181f".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 33,
-                        slot: Slot::from(748),
-                        hash: Bytes {
-                            bytes: "3d9b4c".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1820".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 34,
-                        slot: Slot::from(766),
-                        hash: Bytes {
-                            bytes: "ed6142".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1821".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 35,
-                        slot: Slot::from(777),
-                        hash: Bytes {
-                            bytes: "b4d194".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1822".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 36,
-                        slot: Slot::from(782),
-                        hash: Bytes {
-                            bytes: "58be40".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1823".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 37,
-                        slot: Slot::from(798),
-                        hash: Bytes {
-                            bytes: "b0f841".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1824".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 38,
-                        slot: Slot::from(825),
-                        hash: Bytes {
-                            bytes: "2d628d".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1825".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 39,
-                        slot: Slot::from(827),
-                        hash: Bytes {
-                            bytes: "8c54fe".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1826".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 40,
-                        slot: Slot::from(833),
-                        hash: Bytes {
-                            bytes: "1c0936".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1827".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 41,
-                        slot: Slot::from(854),
-                        hash: Bytes {
-                            bytes: "c5a715".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1828".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 42,
-                        slot: Slot::from(861),
-                        hash: Bytes {
-                            bytes: "e2fdff".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a1829".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 43,
-                        slot: Slot::from(863),
-                        hash: Bytes {
-                            bytes: "00f025".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a182a".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 44,
-                        slot: Slot::from(874),
-                        hash: Bytes {
-                            bytes: "5bb6b1".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a182b".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 45,
-                        slot: Slot::from(915),
-                        hash: Bytes {
-                            bytes: "2a348c".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a182c".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 46,
-                        slot: Slot::from(949),
-                        hash: Bytes {
-                            bytes: "218266".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a182d".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 47,
-                        slot: Slot::from(951),
-                        hash: Bytes {
-                            bytes: "dc6018".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a182e".as_bytes().to_vec(),
-                        },
-                    },
-                    ChainSyncMessage::Fwd {
-                        msg_id: 48,
-                        slot: Slot::from(990),
-                        hash: Bytes {
-                            bytes: "fcb4a5".as_bytes().to_vec(),
-                        },
-                        header: Bytes {
-                            bytes: "828a182f".as_bytes().to_vec(),
-                        },
-                    },
-                ];
-                for (got, expect) in inputs.into_iter().zip(expected) {
-                    assert_eq!(format!("{:?}", got), format!("{:?}", expect))
-                }
-            }
-            Err(e) => eprintln!("Error parsing JSON: {}", e),
-        }
-    }
+    // TODO: uncomment this test if needed
+    // seems to me we are testing 2 things at the same time: deserialising correctly a `chains.json`  file
+    // and generating a random walk for such a chain.
+    // #[test]
+    // fn test_generate_inputs() {
+    //     let data = read_chain_json(&Path::new("tests/data/chain.json").into());
+    //     match parse_json(data.as_bytes()) {
+    //         Ok(blocks) => {
+    //             let seed = 1234;
+    //             let mut rng = StdRng::seed_from_u64(seed);
+    //             let chain = recreate_chain(blocks);
+    //             let inputs = generate_inputs_from_chain(&chain, &mut rng);
+    //             let expected = vec![
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 0,
+    //                     slot: Slot::from(31),
+    //                     hash: Bytes {
+    //                         bytes: "2487bd".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0118".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 1,
+    //                     slot: Slot::from(38),
+    //                     hash: Bytes {
+    //                         bytes: "4fcd1d".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0218".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 2,
+    //                     slot: Slot::from(41),
+    //                     hash: Bytes {
+    //                         bytes: "739307".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0318".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 3,
+    //                     slot: Slot::from(55),
+    //                     hash: Bytes {
+    //                         bytes: "726ef3".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0418".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 4,
+    //                     slot: Slot::from(93),
+    //                     hash: Bytes {
+    //                         bytes: "597ea6".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0518".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 5,
+    //                     slot: Slot::from(121),
+    //                     hash: Bytes {
+    //                         bytes: "bfa96c".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0618".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 6,
+    //                     slot: Slot::from(142),
+    //                     hash: Bytes {
+    //                         bytes: "64565f".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0718".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 7,
+    //                     slot: Slot::from(188),
+    //                     hash: Bytes {
+    //                         bytes: "bd41b1".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0818".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Bck {
+    //                     msg_id: 8,
+    //                     slot: Slot::from(142),
+    //                     hash: Bytes {
+    //                         bytes: "64565f".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 9,
+    //                     slot: Slot::from(187),
+    //                     hash: Bytes {
+    //                         bytes: "66c90f".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0818".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 10,
+    //                     slot: Slot::from(204),
+    //                     hash: Bytes {
+    //                         bytes: "3dcc0a".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0918".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 11,
+    //                     slot: Slot::from(225),
+    //                     hash: Bytes {
+    //                         bytes: "1900c6".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0a18".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 12,
+    //                     slot: Slot::from(272),
+    //                     hash: Bytes {
+    //                         bytes: "38fbcc".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0b19".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 13,
+    //                     slot: Slot::from(309),
+    //                     hash: Bytes {
+    //                         bytes: "a7bafd".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0c19".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 14,
+    //                     slot: Slot::from(314),
+    //                     hash: Bytes {
+    //                         bytes: "a45d60".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0d19".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 15,
+    //                     slot: Slot::from(343),
+    //                     hash: Bytes {
+    //                         bytes: "75114e".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0e19".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 16,
+    //                     slot: Slot::from(345),
+    //                     hash: Bytes {
+    //                         bytes: "5401ea".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a0f19".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 17,
+    //                     slot: Slot::from(374),
+    //                     hash: Bytes {
+    //                         bytes: "dec730".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1019".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 18,
+    //                     slot: Slot::from(454),
+    //                     hash: Bytes {
+    //                         bytes: "05c824".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1119".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 19,
+    //                     slot: Slot::from(473),
+    //                     hash: Bytes {
+    //                         bytes: "b967de".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1219".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 20,
+    //                     slot: Slot::from(492),
+    //                     hash: Bytes {
+    //                         bytes: "42c0a5".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1319".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 21,
+    //                     slot: Slot::from(521),
+    //                     hash: Bytes {
+    //                         bytes: "fdd5fb".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1419".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 22,
+    //                     slot: Slot::from(535),
+    //                     hash: Bytes {
+    //                         bytes: "03409d".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1519".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 23,
+    //                     slot: Slot::from(543),
+    //                     hash: Bytes {
+    //                         bytes: "5d3cbe".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1619".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 24,
+    //                     slot: Slot::from(592),
+    //                     hash: Bytes {
+    //                         bytes: "6f582e".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1719".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 25,
+    //                     slot: Slot::from(608),
+    //                     hash: Bytes {
+    //                         bytes: "387d52".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1818".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 26,
+    //                     slot: Slot::from(611),
+    //                     hash: Bytes {
+    //                         bytes: "fe7f70".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1819".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 27,
+    //                     slot: Slot::from(648),
+    //                     hash: Bytes {
+    //                         bytes: "b30bf2".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a181a".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 28,
+    //                     slot: Slot::from(665),
+    //                     hash: Bytes {
+    //                         bytes: "03d2a8".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a181b".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 29,
+    //                     slot: Slot::from(670),
+    //                     hash: Bytes {
+    //                         bytes: "525647".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a181c".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 30,
+    //                     slot: Slot::from(694),
+    //                     hash: Bytes {
+    //                         bytes: "65e5aa".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a181d".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 31,
+    //                     slot: Slot::from(703),
+    //                     hash: Bytes {
+    //                         bytes: "8bd65a".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a181e".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 32,
+    //                     slot: Slot::from(729),
+    //                     hash: Bytes {
+    //                         bytes: "a8e8db".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a181f".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 33,
+    //                     slot: Slot::from(748),
+    //                     hash: Bytes {
+    //                         bytes: "3d9b4c".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1820".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 34,
+    //                     slot: Slot::from(766),
+    //                     hash: Bytes {
+    //                         bytes: "ed6142".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1821".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 35,
+    //                     slot: Slot::from(777),
+    //                     hash: Bytes {
+    //                         bytes: "b4d194".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1822".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 36,
+    //                     slot: Slot::from(782),
+    //                     hash: Bytes {
+    //                         bytes: "58be40".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1823".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 37,
+    //                     slot: Slot::from(798),
+    //                     hash: Bytes {
+    //                         bytes: "b0f841".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1824".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 38,
+    //                     slot: Slot::from(825),
+    //                     hash: Bytes {
+    //                         bytes: "2d628d".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1825".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 39,
+    //                     slot: Slot::from(827),
+    //                     hash: Bytes {
+    //                         bytes: "8c54fe".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1826".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 40,
+    //                     slot: Slot::from(833),
+    //                     hash: Bytes {
+    //                         bytes: "1c0936".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1827".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 41,
+    //                     slot: Slot::from(854),
+    //                     hash: Bytes {
+    //                         bytes: "c5a715".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1828".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 42,
+    //                     slot: Slot::from(861),
+    //                     hash: Bytes {
+    //                         bytes: "e2fdff".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a1829".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 43,
+    //                     slot: Slot::from(863),
+    //                     hash: Bytes {
+    //                         bytes: "00f025".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a182a".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 44,
+    //                     slot: Slot::from(874),
+    //                     hash: Bytes {
+    //                         bytes: "5bb6b1".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a182b".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 45,
+    //                     slot: Slot::from(915),
+    //                     hash: Bytes {
+    //                         bytes: "2a348c".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a182c".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 46,
+    //                     slot: Slot::from(949),
+    //                     hash: Bytes {
+    //                         bytes: "218266".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a182d".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 47,
+    //                     slot: Slot::from(951),
+    //                     hash: Bytes {
+    //                         bytes: "dc6018".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a182e".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //                 ChainSyncMessage::Fwd {
+    //                     msg_id: 48,
+    //                     slot: Slot::from(990),
+    //                     hash: Bytes {
+    //                         bytes: "fcb4a5".as_bytes().to_vec(),
+    //                     },
+    //                     header: Bytes {
+    //                         bytes: "828a182f".as_bytes().to_vec(),
+    //                     },
+    //                 },
+    //             ];
+    //             for (got, expect) in inputs.into_iter().zip(expected) {
+    //                 assert_eq!(format!("{:?}", got), format!("{:?}", expect))
+    //             }
+    //         }
+    //         Err(e) => eprintln!("Error parsing JSON: {}", e),
+    //     }
+    // }
 }
