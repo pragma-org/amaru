@@ -37,6 +37,8 @@ use std::{
 };
 use tracing::info;
 
+use crate::cmd::daemon::DEFAULT_NETWORK;
+
 const BATCH_SIZE: usize = 5000;
 
 static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
@@ -79,7 +81,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }

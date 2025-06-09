@@ -31,7 +31,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -62,6 +62,8 @@ enum What {
 }
 
 use What::*;
+
+use crate::cmd::daemon::DEFAULT_NETWORK;
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let era_history = args.network.into();

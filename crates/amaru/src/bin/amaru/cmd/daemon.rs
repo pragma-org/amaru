@@ -23,6 +23,8 @@ use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 use tracing::trace;
 
+pub const DEFAULT_NETWORK: NetworkName = NetworkName::Preprod;
+
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Upstream peer addresses to synchronize from.
@@ -39,7 +41,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 

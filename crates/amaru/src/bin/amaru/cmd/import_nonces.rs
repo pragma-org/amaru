@@ -19,6 +19,8 @@ use clap::Parser;
 use std::path::PathBuf;
 use tracing::info;
 
+use crate::cmd::daemon::DEFAULT_NETWORK;
+
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the consensus on-disk storage.
@@ -52,7 +54,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 }
