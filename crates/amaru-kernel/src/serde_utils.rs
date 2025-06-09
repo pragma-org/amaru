@@ -19,7 +19,7 @@ use pallas_primitives::{
 };
 
 use crate::{
-    from_cbor, Bytes, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    from_cbor, Bytes, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, ConwayValue,
 };
 use std::{collections::BTreeMap, ops::Deref};
 
@@ -83,7 +83,7 @@ impl From<TransactionOutputProxy> for TransactionOutput {
     fn from(proxy: TransactionOutputProxy) -> Self {
         Self::PostAlonzo(PostAlonzoTransactionOutput {
             address: proxy.address,
-            value: Value::Coin(proxy.value.unwrap_or_default()),
+            value: ConwayValue::Coin(proxy.value.unwrap_or_default()),
             datum_option: proxy.datum.map(DatumOption::from),
             script_ref: proxy
                 .script_ref

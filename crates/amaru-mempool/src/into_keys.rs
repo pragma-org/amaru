@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{alonzo::MintedTx, TransactionInput, Tx};
+use amaru_kernel::{AlonzoMintedTx, TransactionInput, Tx};
 
 /// An interface to obtain a set of keys for any given type, to be used as discriminants in a
 /// mempool strategy.
@@ -29,7 +29,7 @@ impl IntoKeys for Tx {
     }
 }
 
-impl IntoKeys for MintedTx<'_> {
+impl IntoKeys for AlonzoMintedTx<'_> {
     type Key = TransactionInput;
 
     fn keys(&self) -> impl Iterator<Item = &Self::Key> {

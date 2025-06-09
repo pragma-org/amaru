@@ -56,20 +56,18 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
-    // Investigate.
-    alonzo,
+    alonzo::{Value as AlonzoValue, MintedTx as AlonzoMintedTx},
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
         ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
+        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx as ConwayMintedTx,
         MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
         ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
         RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value as ConwayValue, Voter, VotingProcedure,
         VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
@@ -640,20 +638,20 @@ pub trait HasLovelace {
     fn lovelace(&self) -> Lovelace;
 }
 
-impl HasLovelace for Value {
+impl HasLovelace for ConwayValue {
     fn lovelace(&self) -> Lovelace {
         match self {
-            Value::Coin(lovelace) => *lovelace,
-            Value::Multiasset(lovelace, _) => *lovelace,
+            ConwayValue::Coin(lovelace) => *lovelace,
+            ConwayValue::Multiasset(lovelace, _) => *lovelace,
         }
     }
 }
 
-impl HasLovelace for alonzo::Value {
+impl HasLovelace for AlonzoValue {
     fn lovelace(&self) -> Lovelace {
         match self {
-            alonzo::Value::Coin(lovelace) => *lovelace,
-            alonzo::Value::Multiasset(lovelace, _) => *lovelace,
+            AlonzoValue::Coin(lovelace) => *lovelace,
+            AlonzoValue::Multiasset(lovelace, _) => *lovelace,
         }
     }
 }
