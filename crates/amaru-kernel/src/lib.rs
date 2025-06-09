@@ -45,6 +45,7 @@ use std::{
     fmt::{self, Display, Formatter},
     ops::Deref,
 };
+use pallas_primitives::alonzo::Value as AlonzoValue;
 
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
@@ -56,18 +57,17 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    alonzo::{Value as AlonzoValue, MintedTx as AlonzoMintedTx},
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
         ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx as ConwayMintedTx,
+        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
         MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
         ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
         RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value as ConwayValue, Voter, VotingProcedure,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
         VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
@@ -638,11 +638,11 @@ pub trait HasLovelace {
     fn lovelace(&self) -> Lovelace;
 }
 
-impl HasLovelace for ConwayValue {
+impl HasLovelace for Value {
     fn lovelace(&self) -> Lovelace {
         match self {
-            ConwayValue::Coin(lovelace) => *lovelace,
-            ConwayValue::Multiasset(lovelace, _) => *lovelace,
+            Value::Coin(lovelace) => *lovelace,
+            Value::Multiasset(lovelace, _) => *lovelace,
         }
     }
 }
