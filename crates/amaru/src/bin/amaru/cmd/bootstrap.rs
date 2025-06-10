@@ -15,6 +15,7 @@
 use std::{error::Error, io, path::PathBuf};
 
 use amaru_kernel::network::NetworkName;
+use amaru_kernel::Point;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
 use futures_util::TryStreamExt;
@@ -23,6 +24,7 @@ use tokio::fs::{self, File};
 use tokio::io::BufReader;
 use tokio_util::io::StreamReader;
 
+use super::import_headers::import_headers;
 use super::import_ledger_state::import_all_from_directory;
 use super::import_nonces::{import_nonces, InitialNonces};
 
@@ -44,6 +46,20 @@ pub struct Args {
         default_value_t = NetworkName::Preprod,
     )]
     network: NetworkName,
+
+    /// Address of the node to connect to for retrieving chain data.
+    /// The node should be accessible via the node-2-node protocol, which
+    /// means the remote node should be running as a validator and not
+    /// as a client node.
+    ///
+    /// Addressis given in the usual `host:port` format, for example: "1.2.3.4:3000".
+    #[arg(
+        long,
+        value_name = "NETWORK_ADDRESS",
+        default_value = "127.0.0.1:3001",
+        verbatim_doc_comment
+    )]
+    peer_address: String,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
@@ -69,7 +85,24 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let content = tokio::fs::read_to_string(nonces_file).await?;
     let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
 
-    import_nonces(era_history, chain_dir, initial_nonces).await
+    import_nonces(era_history, &chain_dir, initial_nonces).await?;
+
+    let headers_file: PathBuf = ["data", &*network.to_string(), "headers.json"]
+        .iter()
+        .collect();
+
+    let content = tokio::fs::read_to_string(headers_file).await?;
+    let points: Vec<String> = serde_json::from_str(&content)?;
+    let initial_headers: Vec<Point> = points
+        .iter()
+        .filter_map(|s| super::parse_point(s).ok())
+        .collect();
+
+    for hdr in initial_headers {
+        import_headers(&args.peer_address, network, &chain_dir, hdr, 2).await?;
+    }
+
+    Ok(())
 }
 
 #[derive(Debug, Deserialize)]

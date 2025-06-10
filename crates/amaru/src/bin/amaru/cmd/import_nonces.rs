@@ -80,7 +80,7 @@ where
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     import_nonces(
         args.network.into(),
-        args.chain_dir,
+        &args.chain_dir,
         InitialNonces {
             at: args.at,
             active: args.active,
@@ -94,11 +94,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
 
 pub(crate) async fn import_nonces(
     era_history: &EraHistory,
-    chain_db_path: PathBuf,
+    chain_db_path: &PathBuf,
     initial_nonce: InitialNonces,
 ) -> Result<(), Box<dyn Error>> {
     let mut db =
-        Box::new(RocksDBStore::new(&chain_db_path, era_history)?) as Box<dyn ChainStore<Header>>;
+        Box::new(RocksDBStore::new(chain_db_path, era_history)?) as Box<dyn ChainStore<Header>>;
 
     let header_hash = Hash::from(&initial_nonce.at);
 
