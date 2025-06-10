@@ -127,7 +127,13 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
 }
 
 const CHAIN_PROPERTY: fn(Trace<ChainSyncMessage>) -> Result<(), String> =
-    |_trace: Trace<ChainSyncMessage>| Ok(());
+    |trace: Trace<ChainSyncMessage>| {
+        println!("TRACE:");
+        for entry in trace.0 {
+            println!("{:?}", entry);
+        }
+        Ok(())
+    };
 
 fn run_simulator(
     rt: tokio::runtime::Runtime,
@@ -188,7 +194,7 @@ fn run_simulator(
                         })?;
                         eff.send(&downstream, decoded).await
                     }
-                    ChainSyncMessage::Bck { msg_id, slot, hash } => {
+                    ChainSyncMessage::Bck { slot, hash, .. } => {
                         let decoded = handle_chain_sync(ChainSyncEvent::Rollback {
                             peer: Peer::new(&msg.src),
                             rollback_point: Point::Specific(slot.into(), hash.into()),

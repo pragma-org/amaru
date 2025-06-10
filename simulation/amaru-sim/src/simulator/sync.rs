@@ -197,13 +197,10 @@ impl fmt::Debug for ChainSyncMessage {
                 .debug_struct("Fwd")
                 .field("msg_id", msg_id)
                 .field("slot", slot)
-                .field(
-                    "hash",
-                    &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(6)]),
-                )
+                .field("hash", &hex::encode(&hash.bytes[..hash.bytes.len().min(3)]))
                 .field(
                     "header",
-                    &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(8)]),
+                    &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(4)]),
                 )
                 .finish(),
             ChainSyncMessage::Bck { msg_id, slot, hash } => f
@@ -212,7 +209,7 @@ impl fmt::Debug for ChainSyncMessage {
                 .field("slot", slot)
                 .field(
                     "hash",
-                    &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(6)]),
+                    &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(3)]),
                 )
                 .finish(),
         }
