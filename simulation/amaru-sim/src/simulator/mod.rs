@@ -188,7 +188,14 @@ fn run_simulator(
                         })?;
                         eff.send(&downstream, decoded).await
                     }
-                    ChainSyncMessage::Bck { .. } => todo!(),
+                    ChainSyncMessage::Bck { msg_id, slot, hash } => {
+                        let decoded = handle_chain_sync(ChainSyncEvent::Rollback {
+                            peer: Peer::new(&msg.src),
+                            rollback_point: Point::Specific(slot.into(), hash.into()),
+                            span: Span::current(),
+                        })?;
+                        eff.send(&downstream, decoded).await
+                    }
                 };
                 Ok(((), downstream, out))
             },
