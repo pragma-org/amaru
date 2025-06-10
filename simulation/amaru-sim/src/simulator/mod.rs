@@ -146,92 +146,87 @@ fn run_simulator(
 ) {
     let config = Config::default();
     let number_of_nodes = 1;
-    let spawn =
-        move || {
-            println!("*** Spawning node!");
-            let mut network = SimulationBuilder::default();
-            let init_st = ValidateHeader {
-                ledger: validate_header.ledger.clone(),
-                store: validate_header.store.clone(),
-            };
+    let spawn = move || {
+        println!("*** Spawning node!");
+        let mut network = SimulationBuilder::default();
+        let init_st = ValidateHeader {
+            ledger: validate_header.ledger.clone(),
+            store: validate_header.store.clone(),
+        };
 
-            let init_store = StoreHeader {
-                store: validate_header.store.clone(),
-            };
+        let init_store = StoreHeader {
+            store: validate_header.store.clone(),
+        };
 
-            let receive_stage = network.stage(
-                "receive_header",
-                async |(_state, downstream, out),
-                       msg: Envelope<ChainSyncMessage>,
-                       eff|
-                       -> Result<
-                    (
-                        (),
-                        StageRef<DecodedChainSyncEvent, Void>,
-                        StageRef<Envelope<ChainSyncMessage>, Void>,
-                    ),
-                    Error,
-                > {
-                    match msg.body {
-                        ChainSyncMessage::Init { msg_id, .. } => {
-                            let reply_msg = ChainSyncMessage::InitOk {
-                                in_reply_to: msg_id,
-                            };
-                            let reply = Envelope {
-                                src: msg.dest,
-                                dest: msg.src,
-                                body: reply_msg,
-                            };
-                            eff.send(&out, reply).await
-                        }
-                        ChainSyncMessage::InitOk { .. } => (),
-                        ChainSyncMessage::Fwd {
-                            slot, hash, header, ..
-                        } => {
-                            let decoded = handle_chain_sync(ChainSyncEvent::RollForward {
-                                peer: Peer::new(&msg.src),
-                                point: Point::Specific(slot.into(), hash.into()),
-                                raw_header: header.into(),
-                                span: Span::current(),
-                            })?;
-                            eff.send(&downstream, decoded).await
-                        }
-                        ChainSyncMessage::Bck { slot, hash, .. } => {
-                            let decoded = handle_chain_sync(ChainSyncEvent::Rollback {
-                                peer: Peer::new(&msg.src),
-                                rollback_point: Point::Specific(slot.into(), hash.into()),
-                                span: Span::current(),
-                            })?;
-                            eff.send(&downstream, decoded).await
-                        }
-                    };
-                    Ok(((), downstream, out))
-                },
-            );
+        let receive_stage = network.stage(
+            "receive_header",
+            async |(_state, downstream, out),
+                   msg: Envelope<ChainSyncMessage>,
+                   eff|
+                   -> Result<
+                (
+                    (),
+                    StageRef<DecodedChainSyncEvent, Void>,
+                    StageRef<Envelope<ChainSyncMessage>, Void>,
+                ),
+                Error,
+            > {
+                match msg.body {
+                    ChainSyncMessage::Init { msg_id, .. } => {
+                        let reply_msg = ChainSyncMessage::InitOk {
+                            in_reply_to: msg_id,
+                        };
+                        let reply = Envelope {
+                            src: msg.dest,
+                            dest: msg.src,
+                            body: reply_msg,
+                        };
+                        eff.send(&out, reply).await
+                    }
+                    ChainSyncMessage::InitOk { .. } => (),
+                    ChainSyncMessage::Fwd {
+                        slot, hash, header, ..
+                    } => {
+                        let decoded = handle_chain_sync(ChainSyncEvent::RollForward {
+                            peer: Peer::new(&msg.src),
+                            point: Point::Specific(slot.into(), hash.into()),
+                            raw_header: header.into(),
+                            span: Span::current(),
+                        })?;
+                        eff.send(&downstream, decoded).await
+                    }
+                    ChainSyncMessage::Bck { slot, hash, .. } => {
+                        let decoded = handle_chain_sync(ChainSyncEvent::Rollback {
+                            peer: Peer::new(&msg.src),
+                            rollback_point: Point::Specific(slot.into(), hash.into()),
+                            span: Span::current(),
+                        })?;
+                        eff.send(&downstream, decoded).await
+                    }
+                };
+                Ok(((), downstream, out))
+            },
+        );
 
-            let validate_header_stage = network.stage(
-                "validate_header",
-                async |(mut state, global, downstream),
-                       msg: DecodedChainSyncEvent,
-                       eff|
-                       -> Result<
-                    (
-                        ValidateHeader,
-                        GlobalParameters,
-                        StageRef<DecodedChainSyncEvent, Void>,
-                    ),
-                    Error,
-                > {
-                    let result = state.handle_chain_sync(&eff, msg, &global).await;
-                    match result {
-                        Ok(validated) => eff.send(&downstream, validated).await,
-                        Err(err) => panic!("{}", err),
-                    };
-                    Ok((state, global, downstream))
-                },
-            );
+        let validate_header_stage = network.stage(
+            "validate_header",
+            async |(mut state, global, downstream),
+                   msg: DecodedChainSyncEvent,
+                   eff|
+                   -> Result<
+                (
+                    ValidateHeader,
+                    GlobalParameters,
+                    StageRef<DecodedChainSyncEvent, Void>,
+                ),
+                Error,
+            > {
+                eff.send(&downstream, msg).await;
+                Ok((state, global, downstream))
+            },
+        );
 
-            let store_header_stage =
+        let store_header_stage =
                 network.stage(
                     "store_header",
                     async |(store, downstream),
@@ -246,7 +241,7 @@ fn run_simulator(
                     },
                 );
 
-            let propagate_header_stage = network.stage(
+        let propagate_header_stage = network.stage(
             "propagate_header",
             async |downstream,
                    msg: DecodedChainSyncEvent,
@@ -258,13 +253,39 @@ fn run_simulator(
                         point,
                         header,
                         ..
-                    } => (peer, ChainSyncMessage::Fwd {
-                        msg_id: 0,
-                        slot: point.slot_or_default(),
-                        hash: Bytes { bytes: header.header_body.block_body_hash.to_vec() },
-                        header: Bytes { bytes: header.body_signature.to_vec()},
-                    }),
-                    DecodedChainSyncEvent::Rollback { .. } => todo!(),
+                    } => {
+                        // XXX: remove
+                        println!("DEBUGGING: {:?}", header);
+                        (
+                            peer,
+                            ChainSyncMessage::Fwd {
+                                msg_id: 0,
+                                slot: point.slot_or_default(),
+                                hash: match point {
+                                    Origin => Bytes { bytes: vec![0; 32] },
+                                    Specific(_slot, hash) => Bytes { bytes: hash },
+                                },
+                                header: Bytes {
+                                    bytes: header.body_signature.to_vec(),
+                                },
+                            },
+                        )
+                    }
+                    DecodedChainSyncEvent::Rollback {
+                        peer,
+                        rollback_point,
+                        ..
+                    } => (
+                        peer,
+                        ChainSyncMessage::Bck {
+                            msg_id: 0,
+                            slot: rollback_point.slot_or_default(),
+                            hash: match rollback_point {
+                                Origin => Bytes { bytes: vec![0; 32] },
+                                Specific(_slot, hash) => Bytes { bytes: hash },
+                            },
+                        },
+                    ),
                 };
                 eff.send(
                     &downstream,
@@ -274,29 +295,30 @@ fn run_simulator(
                         dest: peer.name,
                         body: encoded,
                     },
-                ).await;
+                )
+                .await;
                 Ok(downstream)
             },
         );
 
-            let (output, rx) = network.output("output", 10);
-            let receive = network.wire_up(
-                receive_stage,
-                ((), validate_header_stage.sender(), output.clone()),
-            );
-            network.wire_up(
-                validate_header_stage,
-                (init_st, global.clone(), store_header_stage.sender()),
-            );
-            network.wire_up(
-                store_header_stage,
-                (init_store, propagate_header_stage.sender()),
-            );
-            network.wire_up(propagate_header_stage, output.without_state());
+        let (output, rx) = network.output("output", 10);
+        let receive = network.wire_up(
+            receive_stage,
+            ((), validate_header_stage.sender(), output.clone()),
+        );
+        network.wire_up(
+            validate_header_stage,
+            (init_st, global.clone(), store_header_stage.sender()),
+        );
+        network.wire_up(
+            store_header_stage,
+            (init_store, propagate_header_stage.sender()),
+        );
+        network.wire_up(propagate_header_stage, output.without_state());
 
-            let running = network.run(rt.handle().clone());
-            pure_stage_node_handle(rx, receive, running).unwrap()
-        };
+        let running = network.run(rt.handle().clone());
+        pure_stage_node_handle(rx, receive, running).unwrap()
+    };
 
     simulate(
         config,
