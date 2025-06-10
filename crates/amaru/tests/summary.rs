@@ -65,10 +65,7 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-include!(concat!(
-    env!("OUT_DIR"),
-    "/generated_compare_snapshot_test_cases.rs"
-));
+include!("generated_compare_snapshot_test_cases.incl");
 
 #[allow(clippy::unwrap_used)]
 fn compare_snapshot(network_name: NetworkName, epoch: Epoch) {
