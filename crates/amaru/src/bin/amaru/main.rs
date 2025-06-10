@@ -72,13 +72,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     subscriber.init();
-
     let result = match args.command {
         Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
-        Command::Bootstrap(_) => todo!(),
+        Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook

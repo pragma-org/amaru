@@ -98,16 +98,24 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     if !args.snapshot.is_empty() {
         import_all(&args.snapshot, &args.ledger_dir, era_history).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
-        let mut snapshots = fs::read_dir(snapshot_dir)?
-            .filter_map(|entry| entry.ok().map(|e| e.path()))
-            .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("cbor"))
-            .collect::<Vec<_>>();
-        snapshots.sort();
-
-        import_all(&snapshots, &args.ledger_dir, era_history).await
+        import_all_from_directory(&args.ledger_dir, era_history, &snapshot_dir).await
     } else {
         Err(Error::IncorrectUsage.into())
     }
+}
+
+pub(crate) async fn import_all_from_directory(
+    ledger_dir: &PathBuf,
+    era_history: &EraHistory,
+    snapshot_dir: &PathBuf,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut snapshots = fs::read_dir(snapshot_dir)?
+        .filter_map(|entry| entry.ok().map(|e| e.path()))
+        .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("cbor"))
+        .collect::<Vec<_>>();
+    snapshots.sort();
+
+    import_all(&snapshots, ledger_dir, era_history).await
 }
 
 async fn import_all(

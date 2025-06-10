@@ -12,18 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::PathBuf;
+use std::{error::Error, path::PathBuf};
 
 use amaru_kernel::network::NetworkName;
 use clap::{arg, Parser};
+
+use super::import_ledger_state::import_all_from_directory;
 
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the on-disk storage.
     /// This directory will be created if it does not exist, and will
     /// contain the databases needed for the node to run,
-    #[arg(long, value_name = "DIR", default_value = super::DEFAULT_LEDGER_DB_DIR)]
-    ledger_dir: PathBuf,
+    #[arg(long, value_name = "DIR", default_value = ".")]
+    base_dir: PathBuf,
 
     /// Network to bootstrap the node for.
     ///
@@ -35,4 +37,23 @@ pub struct Args {
         default_value_t = NetworkName::Preprod,
     )]
     network: NetworkName,
+}
+
+pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+    let network = args.network;
+    let era_history = network.into();
+
+    let ledger_dir = args.base_dir.join("ledger.db");
+    let _chain_dir = args.base_dir.join("chain.db");
+
+    let snapshots_file: PathBuf = ["data", &*network.to_string(), "snapshots.json"].iter().collect();
+    let snapshots_dir: PathBuf = PathBuf::from(network.to_string());
+
+    download_snapshots(&snapshots_file, &snapshots_dir).await?;
+
+    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await
+}
+
+async fn download_snapshots(_snapshots_file: &PathBuf, _snapshots_dir: &PathBuf) -> Result<(), Box<dyn Error>> {
+    todo!()
 }
