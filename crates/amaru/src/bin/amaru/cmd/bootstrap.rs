@@ -12,10 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, path::PathBuf};
+use std::{error::Error, path::PathBuf, io};
 
 use amaru_kernel::network::NetworkName;
+use async_compression::futures::bufread::GzipDecoder;
 use clap::{arg, Parser};
+use flate2::read::MultiGzDecoder;
+use futures_util::TryStreamExt;
+use serde::Deserialize;
+use tokio::fs::{self, File};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 
 use super::import_ledger_state::import_all_from_directory;
 
@@ -54,6 +60,59 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await
 }
 
-async fn download_snapshots(_snapshots_file: &PathBuf, _snapshots_dir: &PathBuf) -> Result<(), Box<dyn Error>> {
-    todo!()
+#[derive(Debug, Deserialize)]
+struct Snapshot {
+    epoch: u64,
+    point: String,
+    url: String,
+}
+
+async fn download_snapshots(snapshots_file: &PathBuf, snapshots_dir: &PathBuf) -> Result<(), Box<dyn Error>> {
+
+    // Create the target directory if it doesn't exist
+    fs::create_dir_all(snapshots_dir).await?;
+
+    // Read the snapshots JSON file
+    let snapshots_content = fs::read_to_string(snapshots_file).await?;
+    let snapshots: Vec<Snapshot> = serde_json::from_str(&snapshots_content)?;
+
+    // Create a reqwest client
+    let client = reqwest::Client::new();
+
+    // Download each snapshot
+    for snapshot in snapshots {
+        println!("Downloading snapshot for epoch {} at point {}", snapshot.epoch, snapshot.point);
+
+        // Extract filename from the point
+        let filename = format!("{}.cbor.gz", snapshot.point);
+        let target_path = snapshots_dir.join(&filename);
+        let mut file = File::create(target_path).await?;
+
+        // Skip if file already exists
+        if target_path.exists() {
+            println!("Snapshot {} already exists, skipping", filename);
+            continue;
+        }
+
+        // Download the file
+        let response = reqwest::get(&snapshot.url).await?;
+        if !response.status().is_success() {
+            return Err(format!("Failed to download snapshot: HTTP status {}", response.status()).into());
+        }
+
+        let reader = response
+            .bytes_stream()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+            .into_async_read();
+
+        let mut decoder = GzipDecoder::new(reader);
+
+        // Save the compressed content to a file
+        tokio::io::copy(&mut decoder, &mut file).await?;
+
+        println!("Downloaded snapshot to {}", target_path.display());
+    }
+
+    println!("All snapshots downloaded and decompressed successfully");
+    Ok(())
 }

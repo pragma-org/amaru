@@ -20,6 +20,7 @@ anyhow = "1.0.95"
 async-trait = "0.1.83"
 bech32 = "0.11.0"
 clap = { version = "4.5.38", features = ["derive", "env"] }
+reqwest = { version = "0.11.24", features = ["json"] }
 either = "1.15"
 futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
