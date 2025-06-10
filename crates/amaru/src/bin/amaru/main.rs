@@ -22,7 +22,18 @@ mod panic;
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Bootstrap the node with needed data
+    /// Bootstrap the node with needed data.
+    ///
+    /// This command simplifies the process of bootstrapping an Amaru
+    /// node for a given network.
+    ///
+    /// In its current form, given a network name, a target directory
+    /// and possibly a peer to connect to, it will lookup for
+    /// bootstrap configuration files in `data/${network name}/`
+    /// directory to download snapshots, import those snapshots into
+    /// the ledger, import nonces, and import headers.
+    ///
+    /// **NOTE**: Only `preprod` network is supported for now.
     Bootstrap(cmd::bootstrap::Args),
 
     /// Run the node in all its glory.

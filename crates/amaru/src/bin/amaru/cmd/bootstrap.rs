@@ -52,7 +52,7 @@ pub struct Args {
     /// means the remote node should be running as a validator and not
     /// as a client node.
     ///
-    /// Addressis given in the usual `host:port` format, for example: "1.2.3.4:3000".
+    /// Address is given in the usual `host:port` format, for example: "1.2.3.4:3000".
     #[arg(
         long,
         value_name = "NETWORK_ADDRESS",
