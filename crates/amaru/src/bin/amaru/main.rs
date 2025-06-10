@@ -22,6 +22,9 @@ mod panic;
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Bootstrap the node with needed data
+    Bootstrap(cmd::bootstrap::Args),
+
     /// Run the node in all its glory.
     Daemon(cmd::daemon::Args),
 
@@ -75,6 +78,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
+        Command::Bootstrap(_) => todo!(),
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
