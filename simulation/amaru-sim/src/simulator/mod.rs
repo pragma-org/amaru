@@ -28,7 +28,7 @@ use amaru_consensus::{
 use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::GlobalParameters,
-    Hash, Header,
+    to_cbor, Hash, Header,
     Point::{self, *},
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
@@ -221,7 +221,8 @@ fn run_simulator(
                 ),
                 Error,
             > {
-                eff.send(&downstream, msg).await;
+                let result = state.handle_chain_sync(&eff, msg, &global).await?;
+                eff.send(&downstream, result).await;
                 Ok((state, global, downstream))
             },
         );
@@ -266,7 +267,7 @@ fn run_simulator(
                                     Specific(_slot, hash) => Bytes { bytes: hash },
                                 },
                                 header: Bytes {
-                                    bytes: header.body_signature.to_vec(),
+                                    bytes: to_cbor(&header),
                                 },
                             },
                         )
@@ -291,7 +292,8 @@ fn run_simulator(
                     &downstream,
                     Envelope {
                         // FIXME: do we have the name of the node stored somewhere?
-                        src: "".to_string(),
+                        src: "n1".to_string(),
+                        // XXX: this should be broadcast to ALL followers
                         dest: peer.name,
                         body: encoded,
                     },
