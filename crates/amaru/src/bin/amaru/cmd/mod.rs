@@ -14,11 +14,11 @@
 
 use amaru_kernel::{Nonce, Point};
 
+pub(crate) mod bootstrap;
 pub(crate) mod daemon;
 pub(crate) mod import_headers;
 pub(crate) mod import_ledger_state;
 pub(crate) mod import_nonces;
-pub(crate) mod bootstrap;
 
 /// Default path to the on-disk ledger storage.
 pub(crate) const DEFAULT_LEDGER_DB_DIR: &str = "./ledger.db";

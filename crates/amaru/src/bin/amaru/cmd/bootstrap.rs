@@ -12,16 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::{error::Error, path::PathBuf, io};
+use std::{error::Error, io, path::PathBuf};
 
 use amaru_kernel::network::NetworkName;
-use async_compression::futures::bufread::GzipDecoder;
+use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
-use flate2::read::MultiGzDecoder;
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 use tokio::fs::{self, File};
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::BufReader;
+use tokio_util::io::StreamReader;
 
 use super::import_ledger_state::import_all_from_directory;
 
@@ -52,7 +52,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let ledger_dir = args.base_dir.join("ledger.db");
     let _chain_dir = args.base_dir.join("chain.db");
 
-    let snapshots_file: PathBuf = ["data", &*network.to_string(), "snapshots.json"].iter().collect();
+    let snapshots_file: PathBuf = ["data", &*network.to_string(), "snapshots.json"]
+        .iter()
+        .collect();
     let snapshots_dir: PathBuf = PathBuf::from(network.to_string());
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
@@ -67,8 +69,10 @@ struct Snapshot {
     url: String,
 }
 
-async fn download_snapshots(snapshots_file: &PathBuf, snapshots_dir: &PathBuf) -> Result<(), Box<dyn Error>> {
-
+async fn download_snapshots(
+    snapshots_file: &PathBuf,
+    snapshots_dir: &PathBuf,
+) -> Result<(), Box<dyn Error>> {
     // Create the target directory if it doesn't exist
     fs::create_dir_all(snapshots_dir).await?;
 
@@ -81,12 +85,14 @@ async fn download_snapshots(snapshots_file: &PathBuf, snapshots_dir: &PathBuf) -
 
     // Download each snapshot
     for snapshot in snapshots {
-        println!("Downloading snapshot for epoch {} at point {}", snapshot.epoch, snapshot.point);
+        println!(
+            "Downloading snapshot for epoch {} at point {}",
+            snapshot.epoch, snapshot.point
+        );
 
         // Extract filename from the point
-        let filename = format!("{}.cbor.gz", snapshot.point);
+        let filename = format!("{}.cbor", snapshot.point);
         let target_path = snapshots_dir.join(&filename);
-        let mut file = File::create(target_path).await?;
 
         // Skip if file already exists
         if target_path.exists() {
@@ -94,18 +100,23 @@ async fn download_snapshots(snapshots_file: &PathBuf, snapshots_dir: &PathBuf) -
             continue;
         }
 
+        let mut file = File::create(&target_path).await?;
+
         // Download the file
-        let response = reqwest::get(&snapshot.url).await?;
+        let response = client.get(&snapshot.url).send().await?;
         if !response.status().is_success() {
-            return Err(format!("Failed to download snapshot: HTTP status {}", response.status()).into());
+            return Err(format!(
+                "Failed to download snapshot: HTTP status {}",
+                response.status()
+            )
+            .into());
         }
 
-        let reader = response
-            .bytes_stream()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-            .into_async_read();
+        let reader = StreamReader::new(response.bytes_stream().map_err(io::Error::other));
 
-        let mut decoder = GzipDecoder::new(reader);
+        let read = BufReader::new(reader);
+
+        let mut decoder = GzipDecoder::new(read);
 
         // Save the compressed content to a file
         tokio::io::copy(&mut decoder, &mut file).await?;

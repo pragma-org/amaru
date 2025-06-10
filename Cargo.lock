@@ -324,9 +324,9 @@ checksum = "d615619615a650c571269c00dca41db04b9210037fa76ed8239f70404ab56985"
 dependencies = [
  "flate2",
  "futures-core",
- "futures-io",
  "memchr",
  "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
