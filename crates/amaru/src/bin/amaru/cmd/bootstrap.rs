@@ -23,6 +23,7 @@ use serde::Deserialize;
 use tokio::fs::{self, File};
 use tokio::io::BufReader;
 use tokio_util::io::StreamReader;
+use tracing::info;
 
 use super::import_headers::import_headers;
 use super::import_ledger_state::import_all_from_directory;
@@ -127,10 +128,9 @@ async fn download_snapshots(
     let client = reqwest::Client::new();
 
     // Download each snapshot
-    for snapshot in snapshots {
-        println!(
-            "Downloading snapshot for epoch {} at point {}",
-            snapshot.epoch, snapshot.point
+    for snapshot in &snapshots {
+        info!(epoch=%snapshot.epoch, point=%snapshot.point,
+            "Downloading snapshot",
         );
 
         // Extract filename from the point
@@ -139,7 +139,7 @@ async fn download_snapshots(
 
         // Skip if file already exists
         if target_path.exists() {
-            println!("Snapshot {} already exists, skipping", filename);
+            info!("Snapshot {} already exists, skipping", filename);
             continue;
         }
 
@@ -164,9 +164,12 @@ async fn download_snapshots(
         // Save the compressed content to a file
         tokio::io::copy(&mut decoder, &mut file).await?;
 
-        println!("Downloaded snapshot to {}", target_path.display());
+        info!("Downloaded snapshot to {}", target_path.display());
     }
 
-    println!("All snapshots downloaded and decompressed successfully");
+    info!(
+        "All {} snapshots downloaded and decompressed successfully",
+        snapshots.len()
+    );
     Ok(())
 }
