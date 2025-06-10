@@ -73,7 +73,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let snapshots_file: PathBuf = ["data", &*network.to_string(), "snapshots.json"]
         .iter()
         .collect();
-    let snapshots_dir: PathBuf = PathBuf::from(network.to_string());
+    let snapshots_dir: PathBuf = args.base_dir.join(network.to_string());
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
