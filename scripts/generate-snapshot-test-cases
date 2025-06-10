@@ -1,0 +1,91 @@
+#!/bin/bash
+
+# Must match what is included in `crates/amaru/tests/summary.rs`
+DEST_PATH="crates/amaru/tests/generated_compare_snapshot_test_cases.incl"
+if [[ ! -f "$DEST_PATH" ]]; then
+    echo "Error: File $DEST_PATH does not exist"
+    exit 1
+fi
+
+SNAPSHOTS_ROOT="crates/amaru/tests/snapshots"
+
+# Check if snapshots directory exists
+if [[ ! -d "$SNAPSHOTS_ROOT" ]]; then
+    echo "Error: Directory $SNAPSHOTS_ROOT does not exist"
+    exit 1
+fi
+
+network_name_to_string() {
+    local network="$1"
+    case "$network" in
+        "mainnet")
+            echo "Mainnet"
+            ;;
+        "preprod")
+            echo "Preprod"
+            ;;
+        "preview")
+            echo "Preview"
+            ;;
+        testnet*)
+            # Extract magic number if it's a testnet variant
+            if [[ "$network" =~ ^testnet[_-]?([0-9]+)$ ]]; then
+                echo "Testnet:${BASH_REMATCH[1]}"
+            else
+                echo "Testnet:0"  # Default magic number
+            fi
+            ;;
+        *)
+            # Fallback: capitalize first letter
+            echo "${network^}"
+            ;;
+    esac
+}
+
+# Iterate through network directories
+for NETWORK_PATH in "$SNAPSHOTS_ROOT"/*; do
+    if [[ -d "$NETWORK_PATH" ]]; then
+        NETWORK_NAME=$(basename "$NETWORK_PATH")
+        
+        # Iterate through files in network directory
+        for FILE_PATH in "$NETWORK_PATH"/*; do
+            if [[ -f "$FILE_PATH" ]]; then
+                FILE_NAME=$(basename "$FILE_PATH")
+                
+                # Check if filename matches pattern: summary__rewards_summary_*.snap
+                if [[ "$FILE_NAME" =~ ^summary__rewards_summary_([0-9]+)\.snap$ ]]; then
+                    EPOCH="${BASH_REMATCH[1]}"
+                    # Add to test_cases array
+                    TEST_CASES+=("$NETWORK_NAME:$EPOCH")
+                fi
+            fi
+        done
+    fi
+done
+
+# Sort test cases
+IFS=$'\n' TEST_CASES=($(sort <<<"${TEST_CASES[*]}"))
+unset IFS
+
+# Create/truncate the output file
+> "$DEST_PATH"
+
+# Write test cases to file
+for TEST_CASE in "${TEST_CASES[@]}"; do
+    NETWORK="${TEST_CASE%:*}"
+    EPOCH="${TEST_CASE#*:}"
+    
+    NETWORK_ENUM=$(network_name_to_string "$NETWORK")
+    echo "#[test_case(NetworkName::$NETWORK_ENUM, $EPOCH)]" >> "$DEST_PATH"
+done
+
+# Append the test function content
+cat >> "$DEST_PATH" << 'EOF'
+#[ignore]
+pub fn compare_snapshot_test_case(network_name: NetworkName, epoch: u64) {
+    let epoch = Epoch::from(epoch);
+    compare_snapshot(network_name, epoch)
+}
+EOF
+
+echo "Generated test cases written to: $DEST_PATH"
