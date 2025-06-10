@@ -199,11 +199,11 @@ impl fmt::Debug for ChainSyncMessage {
                 .field("slot", slot)
                 .field(
                     "hash",
-                    &String::from_utf8_lossy(&hash.bytes.as_slice()[..hash.bytes.len().min(6)]),
+                    &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(6)]),
                 )
                 .field(
                     "header",
-                    &String::from_utf8_lossy(&header.bytes.as_slice()[..header.bytes.len().min(8)]),
+                    &hex::encode(&header.bytes.as_slice()[..header.bytes.len().min(8)]),
                 )
                 .finish(),
             ChainSyncMessage::Bck { msg_id, slot, hash } => f
@@ -212,7 +212,7 @@ impl fmt::Debug for ChainSyncMessage {
                 .field("slot", slot)
                 .field(
                     "hash",
-                    &String::from_utf8_lossy(&hash.bytes.as_slice()[..hash.bytes.len().min(6)]),
+                    &hex::encode(&hash.bytes.as_slice()[..hash.bytes.len().min(6)]),
                 )
                 .finish(),
         }
