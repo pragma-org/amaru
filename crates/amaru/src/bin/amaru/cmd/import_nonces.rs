@@ -13,10 +13,11 @@
 // limitations under the License.
 
 use amaru_consensus::{consensus::store::ChainStore, Nonces};
-use amaru_kernel::{network::NetworkName, Hash, Header, Nonce, Point};
+use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header, Nonce, Point};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
-use std::path::PathBuf;
+use serde::{Deserialize, Deserializer};
+use std::{error::Error, path::PathBuf};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -57,25 +58,63 @@ pub struct Args {
     network: NetworkName,
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct InitialNonces {
+    #[serde(deserialize_with = "deserialize_point")]
+    at: Point,
+    active: Nonce,
+    evolving: Nonce,
+    candidate: Nonce,
+    tail: Hash<32>,
+}
+
+fn deserialize_point<'de, D>(deserializer: D) -> Result<Point, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    let buf = <&str>::deserialize(deserializer)?;
+    super::parse_point(buf)
+        .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to nonce: {:?}", e)))
+}
+
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let era_history = args.network.into();
+    import_nonces(
+        args.network.into(),
+        args.chain_dir,
+        InitialNonces {
+            at: args.at,
+            active: args.active,
+            evolving: args.evolving,
+            candidate: args.candidate,
+            tail: args.tail,
+        },
+    )
+    .await
+}
+
+pub(crate) async fn import_nonces(
+    era_history: &EraHistory,
+    chain_db_path: PathBuf,
+    initial_nonce: InitialNonces,
+) -> Result<(), Box<dyn Error>> {
     let mut db =
-        Box::new(RocksDBStore::new(&args.chain_dir, era_history)?) as Box<dyn ChainStore<Header>>;
+        Box::new(RocksDBStore::new(&chain_db_path, era_history)?) as Box<dyn ChainStore<Header>>;
 
-    let header_hash = Hash::from(&args.at);
+    let header_hash = Hash::from(&initial_nonce.at);
 
-    info!(point.id = %header_hash, point.slot = %args.at.slot_or_default(), "importing nonces");
+    info!(point.id = %header_hash, point.slot = %initial_nonce.at.slot_or_default(), "importing nonces");
+
+    let epoch = {
+        let slot = initial_nonce.at.slot_or_default();
+        era_history.slot_to_epoch(slot)?
+    };
 
     let nonces = Nonces {
-        epoch: {
-            let slot = args.at.slot_or_default();
-            // FIXME: currently hardwired to preprod network
-            era_history.slot_to_epoch(slot)?
-        },
-        active: args.active,
-        evolving: args.evolving,
-        candidate: args.candidate,
-        tail: args.tail,
+        epoch,
+        active: initial_nonce.active,
+        evolving: initial_nonce.evolving,
+        candidate: initial_nonce.candidate,
+        tail: initial_nonce.tail,
     };
 
     db.put_nonces(&header_hash, &nonces)?;

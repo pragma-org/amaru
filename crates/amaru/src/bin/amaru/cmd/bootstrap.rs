@@ -24,6 +24,7 @@ use tokio::io::BufReader;
 use tokio_util::io::StreamReader;
 
 use super::import_ledger_state::import_all_from_directory;
+use super::import_nonces::{import_nonces, InitialNonces};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -50,7 +51,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let era_history = network.into();
 
     let ledger_dir = args.base_dir.join("ledger.db");
-    let _chain_dir = args.base_dir.join("chain.db");
+    let chain_dir = args.base_dir.join("chain.db");
 
     let snapshots_file: PathBuf = ["data", &*network.to_string(), "snapshots.json"]
         .iter()
@@ -59,7 +60,16 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
-    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await
+    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await?;
+
+    let nonces_file: PathBuf = ["data", &*network.to_string(), "nonces.json"]
+        .iter()
+        .collect();
+
+    let content = tokio::fs::read_to_string(nonces_file).await?;
+    let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
+
+    import_nonces(era_history, chain_dir, initial_nonces).await
 }
 
 #[derive(Debug, Deserialize)]
