@@ -154,8 +154,6 @@ async fn download_snapshots(
             continue;
         }
 
-        let mut file = File::create(&target_path).await?;
-
         // Download the file
         let response = client.get(&snapshot.url).send().await?;
         if !response.status().is_success() {
@@ -166,14 +164,15 @@ async fn download_snapshots(
             .into());
         }
 
-        let reader = StreamReader::new(response.bytes_stream().map_err(io::Error::other));
+        let mut file = File::create(&target_path).await?;
 
-        let read = BufReader::new(reader);
-
-        let mut decoder = GzipDecoder::new(read);
+        let raw_stream_reader =
+            StreamReader::new(response.bytes_stream().map_err(io::Error::other));
+        let buffered_reader = BufReader::new(raw_stream_reader);
+        let mut decoded_stream = GzipDecoder::new(buffered_reader);
 
         // Save the compressed content to a file
-        tokio::io::copy(&mut decoder, &mut file).await?;
+        tokio::io::copy(&mut decoded_stream, &mut file).await?;
 
         info!("Downloaded snapshot to {}", target_path.display());
     }
