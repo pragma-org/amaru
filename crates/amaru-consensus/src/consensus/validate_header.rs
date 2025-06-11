@@ -142,6 +142,39 @@ impl ValidateHeader {
     )]
     pub async fn handle_roll_forward(
         &mut self,
+        peer: Peer,
+        point: Point,
+        header: Header,
+        global_parameters: &GlobalParameters,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+        let Nonces {
+            active: ref epoch_nonce,
+            ..
+        } = self
+            .store
+            .lock()
+            .await
+            .evolve_nonce(&header, global_parameters)?;
+
+        header_is_valid(
+            &point,
+            &header,
+            to_cbor(&header.header_body).as_slice(),
+            epoch_nonce,
+            self.ledger.as_ref(),
+            global_parameters,
+        )?;
+
+        Ok(DecodedChainSyncEvent::RollForward {
+            peer,
+            point,
+            header,
+            span: Span::current(),
+        })
+    }
+
+    pub async fn handle_roll_forward_new(
+        &mut self,
         eff: &Effects<
             DecodedChainSyncEvent,
             (
@@ -183,6 +216,25 @@ impl ValidateHeader {
         })
     }
 
+    pub async fn handle_chain_sync(
+        &mut self,
+        chain_sync: DecodedChainSyncEvent,
+        global_parameters: &GlobalParameters,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+        match chain_sync {
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => {
+                self.handle_roll_forward(peer, point, header, global_parameters)
+                    .await
+            }
+            DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
+        }
+    }
+
     pub async fn validate_header(
         &mut self,
         eff: &Effects<
@@ -203,7 +255,7 @@ impl ValidateHeader {
                 header,
                 ..
             } => {
-                self.handle_roll_forward(eff, peer, point, header, global_parameters)
+                self.handle_roll_forward_new(eff, peer, point, header, global_parameters)
                     .await
             }
             DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
