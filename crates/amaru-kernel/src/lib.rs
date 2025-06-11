@@ -29,6 +29,7 @@ use pallas_codec::{
     minicbor::{decode, encode, Decode, Decoder, Encode, Encoder},
     utils::CborWrap,
 };
+use pallas_primitives::alonzo::Value as AlonzoValue;
 use pallas_primitives::{
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
@@ -45,7 +46,6 @@ use std::{
     fmt::{self, Display, Formatter},
     ops::Deref,
 };
-use pallas_primitives::alonzo::Value as AlonzoValue;
 
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
