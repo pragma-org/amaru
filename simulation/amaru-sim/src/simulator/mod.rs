@@ -221,7 +221,7 @@ fn run_simulator(
                 ),
                 Error,
             > {
-                let result = state.handle_chain_sync(&eff, msg, &global).await?;
+                let result = state.validate_header(&eff, msg, &global).await?;
                 eff.send(&downstream, result).await;
                 Ok((state, global, downstream))
             },

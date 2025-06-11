@@ -183,7 +183,7 @@ impl ValidateHeader {
         })
     }
 
-    pub async fn handle_chain_sync(
+    pub async fn validate_header(
         &mut self,
         eff: &Effects<
             DecodedChainSyncEvent,
