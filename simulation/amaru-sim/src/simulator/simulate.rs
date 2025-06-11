@@ -230,7 +230,7 @@ pub fn simulate<Msg, F>(
     number_of_nodes: u8,
     spawn: F,
     generate_messages: impl Strategy<Value = Vec<Msg>>,
-    property: fn(Trace<Msg>) -> Result<(), String>,
+    property: impl Fn(Trace<Msg>) -> Result<(), String>,
 ) where
     Msg: Debug + PartialEq + Clone,
     F: Fn() -> NodeHandle<Msg>,

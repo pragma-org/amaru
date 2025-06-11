@@ -35,7 +35,7 @@ use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::Error;
 use bytes::Bytes;
 use clap::Parser;
-use generate::generate_inputs_strategy;
+use generate::{generate_inputs_strategy, parse_json, read_chain_json};
 use ledger::{populate_chain_store, FakeStakeDistribution};
 use proptest::test_runner::Config;
 use pure_stage::{simulation::SimulationBuilder, StageRef};
@@ -126,15 +126,6 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
         &mut select_chain,
     );
 }
-
-const CHAIN_PROPERTY: fn(Trace<ChainSyncMessage>) -> Result<(), String> =
-    |trace: Trace<ChainSyncMessage>| {
-        println!("TRACE:");
-        for entry in trace.0 {
-            println!("{:?}", entry);
-        }
-        Ok(())
-    };
 
 fn run_simulator(
     rt: tokio::runtime::Runtime,
@@ -325,8 +316,36 @@ fn run_simulator(
         number_of_nodes,
         spawn,
         generate_inputs_strategy(chain_data_path),
-        CHAIN_PROPERTY,
-    )
+        chain_property(chain_data_path),
+    );
+}
+
+fn chain_property(
+    chain_data_path: &PathBuf,
+) -> impl Fn(Trace<ChainSyncMessage>) -> Result<(), String> + use<'_> {
+    move |trace| match trace.0.last() {
+        None => Err("impossible, no last entry in trace".to_string()),
+        Some(entry) => {
+            assert_eq!(entry.src, "n1");
+            assert_eq!(entry.dest, "c1");
+            let data = read_chain_json(&chain_data_path);
+            let blocks = parse_json(data.as_bytes()).map_err(|err| err.to_string())?;
+            match &entry.body {
+                ChainSyncMessage::Fwd { hash, .. } => {
+                    assert_eq!(Some(hash), blocks.last().map(|block| &block.hash));
+                    println!("Success!")
+                }
+                _ => {
+                    println!("TRACE:");
+                    for entry in &trace.0 {
+                        println!("{:?}", entry);
+                    }
+                    panic!("Last entry in trace isn't a forward")
+                }
+            }
+            Ok(())
+        }
+    }
 }
 
 fn make_chain_selector(

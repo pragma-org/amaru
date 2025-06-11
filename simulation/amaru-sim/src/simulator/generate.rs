@@ -39,8 +39,8 @@ struct StakePools {
 }
 
 #[derive(Clone, PartialEq, Debug, Deserialize)]
-struct Block {
-    hash: Bytes,
+pub struct Block {
+    pub hash: Bytes,
     header: Bytes,
     height: u32,
     parent: Option<Bytes>,
@@ -67,11 +67,11 @@ struct Chain {
     children: Vec<Chain>,
 }
 
-fn read_chain_json(file_path: &PathBuf) -> String {
+pub fn read_chain_json(file_path: &PathBuf) -> String {
     fs::read_to_string(file_path).unwrap_or_else(|_| panic!("cannot find blocktree file '{}', use --block-tree-file <FILE> to set the file to load block tree from", file_path.display()))
 }
 
-fn parse_json(bytes: &[u8]) -> Result<Vec<Block>> {
+pub fn parse_json(bytes: &[u8]) -> Result<Vec<Block>> {
     let result: Root = serde_json::from_slice(bytes)?;
     Ok(result.stake_pools.chains)
 }
