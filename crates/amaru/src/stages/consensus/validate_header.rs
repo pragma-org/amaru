@@ -15,6 +15,7 @@
 use amaru_consensus::consensus::{validate_header::ValidateHeader, DecodedChainSyncEvent};
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use gasket::framework::*;
+use tracing::error;
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
@@ -47,7 +48,10 @@ impl ValidateHeaderStage {
             .consensus
             .handle_chain_sync(unit, &self.global_parameters)
             .await
-            .map_err(|_| WorkerError::Recv)?;
+            .map_err(|e| {
+                error!("failed to validate header {}", e);
+                WorkerError::Recv
+            })?;
 
         self.downstream
             .send(event.into())
@@ -70,9 +74,15 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
         &mut self,
         stage: &mut ValidateHeaderStage,
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.or_panic()?;
+        let result = stage.upstream.recv().await;
 
-        Ok(WorkSchedule::Unit(unit.payload))
+        match result {
+            Ok(unit) => Ok(WorkSchedule::Unit(unit.payload)),
+            Err(e) => {
+                error!("error receiving message {}", e);
+                Ok(WorkSchedule::Done)
+            }
+        }
     }
 
     async fn execute(
