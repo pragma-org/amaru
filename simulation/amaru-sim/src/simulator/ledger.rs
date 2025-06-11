@@ -91,7 +91,6 @@ impl HasStakeDistribution for FakeStakeDistribution {
         _slot: amaru_kernel::Slot,
         pool: &amaru_kernel::PoolId,
     ) -> Option<amaru_ouroboros::PoolSummary> {
-        println!("POOLS: {}", serde_json::to_string(&self.pools).unwrap());
         self.pools
             .iter()
             .find(|p| p.pool_id == *pool)

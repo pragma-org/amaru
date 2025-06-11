@@ -256,7 +256,6 @@ fn run_simulator(
                         ..
                     } => {
                         // XXX: remove
-                        println!("DEBUGGING: {:?}", header);
                         (
                             peer,
                             ChainSyncMessage::Fwd {
