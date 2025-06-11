@@ -113,9 +113,23 @@ pub(crate) async fn import_all_from_directory(
         .filter_map(|entry| entry.ok().map(|e| e.path()))
         .filter(|path| path.extension().and_then(|s| s.to_str()) == Some("cbor"))
         .collect::<Vec<_>>();
-    snapshots.sort();
+
+    sort_snapshots_by_slot(&mut snapshots);
 
     import_all(&snapshots, ledger_dir, era_history).await
+}
+
+fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
+    // Sort by parsed slot number from filename
+    snapshots.sort_by_key(|path| {
+        path.file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.split('.').next())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(u64::MAX)
+    });
+
+    snapshots.sort();
 }
 
 async fn import_all(
