@@ -76,7 +76,7 @@ clear-dbs: ## Clear the databases
 bootstrap: clear-dbs import-headers import-nonces import-snapshots ## Bootstrap the node from scratch
 
 dev: ## Compile and run for development with default options
-	cargo run -- daemon \
+	cargo run --profile $(BUILD_PROFILE) -- daemon \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
 		--peer-address $(AMARU_PEER_ADDRESS) \
