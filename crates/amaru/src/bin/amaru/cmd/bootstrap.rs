@@ -158,7 +158,8 @@ async fn download_snapshots(
         let response = client.get(&snapshot.url).send().await?;
         if !response.status().is_success() {
             return Err(format!(
-                "Failed to download snapshot: HTTP status {}",
+                "Failed to download snapshot from {}: HTTP status {}",
+                snapshot.url,
                 response.status()
             )
             .into());
