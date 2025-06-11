@@ -244,33 +244,31 @@ fn run_simulator(
 
         let propagate_header_stage = network.stage(
             "propagate_header",
-            async |downstream,
+            async |(next_msg_id, downstream),
                    msg: DecodedChainSyncEvent,
                    eff|
-                   -> Result<StageRef<Envelope<ChainSyncMessage>, Void>, Error> {
+                   -> Result<(u64, StageRef<Envelope<ChainSyncMessage>, Void>), Error> {
+                let msg_id = next_msg_id;
                 let (peer, encoded) = match msg {
                     DecodedChainSyncEvent::RollForward {
                         peer,
                         point,
                         header,
                         ..
-                    } => {
-                        // XXX: remove
-                        (
-                            peer,
-                            ChainSyncMessage::Fwd {
-                                msg_id: 0,
-                                slot: point.slot_or_default(),
-                                hash: match point {
-                                    Origin => Bytes { bytes: vec![0; 32] },
-                                    Specific(_slot, hash) => Bytes { bytes: hash },
-                                },
-                                header: Bytes {
-                                    bytes: to_cbor(&header),
-                                },
+                    } => (
+                        peer,
+                        ChainSyncMessage::Fwd {
+                            msg_id,
+                            slot: point.slot_or_default(),
+                            hash: match point {
+                                Origin => Bytes { bytes: vec![0; 32] },
+                                Specific(_slot, hash) => Bytes { bytes: hash },
                             },
-                        )
-                    }
+                            header: Bytes {
+                                bytes: to_cbor(&header),
+                            },
+                        },
+                    ),
                     DecodedChainSyncEvent::Rollback {
                         peer,
                         rollback_point,
@@ -278,7 +276,7 @@ fn run_simulator(
                     } => (
                         peer,
                         ChainSyncMessage::Bck {
-                            msg_id: 0,
+                            msg_id,
                             slot: rollback_point.slot_or_default(),
                             hash: match rollback_point {
                                 Origin => Bytes { bytes: vec![0; 32] },
@@ -298,7 +296,7 @@ fn run_simulator(
                     },
                 )
                 .await;
-                Ok(downstream)
+                Ok((msg_id + 1, downstream))
             },
         );
 
@@ -315,7 +313,7 @@ fn run_simulator(
             store_header_stage,
             (init_store, propagate_header_stage.sender()),
         );
-        network.wire_up(propagate_header_stage, output.without_state());
+        network.wire_up(propagate_header_stage, (0, output.without_state()));
 
         let running = network.run(rt.handle().clone());
         pure_stage_node_handle(rx, receive, running).unwrap()
