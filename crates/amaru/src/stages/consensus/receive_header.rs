@@ -14,7 +14,7 @@
 
 use amaru_consensus::consensus::{receive_header, ChainSyncEvent, DecodedChainSyncEvent};
 use gasket::framework::*;
-use tracing::{instrument, Level};
+use tracing::{error, instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
@@ -32,7 +32,10 @@ pub struct ReceiveHeaderStage {
 
 impl ReceiveHeaderStage {
     async fn handle_event(&mut self, sync_event: ChainSyncEvent) -> Result<(), WorkerError> {
-        let event = receive_header::handle_chain_sync(sync_event).map_err(|_| WorkerError::Recv)?;
+        let event = receive_header::handle_chain_sync(sync_event).map_err(|e| {
+            error!("fail to handle chain sync {}", e);
+            WorkerError::Recv
+        })?;
 
         self.downstream.send(event.into()).await.or_panic()?;
 
