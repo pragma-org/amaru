@@ -100,7 +100,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
         .collect();
 
     for hdr in initial_headers {
-        import_headers(&args.peer_address, network, &chain_dir, hdr, 2).await?;
+        // FIXME: why do we only importa 2 headers for each header listed in the
+        // config file? The 2 headers make sense, but why starting from more than
+        // one header?
+        const NUM_HEADERS_TO_IMPORT: usize = 2;
+        import_headers(
+            &args.peer_address,
+            network,
+            &chain_dir,
+            hdr,
+            NUM_HEADERS_TO_IMPORT,
+        )
+        .await?;
     }
 
     Ok(())
