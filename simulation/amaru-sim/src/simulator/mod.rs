@@ -328,7 +328,7 @@ fn chain_property(
         Some(entry) => {
             assert_eq!(entry.src, "n1");
             assert_eq!(entry.dest, "c1");
-            let data = read_chain_json(&chain_data_path);
+            let data = read_chain_json(chain_data_path);
             let blocks = parse_json(data.as_bytes()).map_err(|err| err.to_string())?;
             match &entry.body {
                 ChainSyncMessage::Fwd { hash, .. } => {
