@@ -237,7 +237,8 @@ fn run_simulator(
                         (StoreHeader, StageRef<DecodedChainSyncEvent, Void>),
                         Error,
                     > {
-                        eff.send(&downstream, msg).await;
+                        let result = store.handle_event(msg).await?;
+                        eff.send(&downstream, result).await;
                         Ok((store, downstream))
                     },
                 );
