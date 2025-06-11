@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::path::Path;
 use std::{error::Error, io, path::PathBuf};
 
 use amaru_kernel::network::NetworkName;
-use amaru_kernel::Point;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
 use futures_util::TryStreamExt;
@@ -79,41 +79,52 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await?;
 
-    let nonces_file: PathBuf = ["data", &*network.to_string(), "nonces.json"]
-        .iter()
-        .collect();
+    import_nonces_for_network(network, era_history, &chain_dir).await?;
 
-    let content = tokio::fs::read_to_string(nonces_file).await?;
-    let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
+    import_headers_for_network(network, &args.peer_address, &chain_dir).await?;
 
-    import_nonces(era_history, &chain_dir, initial_nonces).await?;
+    Ok(())
+}
 
+async fn import_headers_for_network(
+    network: NetworkName,
+    peer_address: &str,
+    chain_dir: &PathBuf,
+) -> Result<(), Box<dyn Error>> {
     let headers_file: PathBuf = ["data", &*network.to_string(), "headers.json"]
         .iter()
         .collect();
-
     let content = tokio::fs::read_to_string(headers_file).await?;
     let points: Vec<String> = serde_json::from_str(&content)?;
-    let initial_headers: Vec<Point> = points
-        .iter()
-        .filter_map(|s| super::parse_point(s).ok())
-        .collect();
-
+    let mut initial_headers = Vec::new();
+    for point_string in points {
+        match super::parse_point(&point_string) {
+            Ok(point) => initial_headers.push(point),
+            Err(e) => tracing::warn!("Ignoring malformed header point '{}': {}", point_string, e),
+        }
+    }
     for hdr in initial_headers {
         // FIXME: why do we only importa 2 headers for each header listed in the
         // config file? The 2 headers make sense, but why starting from more than
         // one header?
         const NUM_HEADERS_TO_IMPORT: usize = 2;
-        import_headers(
-            &args.peer_address,
-            network,
-            &chain_dir,
-            hdr,
-            NUM_HEADERS_TO_IMPORT,
-        )
-        .await?;
+        import_headers(peer_address, network, chain_dir, hdr, NUM_HEADERS_TO_IMPORT).await?;
     }
 
+    Ok(())
+}
+
+async fn import_nonces_for_network(
+    network: NetworkName,
+    era_history: &amaru_kernel::EraHistory,
+    chain_dir: &PathBuf,
+) -> Result<(), Box<dyn Error>> {
+    let nonces_file: PathBuf = ["data", &*network.to_string(), "nonces.json"]
+        .iter()
+        .collect();
+    let content = tokio::fs::read_to_string(nonces_file).await?;
+    let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
+    import_nonces(era_history, chain_dir, initial_nonces).await?;
     Ok(())
 }
 
@@ -165,15 +176,10 @@ async fn download_snapshots(
             .into());
         }
 
-        let mut file = File::create(&target_path).await?;
+        let (tmp_path, file) = uncompress_to_temp_file(&target_path, response).await?;
 
-        let raw_stream_reader =
-            StreamReader::new(response.bytes_stream().map_err(io::Error::other));
-        let buffered_reader = BufReader::new(raw_stream_reader);
-        let mut decoded_stream = GzipDecoder::new(buffered_reader);
-
-        // Save the compressed content to a file
-        tokio::io::copy(&mut decoded_stream, &mut file).await?;
+        file.sync_all().await?;
+        tokio::fs::rename(&tmp_path, &target_path).await?;
 
         info!("Downloaded snapshot to {}", target_path.display());
     }
@@ -183,4 +189,17 @@ async fn download_snapshots(
         snapshots.len()
     );
     Ok(())
+}
+
+async fn uncompress_to_temp_file(
+    target_path: &Path,
+    response: reqwest::Response,
+) -> Result<(PathBuf, File), Box<dyn Error>> {
+    let tmp_path = target_path.with_extension("partial");
+    let mut file = File::create(&tmp_path).await?;
+    let raw_stream_reader = StreamReader::new(response.bytes_stream().map_err(io::Error::other));
+    let buffered_reader = BufReader::new(raw_stream_reader);
+    let mut decoded_stream = GzipDecoder::new(buffered_reader);
+    tokio::io::copy(&mut decoded_stream, &mut file).await?;
+    Ok((tmp_path, file))
 }
