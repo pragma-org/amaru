@@ -203,7 +203,7 @@ async fn chain_sync_handler(
 
 pub(super) fn to_header_content(header: Header) -> HeaderContent {
     HeaderContent {
-        variant: 1,
+        variant: 6,
         byron_prefix: None,
         cbor: to_cbor(&header),
     }
