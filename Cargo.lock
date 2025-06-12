@@ -70,6 +70,7 @@ dependencies = [
  "proptest",
  "rand 0.9.1",
  "rocksdb",
+ "serde",
  "serde_json",
  "slot-arithmetic",
  "sysinfo",

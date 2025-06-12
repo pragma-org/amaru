@@ -28,6 +28,7 @@ use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_codec::minicbor as cbor;
+use serde::{Serialize, Deserialize};
 use slot_arithmetic::Epoch;
 use std::{
     collections::{BTreeMap, BTreeSet, HashMap},
@@ -82,6 +83,14 @@ pub struct Args {
         default_value_t = NetworkName::Preprod,
     )]
     network: NetworkName,
+
+    #[arg(
+        long,
+    )]
+    import_vector: bool,
+
+    #[arg(long, value_name = "DIR")]
+    pparams_dir: Option<PathBuf>,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -90,12 +99,16 @@ enum Error {
     MalformedDate(String),
     #[error("You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)")]
     IncorrectUsage,
+    #[error("The pparams file was missing")]
+    MissingPparamsFile,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let era_history = network.into();
-    if !args.snapshot.is_empty() {
+    if args.import_vector {
+        import_vector(&args.snapshot[0], &args.ledger_dir, era_history, &args.pparams_dir).await
+    } else if !args.snapshot.is_empty() {
         import_all(&args.snapshot, &args.ledger_dir, era_history).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
         let mut snapshots = fs::read_dir(snapshot_dir)?
@@ -122,6 +135,64 @@ async fn import_all(
     Ok(())
 }
 
+#[derive(Serialize, Deserialize)]
+struct NESVector {
+    #[serde(rename = "newNES")]
+    new_nes: String,
+    #[serde(rename = "oldNES")]
+    old_nes: String,
+    cbor: String,
+    #[serde(rename = "testState")]
+    test_state: String,
+}
+
+async fn import_vector(
+    vector: &PathBuf,
+    ledger_dir: &PathBuf,
+    era_history: &EraHistory,
+    pparams_dir: &Option<PathBuf>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    info!("Importing snapshot {}", vector.display());
+    let vector_file = fs::File::open(vector)?;
+    let record: NESVector = serde_json::from_reader(vector_file)?;
+    let nes_bytes = hex::decode(record.new_nes)?;
+    info!("NES bytes {}", nes_bytes.len());
+    let point = super::parse_point(
+        "388368000.0000000000000000000000000000000000000000000000000000000000000000"
+    )?;
+
+    fs::create_dir_all(ledger_dir)?;
+    let db = RocksDB::empty(ledger_dir, era_history)?;
+
+    let epoch = decode_new_epoch_state(&db, &nes_bytes, &point, era_history, pparams_dir)?;
+    let transaction = db.create_transaction();
+    transaction.save(
+        &point,
+        None,
+        Default::default(),
+        Default::default(),
+        iter::empty(),
+        BTreeSet::new(),
+    )?;
+    transaction.commit()?;
+
+    let snapshot = db.snapshots()?.last().map(|s| *s + 1).unwrap_or(epoch);
+    db.next_snapshot(snapshot)?;
+
+    let transaction = db.create_transaction();
+    state::reset_blocks_count(&transaction)?;
+    state::reset_fees(&transaction)?;
+    transaction.with_pools(|iterator| {
+        for (_, pool) in iterator {
+            amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1);
+        }
+    })?;
+    transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;
+    transaction.commit()?;
+    info!("Imported snapshot for epoch {}", epoch);
+    Ok(())
+}
+
 #[allow(clippy::unwrap_used)]
 async fn import_one(
     snapshot: &PathBuf,
@@ -142,7 +213,7 @@ async fn import_one(
     let db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history, &None)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,
@@ -176,6 +247,7 @@ fn decode_new_epoch_state(
     bytes: &[u8],
     point: &Point,
     era_history: &EraHistory,
+    pparams_dir: &Option<PathBuf>,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
 
@@ -285,8 +357,23 @@ fn decode_new_epoch_state(
     d.skip()?;
     // Constitution
     d.skip()?;
+
+    info!(what = "pparams");
+
+    let pparams_by_hash = true;
     // Current Protocol Params
-    let protocol_parameters = import_protocol_parameters(db, &epoch, d.decode()?)?;
+    let pparams = if let Some(pparams_dir) = pparams_dir {
+        let pparams_hash: &minicbor::bytes::ByteSlice = d.decode()?;
+        let pparams_file_path = fs::read_dir(pparams_dir)?
+            .filter_map(|entry| entry.ok().map(|e| e.path()))
+            .find(|path| path.file_name().map(|filename| filename.to_str() == Some(&hex::encode(pparams_hash.as_ref()))).unwrap_or(false))
+            .ok_or(Error::MissingPparamsFile)?;
+        let pparams_file = fs::read(pparams_file_path)?;
+        cbor::Decoder::new(&pparams_file).decode()?
+    } else {
+        d.decode()?
+    };
+    let protocol_parameters = import_protocol_parameters(db, &epoch, pparams)?;
     import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
     import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
@@ -308,34 +395,38 @@ fn decode_new_epoch_state(
     // Epoch State / NonMyopic
     d.skip()?;
 
-    // Rewards Update
-    d.array()?;
-    d.array()?;
-    assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
-    d.array()?;
-
-    let delta_treasury: i64 = d.decode()?;
-
-    let delta_reserves: i64 = d.decode()?;
-
-    let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode()?;
-    let delta_fees: i64 = d.decode()?;
-
-    // NonMyopic
+    d.skip()?;
+    d.skip()?;
     d.skip()?;
 
-    import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
+    //// Rewards Update
+    //d.array()?;
+    //d.array()?;
+    //assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
+    //d.array()?;
 
-    let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
-        total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
-    });
+    //let delta_treasury: i64 = d.decode()?;
 
-    import_pots(
-        db,
-        (treasury + delta_treasury) as u64 + unclaimed_rewards,
-        (reserves - delta_reserves) as u64,
-        (fees - delta_fees) as u64,
-    )?;
+    //let delta_reserves: i64 = d.decode()?;
+
+    //let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode()?;
+    //let delta_fees: i64 = d.decode()?;
+
+    //// NonMyopic
+    //d.skip()?;
+
+    //import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
+
+    //let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
+    //    total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
+    //});
+
+    //import_pots(
+    //    db,
+    //    (treasury + delta_treasury) as u64 + unclaimed_rewards,
+    //    (reserves - delta_reserves) as u64,
+    //    (fees - delta_fees) as u64,
+    //)?;
 
     Ok(epoch)
 }
