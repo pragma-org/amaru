@@ -63,8 +63,11 @@ pub struct ValidateHeader {
 }
 
 impl fmt::Debug for ValidateHeader {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        unimplemented!()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ValidateHeader")
+            .field("ledger", &"<dyn HasStakeDistribution>")
+            .field("store", &"<dyn ChainStore>")
+            .finish()
     }
 }
 

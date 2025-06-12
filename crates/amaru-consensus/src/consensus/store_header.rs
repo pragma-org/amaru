@@ -25,8 +25,10 @@ pub struct StoreHeader {
 }
 
 impl fmt::Debug for StoreHeader {
-    fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        unimplemented!()
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("StoreHeader")
+            .field("store", &"Arc<Mutex<dyn ChainStore<Header>>>")
+            .finish()
     }
 }
 
