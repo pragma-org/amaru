@@ -35,8 +35,7 @@ const dreps = drepsInfo
     const drepId = toDrepId(drep.id, drep.from, drep.type);
 
     drep.delegators.forEach((delegator) => {
-      const from = delegator.from === "verificationKey" ? "keys" : "scripts";
-      accum[from][delegator.credential] = drepId;
+      accum[delegator.from][delegator.credential] = drepId;
     });
 
     const stakeInfo = drepsStake.find((future) => drep.id === future.id && drep.from === future.from);
@@ -51,8 +50,8 @@ const dreps = drepsInfo
 
     return accum;
   }, {
-    keys: {},
-    scripts: {},
+    verificationKey: {},
+    script: {},
     dreps: {
       abstain: {
 	mandate: null,
@@ -68,7 +67,7 @@ const dreps = drepsInfo
   });
 
 // Relative source  of the snapshot test in the target crate.
-const source = "crates/amaru/src/ledger/rewards.rs";
+const source = "crates/amaru/tests/summary.rs";
 
 // ---------- Rewards summary snapshot
 
@@ -77,7 +76,7 @@ const poolIds = Object.keys(distr.stakePools).sort();
 withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
-  stream.write(`expression: stake_distr\n`)
+  stream.write(`expression: "stake_distr.for_network(Network::Testnet)"\n`)
   stream.write("---\n")
   stream.write("{");
   stream.write(`\n  "epoch": ${epoch},`);
@@ -91,12 +90,10 @@ withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
     return pool.delegators.reduce((accum, delegator) => {
       const stakeAddress = toStakeAddress(delegator.credential, delegator.from);
 
-      const from = delegator.from === "verificationKey" ? "keys" : "scripts";
-
       accum[stakeAddress] = {
         lovelace: delegator.stake.ada.lovelace,
 	pool: poolId,
-        drep: dreps[from][delegator.credential] ?? null,
+        drep: dreps[delegator.from][delegator.credential] ?? null,
       };
 
       return accum;
