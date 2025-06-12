@@ -369,12 +369,7 @@
       "url": "https://www.logicalmechanism.io/drepTestnet",
       "hash": "55c4ea20e133878ef8c80ddbf3f73adbe3220963a2874f8757d435d60126db41"
     },
-    "delegators": [
-      {
-        "from": "verificationKey",
-        "credential": "40b3c98d3b5f5a7748829d612e9e1ccd5f429970abc9abfeae867af9"
-      }
-    ]
+    "delegators": []
   },
   {
     "type": "registered",
@@ -441,6 +436,106 @@
       "ada": {
         "lovelace": 2251513025945
       }
-    }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "17d33509d63829e05e9c69e5d1ded9fcaba088175fd2c8f69c9a8b22"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2ab5a5942037b7534dfddf54a69ecc8779ab52e4165c392a4e31980d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4674ed7338e11f91610560625f4ec89c67cbb84dea719ef1687ca541"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4abd6a6c4a5308f6e3c203061f3e7d184f7d99b977c7f9fe9cd0d9ba"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5077ab36297e7f322615ee2986934358f15ea2bf931f5d0d4257b651"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "57dd7a12f73bb94cb2626bc79f5e6fef3f2629d4f6041cf7f961a0c1"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "69cd408f29b5f971fc24cd896a3fa69c73ad72a245fc8dc4b65cdaef"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "70a56a620685e39da9449c085ce536621d4518e6d1e2ee880b09dfe5"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8960b39eec30f3bc15ea22a4018841bda43468411132737a88c38ffd"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "92cd8ce9447029ac206d3a7ff9ac57d9d65fb10844d2221516092a9d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a11419cc620cf80e76bf0993b91fcefe57bc16d61bdb878c08f58062"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "adcbbee04ac19bd87b4f12b4f8d32df72fc1ef9adf152dd288a8041d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b9b2eda974c6e980b6612f43ba298c45102caf8803a9ab274c43a33c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "bef7f14cde5eabb16a698e8b8f15e346b260a17b6ff26e572c06a5b7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c3892366f174a76af9252f78368f5747d3055ab3568ea3b6bf40b01e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c69dc25a62b3addf9d39cab5e6abeb16b9da190ee2e3ec06ae77a46d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "db365e7b696cf816fca0aac5f992cb8c0a490c9471109a79548988ed"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "dc071af1aea0c1a291e2e148ab32c7d90f6f22f8c57568e1a4ac1845"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e075be10ec5c575caffb68b08c31470666d4fe1aeea07c16d6473903"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f7c854a7b786a297a2932f7a3f057d6a2700c80278000e51dd7443f3"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f974fc2c2940e69a7a72de1101d513010b28848007398d32ec44c0ff"
+      }
+    ]
+  },
+  {
+    "type": "noConfidence",
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "91d52a55f5062ce47ff8bdfeff4a9da9e917ecb37174ada9f6a7d3f6"
+      }
+    ]
   }
 ]

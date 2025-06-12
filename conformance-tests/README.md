@@ -6,7 +6,7 @@ This folder contains scripts used to generate snapshots used for [conformance te
 
 ### 3rd-party dependencies
 
-- [Ogmios](https://github.com/CardanoSolutions/ogmios) >= `v6.12.0`
+- [Ogmios](https://github.com/CardanoSolutions/ogmios) >= `v6.13.0`
 - [cardano-node](https://github.com/IntersectMBO/cardano-node) >= `10.1.0`
 
 ### Node.js dependencies
@@ -32,12 +32,6 @@ yarn fetch
 ```
 
 This should terminate once all the points have been processed.
-
-> [!NOTE]
->
-> The `data` folder also currently contains two extra data-sets `epoch-state` and `rewards-provenance` which have been obtained from running forked versions of the cardano-node needed to yield specific data.
->
-> We are working on making those easier to re-generate.
 
 ## Generating snapshots
 
