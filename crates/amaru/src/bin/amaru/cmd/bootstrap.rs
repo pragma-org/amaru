@@ -31,11 +31,13 @@ use super::import_nonces::{import_nonces, InitialNonces};
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path of the on-disk storage.
+    /// Path of target directory for on-disk storage of node.
+    ///
     /// This directory will be created if it does not exist, and will
-    /// contain the databases needed for the node to run,
+    /// contain directories and files needed for the node to run, e.g
+    /// databases for ledger and consensus.
     #[arg(long, value_name = "DIR", default_value = ".")]
-    base_dir: PathBuf,
+    target_dir: PathBuf,
 
     /// Network to bootstrap the node for.
     ///
@@ -47,6 +49,23 @@ pub struct Args {
         default_value_t = NetworkName::Preprod,
     )]
     network: NetworkName,
+
+    /// Path to directory containing per-network bootstrap configuration files.
+    ///
+    /// This path will be used as a prefix to resolve per-network configuration files
+    /// needed for bootstrapping. Given a source directory `data`, and a
+    /// a network name of `preview`, the expected layout for configuration files would be:
+    ///
+    /// * `data/preview/snapshots.json`: a list of `Snapshot` vaalues,
+    /// * `data/preview/nonces.json`: a list of `InitialNonces` values,
+    /// * `data/preview/headers.json`: a list of `Point`s.
+    #[arg(
+        long,
+        value_name = "DIRECTORY",
+        default_value = "data",
+        verbatim_doc_comment
+    )]
+    config_dir: PathBuf,
 
     /// Address of the node to connect to for retrieving chain data.
     /// The node should be accessible via the node-2-node protocol, which
@@ -64,16 +83,21 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
+    info!(config=?args.config_dir, target=?args.target_dir, peer=%args.peer_address, network=%args.network,
+          "bootstrapping",
+    );
+
     let network = args.network;
     let era_history = network.into();
 
-    let ledger_dir = args.base_dir.join("ledger.db");
-    let chain_dir = args.base_dir.join("chain.db");
+    let ledger_dir = args.target_dir.join("ledger.db");
+    let chain_dir = args.target_dir.join("chain.db");
 
-    let snapshots_file: PathBuf = ["data", &*network.to_string(), "snapshots.json"]
-        .iter()
-        .collect();
-    let snapshots_dir: PathBuf = args.base_dir.join(network.to_string());
+    let snapshots_file: PathBuf = args
+        .config_dir
+        .join(&*network.to_string())
+        .join("snapshots.json");
+    let snapshots_dir: PathBuf = args.target_dir.join(network.to_string());
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
@@ -128,10 +152,18 @@ async fn import_nonces_for_network(
     Ok(())
 }
 
+/// Configuration for a single ledger state's snapshot to be imported.
 #[derive(Debug, Deserialize)]
 struct Snapshot {
+    /// The snapshot's epoch.
     epoch: u64,
+
+    /// The snapshot's point, in the form `<slot>.<header hash>`.
+    ///
+    /// TODO: make it a genuine `Point` type.
     point: String,
+
+    /// The URL to retrieve snapshot from.
     url: String,
 }
 
