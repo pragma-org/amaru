@@ -10,7 +10,6 @@ This stage needs to handle a high degree of concurrency due to
 
 Placing all these functions into one state machine is impractical due to the multiplicative state complexity explosion.
 The current design therefore splits up the state into non-concurrent pieces and places each piece within an [`acto`](https://docs.rs/acto) actor.
-Currently, only the chain sync and keep alive protocols are fully implemented.
 
 ## Accepting client connections
 
