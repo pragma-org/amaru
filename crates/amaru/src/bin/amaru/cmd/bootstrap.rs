@@ -103,9 +103,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await?;
 
-    import_nonces_for_network(network, era_history, &chain_dir).await?;
+    import_nonces_for_network(era_history, &args.config_dir, &chain_dir).await?;
 
-    import_headers_for_network(network, &args.peer_address, &chain_dir).await?;
+    import_headers_for_network(network, &args.peer_address, &args.config_dir, &chain_dir).await?;
 
     Ok(())
 }
@@ -113,11 +113,10 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 async fn import_headers_for_network(
     network: NetworkName,
     peer_address: &str,
+    config_dir: &Path,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let headers_file: PathBuf = ["data", &*network.to_string(), "headers.json"]
-        .iter()
-        .collect();
+    let headers_file: PathBuf = config_dir.join("headers.json");
     let content = tokio::fs::read_to_string(headers_file).await?;
     let points: Vec<String> = serde_json::from_str(&content)?;
     let mut initial_headers = Vec::new();
@@ -139,13 +138,11 @@ async fn import_headers_for_network(
 }
 
 async fn import_nonces_for_network(
-    network: NetworkName,
     era_history: &amaru_kernel::EraHistory,
+    config_dir: &Path,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let nonces_file: PathBuf = ["data", &*network.to_string(), "nonces.json"]
-        .iter()
-        .collect();
+    let nonces_file: PathBuf = config_dir.join("nonces.json");
     let content = tokio::fs::read_to_string(nonces_file).await?;
     let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
     import_nonces(era_history, chain_dir, initial_nonces).await?;
