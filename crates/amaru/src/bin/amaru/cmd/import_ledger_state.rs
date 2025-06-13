@@ -19,7 +19,7 @@ use amaru_kernel::{
 };
 use amaru_ledger::{
     self,
-    state::{self, diff_bind::Resettable},
+    state::diff_bind::Resettable,
     store::{
         self, columns::proposals, EpochTransitionProgress, Store, StoreError, TransactionalContext,
     },
@@ -176,19 +176,12 @@ async fn import_one(
     )?;
     transaction.commit()?;
 
-    let snapshot = db.snapshots()?.last().map(|s| *s + 1).unwrap_or(epoch);
-    db.next_snapshot(snapshot)?;
+    db.next_snapshot(epoch)?;
 
     let transaction = db.create_transaction();
-    state::reset_blocks_count(&transaction)?;
-    state::reset_fees(&transaction)?;
-    transaction.with_pools(|iterator| {
-        for (_, pool) in iterator {
-            amaru_ledger::store::columns::pools::Row::tick(pool, epoch + 1);
-        }
-    })?;
     transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;
     transaction.commit()?;
+
     info!("Imported snapshot for epoch {}", epoch);
     Ok(())
 }
