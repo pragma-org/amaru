@@ -13,6 +13,7 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+hex.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
@@ -24,6 +25,7 @@ tracing.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
+pure-stage.workspace = true
 slot-arithmetic.workspace = true
 
 [dev-dependencies]

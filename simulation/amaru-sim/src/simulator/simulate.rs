@@ -25,8 +25,8 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
-use pure_stage::simulation::SimulationRunning;
-use pure_stage::{Receiver, StageRef, Void};
+use pure_stage::StageRef;
+use pure_stage::{simulation::SimulationRunning, Receiver};
 
 use anyhow::anyhow;
 use proptest::{
@@ -65,19 +65,21 @@ impl<Msg: PartialEq> Eq for Entry<Msg> {}
 
 type NodeId = String;
 
-pub struct NodeHandle {
-    handle:
-        Box<dyn FnMut(Envelope<EchoMessage>) -> Result<Vec<Envelope<EchoMessage>>, anyhow::Error>>,
+pub struct NodeHandle<Msg> {
+    handle: Box<dyn FnMut(Envelope<Msg>) -> Result<Vec<Envelope<Msg>>, anyhow::Error>>,
     close: Box<dyn FnMut()>,
 }
 
-#[allow(unused)]
-pub fn pure_stage_node_handle(
-    mut rx: Receiver<Envelope<EchoMessage>>,
-    stage: StageRef<Envelope<EchoMessage>, (u64, StageRef<Envelope<EchoMessage>, Void>)>,
+pub fn pure_stage_node_handle<Msg, St>(
+    mut rx: Receiver<Envelope<Msg>>,
+    stage: StageRef<Envelope<Msg>, St>,
     mut running: SimulationRunning,
-) -> anyhow::Result<NodeHandle> {
-    let handle = Box::new(move |msg: Envelope<EchoMessage>| {
+) -> anyhow::Result<NodeHandle<Msg>>
+where
+    Msg: PartialEq + Send + Debug + 'static,
+    St: 'static,
+{
+    let handle = Box::new(move |msg: Envelope<Msg>| {
         running.enqueue_msg(&stage, [msg]);
         running.run_until_blocked().assert_idle();
         Ok(rx.drain().collect::<Vec<_>>())
@@ -88,8 +90,7 @@ pub fn pure_stage_node_handle(
     Ok(NodeHandle { handle, close })
 }
 
-#[allow(unused)]
-pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHandle> {
+pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHandle<EchoMessage>> {
     let mut child = Command::new(filepath)
         .args(args)
         .stdin(Stdio::piped())
@@ -138,7 +139,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHa
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Trace(pub Vec<Envelope<EchoMessage>>);
+pub struct Trace<Msg>(pub Vec<Envelope<Msg>>);
 
 #[derive(Debug, PartialEq)]
 pub enum Next {
@@ -146,17 +147,16 @@ pub enum Next {
     Continue,
 }
 
-pub struct World {
-    heap: BinaryHeap<Reverse<Entry<EchoMessage>>>,
-    nodes: BTreeMap<NodeId, NodeHandle>,
-    trace: Trace,
+pub struct World<Msg> {
+    heap: BinaryHeap<Reverse<Entry<Msg>>>,
+    nodes: BTreeMap<NodeId, NodeHandle<Msg>>,
+    trace: Trace<Msg>,
 }
 
-#[allow(dead_code)]
-impl World {
+impl<Msg: PartialEq + Clone> World<Msg> {
     pub fn new(
-        initial_messages: Vec<Reverse<Entry<EchoMessage>>>,
-        node_handles: Vec<(NodeId, NodeHandle)>,
+        initial_messages: Vec<Reverse<Entry<Msg>>>,
+        node_handles: Vec<(NodeId, NodeHandle<Msg>)>,
     ) -> Self {
         World {
             heap: BinaryHeap::from(initial_messages),
@@ -181,8 +181,8 @@ impl World {
                     Some(node) => match (node.handle)(envelope.clone()) {
                         Ok(outgoing) => {
                             let (client_responses, outputs): (
-                                Vec<Envelope<EchoMessage>>,
-                                Vec<Envelope<EchoMessage>>,
+                                Vec<Envelope<Msg>>,
+                                Vec<Envelope<Msg>>,
                             ) = outgoing
                                 .into_iter()
                                 .partition(|msg| msg.dest.starts_with("c"));
@@ -210,14 +210,14 @@ impl World {
         }
     }
 
-    pub fn run_world(&mut self) -> &[Envelope<EchoMessage>] {
+    pub fn run_world(&mut self) -> &[Envelope<Msg>] {
         let prev = self.trace.0.len();
         while self.step_world() == Next::Continue {}
         &self.trace.0[prev..]
     }
 }
 
-impl Drop for World {
+impl<Msg> Drop for World<Msg> {
     fn drop(&mut self) {
         self.nodes
             .values_mut()
@@ -225,28 +225,31 @@ impl Drop for World {
     }
 }
 
-#[allow(dead_code)]
-pub fn simulate(
+pub fn simulate<Msg, F>(
     config: Config,
     number_of_nodes: u8,
-    spawn: fn() -> NodeHandle,
-    generate_message: impl Strategy<Value = EchoMessage>,
-    property: fn(Trace) -> Result<(), String>,
-) {
+    spawn: F,
+    generate_messages: impl Strategy<Value = Vec<Msg>>,
+    property: impl Fn(Trace<Msg>) -> Result<(), String>,
+) where
+    Msg: Debug + PartialEq + Clone,
+    F: Fn() -> NodeHandle<Msg>,
+{
     let mut runner = TestRunner::new(config);
-    let generate_messages = prop::collection::vec(
-        generate_message.prop_map(|msg| {
-            Reverse(Entry {
-                arrival_time: Instant::now(),
-                envelope: Envelope {
-                    src: "c1".to_string(),
-                    dest: "n1".to_string(),
-                    body: msg,
-                },
+    let generate_messages = generate_messages.prop_map(|msgs| {
+        msgs.into_iter()
+            .map(|msg| {
+                Reverse(Entry {
+                    arrival_time: Instant::now(),
+                    envelope: Envelope {
+                        src: "c1".to_string(),
+                        dest: "n1".to_string(),
+                        body: msg,
+                    },
+                })
             })
-        }),
-        0..20,
-    );
+            .collect()
+    });
     let result = runner.run(&generate_messages, |initial_messages| {
         let node_handles: Vec<_> = (1..=number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))
@@ -284,7 +287,7 @@ mod tests {
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
-        let mut world = World::new(Vec::new(), Vec::new());
+        let mut world: World<EchoMessage> = World::new(Vec::new(), Vec::new());
 
         assert_eq!(world.run_world(), &Vec::new());
     }
@@ -296,7 +299,7 @@ mod tests {
 
         let number_of_nodes = 1;
 
-        let spawn: fn() -> NodeHandle = || {
+        let spawn: fn() -> NodeHandle<EchoMessage> = || {
             println!("*** Spawning node!");
             let mut network = SimulationBuilder::default();
             let stage = network.stage(
@@ -334,21 +337,26 @@ mod tests {
 
             pure_stage_node_handle(rx, stage, running).unwrap()
         };
-        let generate_message = (0..128u8).prop_map(|i| EchoMessage::Echo {
-            msg_id: 0,
-            echo: format!("Please echo {}", i),
-        });
+        let generate_messages = prop::collection::vec(
+            (0..128u8).prop_map(|i| EchoMessage::Echo {
+                msg_id: 0,
+                echo: format!("Please echo {}", i),
+            }),
+            0..20,
+        );
         simulate(
             config,
             number_of_nodes,
             spawn,
-            generate_message,
+            generate_messages,
             ECHO_PROPERTY,
         )
     }
 
     // TODO: Take response time into account.
-    const ECHO_PROPERTY: fn(Trace) -> Result<(), String> = |trace: Trace| {
+    const ECHO_PROPERTY: fn(Trace<EchoMessage>) -> Result<(), String> = |trace: Trace<
+        EchoMessage,
+    >| {
         for (index, msg) in trace
             .0
             .iter()
@@ -389,18 +397,21 @@ mod tests {
         };
 
         let number_of_nodes = 1;
-        let spawn: fn() -> NodeHandle = || {
+        let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
-        let generate_message = (0..128u8).prop_map(|i| EchoMessage::Echo {
-            msg_id: 0,
-            echo: format!("Please echo {}", i),
-        });
+        let generate_messages = prop::collection::vec(
+            (0..128u8).prop_map(|i| EchoMessage::Echo {
+                msg_id: 0,
+                echo: format!("Please echo {}", i),
+            }),
+            0..20,
+        );
         simulate(
             config,
             number_of_nodes,
             spawn,
-            generate_message,
+            generate_messages,
             ECHO_PROPERTY,
         )
     }

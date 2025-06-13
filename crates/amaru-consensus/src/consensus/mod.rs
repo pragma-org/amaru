@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
+use crate::is_header::IsHeader;
 use amaru_kernel::{Header, Point};
 use tracing::Span;
 
@@ -27,7 +30,7 @@ pub mod validate_header;
 
 pub const EVENT_TARGET: &str = "amaru::consensus";
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub enum ChainSyncEvent {
     RollForward {
         peer: Peer,
@@ -42,7 +45,37 @@ pub enum ChainSyncEvent {
     },
 }
 
-#[derive(Clone, Debug)]
+impl fmt::Debug for ChainSyncEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChainSyncEvent::RollForward {
+                peer,
+                point,
+                raw_header,
+                ..
+            } => f
+                .debug_struct("RollForward")
+                .field("peer", &peer.name)
+                .field("point", &point.to_string())
+                .field(
+                    "raw_header",
+                    &hex::encode(&raw_header[..raw_header.len().min(8)]),
+                )
+                .finish(),
+            ChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+                ..
+            } => f
+                .debug_struct("Rollback")
+                .field("peer", &peer.name)
+                .field("rollback_point", &rollback_point.to_string())
+                .finish(),
+        }
+    }
+}
+
+#[derive(Clone, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum DecodedChainSyncEvent {
     RollForward {
@@ -56,6 +89,33 @@ pub enum DecodedChainSyncEvent {
         rollback_point: Point,
         span: Span,
     },
+}
+
+impl fmt::Debug for DecodedChainSyncEvent {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => f
+                .debug_struct("RollForward")
+                .field("peer", &peer.name)
+                .field("point", &point.to_string())
+                .field("header", &header.hash().to_string())
+                .finish(),
+            DecodedChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+                ..
+            } => f
+                .debug_struct("Rollback")
+                .field("peer", &peer.name)
+                .field("rollback_point", &rollback_point.to_string())
+                .finish(),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

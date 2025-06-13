@@ -309,7 +309,7 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct GlobalParameters {
     /// The maximum depth of a rollback, also known as the security parameter 'k'.
     /// This translates down to the length of our volatile storage, containing states of the ledger

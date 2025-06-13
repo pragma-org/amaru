@@ -16,7 +16,7 @@ either.workspace = true
 futures-util.workspace = true
 parking_lot.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["rt", "time", "rt-multi-thread"] }
+tokio = { workspace = true, features = ["rt", "time"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
