@@ -32,3 +32,54 @@ curl -s -o - "https://raw.githubusercontent.com/pragma-org/amaru/refs/heads/main
         | gunzip > snapshots/${NETWORK}/$p.cbor ; \
     done
 ```
+
+## Fetching Ledger Data
+
+### Pre-Requisites
+
+#### 3rd-party dependencies
+
+- [Ogmios](https://github.com/CardanoSolutions/ogmios) >= `v6.13.0`
+- [cardano-node](https://github.com/IntersectMBO/cardano-node) >= `10.1.0`
+
+#### Node.js dependencies
+
+Install necessary Node.js dependencies via:
+
+```console
+yarn
+```
+
+### Configuring
+
+Data will be fetched for each point listed network's configurations `points` field. Full snapshots can also be fetched along the way by specifying epoch numbers as `snapshots`.
+
+- [`preview/config.json`](./preview/config.json)
+- [`preprod/config.json`](./preprod/config.json)
+
+> [!IMPORTANT]
+> Those points needs to be the _last point_ of target epochs.
+
+### Running
+
+The Haskell node only has a memory of up to few thousand blocks. So, in order to fetch states corresponding to historical data, fetching must be done while the cardano-node is synchronizing.
+
+For example, for PreProd, that means removing all immutable chunks after `03149`, starting your node from there will have it synchronize through the required points. As soon as a point gets available, data will be fetched and the script will move on to the next point. So, once your node is ready:
+
+1. Run ogmios
+
+2. Run the fetch script (replacing `NETWORK` with the name of the target network):
+
+   ```console
+   yarn fetch NETWORK
+   ```
+
+   // or alternatively, also fetch and dump the full snapshots:
+
+   ```console
+   yarn fetch NETWORK true
+   ```
+
+3. Start your node.
+
+Both Ogmios and the fetch script will automatically connect to the node once ready and capture data from it when it becomes available. This should terminate once all the points have been processed.
