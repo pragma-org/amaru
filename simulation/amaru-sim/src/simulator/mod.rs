@@ -111,7 +111,7 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     let _chain_selector = make_chain_selector(Origin, &chain_store, &vec![]);
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
-    
+
     run_simulator(
         rt,
         global_parameters.clone(),

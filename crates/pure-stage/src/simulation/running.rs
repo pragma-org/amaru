@@ -489,7 +489,7 @@ impl SimulationRunning {
                 Ok(effect) => effect,
                 Err(blocked) => return blocked,
             };
-            
+
             tracing::info!(runnable = ?self.runnable.iter().map(|r| r.0.as_str()).collect::<Vec<&str>>(), effect = ?effect, "run effect");
 
             for (name, predicate) in &self.breakpoints {
