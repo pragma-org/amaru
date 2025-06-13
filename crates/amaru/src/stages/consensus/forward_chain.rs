@@ -318,7 +318,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
                     target: EVENT_TARGET,
                     parent: span,
                     slot = ?point.slot_or_default(),
-                    hash = %Hash::<32>::from(point),
+                    hash = ?Hash::<32>::from(point),
                     "block_validation_failed"
                 );
 
