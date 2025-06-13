@@ -16,10 +16,10 @@ If you haven't done so, you will also need [the necessary `data`](../data). For 
 
 Once the data is available, it needs some post-processing to create proper JSON snapshots to be used as conformance tests. The post-processing ensures that data is properly formatted in a canonical way, and combine raw data fetched from the node in a more meaningful way.
 
-Simply run:
+Simply run (replacing `NETWORK` with the target network):
 
 ```console
-yarn generate-all
+yarn generate-all NETWORK
 ```
 
 > [!TIP]
@@ -27,5 +27,5 @@ yarn generate-all
 > You can also generate snapshots for a single epoch:
 >
 > ```console
-> yarn generate 168
+> yarn generate NETWORK 168
 > ```
