@@ -128,6 +128,7 @@ fn run_simulator(
 ) {
     let config_without_shrink = Config {
         max_shrink_iters: 0,
+        cases: 1,
         ..Config::default()
     };
     let number_of_nodes = 1;
