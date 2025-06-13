@@ -29,6 +29,7 @@ use pallas_codec::{
     minicbor::{decode, encode, Decode, Decoder, Encode, Encoder},
     utils::CborWrap,
 };
+use pallas_primitives::alonzo::Value as AlonzoValue;
 use pallas_primitives::{
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
@@ -56,9 +57,6 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    // TODO: Shouldn't re-export alonzo, but prefer exporting unqualified identifiers directly.
-    // Investigate.
-    alonzo,
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
@@ -649,11 +647,11 @@ impl HasLovelace for Value {
     }
 }
 
-impl HasLovelace for alonzo::Value {
+impl HasLovelace for AlonzoValue {
     fn lovelace(&self) -> Lovelace {
         match self {
-            alonzo::Value::Coin(lovelace) => *lovelace,
-            alonzo::Value::Multiasset(lovelace, _) => *lovelace,
+            AlonzoValue::Coin(lovelace) => *lovelace,
+            AlonzoValue::Multiasset(lovelace, _) => *lovelace,
         }
     }
 }
