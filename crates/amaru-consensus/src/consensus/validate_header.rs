@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, peer::Peer, ConsensusError};
+use crate::{consensus::store::ChainStore, is_header::IsHeader, peer::Peer, ConsensusError};
 use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point};
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
@@ -94,7 +94,7 @@ impl EvolveNonceEffect {
 impl fmt::Debug for EvolveNonceEffect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("EvolveNonceEffect")
-            .field("header", &self.header)
+            .field("header", &self.header.hash().to_string())
             .field("global_parameters", &self.global_parameters)
             .finish()
     }
