@@ -12,17 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_ledger::store::ReadOnlyStore;
 use amaru_kernel::{
     network::NetworkName, protocol_parameters::ProtocolParameters, Anchor, CertificatePointer,
     DRep, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
     Set, Slot, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer,
+    MintedTx, KeepRaw, MintedWitnessSet, AuxiliaryData, MintedTransactionBody,
 };
 use amaru_ledger::{
     self,
+    context::DefaultValidationContext,
     state::{self, diff_bind::Resettable},
     store::{
         self, columns::proposals, EpochTransitionProgress, Store, StoreError, TransactionalContext,
     },
+    rules::transaction,
 };
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
@@ -35,6 +39,7 @@ use std::{
     fs, iter,
     path::PathBuf,
     sync::LazyLock,
+    ops::Deref,
 };
 use tracing::info;
 
@@ -144,6 +149,7 @@ struct NESVector {
     cbor: String,
     #[serde(rename = "testState")]
     test_state: String,
+    success: bool,
 }
 
 async fn import_vector(
@@ -155,7 +161,7 @@ async fn import_vector(
     info!("Importing snapshot {}", vector.display());
     let vector_file = fs::File::open(vector)?;
     let record: NESVector = serde_json::from_reader(vector_file)?;
-    let nes_bytes = hex::decode(record.new_nes)?;
+    let nes_bytes = hex::decode(record.old_nes)?;
     info!("NES bytes {}", nes_bytes.len());
     let point = super::parse_point(
         "388368000.0000000000000000000000000000000000000000000000000000000000000000"
@@ -164,7 +170,7 @@ async fn import_vector(
     fs::create_dir_all(ledger_dir)?;
     let db = RocksDB::empty(ledger_dir, era_history)?;
 
-    let epoch = decode_new_epoch_state(&db, &nes_bytes, &point, era_history, pparams_dir)?;
+    let epoch = decode_new_epoch_state(&db, &nes_bytes, &point, era_history, pparams_dir, false)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,
@@ -190,6 +196,47 @@ async fn import_vector(
     transaction.try_epoch_transition(None, Some(EpochTransitionProgress::SnapshotTaken))?;
     transaction.commit()?;
     info!("Imported snapshot for epoch {}", epoch);
+
+    let tx_bytes = hex::decode(record.cbor)?;
+    let tx: KeepRaw<'_, MintedTx<'_>> = minicbor::decode(&tx_bytes)?;
+
+    let utxo = db.iter_utxos()?.collect();
+    let mut validation_context = DefaultValidationContext::new(utxo);
+
+    let protocol_parameters = db.get_protocol_parameters_for(&epoch)?;
+
+    let pointer = TransactionPointer {
+        slot: point.slot_or_default(),
+        transaction_index: 0,
+    };
+
+    let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
+    let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();
+    let tx_auxiliary_data: Option<KeepRaw<'_, AuxiliaryData>> = tx.auxiliary_data
+        .clone()
+        .into();
+    let tx_auxiliary_data: Option<AuxiliaryData> = tx_auxiliary_data.map(|v| v.unwrap());
+
+    // Run the transaction against the imported ledger state
+    let result = transaction::execute(
+        &mut validation_context,
+        &protocol_parameters,
+        pointer,
+        true,
+        tx_body,
+        &tx_witness_set,
+        tx_auxiliary_data.as_ref(),
+    );
+
+    match result {
+        Ok(()) => {
+            info!("Transaction execution succeded (expected {})", record.success)
+        }
+        Err(e) => {
+            info!("Transaction execution failed: '{}' (expected {})", e, record.success)
+        }
+    }
+
     Ok(())
 }
 
@@ -213,7 +260,7 @@ async fn import_one(
     let db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history, &None)?;
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history, &None, true)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,
@@ -248,6 +295,7 @@ fn decode_new_epoch_state(
     point: &Point,
     era_history: &EraHistory,
     pparams_dir: &Option<PathBuf>,
+    has_rewards: bool,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
 
@@ -360,7 +408,6 @@ fn decode_new_epoch_state(
 
     info!(what = "pparams");
 
-    let pparams_by_hash = true;
     // Current Protocol Params
     let pparams = if let Some(pparams_dir) = pparams_dir {
         let pparams_hash: &minicbor::bytes::ByteSlice = d.decode()?;
@@ -399,34 +446,36 @@ fn decode_new_epoch_state(
     d.skip()?;
     d.skip()?;
 
-    //// Rewards Update
-    //d.array()?;
-    //d.array()?;
-    //assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
-    //d.array()?;
+    if has_rewards {
+        // Rewards Update
+        d.array()?;
+        d.array()?;
+        assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
+        d.array()?;
 
-    //let delta_treasury: i64 = d.decode()?;
+        let delta_treasury: i64 = d.decode()?;
 
-    //let delta_reserves: i64 = d.decode()?;
+        let delta_reserves: i64 = d.decode()?;
 
-    //let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode()?;
-    //let delta_fees: i64 = d.decode()?;
+        let mut rewards: HashMap<StakeCredential, Set<Reward>> = d.decode()?;
+        let delta_fees: i64 = d.decode()?;
 
-    //// NonMyopic
-    //d.skip()?;
+        // NonMyopic
+        d.skip()?;
 
-    //import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
+        import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
 
-    //let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
-    //    total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
-    //});
+        let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
+            total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
+        });
 
-    //import_pots(
-    //    db,
-    //    (treasury + delta_treasury) as u64 + unclaimed_rewards,
-    //    (reserves - delta_reserves) as u64,
-    //    (fees - delta_fees) as u64,
-    //)?;
+        import_pots(
+            db,
+            (treasury + delta_treasury) as u64 + unclaimed_rewards,
+            (reserves - delta_reserves) as u64,
+            (fees - delta_fees) as u64,
+        )?;
+    }
 
     Ok(epoch)
 }
