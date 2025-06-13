@@ -530,7 +530,7 @@ fn import_dreps(
                     if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
                         (epoch_bound.start, last_interaction)
                     } else {
-                        (epoch_bound.end, last_interaction)
+                        (point.slot_or_default(), last_interaction)
                     }
                 } else {
                     let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
