@@ -22,6 +22,9 @@ Arguments:
 const configFile = path.join(import.meta.dirname, network, `config.json`);
 
 const snapshotsDir = path.join(import.meta.dirname, "..", "snapshots", network);
+if (includeSnapshots) {
+  fs.mkdirSync(snapshotsDir, { recursive: true });
+}
 
 // Each point corresponds to the last point of the associated epoch.
 const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
