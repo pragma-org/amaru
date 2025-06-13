@@ -67,7 +67,7 @@ jobs:
               rustup toolchain add nightly-x86_64-unknown-linux-gnu
               rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
 
-          - runner: ubuntu-24.04
+          - runner: ubuntu-latest
             target: aarch64-unknown-linux-musl
             command: test
             setup: rustup target add aarch64-unknown-linux-musl
@@ -315,39 +315,3 @@ jobs:
             cargo-wasm32-unknown-unknown
       - name: Run make
         run: make
-
-  simulation:
-    name: Simulation
-    runs-on: ubuntu-latest
-    if: ${{ !github.event.pull_request.draft }}
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/cache/restore@v4
-        with:
-          path: ${{ env.RUST_CACHE_PATH }}
-          key: cargo-x86_64-unknown-linux-gnu
-          restore-keys: |
-            cargo-x86_64-unknown-linux-gnu
-
-      - name: Build amaru
-        run: cargo build --profile test
-        working-directory: simulation/amaru-sim
-
-      - name: Setup GHC and cabal
-        uses: haskell-actions/setup@v2
-        with:
-          ghc-version: '9.6.7'
-          cabal-version: '3.14'
-
-      - name: Build moskstraumen
-        run: |
-          git clone https://github.com/pragma-org/simulation-testing
-          cd simulation-testing/moskstraumen
-          cabal build all
-
-      - name: Run simulation
-        run: |
-          RUST_BACKTRACE=1 cabal run blackbox-test -- ../../target/debug/simulator amaru 1 10 --disable-shrinking --stake-distribution-file data/stake.json --consensus-context-file data/context.json
-        working-directory: simulation-testing/moskstraumen

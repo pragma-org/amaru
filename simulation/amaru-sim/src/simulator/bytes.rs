@@ -12,11 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt;
+
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Bytes {
     pub bytes: Vec<u8>,
+}
+
+impl fmt::Debug for Bytes {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Bytes")
+            .field("bytes", &hex::encode(&self.bytes))
+            .finish()
+    }
 }
 
 impl Serialize for Bytes {
@@ -40,6 +50,16 @@ impl<'de> Deserialize<'de> for Bytes {
 impl From<Vec<u8>> for Bytes {
     fn from(bytes: Vec<u8>) -> Self {
         Bytes { bytes }
+    }
+}
+
+impl TryFrom<&str> for Bytes {
+    type Error = hex::FromHexError;
+
+    fn try_from(hex_string: &str) -> Result<Self, Self::Error> {
+        Ok(Bytes {
+            bytes: hex::decode(hex_string)?,
+        })
     }
 }
 

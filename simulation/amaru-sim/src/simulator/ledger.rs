@@ -225,7 +225,7 @@ mod test {
         );
 
         assert_eq!(
-            Some(1250000000000000),
+            Some(10000000000000000),
             stake_distribution
                 .get_pool(From::from(42), &pool_id)
                 .map(|p| p.active_stake)

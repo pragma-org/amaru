@@ -175,20 +175,20 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
         let result = match unit {
-            ValidateBlockEvent::Validated { point, block, span } => stage
-                .roll_forward(point.clone(), block.to_vec())
-                .map(|res| match res {
-                    None => BlockValidationResult::BlockValidated {
-                        point: point.clone(),
-                        block: block.to_vec(),
-                        span: restore_span(span),
-                    },
-                    Some(_err) => BlockValidationResult::BlockValidationFailed {
-                        point: point.clone(),
-                        span: restore_span(span),
-                    },
-                })
-                .or_panic()?,
+            ValidateBlockEvent::Validated { point, block, span } => {
+                let point = point.clone();
+                let block = block.to_vec();
+                let span = restore_span(span);
+
+                match stage.roll_forward(point.clone(), block.clone()) {
+                    Ok(None) => BlockValidationResult::BlockValidated { point, block, span },
+                    Ok(Some(_)) => BlockValidationResult::BlockValidationFailed { point, span },
+                    Err(err) => {
+                        error!(?err, "Failed to validate block");
+                        BlockValidationResult::BlockValidationFailed { point, span }
+                    }
+                }
+            }
             ValidateBlockEvent::Rollback {
                 rollback_point,
                 span,

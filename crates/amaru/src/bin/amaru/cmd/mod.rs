@@ -14,6 +14,7 @@
 
 use amaru_kernel::{Nonce, Point};
 
+pub(crate) mod bootstrap;
 pub(crate) mod daemon;
 pub(crate) mod import_headers;
 pub(crate) mod import_ledger_state;

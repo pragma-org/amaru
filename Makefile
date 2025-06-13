@@ -1,5 +1,6 @@
 NETWORK ?= preprod
-DATA_FOLDER := data/$(NETWORK)
+CONFIG_FOLDER ?= data
+DATA_FOLDER := $(CONFIG_FOLDER)/$(NETWORK)
 SNAPSHOTS_FILE := $(DATA_FOLDER)/snapshots.json
 NONCES_FILE := $(DATA_FOLDER)/nonces.json
 HEADERS_FILE := $(DATA_FOLDER)/headers.json
@@ -73,10 +74,15 @@ import-nonces: ## Import nonces for demo
 clear-dbs: ## Clear the databases
 	@rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
 
-bootstrap: clear-dbs import-headers import-nonces import-snapshots ## Bootstrap the node from scratch
+bootstrap: clear-dbs ## Bootstrap the node from scratch
+	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
+		--peer-address $(AMARU_PEER_ADDRESS) \
+		--config-dir $(CONFIG_FOLDER) \
+		--target-dir '.' \
+		--network $(NETWORK)
 
 dev: ## Compile and run for development with default options
-	cargo run -- daemon \
+	cargo run --profile $(BUILD_PROFILE) -- daemon \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
 		--peer-address $(AMARU_PEER_ADDRESS) \

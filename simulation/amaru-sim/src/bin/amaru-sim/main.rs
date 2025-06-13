@@ -15,8 +15,7 @@
 use amaru_sim::simulator::{self, Args};
 use clap::Parser;
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let args = Args::parse();
 
     tracing_subscriber::fmt()
@@ -24,5 +23,6 @@ async fn main() {
         .json()
         .init();
 
-    simulator::run(args).await;
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    simulator::run(rt, args);
 }

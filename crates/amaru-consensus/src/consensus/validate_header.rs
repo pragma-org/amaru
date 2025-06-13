@@ -12,16 +12,17 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, peer::Peer, ConsensusError};
+use crate::{consensus::store::ChainStore, is_header::IsHeader, peer::Peer, ConsensusError};
 use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point};
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
-use std::sync::Arc;
+use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, StageRef, Void};
+use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{instrument, Level, Span};
 
-use super::DecodedChainSyncEvent;
+use super::{store::NoncesError, DecodedChainSyncEvent};
 
 #[instrument(
     level = Level::TRACE,
@@ -55,14 +56,79 @@ pub fn header_is_valid(
     .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
+#[derive(Clone)]
 pub struct ValidateHeader {
-    ledger: Box<dyn HasStakeDistribution>,
+    pub ledger: Arc<dyn HasStakeDistribution>,
+    pub store: Arc<Mutex<dyn ChainStore<Header>>>,
+}
+
+impl fmt::Debug for ValidateHeader {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ValidateHeader")
+            .field("ledger", &"<dyn HasStakeDistribution>")
+            .field("store", &"<dyn ChainStore>")
+            .finish()
+    }
+}
+
+struct EvolveNonceEffect {
     store: Arc<Mutex<dyn ChainStore<Header>>>,
+    header: Header,
+    global_parameters: GlobalParameters,
+}
+
+impl EvolveNonceEffect {
+    fn new(
+        store: Arc<Mutex<dyn ChainStore<Header>>>,
+        header: Header,
+        global_parameters: GlobalParameters,
+    ) -> Self {
+        Self {
+            store,
+            header,
+            global_parameters,
+        }
+    }
+}
+
+impl fmt::Debug for EvolveNonceEffect {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("EvolveNonceEffect")
+            .field("header", &self.header.hash().to_string())
+            .field("global_parameters", &self.global_parameters)
+            .finish()
+    }
+}
+
+impl ExternalEffect for EvolveNonceEffect {
+    fn run(self: Box<Self>) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::Message>> {
+        Box::pin(async move {
+            let result = self
+                .store
+                .lock()
+                .await
+                .evolve_nonce(&self.header, &self.global_parameters);
+            Box::new(result) as Box<dyn pure_stage::Message>
+        })
+    }
+
+    fn test_eq(&self, other: &dyn ExternalEffect) -> bool {
+        other
+            .cast_ref::<Self>()
+            .map(|other| {
+                self.header == other.header && self.global_parameters == other.global_parameters
+            })
+            .unwrap_or(false)
+    }
+}
+
+impl ExternalEffectAPI for EvolveNonceEffect {
+    type Response = Result<Nonces, NoncesError>;
 }
 
 impl ValidateHeader {
     pub fn new(
-        ledger: Box<dyn HasStakeDistribution>,
+        ledger: Arc<dyn HasStakeDistribution>,
         store: Arc<Mutex<dyn ChainStore<Header>>>,
     ) -> Self {
         Self { ledger, store }
@@ -110,6 +176,49 @@ impl ValidateHeader {
         })
     }
 
+    pub async fn handle_roll_forward_new(
+        &mut self,
+        eff: &Effects<
+            DecodedChainSyncEvent,
+            (
+                ValidateHeader,
+                GlobalParameters,
+                StageRef<DecodedChainSyncEvent, Void>,
+            ),
+        >,
+        peer: Peer,
+        point: Point,
+        header: Header,
+        global_parameters: &GlobalParameters,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+        let Nonces {
+            active: ref epoch_nonce,
+            ..
+        } = eff
+            .external(EvolveNonceEffect::new(
+                self.store.clone(),
+                header.clone(),
+                global_parameters.clone(),
+            ))
+            .await?;
+
+        header_is_valid(
+            &point,
+            &header,
+            to_cbor(&header.header_body).as_slice(),
+            epoch_nonce,
+            self.ledger.as_ref(),
+            global_parameters,
+        )?;
+
+        Ok(DecodedChainSyncEvent::RollForward {
+            peer,
+            point,
+            header,
+            span: Span::current(),
+        })
+    }
+
     pub async fn handle_chain_sync(
         &mut self,
         chain_sync: DecodedChainSyncEvent,
@@ -123,6 +232,33 @@ impl ValidateHeader {
                 ..
             } => {
                 self.handle_roll_forward(peer, point, header, global_parameters)
+                    .await
+            }
+            DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
+        }
+    }
+
+    pub async fn validate_header(
+        &mut self,
+        eff: &Effects<
+            DecodedChainSyncEvent,
+            (
+                ValidateHeader,
+                GlobalParameters,
+                StageRef<DecodedChainSyncEvent, Void>,
+            ),
+        >,
+        chain_sync: DecodedChainSyncEvent,
+        global_parameters: &GlobalParameters,
+    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
+        match chain_sync {
+            DecodedChainSyncEvent::RollForward {
+                peer,
+                point,
+                header,
+                ..
+            } => {
+                self.handle_roll_forward_new(eff, peer, point, header, global_parameters)
                     .await
             }
             DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),

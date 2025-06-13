@@ -346,7 +346,7 @@ impl SimulationRunning {
             tracing::info!("blocking for reason: {:?}", reason);
             return Err(reason);
         };
-        tracing::info!("resuming stage: {}", name);
+        tracing::info!(name=%name, "resuming stage");
 
         let data = self
             .stages
@@ -489,7 +489,8 @@ impl SimulationRunning {
                 Ok(effect) => effect,
                 Err(blocked) => return blocked,
             };
-            tracing::info!(run = ?self.runnable, "effect {:?}", effect);
+
+            tracing::info!(runnable = ?self.runnable.iter().map(|r| r.0.as_str()).collect::<Vec<&str>>(), effect = ?effect, "run effect");
 
             for (name, predicate) in &self.breakpoints {
                 if (predicate)(&effect) {
@@ -1221,7 +1222,7 @@ fn simulation_invariants() {
         } else {
             sim.effect()
         };
-        tracing::info!("effect {:?}", effect);
+        tracing::info!(effect = ?effect, "effect");
         assert!(
             ops[idx].0(&effect).is_some(),
             "effect {effect:?} should match predicate for `{idx}`"

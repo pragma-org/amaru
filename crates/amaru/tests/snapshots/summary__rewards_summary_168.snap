@@ -1,6 +1,5 @@
 ---
 source: crates/amaru/tests/summary.rs
-assertion_line: 109
 expression: rewards_summary
 ---
 {

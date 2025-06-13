@@ -22,6 +22,20 @@ mod panic;
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Bootstrap the node with needed data.
+    ///
+    /// This command simplifies the process of bootstrapping an Amaru
+    /// node for a given network.
+    ///
+    /// In its current form, given a network name, a target directory
+    /// and possibly a peer to connect to, it will lookup for
+    /// bootstrap configuration files in `data/${network name}/`
+    /// directory to download snapshots, import those snapshots into
+    /// the ledger, import nonces, and import headers.
+    ///
+    /// **NOTE**: Only `preprod` network is supported for now.
+    Bootstrap(cmd::bootstrap::Args),
+
     /// Run the node in all its glory.
     Daemon(cmd::daemon::Args),
 
@@ -69,12 +83,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     subscriber.init();
-
     let result = match args.command {
         Command::Daemon(args) => cmd::daemon::run(args, metrics).await,
         Command::ImportLedgerState(args) => cmd::import_ledger_state::run(args).await,
         Command::ImportHeaders(args) => cmd::import_headers::run(args).await,
         Command::ImportNonces(args) => cmd::import_nonces::run(args).await,
+        Command::Bootstrap(args) => cmd::bootstrap::run(args).await,
     };
 
     // TODO: we might also want to integrate this into a graceful shutdown system, and into a panic hook
