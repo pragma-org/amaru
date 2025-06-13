@@ -11,8 +11,8 @@ HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
 COVERAGE_DIR ?= coverage
 COVERAGE_CRATES ?=
 LISTEN_ADDRESS ?= 0.0.0.0:0
-LEDGER_DIR ?= ./ledger.db
-CHAIN_DIR ?= ./chain.db
+LEDGER_DIR ?= ./ledger.$(NETWORK).db
+CHAIN_DIR ?= ./chain.$(NETWORK).db
 BUILD_PROFILE ?= release
 
 .PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov
@@ -51,6 +51,7 @@ import-snapshots: snapshots/$(NETWORK) ## Import snapshots for demo
 		SNAPSHOT_ARGS="$$SNAPSHOT_ARGS --snapshot $$SNAPSHOT"; \
 	done; \
 	cargo run --profile $(BUILD_PROFILE) -- import-ledger-state \
+		--network $(NETWORK) \
 		--ledger-dir "$(LEDGER_DIR)" \
 		$$SNAPSHOT_ARGS
 
@@ -59,6 +60,7 @@ import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
 	HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
 	for HEADER in $$HEADERS; do \
 		cargo run --profile $(BUILD_PROFILE) -- import-headers \
+			--network $(NETWORK) \
 			--chain-dir $(CHAIN_DIR) \
 			--peer-address $(AMARU_PEER_ADDRESS) \
 			--starting-point $$HEADER \
@@ -68,6 +70,7 @@ import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
 import-nonces: ## Import nonces for demo
 	@if [ ! -f "$(NONCES_FILE)" ]; then echo "NONCES_FILE not found: $(NONCES_FILE)"; exit 1; fi; \
 	cargo run --profile $(BUILD_PROFILE) -- import-nonces \
+		--network $(NETWORK) \
 		--chain-dir $(CHAIN_DIR) \
 		--at $$(jq -r .at $(NONCES_FILE)) \
 		--active $$(jq -r .active $(NONCES_FILE)) \
