@@ -34,8 +34,8 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 	curl -O --output-dir $(HASKELL_NODE_CONFIG_DIR) $(HASKELL_NODE_CONFIG_SOURCE)/$(NETWORK)/conway-genesis.json
 
 snapshots/$(NETWORK): ## Download snapshots
-	@if [ ! -f "${SNAPSHOTS_FILE}" ]; then echo "SNAPSHOTS_FILE not found: ${SNAPSHOTS_FILE}"; exit 1; fi; \
-	mkdir -p $@ \
+	@if [ ! -f "${SNAPSHOTS_FILE}" ]; then echo "SNAPSHOTS_FILE not found: ${SNAPSHOTS_FILE}"; exit 1; fi;
+	mkdir -p $@
 	cat $(SNAPSHOTS_FILE) \
 		| jq -r '.[] | "\(.point) \(.url)"' \
 		| while read p u; do \
