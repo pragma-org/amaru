@@ -47,12 +47,9 @@ impl ValidateHeaderStage {
             .consensus
             .handle_chain_sync(unit, &self.global_parameters)
             .await
-            .map_err(|_| WorkerError::Recv)?;
+            .or_panic()?;
 
-        self.downstream
-            .send(event.into())
-            .await
-            .map_err(|_| WorkerError::Panic)?;
+        self.downstream.send(event.into()).await.or_panic()?;
 
         Ok(())
     }
