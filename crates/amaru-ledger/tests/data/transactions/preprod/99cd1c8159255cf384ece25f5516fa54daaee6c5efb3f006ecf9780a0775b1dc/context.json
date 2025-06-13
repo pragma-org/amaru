@@ -24,22 +24,25 @@
   ],
   "required_scripts": [
     {
-      "hash": "f654f6a31f6c4cc2c39a169f2c022404aa9f19d43137b0448b219a3e",
-      "index": 1,
-      "purpose": "Spend",
-      "datum_option": {
-        "Data": "d87980"
-      }
-    },
-    {
       "hash": "ef6ed47a6917a3cbbeb46561e8853da969343794d66128598a34af2c",
       "index": 0,
       "purpose": "Mint"
+    },
+    {
+      "hash": "f654f6a31f6c4cc2c39a169f2c022404aa9f19d43137b0448b219a3e",
+      "index": 1,
+      "purpose": "Mint",
+      "datum_option": {
+        "Data": "d8799f80ff"
+      }
     }
   ],
   "known_scripts": {
     "f654f6a31f6c4cc2c39a169f2c022404aa9f19d43137b0448b219a3e": {
-      "AtReferenceInput": { "transaction_id": "f986104959bc29103f31f2f9dfced511dcd82531d140578e04593f5ea93effe5", "index": 1 }
+      "AtReferenceInput": {
+        "transaction_id": "f986104959bc29103f31f2f9dfced511dcd82531d140578e04593f5ea93effe5",
+        "index": 1
+      }
     }
   },
   "required_signers": [],
