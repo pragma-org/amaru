@@ -126,7 +126,10 @@ fn run_simulator(
     validate_header: &mut ValidateHeader,
     chain_data_path: &PathBuf,
 ) {
-    let config = Config::default();
+    let config_without_shrink = Config {
+        max_shrink_iters: 0,
+        ..Config::default()
+    };
     let number_of_nodes = 1;
     let spawn = move || {
         println!("*** Spawning node!");
@@ -303,7 +306,7 @@ fn run_simulator(
     };
 
     simulate(
-        config,
+        config_without_shrink,
         number_of_nodes,
         spawn,
         generate_inputs_strategy(chain_data_path),
