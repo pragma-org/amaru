@@ -3,15 +3,15 @@ import * as path from 'node:path';
 import { bech32 } from 'bech32';
 import JsonBig from '@cardanosolutions/json-bigint';
 
-const epoch = Number.parseInt(process.argv[2], 10);
+const network = (process.argv[2] ?? "").toLowerCase();
 
-const network = (process.argv[3] ?? "").toLowerCase();
+const epoch = Number.parseInt(process.argv[3], 10);
 
 if (Number.isNaN(epoch) ||!["preview", "preprod", "mainnet"].includes(network)) {
   console.log(`Invalid or missing epoch number.
 
 Usage:
-    ./generate.mjs <EPOCH> <NETWORK>
+    ./generate.mjs <NETWORK> <EPOCH>
 
 Arguments:
     EPOCH     An epoch number as integer
@@ -182,7 +182,9 @@ function load(dataset, epoch) {
 }
 
 function withStream(filename, callback) {
-  const stream = fs.createWriteStream(path.join(import.meta.dirname, "..", "generated", filename));
+  const dir = path.join(import.meta.dirname, "..", "generated");
+  fs.mkdirSync(dir, { recursive: true });
+  const stream = fs.createWriteStream(path.join(dir, filename));
   callback(stream);
   console.log(`✓ ${path.relative(path.join(import.meta.dirname, ".."), stream.path)}`);
 }
