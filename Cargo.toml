@@ -18,8 +18,10 @@ resolver = "2"
 acto = { version = "0.7.2", features = ["tokio"] }
 anyhow = "1.0.95"
 async-trait = "0.1.83"
+async-compression = { version = "0.4.24",  features = ["tokio", "gzip"] }
 bech32 = "0.11.0"
 clap = { version = "4.5.38", features = ["derive", "env"] }
+reqwest = { version = "0.11.24", default-features = false, features = ["json", "stream", "rustls-tls"] }
 either = "1.15"
 futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
