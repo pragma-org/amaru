@@ -118,10 +118,6 @@
       {
         "from": "verificationKey",
         "credential": "fa4ca121f0b5a6537d807f3b325cb88db3a3f78de0e23c2d9d7f7102"
-      },
-      {
-        "from": "verificationKey",
-        "credential": "fd0e26443fd3dc2ec11cddfa1bdb94dfc476404154f9eb8caa3dfd1f"
       }
     ]
   },
@@ -774,7 +770,12 @@
         "lovelace": 0
       }
     },
-    "delegators": []
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3dd92899f772d4616a1a7fcbf1c4b161deb8f7eecc77d6bbecee62ac"
+      }
+    ]
   },
   {
     "type": "registered",
@@ -863,12 +864,7 @@
       "url": "https://www.logicalmechanism.io/drepTestnet",
       "hash": "55c4ea20e133878ef8c80ddbf3f73adbe3220963a2874f8757d435d60126db41"
     },
-    "delegators": [
-      {
-        "from": "verificationKey",
-        "credential": "40b3c98d3b5f5a7748829d612e9e1ccd5f429970abc9abfeae867af9"
-      }
-    ]
+    "delegators": []
   },
   {
     "type": "registered",
@@ -895,10 +891,6 @@
       {
         "from": "verificationKey",
         "credential": "40b3c98d3b5f5a7748829d612e9e1ccd5f429970abc9abfeae867af9"
-      },
-      {
-        "from": "verificationKey",
-        "credential": "7c3ae2f2175c3d886b9daaa362533b7db1b30db6f2bafaed7569eeef"
       },
       {
         "from": "verificationKey",
@@ -966,7 +958,725 @@
       "ada": {
         "lovelace": 7647980654291
       }
-    }
+    },
+    "delegators": [
+      {
+        "from": "script",
+        "credential": "dc9cc61187d01e9046db06a035f9f8b5671c49c068e7c6d5321dea63"
+      },
+      {
+        "from": "script",
+        "credential": "e55000d63da7fccdd8bb12dcb5be3a5528ec4d6584aa9c128d8ccd70"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "013f77ba45f9e542316040787077122395e5607c96f316fcb13603df"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "01f2470bd63f27e85f4ffce6a51657f5efde846edbe01c46c81c8224"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "026898e030a3f76f3dc6eaea436dd9321de772660b8e1ed08e9ba983"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "03869ff9be2f27150436e3bf952bb818d647403894b77902e9490a87"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "05ceae4c264a81d9dc53b4ff201ee59d761ea7f8d968186888026248"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "081cd451fc93746ee8f73fb7351836ef54e9683becdbc7216becd078"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "09c34e465562dc6d0050abd40f198c7b1ed40a5a71e288d453ceb181"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "0b2b0ace0ae671e2497fe7a90aefde86179115e618104da88cf68cbf"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "106bc13b582f12870d2299794ced11c65f5d69725ae79e8f9d0be8b6"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "133b734aa10e32b6db89f2280b9aae794cf438b5b52ebb692221523d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "13531bc06d145be7c822d0bad31e775aa70e24e4fed42fbf07cbfcb8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "1498d157ebe0f51e3b4a964d8aefc1b1c33da50bd9d05150c3108d04"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "16922d5732ac3b5e06a471efb84cbedc608e80775089e7369994dec0"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "17d33509d63829e05e9c69e5d1ded9fcaba088175fd2c8f69c9a8b22"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "199433032240ef315df3b6a0b8a3ef9a4bc74ae08b2608405fa9de63"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "1aebee3ad12144613d7a037758c410d903971acb338f3cd6d1f7eaec"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "1b78c8097954fd30237d7fe4b6e3926aaec5e6e3d5a6a2a821f0838b"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "1d13d1898dc124c6b52f6a76b39ec82231d867314f9dc2331d023405"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "20134ecf3060a2774cecd73ee716f22f5660de046c6b6fd049dccc72"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "20662781b588417459962a5c81d6281afcded53383f79eab773a021e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2151db2ac1e4dee731f2d6a0bf00c67d8db3fcec504315e8923d5967"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "224109ac03b255e5486e942d7e2adb28c6a954cd1b1fa3c9ef2fce0c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "24c92e167ef0ba56e77436761c15bd6904742b6e1b2594e9b3e69ca9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "25538ef96124a5dd5ffdc30bc5c74239e8373fbd2b991b2c95f2b079"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "268f8863e93b3b6f4d8d3f7f683868766e7105d7d2db86bd7cc9e70c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "272d0b87fb7b9561d4d3dee46b8d422a8a8ec555c514e2b15f072934"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "274905a837e016a7f091a1220e23f5695b685d4d1a41b1629b1a029f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2a0d0d0db3f349c98fa86efe7be433130b05e9a0d445ce7a4989ca20"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2ab115550b26f37e14a3dee3e2a68352dd7112efad83d8e6e0f07835"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2ab5a5942037b7534dfddf54a69ecc8779ab52e4165c392a4e31980d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2b9ba9d149aa40487992d8a184ef87c1b4031d47a02d326db39db41c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2f47ab02cb642d1e0669df608f63efa5b7b82e3a74dca6a1f82bf621"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "30bec44f710c9be35547afe69fd65f62e3ffee9ff57581db785578fa"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "31ae08691e9ee0cb399ab8eee402d4314e7a91a89f2ad7cc2aa42bec"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "382b1f09d7174f679ac204ea8533026020625894e8ef703f69bac5b4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "38f27f6993f1457f65ebc2b93849acd5670d7d79206b0bdaedf4c705"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3aee53fc01fa16c629f85d6143330aa757a4c805c561e7212c42d64f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3b848d7ec651a31439d37c806fe32db3959db38e073b2acff4077faa"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3d8a93f8b75e015d1431762bd05c833941b46291a15dc42e33a8cb19"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3e0519932f8693498adde0d5e0865a2e04d0efea31e509a58fbb2204"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3f4ca3168038a89de1d24cfe98fa970c3600e45709f88a73b7b12489"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4199f66b16ce9eb5849ed96473face025b2e9bcbdf1e352ad4362981"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "41aa6f412a60801c5d9aad0428c7805830647ddd0181a3d39390b946"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "41d2ccec070f106b825ea2d333a0506a2125985743ac1309336520ac"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "45d24130ed7915469654b811d221cfd3e91c8a906ff9dfc9a0196ed2"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4674ed7338e11f91610560625f4ec89c67cbb84dea719ef1687ca541"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4750c58a032a7f9a0fcbdb7e08dc5b460321b90181980c561c6c9a59"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "489adff29711145d717b03bbd2829d7f3ba271c291ece392017c9c65"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4abd6a6c4a5308f6e3c203061f3e7d184f7d99b977c7f9fe9cd0d9ba"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4b3002c66c149c68d173301718ec14b8026c8a467d3c7472c574e9cf"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4d203091ec9f9b3c899259263485ccc74ec4c510e5b7defb322d294c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4dbe82df16f43f5c2ac5591722b156fa7384af47997640913fd09564"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5077ab36297e7f322615ee2986934358f15ea2bf931f5d0d4257b651"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5272ffc9ea4c84c30716ffc5a59d81c413aba2cc0d82d3e3997b80e3"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "54dd900ff1faf96f63614227ce8f58ca4a9ee03df576058a8e208d4f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "550b47f2b5ab4e1316fd2f43ba6b8432c09315dee6d594e518d319f7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5633d31ca70f7a9f50c25588b7f2dddbe08181cc1b09f77efd4d1a0a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "56d59b81a3060c5e00970c4e6a9bcaab27e9a1256f891b602afc6b4a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "57dd7a12f73bb94cb2626bc79f5e6fef3f2629d4f6041cf7f961a0c1"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5a768bf0a834270af9626055affb0fb1d5ec144e9f51f5f0322a263e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5b7857667a18e87d8927a6f004086495e0aba415639dc1434cb5900e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5c633364e2a32b47ba8636e23664fff46a44bc1641c674a76949b94e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5ee208666d7537ec24ceca05b4a7225f9a5864db9141e09efee9c430"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5fa086e75f2caa0d94dd9661c367a75eb865aeca0f49325730c5a1e1"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "601d2fb99a6c6ce18d7e3b13eedb8b771dc0421adc65ac2d83187882"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "603fce7ffe1b4bd69c29a6f5cd8f3b5d86fac0ba8c461511af745a00"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "60ab450078cb641350a756460ecc5255f0c150b2804242a4ca71d157"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "65c899bbe2a85ca07da35688f580ac6bc07c6a1e17c0f3dc51cd8393"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "66d37bb4144ae88c6ec9ca76126281609e7803701ce6df5fd516e887"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "671f3e3e69171326c416415e75afc16681ed2ad526ed06e6cf40dffc"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "689100282c3e4faa7888ca5a5aaa9b7ab445be3f11c9005250c9a539"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "68c2eee6927da3edd86488fe31c7a49568bfc0ae93530579db901c4b"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "69cd408f29b5f971fc24cd896a3fa69c73ad72a245fc8dc4b65cdaef"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6a984fa2eedd16e443d442e606c52537744aba9694ead74ed9842a46"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6a98a63ab68e103cefcf1f9d67a0ae5b1a930255acf332e9df32810e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6b7c299f680c11d3f4e2170e2011f31808b4504711a51db8efcfda3d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6e4fc43cea7966f7c79a2687bf76ee8f7611d0099dcb932ed7729567"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6e68f1a85478c67f766304c66a8b88dd0c25b47cd2da225b08138f84"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6e835bee174fbd1672bf273866e71885ded34342007e24e05ee6671d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6e97c3c9c559f465347daca0c7d8a2d3860f8c159cd984715fa87a06"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "70a56a620685e39da9449c085ce536621d4518e6d1e2ee880b09dfe5"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "72b41e03091ef1ac49e37c1842fb762c7c81020511a66f720455a1bb"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "7389da9ab786171242e067b98c0451dc24921152afd84feb83eace3c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "73d468ee9a42f567f4dd8ff7024b9ca25dd98c972b3926f57ad87fd8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "74d8b4c25fe1df783a2a3f2db69a7b05ebbfb43a5362d5fbc0244a7c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "75810b2d5a1271eee4e401940f6a7839029c89c21c35da5300e1bfc9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "7590202ee06b6d7dd84ff3aacb6686d1e0f459fd85ee136df913191f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "76e62047186f726baa9ebe16ffc6f03264f709af70e90e37cb2a5a76"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "77da62e0734179fbcf651ee87ce63eea66beb51e822825113eef179e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8277a449d719e614dbc1827e19531e49fc6b79cc714b598bd2d190d1"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "83c2cc03e06d264e89aa8ac615b60bb7c770377274043dc6c3833e81"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8409260d7ad1a142aa4f2ab47a5fb9d88bc85aad70b5925b80e44785"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8483b4a8c602f120111033081a43fc8f14a3250aa6e196d7fe223950"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "84fbd2006a82329700d8193148976cd2d0b4277be43b8675c7d568be"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "861e35bc23d18f6c31324e92715dba6d4d0fe488a6af64ff1cce8e63"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "86fe3d1e8dbd8b128075e58a626353cc3f9182e8e47e1ea95626f91f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "87f4a09f7e6b3f364d1120670676a9bf0e9ed9612eec172696c4a071"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8960b39eec30f3bc15ea22a4018841bda43468411132737a88c38ffd"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "896693320233193b27aea3a9df04afb95624a2bb4d2937042faeaf3a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "899caf87c60e581582a408206fe6cc58e7a779afbc516b3726a82f2e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8bb051ccf3174c1391b9a8475665ce219c8b6edc5904830df2b27441"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8beb05badb797b07f86cbc8248ebd07f2fe79275f9937f2d3b9fb194"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8d3d48e19aa38a945289189d658d80f58d0d43524762c1d667d47261"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8d491a5f5a9ee3d048360c844ee089005e534cc9b0d92533df8813bb"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8d904c78f881182dfbe720149771d3085424aa3fedb21c6583cb08d5"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8dbdea35b27938b8980337dce29f9f23d060358f7c6319f0b46dae48"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8eb1555a2289b3414cfa3d00779ab5488c961b60131ae9d6dd644f4e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "92cd8ce9447029ac206d3a7ff9ac57d9d65fb10844d2221516092a9d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "943b7bcf1dc6b162e16d24757a4079c904d245b105b578bf9320da55"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9458052d3e78b6885e072ec8515ae4b514cc44e38a6b939423fd01a1"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9504185f70732ec844a6a9e5a64ad05e0709bb016ed5f2ede6ebe6c2"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "98c922983b2dd21b6a5bbdbe2785d8939e1293212a350adcb89cb39c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9b8b65a2ec085f96a2d5fd46ee0eb25c40978ae9653492c960a403cb"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9d00183267e0c7e561d7e953801e9ea293604d0b865b97b65560da39"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9eec5c94f0794ac1296593c837fca96b8ac394c45883ef8e9d26fe13"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9fd6a98ce4cdb52751d54afbe41e9db16e84d33a822355f37d74454d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a0802b01c9309bc46936e4844f24b2da2e5511e974eb8aeb900be8c0"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a11419cc620cf80e76bf0993b91fcefe57bc16d61bdb878c08f58062"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a3e6258cb623a8a9c0ca10011797e5f59f1444072dad341fef458eec"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a48aeaf7b25c62c2050667564f655e4817c23f41b11453278225b2dd"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a4da7dd80d4b9353c13f65f0d9dc28d1d75e2b4054b5f149d5e4183c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a64cd991d128aaf7b71593b8d5545b9cde405a2cd37cfa47984a32e2"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a8d953f63c5bda95b1c9c5e6f1ebc57b70eed03c3815762cbaa5a34b"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a93820fdd98f5ea8664cacc5e609a6ab3e24fe90d601b4beef12a5d5"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a9b2f61ab686ab7b16e351f1c9b2bc8cf2dd0dd62ad15fef39b6aba9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ad87fd666a9699ba09daff85dbf24ab5039994e73fa696022dcaebe8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "adcbbee04ac19bd87b4f12b4f8d32df72fc1ef9adf152dd288a8041d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "aef023534f7c79de6502896526015fdd0f8dd7626d1536d5e7c1eb8c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b04b0cb3749579808427808d79dbb74e1d821f33e3a20207a84797e7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b174d8936e2345ec550b080d2e28fd2666ea1e33fae40eddc902bdd4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b2c7aad9232ad7d4c062af630d20697ab55cbf6165978c7962ac60d4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b31b781cea0fcf90512d08415931c4759272fda3896d25e74383d359"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b4518a530717b70cb0409e1b5b685cdaafc482d0b2705ac9c933578c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b4d0a96fe6e3b5e4bb9cd69c01a5edb12d512b9398a7ab51265d52fb"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b5feaa46dae3a8b58ca150f686f6f29b406e689e245ac4dbeb95d830"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b84b25a6e8ac3bc2e6ba5f66e749389f301f68a3fd418e8d853f4578"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ba19918cff1523b83cef36bc2471f064b8d8ec008edecbc1d7b991c8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "bcd1819f11108c924b698e578db139925e8e1c20feb4d62a46b1d3e1"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "be27aeaf3985ab689ce1b5253e3e4e8fbb3d96868b95a1a8b8190757"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "bef7f14cde5eabb16a698e8b8f15e346b260a17b6ff26e572c06a5b7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "beff48ff154383e37fccfb14a04b4085c684bf5072a6dd13324274db"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "bf2918313bb37a1311413dfe8b601d0669db5d98dedfe1d2b6b61b9f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c0144df5f25c1bc82e3c71285ed6514f9156156dd67dccce63828e6d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c69dc25a62b3addf9d39cab5e6abeb16b9da190ee2e3ec06ae77a46d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ca6f59cc6897697cbf07c633e539294d9256f0c74dd7de0980a6d721"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ccbfc9feaed41766b311965976e70ca4eaa19a520d2c0053699e5832"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ce23d5196e778539bc3d2a733818fdfa8c6d981366cd4dcaf1d30e64"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "cf8966e3a609bee48584158e8fe3ca86f0ea5250365ece87b35fd119"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d282da4d36e774b2e998fac1e7eab7d24a07731744b973e39ee2f5de"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d35e3b124ebb4d282b06ca8a88bc5f938d791e39c23893b56863eabd"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d6336c68dc141a2225ed02ebe25579930d4a874238a26b1015e9e6ee"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d74517d402b48caf5cef407d5385619884abd352f5293aaf86fad5e7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d7799d4370ef4785597c7bb804307816aa2777015ed1d064ab80a3e0"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d792e980b385ce55bfac71ed3a71cfd0ebccb6048542280803bd1af7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d83be949ca581af9cf0d115a9c7cf41e4664d703131f2348a8dfc6e3"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d9365526db78c9bb4e65050d148aa33a550ed63002ab23e2222893e9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d9f14a24a574baf525e816f8c4570ae3a6f8ef877997a2f90c5d64c8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "db365e7b696cf816fca0aac5f992cb8c0a490c9471109a79548988ed"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "dc071af1aea0c1a291e2e148ab32c7d90f6f22f8c57568e1a4ac1845"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e075be10ec5c575caffb68b08c31470666d4fe1aeea07c16d6473903"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e57e9c496accc2de91d429088f515e4efea04fc6659ac319f88255ed"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e6230bdcb97f203f63753ed2cf1e9605a14073dd2f0d22727f36edda"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e83f91a8efae26288d214d2d391eeb80be58bf58ca5222f296d8d3b8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ecc24f3292b23884c2644aa09f9c66282642225737a845c7f143fc28"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "eee790c7bb9c497f716fcec7d92a4d68c27b48c9e301b7c547c653cd"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "eefba14c0112e498c25fcabad29bbd6005fcdb21d2cfea76acb8b58a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ef5537a1fb28880f1b7e021f26f7b681e46267dc1448d0df1bc03ec4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f1d661d597d7136d7ee32899575ce88fd90e5e36a8ee9454efa55e18"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f4f658352ca3ccc67627548636bf67027b9087d6d5606022163fac76"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f57047219638ed70161f2616f92fcebae7ecc134c07d48f67c26d4ad"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f6af2e20e230d4c3540bbff9d8689b94657c5d8f4adb89c61bcbf16e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f70a7166edece4656f552204c8089d4bafc4c478a4fba6274aa28a3d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f7c854a7b786a297a2932f7a3f057d6a2700c80278000e51dd7443f3"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f974fc2c2940e69a7a72de1101d513010b28848007398d32ec44c0ff"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f987874c65be63d1cc6a8b3150508fb78858cb86b976daaa1b2415ec"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fc2d12a000f09d2f200915b0ca24801f80397f6b45ae772026723ed4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ffdecfb64970e5e3e29b1f76084c3c41a448276d02a41bab158acfaf"
+      }
+    ]
   },
   {
     "type": "noConfidence",
@@ -974,6 +1684,28 @@
       "ada": {
         "lovelace": 194516399056
       }
-    }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1c66afb2b2fff29fe041f9a870ea617d926d1f6c558da5941819fbdd"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5e57fc7cd5b6208feb4d2a93438df531bd731cd2858175451e140cd5"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "64238bc39c962aa28156a45a461213770d88d808896785f92c3aa4d2"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "91d52a55f5062ce47ff8bdfeff4a9da9e917ecb37174ada9f6a7d3f6"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c3892366f174a76af9252f78368f5747d3055ab3568ea3b6bf40b01e"
+      }
+    ]
   }
 ]

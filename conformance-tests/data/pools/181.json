@@ -279,6 +279,37 @@
       }
     }
   },
+  "pool1q4lgjl4snm87782n080vnj0xtylgfvhkv637c8jsx9k2jvnu7ng": {
+    "id": "pool1q4lgjl4snm87782n080vnj0xtylgfvhkv637c8jsx9k2jvnu7ng",
+    "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/40",
+    "rewardAccount": "stake_test1urd2nh2svzugwsq5rj25kvg2t75vlyx27sahc6wv7vmr4ms7tmg83",
+    "owners": [
+      "daa9dd5060b88740141c954b310a5fa8cf90caf43b7c69ccf3363aee"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "123.200.21.0",
+        "port": 3000
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1qep8gwqux539qqtxhr4h8ea07qyc0jq3aak5jjcxzqyavuet7ya": {
     "id": "pool1qep8gwqux539qqtxhr4h8ea07qyc0jq3aak5jjcxzqyavuet7ya",
     "vrfVerificationKeyHash": "661ce772dbbb72837df283b8877aecf72db3d8df62f15dac7c98d7da30dddfd7",
@@ -415,6 +446,36 @@
       }
     }
   },
+  "pool1pq2lsk6vvruptw333j32lgg4qhyt6eljrc6rhzguxq0uvy5vklc": {
+    "id": "pool1pq2lsk6vvruptw333j32lgg4qhyt6eljrc6rhzguxq0uvy5vklc",
+    "vrfVerificationKeyHash": "6057a3f66c7e3f3e41d290e3f504dcb634424383cdb5ae74712de065c5199f05",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1uqh6krydxfza39dlp6m9p86q5vylftkz5kmarvel74zhz8qcy60yc",
+    "owners": [
+      "2fab0c8d3245d895bf0eb6509f40a309f4aec2a5b7d1b33ff545711c"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relays-new.cardano-testnet.iohkdev.io"
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1pq4f0yt7cq9dz6tj6sj6eqnncem9m66txvuuv6d6m6jrq0wcdgv": {
     "id": "pool1pq4f0yt7cq9dz6tj6sj6eqnncem9m66txvuuv6d6m6jrq0wcdgv",
     "vrfVerificationKeyHash": "f1298c4abd6abbd698630439f09c7f154f32edc9b537fbeb4f0ee30938c8d501",
@@ -447,6 +508,47 @@
     "stake": {
       "ada": {
         "lovelace": 29495078203
+      }
+    }
+  },
+  "pool1ppmh24gjlhxrc7etpczwatehg9tfhh5v0kk2g3zgpxnsx5et0yy": {
+    "id": "pool1ppmh24gjlhxrc7etpczwatehg9tfhh5v0kk2g3zgpxnsx5et0yy",
+    "vrfVerificationKeyHash": "d03c4b25ee6d40bc570e9e10398b6140c792c010b565dc8218a6235f69e0cda2",
+    "pledge": {
+      "ada": {
+        "lovelace": 65000000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/1",
+    "rewardAccount": "stake_test1up97pve88evjrur6cl64f8wtp3s77tcsfrtn2q33tyvxjdg7nd4kw",
+    "owners": [
+      "4be0b3273e5921f07ac7f5549dcb0c61ef2f1048d735023159186935",
+      "64238bc39c962aa28156a45a461213770d88d808896785f92c3aa4d2"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "192.168.1.22",
+        "port": 3001
+      },
+      {
+        "type": "ipAddress",
+        "ipv4": "192.168.1.23",
+        "port": 3001
+      }
+    ],
+    "metadata": {
+      "url": "https://d5935b72a1770a1a34f5.github.io/pools/01.json",
+      "hash": "a333db0bded53790a73a0126ac61f05ec2a0bbdf393965ae9884ea345876d15a"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -1337,6 +1439,31 @@
       }
     }
   },
+  "pool1r9lez5dne3gxe6yjpe3rl87kqweff9uyx8vkv2kk3yprs2k725u": {
+    "id": "pool1r9lez5dne3gxe6yjpe3rl87kqweff9uyx8vkv2kk3yprs2k725u",
+    "vrfVerificationKeyHash": "74a30c247905792c21c41ade4b3ae09356d790f6d4a2c0fdc3f99da7a4eb256c",
+    "pledge": {
+      "ada": {
+        "lovelace": 123
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/1",
+    "rewardAccount": "stake_test1up090lru6kmzprltf54fxsud75cm6ucu62zcza29rc2qe4gww6jxs",
+    "owners": [
+      "5e57fc7cd5b6208feb4d2a93438df531bd731cd2858175451e140cd5"
+    ],
+    "relays": [],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1r2k8y80zxvqjyvyy3xg8r50892qcewgm38z6pcy3uk8fky4rkl0": {
     "id": "pool1r2k8y80zxvqjyvyy3xg8r50892qcewgm38z6pcy3uk8fky4rkl0",
     "vrfVerificationKeyHash": "0d97b49f253ed5c18a534d9c9d9d120134e71cd05c713bc6477a05da6315e804",
@@ -1369,6 +1496,41 @@
     "stake": {
       "ada": {
         "lovelace": 315585575
+      }
+    }
+  },
+  "pool1rtseflldkqytw7lm3mpek9g5m04ennkv6ejysxqjj52zyaq46rf": {
+    "id": "pool1rtseflldkqytw7lm3mpek9g5m04ennkv6ejysxqjj52zyaq46rf",
+    "vrfVerificationKeyHash": "a6b0f0a6e4e9c6d7477f99a4f3092af753e563b06c9fa8b601cb95695ad8b8b5",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 10000000000
+      }
+    },
+    "margin": "1/10",
+    "rewardAccount": "stake_test1uqpayp2nyzy66tmcz6yjuth59pym0df83rjpk0758fhqrnc8dx6fl",
+    "owners": [
+      "03d205532089ad2f7816892e2ef42849b7b52788e41b3fd43a6e01cf"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "127.0.0.1",
+        "port": 3001
+      }
+    ],
+    "metadata": {
+      "url": "https://my-ip.at/test/hwvotepool.metadata.json",
+      "hash": "c3424861239c38f61d723e10a22f15617844f91eadb4c4e5fff57bce138f8973"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -3765,6 +3927,31 @@
       }
     }
   },
+  "pool1g8yh6lekmzm7jj5ja86nn5gnszwefnv25tfxtar9uhm82rpy249": {
+    "id": "pool1g8yh6lekmzm7jj5ja86nn5gnszwefnv25tfxtar9uhm82rpy249",
+    "vrfVerificationKeyHash": "de2df8f55ce0f3b014093ac11ad6dd0fb40822a2a2ba4fb8007e2a56bf03fede",
+    "pledge": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1up090lru6kmzprltf54fxsud75cm6ucu62zcza29rc2qe4gww6jxs",
+    "owners": [
+      "5e57fc7cd5b6208feb4d2a93438df531bd731cd2858175451e140cd5"
+    ],
+    "relays": [],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1g8aqrg8u9uufjrsvzt78cnqk3fws4r298p9esw0exd2mqav0yl2": {
     "id": "pool1g8aqrg8u9uufjrsvzt78cnqk3fws4r298p9esw0exd2mqav0yl2",
     "vrfVerificationKeyHash": "74511e297e8d8670729af5a4eb08ff8b49f0247f1100f28ce5599b44f07b57b4",
@@ -3828,6 +4015,31 @@
     "stake": {
       "ada": {
         "lovelace": 51999757
+      }
+    }
+  },
+  "pool1g2ztg53vvf7233vnz3ff7wedx7lp6qnpp0nwt09kyqygycj0k6n": {
+    "id": "pool1g2ztg53vvf7233vnz3ff7wedx7lp6qnpp0nwt09kyqygycj0k6n",
+    "vrfVerificationKeyHash": "8a2745c299d4b7a08aa39b4008dd2dd1accab32e24fe8871c70410e0152f3c3b",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/5",
+    "rewardAccount": "stake_test1uqgxhsfmtqh39pcdy2vhjn8dz8r97htfwfdw0850n5973dsymw9m3",
+    "owners": [
+      "106bc13b582f12870d2299794ced11c65f5d69725ae79e8f9d0be8b6"
+    ],
+    "relays": [],
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -4859,6 +5071,37 @@
       }
     }
   },
+  "pool128dntpzv0jz9g6r7f39dsjllx2rvjttvnwrzk56eg4z3jcct5jj": {
+    "id": "pool128dntpzv0jz9g6r7f39dsjllx2rvjttvnwrzk56eg4z3jcct5jj",
+    "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/40",
+    "rewardAccount": "stake_test1urfg0lfeq3cdnxup4plqu7nzatsp787xzzwayrfuezfw5jq0pv5zm",
+    "owners": [
+      "d287fd390470d99b81a87e0e7a62eae01f1fc6109dd20d3cc892ea48"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "123.200.21.0",
+        "port": 3000
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool12v43sug6avuwn458fwlx0j72lqrjqqcec9nc9ywk24x0wn7ng46": {
     "id": "pool12v43sug6avuwn458fwlx0j72lqrjqqcec9nc9ywk24x0wn7ng46",
     "vrfVerificationKeyHash": "369930b18573def6846a42e35dba9eaad0ad7ee1665a92557b57e263075260db",
@@ -5072,6 +5315,41 @@
     "stake": {
       "ada": {
         "lovelace": 643036855230
+      }
+    }
+  },
+  "pool12krslmkmerf45g4juaartm4hkawkmrh86peyy4hlte6nxyzwcyf": {
+    "id": "pool12krslmkmerf45g4juaartm4hkawkmrh86peyy4hlte6nxyzwcyf",
+    "vrfVerificationKeyHash": "2a906d4e959be8215b626497a36ffff00e5148c14725dbe280287db479259b8e",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/10",
+    "rewardAccount": "stake_test1ur4n6h633vsj9av9pr9zuguhxargl69mrha0ndwunccr5mgqmpe77",
+    "owners": [
+      "eb3d5f518b2122f58508ca2e239737468fe8bb1dfaf9b5dc9e303a6d"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "123.14.11.2",
+        "port": 30000
+      }
+    ],
+    "metadata": {
+      "url": "https://git.io/JJWdJ",
+      "hash": "6bf124f217d0e5a0a8adb1dbd8540e1334280d49ab861127868339f43b3948af"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -6257,6 +6535,41 @@
       }
     }
   },
+  "pool1dg720fqut6y60phvxzk4pe639wvc2du65mv0yrnm8w6e570ct39": {
+    "id": "pool1dg720fqut6y60phvxzk4pe639wvc2du65mv0yrnm8w6e570ct39",
+    "vrfVerificationKeyHash": "5302dc88235165c30f88ab43257ac1a122f2ec38fbe0caf12ba286cc19c3a619",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/100",
+    "rewardAccount": "stake_test1uq03utfpztcwms7gtvcatlxrsz85elhr6mtgpc6mqky50cc6l48cu",
+    "owners": [
+      "1f1e2d2112f0edc3c85b31d5fcc3808f4cfee3d6d680e35b058947e3"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "65.109.165.117",
+        "port": 6000
+      }
+    ],
+    "metadata": {
+      "url": "https://bit.ly/31fgGtv",
+      "hash": "629ce816cfd3900fe67e8604e4f97d56bf73a06b93f83cd63ae3d2ebe6199110"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1d20fqynupcwz54chju55syfz3nms6h3kazwy9a089ghm2t2lzpg": {
     "id": "pool1d20fqynupcwz54chju55syfz3nms6h3kazwy9a089ghm2t2lzpg",
     "vrfVerificationKeyHash": "59c0f5d3866a37704fb31a97a2a3caf8795c9bfec993df4540d86cf6deb29d53",
@@ -6816,6 +7129,41 @@
       }
     }
   },
+  "pool1wmluq6pjne9ndvgl26q52f4lntpjaqkwj6x8u2py9jqfuy5mv8k": {
+    "id": "pool1wmluq6pjne9ndvgl26q52f4lntpjaqkwj6x8u2py9jqfuy5mv8k",
+    "vrfVerificationKeyHash": "5a8f5a4cfa2a7ab678a538e04e7919579b8c6c20e3ce51a04d3c14e9db5143a0",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/10",
+    "rewardAccount": "stake_test1uza8ejlz70e9k06mgy4dedftahm7ctj6ju6akv9uv84akfs7xmxrf",
+    "owners": [
+      "ba7ccbe2f3f25b3f5b412adcb52bedf7ec2e5a9735db30bc61ebdb26"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "123.14.11.2",
+        "port": 30000
+      }
+    ],
+    "metadata": {
+      "url": "https://git.io/JJWdJ",
+      "hash": "6bf124f217d0e5a0a8adb1dbd8540e1334280d49ab861127868339f43b3948af"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool10qlwk6y9hhny4nweukak93yf0txrxk0p4k6c992v2hku6l9clkx": {
     "id": "pool10qlwk6y9hhny4nweukak93yf0txrxk0p4k6c992v2hku6l9clkx",
     "vrfVerificationKeyHash": "68d7c5f528ed7b8dabec777a760e3a0f7a8b2b2ab1e39ecb11111f8a559eadd2",
@@ -7227,6 +7575,41 @@
       }
     }
   },
+  "pool1s04t5eyvf6p73fwr5zc4pcqrpz54nshp5ruuvfc8kshygahyq3x": {
+    "id": "pool1s04t5eyvf6p73fwr5zc4pcqrpz54nshp5ruuvfc8kshygahyq3x",
+    "vrfVerificationKeyHash": "0b36b32f41de06cc160ea1cc45ca47923fe615faaf418e366b7c289b25540acc",
+    "pledge": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 170000000
+      }
+    },
+    "margin": "1/1",
+    "rewardAccount": "stake_test1urqaffs2kpy8253q8s3hwdfuz78zzhcxe5uwm2g3mn4l29s8q2e3h",
+    "owners": [
+      "90d2b5e191cef332a3e0845c8567ed113e9785548045cf62d46227ec"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "20.50.29.14",
+        "port": 3001
+      }
+    ],
+    "metadata": {
+      "url": "https://peterfo-tr.github.io/preprod4.json",
+      "hash": "d84e76d855c0d0b590a72a10e902e3acca521e8b4f3ab797c355246fb2ec204f"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1scqanlqepaertn4zsr2cuf9pspgpwgrpq7s3zsrkd4hdsz6q7kh": {
     "id": "pool1scqanlqepaertn4zsr2cuf9pspgpwgrpq7s3zsrkd4hdsz6q7kh",
     "vrfVerificationKeyHash": "acd6562e73d5b350f1599b6608a374e47d1a53ed133f7024a7a359bb8234a891",
@@ -7398,6 +7781,41 @@
       }
     }
   },
+  "pool1suqa64z86ht04r26lhzd2zdj2329nmt76f5u98djvy99xc9fmjr": {
+    "id": "pool1suqa64z86ht04r26lhzd2zdj2329nmt76f5u98djvy99xc9fmjr",
+    "vrfVerificationKeyHash": "9c2a8cf535e1693bbb205eb4459ea7f4752f44618d2fd955896a0f1656a38e56",
+    "pledge": {
+      "ada": {
+        "lovelace": 200000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "3/20",
+    "rewardAccount": "stake_test1uqkntzh8jcrnnyl3ge2fynaawd8f2v9ahnktpq9cy2lc0lszhhpz8",
+    "owners": [
+      "2d358ae796073993f14654924fbd734e9530bdbcecb080b822bf87fe"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "123.14.11.23",
+        "port": 40000
+      }
+    ],
+    "metadata": {
+      "url": "https://git.io/JJWdJ",
+      "hash": "6bf124f217d0e5a0a8adb1dbd8540e1334280d49ab861127868339f43b3948af"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1s7wetfttn723hvdxx3wusz7yrxztzdfu6dm5nu4j6tuj6xcz2sj": {
     "id": "pool1s7wetfttn723hvdxx3wusz7yrxztzdfu6dm5nu4j6tuj6xcz2sj",
     "vrfVerificationKeyHash": "26fbeedc3c5ca9311bff2582e607cf2865cf70c21364a90c86327cf19a3405e2",
@@ -7430,6 +7848,46 @@
     "stake": {
       "ada": {
         "lovelace": 726461108560
+      }
+    }
+  },
+  "pool13qyu46er2x2r6gqatghwlnjdld64kz9e3c4je36hytql7rdm932": {
+    "id": "pool13qyu46er2x2r6gqatghwlnjdld64kz9e3c4je36hytql7rdm932",
+    "vrfVerificationKeyHash": "fd09a15c0ca2dc64c8b963aa94f0b72d11d19f6cd5bdb59cb6fa5262835e885f",
+    "pledge": {
+      "ada": {
+        "lovelace": 20000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 300000000
+      }
+    },
+    "margin": "3/40",
+    "rewardAccount": "stake_test1upxvq89wquvrzhnz8gk899rqsnyc0v8jtav4fdvsg33wghq06uy4c",
+    "owners": [
+      "4cc01cae0718315e623a2c72946084c987b0f25f5954b5904462e45c"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relay1",
+        "port": 6000
+      },
+      {
+        "type": "ipAddress",
+        "ipv4": "192.168.0.1",
+        "port": 6000
+      }
+    ],
+    "metadata": {
+      "url": "https://foo.bat/poolmeta.json",
+      "hash": "b52aeab4899bfee957df7dff6f05e76fb9d6120777053f0c333186b349a9d008"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -8481,6 +8939,46 @@
       }
     }
   },
+  "pool1j67m773nj49h0h3dha8x7s768d5w4z3t9t8emnlulc8au9tzfvt": {
+    "id": "pool1j67m773nj49h0h3dha8x7s768d5w4z3t9t8emnlulc8au9tzfvt",
+    "vrfVerificationKeyHash": "7851806dfdbd4cf9094bdd4a268e1a105b32fae94ec4788cc417fa99fc9a5c59",
+    "pledge": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/100",
+    "rewardAccount": "stake_test1upp6x72c797cm08jraxhdrnq8m0xzhzwvzkva8qqe2n7hcshe79xu",
+    "owners": [
+      "43a37958f17d8dbcf21f4d768e603ede615c4e60acce9c00caa7ebe2"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "38.242.192.110",
+        "port": 9999
+      },
+      {
+        "type": "hostname",
+        "hostname": "stakepool-01.emurgo-rnd.com",
+        "port": 9999
+      }
+    ],
+    "metadata": {
+      "url": "https://tinyurl.com/4ncwbbh6",
+      "hash": "587e9c205de81b4c90d713c82e7b5687561640592b4889b8f5198bac76ecc10c"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1jaed3q2trl0n6s5mwd0tw8s9k4uheqr7ytpfne034lrh2fj7wd7": {
     "id": "pool1jaed3q2trl0n6s5mwd0tw8s9k4uheqr7ytpfne034lrh2fj7wd7",
     "vrfVerificationKeyHash": "9f193fd02c28116b5f6bc3d9cecfdc6513dd0dc1930c4b28af33ef0eaa93b85c",
@@ -9075,6 +9573,36 @@
     "stake": {
       "ada": {
         "lovelace": 29603772827
+      }
+    }
+  },
+  "pool1nkc9txh8rtul3zwncqtc4acdp3hd8kzjtnmu43aq9e8lqs4e5fm": {
+    "id": "pool1nkc9txh8rtul3zwncqtc4acdp3hd8kzjtnmu43aq9e8lqs4e5fm",
+    "vrfVerificationKeyHash": "c36e1883e484938192284195a103994bca9dac9d68ca8ccc5e6f0ac2e674fa28",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1up0c4yt4p80xw9jt5jd8yp3zr52k4403hs0vymsjpjyx9jswg4z0h",
+    "owners": [
+      "5f8a917509de67164ba49a7206221d156ad5f1bc1ec26e120c8862ca"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relays-new.cardano-testnet.iohkdev.io"
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -9739,6 +10267,36 @@
       }
     }
   },
+  "pool14qayv3w4lyar4lpg07jllrtd73azn7h2vztz0eezwxur2y0rg5h": {
+    "id": "pool14qayv3w4lyar4lpg07jllrtd73azn7h2vztz0eezwxur2y0rg5h",
+    "vrfVerificationKeyHash": "682e45e7aa87795e3bed6cc1760c6b1ddbed327b1eb89b2a554a43555c5dceee",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1uz2hwttq42nxj45e7cmlu472z8gdd4gvrgrzmtacwa98kggqznvm2",
+    "owners": [
+      "95772d60aaa6695699f637fe57ca11d0d6d50c1a062dafb8774a7b21"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relays-new.cardano-testnet.iohkdev.io"
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool14pmq6d9ym3q98z9uw2cgp4vcxar6scpw0c50gksa3kxzw90sd2s": {
     "id": "pool14pmq6d9ym3q98z9uw2cgp4vcxar6scpw0c50gksa3kxzw90sd2s",
     "vrfVerificationKeyHash": "e2d1785bbcaface7525993bf81389be01c0426eb617bf5ec14470bbe155aac3e",
@@ -9841,6 +10399,31 @@
     "stake": {
       "ada": {
         "lovelace": 1181827623536
+      }
+    }
+  },
+  "pool1406426vectppa96tc54p0jpa335zn4793969udppzcj8qlfwech": {
+    "id": "pool1406426vectppa96tc54p0jpa335zn4793969udppzcj8qlfwech",
+    "vrfVerificationKeyHash": "2a9832067ee1acaecfb67ca7abf2368a5f015c5dd5703dba75f445781f8a8f4a",
+    "pledge": {
+      "ada": {
+        "lovelace": 64000000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/1",
+    "rewardAccount": "stake_test1uz665ln7q2e68x3xs4z4a6kcxt7xr70yn5ygsvtyx6knp6gaqahk9",
+    "owners": [
+      "b5aa7e7e02b3a39a2685455eead832fc61f9e49d0888316436ad30e9"
+    ],
+    "relays": [],
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -10747,6 +11330,101 @@
       }
     }
   },
+  "pool1huftf4gt4qm7ckprs3zt8gjeva4hkfmqsk8le9w7rxag6mhxms0": {
+    "id": "pool1huftf4gt4qm7ckprs3zt8gjeva4hkfmqsk8le9w7rxag6mhxms0",
+    "vrfVerificationKeyHash": "0376404ffdd54a456d5f041f18ab443931b0e257a04aad2a9204ac83ef78a16d",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1uz7jg3aywukhxhx9dqzus446cuhjk9wz5z4xhtexd4a7p2gq4ne6e",
+    "owners": [
+      "bd2447a4772d735cc56805c856bac72f2b15c2a0aa6baf266d7be0a9"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relays-new.cardano-testnet.iohkdev.io"
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
+  "pool1hlsuxcuylukyjwxv06x5r77mtwwmgyuw3jrljntn0mqcvqy503k": {
+    "id": "pool1hlsuxcuylukyjwxv06x5r77mtwwmgyuw3jrljntn0mqcvqy503k",
+    "vrfVerificationKeyHash": "bc7928b255025e43fa62d668492ae38d63d53cdc7bb840431200490e07f9c6d2",
+    "pledge": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 170000000
+      }
+    },
+    "margin": "1/1",
+    "rewardAccount": "stake_test1uzxxw4q6g6kusgewl8lc4fepk25scrx0zghd6envr527w2s9mu7xq",
+    "owners": [
+      "b6bdcc7d3d3c29adeaa5d96298141faae118227f6674c8a8f279681a"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "20.50.29.14",
+        "port": 3001
+      }
+    ],
+    "metadata": {
+      "url": "https://peterfo-tr.github.io/preprod2.json",
+      "hash": "d3dbc7e572fa09b1694fa68b7b43ffcb001208a5ce1d554b38b5f60b68dfc5ee"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
+  "pool1crsjjsvp9tppqrs4tdjqdxze4xxdj9jsrdxajytrp57s2797uvk": {
+    "id": "pool1crsjjsvp9tppqrs4tdjqdxze4xxdj9jsrdxajytrp57s2797uvk",
+    "vrfVerificationKeyHash": "0a6620fdc2120c25f652bce36350f084cc41d587eaec093c5aad304c9519d963",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1uqm8pthxqfc8v0q7cqsmmssllrgzs90n2z4g3n7k0h5ughgfy80wa",
+    "owners": [
+      "3670aee60270763c1ec021bdc21ff8d02815f350aa88cfd67de9c45d"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relays-new.cardano-testnet.iohkdev.io"
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1c8u8gmxepqu93adxh7c2pgrgutmyufkezpy454h06r24knmt7tk": {
     "id": "pool1c8u8gmxepqu93adxh7c2pgrgutmyufkezpy454h06r24knmt7tk",
     "vrfVerificationKeyHash": "19d438631224347db1b284b12d497b2ca889cd3bbcd0f414dfc5082bb8783eff",
@@ -10854,6 +11532,37 @@
     "stake": {
       "ada": {
         "lovelace": 28564034913
+      }
+    }
+  },
+  "pool1csef5r4287g2fn6ajvetamd0y4sevuxkdwj9ulwc57crx8u88zq": {
+    "id": "pool1csef5r4287g2fn6ajvetamd0y4sevuxkdwj9ulwc57crx8u88zq",
+    "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/40",
+    "rewardAccount": "stake_test1urd2nh2svzugwsq5rj25kvg2t75vlyx27sahc6wv7vmr4ms7tmg83",
+    "owners": [
+      "daa9dd5060b88740141c954b310a5fa8cf90caf43b7c69ccf3363aee"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "123.200.21.0",
+        "port": 3000
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -10993,6 +11702,36 @@
     "stake": {
       "ada": {
         "lovelace": 10105963306
+      }
+    }
+  },
+  "pool1cmkjkxmk8hsf4dwxy6cng06arcvyk5du06jk6nxu2fj7kckv070": {
+    "id": "pool1cmkjkxmk8hsf4dwxy6cng06arcvyk5du06jk6nxu2fj7kckv070",
+    "vrfVerificationKeyHash": "52514a08ee67b8d9d1d3fcedd2349de7ba63f0b0e6a6aca80125744e9930101e",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1ureu9tvjuh8v3qgfrj3xe66pw9ftn33rwcuxdu43z6880xca68egz",
+    "owners": [
+      "f3c2ad92e5cec881091ca26ceb417152b9c623763866f2b1168e779b"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relays-new.cardano-testnet.iohkdev.io"
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -11628,6 +12367,36 @@
       }
     }
   },
+  "pool16c0tqycyj7ztuwmnlv2hva76ec7dv3emslevrcjej8ph5lz3e8q": {
+    "id": "pool16c0tqycyj7ztuwmnlv2hva76ec7dv3emslevrcjej8ph5lz3e8q",
+    "vrfVerificationKeyHash": "36d89e19e615f6f3f1e1c807ca2d12c69b786492f641eca8f3d3a3219619a823",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1uztrd6snazgk7qxvg0j5c65j6ygxcz2ng3uj3rrawfz77xcksucl2",
+    "owners": [
+      "9636ea13e8916f00cc43e54c6a92d1106c09534479288c7d7245ef1b"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relays-new.cardano-testnet.iohkdev.io"
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool16cefgx8t9re4gy2qaapshxl34my5ya6ks7hje39k3pew2ejlkx7": {
     "id": "pool16cefgx8t9re4gy2qaapshxl34my5ya6ks7hje39k3pew2ejlkx7",
     "vrfVerificationKeyHash": "33f943a5e3bb4951667829559c656a6c4606a4327624282bf5f7812700f39190",
@@ -11984,6 +12753,36 @@
     "stake": {
       "ada": {
         "lovelace": 1111499799563
+      }
+    }
+  },
+  "pool1mhmk5qndxhse7xsjectzrrhj44uq9uc4a4x6v9dae4us586g4ww": {
+    "id": "pool1mhmk5qndxhse7xsjectzrrhj44uq9uc4a4x6v9dae4us586g4ww",
+    "vrfVerificationKeyHash": "d45e6f5e898c40b2fe82dbd0c0de0f81e842903d52f0a7a599cc34e0a3e8dad4",
+    "pledge": {
+      "ada": {
+        "lovelace": 1000000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1upf75amm5qm6sqxq3jdssa67em43tve26mfduap30krzgdgmrat5e",
+    "owners": [
+      "53ea777ba037a800c08c9b08775eceeb15b32ad6d2de74317d862435"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relays-new.cardano-testnet.iohkdev.io"
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -12542,6 +13341,31 @@
       }
     }
   },
+  "pool1ujajzuj0jjt45t4yafh9uwjr6g5aaprq9h6tcn5fa6m72vv8x2a": {
+    "id": "pool1ujajzuj0jjt45t4yafh9uwjr6g5aaprq9h6tcn5fa6m72vv8x2a",
+    "vrfVerificationKeyHash": "8fbd1a2ebd4813dd095933e495bd60d83cb84ade1cd526e0d73e2d95f58ceaf5",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/5",
+    "rewardAccount": "stake_test1uqgxhsfmtqh39pcdy2vhjn8dz8r97htfwfdw0850n5973dsymw9m3",
+    "owners": [
+      "106bc13b582f12870d2299794ced11c65f5d69725ae79e8f9d0be8b6"
+    ],
+    "relays": [],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1u4x4ly6qyx9fs9k2lt7f9hpa2gftd52fee67jcmuhnt7qqae3x0": {
     "id": "pool1u4x4ly6qyx9fs9k2lt7f9hpa2gftd52fee67jcmuhnt7qqae3x0",
     "vrfVerificationKeyHash": "e4698e1ddfcaf9b71085938c70ee0e999a7fbec360cac6e4f9b5042a62bac795",
@@ -12872,6 +13696,37 @@
       }
     }
   },
+  "pool1a5fy9pzm22r0w9avdu668s60yg3j894prt7ys4yplkpmu9ykv2q": {
+    "id": "pool1a5fy9pzm22r0w9avdu668s60yg3j894prt7ys4yplkpmu9ykv2q",
+    "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/40",
+    "rewardAccount": "stake_test1urfg0lfeq3cdnxup4plqu7nzatsp787xzzwayrfuezfw5jq0pv5zm",
+    "owners": [
+      "d287fd390470d99b81a87e0e7a62eae01f1fc6109dd20d3cc892ea48"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "123.200.21.0",
+        "port": 3000
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool1amrnegn99cdwj2zjr90lx2yamxg6s0d7t7vf7phpe94kga9gg86": {
     "id": "pool1amrnegn99cdwj2zjr90lx2yamxg6s0d7t7vf7phpe94kga9gg86",
     "vrfVerificationKeyHash": "0cac02dc881b88519077ff88bb0cd06a6d8b22dcec21abde0cd4dc195a7486d0",
@@ -12940,6 +13795,37 @@
     "stake": {
       "ada": {
         "lovelace": 19495449817
+      }
+    }
+  },
+  "pool1ausmtj7pg57n49cv6pnm6vakuakya38jwrqde7wgnfk4wqycwu8": {
+    "id": "pool1ausmtj7pg57n49cv6pnm6vakuakya38jwrqde7wgnfk4wqycwu8",
+    "vrfVerificationKeyHash": "42cb2e047fa594c18136b9471acbc7ad6911be8b4e8e4557ef02a4fa17a7e244",
+    "pledge": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 170000000
+      }
+    },
+    "margin": "1/1",
+    "rewardAccount": "stake_test1uphjfmzvecpe99scw4tv33q3ww8hc4a8ufn6zltphnahrfcdfyfds",
+    "owners": [
+      "6f24ec4cce039296187556c8c411738f7c57a7e267a17d61bcfb71a7"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "20.50.29.14",
+        "port": 3001
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -13042,6 +13928,41 @@
       }
     }
   },
+  "pool17n848ynu33sprccmef0hpj48tl9g298qut9uadfnhuyd6zwj4jc": {
+    "id": "pool17n848ynu33sprccmef0hpj48tl9g298qut9uadfnhuyd6zwj4jc",
+    "vrfVerificationKeyHash": "531b7e173322568fa7e895a50f71d8a5363681618d401b25342f6fd0666c4dfb",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "19/1000",
+    "rewardAccount": "stake_test1urp4m363muj5nvvetpetamrnqzsxzt5h5u62wvrv2y7x94gg09jz4",
+    "owners": [
+      "c35dc751df2549b1995872beec7300a0612e97a734a7306c513c62d5"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "pp.blockchainlens.org",
+        "port": 6301
+      }
+    ],
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/bclens/cardano/main/pp.json",
+      "hash": "aa216a0a5f4b8513a96c15996d7913a21acd1a824b10d8a9fd5c817fb48746da"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    }
+  },
   "pool175lu3gm2rmvqpsrg6m82zvdmqaaryeqmsvjj7qyvvj20vxunc60": {
     "id": "pool175lu3gm2rmvqpsrg6m82zvdmqaaryeqmsvjj7qyvvj20vxunc60",
     "vrfVerificationKeyHash": "13f0667db7c95327ca6085f6917d80ffc331497ed4948f05f65a5517e1db0fac",
@@ -13109,6 +14030,37 @@
     "stake": {
       "ada": {
         "lovelace": 35109337588
+      }
+    }
+  },
+  "pool17hd3fxccyckape0hn2ddpetq3fa6xkx5gnnhse3c285r268t5h9": {
+    "id": "pool17hd3fxccyckape0hn2ddpetq3fa6xkx5gnnhse3c285r268t5h9",
+    "vrfVerificationKeyHash": "2bce7ebe73d6f6d7a09cc9e1ded5ffb79a2a01ceb24be6a00ad8e29ebe193516",
+    "pledge": {
+      "ada": {
+        "lovelace": 100000000
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "1/40",
+    "rewardAccount": "stake_test1urd2nh2svzugwsq5rj25kvg2t75vlyx27sahc6wv7vmr4ms7tmg83",
+    "owners": [
+      "daa9dd5060b88740141c954b310a5fa8cf90caf43b7c69ccf3363aee"
+    ],
+    "relays": [
+      {
+        "type": "ipAddress",
+        "ipv4": "123.200.21.0",
+        "port": 3000
+      }
+    ],
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },
@@ -13519,6 +14471,136 @@
     "stake": {
       "ada": {
         "lovelace": 93464168474
+      }
+    }
+  },
+  "pool1lec5sxj3hzwz0f0t597r3g52a6lryv0v3vu3n382u6qpuqquhw6": {
+    "id": "pool1lec5sxj3hzwz0f0t597r3g52a6lryv0v3vu3n382u6qpuqquhw6",
+    "vrfVerificationKeyHash": "4d51908683dd91f25462dc73ba37af9479b6aad860981bf66d744c784f0108d6",
+    "pledge": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "cost": {
+      "ada": {
+        "lovelace": 340000000
+      }
+    },
+    "margin": "0/1",
+    "rewardAccount": "stake_test1urnpr9kt8qkscvppj4w3yg2tcdlxvtufqdk7tuyl4yy4hngce8pzz",
+    "owners": [
+      "e61196cb382d0c3021955d12214bc37e662f89036de5f09fa9095bcd"
+    ],
+    "relays": [
+      {
+        "type": "hostname",
+        "hostname": "relay.antimo.io",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.brazilpool.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.evaginger.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.fikapool.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.hyggepool.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.lalkul.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.nanipool.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.pool.bio",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "elay.de.poolfixada.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.poolfixada.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.threepool.io",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.de.winepool.io",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.enactpool.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.lambdastake.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.yummiuniverse.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay.zoepool.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay1-eu.smilespool.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay1.emp1.smilespool.com",
+        "port": 8049
+      },
+      {
+        "type": "hostname",
+        "hostname": "relay1.emp1.smilespool.com",
+        "port": 3001
+      },
+      {
+        "type": "hostname",
+        "hostname": "relays.steekpoel.nl",
+        "port": 8049
+      }
+    ],
+    "metadata": {
+      "url": "https://foo.bat/poolmeta.json",
+      "hash": "0766039be740ea65ecb433b02c5eb65f03b7f64c10c2965baa39a00e0f9c0f07"
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
       }
     }
   },

@@ -69,5 +69,32 @@
         "credential": "edc52808d58a420ce2df3da8c7118c858c7aa136fa7b2b1baa3e81ed"
       }
     ]
+  },
+  {
+    "type": "abstain",
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "92cd8ce9447029ac206d3a7ff9ac57d9d65fb10844d2221516092a9d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a11419cc620cf80e76bf0993b91fcefe57bc16d61bdb878c08f58062"
+      }
+    ]
+  },
+  {
+    "type": "noConfidence",
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
   }
 ]

@@ -1,19 +1,23 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { bech32 } from 'bech32';
 import { ogmios, Json } from "@cardano-ogmios/mdk";
 
 // Each point corresponds to the last point of the associated epoch.
-const { points, additionalStakeAddresses } = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
+const {
+  points,
+  additionalStakeAddresses,
+} = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
 
-function outDir(prefix, point) {
-  return path.join(import.meta.dirname, "..", "data", prefix, `${point.epoch}.json`);
-}
+const additionalStakeKeys = additionalStakeAddresses.reduce(collectAddressType(14), []);
+
+const additionalStakeScripts = additionalStakeAddresses.reduce(collectAddressType(15), []);
 
 const queries = [
   {
-    query: fetchPools,
+    query: fetchRewardsProvenance,
     getFilename(point) {
-      return outDir("pools", point);
+      return outDir("rewards-provenance", point);
     },
   },
   {
@@ -23,9 +27,9 @@ const queries = [
     },
   },
   {
-    query: fetchDRepsDelegations,
+    query: fetchPools,
     getFilename(point) {
-      return outDir("dreps-delegations", point);
+      return outDir("pools", point);
     },
   },
   {
@@ -36,98 +40,214 @@ const queries = [
   },
 ]
 
-const result = await ogmios(async (ws, done) => {
-  let lastPrintedError;
+process.stderr.cursorTo(0, 0);
+process.stderr.clearScreenDown();
 
-  function step(point, next) {
-    ws.once("message", async (data) => {
-      const { error } = Json.parse(data);
+let frame = 0;
+const spinner = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+const spinnerId = setInterval(() => {
+  process.stderr.cursorTo(0, points.length);
+  process.stderr.clearLine(0);
+  process.stderr.write(`${spinner[frame]} fetching data`);
+  frame = (frame + 1) % spinner.length;
+}, 100);
 
-      if (error) {
-        if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
-          console.error(`[error ${error.code}] ${error.message} (${error.data})`);
-          return process.exit(1);
-        }
-
-        const feedback = `${point.slot} => ${error.data}`;
-
-        if (lastPrintedError !== undefined && lastPrintedError !== feedback) {
-          process.stderr.moveCursor(0, -1)
-          process.stderr.clearLine(1)
-        }
-
-        if (lastPrintedError !== feedback) {
-          console.error(feedback);
-          lastPrintedError = feedback;
-        }
-
-        return setTimeout(() => step(point, next), 200)
-      }
-
-      for (let q = 0; q < queries.length; q += 1) {
-        const { query, getFilename } = queries[q];
-        const filename = getFilename(point);
-        fs.mkdirSync(path.dirname(filename), { recursive: true });
-        fs.writeFileSync(filename, Json.stringify(await query(ws), null, 2));
-      }
-
-      next();
+// Run the set of queries for each configured point while the node is
+// synchronizing. If a given point isn't available _yet_, pause and
+// retry until available.
+const tasks = [];
+for (let i = 0; i < points.length; i += 1) {
+  const tryConnect = async (retry) => {
+    const exit = await ogmios((ws, done) => {
+      process.stderr.cursorTo(0, i);
+      process.stderr.clearLine(0);
+      process.stderr.write(`${points[i].slot} => scheduling...`);
+      step(ws, i, points[i], done);
     });
 
-    ws.rpc("acquireLedgerState", { point });
-  }
+    if (exit === undefined) {
+      process.stderr.cursorTo(0, i);
+      process.stderr.clearLine(0);
+      process.stderr.write(`${points[i].slot} => failed to connect; retrying...`);
+      await sleep(1000);
+      return retry(retry);
+    } else {
+      return exit;
+    }
+  };
 
-  // Run the set of queries for each configured point while the node is
-  // synchronizing. If a given point isn't available _yet_, pause and
-  // retry until available.
-  for (let i = 0; i < points.length; i += 1) {
-    await new Promise((next) => step(points[i], next));
-  }
+  tasks.push(tryConnect(tryConnect));
+  await sleep(50);
+}
 
-  done(true);
-});
+const results = await Promise.all(tasks);
+clearInterval(spinnerId);
+process.stderr.cursorTo(0, points.length);
+process.stderr.clearLine(0);
 
-if (!result) {
-  console.error(`exited without completing task; is the node running?`);
+if (!results.every(exit => exit)) {
+  console.error(`exited with failures!`);
+  console.log(results);
   process.exit(1);
 }
 
-function fetchPools(ws) {
-  return ws.queryLedgerState("stakePools", { includeStake: true });
+async function sleep(ms) {
+  await new Promise(resolve => setTimeout(resolve, ms));
 }
 
-function fetchDReps(ws) {
-  return ws.queryLedgerState("delegateRepresentatives");
-}
+function step(ws, i, point, done) {
+  ws.once("message", async (data) => {
+    process.stderr.cursorTo(0, i);
 
-async function fetchDRepsDelegations(ws) {
-  const dreps = await fetchDReps(ws);
+    const { error } = Json.parse(data);
 
-  const { keys, scripts } = dreps.reduce((accum, drep) => {
-    drep.delegators?.forEach((delegator) => {
-      if (delegator.from === "verificationKey") {
-        accum.keys.add(delegator.credential);
-      } else {
-        accum.scripts.add(delegator.credential);
+    if (error) {
+      if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
+    	process.stderr.clearLine(0);
+        process.stderr.write(`${point.slot} => [error ${error.code}] ${error.message} (${error.data})`);
+	return done(false);
       }
-    });
-    return accum;
-  }, { keys: new Set(), scripts: new Set() });
 
-  const summaries = await ws.queryLedgerState("rewardAccountSummaries", {
-    keys: Array.from(keys).concat(additionalStakeAddresses),
-    scripts: Array.from(scripts),
+      process.stderr.write(`${point.slot} => not available yet...`);
+      process.stderr.cursorTo(0, i);
+      return setTimeout(() => step(ws, i, point, done), 500);
+    }
+
+    process.stderr.clearLine(0);
+    process.stderr.write(`${point.slot} => querying...`);
+
+    let result;
+    for (let q = 0; q < queries.length; q += 1) {
+      const { query, getFilename } = queries[q];
+      const filename = getFilename(point);
+      fs.mkdirSync(path.dirname(filename), { recursive: true });
+      result = await query(ws, result)
+      fs.writeFileSync(filename, Json.stringify(result, null, 2));
+    }
+
+    process.stderr.cursorTo(0, i);
+    process.stderr.clearLine(0);
+    process.stderr.write(`${point.slot} => ✓`);
+
+    done(true);
   });
 
-  return Object.keys(summaries).reduce((accum, k) => {
-    const summary = summaries[k].delegateRepresentative;
-    if (summary !== undefined) {
-      accum[k] = summary;
+  ws.rpc("acquireLedgerState", { point });
+}
+
+function decodeBech32(str) {
+  return Buffer.from(bech32.fromWords(bech32.decode(str).words));
+}
+
+function collectAddressType(addressType) {
+  return (accum, addr) => {
+    const bytes = decodeBech32(addr);
+
+    if ((bytes[0] >> 4) == addressType) {
+      accum.push(bytes.slice(1).toString('hex'));
     }
+
     return accum;
-  }, {});
+  }
+}
+
+function outDir(prefix, point) {
+  return path.join(import.meta.dirname, "..", "data", prefix, `${point.epoch}.json`);
+}
+
+function fetchRewardsProvenance(ws) {
+  return ws.queryLedgerState("rewardsProvenance")
+}
+
+async function fetchDReps(ws, { stakePools }) {
+  let dreps = await ws.queryLedgerState("delegateRepresentatives");
+
+  let abstain = dreps.find((drep) => drep.type === "abstain") ?? { stake: { ada: { lovelace: 0 } } };
+  abstain.delegators = [];
+
+  let noConfidence = dreps.find((drep) => drep.type === "noConfidence") ?? { stake: { ada: { lovelace: 0 } } };
+  noConfidence.delegators = [];
+
+  // TODO: Fix Ledger-State Query protocol...
+  //
+  // 'abstain' and 'noConfidence' do not contain their delegators. So we do a
+  // best attempt at resolving them. We can't easily obtain a list of all
+  // registered stake account either; so we instead use all the
+  // delegators we know to pools and look amongst them.
+  //
+  // We add 'additionalStakeKeys' and 'additionalStakeScripts' for those
+  // delegators that would be:
+  //
+  // a. Not delegating to any pool
+  // b. Delegating to an abstain or noConfidence drep
+  //
+  // These additions are very much empiric; they will first manifest as a
+  // snapshot mismatch when we test. The generated snapshots will
+  // indicate a `null` drep, whereas Amaru would yield `abstain` or
+  // `noConfidence`.
+  //
+  // Note that this is far from ideal, because cases where we (amaru) fail to
+  // correctly identify a delegation will simply go unnoticed. But this
+  // isn't easily fixable without altering the state query client
+  // protocol at the node's level -- or, by resorting to using a debug
+  // new epoch state snapshot.
+  let { verificationKey: keys, script: scripts } = Object.keys(stakePools).reduce((accum, pool) => {
+    stakePools[pool].delegators.forEach((delegator) => {
+       accum[delegator.from].add(delegator.credential);
+    });
+
+    return accum;
+  }, { verificationKey: new Set(), script: new Set() });
+
+  const drepsMap = dreps.reduce((accum, drep) => {
+    drep.delegators.forEach((delegator) => {
+      if (delegator.from === "verificationKey") {
+	keys.add(delegator.credential);
+      } else {
+	scripts.add(delegator.credential);
+      }
+    });
+
+    drep.delegators = [];
+
+    if (drep.type === "registered") {
+      accum[drep.from][drep.id] = drep;
+    }
+
+    return accum;
+  }, { verificationKey: {}, script: {} });
+
+
+  const summaries = await ws.queryLedgerState("rewardAccountSummaries", {
+    keys: Array.from(keys).concat(additionalStakeKeys),
+    scripts: Array.from(scripts).concat(additionalStakeScripts),
+  });
+
+  // There's also a bug in the ledger where the DRep state may still contain
+  // now-removed delegations. So we cannot trust the data coming from the
+  // `delegateRepresentatives` endpoint when it comes to delegators
+  // (as it's always a superset).
+  //
+  // But we can trust the one from 'rewardAccountSummaries'. So we aren't only
+  // recovering delegators for abstain and no-confidence roles, but also repairing
+  // the drep delegators altogether.
+  summaries.forEach(({ from, credential, delegateRepresentative: drep }) => {
+    if (drep?.type === "abstain") {
+      abstain.delegators.push({ from, credential });
+    } else if (drep?.type === "noConfidence") {
+      noConfidence.delegators.push({ from, credential });
+    } else if (drep) {
+      drepsMap[drep.from][drep.id]?.delegators.push({ from, credential });
+    }
+  });
+
+  return dreps;
 }
 
 function fetchPots(ws) {
   return ws.queryLedgerState("treasuryAndReserves")
+}
+
+function fetchPools(ws) {
+  return ws.queryLedgerState("stakePools", { includeStake: true });
 }

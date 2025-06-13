@@ -22,76 +22,37 @@ const DREP_TYPES = {
 };
 
 const { additionalStakeAddresses } = loadConfig();
-const pools = load("pools", epoch + 1);
-const epochState = load("epoch-state", epoch + 1);
+const pools = load("pools", epoch);
+const nextPools = load("pools", epoch + 1);
 const blocks = load("rewards-provenance", epoch + 1);
 const distr = load("rewards-provenance", epoch + 3);
-const drepsDelegations = load("dreps-delegations", epoch);
 const drepsInfo = load("dreps", epoch);
 const drepsStake = load("dreps", epoch + 1);
 const pots = load("pots", epoch + 3);
-const dreps = Object.keys(drepsDelegations)
-  .reduce((acc, credential) => {
-    const drep = drepsDelegations[credential];
 
+const dreps = drepsInfo
+  .reduce((accum, drep) => {
     const drepId = toDrepId(drep.id, drep.from, drep.type);
 
-    if (drep.type !== "registered") {
-      const isKey = additionalStakeAddresses.includes(toStakeAddress(credential, "verificationKey"));
-      const isScript = additionalStakeAddresses.includes(toStakeAddress(credential, "script"));
+    drep.delegators.forEach((delegator) => {
+      accum[delegator.from][delegator.credential] = drepId;
+    });
 
-      if (isKey && !isScript) {
-        acc.keys[credential] = drepId;
-      }
+    const stakeInfo = drepsStake.find((future) => drep.id === future.id && drep.from === future.from);
 
-      if (!isKey && isScript) {
-        acc.scripts[credential] = drepId;
-      }
-
-      if (isKey && isScript) {
-        throw `credential ${credential} is too ambiguious; exists as both key and script!`;
-      }
-
-      if (!isKey && !isScript) {
-        throw `unexpected unknown credential ${credential}`;
-      }
-
-      return acc;
-    }
-
-    const info = drepsInfo.find(({ id, from }) => id == drep.id && from == drep.from);
-
-    if (info === undefined) {
-      return acc;
-    }
-
-    // TODO: Also add the values of the abstain / no-confidence dreps somewhere?
     if (drep.type === "registered") {
-      const category = info.delegators.find((deleg) => deleg.credential === credential).from === "verificationKey"
-        ? "keys"
-        : "scripts";
-      acc[category][credential] = drepId;
+      accum.dreps[drepId] = {
+        mandate: drep.mandate.epoch,
+        metadata: drep.metadata ? ({ url: drep.metadata.url, content_hash: drep.metadata.hash }) : null,
+        stake: stakeInfo?.stake.ada.lovelace ?? 0,
+      };
     }
 
-    return acc;
+    return accum;
   }, {
-    keys: {},
-    scripts: {},
-    dreps: drepsInfo.reduce((acc, drep) => {
-      const drepId = toDrepId(drep.id, drep.from, drep.type);
-
-      const stakeInfo = drepsStake.find((future) => drep.id === future.id && drep.from === future.from);
-
-      if (drep.type === "registered") {
-        acc[drepId] = {
-          mandate: drep.mandate.epoch,
-          metadata: drep.metadata ? ({ url: drep.metadata.url, content_hash: drep.metadata.hash }) : null,
-	  stake: stakeInfo?.stake.ada.lovelace ?? 0,
-        };
-      }
-
-      return acc;
-    }, {
+    verificationKey: {},
+    script: {},
+    dreps: {
       abstain: {
 	mandate: null,
 	metadata: null,
@@ -102,63 +63,77 @@ const dreps = Object.keys(drepsDelegations)
 	metadata: null,
 	stake: drepsStake.find((future) => future.type === "noConfidence")?.stake.ada.lovelace ?? 0,
       },
-    }),
+    },
   });
 
 // Relative source  of the snapshot test in the target crate.
-const source = "crates/amaru/src/ledger/rewards.rs";
+const source = "crates/amaru/tests/summary.rs";
 
 // ---------- Rewards summary snapshot
 
-const poolsParams = Object.keys(epochState.stakePoolParameters).sort();
-withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
+const poolIds = Object.keys(distr.stakePools).sort();
+
+withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
-  stream.write(`expression: stake_distr\n`)
+  stream.write(`expression: "stake_distr.for_network(Network::Testnet)"\n`)
   stream.write("---\n")
   stream.write("{");
   stream.write(`\n  "epoch": ${epoch},`);
-  stream.write(`\n  "active_stake": ${distr.activeStake},`);
+  stream.write(`\n  "active_stake": ${distr.activeStake.ada.lovelace},`);
 
   const totalVotingStake = Object.values(dreps.dreps).reduce((total, drep) => total + BigInt(drep.stake), 0n);
   stream.write(`\n  "voting_stake": ${totalVotingStake},`);
 
-  let accounts = {}
-  Object.keys(epochState.keys)
-    .reduce((accum, key) => {
-      accum[toStakeAddress(key, "verificationKey")] = { ...epochState.keys[key], drep: dreps.keys[key] ?? null };
+  let accounts = poolIds.reduce((accum, poolId) => {
+    const pool = distr.stakePools[poolId];
+    return pool.delegators.reduce((accum, delegator) => {
+      const stakeAddress = toStakeAddress(delegator.credential, delegator.from);
+
+      accum[stakeAddress] = {
+        lovelace: delegator.stake.ada.lovelace,
+	pool: poolId,
+        drep: dreps[delegator.from][delegator.credential] ?? null,
+      };
+
       return accum;
-    }, accounts);
-  Object.keys(epochState.scripts)
-    .reduce((accum, script) => {
-      accum[toStakeAddress(script, "script")] = { ...epochState.scripts[script], drep: dreps.scripts[script] ?? null };
-      return accum;
-    }, accounts);
+    }, accum);
+  }, {});
   encodeCollection(stream, "accounts", accounts, false);
 
   stream.write(`\n  "pools": {\n`)
-  poolsParams.forEach((k, ix) => {
-    const totalStake = BigInt(distr.totalStake);
-    let [num, den] = (distr.pools[k]?.relativeStake || "0/1").split("/");
+  poolIds.forEach((k, ix) => {
+    const totalStake = BigInt(distr.totalStake.ada.lovelace);
+    let [num, den] = (distr.stakePools[k]?.relativeStake || "0/1").split("/");
     den = BigInt(den);
 
     let stake = 0n;
-    if (den === distr.totalStake) {
+    if (den === BigInt(distr.totalStake.ada.lovelace)) {
       stake = BigInt(num);
     } else if (num !== "0") {
       stake = BigInt(num) * (totalStake / den);
     }
 
-    const voting_stake = pools[k]?.stake.ada.lovelace ?? 0;
+    const voting_stake = nextPools[k]?.stake.ada.lovelace ?? 0;
 
     const params = {
-      blocks_count: blocks.pools[k]?.blocksMade || 0,
+      blocks_count: blocks.stakePools[k]?.blocksMade || 0,
       stake,
       voting_stake,
-      parameters: epochState.stakePoolParameters[k],
+      parameters: {
+	id: Buffer.from(bech32.fromWords(bech32.decode(k).words)).toString('hex'),
+	vrfVerificationKeyHash: pools[k].vrfVerificationKeyHash,
+	pledge: pools[k].pledge,
+	cost: pools[k].cost,
+	margin: pools[k].margin,
+	rewardAccount: pools[k].rewardAccount,
+	owners: pools[k].owners,
+	relays: pools[k].relays,
+	metadata: pools[k].metadata,
+      },
     };
 
-    encodeItem(stream, ix, poolsParams.length, [k, params]);
+    encodeItem(stream, ix, poolIds.length, [k, params]);
   });
   stream.write(",");
   encodeCollection(stream, "dreps", dreps.dreps, true);
@@ -167,30 +142,31 @@ withStream(`rewards__stake_distribution_${epoch}.snap`, (stream) => {
 
 // ---------- Rewards summary snapshots
 
-withStream(`rewards__rewards_summary_${epoch}.snap`, (stream) => {
+withStream(`summary__rewards_summary_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
   stream.write(`expression: rewards_summary\n`)
   stream.write("---\n")
   stream.write("{");
   stream.write(`\n  "epoch": ${epoch},`);
-  stream.write(`\n  "efficiency": "${distr["η"]}",`);
-  stream.write(`\n  "incentives": ${distr["ΔR1"]},`);
-  stream.write(`\n  "total_rewards": ${distr["rewardPot"]},`);
-  stream.write(`\n  "treasury_tax": ${distr["ΔT1"]},`);
-  stream.write(`\n  "available_rewards": ${distr["rewardPot"] - distr["ΔT1"]},`);
+  stream.write(`\n  "efficiency": "${distr["efficiency"]}",`);
+  stream.write(`\n  "incentives": ${distr["incentives"].ada.lovelace},`);
+  stream.write(`\n  "total_rewards": ${distr["totalRewards"].ada.lovelace},`);
+  stream.write(`\n  "treasury_tax": ${distr["treasuryTax"].ada.lovelace},`);
+  stream.write(`\n  "available_rewards": ${BigInt(distr["totalRewards"].ada.lovelace) - BigInt(distr["treasuryTax"].ada.lovelace)},`);
   stream.write(`\n  "pots": {
     "treasury": ${pots.treasury.ada.lovelace},
     "reserves": ${pots.reserves.ada.lovelace},
-    "fees": ${distr["rewardPot"] - distr["ΔR1"]}
+    "fees": ${distr["fees"].ada.lovelace}
   },`);
   stream.write(`\n  "pools": {\n`)
-  poolsParams.forEach((k, ix) => {
+
+  poolIds.forEach((k, ix) => {
     const params = {
-      pot: distr.pools[k]?.rewardPot || 0n,
-      leader: distr.pools[k]?.leaderReward || 0n,
+      pot: distr.stakePools[k]?.totalRewards.ada.lovelace || 0n,
+      leader: distr.stakePools[k]?.leaderReward.ada.lovelace || 0n,
     };
-    encodeItem(stream, ix, poolsParams.length, [k, params]);
+    encodeItem(stream, ix, poolIds.length, [k, params]);
   });
   stream.end("\n}");
 });
