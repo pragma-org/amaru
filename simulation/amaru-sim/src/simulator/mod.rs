@@ -70,10 +70,6 @@ pub struct Args {
     #[arg(long, default_value = "./chain.db")]
     pub chain_dir: PathBuf,
 
-    /// Path to the directory containing blockchain data such as epoch nonces.
-    #[arg(long, default_value = "./data")]
-    pub data_dir: PathBuf,
-
     /// Generated "block tree" file in JSON
     #[arg(long, default_value = "./chain.json")]
     pub block_tree_file: PathBuf,
@@ -111,19 +107,16 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     )
     .unwrap();
 
-    let chain_selector = make_chain_selector(Origin, &chain_store, &vec![]);
+    // TODO: wire in more stages and in particular chain selection !!
+    let _chain_selector = make_chain_selector(Origin, &chain_store, &vec![]);
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
-    let mut store_header = StoreHeader::new(chain_ref.clone());
-    let mut select_chain = SelectChain::new(chain_selector);
-
+    
     run_simulator(
         rt,
         global_parameters.clone(),
         &mut consensus,
         &chain_data_path,
-        &mut store_header,
-        &mut select_chain,
     );
 }
 
@@ -132,8 +125,6 @@ fn run_simulator(
     global: GlobalParameters,
     validate_header: &mut ValidateHeader,
     chain_data_path: &PathBuf,
-    _store_header: &mut StoreHeader,
-    _select_chain: &mut SelectChain,
 ) {
     let config = Config::default();
     let number_of_nodes = 1;
