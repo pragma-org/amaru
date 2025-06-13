@@ -1,0 +1,27 @@
+{
+  "snapshots": [ 646, 647, 648 ],
+  "points": [
+    { "epoch": 646, "id": "fa9a65c8e47415e16e1409b9876f62848f9838cfffb60172dcd980c425a7d26f", "slot": 55900798 },
+    { "epoch": 647, "id": "be5f6a57c99fb2725c83ee83d0f797310e4276166b84e19b439ae4bd3bfb9327", "slot": 55987178 },
+    { "epoch": 648, "id": "4df4505d862586f9e2c533c5fbb659f04402664db1b095aba969728abfb77301", "slot": 56073562 },
+    { "epoch": 649, "id": "b2c0d53838b9dbb4068757fbc5dfcda0cca6d139a0ca2609b3d0ceee1e009e84", "slot": 56159986 },
+    { "epoch": 650, "id": "010111c08eab6edfc02afcc3ff5c338570e5cd4fd9b73ba7fe238d3c6c58655c", "slot": 56246322 },
+    { "epoch": 651, "id": "3128604c270c02098a7dc1b6a78c29fa9597dec2672daa31ab20ce3303652fe2", "slot": 56332796 },
+    { "epoch": 652, "id": "8a55fc1f629a8ca4a7ccdef1604ad99de68a8f2e3e2c889e9952be1b78c5c3f2", "slot": 56419168 },
+    { "epoch": 653, "id": "9abb374fb1feeabcacc14d4cd13e1e2ee5c43fda919a8ab5f8fe1710ae93cd5f", "slot": 56505580 },
+    { "epoch": 654, "id": "8349bd97ee8e8f7a80dd10aecdc7f61eeebd772adad6c54805c7a85f51da34e6", "slot": 56591933 },
+    { "epoch": 655, "id": "ad2d3c5084a4cb1f724e62f62946a4f6a6f2b7baa584e600c5a6deaee8b5f03d", "slot": 56678383 },
+    { "epoch": 656, "id": "e336e410bb8316a4a47b559e459f8422759e2cdf83d1884f683b4708cec26df5", "slot": 56764782 },
+    { "epoch": 657, "id": "6664f6d802e396b29c0ba17e58e206a4050e73333ff65ad8a0d17c71952aac86", "slot": 56851161 },
+    { "epoch": 658, "id": "d9160cd864124cbbc3359fb4c614af98c2f5ff16f42a85fff8277a1711f7e98f", "slot": 56937590 },
+    { "epoch": 659, "id": "c66e0695d2faee7bbe15163fb6b95dfc64b77cf60e2f0adb8d6b7b6d7c73759d", "slot": 57023973 },
+    { "epoch": 660, "id": "f436b0337e236c981808f77c02c033c147c13a3a736736cf94fac84482ee78df", "slot": 57110337 },
+    { "epoch": 661, "id": "428667bae431c46d294be56689dacb6d6d829a362a2ab7b7cb2e046ea758bbc4", "slot": 57196778 },
+    { "epoch": 662, "id": "8b588d4db39837ff0d3b0ff3bf5645cdb59cead9d49053c1af1101a867b771f6", "slot": 57283177 },
+    { "epoch": 663, "id": "c1194ecb2067de069291828e303c82fac8facef74665df80ef2d9b367bdaa30d", "slot": 57369594 },
+    { "epoch": 664, "id": "0e5e96383468f55b70796f479df4c79bfa3738031e364129600910482f7a5aa4", "slot": 57455992 },
+    { "epoch": 665, "id": "1d6a02633f198073c7636f25871b5f4c412229ccb39f9fd8bac4f2b38ef3a70e", "slot": 57542358 },
+    { "epoch": 666, "id": "df724c30441812962cb808134647a4742934dd079900cd719a97f624efa8b130", "slot": 57628799 }
+  ],
+  "additionalStakeAddresses": []
+}

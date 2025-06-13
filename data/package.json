@@ -1,0 +1,17 @@
+{
+  "name": "cardano-ledger-data",
+  "version": "1.0.0",
+  "description": "A collection of script utils to fetch ledger data for Cardano.",
+  "repository": "git@github.com:pragma-org/amaru.git",
+  "author": "KtorZ <matthias.benkort@gmail.com>",
+  "license": "Apache-2.0",
+  "private": false,
+  "scripts": {
+    "fetch": "node fetch.mjs"
+  },
+  "dependencies": {
+    "@cardano-ogmios/mdk": "^1.0.0",
+    "@cardanosolutions/json-bigint": "^1.0.1",
+    "bech32": "^2.0.0"
+  }
+}
