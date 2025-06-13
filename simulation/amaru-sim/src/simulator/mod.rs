@@ -318,37 +318,41 @@ fn run_simulator(
 fn chain_property(
     chain_data_path: &PathBuf,
 ) -> impl Fn(Trace<ChainSyncMessage>) -> Result<(), String> + use<'_> {
-    move |trace| match trace.0.last() {
-        None => Err("impossible, no last entry in trace".to_string()),
-        Some(entry) => {
-            assert_eq!(entry.src, "n1");
-            assert_eq!(entry.dest, "c1");
-            let data = read_chain_json(chain_data_path);
-            let blocks = parse_json(data.as_bytes()).map_err(|err| err.to_string())?;
-            match &entry.body {
-                ChainSyncMessage::Fwd { hash, slot, .. } => {
-                    let actual = (hash.clone(), *slot);
-                    let expected = blocks
-                        .last()
-                        .map(|block| (block.hash.clone(), Slot::from(block.slot)))
-                        .expect("empty chain data");
-                    if actual != expected {
-                        panic!(
-                            "tip of chains don't match, expected {:?}, got {:?}",
-                            expected, actual
-                        );
+    move |trace| {
+        match trace.0.last() {
+            None => Err("impossible, no last entry in trace".to_string()),
+            Some(entry) => {
+                assert_eq!(entry.src, "n1");
+                assert_eq!(entry.dest, "c1");
+                // FIXME: the property is wrong, we should check the property
+                // that the output message trace is a prefix of the read chain
+                let data = read_chain_json(chain_data_path);
+                let blocks = parse_json(data.as_bytes()).map_err(|err| err.to_string())?;
+                match &entry.body {
+                    ChainSyncMessage::Fwd { hash, slot, .. } => {
+                        let actual = (hash.clone(), *slot);
+                        let expected = blocks
+                            .last()
+                            .map(|block| (block.hash.clone(), Slot::from(block.slot)))
+                            .expect("empty chain data");
+                        if actual != expected {
+                            panic!(
+                                "tip of chains don't match, expected {:?}, got {:?}",
+                                expected, actual
+                            );
+                        }
+                        println!("Success!")
                     }
-                    println!("Success!")
-                }
-                _ => {
-                    println!("TRACE:");
-                    for entry in &trace.0 {
-                        println!("{:?}", entry);
+                    _ => {
+                        println!("TRACE:");
+                        for entry in &trace.0 {
+                            println!("{:?}", entry);
+                        }
+                        panic!("Last entry in trace isn't a forward")
                     }
-                    panic!("Last entry in trace isn't a forward")
                 }
+                Ok(())
             }
-            Ok(())
         }
     }
 }
