@@ -44,7 +44,7 @@ pub struct Block {
     header: Bytes,
     height: u32,
     parent: Option<Bytes>,
-    slot: u64,
+    pub slot: u64,
 }
 
 impl fmt::Display for Block {

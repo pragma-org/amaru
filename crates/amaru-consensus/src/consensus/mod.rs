@@ -14,8 +14,8 @@
 
 use std::fmt;
 
-use amaru_kernel::{Header, Point};
 use crate::is_header::IsHeader;
+use amaru_kernel::{Header, Point};
 use tracing::Span;
 
 use crate::peer::Peer;
@@ -57,9 +57,16 @@ impl fmt::Debug for ChainSyncEvent {
                 .debug_struct("RollForward")
                 .field("peer", &peer.name)
                 .field("point", &point.to_string())
-                .field("raw_header", &hex::encode(&raw_header[..raw_header.len().min(8)]))
+                .field(
+                    "raw_header",
+                    &hex::encode(&raw_header[..raw_header.len().min(8)]),
+                )
                 .finish(),
-            ChainSyncEvent::Rollback { peer, rollback_point, .. } => f
+            ChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+                ..
+            } => f
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point.to_string())
@@ -98,7 +105,11 @@ impl fmt::Debug for DecodedChainSyncEvent {
                 .field("point", &point.to_string())
                 .field("header", &header.hash().to_string())
                 .finish(),
-            DecodedChainSyncEvent::Rollback { peer, rollback_point, .. } => f
+            DecodedChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+                ..
+            } => f
                 .debug_struct("Rollback")
                 .field("peer", &peer.name)
                 .field("rollback_point", &rollback_point.to_string())

@@ -17,7 +17,6 @@ use amaru_consensus::{
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         receive_header::handle_chain_sync,
-        select_chain::SelectChain,
         store::ChainStore,
         store_header::StoreHeader,
         validate_header::ValidateHeader,
@@ -30,6 +29,7 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
     to_cbor, Hash, Header,
     Point::{self, *},
+    Slot,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use anyhow::Error;
@@ -322,8 +322,18 @@ fn chain_property(
             let data = read_chain_json(chain_data_path);
             let blocks = parse_json(data.as_bytes()).map_err(|err| err.to_string())?;
             match &entry.body {
-                ChainSyncMessage::Fwd { hash, .. } => {
-                    assert_eq!(Some(hash), blocks.last().map(|block| &block.hash));
+                ChainSyncMessage::Fwd { hash, slot, .. } => {
+                    let actual = (hash.clone(), *slot);
+                    let expected = blocks
+                        .last()
+                        .map(|block| (block.hash.clone(), Slot::from(block.slot)))
+                        .expect("empty chain data");
+                    if actual != expected {
+                        panic!(
+                            "tip of chains don't match, expected {:?}, got {:?}",
+                            expected, actual
+                        );
+                    }
                     println!("Success!")
                 }
                 _ => {
