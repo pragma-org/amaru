@@ -87,7 +87,10 @@ impl SelectChain {
                 rollback_point,
                 tip: _,
                 fork,
-            }) => self.switch_to_fork(peer, rollback_point, fork, span),
+            }) => {
+                trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
+                self.switch_to_fork(peer, rollback_point, fork, span)
+            }
             chain_selection::ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
                 vec![]
