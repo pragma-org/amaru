@@ -1,3 +1,5 @@
+use crate::point::from_network_point;
+
 use super::{
     client_state::{find_headers_between, ClientState},
     ClientOp,
@@ -232,17 +234,10 @@ async fn block_fetch(
         }
 
         let db = store.lock().await;
-        let block = db.load_block(&Hash::from(&from_pallas_point(&lb_point)))?;
+        let block = db.load_block(&Hash::from(&from_network_point(&lb_point)))?;
         server.send_start_batch().await?;
         server.send_block(block).await?;
         server.send_batch_done().await?;
-    }
-}
-
-fn from_pallas_point(lb_point: &Point) -> amaru_kernel::Point {
-    match lb_point {
-        Point::Origin => amaru_kernel::Point::Origin,
-        Point::Specific(slot, hash) => amaru_kernel::Point::Specific(*slot, hash.clone()),
     }
 }
 

@@ -203,7 +203,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                 stage.roll_forward(&header).await?;
             }
             NextResponse::RollBackward(point, tip) => {
-                stage.roll_back(from_network_point(point), tip).await?;
+                stage.roll_back(from_network_point(&point), tip).await?;
             }
             NextResponse::Await => {}
         };
