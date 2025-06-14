@@ -56,10 +56,44 @@ pub fn header_is_valid(
     .map_err(|e| ConsensusError::InvalidHeader(point.clone(), e))
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
 pub struct ValidateHeader {
+    #[serde(skip, default = "default_ledger")]
     pub ledger: Arc<dyn HasStakeDistribution>,
+    #[serde(skip, default = "default_store")]
     pub store: Arc<Mutex<dyn ChainStore<Header>>>,
+}
+
+impl PartialEq for ValidateHeader {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+fn default_ledger() -> Arc<dyn HasStakeDistribution> {
+    struct Fake;
+    impl HasStakeDistribution for Fake {
+        fn get_pool(
+            &self,
+            _slot: amaru_kernel::Slot,
+            _pool: &amaru_kernel::PoolId,
+        ) -> Option<amaru_ouroboros::PoolSummary> {
+            unimplemented!()
+        }
+
+        fn slot_to_kes_period(&self, _slot: amaru_kernel::Slot) -> u64 {
+            unimplemented!()
+        }
+
+        fn max_kes_evolutions(&self) -> u64 {
+            unimplemented!()
+        }
+
+        fn latest_opcert_sequence_number(&self, _pool: &amaru_kernel::PoolId) -> Option<u64> {
+            unimplemented!()
+        }
+    }
+    Arc::new(Fake)
 }
 
 impl fmt::Debug for ValidateHeader {
@@ -71,10 +105,22 @@ impl fmt::Debug for ValidateHeader {
     }
 }
 
+#[derive(serde::Serialize, serde::Deserialize)]
 struct EvolveNonceEffect {
+    #[serde(skip, default = "default_store")]
     store: Arc<Mutex<dyn ChainStore<Header>>>,
     header: Header,
     global_parameters: GlobalParameters,
+}
+
+impl PartialEq for EvolveNonceEffect {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header && self.global_parameters == other.global_parameters
+    }
+}
+
+fn default_store() -> Arc<Mutex<dyn ChainStore<Header>>> {
+    Arc::new(Mutex::new(super::store::FakeStore::default()))
 }
 
 impl EvolveNonceEffect {
@@ -101,24 +147,15 @@ impl fmt::Debug for EvolveNonceEffect {
 }
 
 impl ExternalEffect for EvolveNonceEffect {
-    fn run(self: Box<Self>) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::Message>> {
+    fn run(self: Box<Self>) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
         Box::pin(async move {
             let result = self
                 .store
                 .lock()
                 .await
                 .evolve_nonce(&self.header, &self.global_parameters);
-            Box::new(result) as Box<dyn pure_stage::Message>
+            Box::new(result) as Box<dyn pure_stage::SendData>
         })
-    }
-
-    fn test_eq(&self, other: &dyn ExternalEffect) -> bool {
-        other
-            .cast_ref::<Self>()
-            .map(|other| {
-                self.header == other.header && self.global_parameters == other.global_parameters
-            })
-            .unwrap_or(false)
     }
 }
 

@@ -12,15 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Nonce, Point, RawBlock};
+use amaru_kernel::{
+    network::NetworkName, protocol_parameters::GlobalParameters, EraHistory, Header, Nonce, Point,
+    RawBlock,
+};
 use amaru_ouroboros::{praos::nonce, Nonces};
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;
 use slot_arithmetic::TimeHorizonError;
-use std::fmt::Display;
+use std::{collections::BTreeMap, fmt::Display};
 use thiserror::Error;
 
-#[derive(Error, PartialEq, Debug)]
+#[derive(Error, PartialEq, Debug, serde::Serialize, serde::Deserialize)]
 pub enum StoreError {
     WriteError { error: String },
     ReadError { error: String },
@@ -86,7 +89,7 @@ impl<H: IsHeader> ChainStore<H> for Box<dyn ChainStore<H>> {
     }
 }
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum NoncesError {
     #[error("cannot find nonces: unknown parent {parent} from header {header}")]
     UnknownParent { header: Hash<32>, parent: Hash<32> },
@@ -189,6 +192,44 @@ impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
     }
 }
 
+#[derive(Default)]
+pub struct FakeStore {
+    headers: BTreeMap<Hash<32>, Header>,
+    nonces: BTreeMap<Hash<32>, Nonces>,
+}
+
+impl ChainStore<Header> for FakeStore {
+    fn load_header(&self, hash: &Hash<32>) -> Option<Header> {
+        self.headers.get(hash).cloned()
+    }
+
+    fn store_header(&mut self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
+        self.headers.insert(*hash, header.clone());
+        Ok(())
+    }
+
+    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+        self.nonces.get(header).cloned()
+    }
+
+    fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
+        self.nonces.insert(*header, nonces.clone());
+        Ok(())
+    }
+
+    fn era_history(&self) -> &EraHistory {
+        NetworkName::Preprod.into()
+    }
+
+    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+        unimplemented!()
+    }
+
+    fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
+        unimplemented!()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -197,7 +238,7 @@ mod test {
     use amaru_ouroboros_traits::{IsHeader, Praos};
     use proptest::{prelude::*, prop_compose, proptest};
     use slot_arithmetic::Epoch;
-    use std::{collections::BTreeMap, sync::LazyLock};
+    use std::sync::LazyLock;
 
     // Epoch 164's last header
     include_header!(PREPROD_HEADER_69638382, 69638382);
@@ -241,44 +282,6 @@ mod test {
         evolving: hash!("18eec9f448f64ebe173563b5bca7d9f788f0db83653a49c449285f4770e9adb1"),
         tail: hash!("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
     });
-
-    #[derive(Default)]
-    struct FakeStore {
-        headers: BTreeMap<Hash<32>, Header>,
-        nonces: BTreeMap<Hash<32>, Nonces>,
-    }
-
-    impl ChainStore<Header> for FakeStore {
-        fn load_header(&self, hash: &Hash<32>) -> Option<Header> {
-            self.headers.get(hash).cloned()
-        }
-
-        fn store_header(&mut self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
-            self.headers.insert(*hash, header.clone());
-            Ok(())
-        }
-
-        fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-            self.nonces.get(header).cloned()
-        }
-
-        fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
-            self.nonces.insert(*header, nonces.clone());
-            Ok(())
-        }
-
-        fn era_history(&self) -> &EraHistory {
-            NetworkName::Preprod.into()
-        }
-
-        fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-            unimplemented!()
-        }
-
-        fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
-            unimplemented!()
-        }
-    }
 
     fn evolve_nonce(
         last_header_last_epoch: &Header,

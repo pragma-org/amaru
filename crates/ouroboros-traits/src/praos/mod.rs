@@ -48,7 +48,7 @@ use crate::is_header::IsHeader;
 use amaru_kernel::{cbor, protocol_parameters::GlobalParameters, Hash, Nonce};
 use slot_arithmetic::Epoch;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub struct Nonces {
     pub active: Nonce,
     pub evolving: Nonce,

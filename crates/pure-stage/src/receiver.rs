@@ -5,7 +5,7 @@ use std::{
 };
 use tokio::sync::mpsc;
 
-/// The message receptacle used by [`SimulationBuilder::output`](super::SimulationBuilder::output).
+/// The message receptacle used by [`StageGraph::output`](crate::StageGraph::output).
 ///
 /// It should be noted that [`Self::try_next`] returning `None` only means that the message
 /// queue is currently empty — it may be refilled by future simulation steps.

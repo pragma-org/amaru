@@ -1,7 +1,13 @@
+//! This module contains the Tokio-based [`StageGraph`] implementation, to be used in production.
+//!
+//! It is good practice to perform the stage contruction and wiring in a function that takes an
+//! `&mut impl StageGraph` so that it can be reused between the Tokio and simulation implementations.
+
 use crate::{
     effect::{StageEffect, StageResponse},
     simulation::EffectBox,
-    BoxFuture, Effects, Instant, Message, Name, Sender, StageBuildRef, StageGraph, StageRef, State,
+    time::Clock,
+    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
 };
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
@@ -25,8 +31,8 @@ pub struct SendError {
 }
 
 struct TokioInner {
-    senders: BTreeMap<Name, mpsc::Sender<Box<dyn Message>>>,
-    now: Arc<dyn Fn() -> Instant + Send + Sync>,
+    senders: BTreeMap<Name, mpsc::Sender<Box<dyn SendData>>>,
+    clock: Arc<dyn Clock + Send + Sync>,
     mailbox_size: usize,
 }
 
@@ -34,10 +40,18 @@ impl Default for TokioInner {
     fn default() -> Self {
         Self {
             senders: Default::default(),
-            now: Arc::new(|| Instant::from_tokio(tokio::time::Instant::now())),
+            clock: Arc::new(TokioClock),
             mailbox_size: 10,
         }
     }
+}
+
+struct TokioClock;
+impl Clock for TokioClock {
+    fn now(&self) -> Instant {
+        Instant::now()
+    }
+    fn advance_to(&self, _instant: Instant) {}
 }
 
 /// A [`StageGraph`] implementation that dispatches each stage as a task on the Tokio global pool.
@@ -55,7 +69,7 @@ impl StageGraph for TokioBuilder {
     type Running = TokioRunning;
 
     type RefAux<Msg, State> = (
-        Receiver<Box<dyn Message>>,
+        Receiver<Box<dyn SendData>>,
         Box<
             dyn FnMut(State, Msg, Effects<Msg, State>) -> BoxFuture<'static, anyhow::Result<State>>
                 + 'static
@@ -63,7 +77,7 @@ impl StageGraph for TokioBuilder {
         >,
     );
 
-    fn stage<Msg: Message, St: State, F, Fut>(
+    fn stage<Msg: SendData, St: SendData, F, Fut>(
         &mut self,
         name: impl AsRef<str>,
         mut f: F,
@@ -87,7 +101,7 @@ impl StageGraph for TokioBuilder {
     }
 
     #[allow(clippy::expect_used)]
-    fn wire_up<Msg: Message, St: State>(
+    fn wire_up<Msg: SendData, St: SendData>(
         &mut self,
         stage: StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         mut state: St,
@@ -106,7 +120,7 @@ impl StageGraph for TokioBuilder {
                 };
                 let effect = Arc::new(Mutex::new(None));
                 let sender = mk_sender(&stage_name, &inner);
-                let effects = Effects::new(me, effect.clone(), inner.now.clone(), sender);
+                let effects = Effects::new(me, effect.clone(), inner.clock.clone(), sender);
                 while let Some(msg) = rx.recv().await {
                     state = interpreter(
                         &inner,
@@ -133,7 +147,7 @@ impl StageGraph for TokioBuilder {
     }
 
     #[allow(clippy::expect_used)]
-    fn sender<Msg: Message, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
+    fn input<Msg: SendData, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
         mk_sender(&stage.name, &self.inner)
     }
 
@@ -149,7 +163,7 @@ impl StageGraph for TokioBuilder {
 }
 
 #[allow(clippy::expect_used)]
-fn mk_sender<Msg: Message>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg> {
+fn mk_sender<Msg: SendData>(stage_name: &Name, inner: &TokioInner) -> Sender<Msg> {
     let tx = inner
         .senders
         .get(stage_name)

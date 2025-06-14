@@ -75,18 +75,20 @@ impl fmt::Debug for ChainSyncEvent {
     }
 }
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum DecodedChainSyncEvent {
     RollForward {
         peer: Peer,
         point: Point,
         header: Header,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         peer: Peer,
         rollback_point: Point,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
 }

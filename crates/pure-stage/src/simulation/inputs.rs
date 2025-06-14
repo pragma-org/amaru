@@ -1,16 +1,16 @@
-use crate::{Message, Name, Sender, StageRef};
+use crate::{Name, SendData, Sender, StageRef};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
 #[derive(Debug)]
 pub struct Envelope {
     pub name: Name,
-    pub msg: Box<dyn Message>,
+    pub msg: Box<dyn SendData>,
     pub tx: oneshot::Sender<()>,
 }
 
 impl Envelope {
-    fn new(name: Name, msg: Box<dyn Message>, tx: oneshot::Sender<()>) -> Self {
+    fn new(name: Name, msg: Box<dyn SendData>, tx: oneshot::Sender<()>) -> Self {
         Self { name, msg, tx }
     }
 }
@@ -31,7 +31,7 @@ impl Inputs {
         }
     }
 
-    pub fn sender<Msg: Message, St>(&self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
+    pub fn sender<Msg: SendData, St>(&self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
         let tx_main = self.tx.clone();
         let stage_name = stage.name();
         Sender::new(Arc::new(move |msg| {
