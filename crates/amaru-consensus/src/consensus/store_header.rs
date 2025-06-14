@@ -20,8 +20,19 @@ use tokio::sync::Mutex;
 
 use super::DecodedChainSyncEvent;
 
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct StoreHeader {
+    #[serde(skip, default = "default_store")]
     pub store: Arc<Mutex<dyn ChainStore<Header>>>,
+}
+fn default_store() -> Arc<Mutex<dyn ChainStore<Header>>> {
+    Arc::new(Mutex::new(super::store::FakeStore::default()))
+}
+
+impl PartialEq for StoreHeader {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
 }
 
 impl fmt::Debug for StoreHeader {

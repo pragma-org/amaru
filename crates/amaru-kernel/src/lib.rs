@@ -140,7 +140,7 @@ impl From<&RequiredScript> for RedeemersKey {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug)]
+#[derive(Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
 pub enum Point {
     Origin,
     Specific(u64, Vec<u8>),

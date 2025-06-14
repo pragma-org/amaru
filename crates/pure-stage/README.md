@@ -48,3 +48,13 @@ The wiring function ensures that message types do match, but it won't prevent co
 - add deterministic shuffling of effect scheduling in the Simulation StageGraph implementation
 - output an execution log for debugging that notes all effects and state changes
 - add stage error handling (currently a stage just stops working)
+
+## Notes on TraceBuffer and Serialization
+
+Storing all effects and responses requires serialization (because trait objects cannot implement `Clone`), which in turn requires some gymnastics due to the incompatibility of serde's `Serialize` and `Deserialize` traits with trait objects.
+While [`typetag`](docs.rs/typetag) can solve the serialization issue (via `erased_serde::Serialize`), deserialization will always require the full and concrete target type to be known plus matching deserialization code.
+The solution `typetag` provides therefore cannot support generic types, which closes the door on any kind of type parameter occurring within messages, states, and effects in the system.
+This is clearly a restriction that weighs too heavily, thus a different solution is required.
+
+The current design shifts all deserialization to places where the concrete target type can be named and where thus the compiler can instantiate a `Deserialize` instance.
+This unfortunately requires some trace entries to be deserialized multiple times, with information for the simulation machinery being done in the generic parts and then the specific application data type (for messages or effect responses) to be deserialized from the generic `cbor4ii::core::Value` on the application side of the airlock; let us give thanks to the universe for schemaless deserialization in this context.

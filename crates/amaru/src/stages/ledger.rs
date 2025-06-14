@@ -113,7 +113,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         let mut context = self.create_validation_context(&block)?;
         let protocol_version = block.header.header_body.protocol_version;
         match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
-            BlockValidation::Err(err) => return Err(err),
+            BlockValidation::Err(err) => Err(err),
             BlockValidation::Invalid(err) => Ok(Some(err)),
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
