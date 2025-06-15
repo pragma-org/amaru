@@ -1,4 +1,16 @@
-use std::{any::Any, borrow::Borrow, fmt, future::Future, pin::Pin, sync::Arc};
+use crate::serde::{to_cbor, SendDataValue};
+use anyhow::Context;
+use cbor4ii::serde::from_slice;
+use std::{
+    any::{type_name, Any},
+    borrow::Borrow,
+    fmt,
+    future::Future,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+    sync::Arc,
+};
+use tokio::sync::mpsc;
 
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
@@ -7,106 +19,119 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 /// It is not possible to require an implementation of `PartialEq<Box<dyn Message>>`, but it
 /// is possible to provide a blanket implementation for an equivalent `eq` method, which can
 /// be used to manually implement PartialEq for types containing messages.
-///
-/// See [`cast_msg`](cast_msg) for a utility function casting a generic message to a concrete type.
-pub trait Message: Any + fmt::Debug + Send + 'static {
+#[typetag::serialize(tag = "typetag", content = "value")]
+pub trait SendData: Any + fmt::Debug + Send + 'static {
     /// Check for equality with another dynamically typed message.
     ///
     /// This is useful for implementing `PartialEq` for types containing boxed messages.
-    fn eq(&self, other: &dyn Message) -> bool;
+    fn test_eq(&self, other: &dyn SendData) -> bool;
 
-    /// Get the type name of the message given a reference to a message.
-    ///
-    /// When the type is statically known, use `std::any::type_name::<T>()` instead.
-    fn type_name(&self) -> &'static str;
+    /// Deserialize the other dynamic value into this concrete type.
+    fn deserialize_value(&self, other: &dyn SendData) -> anyhow::Result<Box<dyn SendData>>;
 }
-impl<T: Any + fmt::Debug + Send + PartialEq + 'static> Message for T {
-    fn eq(&self, other: &dyn Message) -> bool {
+
+impl<T> SendData for T
+where
+    T: Any
+        + PartialEq
+        + fmt::Debug
+        + serde::Serialize
+        + serde::de::DeserializeOwned
+        + Send
+        + 'static,
+{
+    fn typetag_name(&self) -> &'static str {
+        type_name::<T>()
+    }
+
+    fn test_eq(&self, other: &dyn SendData) -> bool {
         let Some(other) = (other as &dyn Any).downcast_ref::<T>() else {
             return false;
         };
         self == other
     }
-    fn type_name(&self) -> &'static str {
-        std::any::type_name::<T>()
+
+    fn deserialize_value(&self, other: &dyn SendData) -> anyhow::Result<Box<dyn SendData>> {
+        Ok(Box::new(deserialize_value::<T>(other)?))
     }
 }
 
-impl dyn Message {
+impl dyn SendData {
     /// Cast a message to a given concrete type.
-    pub fn cast_ref<T: Message>(&self) -> Option<&T> {
+    pub fn cast_ref<T: SendData>(&self) -> Option<&T> {
         (self as &dyn Any).downcast_ref::<T>()
+    }
+
+    fn try_cast<T: SendData>(self: Box<Self>) -> Result<Box<T>, Box<Self>> {
+        if (&*self as &dyn Any).is::<T>() {
+            #[allow(clippy::expect_used)]
+            Ok(Box::new(
+                *(self as Box<dyn Any>)
+                    .downcast::<T>()
+                    .expect("checked above"),
+            ))
+        } else {
+            Err(self)
+        }
     }
 
     /// Cast a message to a given concrete type, yielding an informative error otherwise
-    pub fn cast<T: Message>(self: Box<Self>) -> anyhow::Result<Box<T>> {
-        if (&*self as &dyn Any).is::<T>() {
-            #[allow(clippy::expect_used)]
-            Ok(Box::new(
-                *(self as Box<dyn Any>)
-                    .downcast::<T>()
-                    .expect("checked above"),
-            ))
-        } else {
-            anyhow::bail!(
+    pub fn cast<T: SendData>(self: Box<Self>) -> anyhow::Result<Box<T>> {
+        self.try_cast::<T>().map_err(|b| {
+            anyhow::anyhow!(
                 "message type error: expected {}, got {:?} ({})",
-                std::any::type_name::<T>(),
-                self,
-                (*self).type_name()
+                type_name::<T>(),
+                b,
+                b.typetag_name()
             )
-        }
+        })
+    }
+
+    pub fn cast_deserialize<T>(self: Box<Self>) -> anyhow::Result<T>
+    where
+        T: SendData + serde::de::DeserializeOwned,
+    {
+        let this = match self.try_cast::<T>() {
+            Ok(that) => return Ok(*that),
+            Err(this) => this,
+        };
+        deserialize_value::<T>(&*this)
     }
 }
 
-impl PartialEq for dyn Message {
-    fn eq(&self, other: &Self) -> bool {
-        self.type_id() == other.type_id() && Message::eq(self, other)
+fn deserialize_value<T>(this: &dyn SendData) -> anyhow::Result<T>
+where
+    T: SendData + serde::de::DeserializeOwned,
+{
+    let Some(this) = this.cast_ref::<SendDataValue>() else {
+        anyhow::bail!(
+            "message type error: expected {}, got {:?} ({})",
+            type_name::<T>(),
+            this,
+            this.typetag_name()
+        )
+    };
+    let bytes = to_cbor(&this.value);
+    from_slice::<T>(&bytes).context(format!(
+        "deserializing `{}` from {:?}",
+        type_name::<T>(),
+        this
+    ))
+}
+
+impl PartialEq for dyn SendData {
+    fn eq(&self, other: &dyn SendData) -> bool {
+        self.test_eq(other)
     }
 }
 
-/// Type constraint for messages, which must be self-contained and have a `Debug` instance.
+/// A unique identifier for a stage in the simulation.
 ///
-/// It is not possible to require an implementation of `PartialEq<Box<dyn Message>>`, but it
-/// is possible to provide a blanket implementation for an equivalent `eq` method, which can
-/// be used to manually implement PartialEq for types containing messages.
-///
-/// See [`cast_state`](cast_state) for a utility function casting a generic message to a concrete type.
-pub trait State: Any + fmt::Debug + Send + 'static {
-    fn type_name(&self) -> &str;
-}
-impl<T: Any + fmt::Debug + Send + 'static> State for T {
-    fn type_name(&self) -> &str {
-        std::any::type_name::<T>()
-    }
-}
-
-impl dyn State {
-    /// Cast a state to a given concrete type.
-    pub fn cast_ref<T: State>(&self) -> Option<&T> {
-        (self as &dyn Any).downcast_ref::<T>()
-    }
-
-    /// Cast a state to a given concrete type, yielding an informative error otherwise
-    pub fn cast<T: State>(self: Box<Self>) -> anyhow::Result<Box<T>> {
-        if (&*self as &dyn Any).is::<T>() {
-            #[allow(clippy::expect_used)]
-            Ok(Box::new(
-                *(self as Box<dyn Any>)
-                    .downcast::<T>()
-                    .expect("checked above"),
-            ))
-        } else {
-            anyhow::bail!(
-                "state type error: expected {}, got {:?} ({})",
-                std::any::type_name::<T>(),
-                self,
-                (*self).type_name()
-            )
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
+/// This is used to identify stages in the simulation, and is used in messages sent to other stages.
+/// A Name is cheap to clone and compare, and can be used as a key in a [`HashMap`](std::collections::HashMap).
+#[derive(
+    Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Name(Arc<str>);
 
 impl Name {
@@ -146,20 +171,95 @@ impl fmt::Display for Name {
     }
 }
 
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct MpscSender<T> {
+    #[serde(skip, default = "dummy_sender")]
+    pub sender: mpsc::Sender<T>,
+}
+
+fn dummy_sender<T>() -> mpsc::Sender<T> {
+    mpsc::channel(1).0
+}
+
+impl<T: Any> fmt::Debug for MpscSender<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("MpscSender")
+            .field(&std::any::type_name::<T>())
+            .finish()
+    }
+}
+
+impl<T: SendData> PartialEq for MpscSender<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<T> Deref for MpscSender<T> {
+    type Target = mpsc::Sender<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.sender
+    }
+}
+impl<T> DerefMut for MpscSender<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.sender
+    }
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct MpscReceiver<T> {
+    #[serde(skip, default = "dummy_receiver")]
+    pub receiver: mpsc::Receiver<T>,
+}
+
+fn dummy_receiver<T>() -> mpsc::Receiver<T> {
+    mpsc::channel(1).1
+}
+
+impl<T: Any> fmt::Debug for MpscReceiver<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("MpscReceiver")
+            .field(&std::any::type_name::<T>())
+            .finish()
+    }
+}
+
+impl<T: SendData> PartialEq for MpscReceiver<T> {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
+}
+
+impl<T> Deref for MpscReceiver<T> {
+    type Target = mpsc::Receiver<T>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.receiver
+    }
+}
+impl<T> DerefMut for MpscReceiver<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.receiver
+    }
+}
+
 #[cfg(test)]
 mod test {
-    use crate::{Message, State};
+    use crate::SendData;
+    use std::ffi::OsString;
 
     #[test]
     fn message() {
-        let s = Box::new("hello".to_owned()) as Box<dyn Message>;
+        let s = Box::new("hello".to_owned()) as Box<dyn SendData>;
         assert_eq!(format!("{s:?}"), "\"hello\"");
         assert_eq!(
-            s.cast::<&'static str>().unwrap_err().to_string(),
-            "message type error: expected &str, got \"hello\" (alloc::string::String)"
+            s.cast::<OsString>().unwrap_err().to_string(),
+            "message type error: expected std::ffi::os_str::OsString, got \"hello\" (alloc::string::String)"
         );
 
-        let s = Box::new("hello".to_owned()) as Box<dyn Message>;
+        let s = Box::new("hello".to_owned()) as Box<dyn SendData>;
         assert_eq!(*s.cast::<String>().unwrap(), "hello");
 
         // the following tests show that this type of cast is robust regarding
@@ -167,7 +267,7 @@ mod test {
         // trait objects.
 
         let r0 = 1u32;
-        let r1: &dyn Message = &r0;
+        let r1: &dyn SendData = &r0;
         let r2 = &r1;
         let r3 = &r2;
 
@@ -175,7 +275,7 @@ mod test {
         assert_eq!(r2.cast_ref::<u32>().unwrap(), &1);
         assert_eq!(r3.cast_ref::<u32>().unwrap(), &1);
 
-        let r0: Box<dyn Message> = Box::new(1u32);
+        let r0: Box<dyn SendData> = Box::new(1u32);
         let r1 = &r0;
         let r2 = &r1;
         let r3 = &r2;
@@ -184,18 +284,5 @@ mod test {
         assert_eq!(r1.cast_ref::<u32>().unwrap(), &1);
         assert_eq!(r2.cast_ref::<u32>().unwrap(), &1);
         assert_eq!(r3.cast_ref::<u32>().unwrap(), &1);
-    }
-
-    #[test]
-    fn state() {
-        let s = Box::new("hello".to_owned()) as Box<dyn State>;
-        assert_eq!(format!("{s:?}"), "\"hello\"");
-        assert_eq!(
-            s.cast::<&'static str>().unwrap_err().to_string(),
-            "state type error: expected &str, got \"hello\" (alloc::string::String)"
-        );
-
-        let s = Box::new("hello".to_owned()) as Box<dyn State>;
-        assert_eq!(*s.cast::<String>().unwrap(), "hello");
     }
 }

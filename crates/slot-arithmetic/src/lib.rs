@@ -38,7 +38,7 @@ impl Display for Slot {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum SlotArithmeticError {
     #[error("slot arithmetic overflow, substracting {1} from {0}")]
     Underflow(u64, u64),
@@ -342,7 +342,7 @@ impl<'b, C> Decode<'b, C> for EraHistory {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, PartialEq, Eq, thiserror::Error, serde::Serialize, serde::Deserialize)]
 pub enum TimeHorizonError {
     #[error("slot past time horizon")]
     PastTimeHorizon,

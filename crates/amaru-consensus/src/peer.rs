@@ -13,7 +13,9 @@
 // limitations under the License.
 
 /// A single peer in the network, with a unique identifier.
-#[derive(Debug, PartialEq, Eq, Hash, Clone, PartialOrd, Ord)]
+#[derive(
+    Debug, PartialEq, Eq, Hash, Clone, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub struct Peer {
     pub name: String,
 }
