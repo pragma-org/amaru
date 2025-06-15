@@ -93,19 +93,18 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let ledger_dir = args.target_dir.join("ledger.db");
     let chain_dir = args.target_dir.join("chain.db");
 
-    let snapshots_file: PathBuf = args
-        .config_dir
-        .join(&*network.to_string())
-        .join("snapshots.json");
+    let network_dir = args.config_dir.join(&*network.to_string());
+
+    let snapshots_file: PathBuf = network_dir.join("snapshots.json");
     let snapshots_dir: PathBuf = args.target_dir.join(network.to_string());
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
     import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await?;
 
-    import_nonces_for_network(era_history, &args.config_dir, &chain_dir).await?;
+    import_nonces_for_network(era_history, &network_dir, &chain_dir).await?;
 
-    import_headers_for_network(network, &args.peer_address, &args.config_dir, &chain_dir).await?;
+    import_headers_for_network(network, &args.peer_address, &network_dir, &chain_dir).await?;
 
     Ok(())
 }
