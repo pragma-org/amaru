@@ -276,6 +276,14 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
                     }
 
                     self.our_tip = Tip(point.pallas_point(), header.block_height());
+
+                    info!(
+                        target: EVENT_TARGET,
+                        parent: span,
+                        tip = %point,
+                        "tip_changed"
+                    );
+
                     self.clients.send(ClientMsg::Op(ClientOp::Forward(
                         header,
                         self.our_tip.clone(),
