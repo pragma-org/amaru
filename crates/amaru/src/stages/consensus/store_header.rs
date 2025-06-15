@@ -14,6 +14,7 @@
 
 use amaru_consensus::consensus::{store_header::StoreHeader, DecodedChainSyncEvent};
 use gasket::framework::*;
+use tracing::error;
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
@@ -40,13 +41,15 @@ impl StoreHeaderStage {
     }
 
     async fn handle_event(&mut self, event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
-        let event = self
-            .store_header
-            .handle_event(event)
-            .await
-            .map_err(|_| WorkerError::Recv)?;
+        let event = self.store_header.handle_event(event).await.map_err(|e| {
+            error!("fail to store header {}", e);
+            WorkerError::Recv
+        })?;
 
-        self.downstream.send(event.into()).await.or_panic()?;
+        self.downstream.send(event.into()).await.map_err(|e| {
+            error!(error=%e, "failed to send event");
+            WorkerError::Restart
+        })?;
 
         Ok(())
     }
@@ -64,7 +67,10 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
         &mut self,
         stage: &mut StoreHeaderStage,
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.or_panic()?;
+        let unit = stage.upstream.recv().await.map_err(|e| {
+            error!(error=%e, "error receiving message");
+            WorkerError::Restart
+        })?;
 
         Ok(WorkSchedule::Unit(unit.payload))
     }

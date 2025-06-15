@@ -53,10 +53,10 @@ impl ValidateHeaderStage {
                 WorkerError::Recv
             })?;
 
-        self.downstream
-            .send(event.into())
-            .await
-            .map_err(|_| WorkerError::Panic)?;
+        self.downstream.send(event.into()).await.map_err(|e| {
+            error!(error=%e, "failed to send event");
+            WorkerError::Restart
+        })?;
 
         Ok(())
     }
@@ -74,15 +74,12 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
         &mut self,
         stage: &mut ValidateHeaderStage,
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
-        let result = stage.upstream.recv().await;
+        let unit = stage.upstream.recv().await.map_err(|e| {
+            error!(error=%e, "error receiving message");
+            WorkerError::Restart
+        })?;
 
-        match result {
-            Ok(unit) => Ok(WorkSchedule::Unit(unit.payload)),
-            Err(e) => {
-                error!("error receiving message {}", e);
-                Ok(WorkSchedule::Done)
-            }
-        }
+        Ok(WorkSchedule::Unit(unit.payload))
     }
 
     async fn execute(

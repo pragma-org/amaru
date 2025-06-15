@@ -17,7 +17,7 @@ use std::collections::BTreeMap;
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
 use gasket::framework::*;
-use tracing::{instrument, Span};
+use tracing::{error, instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::stages::PeerSession;
@@ -55,28 +55,37 @@ impl BlockFetchStage {
         match event {
             ValidateHeaderEvent::Validated { peer, point, span } => {
                 Span::current().set_parent(span.context());
-                let block = self.fetch_block(&peer, &point).await.or_panic()?;
+                let block = self.fetch_block(&peer, &point).await.map_err(|e| {
+                    error!(error=%e, "failed to fetch block");
+                    WorkerError::Recv
+                })?;
+
                 self.downstream
                     .send(ValidateBlockEvent::Validated { point, block, span }.into())
                     .await
-                    .or_panic()?;
+                    .map_err(|e| {
+                        error!(error=%e, "failed to send event");
+                        WorkerError::Restart
+                    })?
             }
             ValidateHeaderEvent::Rollback {
                 rollback_point,
                 span,
                 ..
-            } => {
-                self.downstream
-                    .send(
-                        ValidateBlockEvent::Rollback {
-                            rollback_point,
-                            span,
-                        }
-                        .into(),
-                    )
-                    .await
-                    .or_panic()?;
-            }
+            } => self
+                .downstream
+                .send(
+                    ValidateBlockEvent::Rollback {
+                        rollback_point,
+                        span,
+                    }
+                    .into(),
+                )
+                .await
+                .map_err(|e| {
+                    error!(error=%e, "failed to send event");
+                    WorkerError::Restart
+                })?,
         }
 
         Ok(())
@@ -117,7 +126,10 @@ impl gasket::framework::Worker<BlockFetchStage> for Worker {
         &mut self,
         stage: &mut BlockFetchStage,
     ) -> Result<WorkSchedule<ValidateHeaderEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.or_panic()?;
+        let unit = stage.upstream.recv().await.map_err(|e| {
+            error!(error=%e, "error receiving message");
+            WorkerError::Restart
+        })?;
 
         Ok(WorkSchedule::Unit(unit.payload))
     }

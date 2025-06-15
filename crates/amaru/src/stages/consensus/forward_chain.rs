@@ -331,7 +331,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
                     self.clients
                         .send(ClientMsg::Peer(peer, self.our_tip.clone()));
                 } else {
-                    tracing::error!(target: EVENT_TARGET, "Unit::Peer was empty in execute");
+                    error!(target: EVENT_TARGET, "Unit::Peer was empty in execute");
                 }
                 Ok(())
             }

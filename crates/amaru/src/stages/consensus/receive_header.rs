@@ -37,7 +37,10 @@ impl ReceiveHeaderStage {
             WorkerError::Recv
         })?;
 
-        self.downstream.send(event.into()).await.or_panic()?;
+        self.downstream.send(event.into()).await.map_err(|e| {
+            error!(error=%e, "failed to send event");
+            WorkerError::Restart
+        })?;
 
         Ok(())
     }
@@ -55,7 +58,10 @@ impl gasket::framework::Worker<ReceiveHeaderStage> for Worker {
         &mut self,
         stage: &mut ReceiveHeaderStage,
     ) -> Result<WorkSchedule<ChainSyncEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.or_panic()?;
+        let unit = stage.upstream.recv().await.map_err(|e| {
+            error!(error=%e, "error receiving message");
+            WorkerError::Restart
+        })?;
 
         Ok(WorkSchedule::Unit(unit.payload))
     }
