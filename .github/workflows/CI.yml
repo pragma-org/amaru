@@ -67,10 +67,10 @@ jobs:
               rustup toolchain add nightly-x86_64-unknown-linux-gnu
               rustup component add rust-src --toolchain nightly-x86_64-unknown-linux-gnu
 
-          - runner: ubuntu-latest
+          - runner: ubuntu-24.04
             target: aarch64-unknown-linux-musl
             command: test
-            setup: rustup target add aarch64-unknown-linux-musl
+            setup: rustup target add aarch64-unknown-linux-musl && sudo apt-get install -y pkg-config libssl-dev
             cross-compile: true
 
     timeout-minutes: 30
