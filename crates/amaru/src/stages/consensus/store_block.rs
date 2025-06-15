@@ -49,7 +49,7 @@ impl StoreBlockStage {
 
         self.downstream.send(event.into()).await.map_err(|e| {
             error!(error=%e, "failed to send event");
-            WorkerError::Restart
+            WorkerError::Panic
         })?;
 
         Ok(())
@@ -70,7 +70,7 @@ impl gasket::framework::Worker<StoreBlockStage> for Worker {
     ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.map_err(|e| {
             error!(error=%e, "error receiving message");
-            WorkerError::Restart
+            WorkerError::Panic
         })?;
 
         Ok(WorkSchedule::Unit(unit.payload))

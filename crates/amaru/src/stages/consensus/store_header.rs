@@ -48,7 +48,7 @@ impl StoreHeaderStage {
 
         self.downstream.send(event.into()).await.map_err(|e| {
             error!(error=%e, "failed to send event");
-            WorkerError::Restart
+            WorkerError::Panic
         })?;
 
         Ok(())
@@ -69,7 +69,7 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.map_err(|e| {
             error!(error=%e, "error receiving message");
-            WorkerError::Restart
+            WorkerError::Panic
         })?;
 
         Ok(WorkSchedule::Unit(unit.payload))

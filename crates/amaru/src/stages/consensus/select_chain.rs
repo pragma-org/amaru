@@ -55,7 +55,7 @@ impl SelectChainStage {
         for event in events {
             self.downstream.send(event.into()).await.map_err(|e| {
                 error!(error=%e, "failed to send event");
-                WorkerError::Restart
+                WorkerError::Panic
             })?;
         }
 
@@ -77,7 +77,7 @@ impl gasket::framework::Worker<SelectChainStage> for Worker {
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.map_err(|e| {
             error!(error=%e, "error receiving message");
-            WorkerError::Restart
+            WorkerError::Panic
         })?;
 
         Ok(WorkSchedule::Unit(unit.payload))

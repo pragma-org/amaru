@@ -65,7 +65,7 @@ impl BlockFetchStage {
                     .await
                     .map_err(|e| {
                         error!(error=%e, "failed to send event");
-                        WorkerError::Restart
+                        WorkerError::Panic
                     })?
             }
             ValidateHeaderEvent::Rollback {
@@ -84,7 +84,7 @@ impl BlockFetchStage {
                 .await
                 .map_err(|e| {
                     error!(error=%e, "failed to send event");
-                    WorkerError::Restart
+                    WorkerError::Send
                 })?,
         }
 
@@ -128,7 +128,7 @@ impl gasket::framework::Worker<BlockFetchStage> for Worker {
     ) -> Result<WorkSchedule<ValidateHeaderEvent>, WorkerError> {
         let unit = stage.upstream.recv().await.map_err(|e| {
             error!(error=%e, "error receiving message");
-            WorkerError::Restart
+            WorkerError::Panic
         })?;
 
         Ok(WorkSchedule::Unit(unit.payload))
