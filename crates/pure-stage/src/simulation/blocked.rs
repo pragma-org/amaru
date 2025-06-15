@@ -40,7 +40,7 @@ impl Blocked {
             .map(|n| Name::from(n.as_ref()))
             .collect::<Vec<_>>();
         match self {
-            Blocked::Deadlock(deadlock) if deadlock.iter().all(|n| names.contains(n)) => {}
+            Blocked::Deadlock(deadlock) if names.iter().all(|n| deadlock.contains(n)) => {}
             _ => panic!("expected deadlock by {:?}, got {:?}", names, self),
         }
     }
