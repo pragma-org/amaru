@@ -57,7 +57,12 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
                     &PathBuf::from(format!("../../{}", default_ledger_dir(network))),
                     epoch,
                 )
-                .unwrap_or_else(|err| panic!("Failed to open ledger snapshot for epoch {}: {}", epoch, err)),
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "Failed to open ledger snapshot for epoch {}: {}",
+                        epoch, err
+                    )
+                }),
             )
         })
         .clone();
