@@ -15,6 +15,7 @@
 use std::path::Path;
 use std::{error::Error, io, path::PathBuf};
 
+use amaru::snapshots_dir;
 use amaru_kernel::network::NetworkName;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
@@ -40,12 +41,6 @@ pub struct Args {
     /// Path of the chain on-disk storage.
     #[arg(long, value_name = "DIR", default_value = ".")]
     chain_dir: PathBuf,
-
-    /// Path of snapshots files
-    ///
-    /// This directory will be created if it does not exist
-    #[arg(long, value_name = "DIR", default_value = "snapshots")]
-    snapshots_dir: PathBuf,
 
     /// Network to bootstrap the node for.
     ///
@@ -104,7 +99,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network_dir = args.config_dir.join(&*network.to_string());
 
     let snapshots_file: PathBuf = network_dir.join("snapshots.json");
-    let snapshots_dir: PathBuf = args.snapshots_dir;
+    let snapshots_dir = PathBuf::from(snapshots_dir(network));
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 

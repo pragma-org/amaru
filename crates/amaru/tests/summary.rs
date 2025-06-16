@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::snapshots_dir;
 use amaru_kernel::{
     default_ledger_dir,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
     ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
@@ -75,7 +75,6 @@ fn compare_snapshot(network: NetworkName, epoch: Epoch) {
     let protocol_parameters = ProtocolParameters::default();
 
     let protocol_version = protocol_version(epoch, network);
-    let protocol_version = protocol_version(epoch, network_name);
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         protocol_version,
@@ -114,7 +113,7 @@ fn compare_snapshot(network: NetworkName, epoch: Epoch) {
     .unwrap();
 
     insta::with_settings!({
-        snapshot_path => format!("snapshots/{}", network)
+        snapshot_path => snapshots_dir(network)
     }, {
         insta::assert_json_snapshot!(
         format!("rewards_summary_{}", epoch),
