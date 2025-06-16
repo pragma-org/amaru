@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use amaru_kernel::into_owned_output;
 use amaru_ledger::store::{
     columns::utxo::{Key, Value},
     StoreError,

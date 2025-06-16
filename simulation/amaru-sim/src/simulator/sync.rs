@@ -282,10 +282,10 @@ mod test {
         },
     };
     use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer};
-    use amaru_kernel::Point;
+    use amaru_kernel::{MintedHeader, Point};
     use pallas_codec::minicbor;
     use pallas_crypto::hash::Hasher;
-    use pallas_primitives::{babbage, Hash};
+    use pallas_primitives::Hash;
     use proptest::{
         prelude::{BoxedStrategy, *},
         proptest,
@@ -308,7 +308,7 @@ mod test {
 
     fn some_forward() -> ChainSyncMessage {
         let header_bytes = hex::decode(TEST_HEADER).unwrap();
-        let header: babbage::MintedHeader<'_> = minicbor::decode(&header_bytes).unwrap();
+        let header: MintedHeader<'_> = minicbor::decode(&header_bytes).unwrap();
         let header_hash = Hasher::<256>::hash(header.raw_cbor());
         Fwd {
             msg_id: 1,

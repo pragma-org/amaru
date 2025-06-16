@@ -309,7 +309,7 @@ pub(crate) mod tests {
         pub(crate) fn any_guardrails_script()(
             script in option::of(any::<[u8; 28]>()),
         ) -> Option<ScriptHash> {
-            Option::from(script.map(Hash::new))
+            script.map(Hash::new)
         }
     }
 
@@ -330,7 +330,7 @@ pub(crate) mod tests {
             fn any_parent_proposal_id()(
                 proposal_id in option::of(any_proposal_id()),
             ) -> Option<ProposalId> {
-                Option::from(proposal_id)
+                proposal_id
             }
         }
 

@@ -322,7 +322,7 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_supplemental_datums)
     }
 
-    fn known_scripts<'a>(&'a mut self) -> BTreeMap<ScriptHash, &'a ScriptRef<'a>> {
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef<'_>> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
     }

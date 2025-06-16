@@ -15,7 +15,7 @@
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace, Point,
-    PoolId, StakeCredential, TransactionInput, TransactionOutput,
+    PoolId, StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     store::{
@@ -225,7 +225,7 @@ macro_rules! impl_ReadOnlyStore {
                 accounts::get(&self.db, credential)
             }
 
-            fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
+            fn utxo(&self, input: &TransactionInput) -> Result<Option<scolumns::utxo::Value>, StoreError> {
                 utxo::get(&self.db, input)
             }
 

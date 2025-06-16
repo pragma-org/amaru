@@ -1,7 +1,8 @@
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
+    into_owned_output,
     protocol_parameters::GlobalParameters,
-    EraHistory, Hasher, MintedBlock, Point, RawBlock,
+    Block, EraHistory, Hasher, Point, RawBlock,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -69,7 +70,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
 
     fn create_validation_context(
         &self,
-        block: &MintedBlock<'_>,
+        block: &Block<'_>,
     ) -> anyhow::Result<DefaultValidationContext> {
         let mut ctx = context::DefaultPreparationContext::new();
 
@@ -93,7 +94,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             //
             // Hence, we *must* defer errors here until the moment we do expect the UTxO to be
             // present.
-            .filter_map(|(input, opt_output)| opt_output.map(|output| (input, output)))
+            .filter_map(|(input, opt_output)| {
+                opt_output.map(|output| (input, into_owned_output(output)))
+            })
             .collect();
 
         Ok(context::DefaultValidationContext::new(inputs))

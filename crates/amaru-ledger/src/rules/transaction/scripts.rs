@@ -2,7 +2,7 @@ use std::collections::BTreeSet;
 
 use amaru_kernel::{
     display_collection, get_provided_scripts, BorrowedScript, DatumOption, Hash, OriginalHash,
-    RequiredScript, ScriptHash, ScriptPurpose, ScriptRefWithHash, WitnessSet,
+    ScriptHash, ScriptPurpose, ScriptRefWithHash, WitnessSet,
 };
 use thiserror::Error;
 
@@ -39,17 +39,40 @@ pub enum InvalidScripts {
     },
 }
 
+// FIXME: this is to "fix" lifetime hell issues. Should not exist :)
+#[derive(Clone, Eq, PartialEq, Debug)]
+pub struct RequiredScriptDatumHash {
+    pub hash: ScriptHash,
+    pub index: u32,
+    pub purpose: ScriptPurpose,
+    pub datum_option: Option<Option<Hash<32>>>,
+}
+
 pub fn execute<C>(context: &mut C, witness_set: &WitnessSet<'_>) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice,
 {
-    let provided_script_refs = context.known_scripts();
-
     let required_scripts = context.required_scripts();
+
     let required_script_hashes = required_scripts
         .iter()
         .map(ScriptHash::from)
         .collect::<BTreeSet<_>>();
+
+    let required_scripts = required_scripts
+        .iter()
+        .map(|script| RequiredScriptDatumHash {
+            hash: script.hash,
+            index: script.index,
+            purpose: script.purpose,
+            datum_option: script.datum_option.as_ref().map(|datum| match datum {
+                DatumOption::Hash(hash) => Some(*hash),
+                DatumOption::Data(_) => None,
+            }),
+        })
+        .collect::<Vec<_>>();
+
+    let provided_script_refs = context.known_scripts();
 
     // we only consider script references required by the transaction
     let script_references = provided_script_refs
@@ -120,7 +143,7 @@ where
 
     required_spending_scripts.iter().for_each(
         |(
-            RequiredScript {
+            RequiredScriptDatumHash {
                 index,
                 datum_option,
                 hash: _,
@@ -134,7 +157,7 @@ where
                 }
                 BorrowedScript::NativeScript(..) | BorrowedScript::PlutusV3Script(..) => {}
             },
-            Some(DatumOption::Hash(hash)) => {
+            Some(Some(hash)) => {
                 input_datum_hashes.insert(*hash);
             }
             Some(..) => {}
