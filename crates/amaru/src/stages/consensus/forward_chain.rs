@@ -31,7 +31,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tracing::{error, info, trace_span};
+use tracing::{error, info, trace, trace_span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
@@ -277,7 +277,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
 
                     self.our_tip = Tip(point.pallas_point(), header.block_height());
 
-                    info!(
+                    trace!(
                         target: EVENT_TARGET,
                         parent: span,
                         tip = %point,
