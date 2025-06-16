@@ -23,7 +23,7 @@ pub enum InvalidTransactionMetadata {
     #[error("missing auxiliary data hash: metadata hash {0}")]
     MissingTransactionAuxiliaryDataHash(Hash<32>),
 
-    #[error("metadata hash mismatch: supplied {supplied:?} expected {expected:?}")]
+    #[error("metadata hash mismatch: supplied {supplied} expected {expected}")]
     ConflictingMetadataHash {
         supplied: Hash<32>,
         expected: Hash<32>,
