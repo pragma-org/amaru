@@ -29,12 +29,9 @@ use pallas_codec::{
     minicbor::{decode, encode, Decode, Decoder, Encode, Encoder},
     utils::CborWrap,
 };
-use pallas_primitives::alonzo::Value as AlonzoValue;
+use pallas_primitives::{alonzo::Value as AlonzoValue, babbage::GenTransactionOutput};
 use pallas_primitives::{
-    conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
-        RedeemersKey, RedeemersValue,
-    },
+    conway::{NativeScript, Redeemer, RedeemerTag, RedeemersKey, RedeemersValue},
     DatumHash, PlutusData, PlutusScript,
 };
 use sha3::{Digest as _, Sha3_256};
@@ -57,18 +54,16 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
-    babbage::{Header, MintedHeader},
+    babbage::Header,
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
-        MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
-        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
-        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, Multiasset,
+        NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
+        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, RationalNumber,
+        Redeemers, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody,
+        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter,
+        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -98,28 +93,31 @@ pub type EpochInterval = u32;
 
 pub type ScriptPurpose = RedeemerTag;
 
+// Redefining here so that we avoid the deprecation warning
+pub type MintedHeader<'a> = KeepRaw<'a, Header>;
+
 #[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
-pub struct RequiredScript {
+pub struct RequiredScript<'a> {
     pub hash: ScriptHash,
     pub index: u32,
     pub purpose: ScriptPurpose,
     #[serde(default, deserialize_with = "serde_utils::deserialize_option_proxy")]
-    pub datum_option: Option<DatumOption>,
+    pub datum_option: Option<DatumOption<'a>>,
 }
 
-impl PartialOrd for RequiredScript {
+impl PartialOrd for RequiredScript<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl From<&RequiredScript> for ScriptHash {
-    fn from(value: &RequiredScript) -> Self {
+impl From<&RequiredScript<'_>> for ScriptHash {
+    fn from(value: &RequiredScript<'_>) -> Self {
         value.hash
     }
 }
 
-impl Ord for RequiredScript {
+impl Ord for RequiredScript<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
         match self.hash.cmp(&other.hash) {
             Ordering::Equal => match self.purpose.as_index().cmp(&other.purpose.as_index()) {
@@ -131,8 +129,8 @@ impl Ord for RequiredScript {
     }
 }
 
-impl From<&RequiredScript> for RedeemersKey {
-    fn from(value: &RequiredScript) -> Self {
+impl From<&RequiredScript<'_>> for RedeemersKey {
+    fn from(value: &RequiredScript<'_>) -> Self {
         RedeemersKey {
             tag: value.purpose,
             index: value.index,
@@ -228,8 +226,8 @@ pub struct ExUnitsIter<'a> {
 }
 
 type ExUnitsMapIter<'a> = std::iter::Map<
-    std::slice::Iter<'a, (RedeemersKey, RedeemersValue)>,
-    fn(&(RedeemersKey, RedeemersValue)) -> ExUnits,
+    std::collections::btree_map::Iter<'a, RedeemersKey, RedeemersValue>,
+    fn((&RedeemersKey, &RedeemersValue)) -> ExUnits,
 >;
 
 enum ExUnitsIterSource<'a> {
@@ -275,13 +273,13 @@ pub enum BorrowedScript<'a> {
     PlutusV3Script(&'a PlutusScript<3>),
 }
 
-impl<'a> From<&'a PseudoScript<NativeScript>> for BorrowedScript<'a> {
-    fn from(value: &'a PseudoScript<NativeScript>) -> Self {
+impl<'a> From<&'a ScriptRef<'a>> for BorrowedScript<'a> {
+    fn from(value: &'a ScriptRef<'a>) -> Self {
         match value {
-            PseudoScript::NativeScript(script) => BorrowedScript::NativeScript(script),
-            PseudoScript::PlutusV1Script(script) => BorrowedScript::PlutusV1Script(script),
-            PseudoScript::PlutusV2Script(script) => BorrowedScript::PlutusV2Script(script),
-            PseudoScript::PlutusV3Script(script) => BorrowedScript::PlutusV3Script(script),
+            ScriptRef::NativeScript(script) => BorrowedScript::NativeScript(script),
+            ScriptRef::PlutusV1Script(script) => BorrowedScript::PlutusV1Script(script),
+            ScriptRef::PlutusV2Script(script) => BorrowedScript::PlutusV2Script(script),
+            ScriptRef::PlutusV3Script(script) => BorrowedScript::PlutusV3Script(script),
         }
     }
 }
@@ -289,25 +287,26 @@ impl<'a> From<&'a PseudoScript<NativeScript>> for BorrowedScript<'a> {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BorrowedDatumOption<'a> {
     Hash(&'a DatumHash),
-    Data(&'a CborWrap<PlutusData>),
+    Data(CborWrap<PlutusData>),
 }
 
-impl<'a> From<&'a DatumOption> for BorrowedDatumOption<'a> {
-    fn from(value: &'a DatumOption) -> Self {
+impl<'a> From<&'a DatumOption<'_>> for BorrowedDatumOption<'a> {
+    fn from(value: &'a DatumOption<'_>) -> Self {
         match value {
-            PseudoDatumOption::Hash(hash) => Self::Hash(hash),
-            PseudoDatumOption::Data(cbor_wrap) => Self::Data(cbor_wrap),
+            DatumOption::Hash(hash) => Self::Hash(hash),
+            // FIXME: this is entirely defeating the purpose of `BorrowedDatumOption`. We should be able to avoid cloning (to_owned()), but this just gets Amaru to compile with new Pallas version for now.
+            DatumOption::Data(cbor_wrap) => Self::Data(CborWrap(cbor_wrap.to_owned().0.unwrap())),
         }
     }
 }
 
 // FIXME: we are cloning here. Can we avoid that?
-impl From<BorrowedDatumOption<'_>> for DatumOption {
+impl From<BorrowedDatumOption<'_>> for DatumOption<'_> {
     fn from(value: BorrowedDatumOption<'_>) -> Self {
         match value {
             BorrowedDatumOption::Hash(hash) => Self::Hash(*hash),
             BorrowedDatumOption::Data(cbor_wrap) => {
-                Self::Data(CborWrap(cbor_wrap.to_owned().unwrap()))
+                Self::Data(CborWrap(KeepRaw::from(cbor_wrap.to_owned().unwrap())))
             }
         }
     }
@@ -365,7 +364,7 @@ pub struct PoolParams {
     pub reward_account: RewardAccount,
     pub owners: Set<AddrKeyhash>,
     pub relays: Vec<Relay>,
-    pub metadata: Nullable<PoolMetadata>,
+    pub metadata: Option<PoolMetadata>,
 }
 
 impl<C> cbor::encode::Encode<C> for PoolParams {
@@ -435,16 +434,16 @@ impl serde::Serialize for PoolParams {
                     Relay::SingleHostAddr(port, ipv4, ipv6) => {
                         let mut s = serializer.serialize_struct("Relay::SingleHostAddr", 4)?;
                         s.serialize_field("type", "ipAddress")?;
-                        if let Nullable::Some(ipv4) = ipv4 {
+                        if let Some(ipv4) = ipv4 {
                             s.serialize_field(
                                 "ipv4",
                                 &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]),
                             )?;
                         }
-                        if let Nullable::Some(ipv6) = ipv6 {
+                        if let Some(ipv6) = ipv6 {
                             s.serialize_field("ipv6", ipv6)?;
                         }
-                        if let Nullable::Some(port) = port {
+                        if let Some(port) = port {
                             s.serialize_field("port", port)?;
                         }
                         s.end()
@@ -453,7 +452,7 @@ impl serde::Serialize for PoolParams {
                         let mut s = serializer.serialize_struct("Relay::SingleHostName", 3)?;
                         s.serialize_field("type", "hostname")?;
                         s.serialize_field("hostname", hostname)?;
-                        if let Nullable::Some(port) = port {
+                        if let Some(port) = port {
                             s.serialize_field("port", port)?;
                         }
                         s.end()
@@ -490,7 +489,7 @@ impl serde::Serialize for PoolParams {
                 .map(WrapRelay)
                 .collect::<Vec<WrapRelay<'_>>>(),
         )?;
-        if let Nullable::Some(metadata) = &self.metadata {
+        if let Some(metadata) = &self.metadata {
             s.serialize_field("metadata", metadata)?;
         }
         s.end()
@@ -656,7 +655,7 @@ impl HasLovelace for AlonzoValue {
     }
 }
 
-impl HasLovelace for TransactionOutput {
+impl HasLovelace for TransactionOutput<'_> {
     fn lovelace(&self) -> Lovelace {
         match self {
             TransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
@@ -665,18 +664,9 @@ impl HasLovelace for TransactionOutput {
     }
 }
 
-impl HasLovelace for MintedTransactionOutput<'_> {
-    fn lovelace(&self) -> Lovelace {
-        match self {
-            PseudoTransactionOutput::Legacy(legacy) => legacy.amount.lovelace(),
-            PseudoTransactionOutput::PostAlonzo(modern) => modern.value.lovelace(),
-        }
-    }
-}
-
 /// TODO: See 'output_lovelace', same remark applies.
 pub fn output_stake_credential(
-    output: &TransactionOutput,
+    output: &TransactionOutput<'_>,
 ) -> Result<Option<StakeCredential>, Error> {
     let address = Address::from_bytes(match output {
         TransactionOutput::Legacy(legacy) => &legacy.address[..],
@@ -811,7 +801,7 @@ pub trait HasExUnits {
     fn ex_units(&self) -> Vec<ExUnits>;
 }
 
-impl HasExUnits for MintedBlock<'_> {
+impl HasExUnits for Block<'_> {
     fn ex_units(&self) -> Vec<ExUnits> {
         self.transaction_witness_sets
             .iter()
@@ -822,8 +812,8 @@ impl HasExUnits for MintedBlock<'_> {
 }
 
 /// Calculate the total ex units in a witness set
-pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
-    match witness_set.redeemer {
+pub fn to_ex_units(witness_set: WitnessSet<'_>) -> ExUnits {
+    match witness_set.redeemer.as_deref() {
         Some(redeemers) => match redeemers {
             Redeemers::List(redeemers) => redeemers
                 .iter()
@@ -831,7 +821,7 @@ pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
                     sum_ex_units(acc, redeemer.ex_units)
                 }),
             Redeemers::Map(redeemers_map) => redeemers_map
-                .into_iter()
+                .iter()
                 .fold(ExUnits { mem: 0, steps: 0 }, |acc, (_, redeemer)| {
                     sum_ex_units(acc, redeemer.ex_units)
                 }),
@@ -842,7 +832,7 @@ pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
 
 /// Collect provided scripts and compute each ScriptHash in a witness set
 pub fn get_provided_scripts<'a>(
-    witness_set: &'a MintedWitnessSet<'_>,
+    witness_set: &'a WitnessSet<'_>,
 ) -> BTreeSet<ScriptRefWithHash<'a>> {
     let mut provided_scripts: BTreeSet<ScriptRefWithHash<'a>> = BTreeSet::new();
 
@@ -906,24 +896,13 @@ pub trait HasAddress {
     fn address(&self) -> Result<Address, pallas_addresses::Error>;
 }
 
-impl HasAddress for TransactionOutput {
+impl HasAddress for TransactionOutput<'_> {
     fn address(&self) -> Result<Address, pallas_addresses::Error> {
         match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => {
+            GenTransactionOutput::Legacy(transaction_output) => {
                 Address::from_bytes(&transaction_output.address)
             }
-            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
-        }
-    }
-}
-
-impl<'b> HasAddress for PseudoTransactionOutput<MintedPostAlonzoTransactionOutput<'b>> {
-    fn address(&self) -> Result<Address, pallas_addresses::Error> {
-        match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => {
-                Address::from_bytes(&transaction_output.address)
-            }
-            PseudoTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
+            GenTransactionOutput::PostAlonzo(modern) => Address::from_bytes(&modern.address),
         }
     }
 }
@@ -932,27 +911,27 @@ pub trait HasDatum {
     fn datum(&self) -> Option<BorrowedDatumOption<'_>>;
 }
 
-impl HasDatum for TransactionOutput {
+impl HasDatum for TransactionOutput<'_> {
     fn datum(&self) -> Option<BorrowedDatumOption<'_>> {
         match self {
-            PseudoTransactionOutput::Legacy(transaction_output) => transaction_output
+            GenTransactionOutput::Legacy(transaction_output) => transaction_output
                 .datum_hash
                 .as_ref()
                 .map(BorrowedDatumOption::Hash),
-            PseudoTransactionOutput::PostAlonzo(transaction_output) => transaction_output
+            GenTransactionOutput::PostAlonzo(transaction_output) => transaction_output
                 .datum_option
-                .as_ref()
+                .as_deref()
                 .map(BorrowedDatumOption::from),
         }
     }
 }
 
 pub trait HasScriptRef {
-    fn has_script_ref(&self) -> Option<&ScriptRef>;
+    fn has_script_ref(&self) -> Option<&ScriptRef<'_>>;
 }
 
-impl HasScriptRef for TransactionOutput {
-    fn has_script_ref(&self) -> Option<&ScriptRef> {
+impl HasScriptRef for TransactionOutput<'_> {
+    fn has_script_ref(&self) -> Option<&ScriptRef<'_>> {
         match self {
             TransactionOutput::PostAlonzo(transaction_output) => {
                 transaction_output.script_ref.as_deref()
@@ -1069,47 +1048,17 @@ pub trait HasScriptHash {
     fn script_hash(&self) -> ScriptHash;
 }
 
-impl HasScriptHash for MintedScriptRef<'_> {
+impl HasScriptHash for ScriptRef<'_> {
     fn script_hash(&self) -> ScriptHash {
         match self {
-            PseudoScript::NativeScript(native_script) => {
+            ScriptRef::NativeScript(native_script) => {
                 let mut buffer: Vec<u8> = vec![0];
                 buffer.extend_from_slice(native_script.raw_cbor());
                 Hasher::<224>::hash(&buffer)
             }
-            PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
-        }
-    }
-}
-
-impl HasScriptHash for ScriptRef {
-    fn script_hash(&self) -> ScriptHash {
-        match self {
-            ScriptRef::NativeScript(native_script) => {
-                let mut buffer: Vec<u8>;
-                buffer = vec![0];
-                // FIXME: don't reserialize the native script here.
-                //
-                // This happens because scripts may be found in reference inputs, which have been
-                // stripped from their 'KeepRaw' structure already and thus; have lost their
-                // 'original' bytes.
-                //
-                // While native scripts are simple in essence, they don't have any canonical form.
-                // For example, an array of signatures (all-of) may be serialised as definite or
-                // indefinite. Which will change serialisation and hash.
-                //
-                // Rather than reserialising them when storing them in db, we shall keep their
-                // original bytes and possibly only deserialise on-demand (we only need to
-                // deserialise them if their execution is required).
-                let native_script = to_cbor(&native_script);
-                buffer.extend_from_slice(native_script.as_slice());
-                Hasher::<224>::hash(&buffer)
-            }
-            PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
+            ScriptRef::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
+            ScriptRef::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
+            ScriptRef::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
         }
     }
 }

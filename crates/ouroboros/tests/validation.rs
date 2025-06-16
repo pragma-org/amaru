@@ -12,14 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Header;
+use amaru_kernel::{to_cbor, MintedHeader};
 use amaru_ouroboros::{kes, praos};
 use amaru_ouroboros_traits::mock::MockLedgerState;
 use ctor::ctor;
 use pallas_codec::minicbor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
-use pallas_primitives::babbage;
 use serde::{Deserialize, Deserializer, Serialize};
 use std::{collections::BTreeMap, fs::File, io::BufReader};
 
@@ -168,7 +167,7 @@ struct HeaderWrapper {
 }
 
 impl HeaderWrapper {
-    fn get_header(&mut self) -> Result<babbage::MintedHeader<'_>, ()> {
+    fn get_header(&mut self) -> Result<MintedHeader<'_>, ()> {
         minicbor::decode(self.bytes.as_slice()).map_err(|_| ())
     }
 }
@@ -245,12 +244,13 @@ fn validation_conforms_to_test_vectors() {
                     let expected = &test.1.mutation;
                     let ledger_state = mock_ledger_state(context);
                     let epoch_nonce = context.nonce;
-                    let raw_header_body = minted_header.header_body.raw_cbor();
-                    let header = Header::from(minted_header);
+                    // FIXME: there is no way to access the header body raw bytes anymore, so we are reserializing here
+                    let raw_header_body = to_cbor(&minted_header.header_body);
+                    let header = minted_header.unwrap();
                     let active_slot_coeff = context.active_slot_coeff_fraction();
                     let assertions = praos::header::assert_all(
                         &header,
-                        raw_header_body,
+                        raw_header_body.as_slice(),
                         &ledger_state,
                         &epoch_nonce,
                         &active_slot_coeff,

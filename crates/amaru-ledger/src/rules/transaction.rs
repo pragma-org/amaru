@@ -14,8 +14,8 @@
 
 use crate::context::ValidationContext;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, MintedTransactionBody,
-    MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, Network, OriginalHash,
+    TransactionBody, TransactionInput, TransactionPointer, WitnessSet,
 };
 use core::mem;
 use std::ops::Deref;
@@ -90,8 +90,8 @@ pub fn execute(
     protocol_parameters: &ProtocolParameters,
     pointer: TransactionPointer,
     is_valid: bool,
-    transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
-    transaction_witness_set: &MintedWitnessSet<'_>,
+    transaction_body: KeepRaw<'_, TransactionBody<'_>>,
+    transaction_witness_set: &WitnessSet<'_>,
     transaction_auxiliary_data: Option<&AuxiliaryData>,
 ) -> Result<(), InvalidTransaction> {
     // FIXME: this is temporary, to be replaced when we have some state that determines the node's network
@@ -175,7 +175,7 @@ pub fn execute(
         },
     )?;
 
-    withdrawals::execute(context, transaction_body.withdrawals.as_deref())?;
+    withdrawals::execute(context, transaction_body.withdrawals.as_ref())?;
 
     proposals::execute(
         context,
@@ -183,7 +183,7 @@ pub fn execute(
         mem::take(&mut transaction_body.proposal_procedures).map(|xs| xs.to_vec()),
     );
 
-    voting_procedures::execute(context, transaction_body.voting_procedures.as_deref());
+    voting_procedures::execute(context, transaction_body.voting_procedures.as_ref());
 
     vkey_witness::execute(
         context,

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::context::PreparationContext;
-use amaru_kernel::{cbor, ed25519, into_sized_array, Bytes, MintedBlock};
+use amaru_kernel::{cbor, ed25519, into_sized_array, Block, Bytes};
 use std::{array::TryFromSliceError, fmt, fmt::Display};
 use thiserror::Error;
 use tracing::{instrument, Level};
@@ -43,7 +43,7 @@ impl<T: Display> Display for WithPosition<T> {
 #[instrument(level = Level::TRACE, skip_all)]
 pub fn prepare_block<'block>(
     context: &mut impl PreparationContext<'block>,
-    block: &'block MintedBlock<'_>,
+    block: &'block Block<'_>,
 ) {
     block.transaction_bodies.iter().for_each(|transaction| {
         let inputs = transaction.inputs.iter();
@@ -70,8 +70,8 @@ pub fn prepare_block<'block>(
 }
 
 #[instrument(level = Level::TRACE, skip_all, fields(block.size = bytes.len()))]
-pub fn parse_block(bytes: &[u8]) -> Result<MintedBlock<'_>, cbor::decode::Error> {
-    let (_, block): (u16, MintedBlock<'_>) = cbor::decode(bytes)?;
+pub fn parse_block(bytes: &[u8]) -> Result<Block<'_>, cbor::decode::Error> {
+    let (_, block): (u16, Block<'_>) = cbor::decode(bytes)?;
     Ok(block)
 }
 

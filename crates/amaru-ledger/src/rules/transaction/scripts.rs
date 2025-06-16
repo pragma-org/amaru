@@ -1,8 +1,8 @@
 use std::collections::BTreeSet;
 
 use amaru_kernel::{
-    display_collection, get_provided_scripts, BorrowedScript, DatumOption, Hash, MintedWitnessSet,
-    OriginalHash, RequiredScript, ScriptHash, ScriptPurpose, ScriptRefWithHash,
+    display_collection, get_provided_scripts, BorrowedScript, DatumOption, Hash, OriginalHash,
+    RequiredScript, ScriptHash, ScriptPurpose, ScriptRefWithHash, WitnessSet,
 };
 use thiserror::Error;
 
@@ -39,17 +39,17 @@ pub enum InvalidScripts {
     },
 }
 
-pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
+pub fn execute<C>(context: &mut C, witness_set: &WitnessSet<'_>) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice,
 {
+    let provided_script_refs = context.known_scripts();
+
     let required_scripts = context.required_scripts();
     let required_script_hashes = required_scripts
         .iter()
         .map(ScriptHash::from)
         .collect::<BTreeSet<_>>();
-
-    let provided_script_refs = context.known_scripts();
 
     // we only consider script references required by the transaction
     let script_references = provided_script_refs
@@ -194,7 +194,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{include_cbor, include_json, MintedWitnessSet};
+    use amaru_kernel::{include_cbor, include_json, WitnessSet};
     use test_case::test_case;
 
     use super::InvalidScripts;
@@ -247,7 +247,7 @@ mod tests {
         "extraneous supplemental datum"
     )]
     fn test_scripts(
-        (mut ctx, witness_set): (AssertValidationContext, MintedWitnessSet<'_>),
+        (mut ctx, witness_set): (AssertValidationContext, WitnessSet<'_>),
     ) -> Result<(), InvalidScripts> {
         super::execute(&mut ctx, &witness_set)
     }

@@ -14,12 +14,12 @@
 
 use super::InvalidOutput;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, MintedTransactionOutput,
+    protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, TransactionOutput,
 };
 
 pub fn execute(
     protocol_parameters: &ProtocolParameters,
-    output: &MintedTransactionOutput<'_>,
+    output: &TransactionOutput<'_>,
 ) -> Result<(), InvalidOutput> {
     let coins_per_utxo_byte = protocol_parameters.coins_per_utxo_byte;
     // FIXME: do not re-serialize the output here, but rely on original bytes.
@@ -37,8 +37,8 @@ pub fn execute(
     let max_val_size = protocol_parameters.max_val_size;
     // FIXME: do not re-serialize the value here, but rely on original bytes.
     let given_val_size = match output {
-        amaru_kernel::PseudoTransactionOutput::Legacy(output) => to_cbor(&output.amount).len(),
-        amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => to_cbor(&output.value).len(),
+        amaru_kernel::TransactionOutput::Legacy(output) => to_cbor(&output.amount).len(),
+        amaru_kernel::TransactionOutput::PostAlonzo(output) => to_cbor(&output.value).len(),
     };
 
     // This conversion is safe becuase max_val_size will never be big enough to cause a problem

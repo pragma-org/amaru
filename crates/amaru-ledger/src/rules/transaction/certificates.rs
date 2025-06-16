@@ -76,7 +76,7 @@ where
 }
 
 // FIXME: Perform all necessary rules validations down here.
-fn execute_one<C>(
+fn execute_one<'a, C>(
     context: &mut C,
     pointer: CertificatePointer,
     certificate: Certificate,
@@ -87,7 +87,7 @@ where
 {
     // Promote a ScriptHash into a RequiredScript, with additional context needed to defer the
     // validation of the script.
-    let into_required_script = |hash: ScriptHash| -> RequiredScript {
+    let into_required_script = |hash: ScriptHash| -> RequiredScript<'a> {
         RequiredScript {
             hash,
             index: pointer.certificate_index as u32,

@@ -71,6 +71,8 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use std::collections::BTreeMap;
+
     use super::*;
     use crate::store::{
         accounts::test::any_stake_credential,
@@ -78,9 +80,9 @@ pub(crate) mod tests {
     };
     use amaru_kernel::{
         new_stake_address, prop_cbor_roundtrip, Bytes, Constitution, CostModel, CostModels,
-        DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, Hash, KeyValuePairs, Lovelace,
-        Network, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolVersion,
-        RewardAccount, ScriptHash, Set, StakeCredential, StakePayload, UnitInterval,
+        DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, Hash, Lovelace, Network,
+        PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolVersion, RewardAccount,
+        ScriptHash, Set, StakeCredential, StakePayload, UnitInterval,
     };
     use proptest::{option, prelude::*};
 
@@ -187,6 +189,7 @@ pub(crate) mod tests {
                 plutus_v1,
                 plutus_v2,
                 plutus_v3,
+                unknown: BTreeMap::new(),
             }
         }
     }
@@ -305,8 +308,8 @@ pub(crate) mod tests {
     prop_compose! {
         pub(crate) fn any_guardrails_script()(
             script in option::of(any::<[u8; 28]>()),
-        ) -> Nullable<ScriptHash> {
-            Nullable::from(script.map(Hash::new))
+        ) -> Option<ScriptHash> {
+            Option::from(script.map(Hash::new))
         }
     }
 
@@ -326,8 +329,8 @@ pub(crate) mod tests {
         prop_compose! {
             fn any_parent_proposal_id()(
                 proposal_id in option::of(any_proposal_id()),
-            ) -> Nullable<ProposalId> {
-                Nullable::from(proposal_id)
+            ) -> Option<ProposalId> {
+                Option::from(proposal_id)
             }
         }
 
@@ -354,14 +357,9 @@ pub(crate) mod tests {
             fn any_treasury_withdrawals()(
                 withdrawals in prop::collection::vec(any_withdrawal(), 0..3),
                 guardrails in any_guardrails_script(),
-                is_definite in any::<bool>(),
             ) -> GovAction {
                 GovAction::TreasuryWithdrawals(
-                    if is_definite {
-                        KeyValuePairs::Def(withdrawals)
-                    } else {
-                        KeyValuePairs::Indef(withdrawals)
-                    },
+                    withdrawals.into_iter().collect(),
                     guardrails
                 )
             }
@@ -389,17 +387,12 @@ pub(crate) mod tests {
                 parent_proposal_id in any_parent_proposal_id(),
                 to_remove in prop::collection::btree_set(any_stake_credential(), 0..3),
                 to_add in prop::collection::vec(any_committee_registration(), 0..3),
-                is_definite in any::<bool>(),
                 quorum in any_unit_interval(),
             ) -> GovAction {
                 GovAction::UpdateCommittee(
                     parent_proposal_id,
                     Set::from(to_remove.into_iter().collect::<Vec<_>>()),
-                    if is_definite {
-                        KeyValuePairs::Def(to_add)
-                    } else {
-                        KeyValuePairs::Indef(to_add)
-                    },
+                    to_add.into_iter().collect(),
                     quorum
                 )
             }

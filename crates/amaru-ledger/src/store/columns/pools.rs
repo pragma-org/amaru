@@ -266,7 +266,7 @@ pub(crate) mod tests {
                 // TODO: Generate some arbitrary data
                 owners: vec![].into(),
                 relays: vec![],
-                metadata: Nullable::Null,
+                metadata: None,
             }
         }
     }

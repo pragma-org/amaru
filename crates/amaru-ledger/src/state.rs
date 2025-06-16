@@ -32,8 +32,8 @@ use crate::{
 use amaru_kernel::{
     expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, stake_credential_type, EraHistory, Hash, Lovelace, MintedBlock, Point,
-    PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    stake_credential_hash, stake_credential_type, Block, EraHistory, Hash, Lovelace, Point, PoolId,
+    ProtocolVersion, Slot, StakeCredential, TransactionInput, TransactionOutput,
     PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
@@ -372,7 +372,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &'_ self,
         ongoing_state: &VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<(TransactionInput, Option<TransactionOutput>)>, StoreError> {
+    ) -> Result<Vec<(TransactionInput, Option<TransactionOutput<'_>>)>, StoreError> {
         let mut result = Vec::new();
 
         // TODO: perform lookup in batch, and possibly within the same transaction as other
@@ -733,7 +733,7 @@ pub(crate) struct FailedTransactions {
 }
 
 impl FailedTransactions {
-    pub(crate) fn from_block(block: &MintedBlock<'_>) -> Self {
+    pub(crate) fn from_block(block: &Block<'_>) -> Self {
         FailedTransactions {
             inner: block
                 .invalid_transactions

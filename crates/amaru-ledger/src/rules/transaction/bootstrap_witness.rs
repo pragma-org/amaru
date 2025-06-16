@@ -93,8 +93,7 @@ mod tests {
         rules::{tests::fixture_context, InvalidEd25519Signature, WithPosition},
     };
     use amaru_kernel::{
-        include_cbor, include_json, json, KeepRaw, MintedTransactionBody, MintedWitnessSet,
-        OriginalHash,
+        include_cbor, include_json, json, KeepRaw, OriginalHash, TransactionBody, WitnessSet,
     };
     use test_case::test_case;
     use tracing_json::assert_trace;
@@ -154,8 +153,8 @@ mod tests {
     fn bootstrap_witness(
         (mut ctx, tx, witness_set, expected_traces): (
             AssertValidationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
-            KeepRaw<'_, MintedWitnessSet<'_>>,
+            KeepRaw<'_, TransactionBody<'_>>,
+            KeepRaw<'_, WitnessSet<'_>>,
             Vec<json::Value>,
         ),
     ) -> Result<(), InvalidBootstrapWitnesses> {

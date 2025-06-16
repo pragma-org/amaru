@@ -120,9 +120,9 @@ pub trait PotsSlice {
 
 // An interface for interacting with a subset of the UTxO state.
 pub trait UtxoSlice {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput>;
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'_>>;
     fn consume(&mut self, input: TransactionInput);
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput);
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'_>);
 }
 
 /// An interface to help constructing the concrete UtxoSlice ahead of time.
@@ -273,7 +273,7 @@ pub trait WitnessSlice {
     fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation);
 
     /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
-    fn require_script_witness(&mut self, script: RequiredScript);
+    fn require_script_witness(&mut self, script: RequiredScript<'_>);
 
     /// Indicate that a vkey witness is required to be present (and valid) for the corresponding
     /// key hash.
@@ -290,14 +290,14 @@ pub trait WitnessSlice {
     fn required_signers(&mut self) -> BTreeSet<Hash<28>>;
 
     /// Obtain the full list of require scripts collected while traversing the transaction.
-    fn required_scripts(&mut self) -> BTreeSet<RequiredScript>;
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript<'_>>;
 
     /// Obtain the full list of required bootstrap witnesses collected while traversing the
     /// transaction.
     fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>>;
 
     /// Obtain the full list of known scripts collected while traversing the transaction.
-    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef>;
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef<'_>>;
 }
 
 /// Implement 'known_script' using the provided script locations and a script context that is at
@@ -308,7 +308,7 @@ pub trait WitnessSlice {
 pub fn blanket_known_scripts<C>(
     context: &'_ mut C,
     known_scripts: impl Iterator<Item = (ScriptHash, ScriptLocation)>,
-) -> BTreeMap<ScriptHash, &'_ ScriptRef>
+) -> BTreeMap<ScriptHash, &'_ ScriptRef<'_>>
 where
     C: UtxoSlice,
 {

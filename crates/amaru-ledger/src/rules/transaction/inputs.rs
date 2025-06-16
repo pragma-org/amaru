@@ -148,7 +148,7 @@ where
     Ok(())
 }
 
-fn parse_address(output: &TransactionOutput) -> Result<Address, InvalidInputs> {
+fn parse_address(output: &TransactionOutput<'_>) -> Result<Address, InvalidInputs> {
     output.address().map_err(|e| {
         InvalidInputs::UncategorizedError(format!(
             "Invalid output address. (error {:?}) output: {:?}",
@@ -163,7 +163,7 @@ mod tests {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::tests::fixture_context,
     };
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{include_cbor, include_json, json, TransactionBody};
     use test_case::test_case;
     use tracing_json::assert_trace;
 
@@ -238,7 +238,7 @@ mod tests {
     fn inputs(
         (ctx, tx, expected_traces): (
             AssertPreparationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
+            TransactionBody<'_>,
             Vec<json::Value>,
         ),
     ) -> Result<(), InvalidInputs> {
