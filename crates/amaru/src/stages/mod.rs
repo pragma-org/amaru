@@ -370,14 +370,8 @@ impl AsTip for Header {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
 
-    use amaru_kernel::network::NetworkName;
-
-    use super::{
-        bootstrap, Config,
-        StorePath::{self, *},
-    };
+    use super::{bootstrap, Config, StorePath::*};
 
     #[test]
     fn bootstrap_all_stages() {
