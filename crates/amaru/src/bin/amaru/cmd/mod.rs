@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Nonce, Point};
+use amaru_kernel::{network::NetworkName, Nonce, Point};
 
 pub(crate) mod bootstrap;
 pub(crate) mod daemon;
@@ -20,11 +20,7 @@ pub(crate) mod import_headers;
 pub(crate) mod import_ledger_state;
 pub(crate) mod import_nonces;
 
-/// Default path to the on-disk ledger storage.
-pub(crate) const DEFAULT_LEDGER_DB_DIR: &str = "./ledger.db";
-
-/// Default path to the on-disk chain storage.
-pub(crate) const DEFAULT_CHAIN_DB_DIR: &str = "./chain.db";
+pub(crate) const DEFAULT_NETWORK: NetworkName = NetworkName::Preprod;
 
 /// Default address to listen on for incoming connections.
 pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";

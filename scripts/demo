@@ -31,7 +31,7 @@ fi
 
 NETWORK=${5:-preprod}
 
-LEDGER_DIR=${LEDGER_DIR:-./ledger.db}
+LEDGER_DIR=${LEDGER_DIR:-./ledger.${NETWORK}.db}
 
 CHAIN_DIR=${CHAIN_DIR:-./chain.db}
 

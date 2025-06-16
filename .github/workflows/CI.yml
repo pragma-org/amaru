@@ -219,11 +219,11 @@ jobs:
         run: |
           cargo test --no-run -p amaru
 
-      - name: Cache Amaru's ledger.db
+      - name: Cache Amaru's ledger.${{ matrix.network }}.db
         id: cache-ledger-db
         uses: actions/cache/restore@v4
         with:
-          path: ./ledger.db
+          path: ./ledger.${{ matrix.network }}.db
           # If the ledger store serialisation format changes and become
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
@@ -246,7 +246,7 @@ jobs:
       - uses: actions/cache/save@v4
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
         with:
-          path: ./ledger.db
+          path: ./ledger.${{ matrix.network }}.db
           key: ${{ runner.OS }}-ledger-cache-v6-${{ steps.timestamp.outputs.value }}
 
       - name: Install Cardano CLI

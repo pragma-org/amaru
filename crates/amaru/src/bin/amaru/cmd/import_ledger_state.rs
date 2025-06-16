@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    network::NetworkName, protocol_parameters::ProtocolParameters, Anchor, CertificatePointer,
-    DRep, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    Set, Slot, StakeCredential, TransactionInput, TransactionOutput, TransactionPointer,
+    default_ledger_dir, network::NetworkName, protocol_parameters::ProtocolParameters, Anchor,
+    CertificatePointer, DRep, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, Set, Slot, StakeCredential, TransactionInput, TransactionOutput,
+    TransactionPointer,
 };
 use amaru_ledger::{
     self,
@@ -36,6 +37,8 @@ use std::{
     sync::LazyLock,
 };
 use tracing::info;
+
+use crate::cmd::DEFAULT_NETWORK;
 
 const BATCH_SIZE: usize = 5000;
 
@@ -69,7 +72,7 @@ pub struct Args {
     snapshot_dir: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", default_value = super::DEFAULT_LEDGER_DB_DIR)]
+    #[arg(long, value_name = "DIR", default_value_os_t = default_ledger_dir(DEFAULT_NETWORK).into())]
     ledger_dir: PathBuf,
 
     /// Network the snapshots are imported from.

@@ -370,7 +370,26 @@ impl AsTip for Header {
 
 #[cfg(test)]
 mod tests {
-    use super::{bootstrap, Config, StorePath::*};
+    use std::path::PathBuf;
+
+    use amaru_kernel::network::NetworkName;
+
+    use super::{
+        bootstrap, Config,
+        StorePath::{self, *},
+    };
+
+    fn default_config() -> Config {
+        Config {
+            ledger_store: StorePath::OnDisk(PathBuf::from("./ledger.db")),
+            chain_store: StorePath::OnDisk(PathBuf::from("./chain.db.1")),
+            upstream_peers: vec![],
+            network: NetworkName::Preprod,
+            network_magic: 1,
+            listen_address: "0.0.0.0:3000".to_string(),
+            max_downstream_peers: 10,
+        }
+    }
 
     #[test]
     fn bootstrap_all_stages() {

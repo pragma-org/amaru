@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::metrics::track_system_metrics;
+use crate::{cmd::DEFAULT_NETWORK, metrics::track_system_metrics};
 use amaru::stages::{bootstrap, Config, StorePath};
-use amaru_kernel::network::NetworkName;
+use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
@@ -44,11 +44,11 @@ pub struct Args {
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", default_value = super::DEFAULT_LEDGER_DB_DIR)]
+    #[arg(long, value_name = "DIR", default_value_os_t = default_ledger_dir(DEFAULT_NETWORK).into())]
     ledger_dir: PathBuf,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR", default_value = super::DEFAULT_CHAIN_DB_DIR)]
+    #[arg(long, value_name = "DIR", default_value_os_t = default_chain_dir(DEFAULT_NETWORK).into())]
     chain_dir: PathBuf,
 
     /// The address to listen on for incoming connections.

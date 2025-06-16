@@ -25,19 +25,27 @@ use tokio::io::BufReader;
 use tokio_util::io::StreamReader;
 use tracing::info;
 
+use crate::cmd::DEFAULT_NETWORK;
+
 use super::import_headers::import_headers;
 use super::import_ledger_state::import_all_from_directory;
 use super::import_nonces::{import_nonces, InitialNonces};
 
 #[derive(Debug, Parser)]
 pub struct Args {
-    /// Path of target directory for on-disk storage of node.
-    ///
-    /// This directory will be created if it does not exist, and will
-    /// contain directories and files needed for the node to run, e.g
-    /// databases for ledger and consensus.
+    /// Path of the ledger on-disk storage.
     #[arg(long, value_name = "DIR", default_value = ".")]
-    target_dir: PathBuf,
+    ledger_dir: PathBuf,
+
+    /// Path of the chain on-disk storage.
+    #[arg(long, value_name = "DIR", default_value = ".")]
+    chain_dir: PathBuf,
+
+    /// Path of snapshots files
+    ///
+    /// This directory will be created if it does not exist
+    #[arg(long, value_name = "DIR", default_value = "snapshots")]
+    snapshots_dir: PathBuf,
 
     /// Network to bootstrap the node for.
     ///
@@ -46,7 +54,7 @@ pub struct Args {
     #[arg(
         long,
         value_name = "NETWORK",
-        default_value_t = NetworkName::Preprod,
+        default_value_t = DEFAULT_NETWORK,
     )]
     network: NetworkName,
 
@@ -83,20 +91,20 @@ pub struct Args {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    info!(config=?args.config_dir, target=?args.target_dir, peer=%args.peer_address, network=%args.network,
+    info!(config=?args.config_dir, ledger_dir=?args.ledger_dir, chain_dir=?args.chain_dir, peer=%args.peer_address, network=%args.network,
           "bootstrapping",
     );
 
     let network = args.network;
     let era_history = network.into();
 
-    let ledger_dir = args.target_dir.join("ledger.db");
-    let chain_dir = args.target_dir.join("chain.db");
+    let ledger_dir = args.ledger_dir;
+    let chain_dir = args.chain_dir;
 
     let network_dir = args.config_dir.join(&*network.to_string());
 
     let snapshots_file: PathBuf = network_dir.join("snapshots.json");
-    let snapshots_dir: PathBuf = args.target_dir.join(network.to_string());
+    let snapshots_dir: PathBuf = args.snapshots_dir;
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
