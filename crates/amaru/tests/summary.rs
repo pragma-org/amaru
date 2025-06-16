@@ -54,10 +54,10 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
         .or_insert_with(|| {
             Arc::new(
                 RocksDBHistoricalStores::for_epoch_with(
-                    &PathBuf::from(default_ledger_dir(network)),
+                    &PathBuf::from(format!("../../{}", default_ledger_dir(network))),
                     epoch,
                 )
-                .unwrap_or_else(|_| panic!("Failed to open ledger snapshot for epoch {}", epoch)),
+                .unwrap_or_else(|err| panic!("Failed to open ledger snapshot for epoch {}: {}", epoch, err)),
             )
         })
         .clone();
