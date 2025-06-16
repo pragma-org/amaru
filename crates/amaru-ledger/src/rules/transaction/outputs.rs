@@ -17,8 +17,8 @@ use crate::{
     rules::{format_vec, WithPosition},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_network_id, BorrowedDatumOption, HasAddress,
-    HasDatum, HasNetwork, Lovelace, Network, TransactionInput, TransactionOutput,
+    into_owned_output, protocol_parameters::ProtocolParameters, to_network_id, BorrowedDatumOption,
+    HasAddress, HasDatum, HasNetwork, Lovelace, Network, TransactionInput, TransactionOutput,
 };
 use thiserror::Error;
 
@@ -53,11 +53,11 @@ pub enum InvalidOutput {
     UncategorizedError(String),
 }
 
-pub fn execute<C>(
+pub fn execute<'block, C>(
     context: &mut C,
     protocol_parameters: &ProtocolParameters,
     network: &Network,
-    outputs: Vec<TransactionOutput<'_>>,
+    outputs: Vec<TransactionOutput<'block>>,
     construct_utxo: impl Fn(u64) -> Option<TransactionInput>,
 ) -> Result<(), InvalidOutputs>
 where
@@ -70,8 +70,6 @@ where
 
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
-
-        let output = TransactionOutput::from(output);
 
         // FIXME: This line is wrong. According to the Haskell source code, we should only count
         // supplemental datums for outputs (regardless of whether transaction fails or not).
@@ -86,7 +84,7 @@ where
         }
 
         if let Some(input) = construct_utxo(position as u64) {
-            context.produce(input, output);
+            context.produce(input, into_owned_output(output));
         }
     }
 

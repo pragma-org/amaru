@@ -9,6 +9,8 @@ use amaru_kernel::{protocol_parameters::ProtocolParameters, Lovelace, Point, Sta
 use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 
+use super::columns::utxo;
+
 pub struct MemoryStore {}
 
 impl Snapshot for MemoryStore {
@@ -42,7 +44,7 @@ impl ReadOnlyStore for MemoryStore {
     fn utxo(
         &self,
         _input: &amaru_kernel::TransactionInput,
-    ) -> Result<Option<amaru_kernel::TransactionOutput>, crate::store::StoreError> {
+    ) -> Result<Option<utxo::Value>, crate::store::StoreError> {
         Ok(None)
     }
 

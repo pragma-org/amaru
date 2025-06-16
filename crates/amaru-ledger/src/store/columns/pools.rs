@@ -236,7 +236,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, Hash, Nullable, RationalNumber};
+    use amaru_kernel::{prop_cbor_roundtrip, Hash, RationalNumber};
     use proptest::prelude::*;
 
     prop_compose! {

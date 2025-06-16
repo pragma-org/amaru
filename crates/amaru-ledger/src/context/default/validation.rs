@@ -32,17 +32,17 @@ use tracing::trace;
 
 #[derive(Debug)]
 pub struct DefaultValidationContext {
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
     state: VolatileState,
     known_scripts: BTreeMap<ScriptHash, ScriptLocation>,
     required_signers: BTreeSet<Hash<28>>,
-    required_scripts: BTreeSet<RequiredScript>,
+    required_scripts: BTreeSet<RequiredScript<'static>>,
     required_supplemental_datums: BTreeSet<Hash<32>>,
     required_bootstrap_signers: BTreeSet<Hash<28>>,
 }
 
 impl DefaultValidationContext {
-    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput>) -> Self {
+    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>) -> Self {
         Self {
             utxo,
             state: VolatileState::default(),
@@ -72,7 +72,7 @@ impl PotsSlice for DefaultValidationContext {
 }
 
 impl UtxoSlice for DefaultValidationContext {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.utxo.get(input).or(self.state.utxo.produced.get(input))
     }
 
@@ -81,7 +81,7 @@ impl UtxoSlice for DefaultValidationContext {
         self.state.utxo.consume(input)
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'static>) {
         self.state.utxo.produce(input, output)
     }
 }
@@ -233,7 +233,7 @@ impl WitnessSlice for DefaultValidationContext {
         self.required_signers.insert(vkey_hash);
     }
 
-    fn require_script_witness(&mut self, script: RequiredScript) {
+    fn require_script_witness(&mut self, script: RequiredScript<'static>) {
         self.required_scripts.insert(script);
     }
 
@@ -253,7 +253,7 @@ impl WitnessSlice for DefaultValidationContext {
         mem::take(&mut self.required_signers)
     }
 
-    fn required_scripts(&mut self) -> BTreeSet<RequiredScript> {
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript<'static>> {
         mem::take(&mut self.required_scripts)
     }
 
@@ -265,7 +265,7 @@ impl WitnessSlice for DefaultValidationContext {
         mem::take(&mut self.required_supplemental_datums)
     }
 
-    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
+    fn known_scripts<'a>(&'a mut self) -> BTreeMap<ScriptHash, &'a ScriptRef<'a>> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
     }

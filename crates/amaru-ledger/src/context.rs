@@ -120,9 +120,9 @@ pub trait PotsSlice {
 
 // An interface for interacting with a subset of the UTxO state.
 pub trait UtxoSlice {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'_>>;
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>>;
     fn consume(&mut self, input: TransactionInput);
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'_>);
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'static>);
 }
 
 /// An interface to help constructing the concrete UtxoSlice ahead of time.
@@ -273,7 +273,7 @@ pub trait WitnessSlice {
     fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation);
 
     /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
-    fn require_script_witness(&mut self, script: RequiredScript<'_>);
+    fn require_script_witness(&mut self, script: RequiredScript<'static>);
 
     /// Indicate that a vkey witness is required to be present (and valid) for the corresponding
     /// key hash.
@@ -305,12 +305,13 @@ pub trait WitnessSlice {
 ///
 /// Note that re-constructing the known scripts is relatively fast as the lookup are in logarithmic
 /// times, and no allocation (other than the BTreeMap) is happening whatsoever.
-pub fn blanket_known_scripts<C>(
-    context: &'_ mut C,
+pub fn blanket_known_scripts<'a, 'b, C>(
+    context: &'a mut C,
     known_scripts: impl Iterator<Item = (ScriptHash, ScriptLocation)>,
-) -> BTreeMap<ScriptHash, &'_ ScriptRef<'_>>
+) -> BTreeMap<ScriptHash, &'a ScriptRef<'b>>
 where
     C: UtxoSlice,
+    'a: 'b,
 {
     let mut scripts = BTreeMap::new();
 

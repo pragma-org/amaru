@@ -29,7 +29,10 @@ use pallas_codec::{
     minicbor::{decode, encode, Decode, Decoder, Encode, Encoder},
     utils::CborWrap,
 };
-use pallas_primitives::{alonzo::Value as AlonzoValue, babbage::GenTransactionOutput};
+use pallas_primitives::{
+    alonzo::Value as AlonzoValue,
+    babbage::{GenPostAlonzoTransactionOutput, GenTransactionOutput},
+};
 use pallas_primitives::{
     conway::{NativeScript, Redeemer, RedeemerTag, RedeemersKey, RedeemersValue},
     DatumHash, PlutusData, PlutusScript,
@@ -683,6 +686,46 @@ pub fn output_stake_credential(
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
     })
+}
+
+pub fn into_owned_output(output: TransactionOutput<'_>) -> TransactionOutput<'static> {
+    match output {
+        TransactionOutput::Legacy(legacy) => TransactionOutput::Legacy(legacy.to_owned()),
+        TransactionOutput::PostAlonzo(modern) => {
+            let modern = modern.unwrap();
+
+            let datum_option: Option<KeepRaw<'static, DatumOption<'static>>> =
+                modern.datum_option.map(|datum| {
+                    KeepRaw::from(match datum.unwrap() {
+                        DatumOption::Hash(hash) => DatumOption::Hash(hash),
+                        DatumOption::Data(cbor) => {
+                            DatumOption::Data(CborWrap(cbor.unwrap().to_owned()))
+                        }
+                    })
+                });
+
+            let script_ref: Option<CborWrap<ScriptRef<'static>>> = modern.script_ref.map(|cbor| {
+                CborWrap(match cbor.unwrap() {
+                    ScriptRef::NativeScript(keep_raw) => {
+                        ScriptRef::NativeScript(keep_raw.to_owned())
+                    }
+                    ScriptRef::PlutusV1Script(plutus) => ScriptRef::PlutusV1Script(plutus),
+                    ScriptRef::PlutusV2Script(plutus) => ScriptRef::PlutusV2Script(plutus),
+                    ScriptRef::PlutusV3Script(plutus) => ScriptRef::PlutusV3Script(plutus),
+                })
+            });
+
+            let raw: KeepRaw<'_, GenPostAlonzoTransactionOutput<'_, Value, ScriptRef<'_>>> =
+                KeepRaw::from(GenPostAlonzoTransactionOutput {
+                    address: modern.address,
+                    value: modern.value,
+                    datum_option,
+                    script_ref,
+                });
+
+            TransactionOutput::PostAlonzo(raw)
+        }
+    }
 }
 
 // StakeAddress

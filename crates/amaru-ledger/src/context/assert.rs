@@ -37,7 +37,7 @@ use tracing::{instrument, Level};
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct AssertPreparationContext {
     #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    pub utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
 }
 
 impl From<AssertPreparationContext> for AssertValidationContext {
@@ -87,11 +87,11 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 #[derive(Debug, serde::Deserialize)]
 pub struct AssertValidationContext {
     #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    utxo: BTreeMap<TransactionInput, TransactionOutput<'static>>,
     #[serde(default)]
     required_signers: BTreeSet<Hash<28>>,
     #[serde(default)]
-    required_scripts: BTreeSet<RequiredScript>,
+    required_scripts: BTreeSet<RequiredScript<'static>>,
     #[serde(default)]
     known_scripts: BTreeMap<ScriptHash, ScriptLocation>,
     #[serde(default)]
@@ -121,7 +121,7 @@ impl PotsSlice for AssertValidationContext {
 }
 
 impl UtxoSlice for AssertValidationContext {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput<'static>> {
         self.utxo.get(input)
     }
 
@@ -129,7 +129,7 @@ impl UtxoSlice for AssertValidationContext {
         self.utxo.remove(&input);
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
+    fn produce(&mut self, input: TransactionInput, output: TransactionOutput<'static>) {
         self.utxo.insert(input, output);
     }
 }
@@ -282,7 +282,7 @@ impl WitnessSlice for AssertValidationContext {
         skip_all,
         name = "require_script_witness"
     )]
-    fn require_script_witness(&mut self, script: RequiredScript) {
+    fn require_script_witness(&mut self, script: RequiredScript<'static>) {
         self.required_scripts.insert(script);
     }
 
@@ -306,7 +306,7 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_signers)
     }
 
-    fn required_scripts(&mut self) -> BTreeSet<RequiredScript> {
+    fn required_scripts(&mut self) -> BTreeSet<RequiredScript<'static>> {
         mem::take(&mut self.required_scripts)
     }
 
@@ -322,7 +322,7 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_supplemental_datums)
     }
 
-    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
+    fn known_scripts<'a>(&'a mut self) -> BTreeMap<ScriptHash, &'a ScriptRef<'a>> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
     }

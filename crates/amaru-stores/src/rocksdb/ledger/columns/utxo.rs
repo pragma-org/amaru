@@ -32,12 +32,13 @@ pub fn get<T: ThreadMode>(
         .get(as_key(&PREFIX, key))
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(|bytes| {
-            cbor::decode(&bytes).unwrap_or_else(|e| {
+            let output = cbor::decode(&bytes).unwrap_or_else(|e| {
                 panic!(
                     "unable to decode TransactionOutput from CBOR ({}): {e:?}",
                     hex::encode(&bytes)
                 )
-            })
+            });
+            Value(into_owned_output(output))
         }))
 }
 

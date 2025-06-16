@@ -385,7 +385,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 .map(|output| Ok(Some(output)))
                 .unwrap_or_else(|| {
                     let db = self.stable.lock().unwrap();
-                    db.utxo(input)
+                    db.utxo(input).map(|opt| opt.map(|value| value.0))
                 })?;
 
             result.push((input.clone(), output));
