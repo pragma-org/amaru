@@ -1,6 +1,6 @@
 use amaru_kernel::{
-    cbor, network::NetworkName, protocol_parameters::GlobalParameters, Bytes, EraHistory, Hash,
-    Hasher, MintedBlock, Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput,
+    cbor, network::NetworkName, protocol_parameters::GlobalParameters, Block, Bytes, EraHistory,
+    Hash, Hasher, KeepRaw, Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput,
     Value, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
@@ -11,7 +11,7 @@ use amaru_ledger::{
 };
 use std::collections::BTreeMap;
 
-type BlockWrapper<'b> = (u16, MintedBlock<'b>);
+type BlockWrapper<'b> = (u16, Block<'b>);
 
 pub const RAW_BLOCK_CONWAY_1: &str = include_str!("../assets/conway1.block");
 pub const RAW_BLOCK_CONWAY_3: &str = include_str!("../assets/conway3.block");
@@ -48,12 +48,12 @@ pub fn forward_ledger(raw_block: &str) {
     }
 
     fn create_output(address: &str) -> TransactionOutput {
-        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
+        TransactionOutput::PostAlonzo(KeepRaw::from(PostAlonzoTransactionOutput {
             address: Bytes::from(hex::decode(address).unwrap()),
             value: Value::Coin(0),
             datum_option: None,
             script_ref: None,
-        })
+        }))
     }
 
     let inputs = BTreeMap::from([
