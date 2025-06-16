@@ -1,0 +1,25 @@
+name: Unpack test vectors 
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - "crates/**/Cargo.toml"
+      - "crates/**/Cargo.lock"
+      - "examples/**/Cargo.toml"
+      - "examples/**/Cargo.lock"
+
+jobs:
+  test-vectors:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: rrruko/cardano-blueprint
+          path: cardano-blueprint
+          ref: rrruko/ledger-conformance-test-vectors
+      - name: Unpack vectors
+        run: |
+          tar -xzf cardano-blueprint/src/ledger/conformance-test-vectors/vectors.tar.gz

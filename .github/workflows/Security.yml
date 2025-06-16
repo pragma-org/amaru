@@ -33,15 +33,3 @@ jobs:
           tag: 0.16.4
           binaries-location: cargo-deny-0.16.4-x86_64-unknown-linux-musl
       - run: cargo deny-amaru
-
-  test-vectors:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          repository: rrruko/cardano-blueprint
-          path: cardano-blueprint
-          ref: rrruko/ledger-conformance-test-vectors
-      - name: Unpack vectors
-        run: |
-          tar -xzf cardano-blueprint/src/ledger/conformance-test-vectors/vectors.tar.gz
