@@ -18,6 +18,8 @@ use amaru_consensus::consensus::{
 use gasket::framework::*;
 use tracing::error;
 
+use crate::{schedule, send};
+
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 
@@ -53,10 +55,7 @@ impl SelectChainStage {
             })?;
 
         for event in events {
-            self.downstream.send(event.into()).await.map_err(|e| {
-                error!(error=%e, "failed to send event");
-                WorkerError::Panic
-            })?;
+            send!(&mut self.downstream, event)?;
         }
 
         Ok(())
@@ -75,12 +74,7 @@ impl gasket::framework::Worker<SelectChainStage> for Worker {
         &mut self,
         stage: &mut SelectChainStage,
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.map_err(|e| {
-            error!(error=%e, "error receiving message");
-            WorkerError::Panic
-        })?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
     async fn execute(

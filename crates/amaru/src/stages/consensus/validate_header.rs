@@ -17,6 +17,8 @@ use amaru_kernel::protocol_parameters::GlobalParameters;
 use gasket::framework::*;
 use tracing::error;
 
+use crate::{schedule, send};
+
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
@@ -53,12 +55,7 @@ impl ValidateHeaderStage {
                 WorkerError::Recv
             })?;
 
-        self.downstream.send(event.into()).await.map_err(|e| {
-            error!(error=%e, "failed to send event");
-            WorkerError::Send
-        })?;
-
-        Ok(())
+        send!(&mut self.downstream, event)
     }
 }
 
@@ -74,12 +71,7 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
         &mut self,
         stage: &mut ValidateHeaderStage,
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.map_err(|e| {
-            error!(error=%e, "error receiving message");
-            WorkerError::Recv
-        })?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
     async fn execute(

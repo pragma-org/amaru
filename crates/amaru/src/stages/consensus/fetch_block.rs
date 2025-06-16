@@ -14,13 +14,13 @@
 
 use std::collections::BTreeMap;
 
+use crate::schedule;
+use crate::stages::PeerSession;
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
 use gasket::framework::*;
 use tracing::{error, instrument, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
-
-use crate::stages::PeerSession;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -65,7 +65,7 @@ impl BlockFetchStage {
                     .await
                     .map_err(|e| {
                         error!(error=%e, "failed to send event");
-                        WorkerError::Panic
+                        WorkerError::Send
                     })?
             }
             ValidateHeaderEvent::Rollback {
@@ -126,12 +126,7 @@ impl gasket::framework::Worker<BlockFetchStage> for Worker {
         &mut self,
         stage: &mut BlockFetchStage,
     ) -> Result<WorkSchedule<ValidateHeaderEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.map_err(|e| {
-            error!(error=%e, "error receiving message");
-            WorkerError::Panic
-        })?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
     async fn execute(

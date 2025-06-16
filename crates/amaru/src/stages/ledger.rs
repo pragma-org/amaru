@@ -14,9 +14,11 @@ use amaru_ledger::{
     store::{HistoricalStores, Store, StoreError},
 };
 use anyhow::Context;
-use gasket::framework::{AsWorkError, WorkSchedule, WorkerError};
+use gasket::framework::{WorkSchedule, WorkerError};
 use tracing::{error, instrument, Level, Span};
 use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use crate::{schedule, send};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
@@ -160,8 +162,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         &mut self,
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.or_panic()?;
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
     #[instrument(
@@ -199,7 +200,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
             }
         };
 
-        Ok(stage.downstream.send(result.into()).await.or_panic()?)
+        send!(&mut stage.downstream, result)
     }
 }
 

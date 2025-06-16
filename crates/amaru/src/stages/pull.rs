@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::PeerSession;
 use crate::point::{from_network_point, to_network_point};
+use crate::{send, stages::PeerSession};
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
 use anyhow::anyhow;
@@ -108,18 +108,14 @@ impl Stage {
 
         let raw_header: RawHeader = header.cbor().to_vec();
 
-        self.downstream
-            .send(
-                ChainSyncEvent::RollForward {
-                    peer: peer.clone(),
-                    point,
-                    raw_header,
-                    span: Span::current(),
-                }
-                .into(),
-            )
-            .await
-            .or_panic()
+        let event = ChainSyncEvent::RollForward {
+            peer: peer.clone(),
+            point,
+            raw_header,
+            span: Span::current(),
+        };
+
+        send!(&mut self.downstream, event)
     }
 
     #[instrument(

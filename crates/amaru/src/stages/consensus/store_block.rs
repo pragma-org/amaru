@@ -15,7 +15,8 @@
 use amaru_consensus::consensus::store_block::StoreBlock;
 use amaru_kernel::block::ValidateBlockEvent;
 use gasket::framework::*;
-use tracing::error;
+
+use crate::{schedule, send};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -47,12 +48,7 @@ impl StoreBlockStage {
             WorkerError::Recv
         })?;
 
-        self.downstream.send(event.into()).await.map_err(|e| {
-            error!(error=%e, "failed to send event");
-            WorkerError::Panic
-        })?;
-
-        Ok(())
+        send!(&mut self.downstream, event)
     }
 }
 
@@ -68,12 +64,7 @@ impl gasket::framework::Worker<StoreBlockStage> for Worker {
         &mut self,
         stage: &mut StoreBlockStage,
     ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.map_err(|e| {
-            error!(error=%e, "error receiving message");
-            WorkerError::Panic
-        })?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
     async fn execute(

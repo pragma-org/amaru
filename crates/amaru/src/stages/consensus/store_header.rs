@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{schedule, send};
 use amaru_consensus::consensus::{store_header::StoreHeader, DecodedChainSyncEvent};
 use gasket::framework::*;
 use tracing::error;
@@ -46,12 +47,7 @@ impl StoreHeaderStage {
             WorkerError::Recv
         })?;
 
-        self.downstream.send(event.into()).await.map_err(|e| {
-            error!(error=%e, "failed to send event");
-            WorkerError::Panic
-        })?;
-
-        Ok(())
+        send!(&mut self.downstream, event)
     }
 }
 
@@ -67,12 +63,7 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
         &mut self,
         stage: &mut StoreHeaderStage,
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.map_err(|e| {
-            error!(error=%e, "error receiving message");
-            WorkerError::Panic
-        })?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
     async fn execute(

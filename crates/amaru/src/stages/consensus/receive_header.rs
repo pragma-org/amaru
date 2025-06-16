@@ -16,6 +16,8 @@ use amaru_consensus::consensus::{receive_header, ChainSyncEvent, DecodedChainSyn
 use gasket::framework::*;
 use tracing::{error, instrument, Level};
 
+use crate::{schedule, send};
+
 pub type UpstreamPort = gasket::messaging::InputPort<ChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
@@ -37,12 +39,7 @@ impl ReceiveHeaderStage {
             WorkerError::Recv
         })?;
 
-        self.downstream.send(event.into()).await.map_err(|e| {
-            error!(error=%e, "failed to send event");
-            WorkerError::Send
-        })?;
-
-        Ok(())
+        send!(&mut self.downstream, event)
     }
 }
 
@@ -58,12 +55,7 @@ impl gasket::framework::Worker<ReceiveHeaderStage> for Worker {
         &mut self,
         stage: &mut ReceiveHeaderStage,
     ) -> Result<WorkSchedule<ChainSyncEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.map_err(|e| {
-            error!(error=%e, "error receiving message");
-            WorkerError::Panic
-        })?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
     #[instrument(
