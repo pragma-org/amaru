@@ -1,18 +1,16 @@
-use crate::point::from_network_point;
-
 use super::{
     client_state::{find_headers_between, ClientState},
     ClientOp,
 };
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
 use amaru_consensus::consensus::store::ChainStore;
-use amaru_kernel::{to_cbor, Hash, Header};
+use amaru_kernel::{to_cbor, Header};
 use pallas_network::{
     facades::PeerServer,
     miniprotocols::{
-        blockfetch::{self, BlockRequest},
+        blockfetch,
         chainsync::{self, ClientRequest, HeaderContent, Tip},
-        keepalive, txsubmission, Point,
+        keepalive, txsubmission,
     },
 };
 use std::sync::Arc;
@@ -30,8 +28,6 @@ pub enum ClientError {
     ClientTerminated,
     #[error("handler failure: {0}")]
     HandlerFailure(String),
-    #[error("does not know how to serve range of points: {0:?} {1:?}")]
-    CannotServeRange(Point, Point),
 }
 
 pub enum ClientProtocolMsg {
@@ -207,7 +203,7 @@ async fn chain_sync_handler(
 
 pub(super) fn to_header_content(header: Header) -> HeaderContent {
     HeaderContent {
-        variant: 6,
+        variant: 1,
         byron_prefix: None,
         cbor: to_cbor(&header),
     }
@@ -218,27 +214,15 @@ enum BlockFetchMsg {}
 async fn block_fetch(
     _cell: ActoCell<BlockFetchMsg, impl ActoRuntime>,
     mut server: blockfetch::Server,
-    store: Arc<Mutex<dyn ChainStore<Header>>>, // TODO: need a block store here
+    _store: Arc<Mutex<dyn ChainStore<Header>>>, // TODO: need a block store here
 ) -> anyhow::Result<()> {
-    loop {
-        let Some(req) = server.recv_while_idle().await? else {
-            return Err(ClientError::ClientTerminated.into());
-        };
-        let BlockRequest((lb_point, ub_point)) = req;
-
-        // FIXME: we should be able to iterate between the 2 points to serve a
-        // range properly, which implies knowing how to iterate over the chain
-        // db between 2 points.
-        if lb_point != ub_point {
-            return Err(ClientError::CannotServeRange(lb_point, ub_point).into());
-        }
-
-        let db = store.lock().await;
-        let block = db.load_block(&Hash::from(&from_network_point(&lb_point)))?;
-        server.send_start_batch().await?;
-        server.send_block(block).await?;
-        server.send_batch_done().await?;
+    while let Some(req) = server.recv_while_idle().await? {
+        tracing::info!("block fetch request: {:?}", req);
+        // TODO: Implement block fetch
+        server.send_no_blocks().await?;
     }
+
+    Ok(())
 }
 
 enum TxSubmissionMsg {}

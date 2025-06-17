@@ -12,17 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{schedule, send, stages::common::adopt_current_span};
 use amaru_consensus::consensus::{store_header::StoreHeader, DecodedChainSyncEvent};
 use gasket::framework::*;
-use tracing::{error, instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
 #[derive(Stage)]
 #[stage(
-    name = "stage.store_header",
+    name = "consensus.store_header",
     unit = "DecodedChainSyncEvent",
     worker = "Worker"
 )]
@@ -42,12 +40,15 @@ impl StoreHeaderStage {
     }
 
     async fn handle_event(&mut self, event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
-        let event = self.store_header.handle_event(event).await.map_err(|e| {
-            error!("fail to store header {}", e);
-            WorkerError::Recv
-        })?;
+        let event = self
+            .store_header
+            .handle_event(event)
+            .await
+            .map_err(|_| WorkerError::Recv)?;
 
-        send!(&mut self.downstream, event)
+        self.downstream.send(event.into()).await.or_panic()?;
+
+        Ok(())
     }
 }
 
@@ -63,20 +64,16 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
         &mut self,
         stage: &mut StoreHeaderStage,
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
-        schedule!(&mut stage.upstream)
+        let unit = stage.upstream.recv().await.or_panic()?;
+
+        Ok(WorkSchedule::Unit(unit.payload))
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "stage.store_header",
-    )]
     async fn execute(
         &mut self,
         unit: &DecodedChainSyncEvent,
         stage: &mut StoreHeaderStage,
     ) -> Result<(), WorkerError> {
-        adopt_current_span(unit);
         stage.handle_event(unit.clone()).await
     }
 }

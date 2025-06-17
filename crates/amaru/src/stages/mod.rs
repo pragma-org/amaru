@@ -51,7 +51,6 @@ use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
 use std::{error::Error, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
-pub mod common;
 pub mod consensus;
 pub mod ledger;
 pub mod pull;

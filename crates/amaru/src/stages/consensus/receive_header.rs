@@ -14,16 +14,14 @@
 
 use amaru_consensus::consensus::{receive_header, ChainSyncEvent, DecodedChainSyncEvent};
 use gasket::framework::*;
-use tracing::{error, instrument, Level};
-
-use crate::{schedule, send, stages::common::adopt_current_span};
+use tracing::{instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
 #[derive(Default, Stage)]
 #[stage(
-    name = "stage.receive_header",
+    name = "consensus.receive_header",
     unit = "ChainSyncEvent",
     worker = "Worker"
 )]
@@ -34,12 +32,11 @@ pub struct ReceiveHeaderStage {
 
 impl ReceiveHeaderStage {
     async fn handle_event(&mut self, sync_event: ChainSyncEvent) -> Result<(), WorkerError> {
-        let event = receive_header::handle_chain_sync(sync_event).map_err(|e| {
-            error!("fail to handle chain sync {}", e);
-            WorkerError::Recv
-        })?;
+        let event = receive_header::handle_chain_sync(sync_event).map_err(|_| WorkerError::Recv)?;
 
-        send!(&mut self.downstream, event)
+        self.downstream.send(event.into()).await.or_panic()?;
+
+        Ok(())
     }
 }
 
@@ -55,7 +52,9 @@ impl gasket::framework::Worker<ReceiveHeaderStage> for Worker {
         &mut self,
         stage: &mut ReceiveHeaderStage,
     ) -> Result<WorkSchedule<ChainSyncEvent>, WorkerError> {
-        schedule!(&mut stage.upstream)
+        let unit = stage.upstream.recv().await.or_panic()?;
+
+        Ok(WorkSchedule::Unit(unit.payload))
     }
 
     #[instrument(
@@ -68,7 +67,6 @@ impl gasket::framework::Worker<ReceiveHeaderStage> for Worker {
         unit: &ChainSyncEvent,
         stage: &mut ReceiveHeaderStage,
     ) -> Result<(), WorkerError> {
-        adopt_current_span(unit);
         stage.handle_event(unit.clone()).await
     }
 }

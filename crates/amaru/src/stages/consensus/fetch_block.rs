@@ -14,18 +14,23 @@
 
 use std::collections::BTreeMap;
 
-use crate::stages::PeerSession;
-use crate::{schedule, stages::common::adopt_current_span};
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
 use gasket::framework::*;
-use tracing::{error, instrument};
+use tracing::{instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
+use crate::stages::PeerSession;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 
 #[derive(Stage)]
-#[stage(name = "stage.fetch", unit = "ValidateHeaderEvent", worker = "Worker")]
+#[stage(
+    name = "consensus.fetch",
+    unit = "ValidateHeaderEvent",
+    worker = "Worker"
+)]
 pub struct BlockFetchStage {
     pub peer_sessions: BTreeMap<Peer, PeerSession>,
     pub upstream: UpstreamPort,
@@ -45,40 +50,33 @@ impl BlockFetchStage {
         }
     }
 
+    #[instrument(level = tracing::Level::TRACE, skip_all)]
     async fn handle_event(&mut self, event: ValidateHeaderEvent) -> Result<(), WorkerError> {
         match event {
             ValidateHeaderEvent::Validated { peer, point, span } => {
-                let block = self.fetch_block(&peer, &point).await.map_err(|e| {
-                    error!(error=%e, "failed to fetch block");
-                    WorkerError::Recv
-                })?;
-
+                Span::current().set_parent(span.context());
+                let block = self.fetch_block(&peer, &point).await.or_panic()?;
                 self.downstream
                     .send(ValidateBlockEvent::Validated { point, block, span }.into())
                     .await
-                    .map_err(|e| {
-                        error!(error=%e, "failed to send event");
-                        WorkerError::Send
-                    })?
+                    .or_panic()?;
             }
             ValidateHeaderEvent::Rollback {
                 rollback_point,
                 span,
                 ..
-            } => self
-                .downstream
-                .send(
-                    ValidateBlockEvent::Rollback {
-                        rollback_point,
-                        span,
-                    }
-                    .into(),
-                )
-                .await
-                .map_err(|e| {
-                    error!(error=%e, "failed to send event");
-                    WorkerError::Send
-                })?,
+            } => {
+                self.downstream
+                    .send(
+                        ValidateBlockEvent::Rollback {
+                            rollback_point,
+                            span,
+                        }
+                        .into(),
+                    )
+                    .await
+                    .or_panic()?;
+            }
         }
 
         Ok(())
@@ -119,20 +117,16 @@ impl gasket::framework::Worker<BlockFetchStage> for Worker {
         &mut self,
         stage: &mut BlockFetchStage,
     ) -> Result<WorkSchedule<ValidateHeaderEvent>, WorkerError> {
-        schedule!(&mut stage.upstream)
+        let unit = stage.upstream.recv().await.or_panic()?;
+
+        Ok(WorkSchedule::Unit(unit.payload))
     }
 
-    #[instrument(
-        level = tracing::Level::TRACE,
-        name = "stage.fetch_block",
-        skip_all
-    )]
     async fn execute(
         &mut self,
         unit: &ValidateHeaderEvent,
         stage: &mut BlockFetchStage,
     ) -> Result<(), WorkerError> {
-        adopt_current_span(unit);
         stage.handle_event(unit.clone()).await
     }
 }
