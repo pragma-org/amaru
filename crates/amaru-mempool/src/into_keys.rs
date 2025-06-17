@@ -21,7 +21,7 @@ pub trait IntoKeys {
     fn keys(&self) -> impl Iterator<Item = &Self::Key>;
 }
 
-impl IntoKeys for Tx {
+impl IntoKeys for Tx<'_> {
     type Key = TransactionInput;
 
     fn keys(&self) -> impl Iterator<Item = &Self::Key> {

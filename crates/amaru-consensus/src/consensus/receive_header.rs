@@ -35,7 +35,7 @@ pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, Consen
             header: raw_header.into(),
         })?;
 
-    Ok(Header::from(minted_header))
+    Ok(minted_header.unwrap())
 }
 
 pub fn handle_chain_sync(

@@ -14,14 +14,23 @@
 
 use pallas_codec::utils::CborWrap;
 use pallas_primitives::{
-    conway::{DatumOption, Hash, ScriptRef},
-    PlutusScript,
+    conway::{DatumOption, Hash, NativeScript, ScriptRef},
+    KeepRaw, PlutusData, PlutusScript,
 };
 
 use crate::{
     from_cbor, Bytes, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
 };
 use std::{collections::BTreeMap, ops::Deref};
+
+// FIXME: Here we are constructing KeepRaw wrappers with an empty raw vec (KeepRaw::from)
+// This logically is only (at this point, and probably forever) for testing purposes to build data structures from JSON representations of them.
+// Generally, I'd say we don't care about the fact we aren't storing the raw bytes, as these values are used to mock data coming from out rocksdb store,
+// which involves reserializing the data, so we shouldn't rely on the raw bytes anyway.
+// However, it's notable that we still have to construct the KeepRaw wrappers with an empty vec, and that is not clearly communicated anywhere else in the codebase,
+// so it could lead to confusion and potential bugs in tests (or even in production code based on usage from the store)
+// Should there be a type that clearly communicates that there is no raw data and thus, cannot be trusted as a source of truth for the "on the wire" representations?
+// Is there a better way to clearly communicate that these `KeepRaw` are not actually, keeping raw?
 
 // ----------------------------------------------------------------------------------- Generic utils
 
@@ -75,20 +84,20 @@ pub struct TransactionOutputProxy {
     // TODO: expand this
 }
 
-impl HasProxy for TransactionOutput {
+impl HasProxy for TransactionOutput<'_> {
     type Proxy = TransactionOutputProxy;
 }
 
-impl From<TransactionOutputProxy> for TransactionOutput {
+impl From<TransactionOutputProxy> for TransactionOutput<'_> {
     fn from(proxy: TransactionOutputProxy) -> Self {
-        Self::PostAlonzo(PostAlonzoTransactionOutput {
+        Self::PostAlonzo(KeepRaw::from(PostAlonzoTransactionOutput {
             address: proxy.address,
             value: Value::Coin(proxy.value.unwrap_or_default()),
-            datum_option: proxy.datum.map(DatumOption::from),
+            datum_option: proxy.datum.map(DatumOption::from).map(KeepRaw::from),
             script_ref: proxy
                 .script_ref
                 .map(|proxy| CborWrap(ScriptRef::from(proxy))),
-        })
+        }))
     }
 }
 
@@ -102,17 +111,18 @@ pub enum ScriptRefProxy {
     PlutusV3(Bytes),
 }
 
-impl HasProxy for ScriptRef {
+impl HasProxy for ScriptRef<'_> {
     type Proxy = ScriptRefProxy;
 }
 
-impl From<ScriptRefProxy> for ScriptRef {
+impl From<ScriptRefProxy> for ScriptRef<'_> {
     #[allow(clippy::unwrap_used)]
     fn from(value: ScriptRefProxy) -> Self {
         match value {
             ScriptRefProxy::NativeScript(bytes) => {
+                let script: NativeScript = from_cbor(bytes.deref()).unwrap();
                 // This code should only be run during tests, so a panic here is fine
-                ScriptRef::NativeScript(from_cbor(bytes.deref()).unwrap())
+                ScriptRef::NativeScript(KeepRaw::from(script))
             }
             ScriptRefProxy::PlutusV1(bytes) => ScriptRef::PlutusV1Script(PlutusScript::<1>(bytes)),
             ScriptRefProxy::PlutusV2(bytes) => ScriptRef::PlutusV2Script(PlutusScript::<2>(bytes)),
@@ -129,18 +139,19 @@ pub enum DatumOptionProxy {
     Data(Bytes),
 }
 
-impl HasProxy for DatumOption {
+impl HasProxy for DatumOption<'_> {
     type Proxy = DatumOptionProxy;
 }
 
-impl From<DatumOptionProxy> for DatumOption {
+impl From<DatumOptionProxy> for DatumOption<'_> {
     #[allow(clippy::unwrap_used)]
     fn from(value: DatumOptionProxy) -> Self {
         match value {
             DatumOptionProxy::Hash(bytes) => DatumOption::Hash(Hash::from(bytes.as_slice())),
             // This code should only be run during tests, so a panic here is fine
             DatumOptionProxy::Data(data) => {
-                DatumOption::Data(CborWrap(from_cbor(data.deref()).unwrap()))
+                let data: PlutusData = from_cbor(data.deref()).unwrap();
+                DatumOption::Data(CborWrap(KeepRaw::from(data)))
             }
         }
     }

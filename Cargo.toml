@@ -18,17 +18,23 @@ resolver = "2"
 acto = { version = "0.7.2", features = ["tokio"] }
 anyhow = "1.0.95"
 async-trait = "0.1.83"
-async-compression = { version = "0.4.24",  features = ["tokio", "gzip"] }
+async-compression = { version = "0.4.24", features = ["tokio", "gzip"] }
 bech32 = "0.11.0"
 clap = { version = "4.5.38", features = ["derive", "env"] }
-reqwest = { version = "0.11.24", default-features = false, features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.11.24", default-features = false, features = [
+    "json",
+    "stream",
+    "rustls-tls",
+] }
 either = "1.15"
 futures-util = "0.3.31"
-gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
+gasket = { version = "0.8.0", features = [
+    "derive",
+] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
 hex = "0.4.3"
 indicatif = "0.17.9"
 indoc = "2.0"
-minicbor = "0.25.1" # Must match the version used by pallas
+minicbor = "0.26.0" # Must match the version used by pallas
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.29.1"
 opentelemetry-otlp = { version = "0.29.0", features = [
@@ -37,19 +43,19 @@ opentelemetry-otlp = { version = "0.29.0", features = [
     "reqwest-blocking-client",
 ] }
 opentelemetry_sdk = "0.29.0"
-pallas-addresses = "0.32.0"
-pallas-codec = "0.32.0" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v0.32.0/pallas-codec/Cargo.toml#L22)
-pallas-crypto = "0.32.0"
-pallas-math = "0.32.0"
-pallas-network = "0.32.0"
-pallas-primitives = "0.32.0"
-pallas-traverse = "0.32.0"
+pallas-addresses = "1.0.0-alpha.2"
+pallas-codec = "1.0.0-alpha.2" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v1.0.0-alpha.2/pallas-codec/Cargo.toml#L22)
+pallas-crypto = "1.0.0-alpha.2"
+pallas-math = "1.0.0-alpha.2"
+pallas-network = "1.0.0-alpha.2"
+pallas-primitives = "1.0.0-alpha.2"
+pallas-traverse = "1.0.0-alpha.2"
 parking_lot = "0.12.3"
 rayon = "1.10"
 rocksdb = { version = "0.23.0", default-features = false, features = [
     "bindgen-runtime",
     "snappy",
-    "multi-threaded-cf"
+    "multi-threaded-cf",
 ] }
 serde = { version = "1.0", default-features = false }
 serde_json = { version = "1.0.128", default-features = false }

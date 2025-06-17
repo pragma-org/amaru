@@ -13,15 +13,10 @@
 // limitations under the License.
 
 use crate::context::{DRepsSlice, WitnessSlice};
-use amaru_kernel::{
-    NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose, StakeCredential, Voter,
-    VotingProcedure,
-};
+use amaru_kernel::{RequiredScript, ScriptPurpose, StakeCredential, Voter, VotingProcedures};
 
-pub(crate) fn execute<C>(
-    context: &mut C,
-    voting_procedures: Option<&Vec<(Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>)>>,
-) where
+pub(crate) fn execute<C>(context: &mut C, voting_procedures: Option<&VotingProcedures>)
+where
     C: WitnessSlice + DRepsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
@@ -69,7 +64,7 @@ mod tests {
     use std::collections::BTreeMap;
 
     use crate::context::assert::{AssertPreparationContext, AssertValidationContext};
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, TransactionBody};
     use test_case::test_case;
     use tracing_json::assert_trace;
 
@@ -100,7 +95,7 @@ mod tests {
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "drep-script"); "DRep Script")]
     #[test_case(fixture!("278d887adc913416e6851106e7ce6e89f29aa7531b93d11e1986550e7a128a2f", "spo-key"); "SPO Key")]
     fn voting_procedures(
-        (tx, expected_traces): (KeepRaw<'_, MintedTransactionBody<'_>>, Vec<json::Value>),
+        (tx, expected_traces): (KeepRaw<'_, TransactionBody<'_>>, Vec<json::Value>),
     ) {
         assert_trace(
             || {
@@ -108,7 +103,7 @@ mod tests {
                     AssertValidationContext::from(AssertPreparationContext {
                         utxo: BTreeMap::new(),
                     });
-                super::execute(&mut validation_context, tx.voting_procedures.as_deref())
+                super::execute(&mut validation_context, tx.voting_procedures.as_ref())
             },
             expected_traces,
         );

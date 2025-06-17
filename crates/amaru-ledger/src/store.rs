@@ -28,7 +28,6 @@ use amaru_kernel::{
     PoolId,
     StakeCredential,
     TransactionInput,
-    TransactionOutput,
 };
 use columns::*;
 use slot_arithmetic::Epoch;
@@ -79,7 +78,7 @@ pub trait ReadOnlyStore {
     fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>, StoreError>;
 
     /// Get details about a specific UTxO
-    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError>;
+    fn utxo(&self, input: &TransactionInput) -> Result<Option<utxo::Value>, StoreError>;
 
     /// Get current values of the treasury and reserves accounts.
     fn pots(&self) -> Result<Pots, StoreError>;

@@ -14,7 +14,7 @@
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptPurpose,
+    Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptPurpose,
     TransactionId, TransactionPointer,
 };
 
@@ -49,10 +49,10 @@ pub(crate) fn execute<C>(
 
 fn get_proposal_script_hash(proposal: &Proposal) -> Option<ScriptHash> {
     match proposal.gov_action {
-        amaru_kernel::GovAction::ParameterChange(_, _, Nullable::Some(gov_proposal_hash)) => {
+        amaru_kernel::GovAction::ParameterChange(_, _, Some(gov_proposal_hash)) => {
             Some(gov_proposal_hash)
         }
-        amaru_kernel::GovAction::TreasuryWithdrawals(_, Nullable::Some(gov_proposal_hash)) => {
+        amaru_kernel::GovAction::TreasuryWithdrawals(_, Some(gov_proposal_hash)) => {
             Some(gov_proposal_hash)
         }
         amaru_kernel::GovAction::ParameterChange(..)
@@ -71,7 +71,7 @@ mod tests {
 
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
     use amaru_kernel::{
-        include_cbor, include_json, json, KeepRaw, MintedTransactionBody, OriginalHash, Slot,
+        include_cbor, include_json, json, KeepRaw, OriginalHash, Slot, TransactionBody,
         TransactionPointer,
     };
     use test_case::test_case;
@@ -116,7 +116,7 @@ mod tests {
     fn test_proposals(
         (mut ctx, tx, tx_pointer, expected_traces): (
             AssertValidationContext,
-            KeepRaw<'_, MintedTransactionBody<'_>>,
+            KeepRaw<'_, TransactionBody<'_>>,
             TransactionPointer,
             Vec<json::Value>,
         ),

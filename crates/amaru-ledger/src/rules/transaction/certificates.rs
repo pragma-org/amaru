@@ -87,7 +87,7 @@ where
 {
     // Promote a ScriptHash into a RequiredScript, with additional context needed to defer the
     // validation of the script.
-    let into_required_script = |hash: ScriptHash| -> RequiredScript {
+    let into_required_script = |hash: ScriptHash| -> RequiredScript<'static> {
         RequiredScript {
             hash,
             index: pointer.certificate_index as u32,
@@ -205,7 +205,7 @@ where
                 DRepState {
                     deposit,
                     registered_at: pointer,
-                    anchor: Option::from(anchor),
+                    anchor,
                 },
             )?;
             Ok(())
@@ -229,7 +229,7 @@ where
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            DRepsSlice::update(context, drep, Option::from(anchor))?;
+            DRepsSlice::update(context, drep, anchor)?;
             Ok(())
         }
 
@@ -262,7 +262,7 @@ where
                 }
                 StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
             };
-            CommitteeSlice::resign(context, cold_credential, Option::from(anchor))?;
+            CommitteeSlice::resign(context, cold_credential, anchor)?;
             Ok(())
         }
 
