@@ -16,9 +16,8 @@ use amaru_ledger::{
 use anyhow::Context;
 use gasket::framework::{WorkSchedule, WorkerError};
 use tracing::{error, instrument, Level, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
 
-use crate::{schedule, send};
+use crate::{schedule, send, stages::common::adopt_current_span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
@@ -179,7 +178,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
             ValidateBlockEvent::Validated { point, block, span } => {
                 let point = point.clone();
                 let block = block.to_vec();
-                let span = restore_span(span);
+                let span = adopt_current_span(span);
 
                 match stage.roll_forward(point.clone(), block.clone()) {
                     Ok(None) => BlockValidationResult::BlockValidated { point, block, span },
@@ -195,17 +194,11 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
                 span,
             } => {
                 stage
-                    .rollback_to(rollback_point.clone(), restore_span(span))
+                    .rollback_to(rollback_point.clone(), adopt_current_span(span))
                     .await
             }
         };
 
         send!(&mut stage.downstream, result)
     }
-}
-
-fn restore_span(parent_span: &Span) -> Span {
-    let span = Span::current();
-    span.set_parent(parent_span.context());
-    span
 }

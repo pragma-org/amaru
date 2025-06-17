@@ -12,6 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use tracing::Span;
+use tracing_opentelemetry::OpenTelemetrySpanExt;
+
 /// Generic wrapper around sending logic.
 ///
 /// Just adds additional error messages in order to better locate the sources
@@ -41,4 +44,15 @@ macro_rules! schedule {
         })
         .map(|unit| gasket::framework::WorkSchedule::Unit(unit.payload))
   }
+}
+
+/// Make current span a child of given span.
+///
+/// This is needed to ensure tracing keeps track of dependencies between
+/// stages, properly connecting related spans even though they are crossing
+/// thread boundaries.
+pub fn adopt_current_span(parent: &Span) -> Span {
+    let span = Span::current();
+    span.set_parent(parent.context());
+    span
 }
