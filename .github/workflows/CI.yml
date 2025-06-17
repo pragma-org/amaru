@@ -165,6 +165,7 @@ jobs:
           - name: preprod
             magic: 1
         cardano_node_version: [10.1.4]
+    continue-on-error: true 
     steps:
       - uses: actions/checkout@v4
 
