@@ -3,25 +3,24 @@ import * as path from 'node:path';
 import { bech32 } from 'bech32';
 import JsonBig from '@cardanosolutions/json-bigint';
 
-const epoch = Number.parseInt(process.argv[2], 10);
+const network = (process.argv[2] ?? "").toLowerCase();
 
-if (Number.isNaN(epoch)) {
+const epoch = Number.parseInt(process.argv[3], 10);
+
+if (Number.isNaN(epoch) ||!["preview", "preprod", "mainnet"].includes(network)) {
   console.log(`Invalid or missing epoch number.
 
 Usage:
-    ./generate.js <EPOCH>`);
+    ./generate.mjs <NETWORK> <EPOCH>
+
+Arguments:
+    EPOCH     An epoch number as integer
+    NETWORK   One of 'preview', 'preprod' or 'mainnet'`);
   process.exit(1);
 }
 
 const $ = JsonBig({ useNativeBigInt: true });
 
-const DREP_TYPES = {
-  "noConfidence": "no_confidence",
-  "abstain": "abstain",
-  "registered": "registered",
-};
-
-const { additionalStakeAddresses } = loadConfig();
 const pools = load("pools", epoch);
 const nextPools = load("pools", epoch + 1);
 const blocks = load("rewards-provenance", epoch + 1);
@@ -78,7 +77,7 @@ if (!exists) {
 
 const poolIds = Object.keys(distr.stakePools).sort();
 
-withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
+withStream(`summary__stake_distribution_${network}_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
   stream.write(`expression: "stake_distr.for_network(Network::Testnet)"\n`)
@@ -147,7 +146,7 @@ withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
 
 // ---------- Rewards summary snapshots
 
-withStream(`summary__rewards_summary_${epoch}.snap`, (stream) => {
+withStream(`summary__rewards_summary_${network}_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
   stream.write(`expression: rewards_summary\n`)
@@ -178,16 +177,14 @@ withStream(`summary__rewards_summary_${epoch}.snap`, (stream) => {
 
 // ---------- Helpers
 
-function loadConfig() {
-  return $.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
-}
-
 function load(dataset, epoch) {
-  return $.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "data", dataset, `${epoch}.json`)));
+  return $.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "..", "data", network, dataset, `${epoch}.json`)));
 }
 
 function withStream(filename, callback) {
-  const stream = fs.createWriteStream(path.join(import.meta.dirname, "..", "snapshots", filename));
+  const dir = path.join(import.meta.dirname, "..", "generated");
+  fs.mkdirSync(dir, { recursive: true });
+  const stream = fs.createWriteStream(path.join(dir, filename));
   callback(stream);
   console.log(`✓ ${path.relative(path.join(import.meta.dirname, ".."), stream.path)}`);
 }

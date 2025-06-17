@@ -3,11 +3,31 @@ import * as path from "node:path";
 import { bech32 } from 'bech32';
 import { ogmios, Json } from "@cardano-ogmios/mdk";
 
+const network = (process.argv[2] ?? "").toLowerCase();
+
+const includeSnapshots = (process.argv[3] ?? "false").toLowerCase() == "true";
+
+if (!["preview", "preprod", "mainnet"].includes(network)) {
+  console.log(`Missing or invalid network.
+Usage:
+    ./fetch.mjs <NETWORK> [<INCL_SNAPSHOT_FLAG>]
+
+Arguments:
+    NETWORK:  		  One of 'preview', 'preprod' or 'mainnet'
+    INCL_SNAPSHOT_FLAG:   A an optional flag (true/false) to also dump fully snapshots listed in configuration.
+    			  [default: false]`);
+  process.exit(1);
+}
+
+const configFile = path.join(import.meta.dirname, network, `config.json`);
+
+const snapshotsDir = path.join(import.meta.dirname, "..", "snapshots", network);
+if (includeSnapshots) {
+  fs.mkdirSync(snapshotsDir, { recursive: true });
+}
+
 // Each point corresponds to the last point of the associated epoch.
-const {
-  points,
-  additionalStakeAddresses,
-} = JSON.parse(fs.readFileSync(path.join(import.meta.dirname, "..", "config.json")));
+const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
 
 const additionalStakeKeys = additionalStakeAddresses.reduce(collectAddressType(14), []);
 
@@ -38,6 +58,12 @@ const queries = [
       return outDir("pots", point);
     },
   },
+  {
+    query: fetchNonces,
+    getFilename(point) {
+      return outDir("nonces", point);
+    },
+  },
 ]
 
 process.stderr.cursorTo(0, 0);
@@ -48,7 +74,7 @@ const spinner = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
 const spinnerId = setInterval(() => {
   process.stderr.cursorTo(0, points.length);
   process.stderr.clearLine(0);
-  process.stderr.write(`${spinner[frame]} fetching data`);
+  process.stderr.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)": ""}`);
   frame = (frame + 1) % spinner.length;
 }, 100);
 
@@ -116,6 +142,11 @@ function step(ws, i, point, done) {
     process.stderr.clearLine(0);
     process.stderr.write(`${point.slot} => querying...`);
 
+    if (includeSnapshots && snapshots.includes(point.epoch)) {
+      const to = path.join(snapshotsDir, `${point.slot}.${point.id}.cbor`);
+      await ws.queryLedgerState("dump", { to });
+    }
+
     let result;
     for (let q = 0; q < queries.length; q += 1) {
       const { query, getFilename } = queries[q];
@@ -152,7 +183,7 @@ function collectAddressType(addressType) {
 }
 
 function outDir(prefix, point) {
-  return path.join(import.meta.dirname, "..", "data", prefix, `${point.epoch}.json`);
+  return path.join(import.meta.dirname, network, prefix, `${point.epoch}.json`);
 }
 
 function fetchRewardsProvenance(ws) {
@@ -250,4 +281,8 @@ function fetchPots(ws) {
 
 function fetchPools(ws) {
   return ws.queryLedgerState("stakePools", { includeStake: true });
+}
+
+function fetchNonces(ws) {
+  return ws.queryLedgerState("nonces");
 }

@@ -370,6 +370,7 @@ impl AsTip for Header {
 
 #[cfg(test)]
 mod tests {
+
     use super::{bootstrap, Config, StorePath::*};
 
     #[test]

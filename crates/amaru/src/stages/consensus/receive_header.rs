@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{schedule, send, stages::common::adopt_current_span};
 use amaru_consensus::consensus::{receive_header, ChainSyncEvent, DecodedChainSyncEvent};
 use gasket::framework::*;
 use tracing::{error, instrument, Level};
-
-use crate::{schedule, send, stages::common::adopt_current_span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;

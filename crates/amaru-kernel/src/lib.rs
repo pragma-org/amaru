@@ -76,6 +76,8 @@ pub use serde_json as json;
 pub use sha3;
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 
+use crate::network::NetworkName;
+
 pub mod block;
 pub mod macros;
 pub mod network;
@@ -1168,6 +1170,14 @@ pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
         mem: left.mem + right.mem,
         steps: left.steps + right.steps,
     }
+}
+
+pub fn default_ledger_dir(network: NetworkName) -> String {
+    format!("./ledger.{}.db", network.to_string().to_lowercase())
+}
+
+pub fn default_chain_dir(network: NetworkName) -> String {
+    format!("./chain.{}.db", network.to_string().to_lowercase())
 }
 
 #[cfg(test)]

@@ -219,11 +219,11 @@ jobs:
         run: |
           cargo test --no-run -p amaru
 
-      - name: Cache Amaru's ledger.db
+      - name: Cache Amaru's ledger.${{ matrix.network.name }}.db
         id: cache-ledger-db
         uses: actions/cache/restore@v4
         with:
-          path: ./ledger.db
+          path: ./ledger.${{ matrix.network.name }}.db
           # If the ledger store serialisation format changes and become
           # incompatible, it is necessary to bump the index below to invalidate
           # the cached ledger snapshots, and recompute them from the CBOR ones
@@ -235,18 +235,18 @@ jobs:
       - name: Full bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit == ''
         run: |
-          make BUILD_PROFILE=test bootstrap
+          make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} bootstrap
 
       - name: Light bootstrap amaru
         if: steps.cache-ledger-db.outputs.cache-hit != ''
         run: |
-          make BUILD_PROFILE=test import-headers
-          make BUILD_PROFILE=test import-nonces
+          make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} import-headers
+          make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} import-nonces
 
       - uses: actions/cache/save@v4
         if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
         with:
-          path: ./ledger.db
+          path: ./ledger.${{ matrix.network.name }}.db
           key: ${{ runner.OS }}-ledger-cache-v6-${{ steps.timestamp.outputs.value }}
 
       - name: Install Cardano CLI
@@ -279,7 +279,7 @@ jobs:
 
       - name: Run tests
         run: |
-          make BUILD_PROFILE=test test-e2e
+          make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} test-e2e
 
       - name: Teardown haskell node
         shell: bash
