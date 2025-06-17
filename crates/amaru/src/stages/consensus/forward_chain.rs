@@ -31,7 +31,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use tracing::{error, info, trace, trace_span};
+use tracing::{error, info, instrument, trace, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<BlockValidationResult>;
 
@@ -244,6 +244,11 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
         }
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.forward_chain",
+    )]
     async fn execute(
         &mut self,
         unit: &Unit,
@@ -251,17 +256,6 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             Unit::Block(BlockValidationResult::BlockValidated { point, span, .. }) => {
-                // FIXME: this span is just a placeholder to hold a link to t
-                // the parent, it will be filled once we had the storage and
-                // forwarding logic.
-                let _span = trace_span!(
-                    target: EVENT_TARGET,
-                    parent: span,
-                    "forward.block_validated",
-                    slot = ?point.slot_or_default(),
-                    hash = %Hash::<32>::from(point),
-                );
-
                 // FIXME: block height should be part of BlockValidated message
                 let store = stage.store.lock().await;
                 if let Some(header) = store.load_header(&Hash::from(point)) {

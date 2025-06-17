@@ -16,7 +16,7 @@ use amaru_consensus::consensus::{
     select_chain::SelectChain, DecodedChainSyncEvent, ValidateHeaderEvent,
 };
 use gasket::framework::*;
-use tracing::error;
+use tracing::{error, instrument, Level};
 
 use crate::{schedule, send};
 
@@ -44,6 +44,11 @@ impl SelectChainStage {
         }
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.select_chain",
+    )]
     async fn handle_event(&mut self, sync_event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let events = self
             .select_chain

@@ -15,7 +15,7 @@
 use crate::{schedule, send};
 use amaru_consensus::consensus::{store_header::StoreHeader, DecodedChainSyncEvent};
 use gasket::framework::*;
-use tracing::error;
+use tracing::{error, instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
@@ -41,6 +41,11 @@ impl StoreHeaderStage {
         }
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.store_header",
+    )]
     async fn handle_event(&mut self, event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self.store_header.handle_event(event).await.map_err(|e| {
             error!("fail to store header {}", e);

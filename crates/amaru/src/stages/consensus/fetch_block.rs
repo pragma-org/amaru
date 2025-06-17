@@ -19,8 +19,7 @@ use crate::stages::PeerSession;
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
 use gasket::framework::*;
-use tracing::{error, instrument, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{error, instrument};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -50,11 +49,14 @@ impl BlockFetchStage {
         }
     }
 
-    #[instrument(level = tracing::Level::TRACE, skip_all)]
+    #[instrument(
+        level = tracing::Level::TRACE,
+        name = "consensus.fetch_block",
+        skip_all
+    )]
     async fn handle_event(&mut self, event: ValidateHeaderEvent) -> Result<(), WorkerError> {
         match event {
             ValidateHeaderEvent::Validated { peer, point, span } => {
-                Span::current().set_parent(span.context());
                 let block = self.fetch_block(&peer, &point).await.map_err(|e| {
                     error!(error=%e, "failed to fetch block");
                     WorkerError::Recv

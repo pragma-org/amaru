@@ -15,6 +15,7 @@
 use amaru_consensus::consensus::store_block::StoreBlock;
 use amaru_kernel::block::ValidateBlockEvent;
 use gasket::framework::*;
+use tracing::{instrument, Level};
 
 use crate::{schedule, send};
 
@@ -42,6 +43,11 @@ impl StoreBlockStage {
         }
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.store_block",
+    )]
     async fn handle_event(&mut self, event: ValidateBlockEvent) -> Result<(), WorkerError> {
         let event = self.store_block.handle_event(&event).await.map_err(|e| {
             tracing::error!(?e, "Failed to handle store block event");
