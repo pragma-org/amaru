@@ -15,7 +15,7 @@ jobs:
   sync_and_cache:
     strategy:
       matrix:
-        network: [ preprod ]
+        network: [ preprod, preview ]
         ogmios_version: [ v6.11.2 ]
         cardano_node_version: [ 10.1.4 ]
 
