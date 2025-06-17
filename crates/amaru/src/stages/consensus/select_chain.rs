@@ -16,13 +16,16 @@ use amaru_consensus::consensus::{
     select_chain::SelectChain, DecodedChainSyncEvent, ValidateHeaderEvent,
 };
 use gasket::framework::*;
+use tracing::{error, instrument, Level};
+
+use crate::{schedule, send, stages::common::adopt_current_span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 
 #[derive(Stage)]
 #[stage(
-    name = "consensus.select_chain",
+    name = "stage.select_chain",
     unit = "DecodedChainSyncEvent",
     worker = "Worker"
 )]
@@ -46,10 +49,13 @@ impl SelectChainStage {
             .select_chain
             .handle_chain_sync(sync_event)
             .await
-            .or_panic()?;
+            .map_err(|e| {
+                error!(error=%e, "fail to select chain");
+                WorkerError::Recv
+            })?;
 
         for event in events {
-            self.downstream.send(event.into()).await.or_panic()?;
+            send!(&mut self.downstream, event)?;
         }
 
         Ok(())
@@ -68,16 +74,20 @@ impl gasket::framework::Worker<SelectChainStage> for Worker {
         &mut self,
         stage: &mut SelectChainStage,
     ) -> Result<WorkSchedule<DecodedChainSyncEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.or_panic()?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "stage.select_chain",
+    )]
     async fn execute(
         &mut self,
         unit: &DecodedChainSyncEvent,
         stage: &mut SelectChainStage,
     ) -> Result<(), WorkerError> {
+        adopt_current_span(unit);
         stage.handle_event(unit.clone()).await
     }
 }

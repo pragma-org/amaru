@@ -15,13 +15,16 @@
 use amaru_consensus::consensus::store_block::StoreBlock;
 use amaru_kernel::block::ValidateBlockEvent;
 use gasket::framework::*;
+use tracing::{instrument, Level};
+
+use crate::{schedule, send, stages::common::adopt_current_span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 
 #[derive(Stage)]
 #[stage(
-    name = "consensus.store_block",
+    name = "stage.store_block",
     unit = "ValidateBlockEvent",
     worker = "Worker"
 )]
@@ -46,9 +49,7 @@ impl StoreBlockStage {
             WorkerError::Recv
         })?;
 
-        self.downstream.send(event.into()).await.or_panic()?;
-
-        Ok(())
+        send!(&mut self.downstream, event)
     }
 }
 
@@ -64,16 +65,20 @@ impl gasket::framework::Worker<StoreBlockStage> for Worker {
         &mut self,
         stage: &mut StoreBlockStage,
     ) -> Result<WorkSchedule<ValidateBlockEvent>, WorkerError> {
-        let unit = stage.upstream.recv().await.or_panic()?;
-
-        Ok(WorkSchedule::Unit(unit.payload))
+        schedule!(&mut stage.upstream)
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "stage.store_block",
+    )]
     async fn execute(
         &mut self,
         unit: &ValidateBlockEvent,
         stage: &mut StoreBlockStage,
     ) -> Result<(), WorkerError> {
+        adopt_current_span(unit);
         stage.handle_event(unit.clone()).await
     }
 }

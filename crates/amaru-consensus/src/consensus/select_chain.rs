@@ -68,14 +68,13 @@ impl SelectChain {
         &mut self,
         peer: Peer,
         header: Header,
+        span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let result = self
             .chain_selector
             .lock()
             .await
             .select_roll_forward(&peer, header);
-
-        let span = Span::current();
 
         let events = match result {
             chain_selection::ForwardChainSelection::NewTip(hdr) => {
@@ -87,7 +86,10 @@ impl SelectChain {
                 rollback_point,
                 tip: _,
                 fork,
-            }) => self.switch_to_fork(peer, rollback_point, fork, span),
+            }) => {
+                trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
+                self.switch_to_fork(peer, rollback_point, fork, span)
+            }
             chain_selection::ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
                 vec![]
@@ -101,14 +103,13 @@ impl SelectChain {
         &mut self,
         peer: Peer,
         rollback_point: Point,
+        span: Span,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         let result = self
             .chain_selector
             .lock()
             .await
             .select_rollback(&peer, Hash::from(&rollback_point));
-
-        let span = Span::current();
 
         match result {
             RollbackChainSelection::RollbackTo(hash) => {
@@ -134,14 +135,14 @@ impl SelectChain {
         chain_sync: DecodedChainSyncEvent,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
         match chain_sync {
-            DecodedChainSyncEvent::RollForward { peer, header, .. } => {
-                self.select_chain(peer, header).await
-            }
+            DecodedChainSyncEvent::RollForward {
+                peer, header, span, ..
+            } => self.select_chain(peer, header, span).await,
             DecodedChainSyncEvent::Rollback {
                 peer,
                 rollback_point,
-                ..
-            } => self.select_rollback(peer, rollback_point).await,
+                span,
+            } => self.select_rollback(peer, rollback_point, span).await,
         }
     }
 }

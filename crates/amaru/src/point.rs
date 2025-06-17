@@ -15,7 +15,7 @@ pub(crate) fn to_network_point(point: Point) -> pallas_network::miniprotocols::P
 ///
 /// TODO: Remove this function by moving the 'Point' type definition downstream from pallas_network
 /// to pallas_primitives.
-pub(crate) fn from_network_point(point: pallas_network::miniprotocols::Point) -> Point {
+pub(crate) fn from_network_point(point: &pallas_network::miniprotocols::Point) -> Point {
     match point.clone() {
         pallas_network::miniprotocols::Point::Origin => Point::Origin,
         pallas_network::miniprotocols::Point::Specific(slot, hash) => Point::Specific(slot, hash),

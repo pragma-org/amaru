@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::PeerSession;
 use crate::point::{from_network_point, to_network_point};
+use crate::{send, stages::PeerSession};
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
 use anyhow::anyhow;
@@ -69,6 +69,7 @@ impl Stage {
     #[instrument(
         level = Level::TRACE,
         skip_all,
+        name = "stage.pull.find_intersection",
         fields(
             peer = self.peer_session.peer.name,
             intersection.slot = %self.intersection.last().unwrap().slot_or_default(),
@@ -93,14 +94,6 @@ impl Stage {
         Ok(())
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        name = "pull.roll_forward",
-        skip_all,
-        fields(
-            peer = self.peer_session.peer.name,
-        ),
-    )]
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
         let peer = &self.peer_session.peer;
         let header = to_traverse(header).or_panic()?;
@@ -108,29 +101,16 @@ impl Stage {
 
         let raw_header: RawHeader = header.cbor().to_vec();
 
-        self.downstream
-            .send(
-                ChainSyncEvent::RollForward {
-                    peer: peer.clone(),
-                    point,
-                    raw_header,
-                    span: Span::current(),
-                }
-                .into(),
-            )
-            .await
-            .or_panic()
+        let event = ChainSyncEvent::RollForward {
+            peer: peer.clone(),
+            point,
+            raw_header,
+            span: Span::current(),
+        };
+
+        send!(&mut self.downstream, event)
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        name = "pull.roll_backward",
-        skip_all,
-        fields(
-            point = %rollback_point,
-            peer = self.peer_session.peer.name,
-        ),
-    )]
     pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
         self.track_tip(&tip);
 
@@ -203,7 +183,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                 stage.roll_forward(&header).await?;
             }
             NextResponse::RollBackward(point, tip) => {
-                stage.roll_back(from_network_point(point), tip).await?;
+                stage.roll_back(from_network_point(&point), tip).await?;
             }
             NextResponse::Await => {}
         };
