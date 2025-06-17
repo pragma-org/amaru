@@ -25,11 +25,7 @@ pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 
 #[derive(Stage)]
-#[stage(
-    name = "consensus.fetch",
-    unit = "ValidateHeaderEvent",
-    worker = "Worker"
-)]
+#[stage(name = "stage.fetch", unit = "ValidateHeaderEvent", worker = "Worker")]
 pub struct BlockFetchStage {
     pub peer_sessions: BTreeMap<Peer, PeerSession>,
     pub upstream: UpstreamPort,
@@ -51,7 +47,7 @@ impl BlockFetchStage {
 
     #[instrument(
         level = tracing::Level::TRACE,
-        name = "consensus.fetch_block",
+        name = "stage.fetch_block",
         skip_all
     )]
     async fn handle_event(&mut self, event: ValidateHeaderEvent) -> Result<(), WorkerError> {

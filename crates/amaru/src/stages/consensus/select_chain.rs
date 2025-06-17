@@ -25,7 +25,7 @@ pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
 
 #[derive(Stage)]
 #[stage(
-    name = "consensus.select_chain",
+    name = "stage.select_chain",
     unit = "DecodedChainSyncEvent",
     worker = "Worker"
 )]
@@ -47,7 +47,7 @@ impl SelectChainStage {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "consensus.select_chain",
+        name = "stage.select_chain",
     )]
     async fn handle_event(&mut self, sync_event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let events = self

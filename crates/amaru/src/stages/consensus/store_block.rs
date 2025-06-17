@@ -24,7 +24,7 @@ pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
 
 #[derive(Stage)]
 #[stage(
-    name = "consensus.store_block",
+    name = "stage.store_block",
     unit = "ValidateBlockEvent",
     worker = "Worker"
 )]
@@ -46,7 +46,7 @@ impl StoreBlockStage {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "consensus.store_block",
+        name = "stage.store_block",
     )]
     async fn handle_event(&mut self, event: ValidateBlockEvent) -> Result<(), WorkerError> {
         let event = self.store_block.handle_event(&event).await.map_err(|e| {

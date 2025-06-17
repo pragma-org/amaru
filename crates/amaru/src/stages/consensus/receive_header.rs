@@ -23,7 +23,7 @@ pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
 #[derive(Default, Stage)]
 #[stage(
-    name = "consensus.receive_header",
+    name = "stage.receive_header",
     unit = "ChainSyncEvent",
     worker = "Worker"
 )]
@@ -33,11 +33,6 @@ pub struct ReceiveHeaderStage {
 }
 
 impl ReceiveHeaderStage {
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "consensus.receive_header",
-    )]
     async fn handle_event(&mut self, sync_event: ChainSyncEvent) -> Result<(), WorkerError> {
         let event = receive_header::handle_chain_sync(sync_event).map_err(|e| {
             error!("fail to handle chain sync {}", e);

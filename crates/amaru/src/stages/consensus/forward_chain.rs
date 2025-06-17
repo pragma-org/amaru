@@ -247,7 +247,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "consensus.forward_chain",
+        name = "stage.forward_chain",
     )]
     async fn execute(
         &mut self,

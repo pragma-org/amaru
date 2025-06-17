@@ -24,7 +24,7 @@ pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
 #[derive(Stage)]
 #[stage(
-    name = "consensus.validate_header",
+    name = "stage.validate_header",
     unit = "DecodedChainSyncEvent",
     worker = "Worker"
 )]
@@ -45,11 +45,6 @@ impl ValidateHeaderStage {
         }
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "consensus.validate_header",
-    )]
     async fn handle_event(&mut self, unit: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self
             .consensus
@@ -79,6 +74,11 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
         schedule!(&mut stage.upstream)
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "stage.validate_header",
+    )]
     async fn execute(
         &mut self,
         unit: &DecodedChainSyncEvent,

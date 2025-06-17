@@ -69,6 +69,7 @@ impl Stage {
     #[instrument(
         level = Level::TRACE,
         skip_all,
+        name = "stage.pull.find_intersection",
         fields(
             peer = self.peer_session.peer.name,
             intersection.slot = %self.intersection.last().unwrap().slot_or_default(),
@@ -93,14 +94,6 @@ impl Stage {
         Ok(())
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        name = "pull.roll_forward",
-        skip_all,
-        fields(
-            peer = self.peer_session.peer.name,
-        ),
-    )]
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
         let peer = &self.peer_session.peer;
         let header = to_traverse(header).or_panic()?;
@@ -118,15 +111,6 @@ impl Stage {
         send!(&mut self.downstream, event)
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        name = "pull.roll_backward",
-        skip_all,
-        fields(
-            point = %rollback_point,
-            peer = self.peer_session.peer.name,
-        ),
-    )]
     pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
         self.track_tip(&tip);
 

@@ -22,7 +22,7 @@ pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
 
 #[derive(Stage)]
 #[stage(
-    name = "consensus.store_header",
+    name = "stage.store_header",
     unit = "DecodedChainSyncEvent",
     worker = "Worker"
 )]
@@ -44,7 +44,7 @@ impl StoreHeaderStage {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "consensus.store_header",
+        name = "stage.store_header",
     )]
     async fn handle_event(&mut self, event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self.store_header.handle_event(event).await.map_err(|e| {
