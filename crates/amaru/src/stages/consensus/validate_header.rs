@@ -15,7 +15,7 @@
 use amaru_consensus::consensus::{validate_header::ValidateHeader, DecodedChainSyncEvent};
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use gasket::framework::*;
-use tracing::error;
+use tracing::{error, instrument, Level};
 
 use crate::{schedule, send};
 
@@ -45,6 +45,11 @@ impl ValidateHeaderStage {
         }
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "consensus.validate_header",
+    )]
     async fn handle_event(&mut self, unit: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self
             .consensus
