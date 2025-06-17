@@ -16,7 +16,8 @@ use amaru_consensus::consensus::{
     select_chain::SelectChain, DecodedChainSyncEvent, ValidateHeaderEvent,
 };
 use gasket::framework::*;
-use tracing::{error, instrument, Level};
+use tracing::{error, instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{schedule, send};
 
@@ -44,11 +45,6 @@ impl SelectChainStage {
         }
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "stage.select_chain",
-    )]
     async fn handle_event(&mut self, sync_event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let events = self
             .select_chain
@@ -82,11 +78,27 @@ impl gasket::framework::Worker<SelectChainStage> for Worker {
         schedule!(&mut stage.upstream)
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "stage.select_chain",
+    )]
     async fn execute(
         &mut self,
         unit: &DecodedChainSyncEvent,
         stage: &mut SelectChainStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit.clone()).await
+        match unit {
+            DecodedChainSyncEvent::RollForward { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+            DecodedChainSyncEvent::Rollback { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+        }
     }
 }

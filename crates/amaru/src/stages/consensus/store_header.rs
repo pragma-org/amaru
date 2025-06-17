@@ -15,7 +15,8 @@
 use crate::{schedule, send};
 use amaru_consensus::consensus::{store_header::StoreHeader, DecodedChainSyncEvent};
 use gasket::framework::*;
-use tracing::{error, instrument, Level};
+use tracing::{error, instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
@@ -41,11 +42,6 @@ impl StoreHeaderStage {
         }
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "stage.store_header",
-    )]
     async fn handle_event(&mut self, event: DecodedChainSyncEvent) -> Result<(), WorkerError> {
         let event = self.store_header.handle_event(event).await.map_err(|e| {
             error!("fail to store header {}", e);
@@ -71,11 +67,27 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
         schedule!(&mut stage.upstream)
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "stage.store_header",
+    )]
     async fn execute(
         &mut self,
         unit: &DecodedChainSyncEvent,
         stage: &mut StoreHeaderStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit.clone()).await
+        match unit {
+            DecodedChainSyncEvent::RollForward { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+            DecodedChainSyncEvent::Rollback { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+        }
     }
 }
