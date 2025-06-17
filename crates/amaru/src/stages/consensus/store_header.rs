@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{schedule, send};
+use crate::{schedule, send, stages::common::adopt_current_span};
 use amaru_consensus::consensus::{store_header::StoreHeader, DecodedChainSyncEvent};
 use gasket::framework::*;
-use tracing::{error, instrument, Level, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{error, instrument, Level};
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
@@ -77,17 +76,7 @@ impl gasket::framework::Worker<StoreHeaderStage> for Worker {
         unit: &DecodedChainSyncEvent,
         stage: &mut StoreHeaderStage,
     ) -> Result<(), WorkerError> {
-        match unit {
-            DecodedChainSyncEvent::RollForward { span, .. } => {
-                let current = Span::current();
-                current.set_parent(span.context());
-                stage.handle_event(unit.clone()).await
-            }
-            DecodedChainSyncEvent::Rollback { span, .. } => {
-                let current = Span::current();
-                current.set_parent(span.context());
-                stage.handle_event(unit.clone()).await
-            }
-        }
+        adopt_current_span(unit);
+        stage.handle_event(unit.clone()).await
     }
 }

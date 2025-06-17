@@ -174,11 +174,11 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         unit: &ValidateBlockEvent,
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
+        adopt_current_span(unit);
         let result = match unit {
             ValidateBlockEvent::Validated { point, block, span } => {
                 let point = point.clone();
                 let block = block.to_vec();
-                let _child = adopt_current_span(span);
 
                 match stage.roll_forward(point.clone(), block.clone()) {
                     Ok(None) => BlockValidationResult::BlockValidated {
@@ -203,7 +203,6 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
                 rollback_point,
                 span,
             } => {
-                let _child = adopt_current_span(span);
                 stage
                     .rollback_to(rollback_point.clone(), span.clone())
                     .await

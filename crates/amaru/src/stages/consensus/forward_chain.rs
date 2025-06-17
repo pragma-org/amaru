@@ -98,6 +98,82 @@ pub struct Worker {
     clients: ActoRef<ClientMsg>,
 }
 
+impl Worker {
+    async fn handle_validation_result(
+        &mut self,
+        stage: &mut ForwardChainStage,
+        result: &BlockValidationResult,
+    ) -> Result<(), WorkerError> {
+        match result {
+            BlockValidationResult::BlockValidated { point, .. } => {
+                // FIXME: block height should be part of BlockValidated message
+                let store = stage.store.lock().await;
+                if let Some(header) = store.load_header(&Hash::from(point)) {
+                    // assert that the new tip is a direct successor of the old tip
+                    assert_eq!(header.block_height(), self.our_tip.1 + 1);
+                    match header.parent() {
+                        Some(parent) => assert_eq!(
+                            Point::new(self.our_tip.0.slot_or_default(), parent.as_ref().to_vec()),
+                            self.our_tip.0
+                        ),
+                        None => assert_eq!(self.our_tip.0, Point::Origin),
+                    }
+
+                    self.our_tip = Tip(point.pallas_point(), header.block_height());
+
+                    trace!(
+                        target: EVENT_TARGET,
+                        tip = %point,
+                        "tip_changed"
+                    );
+
+                    self.clients.send(ClientMsg::Op(ClientOp::Forward(
+                        header,
+                        self.our_tip.clone(),
+                    )));
+
+                    stage
+                        .downstream
+                        .send(ForwardEvent::Forward(point.pallas_point()));
+                }
+
+                Ok(())
+            }
+            BlockValidationResult::RolledBackTo { rollback_point, .. } => {
+                info!(
+                    target: EVENT_TARGET,
+                    point = %rollback_point,
+                    "rolled_back_to"
+                );
+
+                // FIXME: block height should be part of BlockValidated message
+                let store = stage.store.lock().await;
+                if let Some(header) = store.load_header(&Hash::from(rollback_point)) {
+                    self.our_tip = Tip(rollback_point.pallas_point(), header.block_height());
+                    self.clients
+                        .send(ClientMsg::Op(ClientOp::Backward(self.our_tip.clone())));
+
+                    stage
+                        .downstream
+                        .send(ForwardEvent::Backward(rollback_point.pallas_point()));
+                }
+
+                Ok(())
+            }
+            BlockValidationResult::BlockValidationFailed { point, .. } => {
+                error!(
+                    target: EVENT_TARGET,
+                    slot = ?point.slot_or_default(),
+                    hash = ?Hash::<32>::from(point),
+                    "block_validation_failed"
+                );
+
+                Ok(())
+            }
+        }
+    }
+}
+
 impl Drop for Worker {
     fn drop(&mut self) {
         self.server.abort();
@@ -255,80 +331,9 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
         stage: &mut ForwardChainStage,
     ) -> Result<(), WorkerError> {
         match unit {
-            Unit::Block(BlockValidationResult::BlockValidated { point, span, .. }) => {
-                let current = adopt_current_span(span);
-                // FIXME: block height should be part of BlockValidated message
-                let store = stage.store.lock().await;
-                if let Some(header) = store.load_header(&Hash::from(point)) {
-                    // assert that the new tip is a direct successor of the old tip
-                    assert_eq!(header.block_height(), self.our_tip.1 + 1);
-                    match header.parent() {
-                        Some(parent) => assert_eq!(
-                            Point::new(self.our_tip.0.slot_or_default(), parent.as_ref().to_vec()),
-                            self.our_tip.0
-                        ),
-                        None => assert_eq!(self.our_tip.0, Point::Origin),
-                    }
-
-                    self.our_tip = Tip(point.pallas_point(), header.block_height());
-
-                    trace!(
-                        target: EVENT_TARGET,
-                        parent: current,
-                        tip = %point,
-                        "tip_changed"
-                    );
-
-                    self.clients.send(ClientMsg::Op(ClientOp::Forward(
-                        header,
-                        self.our_tip.clone(),
-                    )));
-
-                    stage
-                        .downstream
-                        .send(ForwardEvent::Forward(point.pallas_point()));
-                }
-
-                Ok(())
-            }
-            Unit::Block(BlockValidationResult::RolledBackTo {
-                rollback_point,
-                span,
-            }) => {
-                let current = adopt_current_span(span);
-
-                info!(
-                    target: EVENT_TARGET,
-                    parent: current,
-                    point = %rollback_point,
-                    "rolled_back_to"
-                );
-
-                // FIXME: block height should be part of BlockValidated message
-                let store = stage.store.lock().await;
-                if let Some(header) = store.load_header(&Hash::from(rollback_point)) {
-                    self.our_tip = Tip(rollback_point.pallas_point(), header.block_height());
-                    self.clients
-                        .send(ClientMsg::Op(ClientOp::Backward(self.our_tip.clone())));
-
-                    stage
-                        .downstream
-                        .send(ForwardEvent::Backward(rollback_point.pallas_point()));
-                }
-
-                Ok(())
-            }
-            Unit::Block(BlockValidationResult::BlockValidationFailed { point, span }) => {
-                let current = adopt_current_span(span);
-                error!(
-                    target: EVENT_TARGET,
-                    parent: current,
-                    slot = ?point.slot_or_default(),
-                    hash = ?Hash::<32>::from(point),
-                    "block_validation_failed"
-                );
-
-                Ok(())
+            Unit::Block(result) => {
+                adopt_current_span(result);
+                self.handle_validation_result(stage, result).await
             }
             Unit::Peer(peer) => {
                 // FIXME: gasket design bug that we only get &Unit and thus cannot take values from it without internal mutability

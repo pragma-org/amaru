@@ -15,10 +15,9 @@
 use amaru_consensus::consensus::{validate_header::ValidateHeader, DecodedChainSyncEvent};
 use amaru_kernel::protocol_parameters::GlobalParameters;
 use gasket::framework::*;
-use tracing::{error, instrument, Level, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{error, instrument, Level};
 
-use crate::{schedule, send};
+use crate::{schedule, send, stages::common::adopt_current_span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<DecodedChainSyncEvent>;
@@ -85,17 +84,7 @@ impl gasket::framework::Worker<ValidateHeaderStage> for Worker {
         unit: &DecodedChainSyncEvent,
         stage: &mut ValidateHeaderStage,
     ) -> Result<(), WorkerError> {
-        match unit {
-            DecodedChainSyncEvent::RollForward { span, .. } => {
-                let current = Span::current();
-                current.set_parent(span.context());
-                stage.handle_event(unit.clone()).await
-            }
-            DecodedChainSyncEvent::Rollback { span, .. } => {
-                let current = Span::current();
-                current.set_parent(span.context());
-                stage.handle_event(unit.clone()).await
-            }
-        }
+        adopt_current_span(unit);
+        stage.handle_event(unit.clone()).await
     }
 }

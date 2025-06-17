@@ -14,13 +14,12 @@
 
 use std::collections::BTreeMap;
 
-use crate::schedule;
 use crate::stages::PeerSession;
+use crate::{schedule, stages::common::adopt_current_span};
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
 use gasket::framework::*;
-use tracing::{error, instrument, Span};
-use tracing_opentelemetry::OpenTelemetrySpanExt;
+use tracing::{error, instrument};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -133,17 +132,7 @@ impl gasket::framework::Worker<BlockFetchStage> for Worker {
         unit: &ValidateHeaderEvent,
         stage: &mut BlockFetchStage,
     ) -> Result<(), WorkerError> {
-        match unit {
-            ValidateHeaderEvent::Validated { span, .. } => {
-                let current = Span::current();
-                current.set_parent(span.context());
-                stage.handle_event(unit.clone()).await
-            }
-            ValidateHeaderEvent::Rollback { span, .. } => {
-                let current = Span::current();
-                current.set_parent(span.context());
-                stage.handle_event(unit.clone()).await
-            }
-        }
+        adopt_current_span(unit);
+        stage.handle_event(unit.clone()).await
     }
 }
