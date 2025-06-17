@@ -22,13 +22,11 @@ use serde::{Deserialize, Deserializer};
 use std::{error::Error, path::PathBuf};
 use tracing::info;
 
-use crate::cmd::DEFAULT_NETWORK;
-
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the consensus on-disk storage.
-    #[arg(long, value_name = "DIR", default_value_os_t = default_chain_dir(DEFAULT_NETWORK).into())]
-    chain_dir: PathBuf,
+    #[arg(long, value_name = "DIR")]
+    chain_dir: Option<PathBuf>,
 
     /// Point for which nonces data is imported.
     #[arg(long, value_name = "POINT", value_parser = super::parse_point)]
@@ -82,9 +80,12 @@ where
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(args.network).into());
     import_nonces(
         args.network.into(),
-        &args.chain_dir,
+        &chain_dir,
         InitialNonces {
             at: args.at,
             active: args.active,

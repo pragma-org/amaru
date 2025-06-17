@@ -38,8 +38,6 @@ use std::{
 };
 use tracing::info;
 
-use crate::cmd::DEFAULT_NETWORK;
-
 const BATCH_SIZE: usize = 5000;
 
 static DEFAULT_CERTIFICATE_POINTER: LazyLock<CertificatePointer> =
@@ -72,8 +70,8 @@ pub struct Args {
     snapshot_dir: Option<PathBuf>,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", default_value_os_t = default_ledger_dir(DEFAULT_NETWORK).into())]
-    ledger_dir: PathBuf,
+    #[arg(long, value_name = "DIR")]
+    ledger_dir: Option<PathBuf>,
 
     /// Network the snapshots are imported from.
     ///
@@ -98,10 +96,13 @@ enum Error {
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let era_history = network.into();
+    let ledger_dir = args
+        .ledger_dir
+        .unwrap_or_else(|| default_ledger_dir(args.network).into());
     if !args.snapshot.is_empty() {
-        import_all(&args.snapshot, &args.ledger_dir, era_history).await
+        import_all(&args.snapshot, &ledger_dir, era_history).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
-        import_all_from_directory(&args.ledger_dir, era_history, &snapshot_dir).await
+        import_all_from_directory(&ledger_dir, era_history, &snapshot_dir).await
     } else {
         Err(Error::IncorrectUsage.into())
     }

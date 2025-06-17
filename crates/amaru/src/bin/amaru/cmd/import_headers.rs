@@ -39,8 +39,8 @@ pub struct Args {
     ///
     /// This is the directory where data will be stored. The directory and any intermediate
     /// paths will be created if they do not exist.
-    #[arg(long, value_name = "DIR", verbatim_doc_comment, default_value_os_t = default_chain_dir(DEFAULT_NETWORK).into())]
-    chain_dir: PathBuf,
+    #[arg(long, value_name = "DIR", verbatim_doc_comment)]
+    chain_dir: Option<PathBuf>,
 
     /// Starting point of import.
     ///
@@ -63,13 +63,14 @@ enum What {
 
 use What::*;
 
-use crate::cmd::DEFAULT_NETWORK;
-
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(args.network).into());
     import_headers(
         &args.peer_address,
         args.network,
-        &args.chain_dir,
+        &chain_dir,
         args.starting_point,
         args.count,
     )

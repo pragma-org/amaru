@@ -17,6 +17,7 @@ use std::{error::Error, io, path::PathBuf};
 
 use amaru::snapshots_dir;
 use amaru_kernel::network::NetworkName;
+use amaru_kernel::{default_chain_dir, default_ledger_dir};
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
 use futures_util::TryStreamExt;
@@ -35,12 +36,12 @@ use super::import_nonces::{import_nonces, InitialNonces};
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", default_value = ".")]
-    ledger_dir: PathBuf,
+    #[arg(long, value_name = "DIR")]
+    ledger_dir: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR", default_value = ".")]
-    chain_dir: PathBuf,
+    #[arg(long, value_name = "DIR")]
+    chain_dir: Option<PathBuf>,
 
     /// Network to bootstrap the node for.
     ///
@@ -93,8 +94,12 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     let network = args.network;
     let era_history = network.into();
 
-    let ledger_dir = args.ledger_dir;
-    let chain_dir = args.chain_dir;
+    let ledger_dir = args
+        .ledger_dir
+        .unwrap_or_else(|| default_ledger_dir(args.network).into());
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(args.network).into());
 
     let network_dir = args.config_dir.join(&*network.to_string());
 

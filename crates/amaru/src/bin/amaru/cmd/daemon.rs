@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cmd::DEFAULT_NETWORK, metrics::track_system_metrics};
+use crate::metrics::track_system_metrics;
 use amaru::stages::{bootstrap, Config, StorePath};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use clap::{ArgAction, Parser};
@@ -44,12 +44,12 @@ pub struct Args {
     network: NetworkName,
 
     /// Path of the ledger on-disk storage.
-    #[arg(long, value_name = "DIR", default_value_os_t = default_ledger_dir(DEFAULT_NETWORK).into())]
-    ledger_dir: PathBuf,
+    #[arg(long, value_name = "DIR")]
+    ledger_dir: Option<PathBuf>,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, value_name = "DIR", default_value_os_t = default_chain_dir(DEFAULT_NETWORK).into())]
-    chain_dir: PathBuf,
+    #[arg(long, value_name = "DIR")]
+    chain_dir: Option<PathBuf>,
 
     /// The address to listen on for incoming connections.
     #[arg(long, value_name = "LISTEN_ADDRESS", default_value = super::DEFAULT_LISTEN_ADDRESS)]
@@ -109,9 +109,16 @@ pub async fn run_pipeline(pipeline: gasket::daemon::Daemon, exit: CancellationTo
 }
 
 fn parse_args(args: Args) -> Result<Config, Box<dyn std::error::Error>> {
+    let network = args.network;
+    let ledger_dir = args
+        .ledger_dir
+        .unwrap_or_else(|| default_ledger_dir(network).into());
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(network).into());
     Ok(Config {
-        ledger_store: StorePath::OnDisk(args.ledger_dir),
-        chain_store: StorePath::OnDisk(args.chain_dir),
+        ledger_store: StorePath::OnDisk(ledger_dir),
+        chain_store: StorePath::OnDisk(chain_dir),
         upstream_peers: args.peer_address,
         network: args.network,
         network_magic: args.network.to_network_magic(),
