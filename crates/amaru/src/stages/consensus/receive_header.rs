@@ -14,7 +14,8 @@
 
 use amaru_consensus::consensus::{receive_header, ChainSyncEvent, DecodedChainSyncEvent};
 use gasket::framework::*;
-use tracing::{error, instrument, Level};
+use tracing::{error, instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{schedule, send};
 
@@ -68,6 +69,18 @@ impl gasket::framework::Worker<ReceiveHeaderStage> for Worker {
         unit: &ChainSyncEvent,
         stage: &mut ReceiveHeaderStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit.clone()).await
+        match unit {
+            ChainSyncEvent::RollForward { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+
+            ChainSyncEvent::Rollback { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+        }
     }
 }
