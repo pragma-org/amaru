@@ -149,6 +149,7 @@ impl ValidateHeader {
         point: Point,
         header: Header,
         global_parameters: &GlobalParameters,
+        span: Span,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         let Nonces {
             active: ref epoch_nonce,
@@ -172,7 +173,7 @@ impl ValidateHeader {
             peer,
             point,
             header,
-            span: Span::current(),
+            span,
         })
     }
 
@@ -229,9 +230,9 @@ impl ValidateHeader {
                 peer,
                 point,
                 header,
-                ..
+                span,
             } => {
-                self.handle_roll_forward(peer, point, header, global_parameters)
+                self.handle_roll_forward(peer, point, header, global_parameters, span)
                     .await
             }
             DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),

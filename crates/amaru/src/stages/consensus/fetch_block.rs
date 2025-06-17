@@ -19,7 +19,8 @@ use crate::stages::PeerSession;
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
 use gasket::framework::*;
-use tracing::{error, instrument};
+use tracing::{error, instrument, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateHeaderEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -45,11 +46,6 @@ impl BlockFetchStage {
         }
     }
 
-    #[instrument(
-        level = tracing::Level::TRACE,
-        name = "stage.fetch_block",
-        skip_all
-    )]
     async fn handle_event(&mut self, event: ValidateHeaderEvent) -> Result<(), WorkerError> {
         match event {
             ValidateHeaderEvent::Validated { peer, point, span } => {
@@ -127,11 +123,27 @@ impl gasket::framework::Worker<BlockFetchStage> for Worker {
         schedule!(&mut stage.upstream)
     }
 
+    #[instrument(
+        level = tracing::Level::TRACE,
+        name = "stage.fetch_block",
+        skip_all
+    )]
     async fn execute(
         &mut self,
         unit: &ValidateHeaderEvent,
         stage: &mut BlockFetchStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit.clone()).await
+        match unit {
+            ValidateHeaderEvent::Validated { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+            ValidateHeaderEvent::Rollback { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+        }
     }
 }

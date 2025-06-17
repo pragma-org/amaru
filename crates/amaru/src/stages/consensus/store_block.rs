@@ -15,7 +15,8 @@
 use amaru_consensus::consensus::store_block::StoreBlock;
 use amaru_kernel::block::ValidateBlockEvent;
 use gasket::framework::*;
-use tracing::{instrument, Level};
+use tracing::{instrument, Level, Span};
+use tracing_opentelemetry::OpenTelemetrySpanExt;
 
 use crate::{schedule, send};
 
@@ -43,11 +44,6 @@ impl StoreBlockStage {
         }
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "stage.store_block",
-    )]
     async fn handle_event(&mut self, event: ValidateBlockEvent) -> Result<(), WorkerError> {
         let event = self.store_block.handle_event(&event).await.map_err(|e| {
             tracing::error!(?e, "Failed to handle store block event");
@@ -73,11 +69,27 @@ impl gasket::framework::Worker<StoreBlockStage> for Worker {
         schedule!(&mut stage.upstream)
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name = "stage.store_block",
+    )]
     async fn execute(
         &mut self,
         unit: &ValidateBlockEvent,
         stage: &mut StoreBlockStage,
     ) -> Result<(), WorkerError> {
-        stage.handle_event(unit.clone()).await
+        match unit {
+            ValidateBlockEvent::Validated { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+            ValidateBlockEvent::Rollback { span, .. } => {
+                let current = Span::current();
+                current.set_parent(span.context());
+                stage.handle_event(unit.clone()).await
+            }
+        }
     }
 }

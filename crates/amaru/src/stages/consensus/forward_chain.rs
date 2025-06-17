@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::PallasPoint;
+use crate::stages::{common::adopt_current_span, PallasPoint};
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime};
 use amaru_consensus::{consensus::store::ChainStore, IsHeader};
 use amaru_kernel::{block::BlockValidationResult, Hash, Header};
@@ -256,6 +256,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             Unit::Block(BlockValidationResult::BlockValidated { point, span, .. }) => {
+                let current = adopt_current_span(span);
                 // FIXME: block height should be part of BlockValidated message
                 let store = stage.store.lock().await;
                 if let Some(header) = store.load_header(&Hash::from(point)) {
@@ -273,7 +274,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
 
                     trace!(
                         target: EVENT_TARGET,
-                        parent: span,
+                        parent: current,
                         tip = %point,
                         "tip_changed"
                     );
@@ -294,9 +295,11 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
                 rollback_point,
                 span,
             }) => {
+                let current = adopt_current_span(span);
+
                 info!(
                     target: EVENT_TARGET,
-                    parent: span,
+                    parent: current,
                     point = %rollback_point,
                     "rolled_back_to"
                 );
@@ -316,9 +319,10 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
                 Ok(())
             }
             Unit::Block(BlockValidationResult::BlockValidationFailed { point, span }) => {
+                let current = adopt_current_span(span);
                 error!(
                     target: EVENT_TARGET,
-                    parent: span,
+                    parent: current,
                     slot = ?point.slot_or_default(),
                     hash = ?Hash::<32>::from(point),
                     "block_validation_failed"

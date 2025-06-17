@@ -178,14 +178,24 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
             ValidateBlockEvent::Validated { point, block, span } => {
                 let point = point.clone();
                 let block = block.to_vec();
-                let span = adopt_current_span(span);
+                let _child = adopt_current_span(span);
 
                 match stage.roll_forward(point.clone(), block.clone()) {
-                    Ok(None) => BlockValidationResult::BlockValidated { point, block, span },
-                    Ok(Some(_)) => BlockValidationResult::BlockValidationFailed { point, span },
+                    Ok(None) => BlockValidationResult::BlockValidated {
+                        point,
+                        block,
+                        span: span.clone(),
+                    },
+                    Ok(Some(_)) => BlockValidationResult::BlockValidationFailed {
+                        point,
+                        span: span.clone(),
+                    },
                     Err(err) => {
                         error!(?err, "Failed to validate block");
-                        BlockValidationResult::BlockValidationFailed { point, span }
+                        BlockValidationResult::BlockValidationFailed {
+                            point,
+                            span: span.clone(),
+                        }
                     }
                 }
             }
@@ -193,8 +203,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
                 rollback_point,
                 span,
             } => {
+                let _child = adopt_current_span(span);
                 stage
-                    .rollback_to(rollback_point.clone(), adopt_current_span(span))
+                    .rollback_to(rollback_point.clone(), span.clone())
                     .await
             }
         };
