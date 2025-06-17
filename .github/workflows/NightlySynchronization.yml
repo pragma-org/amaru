@@ -57,5 +57,5 @@ jobs:
         if [ "$NETWORK" == "preview" ]; then
           rm -f immutable/0*.chunk immutable/10*.chunk immutable/11*.chunk
         fi
-      env: |
-        NETWORK=${{ matrix.network }}
+      env:
+        NETWORK: ${{ matrix.network }}
