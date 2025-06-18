@@ -63,6 +63,8 @@ pub enum StoreError {
     Open(#[source] OpenErrorKind),
     #[error("error opening the tip: {0}")]
     Tip(#[source] TipErrorKind),
+    #[error("requested item not found")]
+    NotFound,
 }
 
 // Store

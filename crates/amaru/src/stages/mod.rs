@@ -296,8 +296,8 @@ fn make_ledger(
     match config.ledger_store {
         StorePath::InMem => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
-                MemoryStore {},
-                MemoryStore {},
+                MemoryStore::new(),
+                MemoryStore::new(),
                 era_history.clone(),
                 global_parameters.clone(),
             )?;
