@@ -309,7 +309,15 @@ fn clock_manual() {
     running.run_until_sleeping_or_blocked().assert_sleeping();
     assert_eq!(running.get_state(&stage), None);
 
-    assert!(running.skip_to_next_wakeup());
+    let intermediate = running.now() + Duration::from_millis(100);
+    let target = intermediate + Duration::from_millis(900);
+
+    assert!(!running.skip_to_next_wakeup(Some(intermediate)));
+    assert_eq!(running.now(), intermediate);
+
+    assert!(running.skip_to_next_wakeup(None));
+    assert_eq!(running.now(), target);
+
     running.run_until_sleeping_or_blocked().assert_idle();
     let later = running.now();
 

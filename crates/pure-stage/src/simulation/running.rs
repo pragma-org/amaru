@@ -146,22 +146,36 @@ impl SimulationRunning {
 
     /// Advance the clock to the next wakeup time.
     ///
-    /// Returns `true` if a wakeup was skipped, `false` if there are no more wakeups.
-    pub fn skip_to_next_wakeup(&mut self) -> bool {
+    /// Returns `true` if wakeups were performed, `false` if there are no more wakeups or
+    /// the clock was advanced to the given `max_time`.
+    pub fn skip_to_next_wakeup(&mut self, max_time: Option<Instant>) -> bool {
         let Some(Sleeping { time, .. }) = self.sleeping.peek() else {
+            if let Some(time) = max_time {
+                self.clock.advance_to(time);
+                self.trace_buffer.lock().push_clock(time);
+            }
             return false;
         };
-        // can't keep reference to `self.sleeping`
-        let time = *time;
+
+        // only advance as far as allowed
+        let time = (*time).min(max_time.unwrap_or(*time));
 
         self.clock.advance_to(time);
         self.trace_buffer.lock().push_clock(time);
 
+        let mut performed_wakeups = false;
+
+        // this won't find a match if max_time was hit
         while matches!(self.sleeping.peek(), Some(Sleeping { time: t, .. }) if *t == time) {
             let Sleeping { wakeup, .. } = self.sleeping.pop().expect("peeked, so must exist");
             wakeup(self);
+            performed_wakeups = true;
         }
-        true
+        performed_wakeups
+    }
+
+    pub fn next_wakeup(&self) -> Option<Instant> {
+        self.sleeping.peek().map(|Sleeping { time, .. }| *time)
     }
 
     fn schedule_wakeup(
@@ -314,7 +328,20 @@ impl SimulationRunning {
     pub fn run_until_blocked(&mut self) -> Blocked {
         loop {
             match self.run_until_sleeping_or_blocked() {
-                Blocked::Sleeping => assert!(self.skip_to_next_wakeup()),
+                Blocked::Sleeping { .. } => assert!(self.skip_to_next_wakeup(None)),
+                blocked => return blocked,
+            }
+        }
+    }
+
+    pub fn run_until_blocked_or_time(&mut self, time: Instant) -> Blocked {
+        loop {
+            match self.run_until_sleeping_or_blocked() {
+                Blocked::Sleeping { next_wakeup } => {
+                    if !self.skip_to_next_wakeup(Some(time)) {
+                        return Blocked::Sleeping { next_wakeup };
+                    }
+                }
                 blocked => return blocked,
             }
         }
@@ -814,10 +841,11 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
         .filter_map(|d| d.waiting.as_ref())
         .all(|v| matches!(v, StageEffect::Receive))
     {
-        if sim.sleeping.is_empty() {
+        if let Some(next_wakeup) = sim.next_wakeup() {
+            return Blocked::Sleeping { next_wakeup };
+        } else {
             return Blocked::Idle;
         }
-        return Blocked::Sleeping;
     }
     let mut send = Vec::new();
     let mut busy = Vec::new();
@@ -836,8 +864,11 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
     }
 
     if !sleep.is_empty() {
-        assert!(!sim.sleeping.is_empty()); // must be in there because nothing is runnable (yet)
-        Blocked::Sleeping
+        if let Some(next_wakeup) = sim.next_wakeup() {
+            return Blocked::Sleeping { next_wakeup };
+        } else {
+            panic!("no next wakeup but stages are waiting for a wait effect");
+        }
     } else if !busy.is_empty() {
         Blocked::Busy(busy)
     } else if !send.is_empty() {
