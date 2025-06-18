@@ -118,7 +118,7 @@ impl fmt::Debug for DecodedChainSyncEvent {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 #[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
     Validated {

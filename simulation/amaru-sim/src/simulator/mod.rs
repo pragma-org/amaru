@@ -17,10 +17,11 @@ use amaru_consensus::{
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         receive_header::handle_chain_sync,
+        select_chain::SelectChain,
         store::ChainStore,
         store_header::StoreHeader,
         validate_header::ValidateHeader,
-        ChainSyncEvent, DecodedChainSyncEvent,
+        ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
     },
     peer::Peer,
 };
@@ -107,7 +108,7 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     )
     .unwrap();
 
-    let chain_selector = make_chain_selector(Origin, &chain_store, &vec![]);
+    let select_chain = SelectChain::new(make_chain_selector(Origin, &chain_store, &vec![]));
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
 
@@ -115,7 +116,7 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
         rt,
         global_parameters.clone(),
         &mut consensus,
-        chain_selector.clone(),
+        select_chain.clone(),
         &chain_data_path,
     );
 }
@@ -124,7 +125,7 @@ fn run_simulator(
     rt: tokio::runtime::Runtime,
     global: GlobalParameters,
     validate_header: &mut ValidateHeader,
-    chain_selector: Arc<Mutex<ChainSelector<Header>>>,
+    select_chain: SelectChain,
     chain_data_path: &PathBuf,
 ) {
     let config_without_shrink = Config {
@@ -230,47 +231,43 @@ fn run_simulator(
                     },
                 );
 
-        let select_chain_stage = network.stage(
-            "select_chain",
-            async |(chain_selector, downstream),
-                   msg: DecodedChainSyncEvent,
-                   eff|
-                   -> Result<
-                (
-                    Arc<Mutex<ChainSelector<Header>>>,
-                    StageRef<DecodedChainSyncEvent, Void>,
-                ),
-                Error,
-            > {
-                match msg {
-                    DecodedChainSyncEvent::RollForward { peer, header, .. } => {
-                        let chain_selector = chain_selector.lock();
-                        let forward_chain_selection =
-                            chain_selector.await.select_roll_forward(&peer, header);
-                        // eff.send(&downstream, forward_chain_selection).await;
-                        todo!()
+        let select_chain_stage =
+            network.stage(
+                "select_chain",
+                async |(mut select_chain, downstream),
+                       msg: DecodedChainSyncEvent,
+                       eff|
+                       -> Result<
+                    (SelectChain, StageRef<Vec<ValidateHeaderEvent>, Void>),
+                    Error,
+                > {
+                    match msg {
+                        DecodedChainSyncEvent::RollForward {
+                            peer, header, span, ..
+                        } => {
+                            let result = select_chain.select_chain(peer, header, span).await?;
+                            eff.send(&downstream, result).await;
+                        }
+                        DecodedChainSyncEvent::Rollback {
+                            peer,
+                            rollback_point,
+                            span,
+                            ..
+                        } => {
+                            let result = select_chain
+                                .select_rollback(peer, rollback_point, span)
+                                .await?;
+                            // eff.send(&downstream, rollback_chain_selection).await;
+                        }
                     }
-                    DecodedChainSyncEvent::Rollback {
-                        peer,
-                        rollback_point,
-                        ..
-                    } => {
-                        let chain_selector = chain_selector.lock();
-                        let rollback_chain_selection = chain_selector
-                            .await
-                            .select_rollback(&peer, Hash::from(&rollback_point));
-                        // eff.send(&downstream, rollback_chain_selection).await;
-                        todo!()
-                    }
-                }
-                Ok((chain_selector, downstream))
-            },
-        );
+                    Ok((select_chain, downstream))
+                },
+            );
 
         let propagate_header_stage = network.stage(
             "propagate_header",
             async |(next_msg_id, downstream),
-                   msg: DecodedChainSyncEvent,
+                   msg: Vec<ValidateHeaderEvent>,
                    eff|
                    -> Result<(u64, StageRef<Envelope<ChainSyncMessage>, Void>), Error> {
                 let msg_id = next_msg_id;
@@ -340,7 +337,7 @@ fn run_simulator(
         );
         network.wire_up(
             select_chain_stage,
-            (chain_selector.clone(), propagate_header_stage.sender()),
+            (select_chain.clone(), propagate_header_stage.sender()),
         );
         network.wire_up(propagate_header_stage, (0, output.without_state()));
 

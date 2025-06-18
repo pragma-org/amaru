@@ -27,6 +27,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{trace, Span};
 
+#[derive(Debug, Clone)]
 pub struct SelectChain {
     chain_selector: Arc<Mutex<ChainSelector<Header>>>,
 }
