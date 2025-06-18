@@ -47,7 +47,8 @@ impl BlockFetchStage {
 
     async fn handle_event(&mut self, event: ValidateHeaderEvent) -> Result<(), WorkerError> {
         match event {
-            ValidateHeaderEvent::Validated { peer, point, span } => {
+            ValidateHeaderEvent::Validated { peer, header, span } => {
+                let point = unimplemented!();
                 let block = self.fetch_block(&peer, &point).await.map_err(|e| {
                     error!(error=%e, "failed to fetch block");
                     WorkerError::Recv

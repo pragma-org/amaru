@@ -123,7 +123,7 @@ impl fmt::Debug for DecodedChainSyncEvent {
 pub enum ValidateHeaderEvent {
     Validated {
         peer: Peer,
-        point: Point,
+        header: Header,
         span: Span,
     },
     Rollback {

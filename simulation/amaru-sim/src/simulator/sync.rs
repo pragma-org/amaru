@@ -14,10 +14,7 @@
 
 use super::bytes::Bytes;
 use crate::echo::Envelope;
-use amaru_consensus::{
-    consensus::{ChainSyncEvent, ValidateHeaderEvent},
-    peer::Peer,
-};
+use amaru_consensus::{consensus::ChainSyncEvent, peer::Peer};
 use amaru_kernel::{self, Point};
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
@@ -216,27 +213,6 @@ impl fmt::Debug for ChainSyncMessage {
     }
 }
 
-impl From<&ValidateHeaderEvent> for ChainSyncMessage {
-    fn from(event: &ValidateHeaderEvent) -> Self {
-        pub use pallas_crypto::hash::Hash;
-
-        match event {
-            ValidateHeaderEvent::Validated { point, .. } => {
-                let raw_hash: Hash<32> = point.into();
-                ChainSyncMessage::Fwd {
-                    msg_id: 0,
-                    slot: point.slot_or_default(),
-                    hash: Bytes {
-                        bytes: raw_hash.to_vec(),
-                    },
-                    header: Bytes { bytes: vec![] }, // FIXME: vec is the full body not the header
-                }
-            }
-            ValidateHeaderEvent::Rollback { .. } => todo!(),
-        }
-    }
-}
-
 pub fn mk_message(
     v: Envelope<ChainSyncMessage>,
     span: Span,
@@ -416,30 +392,5 @@ mod test {
             assert_eq!(message, decoded);
         }
 
-    }
-
-    fn arbitrary_block_validated_event() -> BoxedStrategy<ValidateHeaderEvent> {
-        use proptest::prelude::*;
-        use ValidateHeaderEvent::*;
-
-        prop_oneof![("[0-9a-z]+", any::<u64>(), any::<[u8; 32]>()).prop_map(
-            |(name, slot, hash)| {
-                let span = trace_span!("");
-                Validated {
-                    peer: Peer { name },
-                    point: Point::Specific(slot, hash.into()),
-                    span,
-                }
-            }
-        )]
-        .boxed()
-    }
-
-    proptest! {
-        #[test]
-        fn converts_block_validated_event_to_messages(event in arbitrary_block_validated_event()) {
-            let message = ChainSyncMessage::from(&event);
-            assert!(matches!(message, ChainSyncMessage::Fwd{..}));
-        }
     }
 }
