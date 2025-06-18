@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::network::NetworkName;
+
 pub mod point;
 
 /// Sync pipeline
@@ -22,3 +24,9 @@ pub mod stages;
 
 /// Generic exit handler
 pub mod exit;
+
+pub const SNAPSHOTS_DIR: &str = "snapshots";
+
+pub fn snapshots_dir(network: NetworkName) -> String {
+    format!("{}/{}", SNAPSHOTS_DIR, network)
+}

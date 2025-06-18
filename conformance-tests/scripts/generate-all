@@ -1,9 +1,20 @@
 #!/usr/bin/env bash
 
+NETWORK=${1:-}
+
+if [[ -z ${1:-} ]]; then
+  echo -e "\033[91mMissing argument 'NETWORK'\033[0m" >&2
+  exit 1
+fi
+
 scripts=$(dirname -- "${BASH_SOURCE[0]}")
 
-for e in $(seq 163 179); do
-  node $scripts/generate.mjs $e &
+lo=$(ls $scripts/../../data/$NETWORK/pools | sort | head -n 1 | sed "s/.json//")
+hi=$(ls $scripts/../../data/$NETWORK/pools | sort | tail -n 1 | sed "s/.json//")
+hi=$(($hi - 3))
+
+for EPOCH in $(seq $lo $hi); do
+  node $scripts/generate.mjs $NETWORK $EPOCH &
 done;
 
 wait

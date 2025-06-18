@@ -15,7 +15,7 @@ jobs:
   sync_and_cache:
     strategy:
       matrix:
-        network: [ preprod ]
+        network: [ preprod, preview ]
         ogmios_version: [ v6.11.2 ]
         cardano_node_version: [ 10.1.4 ]
 
@@ -50,4 +50,12 @@ jobs:
       shell: bash
       working-directory: ${{ runner.temp }}/db-${{ matrix.network }}
       run: |
-        rm -f immutable/00*.chunk immutable/01*.chunk immutable/02*.chunk immutable/030*.chunk
+        if [ "$NETWORK" == "preprod" ]; then
+          rm -f immutable/00*.chunk immutable/01*.chunk immutable/02*.chunk immutable/030*.chunk
+        fi
+
+        if [ "$NETWORK" == "preview" ]; then
+          rm -f immutable/0*.chunk immutable/10*.chunk immutable/11*.chunk
+        fi
+      env:
+        NETWORK: ${{ matrix.network }}

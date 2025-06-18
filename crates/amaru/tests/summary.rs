@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru::snapshots_dir;
 use amaru_kernel::{
+    default_ledger_dir,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    Network, ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+    ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     store::Snapshot,
@@ -33,8 +35,6 @@ use std::{
 };
 use test_case::test_case;
 
-pub static LEDGER_DB: LazyLock<PathBuf> = LazyLock::new(|| PathBuf::from("../../ledger.db"));
-
 pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
     LazyLock::new(|| Mutex::new(BTreeMap::new()));
 
@@ -46,15 +46,22 @@ pub static CONNECTIONS: LazyLock<Mutex<BTreeMap<Epoch, Arc<RocksDBSnapshot>>>> =
 ///
 /// The following API ensures that this is handled properly, by creating connections only once and
 /// sharing them safely between threads.
-fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
+fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     let mut connections = CONNECTIONS.lock().unwrap();
 
     let handle = connections
         .entry(epoch)
         .or_insert_with(|| {
             Arc::new(
-                RocksDBHistoricalStores::for_epoch_with(&LEDGER_DB, epoch).unwrap_or_else(|_| {
-                    panic!("Failed to open ledger snapshot for epoch {}", epoch)
+                RocksDBHistoricalStores::for_epoch_with(
+                    &PathBuf::from(format!("../../{}", default_ledger_dir(network))),
+                    epoch,
+                )
+                .unwrap_or_else(|err| {
+                    panic!(
+                        "Failed to open ledger snapshot for epoch {}: {}",
+                        epoch, err
+                    )
                 }),
             )
         })
@@ -65,35 +72,18 @@ fn db(epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-#[test_case(163)]
-#[test_case(164)]
-#[test_case(165)]
-#[test_case(166)]
-#[test_case(167)]
-#[test_case(168)]
-#[test_case(169)]
-#[test_case(170)]
-#[test_case(171)]
-#[test_case(172)]
-#[test_case(173)]
-#[test_case(174)]
-#[test_case(175)]
-#[test_case(176)]
-#[test_case(177)]
-#[test_case(178)]
-#[test_case(179)]
-#[ignore]
+include!("generated_compare_snapshot_test_cases.incl");
+
 #[allow(clippy::unwrap_used)]
-fn compare_preprod_snapshot(epoch: u64) {
-    let epoch = Epoch::from(epoch);
-    let network = NetworkName::Preprod;
-    let snapshot = db(epoch);
+fn compare_snapshot(network: NetworkName, epoch: Epoch) {
+    let snapshot = db(network, epoch);
     let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
 
+    let protocol_version = protocol_version(epoch, network);
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
-        preprod_protocol_version(epoch),
+        protocol_version,
         network.into(),
         &protocol_parameters,
     )
@@ -101,17 +91,22 @@ fn compare_preprod_snapshot(epoch: u64) {
 
     let stake_distr = StakeDistribution::new(
         snapshot.as_ref(),
-        preprod_protocol_version(epoch),
+        protocol_version,
         dreps,
         &protocol_parameters,
     )
     .unwrap();
-    insta::assert_json_snapshot!(
-        format!("stake_distribution_{}", epoch),
-        stake_distr.for_network(Network::Testnet),
-    );
 
-    let snapshot_from_the_future = db(epoch + 2);
+    insta::with_settings!({
+        snapshot_path => format!("snapshots/{}", network)
+    }, {
+        insta::assert_json_snapshot!(
+            format!("stake_distribution_{}", epoch),
+            stake_distr.for_network(network.into()),
+        );
+    });
+
+    let snapshot_from_the_future = db(network, epoch + 2);
 
     let rewards_summary = RewardsSummary::new(
         snapshot_from_the_future.as_ref(),
@@ -123,11 +118,18 @@ fn compare_preprod_snapshot(epoch: u64) {
     .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &protocol_parameters)
     .unwrap();
 
-    insta::assert_json_snapshot!(format!("rewards_summary_{}", epoch), rewards_summary);
+    insta::with_settings!({
+        snapshot_path => snapshots_dir(network)
+    }, {
+        insta::assert_json_snapshot!(
+        format!("rewards_summary_{}", epoch),
+        rewards_summary
+        );
+    });
 }
 
-fn preprod_protocol_version(epoch: Epoch) -> ProtocolVersion {
-    if epoch <= Epoch::from(180) {
+fn protocol_version(epoch: Epoch, network: NetworkName) -> ProtocolVersion {
+    if network == NetworkName::Preprod && epoch <= Epoch::from(180) {
         return PROTOCOL_VERSION_9;
     }
 

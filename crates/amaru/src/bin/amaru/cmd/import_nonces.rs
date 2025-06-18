@@ -13,7 +13,9 @@
 // limitations under the License.
 
 use amaru_consensus::{consensus::store::ChainStore, Nonces};
-use amaru_kernel::{network::NetworkName, EraHistory, Hash, Header, Nonce, Point};
+use amaru_kernel::{
+    default_chain_dir, network::NetworkName, EraHistory, Hash, Header, Nonce, Point,
+};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use serde::{Deserialize, Deserializer};
@@ -23,8 +25,8 @@ use tracing::info;
 #[derive(Debug, Parser)]
 pub struct Args {
     /// Path of the consensus on-disk storage.
-    #[arg(long, value_name = "DIR", default_value = super::DEFAULT_CHAIN_DB_DIR)]
-    chain_dir: PathBuf,
+    #[arg(long, value_name = "DIR")]
+    chain_dir: Option<PathBuf>,
 
     /// Point for which nonces data is imported.
     #[arg(long, value_name = "POINT", value_parser = super::parse_point)]
@@ -78,9 +80,12 @@ where
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(args.network).into());
     import_nonces(
         args.network.into(),
-        &args.chain_dir,
+        &chain_dir,
         InitialNonces {
             at: args.at,
             active: args.active,

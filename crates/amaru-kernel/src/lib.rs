@@ -32,8 +32,8 @@ use pallas_codec::{
 use pallas_primitives::alonzo::Value as AlonzoValue;
 use pallas_primitives::{
     conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
-        RedeemersKey, RedeemersValue,
+        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
+        RedeemersValue,
     },
     DatumHash, PlutusData, PlutusScript,
 };
@@ -65,16 +65,18 @@ pub use pallas_primitives::{
         MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
         MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
-        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 pub use sha3;
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
+
+use crate::network::NetworkName;
 
 pub mod block;
 pub mod macros;
@@ -1162,12 +1164,31 @@ impl HasIndex for ScriptPurpose {
     }
 }
 
+pub fn script_purpose_to_string(purpose: ScriptPurpose) -> String {
+    match purpose {
+        RedeemerTag::Spend => "Spend".to_string(),
+        RedeemerTag::Mint => "Mint".to_string(),
+        RedeemerTag::Cert => "Cert".to_string(),
+        RedeemerTag::Reward => "Reward".to_string(),
+        RedeemerTag::Vote => "Vote".to_string(),
+        RedeemerTag::Propose => "Propose".to_string(),
+    }
+}
+
 /// Create a new `ExUnits` that is the sum of two `ExUnits`
 pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
     ExUnits {
         mem: left.mem + right.mem,
         steps: left.steps + right.steps,
     }
+}
+
+pub fn default_ledger_dir(network: NetworkName) -> String {
+    format!("./ledger.{}.db", network.to_string().to_lowercase())
+}
+
+pub fn default_chain_dir(network: NetworkName) -> String {
+    format!("./chain.{}.db", network.to_string().to_lowercase())
 }
 
 #[cfg(test)]

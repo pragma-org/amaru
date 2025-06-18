@@ -1,6 +1,6 @@
 use amaru::stages::{pull, PeerSession};
 use amaru_consensus::{consensus::store::ChainStore, peer::Peer, IsHeader};
-use amaru_kernel::{from_cbor, network::NetworkName, Header, Point};
+use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
@@ -39,8 +39,8 @@ pub struct Args {
     ///
     /// This is the directory where data will be stored. The directory and any intermediate
     /// paths will be created if they do not exist.
-    #[arg(long, value_name = "DIR", verbatim_doc_comment, default_value = super::DEFAULT_CHAIN_DB_DIR)]
-    chain_dir: PathBuf,
+    #[arg(long, value_name = "DIR", verbatim_doc_comment)]
+    chain_dir: Option<PathBuf>,
 
     /// Starting point of import.
     ///
@@ -64,10 +64,13 @@ enum What {
 use What::*;
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
+    let chain_dir = args
+        .chain_dir
+        .unwrap_or_else(|| default_chain_dir(args.network).into());
     import_headers(
         &args.peer_address,
         args.network,
-        &args.chain_dir,
+        &chain_dir,
         args.starting_point,
         args.count,
     )
