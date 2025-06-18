@@ -18,6 +18,7 @@ pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
 rayon.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true

@@ -76,7 +76,7 @@ pub fn pure_stage_node_handle<Msg, St>(
     mut running: SimulationRunning,
 ) -> anyhow::Result<NodeHandle<Msg>>
 where
-    Msg: PartialEq + Send + Debug + 'static,
+    Msg: PartialEq + Send + Debug + serde::Serialize + serde::de::DeserializeOwned + 'static,
     St: 'static,
 {
     let handle = Box::new(move |msg: Envelope<Msg>| {
@@ -283,7 +283,7 @@ pub fn simulate<Msg, F>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pure_stage::{simulation::SimulationBuilder, StageGraph};
+    use pure_stage::{simulation::SimulationBuilder, StageGraph, Void};
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
@@ -295,6 +295,9 @@ mod tests {
     #[test]
     #[should_panic]
     fn simulate_pure_stage_echo() {
+        #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+        struct State(u64, StageRef<Envelope<EchoMessage>, Void>);
+
         let config = Config::default();
 
         let number_of_nodes = 1;
@@ -304,11 +307,11 @@ mod tests {
             let mut network = SimulationBuilder::default();
             let stage = network.stage(
                 "echo",
-                async |(mut state, out), msg: Envelope<EchoMessage>, eff| {
+                async |mut state: State, msg: Envelope<EchoMessage>, eff| {
                     if let EchoMessage::Echo { msg_id, echo } = &msg.body {
-                        state += 1;
+                        state.0 += 1;
                         // Insert a bug every 5 messages.
-                        let echo_response = if state % 5 == 0 {
+                        let echo_response = if state.0 % 5 == 0 {
                             echo.to_string().to_uppercase()
                         } else {
                             echo.to_string()
@@ -317,25 +320,25 @@ mod tests {
                             src: msg.dest,
                             dest: msg.src,
                             body: EchoMessage::EchoOk {
-                                msg_id: state,
+                                msg_id: state.0,
                                 in_reply_to: *msg_id,
                                 echo: echo_response,
                             },
                         };
                         println!(" ==> {:?}", reply);
-                        eff.send(&out, reply).await;
-                        Ok((state, out))
+                        eff.send(&state.1, reply).await;
+                        Ok(state)
                     } else {
                         panic!("Got a message that wasn't an echo: {:?}", msg.body)
                     }
                 },
             );
             let (output, rx) = network.output("output", 10);
-            let stage = network.wire_up(stage, (0u64, output.without_state()));
+            let stage = network.wire_up(stage, State(0, output.without_state()));
             let rt = tokio::runtime::Runtime::new().unwrap();
             let running = network.run(rt.handle().clone());
 
-            pure_stage_node_handle(rx, stage, running).unwrap()
+            pure_stage_node_handle(rx, stage.without_state(), running).unwrap()
         };
         let generate_messages = prop::collection::vec(
             (0..128u8).prop_map(|i| EchoMessage::Echo {

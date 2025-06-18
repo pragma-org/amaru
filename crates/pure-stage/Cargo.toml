@@ -1,24 +1,30 @@
 [package]
 name = "pure-stage"
-version.workspace = true
+version = "0.1.0"
 edition.workspace = true
-description.workspace = true
+description = "A library for building and running simulations of distributed systems."
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-documentation.workspace = true
+documentation = "https://docs.rs/pure-stage"
 rust-version.workspace = true
 
 [dependencies]
 anyhow.workspace = true
+cbor4ii.workspace = true
 either.workspace = true
 futures-util.workspace = true
 parking_lot.workspace = true
+serde = { workspace = true, features = ["derive", "alloc", "rc"] }
 thiserror.workspace = true
 tokio = { workspace = true, features = ["rt", "time"] }
 tracing.workspace = true
 tracing-subscriber.workspace = true
+typetag.workspace = true
+
+[dev-dependencies]
+pretty_assertions = { workspace = true }
 
 [lints]
 workspace = true

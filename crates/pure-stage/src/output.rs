@@ -1,17 +1,26 @@
-use crate::{ExternalEffect, ExternalEffectAPI, Message, Name};
+use crate::{types::MpscSender, ExternalEffect, ExternalEffectAPI, Name, SendData};
 use std::fmt;
 use tokio::sync::mpsc;
 
-#[derive(Clone)]
-pub struct OutputEffect<Msg: Message> {
+/// An effect that sends a message to an output channel.
+///
+/// This is used to send messages to the output stage, which is used to collect the results of the simulation.
+///
+/// The [`OutputEffect`] is created by [`StageGraph::output`](crate::StageGraph::output).
+#[derive(Clone, serde::Serialize, serde::Deserialize)]
+pub struct OutputEffect<Msg> {
     pub name: Name,
     pub msg: Msg,
-    sender: mpsc::Sender<Msg>,
+    sender: MpscSender<Msg>,
 }
 
-impl<Msg: Message> OutputEffect<Msg> {
+impl<Msg> OutputEffect<Msg> {
     pub fn new(name: Name, msg: Msg, sender: mpsc::Sender<Msg>) -> Self {
-        Self { name, msg, sender }
+        Self {
+            name,
+            msg,
+            sender: MpscSender { sender },
+        }
     }
 
     /// Create a fake output effect for testing.
@@ -21,41 +30,46 @@ impl<Msg: Message> OutputEffect<Msg> {
             Self {
                 name,
                 msg,
-                sender: tx,
+                sender: MpscSender { sender: tx },
             },
             rx,
         )
     }
 }
 
-impl<Msg: Message + fmt::Debug> fmt::Debug for OutputEffect<Msg> {
+impl<Msg: SendData> fmt::Debug for OutputEffect<Msg> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("OutputEffect")
             .field("name", &self.name)
             .field("msg", &self.msg)
-            .field("type", &self.msg.type_name())
+            .field("type", &self.msg.typetag_name())
             .finish()
     }
 }
 
-impl<Msg: Message + PartialEq> ExternalEffect for OutputEffect<Msg> {
-    fn run(self: Box<Self>) -> crate::BoxFuture<'static, Box<dyn Message>> {
+impl<Msg: SendData + PartialEq> PartialEq for OutputEffect<Msg> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name && self.msg == other.msg
+    }
+}
+
+impl<Msg> ExternalEffect for OutputEffect<Msg>
+where
+    Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
+{
+    fn run(self: Box<Self>) -> crate::BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async move {
             if let Err(e) = self.sender.send(self.msg).await {
                 tracing::debug!("output `{}` failed to send message: {:?}", self.name, e.0);
             }
-            Box::new(()) as Box<dyn Message>
+            Box::new(()) as Box<dyn SendData>
         })
-    }
-
-    fn test_eq(&self, other: &dyn ExternalEffect) -> bool {
-        other
-            .cast_ref::<Self>()
-            .map(|other| self.name == other.name && self.msg == other.msg)
-            .unwrap_or(false)
     }
 }
 
-impl<Msg: Message + PartialEq> ExternalEffectAPI for OutputEffect<Msg> {
+impl<Msg> ExternalEffectAPI for OutputEffect<Msg>
+where
+    Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
+{
     type Response = ();
 }

@@ -21,7 +21,7 @@ fn basic() {
     let (out_ref, mut out_rx) = graph.output("output", 10);
     let double = graph.wire_up(double, out_ref);
 
-    let send_double = graph.sender(&double);
+    let send_double = graph.input(&double);
 
     let handle = rt.handle().clone();
     rt.block_on(async move {

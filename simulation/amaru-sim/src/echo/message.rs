@@ -46,8 +46,26 @@ pub enum EchoMessage {
 #[cfg(test)]
 mod test {
     use proptest::{prelude::BoxedStrategy, proptest};
+    use pure_stage::SendData;
 
     use super::EchoMessage;
+
+    #[test]
+    fn typetag_name() {
+        let env = super::Envelope::<EchoMessage> {
+            src: "src".to_string(),
+            dest: "dest".to_string(),
+            body: EchoMessage::Init {
+                msg_id: 0,
+                node_id: "node_id".to_string(),
+                node_ids: vec!["node_id".to_string()],
+            },
+        };
+        assert_eq!(
+            env.typetag_name(),
+            "amaru_sim::echo::message::Envelope<amaru_sim::echo::message::EchoMessage>"
+        );
+    }
 
     fn arbitrary_message() -> BoxedStrategy<EchoMessage> {
         use super::EchoMessage;

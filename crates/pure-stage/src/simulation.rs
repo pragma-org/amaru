@@ -5,41 +5,52 @@
     clippy::expect_used
 )]
 
+//! This module contains the [`SimulationBuilder`] and [`SimulationRunning`] types, which are
+//! used to build and run a simulation.
+//!
+//! The simulation is a fully controllable and deterministic [`StageGraph`](crate::StageGraph) for testing purposes.
+//! Execution is controlled entirely via the [`SimulationRunning`] handle returned from
+//! [`StageGraph::run`](crate::StageGraph::run).
+//!
+
 use crate::{
     effect::{StageEffect, StageResponse},
-    BoxFuture, Effects, Instant, Message, Name, Sender, StageBuildRef, StageRef, State,
+    time::Clock,
+    trace_buffer::TraceBuffer,
+    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageRef,
 };
+use either::Either;
+use parking_lot::Mutex;
 use std::{
     any::Any,
     collections::{BTreeMap, VecDeque},
     future::{poll_fn, Future},
     marker::PhantomData,
-    sync::{
-        atomic::{AtomicU64, Ordering},
-        Arc,
-    },
+    sync::{atomic::AtomicU64, Arc},
     task::Poll,
-    time::Duration,
 };
-
-pub use running::{Blocked, OverrideResult, SimulationRunning};
-
-use either::Either;
-use inputs::Inputs;
-use parking_lot::Mutex;
-use state::{InitStageData, InitStageState, StageData, StageState, Transition};
 use tokio::runtime::Handle;
 
+pub use blocked::Blocked;
+pub use replay::Replay;
+pub use running::{OverrideResult, SimulationRunning};
+
+use inputs::Inputs;
+use state::{InitStageData, InitStageState, StageData, StageState, Transition};
+
+mod blocked;
 mod inputs;
+mod replay;
+mod resume;
 mod running;
 mod state;
 
 pub(crate) type EffectBox =
-    Arc<Mutex<Option<Either<StageEffect<Box<dyn Message>>, StageResponse>>>>;
+    Arc<Mutex<Option<Either<StageEffect<Box<dyn SendData>>, StageResponse>>>>;
 
 pub(crate) fn airlock_effect<Out>(
     eb: &EffectBox,
-    effect: StageEffect<Box<dyn Message>>,
+    effect: StageEffect<Box<dyn SendData>>,
     mut response: impl FnMut(Option<StageResponse>) -> Option<Out> + Send + 'static,
 ) -> BoxFuture<'static, Out> {
     let eb = eb.clone();
@@ -70,14 +81,14 @@ pub(crate) fn airlock_effect<Out>(
     }))
 }
 
-/// A fully controllable and deterministic [`StageGraph`] for testing purposes.
+/// A fully controllable and deterministic [`StageGraph`](crate::StageGraph) for testing purposes.
 ///
 /// Execution is controlled entirely via the [`SimulationRunning`] handle returned from
-/// [`StageGraph::run`].
+/// [`StageGraph::run`](crate::StageGraph::run).
 ///
 /// The general principle is that each stage is suspended whenever it needs new
 /// input (even when there is a message available in the mailbox) or when it uses
-/// any of the effects provided (like [`StageRef::send`] or [`Interrupter::interrupt`]).
+/// any of the effects provided (like [`Effects::send`] or [`Effects::wait`]).
 /// Resuming the given effect will not run the stage, but it will make it runnable
 /// again when performing the next simulation step.
 ///
@@ -118,10 +129,10 @@ pub(crate) fn airlock_effect<Out>(
 pub struct SimulationBuilder {
     stages: BTreeMap<Name, InitStageData>,
     effect: EffectBox,
-    clock: Arc<AtomicU64>,
-    now: Arc<dyn Fn() -> Instant + Send + Sync>,
+    clock: Arc<dyn Clock + Send + Sync>,
     mailbox_size: usize,
     inputs: Inputs,
+    trace_buffer: Arc<Mutex<TraceBuffer>>,
 }
 
 impl SimulationBuilder {
@@ -129,24 +140,50 @@ impl SimulationBuilder {
         self.mailbox_size = size;
         self
     }
+
+    pub fn with_trace_buffer(mut self, trace_buffer: Arc<Mutex<TraceBuffer>>) -> Self {
+        self.trace_buffer = trace_buffer;
+        self
+    }
+
+    pub fn replay(self) -> Replay {
+        let stages = self
+            .stages
+            .into_iter()
+            .map(|(name, data)| {
+                let state = match data.state {
+                    InitStageState::Uninitialized => panic!("forgot to wire up stage `{name}`"),
+                    InitStageState::Idle(state) => StageState::Idle(state),
+                };
+                (
+                    name.clone(),
+                    StageData {
+                        name,
+                        mailbox: data.mailbox,
+                        state,
+                        transition: data.transition,
+                        waiting: Some(StageEffect::Receive),
+                        senders: VecDeque::new(),
+                    },
+                )
+            })
+            .collect();
+        Replay::new(stages, self.effect)
+    }
 }
 
 impl Default for SimulationBuilder {
     fn default() -> Self {
-        let clock_base = tokio::time::Instant::now();
         let clock = Arc::new(AtomicU64::new(0));
-        let clock2 = clock.clone();
-        let now = Arc::new(move || {
-            Instant::from_tokio(clock_base + Duration::from_nanos(clock2.load(Ordering::Relaxed)))
-        });
 
         Self {
             stages: Default::default(),
             effect: Default::default(),
             clock,
-            now,
             mailbox_size: 10,
             inputs: Inputs::new(10),
+            // default is a TraceBuffer that drops all messages
+            trace_buffer: Arc::new(Mutex::new(TraceBuffer::new(0, 0))),
         }
     }
 }
@@ -155,7 +192,7 @@ impl super::StageGraph for SimulationBuilder {
     type Running = SimulationRunning;
     type RefAux<Msg, State> = ();
 
-    fn stage<Msg: Message, St: State, F, Fut>(
+    fn stage<Msg, St, F, Fut>(
         &mut self,
         name: impl AsRef<str>,
         mut f: F,
@@ -163,6 +200,8 @@ impl super::StageGraph for SimulationBuilder {
     where
         F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
         Fut: Future<Output = anyhow::Result<St>> + 'static + Send,
+        Msg: SendData + serde::de::DeserializeOwned,
+        St: SendData,
     {
         // THIS MUST MATCH THE TOKIO BUILDER
         let name = Name::from(&*format!("{}-{}", name.as_ref(), self.stages.len()));
@@ -171,13 +210,15 @@ impl super::StageGraph for SimulationBuilder {
             _ph: PhantomData,
         };
         let self_sender = self.inputs.sender(&me);
-        let effects = Effects::new(me, self.effect.clone(), self.now.clone(), self_sender);
+        let effects = Effects::new(me, self.effect.clone(), self.clock.clone(), self_sender);
         let transition: Transition =
-            Box::new(move |state: Box<dyn State>, msg: Box<dyn Message>| {
+            Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
                 let state = (state as Box<dyn Any>).downcast::<St>().unwrap();
-                let msg = *msg.cast::<Msg>().expect("internal message type error");
+                let msg = msg
+                    .cast_deserialize::<Msg>()
+                    .expect("internal message type error");
                 let state = f(*state, msg, effects.clone());
-                Box::pin(async move { Ok(Box::new(state.await?) as Box<dyn State>) })
+                Box::pin(async move { Ok(Box::new(state.await?) as Box<dyn SendData>) })
             });
 
         if let Some(old) = self.stages.insert(
@@ -202,7 +243,7 @@ impl super::StageGraph for SimulationBuilder {
         }
     }
 
-    fn wire_up<Msg: Message, St: State>(
+    fn wire_up<Msg: SendData, St: SendData>(
         &mut self,
         stage: crate::StageBuildRef<Msg, St, Self::RefAux<Msg, St>>,
         state: St,
@@ -222,7 +263,7 @@ impl super::StageGraph for SimulationBuilder {
         }
     }
 
-    fn sender<Msg: Message, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
+    fn input<Msg: SendData, St>(&mut self, stage: &StageRef<Msg, St>) -> Sender<Msg> {
         self.inputs.sender(stage)
     }
 
@@ -231,9 +272,9 @@ impl super::StageGraph for SimulationBuilder {
             stages: s,
             effect,
             clock,
-            now,
             mailbox_size,
             inputs,
+            trace_buffer,
         } = self;
         let mut stages = BTreeMap::new();
         for (
@@ -247,7 +288,10 @@ impl super::StageGraph for SimulationBuilder {
         {
             let state = match state {
                 InitStageState::Uninitialized => panic!("forgot to wire up stage `{name}`"),
-                InitStageState::Idle(state) => StageState::Idle(state),
+                InitStageState::Idle(state) => {
+                    trace_buffer.lock().push_state(&name, &state);
+                    StageState::Idle(state)
+                }
             };
             let data = StageData {
                 name: name.clone(),
@@ -259,6 +303,14 @@ impl super::StageGraph for SimulationBuilder {
             };
             stages.insert(name, data);
         }
-        SimulationRunning::new(stages, inputs, effect, clock, now, mailbox_size, rt)
+        SimulationRunning::new(
+            stages,
+            inputs,
+            effect,
+            clock,
+            mailbox_size,
+            rt,
+            trace_buffer,
+        )
     }
 }

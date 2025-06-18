@@ -20,6 +20,7 @@ anyhow = "1.0.95"
 async-trait = "0.1.83"
 async-compression = { version = "0.4.24",  features = ["tokio", "gzip"] }
 bech32 = "0.11.0"
+cbor4ii = { version = "1.0.0", features = ["serde1", "use_std"] }
 clap = { version = "4.5.38", features = ["derive", "env"] }
 reqwest = { version = "0.11.24", default-features = false, features = ["json", "stream", "rustls-tls"] }
 either = "1.15"
@@ -66,6 +67,7 @@ tracing-subscriber = { version = "0.3.18", features = [
     "std",
     "json",
 ] }
+typetag = "0.2.20"
 
 amaru-consensus = { path = "crates/amaru-consensus" }
 amaru-kernel = { path = "crates/amaru-kernel" }
@@ -84,12 +86,13 @@ vrf_dalek = { git = "https://github.com/txpipe/vrf", rev = "044b45a1a919ba9d9c24
 kes-summed-ed25519 = { git = "https://github.com/txpipe/kes", rev = "f69fb357d46f6a18925543d785850059569d7e78" }
 
 # dev-dependencies
-ctor = "0.4.1"
-tempfile = "3.20.0"
-rand = "0.9.1"
-proptest = { version = "1.5.0", default-features = false, features = ["alloc"] }
-insta = "1.41.1"
 criterion = "0.6.0"
+ctor = "0.4.1"
+insta = "1.41.1"
+pretty_assertions = "1.4.1"
+proptest = { version = "1.5.0", default-features = false, features = ["alloc"] }
+rand = "0.9.1"
+tempfile = "3.20.0"
 test-case = "3.3.1"
 
 # build-dependencies
