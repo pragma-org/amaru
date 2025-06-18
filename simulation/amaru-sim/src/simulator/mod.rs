@@ -109,7 +109,12 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     )
     .unwrap();
 
-    let select_chain = SelectChain::new(make_chain_selector(Origin, &chain_store, &vec![]));
+    let select_chain = SelectChain::new(make_chain_selector(
+        Origin,
+        &chain_store,
+        // FIXME: Shouldn't be hardcoded!
+        &vec![Peer::new("c1")],
+    ));
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
 
