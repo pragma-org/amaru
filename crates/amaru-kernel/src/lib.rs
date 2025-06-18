@@ -32,8 +32,8 @@ use pallas_codec::{
 use pallas_primitives::alonzo::Value as AlonzoValue;
 use pallas_primitives::{
     conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, Redeemer, RedeemerTag,
-        RedeemersKey, RedeemersValue,
+        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
+        RedeemersValue,
     },
     DatumHash, PlutusData, PlutusScript,
 };
@@ -65,10 +65,10 @@ pub use pallas_primitives::{
         MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
         MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemers, Relay,
-        RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -1161,6 +1161,17 @@ impl HasIndex for ScriptPurpose {
             RedeemerTag::Vote => 4,
             RedeemerTag::Propose => 5,
         }
+    }
+}
+
+pub fn script_purpose_to_string(purpose: ScriptPurpose) -> String {
+    match purpose {
+        RedeemerTag::Spend => "Spend".to_string(),
+        RedeemerTag::Mint => "Mint".to_string(),
+        RedeemerTag::Cert => "Cert".to_string(),
+        RedeemerTag::Reward => "Reward".to_string(),
+        RedeemerTag::Vote => "Vote".to_string(),
+        RedeemerTag::Propose => "Propose".to_string(),
     }
 }
 
