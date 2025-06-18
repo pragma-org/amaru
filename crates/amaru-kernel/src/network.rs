@@ -23,7 +23,133 @@ use pallas_addresses::Network;
 use slot_arithmetic::{Epoch, Slot};
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
-pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
+pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+
+/// Era history for Mainnet retrieved with:
+///
+/// ```bash
+/// curl -X POST "https://mainnet.koios.rest/api/v1/ogmios"
+///  -H 'accept: application/json'
+///  -H 'content-type: application/json'
+///  -d '{"jsonrpc":"2.0","method":"queryLedgerState/eraSummaries"}' | jq -c '.result'
+/// ```
+///
+static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
+    let eras: [Summary; 7] = [
+        Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+            end: Some(Bound {
+                time_ms: 89856000000,
+                slot: Slot::from(4492800),
+                epoch: Epoch::from(208),
+            }),
+            params: EraParams {
+                epoch_size_slots: 21600,
+                slot_length: 20000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 89856000000,
+                slot: Slot::from(4492800),
+                epoch: Epoch::from(208),
+            },
+            end: Some(Bound {
+                time_ms: 101952000000,
+                slot: Slot::from(16588800),
+                epoch: Epoch::from(236),
+            }),
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 101952000000,
+                slot: Slot::from(16588800),
+                epoch: Epoch::from(236),
+            },
+            end: Some(Bound {
+                time_ms: 108432000000,
+                slot: Slot::from(23068800),
+                epoch: Epoch::from(251),
+            }),
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 108432000000,
+                slot: Slot::from(23068800),
+                epoch: Epoch::from(251),
+            },
+            end: Some(Bound {
+                time_ms: 125280000000,
+                slot: Slot::from(39916800),
+                epoch: Epoch::from(290),
+            }),
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 125280000000,
+                slot: Slot::from(39916800),
+                epoch: Epoch::from(290),
+            },
+            end: Some(Bound {
+                time_ms: 157680000000,
+                slot: Slot::from(72316800),
+                epoch: Epoch::from(365),
+            }),
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 157680000000,
+                slot: Slot::from(72316800),
+                epoch: Epoch::from(365),
+            },
+            end: Some(Bound {
+                time_ms: 219024000000,
+                slot: Slot::from(133660800),
+                epoch: Epoch::from(507),
+            }),
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 219024000000,
+                slot: Slot::from(133660800),
+                epoch: Epoch::from(507),
+            },
+            end: None,
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+    ];
+
+    EraHistory {
+        eras: eras.to_vec(),
+    }
+});
 
 /// Era history for Preprod retrieved with:
 ///
@@ -304,11 +430,10 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     EraHistory::new(&eras, Slot::from(129600))
 });
 
-#[allow(clippy::todo)]
 impl From<NetworkName> for &EraHistory {
     fn from(value: NetworkName) -> Self {
         match value {
-            NetworkName::Mainnet => todo!(),
+            NetworkName::Mainnet => &MAINNET_ERA_HISTORY,
             NetworkName::Preprod => &PREPROD_ERA_HISTORY,
             NetworkName::Preview => &PREVIEW_ERA_HISTORY,
             NetworkName::Testnet(_) => &TESTNET_ERA_HISTORY,
