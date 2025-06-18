@@ -172,7 +172,7 @@ pub struct ConsensusContext {
 mod test {
     use amaru_consensus::consensus::store::ChainStore;
     use amaru_kernel::network::NetworkName;
-    use amaru_ouroboros::fake::FakeHeader;
+    use amaru_kernel::Header;
     use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 
     use super::populate_chain_store;
@@ -235,7 +235,7 @@ mod test {
     #[test]
     fn populate_chain_store_nonces_from_context_file() {
         let consensus_store_file = "tests/data/consensus-context.json";
-        let mut consensus_store = InMemConsensusStore::new();
+        let mut consensus_store: InMemConsensusStore<Header> = InMemConsensusStore::new();
         let expected_nonce = amaru_kernel::Hash::from(
             hex::decode("ec08f270a044fb94bf61f9870e928a96cf75027d1f0e9f5dead0651b40849a89")
                 .unwrap()
@@ -252,12 +252,7 @@ mod test {
 
         assert_eq!(
             expected_nonce,
-            <InMemConsensusStore as ChainStore<FakeHeader>>::get_nonces(
-                &consensus_store,
-                &genesis_hash
-            )
-            .unwrap()
-            .active
+            consensus_store.get_nonces(&genesis_hash).unwrap().active
         );
     }
 }

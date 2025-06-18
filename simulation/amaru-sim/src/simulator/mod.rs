@@ -31,7 +31,7 @@ use amaru_kernel::{
     Point::{self, *},
     Slot,
 };
-use amaru_stores::rocksdb::consensus::RocksDBStore;
+use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 use anyhow::Error;
 use bytes::Bytes;
 use clap::Parser;
@@ -90,15 +90,8 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
     let chain_data_path = args.block_tree_file;
-    let era_history = network.into();
 
-    let mut chain_store = RocksDBStore::new(&args.chain_dir, era_history).unwrap_or_else(|e| {
-        panic!(
-            "unable to open chain store at {}: {:?}",
-            args.chain_dir.display(),
-            e
-        )
-    });
+    let mut chain_store = InMemConsensusStore::new();
 
     populate_chain_store(
         &mut chain_store,

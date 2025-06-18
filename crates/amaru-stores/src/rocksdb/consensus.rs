@@ -21,7 +21,7 @@ use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use slot_arithmetic::EraHistory;
 use std::{collections::BTreeMap, path::PathBuf};
-use tracing::{instrument, Level};
+use tracing::{error, instrument, Level};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -106,35 +106,44 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
     }
 }
 
-pub struct InMemConsensusStore {
+pub struct InMemConsensusStore<H> {
     nonces: BTreeMap<Hash<32>, Nonces>,
+    headers: BTreeMap<Hash<32>, H>,
 }
 
-impl Default for InMemConsensusStore {
+impl<H> Default for InMemConsensusStore<H> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl InMemConsensusStore {
-    pub fn new() -> InMemConsensusStore {
+impl<H> InMemConsensusStore<H> {
+    pub fn new() -> InMemConsensusStore<H> {
         InMemConsensusStore {
             nonces: BTreeMap::new(),
+            headers: BTreeMap::new(),
         }
     }
 }
 
-impl<H: IsHeader> ChainStore<H> for InMemConsensusStore {
-    fn load_header(&self, _hash: &Hash<32>) -> Option<H> {
-        unimplemented!()
+impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H> {
+    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
+        self.headers.get(hash).cloned()
     }
 
-    fn store_header(&mut self, _hash: &Hash<32>, _header: &H) -> Result<(), StoreError> {
-        unimplemented!()
+    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
+        self.headers.insert(*hash, header.clone());
+        Ok(())
     }
 
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-        self.nonces.get(header).cloned()
+        self.nonces.get(header).cloned().or_else(|| {
+            error!("failed to find nonce {}", header);
+            for (key, value) in self.headers.iter() {
+                error!("{:?}: {:?}", key, value.hash());
+            }
+            None
+        })
     }
 
     fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {

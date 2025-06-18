@@ -6,7 +6,7 @@ fn run_simulator() {
     let args = Args {
         stake_distribution_file: "tests/data/stake-distribution.json".into(),
         consensus_context_file: "tests/data/consensus-context.json".into(),
-        chain_dir: ".".into(),
+        chain_dir: "./chain.db".into(),
         block_tree_file: "tests/data/chain.json".into(),
         start_header: Hash::from([0; 32]),
     };
