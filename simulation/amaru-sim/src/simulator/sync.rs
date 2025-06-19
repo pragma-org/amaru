@@ -257,8 +257,6 @@ mod test {
             sync::{parse, read_peer_addresses_from_init, StringMessageReader},
         },
     };
-    use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer};
-    use amaru_kernel::Point;
     use pallas_codec::minicbor;
     use pallas_crypto::hash::Hasher;
     use pallas_primitives::{babbage, Hash};
@@ -267,7 +265,6 @@ mod test {
         proptest,
     };
     use slot_arithmetic::Slot;
-    use tracing::trace_span;
 
     use super::{
         ChainSyncMessage::{self, *},
