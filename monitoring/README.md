@@ -7,6 +7,11 @@ We provide example configurations using different compositions of tools:
 - [Jaeger + Prometheus](./jaeger) _(simple)_
 - [Grafana + Tempo + Prometheus](./grafana-tempo) _(more advanced)_
 
+To turn on monitoring, use the following CLI options when running the application:
+
+* `--with-open-telemetry` (or env variable `AMARU_WITH_OPEN_TELEMETRY`) to enable [OpenTelemetry](https://opentelemetry.io/) traces
+* `--with-json-traces` (or env variable `AMARU_WITH_JSON_TRACES`) to enable JSON traces on stdout
+
 ## Filtering traces
 
 Any event (trace, span or metric) can be filtered by target and severity using two environment variables:
