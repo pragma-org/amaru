@@ -290,6 +290,12 @@ fn clock() {
         &State2::Full(42u32, now, later)
     );
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
+
+    running.enqueue_msg(&basic, [43]);
+    let wakeup = running
+        .run_until_blocked_or_time(later + Duration::from_millis(100))
+        .assert_sleeping();
+    assert_eq!(wakeup, later + Duration::from_secs(1));
 }
 
 #[test]
@@ -309,7 +315,15 @@ fn clock_manual() {
     running.run_until_sleeping_or_blocked().assert_sleeping();
     assert_eq!(running.get_state(&stage), None);
 
-    assert!(running.skip_to_next_wakeup());
+    let intermediate = running.now() + Duration::from_millis(100);
+    let target = intermediate + Duration::from_millis(900);
+
+    assert!(!running.skip_to_next_wakeup(Some(intermediate)));
+    assert_eq!(running.now(), intermediate);
+
+    assert!(running.skip_to_next_wakeup(None));
+    assert_eq!(running.now(), target);
+
     running.run_until_sleeping_or_blocked().assert_idle();
     let later = running.now();
 
@@ -318,6 +332,9 @@ fn clock_manual() {
         &State2::Full(42u32, now, later)
     );
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
+
+    assert!(!running.skip_to_next_wakeup(Some(later + Duration::from_secs(1))));
+    assert_eq!(running.now(), later + Duration::from_secs(1));
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]

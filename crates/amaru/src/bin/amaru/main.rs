@@ -58,11 +58,18 @@ enum Command {
 struct Cli {
     #[command(subcommand)]
     command: Command,
+
     #[clap(long, action, env("AMARU_WITH_OPEN_TELEMETRY"))]
     with_open_telemetry: bool,
+
     #[clap(long, action, env("AMARU_WITH_JSON_TRACES"))]
     with_json_traces: bool,
+
+    #[arg(long, value_name = "STRING", env("AMARU_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string())]
+    service_name: String,
 }
+
+const DEFAULT_SERVICE_NAME: &str = "amaru";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -73,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut subscriber = observability::TracingSubscriber::new();
 
     let observability::OpenTelemetryHandle { metrics, teardown } = if args.with_open_telemetry {
-        observability::setup_open_telemetry(&mut subscriber)
+        observability::setup_open_telemetry(&args.service_name, &mut subscriber)
     } else {
         observability::OpenTelemetryHandle::default()
     };
