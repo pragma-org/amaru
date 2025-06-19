@@ -78,6 +78,10 @@ pub struct Args {
     /// Default to genesis hash, eg. all-zero hash.
     #[arg(long, default_value_t = Hash::from([0; 32]))]
     pub start_header: Hash<32>,
+
+    /// Seed
+    #[arg(long)]
+    pub seed: Option<u64>,
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
@@ -117,6 +121,7 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
         global_parameters.clone(),
         &mut consensus,
         &chain_data_path,
+        args.seed,
     );
 }
 
@@ -125,6 +130,7 @@ fn run_simulator(
     global: GlobalParameters,
     validate_header: &mut ValidateHeader,
     chain_data_path: &PathBuf,
+    seed: Option<u64>,
 ) {
     let config_without_shrink = Config {
         max_shrink_iters: 0,
@@ -310,7 +316,7 @@ fn run_simulator(
         config_without_shrink,
         number_of_nodes,
         spawn,
-        generate_inputs_strategy(chain_data_path),
+        generate_inputs_strategy(chain_data_path, seed),
         chain_property(chain_data_path),
     );
 }
