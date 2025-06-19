@@ -865,7 +865,7 @@ fn block_reason(sim: &SimulationRunning) -> Blocked {
 
     if !sleep.is_empty() {
         if let Some(next_wakeup) = sim.next_wakeup() {
-            return Blocked::Sleeping { next_wakeup };
+            Blocked::Sleeping { next_wakeup };
         } else {
             panic!("no next wakeup but stages are waiting for a wait effect");
         }
