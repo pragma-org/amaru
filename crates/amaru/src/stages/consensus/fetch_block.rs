@@ -50,10 +50,9 @@ impl BlockFetchStage {
             ValidateHeaderEvent::Validated { peer, header, span } => {
                 let point = match header.header_body.prev_hash {
                     None => Point::Origin,
-                    Some(_) => Point::Specific(
-                        header.header_body.slot,
-                        header.header_body.block_body_hash.as_slice().to_vec(),
-                    ),
+                    Some(_) => {
+                        Point::Specific(header.header_body.slot, header.body_signature.to_vec())
+                    }
                 };
                 let block = self.fetch_block(&peer, &point).await.map_err(|e| {
                     error!(error=%e, "failed to fetch block");
