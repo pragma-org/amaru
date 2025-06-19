@@ -250,6 +250,12 @@ jobs:
           path: ./ledger.${{ matrix.network.name }}.db
           key: ${{ runner.OS }}-ledger-cache-v6-${{ steps.timestamp.outputs.value }}
 
+      - name: Run node
+        if: github.event_name == 'pull_request'
+        timeout-minutes: 30
+        shell: bash
+        run: make BUILD_PROFILE=test demo
+
       - name: Install Cardano CLI
         if: github.event_name != 'pull_request'
         run: |
@@ -266,16 +272,14 @@ jobs:
           ls $PWD/cardano-cli-bin/
           chmod +x cardano-cli-bin/cardano-cli
 
-      - name: Run node
+      - name: Run node until latest epoch (main branch only)
+        if: github.event_name != 'pull_request'
         timeout-minutes: 30
         shell: bash
         run: |
           set -eux
 
-          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
-            # If this is a push event, we want to test all revolut epochs
-            export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
-          fi
+          export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
           make BUILD_PROFILE=test demo
 
       - name: Run tests
