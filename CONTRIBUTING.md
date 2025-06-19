@@ -62,6 +62,8 @@ start, here's a non-exhaustive list of ideas:
 
 1. Proof-read and review documents for technical accuracy and understanding.
 
+1. Willing to experiment? We are ready to mentor you to tackle one of the many available [ideas](https://github.com/pragma-org/amaru/discussions/categories/ideas?discussions_q=is%3Aopen+category%3AIdeas).
+
 [^1]: A good feature request should mention a use-cases and a few personas, as well as the context in which that features is envisioned. Note that we are more interested in _problems_ than _solutions_. Often, a single solution for one group may not be ideal for another. But understanding what problem each group is trying to solve is crucial for designing the right solution.
 
 # Need Help Getting Started?
