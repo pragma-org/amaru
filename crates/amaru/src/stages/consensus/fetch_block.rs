@@ -16,6 +16,7 @@ use std::collections::BTreeMap;
 
 use crate::stages::PeerSession;
 use crate::{schedule, stages::common::adopt_current_span};
+use amaru_consensus::IsHeader;
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
 use gasket::framework::*;
@@ -48,12 +49,7 @@ impl BlockFetchStage {
     async fn handle_event(&mut self, event: ValidateHeaderEvent) -> Result<(), WorkerError> {
         match event {
             ValidateHeaderEvent::Validated { peer, header, span } => {
-                let point = match header.header_body.prev_hash {
-                    None => Point::Origin,
-                    Some(_) => {
-                        Point::Specific(header.header_body.slot, header.body_signature.to_vec())
-                    }
-                };
+                let point = header.point();
                 let block = self.fetch_block(&peer, &point).await.map_err(|e| {
                     error!(error=%e, "failed to fetch block");
                     WorkerError::Recv
