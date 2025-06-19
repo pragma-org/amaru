@@ -25,6 +25,7 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
+use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::StageRef;
 use pure_stage::{simulation::SimulationRunning, Receiver};
 
@@ -33,6 +34,9 @@ use proptest::{
     prelude::*,
     test_runner::{Config, TestError, TestRunner},
 };
+use std::fs::File;
+use std::sync::Arc;
+use std::time::SystemTime;
 use std::{
     cmp::Reverse,
     collections::{BTreeMap, BinaryHeap},
@@ -231,6 +235,7 @@ pub fn simulate<Msg, F>(
     spawn: F,
     generate_messages: impl Strategy<Value = Vec<Msg>>,
     property: impl Fn(Trace<Msg>) -> Result<(), String>,
+    trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
 ) where
     Msg: Debug + PartialEq + Clone,
     F: Fn() -> NodeHandle<Msg>,
@@ -265,12 +270,38 @@ pub fn simulate<Msg, F>(
         Ok(())
     });
     match result {
-        Ok(_) => (),
+        Ok(_) => {
+            let now = SystemTime::now();
+            let mut file = File::create(format!(
+                "success-{}.trace",
+                now.duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            ))
+            .expect("Failed to create temporary file");
+            for bytes in trace_buffer.lock().iter() {
+                file.write_all(bytes)
+                    .expect("Failed to write JSON data to file");
+            }
+        }
         Err(TestError::Fail(what, entries)) => {
             let mut err = String::new();
             entries
                 .into_iter()
                 .for_each(|entry| err += &format!("  {:?}\n", entry.0.envelope));
+            let now = SystemTime::now();
+            let mut file = File::create(format!(
+                "fail-{}.trace",
+                now.duration_since(SystemTime::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            ))
+            .expect("Failed to create temporary file");
+            for bytes in trace_buffer.lock().iter() {
+                file.write_all(bytes)
+                    .expect("Failed to write JSON data to file");
+            }
+
             panic!(
                 "Found minimal failing case:\n\n{}\nError message:\n\n  {}",
                 err, what
@@ -353,6 +384,7 @@ mod tests {
             spawn,
             generate_messages,
             ECHO_PROPERTY,
+            TraceBuffer::new_shared(0, 0),
         )
     }
 
@@ -416,6 +448,7 @@ mod tests {
             spawn,
             generate_messages,
             ECHO_PROPERTY,
+            TraceBuffer::new_shared(0, 0),
         )
     }
 }
