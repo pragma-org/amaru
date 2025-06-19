@@ -16,8 +16,6 @@ use tracing_subscriber::{
     EnvFilter, Registry,
 };
 
-const SERVICE_NAME: &str = "amaru";
-
 const AMARU_LOG_VAR: &str = "AMARU_LOG";
 
 const DEFAULT_AMARU_LOG_FILTER: &str = "amaru=debug";
@@ -182,12 +180,15 @@ impl Default for OpenTelemetryHandle {
 }
 
 #[allow(clippy::panic)]
-pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> OpenTelemetryHandle {
+pub fn setup_open_telemetry(
+    service_name: &String,
+    subscriber: &mut TracingSubscriber<Registry>,
+) -> OpenTelemetryHandle {
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{metrics::Temporality, Resource};
 
     let resource = Resource::builder()
-        .with_attribute(KeyValue::new("service.name", SERVICE_NAME))
+        .with_attribute(KeyValue::new("service.name", service_name.to_string()))
         .build();
 
     // Traces & span
@@ -221,7 +222,7 @@ pub fn setup_open_telemetry(subscriber: &mut TracingSubscriber<Registry>) -> Ope
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
     // Subscriber
-    let opentelemetry_tracer = opentelemetry_provider.tracer(SERVICE_NAME);
+    let opentelemetry_tracer = opentelemetry_provider.tracer(service_name.to_string());
     let opentelemetry_layer = tracing_opentelemetry::layer()
         .with_tracer(opentelemetry_tracer)
         .with_filter(default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER));

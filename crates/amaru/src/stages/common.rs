@@ -32,7 +32,7 @@ macro_rules! send {
     }
 }
 
-/// Generic scheduling function for the common case where we immediately dispatch
+/// Generic scheduling macro for the common case where we immediately dispatch
 /// received message to be processed.
 ///
 /// Mostly useful to add more context to errors and reduce boilerplate.

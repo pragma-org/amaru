@@ -162,6 +162,7 @@ impl<H: IsHeader> From<Option<H>> for Tip<H> {
         }
     }
 }
+
 /// Current state of chain selection process
 ///
 /// Chain selection is parameterised by the header type `H`, in
