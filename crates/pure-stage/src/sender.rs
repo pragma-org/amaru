@@ -1,6 +1,9 @@
 use crate::BoxFuture;
 use std::{fmt, sync::Arc};
 
+/// A handle for sending messages to a stage from outside the simulation.
+///
+/// Such a handle is obtained using [`StageGraph::input`](crate::StageGraph::input).
 pub struct Sender<Msg> {
     tx: Arc<dyn Fn(Msg) -> BoxFuture<'static, Result<(), Msg>> + Send + Sync>,
 }

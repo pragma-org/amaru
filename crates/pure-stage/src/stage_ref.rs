@@ -19,9 +19,17 @@ impl<Msg, State, RefAux> StageBuildRef<Msg, State, RefAux> {
 }
 
 /// A handle for sending messages to a stage via the [`Effects`](crate::Effects) argument to the stage transition function.
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct StageRef<Msg, State> {
     pub name: Name,
+    #[serde(skip)]
     pub(crate) _ph: PhantomData<(Msg, State)>,
+}
+
+impl<Msg, State> PartialEq for StageRef<Msg, State> {
+    fn eq(&self, other: &Self) -> bool {
+        self.name == other.name
+    }
 }
 
 impl<Msg, State> Clone for StageRef<Msg, State> {

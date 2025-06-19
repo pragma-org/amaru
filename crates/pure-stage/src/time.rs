@@ -1,14 +1,78 @@
-use std::time::Duration;
+use std::{
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        LazyLock,
+    },
+    time::Duration,
+};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A simulation clock that is driven explicitly by the simulation.
+pub trait Clock {
+    /// Get the current time.
+    fn now(&self) -> Instant;
+
+    /// Advance the clock to the given time.
+    ///
+    /// This method is expected to panic when attempting to go backwards in time.
+    fn advance_to(&self, instant: Instant);
+}
+
+impl Clock for AtomicU64 {
+    fn now(&self) -> Instant {
+        *EPOCH + Duration::from_nanos(self.load(Ordering::Relaxed))
+    }
+
+    fn advance_to(&self, instant: Instant) {
+        let nanos = instant.saturating_since(*EPOCH).as_nanos();
+        assert!(
+            nanos < u64::MAX as u128,
+            "simulation is not supposed to run for more than 584 years"
+        );
+        let nanos = nanos as u64;
+        let old = self.swap(nanos, Ordering::Relaxed);
+        assert!(old <= nanos, "clock is not monotonic");
+    }
+}
+
+/// A point in time in the simulation.
+///
+/// Note that this is an opaque type that serialises and prints as a duration since the [`EPOCH`].
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Instant(tokio::time::Instant);
+
+impl std::fmt::Debug for Instant {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("Instant")
+            .field(&self.saturating_since(*EPOCH))
+            .finish()
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for Instant {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let duration = Duration::deserialize(deserializer)?;
+        Ok(*EPOCH + duration)
+    }
+}
+
+impl serde::Serialize for Instant {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let duration = self.saturating_since(*EPOCH);
+        duration.serialize(serializer)
+    }
+}
 
 impl Instant {
     pub(crate) fn from_tokio(instant: tokio::time::Instant) -> Self {
         Self(instant)
     }
 
-    #[allow(dead_code)]
     pub(crate) fn now() -> Self {
         Self(tokio::time::Instant::now())
     }
@@ -31,19 +95,46 @@ impl Instant {
         self.0.checked_duration_since(other.0)
     }
 
-    pub fn checked_add(&self, duration: Duration) -> Option<Self> {
-        self.0.checked_add(duration).map(Self)
-    }
-
-    pub fn checked_sub(&self, duration: Duration) -> Option<Self> {
-        self.0.checked_sub(duration).map(Self)
+    pub fn at_offset(offset: Duration) -> Self {
+        *EPOCH + offset
     }
 }
+
+impl std::ops::Add<Duration> for Instant {
+    type Output = Instant;
+
+    #[allow(clippy::expect_used)]
+    fn add(self, duration: Duration) -> Self {
+        Instant(
+            self.0
+                .checked_add(duration)
+                .expect("simulation is not supposed to run for more than 290 billion years"),
+        )
+    }
+}
+
+impl std::ops::Sub<Duration> for Instant {
+    type Output = Instant;
+
+    #[allow(clippy::expect_used)]
+    fn sub(self, duration: Duration) -> Self {
+        Instant(
+            self.0
+                .checked_sub(duration)
+                .expect("simulation is not supposed to run for more than 290 billion years"),
+        )
+    }
+}
+
+/// The concrete value of the epoch is completely opaque and irrelevant, we only persist
+/// durations. The only guarantee needed is that the epoch stays constant for the duration of
+/// the simulation.
+pub static EPOCH: LazyLock<Instant> = LazyLock::new(Instant::now);
 
 #[test]
 fn instant() {
     let now = Instant::now();
-    let later = now.checked_add(Duration::from_secs(1)).unwrap();
+    let later = now + Duration::from_secs(1);
 
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
     assert_eq!(now.checked_since(later), None);
@@ -51,6 +142,6 @@ fn instant() {
     assert_eq!(later.saturating_since(now), Duration::from_secs(1));
     assert_eq!(now.saturating_since(later), Duration::from_secs(0));
 
-    assert_eq!(now.checked_add(Duration::from_secs(1)).unwrap(), later);
-    assert_eq!(later.checked_sub(Duration::from_secs(1)).unwrap(), now);
+    assert_eq!(now + Duration::from_secs(1), later);
+    assert_eq!(later - Duration::from_secs(1), now);
 }
