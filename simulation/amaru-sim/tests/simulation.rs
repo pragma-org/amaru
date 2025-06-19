@@ -9,6 +9,7 @@ fn run_simulator() {
         chain_dir: ".".into(),
         block_tree_file: "tests/data/chain.json".into(),
         start_header: Hash::from([0; 32]),
+        seed: Some(10244329322600784733)
     };
 
     tracing_subscriber::fmt()
