@@ -297,9 +297,12 @@ pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &PathBuf) -> Result<Vec<C
 
 pub fn generate_inputs_strategy(
     file_path: &PathBuf,
+    seed: Option<u64>,
 ) -> impl Strategy<Value = Vec<ChainSyncMessage>> + use<'_> {
-    any::<u64>().prop_map(|seed| {
+    any::<u64>().prop_map(move |s| {
+        let seed = seed.unwrap_or(s);
         let mut rng = StdRng::seed_from_u64(seed);
+        println!("seed {}", seed);
         generate_inputs(&mut rng, file_path).unwrap()
     })
 }
