@@ -332,6 +332,9 @@ fn clock_manual() {
         &State2::Full(42u32, now, later)
     );
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
+
+    assert!(!running.skip_to_next_wakeup(Some(later + Duration::from_secs(1))));
+    assert_eq!(running.now(), later + Duration::from_secs(1));
 }
 
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
