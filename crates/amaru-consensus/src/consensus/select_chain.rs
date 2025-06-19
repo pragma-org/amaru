@@ -15,7 +15,7 @@
 use super::{chain_selection::RollbackChainSelection, DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::{
     consensus::{
-        chain_selection::{self, ChainSelector, Fork},
+        chain_selection::{self, ChainSelector, Fork, Tip},
         EVENT_TARGET,
     },
     peer::Peer,
@@ -23,12 +23,29 @@ use crate::{
 };
 use amaru_kernel::{Hash, Header, Point};
 use amaru_ouroboros::IsHeader;
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{trace, Span};
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SelectChain {
+    #[serde(skip, default = "default_chain_selector")]
     chain_selector: Arc<Mutex<ChainSelector<Header>>>,
+}
+
+fn default_chain_selector() -> Arc<Mutex<ChainSelector<Header>>> {
+    Arc::new(Mutex::new(ChainSelector {
+        tip: Tip::Genesis,
+        peers_chains: BTreeMap::new(),
+    }))
+}
+
+impl PartialEq for SelectChain {
+    fn eq(&self, _other: &Self) -> bool {
+        true
+    }
 }
 
 impl SelectChain {
@@ -36,12 +53,8 @@ impl SelectChain {
         SelectChain { chain_selector }
     }
 
-    fn forward_block<H: IsHeader>(&self, peer: Peer, header: H, span: Span) -> ValidateHeaderEvent {
-        ValidateHeaderEvent::Validated {
-            peer,
-            point: header.point(),
-            span,
-        }
+    fn forward_block(&self, peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
+        ValidateHeaderEvent::Validated { peer, header, span }
     }
 
     fn switch_to_fork(

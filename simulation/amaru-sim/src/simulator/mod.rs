@@ -13,14 +13,16 @@
 // limitations under the License.
 
 use super::echo::Envelope;
+use amaru_consensus::IsHeader;
 use amaru_consensus::{
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         receive_header::handle_chain_sync,
+        select_chain::SelectChain,
         store::ChainStore,
         store_header::StoreHeader,
         validate_header::ValidateHeader,
-        ChainSyncEvent, DecodedChainSyncEvent,
+        ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
     },
     peer::Peer,
 };
@@ -67,7 +69,7 @@ pub struct Args {
     pub consensus_context_file: PathBuf,
 
     /// Path of the chain on-disk storage.
-    #[arg(long, default_value = "./chain.db")]
+    #[arg(long, default_value = "./chain.db/")]
     pub chain_dir: PathBuf,
 
     /// Generated "block tree" file in JSON
@@ -107,8 +109,12 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
     )
     .unwrap();
 
-    // TODO: wire in more stages and in particular chain selection !!
-    let _chain_selector = make_chain_selector(Origin, &chain_store, &vec![]);
+    let select_chain = SelectChain::new(make_chain_selector(
+        Origin,
+        &chain_store,
+        // FIXME: Shouldn't be hardcoded!
+        &vec![Peer::new("c1")],
+    ));
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
 
@@ -116,6 +122,7 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
         rt,
         global_parameters.clone(),
         &mut consensus,
+        select_chain.clone(),
         &chain_data_path,
     );
 }
@@ -124,6 +131,7 @@ fn run_simulator(
     rt: tokio::runtime::Runtime,
     global: GlobalParameters,
     validate_header: &mut ValidateHeader,
+    select_chain: SelectChain,
     chain_data_path: &PathBuf,
 ) {
     let config_without_shrink = Config {
@@ -229,61 +237,90 @@ fn run_simulator(
                     },
                 );
 
+        let select_chain_stage =
+            network.stage(
+                "select_chain",
+                async |(mut select_chain, downstream),
+                       msg: DecodedChainSyncEvent,
+                       eff|
+                       -> Result<
+                    (SelectChain, StageRef<Vec<ValidateHeaderEvent>, Void>),
+                    Error,
+                > {
+                    match msg {
+                        DecodedChainSyncEvent::RollForward {
+                            peer, header, span, ..
+                        } => {
+                            let result = select_chain.select_chain(peer, header, span).await?;
+                            eff.send(&downstream, result).await;
+                        }
+                        DecodedChainSyncEvent::Rollback {
+                            peer,
+                            rollback_point,
+                            span,
+                            ..
+                        } => {
+                            let result = select_chain
+                                .select_rollback(peer, rollback_point, span)
+                                .await?;
+                            eff.send(&downstream, result).await;
+                        }
+                    }
+                    Ok((select_chain, downstream))
+                },
+            );
+
         let propagate_header_stage = network.stage(
             "propagate_header",
             async |(next_msg_id, downstream),
-                   msg: DecodedChainSyncEvent,
+                   msgs: Vec<ValidateHeaderEvent>,
                    eff|
                    -> Result<(u64, StageRef<Envelope<ChainSyncMessage>, Void>), Error> {
-                let msg_id = next_msg_id;
-                let (peer, encoded) = match msg {
-                    DecodedChainSyncEvent::RollForward {
-                        peer,
-                        point,
-                        header,
-                        ..
-                    } => (
-                        peer,
-                        ChainSyncMessage::Fwd {
-                            msg_id,
-                            slot: point.slot_or_default(),
-                            hash: match point {
-                                Origin => Bytes { bytes: vec![0; 32] },
-                                Specific(_slot, hash) => Bytes { bytes: hash },
+                let mut msg_id = next_msg_id;
+                for msg in msgs {
+                    let (peer, chain_sync_message) = match msg {
+                        ValidateHeaderEvent::Validated { peer, header, .. } => (
+                            peer,
+                            ChainSyncMessage::Fwd {
+                                msg_id,
+                                slot: header.point().slot_or_default(),
+                                hash: Bytes {
+                                    bytes: Hash::from(&header.point()).as_slice().to_vec(),
+                                },
+                                header: Bytes {
+                                    bytes: to_cbor(&header),
+                                },
                             },
-                            header: Bytes {
-                                bytes: to_cbor(&header),
+                        ),
+                        ValidateHeaderEvent::Rollback {
+                            peer,
+                            rollback_point,
+                            ..
+                        } => (
+                            peer,
+                            ChainSyncMessage::Bck {
+                                msg_id,
+                                slot: rollback_point.slot_or_default(),
+                                hash: Bytes {
+                                    bytes: Hash::from(&rollback_point).as_slice().to_vec(),
+                                },
                             },
+                        ),
+                    };
+                    eff.send(
+                        &downstream,
+                        Envelope {
+                            // FIXME: do we have the name of the node stored somewhere?
+                            src: "n1".to_string(),
+                            // XXX: this should be broadcast to ALL followers
+                            dest: peer.name,
+                            body: chain_sync_message,
                         },
-                    ),
-                    DecodedChainSyncEvent::Rollback {
-                        peer,
-                        rollback_point,
-                        ..
-                    } => (
-                        peer,
-                        ChainSyncMessage::Bck {
-                            msg_id,
-                            slot: rollback_point.slot_or_default(),
-                            hash: match rollback_point {
-                                Origin => Bytes { bytes: vec![0; 32] },
-                                Specific(_slot, hash) => Bytes { bytes: hash },
-                            },
-                        },
-                    ),
-                };
-                eff.send(
-                    &downstream,
-                    Envelope {
-                        // FIXME: do we have the name of the node stored somewhere?
-                        src: "n1".to_string(),
-                        // XXX: this should be broadcast to ALL followers
-                        dest: peer.name,
-                        body: encoded,
-                    },
-                )
-                .await;
-                Ok((msg_id + 1, downstream))
+                    )
+                    .await;
+                    msg_id += 1;
+                }
+                Ok((msg_id, downstream))
             },
         );
 
@@ -298,7 +335,11 @@ fn run_simulator(
         );
         network.wire_up(
             store_header_stage,
-            (init_store, propagate_header_stage.sender()),
+            (init_store, select_chain_stage.sender()),
+        );
+        network.wire_up(
+            select_chain_stage,
+            (select_chain.clone(), propagate_header_stage.sender()),
         );
         network.wire_up(propagate_header_stage, (0, output.without_state()));
 

@@ -168,9 +168,10 @@ impl<H: IsHeader> From<Option<H>> for Tip<H> {
 /// Chain selection is parameterised by the header type `H`, in
 /// order to better decouple the internals of what's a header from
 /// the selection logic
+#[derive(Debug)]
 pub struct ChainSelector<H: IsHeader> {
-    tip: Tip<H>,
-    peers_chains: BTreeMap<Peer, Fragment<H>>,
+    pub tip: Tip<H>,
+    pub peers_chains: BTreeMap<Peer, Fragment<H>>,
 }
 
 /// Definition of a fork.

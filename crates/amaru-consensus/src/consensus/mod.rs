@@ -16,6 +16,7 @@ use std::fmt;
 
 use crate::is_header::IsHeader;
 use amaru_kernel::{Header, Point};
+use serde::{Deserialize, Serialize};
 use tracing::Span;
 
 use crate::peer::Peer;
@@ -120,17 +121,19 @@ impl fmt::Debug for DecodedChainSyncEvent {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
     Validated {
         peer: Peer,
-        point: Point,
+        header: Header,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         peer: Peer,
         rollback_point: Point,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
 }
