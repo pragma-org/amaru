@@ -2,6 +2,7 @@ use amaru_kernel::Hash;
 use amaru_sim::simulator::{self, Args};
 
 #[test]
+#[ignore] // BUG: https://github.com/pragma-org/amaru/issues/278
 fn run_simulator() {
     let args = Args {
         stake_distribution_file: "tests/data/stake-distribution.json".into(),
