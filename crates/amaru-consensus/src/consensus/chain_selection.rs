@@ -170,8 +170,8 @@ impl<H: IsHeader> From<Option<H>> for Tip<H> {
 /// the selection logic
 #[derive(Debug)]
 pub struct ChainSelector<H: IsHeader> {
-    tip: Tip<H>,
-    peers_chains: BTreeMap<Peer, Fragment<H>>,
+    pub tip: Tip<H>,
+    pub peers_chains: BTreeMap<Peer, Fragment<H>>,
 }
 
 /// Definition of a fork.
