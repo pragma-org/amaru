@@ -290,6 +290,12 @@ fn clock() {
         &State2::Full(42u32, now, later)
     );
     assert_eq!(later.checked_since(now).unwrap(), Duration::from_secs(1));
+
+    running.enqueue_msg(&basic, [43]);
+    let wakeup = running
+        .run_until_blocked_or_time(later + Duration::from_millis(100))
+        .assert_sleeping();
+    assert_eq!(wakeup, later + Duration::from_secs(1));
 }
 
 #[test]
