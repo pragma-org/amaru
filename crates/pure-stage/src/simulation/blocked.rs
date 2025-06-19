@@ -1,4 +1,4 @@
-use crate::{Effect, Name};
+use crate::{Effect, Instant, Name};
 
 /// Classification of why [`SimulationRunning::run_until_blocked`](crate::simulation::SimulationRunning::run_until_blocked) has stopped.
 #[derive(Debug, PartialEq)]
@@ -6,7 +6,7 @@ pub enum Blocked {
     /// All stages are suspended on [`Effect::Receive`].
     Idle,
     /// The simulation is waiting for a wakeup.
-    Sleeping,
+    Sleeping { next_wakeup: Instant },
     /// All stages are suspended on either [`Effect::Receive`] or [`Effect::Send`].
     Deadlock(Vec<Name>),
     /// The given breakpoint was hit.
@@ -26,9 +26,9 @@ impl Blocked {
     }
 
     /// Assert that the blocking reason is `Sleeping`.
-    pub fn assert_sleeping(&self) {
+    pub fn assert_sleeping(&self) -> Instant {
         match self {
-            Blocked::Sleeping => {}
+            Blocked::Sleeping { next_wakeup } => *next_wakeup,
             _ => panic!("expected sleeping, got {:?}", self),
         }
     }

@@ -25,6 +25,7 @@ typetag.workspace = true
 
 [dev-dependencies]
 pretty_assertions = { workspace = true }
+tokio = { workspace = true, features = ["rt", "time", "rt-multi-thread"] }
 
 [lints]
 workspace = true
