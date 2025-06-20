@@ -48,7 +48,7 @@ jobs:
 
           - runner: windows-latest
             target: x86_64-pc-windows-msvc
-            command: test --profile dev-debug
+            command: test-amaru --profile dev-debug
 
           - runner: ubuntu-latest
             target: wasm32-unknown-unknown
@@ -69,7 +69,7 @@ jobs:
 
           - runner: ubuntu-24.04
             target: aarch64-unknown-linux-musl
-            command: test
+            command: test # This is a cross specific command. Do not change
             setup: rustup target add aarch64-unknown-linux-musl && sudo apt-get install -y pkg-config libssl-dev
             cross-compile: true
 
@@ -97,7 +97,7 @@ jobs:
           key: cargo-${{ matrix.environments.target }}
           restore-keys: |
             cargo-${{ matrix.environments.target }}
-      - name: Run tests
+      - name: Run build
         run: |
           set +e
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
