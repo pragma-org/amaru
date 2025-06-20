@@ -414,16 +414,24 @@ where
         point: Hash<32>,
     ) -> Result<(), RollbackChainSelection<H>> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
-        let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);
-        if rollback_point == 0 {
-            Err(RollbackChainSelection::RollbackBeyondLimit(
-                peer.clone(),
-                point,
-                fragment.anchor.hash(),
-            ))
-        } else {
-            fragment.headers.truncate(rollback_point);
-            Ok(())
+        let rollback_point = fragment.position_of(point);
+        match rollback_point {
+            None => {
+                if point == fragment.anchor.hash() {
+                    fragment.headers.clear();
+                    Ok(())
+                } else {
+                    Err(RollbackChainSelection::RollbackBeyondLimit(
+                        peer.clone(),
+                        point,
+                        fragment.anchor.hash(),
+                    ))
+                }
+            }
+            Some(index) => {
+                fragment.headers.truncate(index + 1);
+                Ok(())
+            }
         }
     }
 }
@@ -747,6 +755,21 @@ pub(crate) mod tests {
             "chain selector: {:?}",
             chain_selector
         );
+    }
+
+    #[test]
+    fn fragment_anchor_is_a_valid_rollback_point() {
+        let chain = generate_headers_anchored_at(None, 1);
+        let alice = Peer::new("alice");
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .set_tip(&chain[0])
+            .add_peer(&alice)
+            .build()
+            .unwrap();
+
+        let rollback_point = &chain[0];
+        let result = chain_selector.select_rollback(&alice, rollback_point.hash());
+        assert_eq!(result, RollbackChainSelection::NoChange);
     }
 
     #[test]
