@@ -144,7 +144,13 @@ impl SelectChain {
                 tip: _,
             }) => Ok(self.switch_to_fork(peer, rollback_point, fork, span)),
             RollbackChainSelection::NoChange => Ok(vec![]),
-            RollbackChainSelection::RollbackBeyondLimit(..) => unimplemented!(),
+            RollbackChainSelection::RollbackBeyondLimit(peer, rollback_point, max_point) => {
+                Err(ConsensusError::InvalidRollback {
+                    peer,
+                    rollback_point,
+                    max_point,
+                })
+            }
         }
     }
 

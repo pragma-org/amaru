@@ -14,6 +14,8 @@
 
 use amaru_kernel::Point;
 use amaru_ouroboros::praos::header::AssertHeaderError;
+use pallas_crypto::hash::Hash;
+use peer::Peer;
 use thiserror::Error;
 
 pub use amaru_ouroboros_traits::*;
@@ -43,6 +45,8 @@ pub enum ConsensusError {
     CannotDecodeHeader { point: Point, header: Vec<u8> },
     #[error("Unknown peer {0:?}, bailing out")]
     UnknownPeer(peer::Peer),
+    #[error("Invalid rollback {} from peer {}, cannot go further than {}", rollback_point, peer, max_point)]
+    InvalidRollback{ peer: Peer, rollback_point: Hash<32>, max_point: Hash<32> },
     #[error("{0}")]
     NoncesError(#[from] consensus::store::NoncesError),
 }
