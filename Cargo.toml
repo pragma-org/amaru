@@ -15,14 +15,14 @@ default-members = ["crates/*"]
 resolver = "2"
 
 [workspace.dependencies]
-acto = { version = "0.7.2", features = ["tokio"] }
+acto = { version = "0.7.4", features = ["tokio"] }
 anyhow = "1.0.95"
 async-trait = "0.1.83"
-async-compression = { version = "0.4.24",  features = ["tokio", "gzip"] }
+async-compression = { version = "0.4.25",  features = ["tokio", "gzip"] }
 bech32 = "0.11.0"
 cbor4ii = { version = "1.0.0", features = ["serde1", "use_std"] }
 clap = { version = "4.5.38", features = ["derive", "env"] }
-reqwest = { version = "0.11.24", default-features = false, features = ["json", "stream", "rustls-tls"] }
+reqwest = { version = "0.12.20", default-features = false, features = ["json", "stream", "rustls-tls"] }
 either = "1.15"
 futures-util = "0.3.31"
 gasket = { version = "0.8.0", features = ["derive"] } # More recent versions have regression (e.g. https://github.com/construkts/gasket-rs/pull/34)
@@ -31,13 +31,13 @@ indicatif = "0.17.9"
 indoc = "2.0"
 minicbor = "0.25.1" # Must match the version used by pallas
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
-opentelemetry = "0.29.1"
-opentelemetry-otlp = { version = "0.29.0", features = [
+opentelemetry = "0.30.0"
+opentelemetry-otlp = { version = "0.30.0", features = [
     "grpc-tonic",
     "http-proto",
     "reqwest-blocking-client",
 ] }
-opentelemetry_sdk = "0.29.0"
+opentelemetry_sdk = "0.30.0"
 pallas-addresses = "0.32.0"
 pallas-codec = "0.32.0" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v0.32.0/pallas-codec/Cargo.toml#L22)
 pallas-crypto = "0.32.0"
@@ -61,7 +61,7 @@ tokio = { version = "1.45.0", features = ["sync"] }
 tokio-util = "0.7.12"
 tokio-stream = "0.1.17"
 tracing = "0.1.40"
-tracing-opentelemetry = "0.30.0"
+tracing-opentelemetry = "0.31.0"
 tracing-subscriber = { version = "0.3.18", features = [
     "env-filter",
     "std",
