@@ -435,6 +435,7 @@ pub(crate) mod tests {
     use amaru_ouroboros_traits::is_header::fake::FakeHeader;
     use proptest::prelude::*;
     use rand::{rngs::StdRng, RngCore, SeedableRng};
+    use rand_distr::{Distribution, Exp};
 
     /// Very simple function to generate random sequence of bytes of given length.
     pub fn random_bytes(arg: u32) -> Vec<u8> {
@@ -454,10 +455,15 @@ pub(crate) mod tests {
     ) -> Vec<FakeHeader> {
         let mut headers: Vec<FakeHeader> = Vec::new();
         let mut parent = anchor;
-        for i in 0..u64::from(length) {
+        // simulate block distribution on mainnet as an exponential distribution with
+        // parameter λ = 1/20
+        let poi = Exp::new(0.05).unwrap();
+        let mut rng = rand::rng();
+        for _ in 0..u64::from(length) {
+            let next_slot: f32 = poi.sample(&mut rng);
             let header = FakeHeader {
-                block_number: i + parent.map_or(0, |h| h.block_height()) + 1,
-                slot: i + parent.map_or(0, |h| h.slot()) + 1,
+                block_number: parent.map_or(0, |h| h.block_height()) + 1,
+                slot: parent.map_or(0, |h| h.slot()) + (next_slot.floor() as u64),
                 parent: parent.map(|h| h.hash()),
                 body_hash: random_bytes(32).as_slice().into(),
             };
