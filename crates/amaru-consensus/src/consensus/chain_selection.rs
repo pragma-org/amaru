@@ -20,6 +20,8 @@ use pallas_crypto::hash::Hash;
 use std::{collections::BTreeMap, fmt::Debug};
 use tracing::{instrument, Level};
 
+pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
+
 /// A fragment of the chain, represented by a list of headers
 /// and an anchor.
 /// The list of headers /must/ be a sequence of headers such that
@@ -29,6 +31,7 @@ use tracing::{instrument, Level};
 pub struct Fragment<H: IsHeader> {
     headers: Vec<H>,
     anchor: Tip<H>,
+    max_fragment_length: usize,
 }
 
 enum FragmentExtension {
@@ -37,10 +40,11 @@ enum FragmentExtension {
 }
 
 impl<H: IsHeader + Clone> Fragment<H> {
-    fn start_from(tip: &Tip<H>) -> Fragment<H> {
+    fn start_from(tip: &Tip<H>, max_fragment_length: usize) -> Fragment<H> {
         Fragment {
             headers: vec![],
             anchor: tip.clone(),
+            max_fragment_length,
         }
     }
 
@@ -65,6 +69,7 @@ impl<H: IsHeader + Clone> Fragment<H> {
         match header.parent() {
             Some(parent) if parent == self.tip().hash() => {
                 self.headers.push(header.clone());
+                self.trim_to_length(self.max_fragment_length);
                 FragmentExtension::Extend
             }
             None => match self.tip() {
@@ -76,6 +81,28 @@ impl<H: IsHeader + Clone> Fragment<H> {
             },
             _ => FragmentExtension::Ignore,
         }
+    }
+
+    /// Trim the fragment to keep only the most recent `max_length` headers.
+    /// If the fragment is already shorter than `max_length`, this is a no-op.
+    fn trim_to_length(&mut self, max_length: usize) {
+        if self.headers.len() <= max_length {
+            return;
+        }
+
+        // Keep only the most recent headers
+        let to_remove = self.headers.len() - max_length;
+
+        // Update the anchor to the parent of the first header we'll keep
+        if !self.headers.is_empty() && to_remove < self.headers.len() {
+            // The new anchor is the header just before the first one we keep
+            if to_remove > 0 {
+                self.anchor = Tip::Hdr(self.headers[to_remove - 1].clone());
+            }
+        }
+
+        // Remove the oldest headers
+        self.headers = self.headers.split_off(to_remove);
     }
 }
 
@@ -172,6 +199,8 @@ impl<H: IsHeader> From<Option<H>> for Tip<H> {
 pub struct ChainSelector<H: IsHeader> {
     pub tip: Tip<H>,
     pub peers_chains: BTreeMap<Peer, Fragment<H>>,
+    /// Maximum length of each fragment
+    pub max_fragment_length: usize,
 }
 
 /// Definition of a fork.
@@ -210,6 +239,9 @@ pub enum RollbackChainSelection<H: IsHeader> {
     /// The current best chain has switched to given fork.
     SwitchToFork(Fork<H>),
 
+    /// The peer tried to rollback beyond the limit
+    RollbackBeyondLimit(Peer, Hash<32>, Hash<32>),
+
     /// The current best chain as not changed
     NoChange,
 }
@@ -221,6 +253,7 @@ pub enum RollbackChainSelection<H: IsHeader> {
 pub struct ChainSelectorBuilder<H: IsHeader> {
     tip: Option<H>,
     peers: Vec<Peer>,
+    max_fragment_length: usize,
 }
 
 impl<H: IsHeader + Clone> ChainSelectorBuilder<H> {
@@ -228,7 +261,14 @@ impl<H: IsHeader + Clone> ChainSelectorBuilder<H> {
         ChainSelectorBuilder {
             tip: None,
             peers: Vec::new(),
+            max_fragment_length: 1000,
         }
+    }
+
+    /// Set the maximum length of each fragment
+    pub fn set_max_fragment_length(&mut self, max_fragment_length: usize) -> &mut Self {
+        self.max_fragment_length = max_fragment_length;
+        self
     }
 
     pub fn set_tip(&mut self, new_tip: &H) -> &mut Self {
@@ -251,10 +291,11 @@ impl<H: IsHeader + Clone> ChainSelectorBuilder<H> {
                 .map(|peer| {
                     (
                         peer.clone(),
-                        Fragment::start_from(&(self.tip.clone().into())),
+                        Fragment::start_from(&(self.tip.clone().into()), self.max_fragment_length),
                     )
                 })
                 .collect(),
+            max_fragment_length: self.max_fragment_length,
         })
     }
 }
@@ -321,7 +362,9 @@ where
     pub fn select_rollback(&mut self, peer: &Peer, point: Hash<32>) -> RollbackChainSelection<H> {
         use RollbackChainSelection::*;
 
-        self.rollback_fragment(peer, point);
+        if let Err(err) = self.rollback_fragment(peer, point) {
+            return err;
+        }
 
         let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
@@ -365,10 +408,23 @@ where
 
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
-    fn rollback_fragment(&mut self, peer: &Peer, point: Hash<32>) {
+    fn rollback_fragment(
+        &mut self,
+        peer: &Peer,
+        point: Hash<32>,
+    ) -> Result<(), RollbackChainSelection<H>> {
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);
-        fragment.headers.truncate(rollback_point);
+        if rollback_point == 0 {
+            Err(RollbackChainSelection::RollbackBeyondLimit(
+                peer.clone(),
+                point,
+                fragment.anchor.hash(),
+            ))
+        } else {
+            fragment.headers.truncate(rollback_point);
+            Ok(())
+        }
     }
 }
 
@@ -489,6 +545,7 @@ pub(crate) mod tests {
         let mut chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
             .add_peer(&bob)
+            .set_max_fragment_length(10)
             .build()
             .unwrap();
 
@@ -547,6 +604,7 @@ pub(crate) mod tests {
         let alice = Peer::new("alice");
         let mut chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
+            .set_max_fragment_length(10)
             .build()
             .unwrap();
 
@@ -601,6 +659,7 @@ pub(crate) mod tests {
         let mut chain_selector = ChainSelectorBuilder::new()
             .add_peer(&alice)
             .add_peer(&bob)
+            .set_max_fragment_length(10)
             .build()
             .unwrap();
 
@@ -653,6 +712,35 @@ pub(crate) mod tests {
         let rollback_point = &chain2[2];
         let result = chain_selector.select_rollback(&bob, rollback_point.hash());
         assert_eq!(RollbackChainSelection::NoChange, result);
+    }
+
+    #[test]
+    fn cannot_rollback_more_than_maximum_fragment_length() {
+        let alice = Peer::new("alice");
+        let mut chain_selector = ChainSelectorBuilder::new()
+            .add_peer(&alice)
+            .set_max_fragment_length(5)
+            .build()
+            .unwrap();
+
+        let chain1 = generate_headers_anchored_at(None, 8);
+
+        chain1.iter().for_each(|header| {
+            chain_selector.select_roll_forward(&alice, *header);
+        });
+
+        let rollback_point = &chain1[1];
+        let result = chain_selector.select_rollback(&alice, rollback_point.hash());
+        assert_eq!(
+            RollbackChainSelection::RollbackBeyondLimit(
+                alice,
+                rollback_point.hash(),
+                chain1[2].hash()
+            ),
+            result,
+            "chain selector: {:?}",
+            chain_selector
+        );
     }
 
     #[test]
