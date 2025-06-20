@@ -217,6 +217,7 @@ dependencies = [
  "pallas-codec",
  "pallas-crypto",
  "pallas-primitives",
+ "parking_lot",
  "proptest",
  "pure-stage",
  "rand 0.9.1",

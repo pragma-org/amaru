@@ -40,7 +40,7 @@ use clap::Parser;
 use generate::{generate_inputs_strategy, parse_json, read_chain_json};
 use ledger::{populate_chain_store, FakeStakeDistribution};
 use proptest::test_runner::Config;
-use pure_stage::{simulation::SimulationBuilder, StageRef};
+use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
 use pure_stage::{StageGraph, Void};
 use simulate::{pure_stage_node_handle, simulate, Trace};
 use std::{path::PathBuf, sync::Arc};
@@ -139,9 +139,11 @@ fn run_simulator(
         ..Config::default()
     };
     let number_of_nodes = 1;
+    let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
+    let buffer = trace_buffer.clone();
     let spawn = move || {
         println!("*** Spawning node!");
-        let mut network = SimulationBuilder::default();
+        let mut network = SimulationBuilder::default().with_trace_buffer(buffer.clone());
         let init_st = ValidateHeader {
             ledger: validate_header.ledger.clone(),
             store: validate_header.store.clone(),
@@ -352,6 +354,7 @@ fn run_simulator(
         spawn,
         generate_inputs_strategy(chain_data_path, seed),
         chain_property(chain_data_path),
+        trace_buffer,
     );
 }
 
