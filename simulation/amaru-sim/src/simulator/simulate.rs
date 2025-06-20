@@ -30,6 +30,7 @@ use pure_stage::StageRef;
 use pure_stage::{simulation::SimulationRunning, Receiver};
 
 use anyhow::anyhow;
+use parking_lot::Mutex;
 use proptest::{
     prelude::*,
     test_runner::{Config, TestError, TestRunner},
@@ -271,37 +272,16 @@ pub fn simulate<Msg, F>(
     });
     match result {
         Ok(_) => {
-            let now = SystemTime::now();
-            let mut file = File::create(format!(
-                "success-{}.trace",
-                now.duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-            ))
-            .expect("Failed to create temporary file");
-            for bytes in trace_buffer.lock().iter() {
-                file.write_all(bytes)
-                    .expect("Failed to write JSON data to file");
-            }
+            persist_effect_trace("success", trace_buffer)
+                .unwrap_or_else(|err| eprintln!("{}", err));
         }
         Err(TestError::Fail(what, entries)) => {
             let mut err = String::new();
             entries
                 .into_iter()
                 .for_each(|entry| err += &format!("  {:?}\n", entry.0.envelope));
-            let now = SystemTime::now();
-            let mut file = File::create(format!(
-                "fail-{}.trace",
-                now.duration_since(SystemTime::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-            ))
-            .expect("Failed to create temporary file");
-            for bytes in trace_buffer.lock().iter() {
-                file.write_all(bytes)
-                    .expect("Failed to write JSON data to file");
-            }
-
+            persist_effect_trace("failure", trace_buffer)
+                .unwrap_or_else(|err| eprintln!("{}", err));
             panic!(
                 "Found minimal failing case:\n\n{}\nError message:\n\n  {}",
                 err, what
@@ -309,6 +289,24 @@ pub fn simulate<Msg, F>(
         }
         Err(TestError::Abort(e)) => panic!("Test aborted: {}", e),
     }
+}
+
+fn persist_effect_trace(
+    prefix: &str,
+    trace_buffer: Arc<Mutex<TraceBuffer>>,
+) -> Result<(), anyhow::Error> {
+    let now = SystemTime::now();
+    let mut file = File::create(format!(
+        "{}-{}.trace",
+        prefix,
+        now.duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    ))?;
+    for bytes in trace_buffer.lock().iter() {
+        file.write_all(bytes)?;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

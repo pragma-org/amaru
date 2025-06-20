@@ -314,7 +314,7 @@ fn run_simulator(
         spawn,
         generate_inputs_strategy(chain_data_path),
         chain_property(chain_data_path),
-        trace_buffer
+        trace_buffer,
     );
 }
 
