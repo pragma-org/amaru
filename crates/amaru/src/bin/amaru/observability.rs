@@ -1,4 +1,5 @@
 use opentelemetry::trace::TracerProvider;
+use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
 use std::{
     env,
@@ -179,16 +180,28 @@ impl Default for OpenTelemetryHandle {
     }
 }
 
+/// Configuration for OpenTelemetry tracing layer.
+pub struct OpenTelemetryConfig {
+    /// Uniquely identifies this particular instance of Amaru
+    pub service_name: String,
+
+    /// URL for exporting OTLP spans and traces
+    pub span_url: String,
+
+    /// URL for exporting OTLP metrics
+    pub metric_url: String,
+}
+
 #[allow(clippy::panic)]
 pub fn setup_open_telemetry(
-    service_name: &String,
+    config: &OpenTelemetryConfig,
     subscriber: &mut TracingSubscriber<Registry>,
 ) -> OpenTelemetryHandle {
     use opentelemetry::KeyValue;
     use opentelemetry_sdk::{metrics::Temporality, Resource};
 
     let resource = Resource::builder()
-        .with_attribute(KeyValue::new("service.name", service_name.to_string()))
+        .with_attribute(KeyValue::new("service.name", config.service_name.clone()))
         .build();
 
     // Traces & span
@@ -197,6 +210,7 @@ pub fn setup_open_telemetry(
         .with_batch_exporter(
             opentelemetry_otlp::SpanExporter::builder()
                 .with_tonic()
+                .with_endpoint(config.span_url.clone())
                 .build()
                 .unwrap_or_else(|e| panic!("failed to setup opentelemetry span exporter: {e}")),
         )
@@ -207,6 +221,7 @@ pub fn setup_open_telemetry(
     // support gRPC for metrics.
     let metric_exporter = opentelemetry_otlp::MetricExporter::builder()
         .with_http()
+        .with_endpoint(config.metric_url.clone())
         .with_temporality(Temporality::default())
         .build()
         .unwrap_or_else(|e| panic!("unable to create metric exporter: {e:?}"));
@@ -222,7 +237,7 @@ pub fn setup_open_telemetry(
     opentelemetry::global::set_meter_provider(metrics_provider.clone());
 
     // Subscriber
-    let opentelemetry_tracer = opentelemetry_provider.tracer(service_name.to_string());
+    let opentelemetry_tracer = opentelemetry_provider.tracer(config.service_name.clone());
     let opentelemetry_layer = tracing_opentelemetry::layer()
         .with_tracer(opentelemetry_tracer)
         .with_filter(default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER));

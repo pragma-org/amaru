@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use clap::{Parser, Subcommand};
+use observability::OpenTelemetryConfig;
 use panic::panic_handler;
 
 mod cmd;
@@ -67,9 +68,19 @@ struct Cli {
 
     #[arg(long, value_name = "STRING", env("AMARU_SERVICE_NAME"), default_value_t = DEFAULT_SERVICE_NAME.to_string())]
     service_name: String,
+
+    #[arg(long, value_name = "URL", env("AMARU_OTLP_SPAN_URL"), default_value_t = DEFAULT_OTLP_SPAN_URL.to_string())]
+    otlp_span_url: String,
+
+    #[arg(long, value_name = "URL", env("AMARU_OTLP_METRIC_URL"), default_value_t = DEFAULT_OTLP_METRIC_URL.to_string())]
+    otlp_metric_url: String,
 }
 
 const DEFAULT_SERVICE_NAME: &str = "amaru";
+
+const DEFAULT_OTLP_SPAN_URL: &str = "http://localhost:4317";
+
+const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -80,7 +91,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut subscriber = observability::TracingSubscriber::new();
 
     let observability::OpenTelemetryHandle { metrics, teardown } = if args.with_open_telemetry {
-        observability::setup_open_telemetry(&args.service_name, &mut subscriber)
+        observability::setup_open_telemetry(
+            &OpenTelemetryConfig {
+                service_name: args.service_name,
+                span_url: args.otlp_span_url,
+                metric_url: args.otlp_metric_url,
+            },
+            &mut subscriber,
+        )
     } else {
         observability::OpenTelemetryHandle::default()
     };
