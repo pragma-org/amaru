@@ -355,3 +355,11 @@ Coming soon.
 > The plan so far is to maximise compatibility with the existing Haskell node Prometheus metrics such that tools like [`gLiveView`](https://cardano-community.github.io/guild-operators/Scripts/gliveview/?h=gliveview) and [`nview`](https://github.com/blinklabs-io/nview) keep working out-of-the-box.
 >
 > We are planning, however, to add more metrics to Amaru.
+
+## Configuring OpenTelemetry
+
+Amaru provides a few options to configure OpenTelemetry:
+
+* `--amaru-service-name <STRING>` (environment variable `AMARU_SERVICE_NAME`): Sets the `service.name` key used to identify metrics and traces. This is useful when a single OTLP service stack collects telemetry from several Amaru instances
+* `--otlp_span_url <STRING>` (environment variable `AMARU_OTLP_SPAN_URL`): Sets the endpoint used to send spans, defaults to `http://localhost:4317`
+* `--otlp_metrics_url <STRING>` (environment variable `AMARU_OTLP_METRICS_URL`): Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
