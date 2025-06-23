@@ -81,9 +81,13 @@ pub struct Args {
     #[arg(long, default_value_t = Hash::from([0; 32]))]
     pub start_header: Hash<32>,
 
-    /// Seed
+    /// Seed for simulator.
     #[arg(long)]
     pub seed: Option<u64>,
+
+    /// Persist pure-stage's effect trace aka schdule even if the test passes.
+    #[arg(long)]
+    pub persist_on_success: bool,
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
@@ -122,6 +126,7 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
         select_chain.clone(),
         &chain_data_path,
         args.seed,
+        args.persist_on_success,
     );
 }
 
@@ -132,6 +137,7 @@ fn run_simulator(
     select_chain: SelectChain,
     chain_data_path: &PathBuf,
     seed: Option<u64>,
+    persist_on_success: bool,
 ) {
     let number_of_nodes = 1;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
@@ -350,6 +356,7 @@ fn run_simulator(
         generate_inputs_strategy(chain_data_path, seed),
         chain_property(chain_data_path),
         trace_buffer,
+        persist_on_success,
     );
 }
 

@@ -244,6 +244,7 @@ pub fn simulate<Msg, F>(
     generate_messages: impl Strategy<Value = Vec<Msg>>,
     property: impl Fn(Trace<Msg>) -> Result<(), String>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
+    persist_on_success: bool,
 ) where
     Msg: Debug + PartialEq + Clone,
     F: Fn() -> NodeHandle<Msg>,
@@ -283,16 +284,17 @@ pub fn simulate<Msg, F>(
     });
     match result {
         Ok(_) => {
-            persist_effect_trace("success", trace_buffer)
-                .unwrap_or_else(|err| eprintln!("{}", err));
+            if persist_on_success {
+                persist_schedule("success", trace_buffer)
+                    .unwrap_or_else(|err| eprintln!("{}", err));
+            }
         }
         Err(TestError::Fail(what, entries)) => {
             let mut err = String::new();
             entries
                 .into_iter()
                 .for_each(|entry| err += &format!("  {:?}\n", entry.0.envelope));
-            persist_effect_trace("failure", trace_buffer)
-                .unwrap_or_else(|err| eprintln!("{}", err));
+            persist_schedule("failure", trace_buffer).unwrap_or_else(|err| eprintln!("{}", err));
             panic!(
                 "Found minimal failing case:\n\n{}\nError message:\n\n  {}",
                 err, what
@@ -302,13 +304,14 @@ pub fn simulate<Msg, F>(
     }
 }
 
-fn persist_effect_trace(
+// Persists pure-stage's effect trace aka schedule.
+fn persist_schedule(
     prefix: &str,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 ) -> Result<(), anyhow::Error> {
     let now = SystemTime::now();
     let mut file = File::create(format!(
-        "{}-{}.trace",
+        "{}-{}.schedule",
         prefix,
         now.duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
@@ -394,6 +397,7 @@ mod tests {
             generate_messages,
             ECHO_PROPERTY,
             TraceBuffer::new_shared(0, 0),
+            false,
         )
     }
 
@@ -458,6 +462,7 @@ mod tests {
             generate_messages,
             ECHO_PROPERTY,
             TraceBuffer::new_shared(0, 0),
+            false,
         )
     }
 }
