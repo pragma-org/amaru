@@ -11,12 +11,13 @@ graph TD
     pull -- ChainSyncEvent --> rcv[receive header]
     rcv -- malformed header --> disc
     val_hdr[validate header]
-    rcv -- DecodedChainSyncEvent --> val_hdr
-    val_hdr -- invalid header --> disc
-    val_hdr -- DecodedChainSyncEvent --> sto_hdr[store header]
+    rcv -- DecodedChainSyncEvent --> sto_hdr
     sto_hdr -.-> store@{ shape: cyl, label: "Chain store" }
     sto_hdr -- storage failure --> crash?
-    sto_hdr -- DecodedChainSyncEvent --> select[select chain]
+    sto_hdr -- DecodedChainSyncEvent --> val_hdr[validate header]
+    val_hdr -- invalid header --> disc
+    val_hdr -- DecodedChainSyncEvent --> select[select chain]
+    val_hdr -- invalid header --> disc
     select -- invalid chain --> disc
     select -- ValidateHeaderEvent --> fetch[fetch block]
     fetch -.-> net

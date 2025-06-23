@@ -49,6 +49,8 @@ impl StoreHeader {
     }
 
     pub async fn store(&self, point: &Point, header: &Header) -> Result<(), ConsensusError> {
+        // FIXME: we should check the header is not already known and _invalid_ to
+        // prevent a peer from flooding use with duplicate crappy headers
         self.store
             .lock()
             .await
