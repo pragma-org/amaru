@@ -17,7 +17,6 @@ graph TD
     sto_hdr -- DecodedChainSyncEvent --> val_hdr[validate header]
     val_hdr -- invalid header --> disc
     val_hdr -- DecodedChainSyncEvent --> select[select chain]
-    val_hdr -- invalid header --> disc
     select -- invalid chain --> disc
     select -- ValidateHeaderEvent --> fetch[fetch block]
     fetch -.-> net
