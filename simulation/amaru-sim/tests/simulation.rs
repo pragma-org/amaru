@@ -1,5 +1,8 @@
+use std::env;
+
 use amaru_kernel::Hash;
 use amaru_sim::simulator::{self, Args};
+use tracing_subscriber::EnvFilter;
 
 #[test]
 fn run_simulator() {
@@ -14,6 +17,17 @@ fn run_simulator() {
 
     tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
+        .with_env_filter(
+            EnvFilter::builder()
+                .parse(format!(
+                    "none,{}",
+                    env::var("AMARU_SIMULATION_LOG")
+                        .ok()
+                        .as_deref()
+                        .unwrap_or("error")
+                ))
+                .unwrap_or_else(|e| panic!("invalid AMARU_SIMULATION_LOG filter: {e}")),
+        )
         .json()
         .init();
 
