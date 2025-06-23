@@ -133,11 +133,6 @@ fn run_simulator(
     chain_data_path: &PathBuf,
     seed: Option<u64>,
 ) {
-    let config_without_shrink = Config {
-        max_shrink_iters: 0,
-        cases: 1,
-        ..Config::default()
-    };
     let number_of_nodes = 1;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
     let buffer = trace_buffer.clone();
@@ -349,7 +344,7 @@ fn run_simulator(
     };
 
     simulate(
-        config_without_shrink,
+        Config::default(),
         number_of_nodes,
         spawn,
         generate_inputs_strategy(chain_data_path, seed),
