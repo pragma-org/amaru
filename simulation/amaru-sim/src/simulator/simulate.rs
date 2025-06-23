@@ -246,8 +246,7 @@ pub fn simulate<Msg, F>(
 {
     let mut runner = TestRunner::new(config);
     let generate_messages = generate_messages.prop_map(|msgs| {
-        let ordered: Vec<Reverse<Entry<Msg>>> = msgs
-            .into_iter()
+        msgs.into_iter()
             .enumerate()
             .map(|(idx, msg)| {
                 Reverse(Entry {
@@ -259,8 +258,7 @@ pub fn simulate<Msg, F>(
                     },
                 })
             })
-            .collect();
-        ordered
+            .collect()
     });
     let result = runner.run(&generate_messages, |initial_messages| {
         let node_handles: Vec<_> = (1..=number_of_nodes)
