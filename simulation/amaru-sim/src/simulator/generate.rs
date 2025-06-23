@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use proptest::prelude::*;
+use pure_stage::Instant;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
@@ -22,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use super::bytes::Bytes;
 use super::sync::ChainSyncMessage;
@@ -305,6 +307,28 @@ pub fn generate_inputs_strategy(
         println!("seed {}", seed);
         generate_inputs(&mut rng, file_path).unwrap()
     })
+}
+
+fn exponential<R: Rng>(rng: &mut R, mean: f64) -> f64 {
+    let u: f64 = rng.random_range(0.0..1.0);
+    (-mean) * u.ln()
+}
+
+pub fn generate_arrival_times<R: Rng>(
+    rng: &mut R,
+    start_time: Instant,
+    mean_millis: f64,
+    length: usize,
+) -> Vec<Instant> {
+    let mut time: Instant = start_time;
+    let mut arrival_times = Vec::new();
+
+    for _ in 0..length {
+        arrival_times.push(time);
+        let delay = exponential(rng, mean_millis);
+        time = time + Duration::from_millis(delay.ceil() as u64);
+    }
+    arrival_times
 }
 
 #[cfg(test)]
@@ -967,5 +991,44 @@ mod test {
             }
             Err(e) => eprintln!("Error parsing JSON: {}", e),
         }
+    }
+
+    #[test]
+    fn test_exponential() {
+        let seed = 1;
+        let mut rng = StdRng::seed_from_u64(seed);
+        let count = 100_000_000;
+        let mut sum: f64 = 0.0;
+        for _i in 0..count {
+            sum += exponential(&mut rng, 200.0);
+        }
+        let expected = 200.0;
+        let actual = sum / count as f64;
+        let difference = (expected - actual).abs();
+        assert!(
+            difference < 0.05,
+            "expected: {}, actual: {}, difference: {}",
+            expected,
+            actual,
+            difference
+        )
+    }
+
+    #[test]
+    fn test_generate_arrival_times() {
+        let seed = 2;
+        let mut rng = StdRng::seed_from_u64(seed);
+        let result =
+            generate_arrival_times(&mut rng, Instant::at_offset(Duration::new(0, 0)), 200.0, 5);
+        assert_eq!(
+            result,
+            vec![
+                Instant::at_offset(Duration::new(0, 0)),
+                Instant::at_offset(Duration::new(0, 243000000)),
+                Instant::at_offset(Duration::new(1, 52000000)),
+                Instant::at_offset(Duration::new(1, 207000000)),
+                Instant::at_offset(Duration::new(1, 347000000))
+            ]
+        )
     }
 }
