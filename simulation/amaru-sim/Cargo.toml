@@ -38,6 +38,7 @@ amaru-consensus = { path = "../../crates/amaru-consensus" }
 amaru-ouroboros = { path = "../../crates/ouroboros" }
 amaru-stores = { path = "../../crates/amaru-stores" }
 slot-arithmetic = { path = "../../crates/slot-arithmetic" }
+rand_distr = "0.5.1"
 
 [dev-dependencies]
 insta = { workspace = true, features = ["json"] }

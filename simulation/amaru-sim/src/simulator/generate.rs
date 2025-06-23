@@ -17,6 +17,7 @@ use pure_stage::Instant;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand_distr::{Distribution, Exp};
 use serde::Deserialize;
 use serde_json::Result;
 use std::collections::{BTreeMap, BTreeSet};
@@ -309,11 +310,6 @@ pub fn generate_inputs_strategy(
     })
 }
 
-fn exponential<R: Rng>(rng: &mut R, mean: f64) -> f64 {
-    let u: f64 = rng.random_range(0.0..1.0);
-    (-mean) * u.ln()
-}
-
 pub fn generate_arrival_times<R: Rng>(
     rng: &mut R,
     start_time: Instant,
@@ -323,10 +319,13 @@ pub fn generate_arrival_times<R: Rng>(
     let mut time: Instant = start_time;
     let mut arrival_times = Vec::new();
 
+    let exp =
+        Exp::new(1.0 / mean_millis).unwrap_or_else(|err| panic!("generate_arrival_times: {}", err));
     for _ in 0..length {
         arrival_times.push(time);
-        let delay = exponential(rng, mean_millis);
-        time = time + Duration::from_millis(delay.ceil() as u64);
+        let delay = exp.sample(rng);
+        let delay_ms = delay.ceil().min(u64::MAX as f64) as u64;
+        time = time + Duration::from_millis(delay_ms);
     }
     arrival_times
 }
@@ -997,16 +996,19 @@ mod test {
     fn test_exponential() {
         let seed = 1;
         let mut rng = StdRng::seed_from_u64(seed);
+
+        let exp = Exp::new(1.0 / 200.0).unwrap();
+
         let count = 100_000_000;
         let mut sum: f64 = 0.0;
         for _i in 0..count {
-            sum += exponential(&mut rng, 200.0);
+            sum += exp.sample(&mut rng);
         }
         let expected = 200.0;
         let actual = sum / count as f64;
         let difference = (expected - actual).abs();
         assert!(
-            difference < 0.05,
+            difference < 0.01,
             "expected: {}, actual: {}, difference: {}",
             expected,
             actual,
@@ -1016,18 +1018,18 @@ mod test {
 
     #[test]
     fn test_generate_arrival_times() {
-        let seed = 2;
+        let seed = 1;
         let mut rng = StdRng::seed_from_u64(seed);
         let result =
             generate_arrival_times(&mut rng, Instant::at_offset(Duration::new(0, 0)), 200.0, 5);
         assert_eq!(
             result,
             vec![
-                Instant::at_offset(Duration::new(0, 0)),
-                Instant::at_offset(Duration::new(0, 243000000)),
-                Instant::at_offset(Duration::new(1, 52000000)),
-                Instant::at_offset(Duration::new(1, 207000000)),
-                Instant::at_offset(Duration::new(1, 347000000))
+                Instant::at_offset(Duration::from_millis(0)),
+                Instant::at_offset(Duration::from_millis(409)),
+                Instant::at_offset(Duration::from_millis(753)),
+                Instant::at_offset(Duration::from_millis(810)),
+                Instant::at_offset(Duration::from_millis(837)),
             ]
         )
     }
