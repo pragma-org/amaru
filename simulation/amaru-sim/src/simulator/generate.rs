@@ -13,15 +13,18 @@
 // limitations under the License.
 
 use proptest::prelude::*;
+use pure_stage::Instant;
 use rand::rngs::StdRng;
 use rand::Rng;
 use rand::SeedableRng;
+use rand_distr::{Distribution, Exp};
 use serde::Deserialize;
 use serde_json::Result;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use super::bytes::Bytes;
 use super::sync::ChainSyncMessage;
@@ -305,6 +308,26 @@ pub fn generate_inputs_strategy(
         println!("seed {}", seed);
         generate_inputs(&mut rng, file_path).unwrap()
     })
+}
+
+pub fn generate_arrival_times<R: Rng>(
+    rng: &mut R,
+    start_time: Instant,
+    mean_millis: f64,
+    length: usize,
+) -> Vec<Instant> {
+    let mut time: Instant = start_time;
+    let mut arrival_times = Vec::new();
+
+    let exp =
+        Exp::new(1.0 / mean_millis).unwrap_or_else(|err| panic!("generate_arrival_times: {}", err));
+    for _ in 0..length {
+        arrival_times.push(time);
+        let delay = exp.sample(rng);
+        let delay_ms = delay.ceil().min(u64::MAX as f64) as u64;
+        time = time + Duration::from_millis(delay_ms);
+    }
+    arrival_times
 }
 
 #[cfg(test)]
@@ -967,5 +990,47 @@ mod test {
             }
             Err(e) => eprintln!("Error parsing JSON: {}", e),
         }
+    }
+
+    #[test]
+    fn test_exponential() {
+        let seed = 1;
+        let mut rng = StdRng::seed_from_u64(seed);
+
+        let exp = Exp::new(1.0 / 200.0).unwrap();
+
+        let count = 100_000_000;
+        let mut sum: f64 = 0.0;
+        for _i in 0..count {
+            sum += exp.sample(&mut rng);
+        }
+        let expected = 200.0;
+        let actual = sum / count as f64;
+        let difference = (expected - actual).abs();
+        assert!(
+            difference < 0.01,
+            "expected: {}, actual: {}, difference: {}",
+            expected,
+            actual,
+            difference
+        )
+    }
+
+    #[test]
+    fn test_generate_arrival_times() {
+        let seed = 1;
+        let mut rng = StdRng::seed_from_u64(seed);
+        let result =
+            generate_arrival_times(&mut rng, Instant::at_offset(Duration::new(0, 0)), 200.0, 5);
+        assert_eq!(
+            result,
+            vec![
+                Instant::at_offset(Duration::from_millis(0)),
+                Instant::at_offset(Duration::from_millis(409)),
+                Instant::at_offset(Duration::from_millis(753)),
+                Instant::at_offset(Duration::from_millis(810)),
+                Instant::at_offset(Duration::from_millis(837)),
+            ]
+        )
     }
 }

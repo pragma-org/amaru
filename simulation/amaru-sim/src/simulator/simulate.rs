@@ -27,7 +27,7 @@
 use crate::echo::{EchoMessage, Envelope};
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::StageRef;
-use pure_stage::{simulation::SimulationRunning, Receiver};
+use pure_stage::{simulation::SimulationRunning, Instant, Receiver};
 
 use anyhow::anyhow;
 use parking_lot::Mutex;
@@ -35,6 +35,8 @@ use proptest::{
     prelude::*,
     test_runner::{Config, TestError, TestRunner},
 };
+use rand::rngs::StdRng;
+use rand::SeedableRng;
 use std::fs::File;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -45,9 +47,11 @@ use std::{
     io::{BufRead, BufReader, Write},
     path::Path,
     process::{Command, Stdio},
-    time::{Duration, Instant},
+    time::Duration,
 };
 use tracing::info;
+
+use super::generate::generate_arrival_times;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry<Msg> {
@@ -245,12 +249,15 @@ pub fn simulate<Msg, F>(
     F: Fn() -> NodeHandle<Msg>,
 {
     let mut runner = TestRunner::new(config);
-    let generate_messages = generate_messages.prop_map(|msgs| {
+    let now = Instant::at_offset(Duration::from_secs(0));
+    let generate_messages = (any::<u64>(), generate_messages).prop_map(|(seed, msgs)| {
+        let mut rng = StdRng::seed_from_u64(seed);
+        let arrival_times = generate_arrival_times(&mut rng, now, 200.0, msgs.len());
         msgs.into_iter()
             .enumerate()
             .map(|(idx, msg)| {
                 Reverse(Entry {
-                    arrival_time: Instant::now() + Duration::from_millis(idx as u64 * 100),
+                    arrival_time: arrival_times[idx],
                     envelope: Envelope {
                         src: "c1".to_string(),
                         dest: "n1".to_string(),
