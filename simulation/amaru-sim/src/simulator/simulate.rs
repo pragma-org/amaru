@@ -47,6 +47,7 @@ use std::{
     process::{Command, Stdio},
     time::{Duration, Instant},
 };
+use tracing::info;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Entry<Msg> {
@@ -85,6 +86,7 @@ where
     St: 'static,
 {
     let handle = Box::new(move |msg: Envelope<Msg>| {
+        info!(msg = ?msg, "enqueuing");
         running.enqueue_msg(&stage, [msg]);
         running.run_until_blocked().assert_idle();
         Ok(rx.drain().collect::<Vec<_>>())
@@ -158,7 +160,7 @@ pub struct World<Msg> {
     trace: Trace<Msg>,
 }
 
-impl<Msg: PartialEq + Clone> World<Msg> {
+impl<Msg: PartialEq + Clone + Debug> World<Msg> {
     pub fn new(
         initial_messages: Vec<Reverse<Entry<Msg>>>,
         node_handles: Vec<(NodeId, NodeHandle<Msg>)>,
@@ -182,6 +184,7 @@ impl<Msg: PartialEq + Clone> World<Msg> {
             // eg. run all nodes whose next action is ealier than msg's arrival time
             // and enqueue their output messages possibly bailing out and recursing
             {
+                info!(msg = ?envelope, arrival = ?arrival_time, heap = ?self.heap, "stepping");
                 match self.nodes.get_mut(&envelope.dest) {
                     Some(node) => match (node.handle)(envelope.clone()) {
                         Ok(outgoing) => {
@@ -243,10 +246,12 @@ pub fn simulate<Msg, F>(
 {
     let mut runner = TestRunner::new(config);
     let generate_messages = generate_messages.prop_map(|msgs| {
-        msgs.into_iter()
-            .map(|msg| {
+        let ordered: Vec<Reverse<Entry<Msg>>> = msgs
+            .into_iter()
+            .enumerate()
+            .map(|(idx, msg)| {
                 Reverse(Entry {
-                    arrival_time: Instant::now(),
+                    arrival_time: Instant::now() + Duration::from_millis(idx as u64 * 100),
                     envelope: Envelope {
                         src: "c1".to_string(),
                         dest: "n1".to_string(),
@@ -254,7 +259,8 @@ pub fn simulate<Msg, F>(
                     },
                 })
             })
-            .collect()
+            .collect();
+        ordered
     });
     let result = runner.run(&generate_messages, |initial_messages| {
         let node_handles: Vec<_> = (1..=number_of_nodes)
