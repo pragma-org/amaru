@@ -16,7 +16,7 @@ fn run_simulator() {
             .ok()
             .and_then(|s| s.parse().ok()),
         persist_on_success: std::env::var("AMARU_PERSIST_ON_SUCCESS")
-            .and_then(|_| Ok(true))
+            .map(|_| true)
             .unwrap_or(false),
     };
 
