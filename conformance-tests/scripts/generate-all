@@ -11,7 +11,14 @@ scripts=$(dirname -- "${BASH_SOURCE[0]}")
 
 lo=$(ls $scripts/../../data/$NETWORK/pools | sort | head -n 1 | sed "s/.json//")
 hi=$(ls $scripts/../../data/$NETWORK/pools | sort | tail -n 1 | sed "s/.json//")
-hi=$(($hi - 3))
+hi=$(($hi - 3)) # Tests require two extra epochs in the future
+
+if (( hi < lo )); then
+  echo "Error: hi ($hi) is less than lo ($lo)"
+  exit 1
+fi
+
+echo "Generating epochs from $lo to $hi for network $NETWORK"
 
 for EPOCH in $(seq $lo $hi); do
   node $scripts/generate.mjs $NETWORK $EPOCH &
