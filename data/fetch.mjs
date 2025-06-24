@@ -235,11 +235,11 @@ async function fetchDReps(ws, { stakePools }) {
   }, { verificationKey: new Set(), script: new Set() });
 
   const drepsMap = dreps.reduce((accum, drep) => {
-    drep.delegators.forEach((delegator) => {
+    drep.delegators?.forEach((delegator) => {
       if (delegator.from === "verificationKey") {
-	keys.add(delegator.credential);
+	      keys.add(delegator.credential);
       } else {
-	scripts.add(delegator.credential);
+	      scripts.add(delegator.credential);
       }
     });
 
