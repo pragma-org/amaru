@@ -48,7 +48,7 @@ use gasket::{
 };
 use ledger::ValidateBlockStage;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
-use std::{error::Error, path::PathBuf, sync::Arc};
+use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 pub mod common;
@@ -63,6 +63,15 @@ pub type BlockHash = pallas_crypto::hash::Hash<32>;
 pub enum StorePath {
     InMem,
     OnDisk(PathBuf),
+}
+
+impl Display for StorePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorePath::InMem => write!(f, "<mem>"),
+            StorePath::OnDisk(path) => write!(f, "{}", path.display()),
+        }
+    }
 }
 
 pub struct Config {
@@ -237,10 +246,14 @@ fn make_chain_store(
     };
 
     let (our_tip, header) = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
+        let tip_hash = &Hash::from(&**hash);
         #[allow(clippy::expect_used)]
-        let header: Header = chain_store
-            .load_header(&Hash::from(&**hash))
-            .expect("Tip not found");
+        let header: Header = chain_store.load_header(tip_hash).unwrap_or_else(|| {
+            panic!(
+                "Tip {} not found in chain database '{}'",
+                tip_hash, config.chain_store
+            )
+        });
         (
             Tip(header.pallas_point(), header.block_height()),
             Some(header),
@@ -370,8 +383,9 @@ impl AsTip for Header {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
 
-    use super::{bootstrap, Config, StorePath::*};
+    use super::{bootstrap, Config, StorePath, StorePath::*};
 
     #[test]
     fn bootstrap_all_stages() {
@@ -384,5 +398,19 @@ mod tests {
         let stages = bootstrap(config, vec![]).unwrap();
 
         assert_eq!(8, stages.len());
+    }
+
+    #[test]
+    fn test_store_path_display() {
+        assert_eq!(format!("{}", StorePath::InMem), "<mem>");
+        assert_eq!(
+            format!("{}", StorePath::OnDisk(PathBuf::from("/path/to/store"))),
+            "/path/to/store"
+        );
+        assert_eq!(
+            format!("{}", StorePath::OnDisk(PathBuf::from("./relative/path"))),
+            "./relative/path"
+        );
+        assert_eq!(format!("{}", StorePath::OnDisk(PathBuf::from(""))), "");
     }
 }
