@@ -55,7 +55,7 @@ mod ledger;
 pub mod simulate;
 mod sync;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Clone)]
 #[clap(name = "Amaru Simulator")]
 #[clap(bin_name = "amaru-sim")]
 #[clap(author, version, about, long_about = None)]
@@ -86,36 +86,43 @@ pub struct Args {
     pub seed: Option<u64>,
 }
 
+fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
+    let network_name = NetworkName::Testnet(42);
+    let global_parameters: &GlobalParameters = network_name.into();
+    let stake_distribution: FakeStakeDistribution =
+        FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
+
+    let mut chain_store = InMemConsensusStore::new();
+
+    populate_chain_store(
+        &mut chain_store,
+        &args.start_header,
+        &args.consensus_context_file,
+    )
+    .unwrap();
+
+    let select_chain = SelectChain::new(make_chain_selector(
+        Origin,
+        &chain_store,
+        // FIXME: Shouldn't be hardcoded!
+        &vec![Peer::new("c1")],
+    ));
+    let chain_ref = Arc::new(Mutex::new(chain_store));
+    let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
+
+    (global_parameters.clone(), select_chain, validate_header)
+}
+
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
     let number_of_nodes = 1;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
     let buffer = trace_buffer.clone();
+    let args_clone: Args = args.clone();
 
     let spawn = move || {
         println!("*** Spawning node!");
-        let network_name = NetworkName::Testnet(42);
-        let global_parameters: &GlobalParameters = network_name.into();
-        let stake_distribution: FakeStakeDistribution =
-            FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters)
-                .unwrap();
 
-        let mut chain_store = InMemConsensusStore::new();
-
-        populate_chain_store(
-            &mut chain_store,
-            &args.start_header,
-            &args.consensus_context_file,
-        )
-        .unwrap();
-
-        let select_chain = SelectChain::new(make_chain_selector(
-            Origin,
-            &chain_store,
-            // FIXME: Shouldn't be hardcoded!
-            &vec![Peer::new("c1")],
-        ));
-        let chain_ref = Arc::new(Mutex::new(chain_store));
-        let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
+        let (global_parameters, select_chain, validate_header) = init_node(&args_clone);
 
         let mut network = SimulationBuilder::default().with_trace_buffer(buffer.clone());
         let init_st = ValidateHeader {
