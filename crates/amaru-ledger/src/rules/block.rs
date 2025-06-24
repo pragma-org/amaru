@@ -160,7 +160,7 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
     }
 }
 
-#[instrument(level = Level::TRACE, skip_all)]
+#[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     context: &mut C,
     protocol_params: &ProtocolParameters,

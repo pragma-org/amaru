@@ -68,13 +68,24 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         ))
     }
 
+    #[instrument(
+        level = Level::TRACE,
+        skip_all,
+        name="ledger.create_validation_context",
+        fields(
+            block_body_hash = %block.header.header_body.block_body_hash,
+            block_number = block.header.header_body.block_number,
+            block_body_size = block.header.header_body.block_body_size,
+            total_inputs
+        )
+    )]
     fn create_validation_context(
         &self,
         block: &MintedBlock<'_>,
     ) -> anyhow::Result<DefaultValidationContext> {
         let mut ctx = context::DefaultPreparationContext::new();
-
         rules::prepare_block(&mut ctx, block);
+        tracing::Span::current().record("total_inputs", ctx.utxo.len());
 
         // TODO: Eventually move into a separate function, or integrate within the ledger instead
         // of the current .resolve_inputs; once the latter is no longer needed for the state

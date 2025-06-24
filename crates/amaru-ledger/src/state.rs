@@ -368,6 +368,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[allow(clippy::unwrap_used)]
+    #[instrument(level = Level::TRACE, skip_all, name="state.resolve_inputs", fields(resolved_from_context, resolved_from_volatile, resolved_from_db))]
     pub fn resolve_inputs<'a>(
         &'_ self,
         ongoing_state: &VolatileState,
@@ -375,21 +376,35 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     ) -> Result<Vec<(TransactionInput, Option<TransactionOutput>)>, StoreError> {
         let mut result = Vec::new();
 
+        let mut resolved_from_context = 0;
+        let mut resolved_from_volatile = 0;
+        let mut resolved_from_db = 0;
+
         // TODO: perform lookup in batch, and possibly within the same transaction as other
         // required data pre-fetch.
         for input in inputs {
             let output = ongoing_state
                 .resolve_input(input)
                 .cloned()
-                .or_else(|| self.volatile.resolve_input(input).cloned())
+                .inspect(|_| resolved_from_context += 1)
+                .or_else(|| {
+                    self.volatile
+                        .resolve_input(input)
+                        .inspect(|_| resolved_from_volatile += 1)
+                        .cloned()
+                })
                 .map(|output| Ok(Some(output)))
                 .unwrap_or_else(|| {
                     let db = self.stable.lock().unwrap();
-                    db.utxo(input)
+                    db.utxo(input).inspect(|_| resolved_from_db += 1)
                 })?;
 
             result.push((input.clone(), output));
         }
+
+        tracing::Span::current().record("resolved_from_context", resolved_from_context);
+        tracing::Span::current().record("resolved_from_volatile", resolved_from_volatile);
+        tracing::Span::current().record("resolved_from_db", resolved_from_db);
 
         Ok(result)
     }
