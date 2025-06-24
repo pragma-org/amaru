@@ -29,13 +29,13 @@ use super::{ChainSyncEvent, DecodedChainSyncEvent};
         )
     )]
 pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, ConsensusError> {
-    let minted_header: MintedHeader<'_> =
+    let header: MintedHeader<'_> =
         minicbor::decode(raw_header).map_err(|_| ConsensusError::CannotDecodeHeader {
             point: point.clone(),
             header: raw_header.into(),
         })?;
 
-    Ok(Header::from(minted_header))
+    Ok(Header::from(header))
 }
 
 pub fn handle_chain_sync(
