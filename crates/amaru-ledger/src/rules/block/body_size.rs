@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{to_cbor, MintedBlock, OriginalSize};
+use amaru_kernel::{MintedBlock, OriginalSize};
 
 use super::{BlockValidation, InvalidBlockDetails};
 
