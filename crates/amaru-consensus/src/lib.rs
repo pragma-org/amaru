@@ -14,6 +14,9 @@
 
 use amaru_kernel::Point;
 use amaru_ouroboros::praos::header::AssertHeaderError;
+use opentelemetry::metrics::MeterProvider;
+use opentelemetry::metrics::{Counter, Gauge};
+use opentelemetry_sdk::metrics::SdkMeterProvider;
 use thiserror::Error;
 
 pub use amaru_ouroboros_traits::*;
@@ -45,6 +48,138 @@ pub enum ConsensusError {
     UnknownPeer(peer::Peer),
     #[error("{0}")]
     NoncesError(#[from] consensus::store::NoncesError),
+}
+
+#[derive(Clone)]
+pub struct ConsensusMetrics {
+    /// The current slot for tip for this node.
+    pub current_tip_slot: Gauge<u64>,
+
+    /// The number of headers kept in the `ChainSelector`
+    pub chain_selection_size: Gauge<u64>,
+
+    /// The length of the longest fragment held in the `ChainSelector`
+    pub max_fragment_length: Gauge<u64>,
+
+    // NOTE: following counters track each of the consensus' stages
+    /// The number of `RollForward` messages received from upstream peers
+    pub count_forwards_received: Counter<u64>,
+
+    /// The number of `Rollback` messages received from upstream peers
+    pub count_rollbacks_received: Counter<u64>,
+
+    /// The number of headers stored
+    pub stored_headers: Counter<u64>,
+
+    /// The number of headers validated
+    pub count_validated_headers: Counter<u64>,
+
+    /// The number of blocks fetched
+    pub count_fetched_blocks: Counter<u64>,
+
+    /// The number of blocks stored
+    pub count_stored_blocks: Counter<u64>,
+
+    /// The number of blocks validated
+    pub count_validated_blocks: Counter<u64>,
+
+    /// The number of forward headers propagated
+    pub count_forwarded_headers: Counter<u64>,
+
+    // NOTE: counters for data received/sent
+    /// The number of headers sent to peers as a reply to
+    /// `RequestNext`.
+    pub count_sent_headers: Counter<u64>,
+
+    /// The number of blocks sent to peers
+    pub count_sent_block: Counter<u64>,
+}
+
+impl ConsensusMetrics {
+    pub fn new(metrics: &mut SdkMeterProvider) -> Self {
+        let meter = metrics.meter("consensus");
+        let current_tip_slot = meter
+            .u64_gauge("current_tip_slot")
+            .with_description("The slot of the current tip of this node")
+            .with_unit("Slot")
+            .build();
+
+        let chain_selection_size = meter
+            .u64_gauge("chain_selection_size")
+            .with_description("The total number of headers kept in memory for chain selection")
+            .build();
+
+        let max_fragment_length = meter
+            .u64_gauge("max_fragment_length")
+            .with_description("The length of the longest fragment kept in chain selection")
+            .build();
+
+        let count_forwards_received = meter
+            .u64_counter("count_forwards_received")
+            .with_description("Number of RollForward messages received")
+            .build();
+
+        let count_rollbacks_received = meter
+            .u64_counter("count_rollbacks_received")
+            .with_description("Number of RollBack messages received")
+            .build();
+
+        let stored_headers = meter
+            .u64_counter("count_stored_headers")
+            .with_description("Number of write operations for storing headers on disk")
+            .build();
+
+        let count_validated_headers = meter
+            .u64_counter("count_validated_headers")
+            .with_description("Number of headers validated")
+            .build();
+
+        let count_fetched_blocks = meter
+            .u64_counter("count_fetched_headers")
+            .with_description("Number of headers fetched from peers")
+            .build();
+
+        let count_stored_blocks = meter
+            .u64_counter("count_stored_blocks")
+            .with_description("Number of write operations for storing blocks on disk")
+            .build();
+
+        let count_validated_blocks = meter
+            .u64_counter("count_validated_blocks")
+            .with_description("Number of blocks validated")
+            .build();
+
+        let count_forwarded_headers = meter
+            .u64_counter("count_forwarded_headers")
+            .with_description("Number of headers passed to forward stage")
+            .build();
+
+        let count_sent_headers = meter
+            .u64_counter("count_sent_headers")
+            .with_description("Number of headers sent to downstream peers")
+            .build();
+
+        let count_sent_block = meter
+            .u64_counter("count_sent_headers")
+            .with_description("Number of headers sent to downstream peers")
+            .build();
+
+        ConsensusMetrics {
+            current_tip_slot,
+            chain_selection_size,
+            max_fragment_length,
+            count_forwards_received,
+            count_rollbacks_received,
+            stored_headers,
+            count_validated_headers,
+            count_fetched_blocks,
+            count_stored_blocks,
+            count_validated_blocks,
+            count_forwarded_headers,
+            count_sent_headers,
+            count_sent_block,
+        }
+    }
 }
 
 #[cfg(test)]

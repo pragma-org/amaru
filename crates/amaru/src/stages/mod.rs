@@ -23,7 +23,7 @@ use amaru_consensus::{
         ChainSyncEvent,
     },
     peer::Peer,
-    ConsensusError, IsHeader,
+    ConsensusError, ConsensusMetrics, IsHeader,
 };
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
@@ -105,6 +105,7 @@ impl PeerSession {
 #[allow(clippy::todo)]
 pub fn bootstrap(
     config: Config,
+    consensus_metrics: Option<ConsensusMetrics>,
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     let era_history: &EraHistory = config.network.into();
@@ -124,7 +125,13 @@ pub fn bootstrap(
 
     let mut stages = peer_sessions
         .iter()
-        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
+        .map(|session| {
+            pull::Stage::new(
+                consensus_metrics.clone(),
+                session.clone(),
+                vec![tip.clone()],
+            )
+        })
         .collect::<Vec<_>>();
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
@@ -381,7 +388,7 @@ mod tests {
             ..Config::default()
         };
 
-        let stages = bootstrap(config, vec![]).unwrap();
+        let stages = bootstrap(config, None, vec![]).unwrap();
 
         assert_eq!(8, stages.len());
     }

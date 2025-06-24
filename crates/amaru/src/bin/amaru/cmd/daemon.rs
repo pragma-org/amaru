@@ -14,6 +14,7 @@
 
 use crate::metrics::track_system_metrics;
 use amaru::stages::{bootstrap, Config, StorePath};
+use amaru_consensus::ConsensusMetrics;
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
@@ -66,7 +67,9 @@ pub async fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_args(args)?;
 
-    let metrics = metrics.map(track_system_metrics);
+    let system_metrics = metrics.clone().map(track_system_metrics);
+
+    let consensus_metrics = metrics.map(|ref mut sdk| ConsensusMetrics::new(sdk));
 
     let mut clients: Vec<(String, Arc<Mutex<PeerClient>>)> = vec![];
     for peer in &config.upstream_peers {
@@ -75,13 +78,13 @@ pub async fn run(
         clients.push((peer.clone(), Arc::new(Mutex::new(client))));
     }
 
-    let sync = bootstrap(config, clients)?;
+    let sync = bootstrap(config, consensus_metrics, clients)?;
 
     let exit = amaru::exit::hook_exit_token();
 
     run_pipeline(gasket::daemon::Daemon::new(sync), exit.clone()).await;
 
-    if let Some(handle) = metrics {
+    if let Some(handle) = system_metrics {
         handle.abort();
     }
 

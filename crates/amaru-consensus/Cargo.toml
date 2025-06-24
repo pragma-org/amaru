@@ -14,6 +14,8 @@ rust-version.workspace = true
 
 [dependencies]
 hex.workspace = true
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true

@@ -14,11 +14,13 @@
 
 use crate::point::{from_network_point, to_network_point};
 use crate::{send, stages::PeerSession};
+use amaru_consensus::ConsensusMetrics;
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
 use anyhow::anyhow;
 use gasket::framework::*;
-use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
+use opentelemetry::KeyValue;
+use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
 use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
 use tokio::time::timeout;
@@ -48,22 +50,23 @@ pub struct Stage {
 
     pub downstream: DownstreamPort,
 
-    #[metric]
-    chain_tip: gasket::metrics::Gauge,
+    metrics: Option<ConsensusMetrics>,
 }
 
+const NO_KEY_VALUE: [KeyValue; 0] = [];
+
 impl Stage {
-    pub fn new(peer_session: PeerSession, intersection: Vec<Point>) -> Self {
+    pub fn new(
+        metrics: Option<ConsensusMetrics>,
+        peer_session: PeerSession,
+        intersection: Vec<Point>,
+    ) -> Self {
         Self {
             peer_session,
             intersection,
             downstream: Default::default(),
-            chain_tip: Default::default(),
+            metrics,
         }
-    }
-
-    fn track_tip(&self, tip: &Tip) {
-        self.chain_tip.set(tip.0.slot_or_default() as i64);
     }
 
     #[instrument(
@@ -108,13 +111,16 @@ impl Stage {
             span: Span::current(),
         };
 
+        self.received_forward();
+
         send!(&mut self.downstream, event)
     }
 
-    pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
-        self.track_tip(&tip);
+    pub async fn roll_back(&mut self, rollback_point: Point) -> Result<(), WorkerError> {
+        self.received_rollback();
 
         let peer = &self.peer_session.peer;
+
         self.downstream
             .send(
                 ChainSyncEvent::Rollback {
@@ -126,6 +132,18 @@ impl Stage {
             )
             .await
             .or_panic()
+    }
+
+    fn received_forward(&mut self) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics.count_forwards_received.add(1, &NO_KEY_VALUE);
+        };
+    }
+
+    fn received_rollback(&mut self) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics.count_rollbacks_received.add(1, &NO_KEY_VALUE);
+        };
     }
 }
 
@@ -182,8 +200,8 @@ impl gasket::framework::Worker<Stage> for Worker {
             NextResponse::RollForward(header, _tip) => {
                 stage.roll_forward(&header).await?;
             }
-            NextResponse::RollBackward(point, tip) => {
-                stage.roll_back(from_network_point(&point), tip).await?;
+            NextResponse::RollBackward(point, _tip) => {
+                stage.roll_back(from_network_point(&point)).await?;
             }
             NextResponse::Await => {}
         };

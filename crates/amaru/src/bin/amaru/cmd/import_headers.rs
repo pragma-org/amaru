@@ -96,7 +96,7 @@ pub(crate) async fn import_headers(
         peer_client,
     };
 
-    let mut pull = pull::Stage::new(peer_session.clone(), vec![point.clone()]);
+    let mut pull = pull::Stage::new(None, peer_session.clone(), vec![point.clone()]);
 
     pull.find_intersection().await?;
 
