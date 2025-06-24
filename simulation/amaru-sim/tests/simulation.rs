@@ -15,7 +15,9 @@ fn run_simulator() {
         seed: std::env::var("AMARU_TEST_SEED")
             .ok()
             .and_then(|s| s.parse().ok()),
-        persist_on_success: false,
+        persist_on_success: std::env::var("AMARU_PERSIST_ON_SUCCESS")
+            .and_then(|_| Ok(true))
+            .unwrap_or(false),
     };
 
     tracing_subscriber::fmt()
