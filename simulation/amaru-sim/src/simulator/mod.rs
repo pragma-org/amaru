@@ -87,57 +87,36 @@ pub struct Args {
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
-    bootstrap(rt, args);
-}
-
-pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
-    let network = NetworkName::Testnet(42);
-    let global_parameters: &GlobalParameters = network.into();
-    let stake_distribution: FakeStakeDistribution =
-        FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
-    let chain_data_path = args.block_tree_file;
-
-    let mut chain_store = InMemConsensusStore::new();
-
-    populate_chain_store(
-        &mut chain_store,
-        &args.start_header,
-        &args.consensus_context_file,
-    )
-    .unwrap();
-
-    let select_chain = SelectChain::new(make_chain_selector(
-        Origin,
-        &chain_store,
-        // FIXME: Shouldn't be hardcoded!
-        &vec![Peer::new("c1")],
-    ));
-    let chain_ref = Arc::new(Mutex::new(chain_store));
-    let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
-
-    run_simulator(
-        rt,
-        global_parameters.clone(),
-        &mut consensus,
-        select_chain.clone(),
-        &chain_data_path,
-        args.seed,
-    );
-}
-
-fn run_simulator(
-    rt: tokio::runtime::Runtime,
-    global: GlobalParameters,
-    validate_header: &mut ValidateHeader,
-    select_chain: SelectChain,
-    chain_data_path: &PathBuf,
-    seed: Option<u64>,
-) {
     let number_of_nodes = 1;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
     let buffer = trace_buffer.clone();
+
     let spawn = move || {
         println!("*** Spawning node!");
+        let network_name = NetworkName::Testnet(42);
+        let global_parameters: &GlobalParameters = network_name.into();
+        let stake_distribution: FakeStakeDistribution =
+            FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters)
+                .unwrap();
+
+        let mut chain_store = InMemConsensusStore::new();
+
+        populate_chain_store(
+            &mut chain_store,
+            &args.start_header,
+            &args.consensus_context_file,
+        )
+        .unwrap();
+
+        let select_chain = SelectChain::new(make_chain_selector(
+            Origin,
+            &chain_store,
+            // FIXME: Shouldn't be hardcoded!
+            &vec![Peer::new("c1")],
+        ));
+        let chain_ref = Arc::new(Mutex::new(chain_store));
+        let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
+
         let mut network = SimulationBuilder::default().with_trace_buffer(buffer.clone());
         let init_st = ValidateHeader {
             ledger: validate_header.ledger.clone(),
@@ -247,8 +226,7 @@ fn run_simulator(
                         DecodedChainSyncEvent::RollForward {
                             peer, header, span, ..
                         } => {
-                            let result =
-                                vec![ValidateHeaderEvent::Validated { peer, header, span }]; // select_chain.select_chain(peer, header, span).await?;
+                            let result = select_chain.select_chain(peer, header, span).await?;
                             eff.send(&downstream, result).await;
                         }
                         DecodedChainSyncEvent::Rollback {
@@ -257,12 +235,9 @@ fn run_simulator(
                             span,
                             ..
                         } => {
-                            let result = vec![ValidateHeaderEvent::Rollback {
-                                peer,
-                                rollback_point,
-                                span,
-                            }];
-                            //select_chain.select_rollback(peer, rollback_point, span).await?;
+                            let result = select_chain
+                                .select_rollback(peer, rollback_point, span)
+                                .await?;
                             eff.send(&downstream, result).await;
                         }
                     }
@@ -331,7 +306,11 @@ fn run_simulator(
         );
         network.wire_up(
             validate_header_stage,
-            (init_st, global.clone(), store_header_stage.sender()),
+            (
+                init_st,
+                global_parameters.clone(),
+                store_header_stage.sender(),
+            ),
         );
         network.wire_up(
             store_header_stage,
@@ -351,8 +330,8 @@ fn run_simulator(
         Config::default(),
         number_of_nodes,
         spawn,
-        generate_inputs_strategy(chain_data_path, seed),
-        chain_property(chain_data_path),
+        generate_inputs_strategy(&args.block_tree_file, args.seed),
+        chain_property(&args.block_tree_file),
         trace_buffer,
     );
 }
