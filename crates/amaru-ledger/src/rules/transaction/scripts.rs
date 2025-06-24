@@ -1,22 +1,8 @@
-// Copyright 2025 PRAGMA
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, MemoizedDatum,
-    MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash, ScriptKind,
-    ScriptPurpose,
+    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, HasRedeemerKeys,
+    MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash,
+    ScriptKind, ScriptPurpose,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -86,55 +72,21 @@ where
 
     let mut extra_redeemers = Vec::new();
 
-    if let Some(redeemers) = witness_set.redeemer.as_deref() {
-        match redeemers {
-            amaru_kernel::Redeemers::List(redeemers) => {
-                /* It's possible that a list could have a (tag, index) tuple present more than once.
-                The haskell node removes duplicates, keeping the last value present
-                See (https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626):
-                    - The Map.fromList behavior is documented here: https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList
-
-                This will be relevant during Phase 2 validation as well, so when that edge case inevitably pops up, refer back to this
-
-                In this case, we don't care about the data provided in the redeemer, we only care about the presence of a needed redeemer.
-                Therefore, order doesn't matter in this case.
-                */
-                let mut processed_keys: Vec<RedeemersKey> = Vec::new();
-                redeemers.iter().for_each(|redeemer| {
-                    let provided = RedeemersKey {
-                        tag: redeemer.tag,
-                        index: redeemer.index,
-                    };
-
-                    if !processed_keys.contains(&provided) {
-                        if let Some(index) = required_redeemers
-                            .iter()
-                            .position(|required| required == &provided)
-                        {
-                            required_redeemers.remove(index);
-                        } else {
-                            extra_redeemers.push(provided.clone());
-                        }
-
-                        processed_keys.push(provided);
-                    }
-                });
+    if let Some(provided_redemeers) = witness_set
+        .redeemer
+        .as_deref()
+        .map(HasRedeemerKeys::to_redeemer_keys)
+    {
+        provided_redemeers.iter().for_each(|provided| {
+            if let Some(index) = required_redeemers
+                .iter()
+                .position(|required| required == provided)
+            {
+                required_redeemers.remove(index);
+            } else {
+                extra_redeemers.push(provided.clone());
             }
-
-            // A map guarantees uniqueness of the RedeemerKey, therefore we don't need to do the same uniquness logic
-            amaru_kernel::Redeemers::Map(redeemers) => {
-                redeemers.iter().for_each(|(provided, _)| {
-                    if let Some(index) = required_redeemers
-                        .iter()
-                        .position(|required| required == provided)
-                    {
-                        required_redeemers.remove(index);
-                    } else {
-                        extra_redeemers.push(provided.clone());
-                    }
-                });
-            }
-        }
+        })
     }
 
     if !required_redeemers.is_empty() {

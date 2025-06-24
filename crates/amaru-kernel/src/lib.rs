@@ -31,7 +31,7 @@ use pallas_primitives::{
     alonzo::Value as AlonzoValue,
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
-        RedeemersValue,
+        RedeemersKey as PallasRedeemersKey, RedeemersValue,
     },
     PlutusScript,
 };
@@ -39,7 +39,7 @@ use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
     cmp::Ordering,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     convert::Infallible,
     fmt::{self, Display, Formatter},
     ops::Deref,
@@ -65,10 +65,9 @@ pub use pallas_primitives::{
         MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
         PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
         ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash,
-        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
-        WitnessSet,
+        RationalNumber, Redeemer, Redeemers, Relay, RewardAccount, ScriptHash, ScriptRef,
+        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
+        VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, Constr, DatumHash, MaybeIndefArray, PlutusData,
 };
@@ -119,6 +118,58 @@ pub type EpochInterval = u32;
 pub type ScriptPurpose = RedeemerTag;
 
 pub type AuxiliaryDataHash = Hash<32>;
+// Re-exporting as `RedeemersKey` for ease of use
+pub type RedeemersKey = RedeemersKeyAdapter;
+
+#[derive(Debug, PartialEq, Eq, Clone)]
+pub struct RedeemersKeyAdapter {
+    inner: PallasRedeemersKey,
+}
+
+impl Ord for RedeemersKeyAdapter {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tag_rank()
+            .cmp(&other.tag_rank())
+            .then_with(|| self.index.cmp(&other.index))
+    }
+}
+
+impl PartialOrd for RedeemersKeyAdapter {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl RedeemersKeyAdapter {
+    pub fn unwrap(self) -> PallasRedeemersKey {
+        self.inner
+    }
+
+    fn tag_rank(&self) -> u8 {
+        match self.tag {
+            RedeemerTag::Spend => 0,
+            RedeemerTag::Mint => 1,
+            RedeemerTag::Cert => 2,
+            RedeemerTag::Reward => 3,
+            RedeemerTag::Vote => 4,
+            RedeemerTag::Propose => 5,
+        }
+    }
+}
+
+impl Deref for RedeemersKeyAdapter {
+    type Target = PallasRedeemersKey;
+
+    fn deref(&self) -> &Self::Target {
+        &self.inner
+    }
+}
+
+impl From<PallasRedeemersKey> for RedeemersKeyAdapter {
+    fn from(value: PallasRedeemersKey) -> Self {
+        Self { inner: value }
+    }
+}
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 pub struct RequiredScript {
@@ -152,12 +203,18 @@ impl Ord for RequiredScript {
     }
 }
 
-impl From<&RequiredScript> for RedeemersKey {
+impl From<&RequiredScript> for PallasRedeemersKey {
     fn from(value: &RequiredScript) -> Self {
-        RedeemersKey {
+        PallasRedeemersKey {
             tag: value.purpose,
             index: value.index,
         }
+    }
+}
+
+impl From<&RequiredScript> for RedeemersKeyAdapter {
+    fn from(value: &RequiredScript) -> Self {
+        PallasRedeemersKey::from(value).into()
     }
 }
 
@@ -249,8 +306,8 @@ pub struct ExUnitsIter<'a> {
 }
 
 type ExUnitsMapIter<'a> = std::iter::Map<
-    std::slice::Iter<'a, (RedeemersKey, RedeemersValue)>,
-    fn(&(RedeemersKey, RedeemersValue)) -> ExUnits,
+    std::slice::Iter<'a, (PallasRedeemersKey, RedeemersValue)>,
+    fn(&(PallasRedeemersKey, RedeemersValue)) -> ExUnits,
 >;
 
 enum ExUnitsIterSource<'a> {
@@ -678,6 +735,22 @@ impl HasLovelace for MintedTransactionOutput<'_> {
 impl HasLovelace for MemoizedTransactionOutput {
     fn lovelace(&self) -> Lovelace {
         self.value.lovelace()
+    }
+}
+// This is a useful trait to have instead of writing `to_cbor(x).len()` everywhere
+// But this necessarily re-serializes objects that aren't wrapped in a `KeepRaw`.
+// This is not what we should do, we should instead rely on the original bytes.
+// However, everywhere this logic was used had a FIXME, so just moving the logic is OK here.
+pub trait OriginalSize {
+    fn original_size(&self) -> usize;
+}
+
+impl<T> OriginalSize for T
+where
+    T: cbor::Encode<()>,
+{
+    fn original_size(&self) -> usize {
+        to_cbor(self).len()
     }
 }
 
@@ -1162,6 +1235,43 @@ pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
             <[u8; 32]>::try_from(bytes).map_err(|_| "expected 32-byte nonce".to_string())
         })
         .map(Nonce::from)
+}
+
+// Redeemers
+// ----------------------------------------------------------------------------
+pub trait HasRedeemerKeys {
+    fn to_redeemer_keys(&self) -> BTreeSet<RedeemersKey>;
+}
+
+impl HasRedeemerKeys for Redeemers {
+    fn to_redeemer_keys(&self) -> BTreeSet<RedeemersKey> {
+        match self {
+            /* It's possible that a list could have a (tag, index) tuple present more than once, with different data.
+              The haskell node removes duplicates, keeping the last value present
+              See (https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626):
+                  - The Map.fromList behavior is documented here: https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList
+
+               In this case, we don't care about the data provided in the redeemer (we're returning just the keys), so it doesn't matter.
+               But this will come up during Phase 2 validation, so keep in mind that BTreeSet always keeps the first occurance based on the `PartialEq` result
+                   https://doc.rust-lang.org/std/collections/btree_set/struct.BTreeSet.html#method.insert
+            */
+            Redeemers::List(redeemers) => redeemers
+                .iter()
+                .map(|redeemer| {
+                    PallasRedeemersKey {
+                        tag: redeemer.tag,
+                        index: redeemer.index,
+                    }
+                    .into()
+                })
+                .collect(),
+            Redeemers::Map(redeemers) => redeemers
+                .iter()
+                // TODO: can we avoid a clone here?
+                .map(|(key, _)| key.clone().into())
+                .collect(),
+        }
+    }
 }
 
 #[cfg(test)]
