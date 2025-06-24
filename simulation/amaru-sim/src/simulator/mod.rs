@@ -81,9 +81,13 @@ pub struct Args {
     #[arg(long, default_value_t = Hash::from([0; 32]))]
     pub start_header: Hash<32>,
 
-    /// Seed
+    /// Seed for simulation testing.
     #[arg(long)]
     pub seed: Option<u64>,
+
+    /// Persist pure-stage's effect trace aka schdule even if the test passes.
+    #[arg(long)]
+    pub persist_on_success: bool,
 }
 
 fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
@@ -347,6 +351,7 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
         generate_inputs_strategy(&args.block_tree_file, args.seed),
         chain_property(&args.block_tree_file),
         trace_buffer.clone(),
+        args.persist_on_success,
     );
 }
 

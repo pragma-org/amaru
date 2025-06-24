@@ -319,8 +319,7 @@ pub fn generate_arrival_times<R: Rng>(
     let mut time: Instant = start_time;
     let mut arrival_times = Vec::new();
 
-    let exp =
-        Exp::new(1.0 / mean_millis).unwrap_or_else(|err| panic!("generate_arrival_times: {}", err));
+    let exp = Exp::new(1.0 / mean_millis).unwrap_or_else(|err| panic!("{}", err));
     for _ in 0..length {
         arrival_times.push(time);
         let delay = exp.sample(rng);
