@@ -29,8 +29,8 @@ use pallas_codec::{
     minicbor::{decode, encode, Decode, Decoder, Encode, Encoder},
     utils::CborWrap,
 };
-use pallas_primitives::alonzo::Value as AlonzoValue;
 use pallas_primitives::{
+    alonzo::Value as AlonzoValue,
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
         RedeemersValue,
@@ -99,6 +99,8 @@ pub type Lovelace = u64;
 pub type EpochInterval = u32;
 
 pub type ScriptPurpose = RedeemerTag;
+
+pub type AuxiliaryDataHash = Hash<32>;
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 pub struct RequiredScript {

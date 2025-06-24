@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Bytes, Hash, MintedTransactionBody};
+use amaru_kernel::{AuxiliaryDataHash, Bytes, Hash, MintedTransactionBody};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -32,12 +32,15 @@ pub enum InvalidTransactionMetadata {
 
 pub fn execute(
     transaction: &MintedTransactionBody<'_>,
-    auxiliary_data: Option<Hash<32>>,
+    auxiliary_data_hash: Option<AuxiliaryDataHash>,
 ) -> Result<(), InvalidTransactionMetadata> {
-    match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data) {
+    match (
+        transaction.auxiliary_data_hash.as_ref(),
+        auxiliary_data_hash,
+    ) {
         (None, None) => Ok(()),
-        (None, Some(auxiliary_data)) => {
-            Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(auxiliary_data))
+        (None, Some(hash)) => {
+            Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash))
         }
         (Some(adh), None) => Err(InvalidTransactionMetadata::MissingTransactionMetadata(
             adh.clone(),
