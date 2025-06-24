@@ -22,8 +22,8 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
-    OriginalHash, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, ExUnits, HasExUnits, Hasher,
+    MintedBlock, OriginalHash, TransactionId, TransactionPointer,
 };
 use slot_arithmetic::Slot;
 use std::{
@@ -48,7 +48,7 @@ pub enum InvalidBlockDetails {
         max: usize,
     },
     Transaction {
-        transaction_hash: Hash<32>,
+        transaction_hash: TransactionId,
         transaction_index: u32,
         violation: InvalidTransaction,
     },
@@ -194,11 +194,11 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             }
         };
 
-        let auxiliary_data: Option<&AuxiliaryData> = block
+        let auxiliary_data: Option<AuxiliaryDataHash> = block
             .auxiliary_data_set
             .iter()
             .find(|key_pair| key_pair.0 == i)
-            .map(|key_pair| key_pair.1.deref());
+            .map(|key_pair| Hasher::<256>::hash(key_pair.1.raw_cbor()));
 
         transaction
             .required_signers
