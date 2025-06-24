@@ -25,18 +25,19 @@
 // Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
-use pure_stage::trace_buffer::TraceBuffer;
-use pure_stage::StageRef;
-use pure_stage::{simulation::SimulationRunning, Instant, Receiver};
-
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use proptest::{
     prelude::*,
     test_runner::{Config, TestError, TestRunner},
 };
+use pure_stage::trace_buffer::TraceBuffer;
+use pure_stage::StageRef;
+use pure_stage::{simulation::SimulationRunning, Instant, Receiver};
 use rand::rngs::StdRng;
 use rand::SeedableRng;
+use serde::Serialize;
+use std::cmp::Ordering;
 use std::fs::File;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -53,20 +54,20 @@ use tracing::info;
 
 use super::generate::generate_arrival_times;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Entry<Msg> {
     arrival_time: Instant,
     envelope: Envelope<Msg>,
 }
 
 impl<Msg: PartialEq> PartialOrd for Entry<Msg> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
 impl<Msg: PartialEq> Ord for Entry<Msg> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         self.arrival_time.cmp(&other.arrival_time)
     }
 }
@@ -248,7 +249,7 @@ pub fn simulate<Msg, F>(
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) where
-    Msg: Debug + PartialEq + Clone,
+    Msg: Debug + PartialEq + Clone + Serialize,
     F: Fn() -> NodeHandle<Msg>,
 {
     let mut runner = TestRunner::new(config);

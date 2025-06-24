@@ -314,16 +314,16 @@ fn spawn_node(
         ((), validate_header_stage.sender(), output.clone()),
     );
     network.wire_up(
+        store_header_stage,
+        (init_store, validate_header_stage.sender()),
+    );
+    network.wire_up(
         validate_header_stage,
         (
             init_st,
             global_parameters.clone(),
-            store_header_stage.sender(),
+            select_chain_stage.sender(),
         ),
-    );
-    network.wire_up(
-        store_header_stage,
-        (init_store, select_chain_stage.sender()),
     );
     network.wire_up(
         select_chain_stage,
