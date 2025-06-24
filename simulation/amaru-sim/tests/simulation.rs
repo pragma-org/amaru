@@ -12,7 +12,9 @@ fn run_simulator() {
         chain_dir: "./chain.db".into(),
         block_tree_file: "tests/data/chain.json".into(),
         start_header: Hash::from([0; 32]),
-        seed: Some(10244329322600784733),
+        seed: std::env::var("AMARU_TEST_SEED")
+            .ok()
+            .and_then(|s| s.parse().ok()),
     };
 
     tracing_subscriber::fmt()

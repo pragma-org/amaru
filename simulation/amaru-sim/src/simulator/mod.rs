@@ -41,11 +41,11 @@ use generate::{generate_inputs_strategy, parse_json, read_chain_json};
 use ledger::{populate_chain_store, FakeStakeDistribution};
 use proptest::test_runner::Config;
 use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
-use pure_stage::{StageGraph, Void};
+use pure_stage::{Receiver, StageGraph, Void};
 use simulate::{pure_stage_node_handle, simulate, Trace};
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
-use tracing::Span;
+use tracing::{info, Span};
 
 pub use sync::*;
 
@@ -55,7 +55,7 @@ mod ledger;
 pub mod simulate;
 mod sync;
 
-#[derive(Debug, Parser)]
+#[derive(Debug, Parser, Clone)]
 #[clap(name = "Amaru Simulator")]
 #[clap(bin_name = "amaru-sim")]
 #[clap(author, version, about, long_about = None)]
@@ -86,16 +86,11 @@ pub struct Args {
     pub seed: Option<u64>,
 }
 
-pub fn run(rt: tokio::runtime::Runtime, args: Args) {
-    bootstrap(rt, args);
-}
-
-pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
-    let network = NetworkName::Testnet(42);
-    let global_parameters: &GlobalParameters = network.into();
+fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
+    let network_name = NetworkName::Testnet(42);
+    let global_parameters: &GlobalParameters = network_name.into();
     let stake_distribution: FakeStakeDistribution =
         FakeStakeDistribution::from_file(&args.stake_distribution_file, global_parameters).unwrap();
-    let chain_data_path = args.block_tree_file;
 
     let mut chain_store = InMemConsensusStore::new();
 
@@ -113,232 +108,234 @@ pub fn bootstrap(rt: tokio::runtime::Runtime, args: Args) {
         &vec![Peer::new("c1")],
     ));
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let mut consensus = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
+    let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
 
-    run_simulator(
-        rt,
-        global_parameters.clone(),
-        &mut consensus,
-        select_chain.clone(),
-        &chain_data_path,
-        args.seed,
-    );
+    (global_parameters.clone(), select_chain, validate_header)
 }
 
-fn run_simulator(
-    rt: tokio::runtime::Runtime,
-    global: GlobalParameters,
-    validate_header: &mut ValidateHeader,
-    select_chain: SelectChain,
-    chain_data_path: &PathBuf,
-    seed: Option<u64>,
+fn spawn_node(
+    args: Args,
+    network: &mut SimulationBuilder,
+) -> (
+    Receiver<Envelope<ChainSyncMessage>>,
+    StageRef<
+        Envelope<ChainSyncMessage>,
+        (
+            (),
+            StageRef<DecodedChainSyncEvent, Void>,
+            StageRef<Envelope<ChainSyncMessage>, Void>,
+        ),
+    >,
 ) {
+    info!("Spawning node!");
+
+    let (global_parameters, select_chain, validate_header) = init_node(&args);
+
+    let init_st = ValidateHeader {
+        ledger: validate_header.ledger.clone(),
+        store: validate_header.store.clone(),
+    };
+
+    let init_store = StoreHeader {
+        store: validate_header.store.clone(),
+    };
+
+    let receive_stage = network.stage(
+        "receive_header",
+        async |(_state, downstream, out),
+               msg: Envelope<ChainSyncMessage>,
+               eff|
+               -> Result<
+            (
+                (),
+                StageRef<DecodedChainSyncEvent, Void>,
+                StageRef<Envelope<ChainSyncMessage>, Void>,
+            ),
+            Error,
+        > {
+            match msg.body {
+                ChainSyncMessage::Init { msg_id, .. } => {
+                    let reply_msg = ChainSyncMessage::InitOk {
+                        in_reply_to: msg_id,
+                    };
+                    let reply = Envelope {
+                        src: msg.dest,
+                        dest: msg.src,
+                        body: reply_msg,
+                    };
+                    eff.send(&out, reply).await
+                }
+                ChainSyncMessage::InitOk { .. } => (),
+                ChainSyncMessage::Fwd {
+                    slot, hash, header, ..
+                } => {
+                    let decoded = handle_chain_sync(ChainSyncEvent::RollForward {
+                        peer: Peer::new(&msg.src),
+                        point: Point::Specific(slot.into(), hash.into()),
+                        raw_header: header.into(),
+                        span: Span::current(),
+                    })?;
+                    eff.send(&downstream, decoded).await
+                }
+                ChainSyncMessage::Bck { slot, hash, .. } => {
+                    let decoded = handle_chain_sync(ChainSyncEvent::Rollback {
+                        peer: Peer::new(&msg.src),
+                        rollback_point: Point::Specific(slot.into(), hash.into()),
+                        span: Span::current(),
+                    })?;
+                    eff.send(&downstream, decoded).await
+                }
+            };
+            Ok(((), downstream, out))
+        },
+    );
+
+    let validate_header_stage = network.stage(
+        "validate_header",
+        async |(mut state, global, downstream),
+               msg: DecodedChainSyncEvent,
+               eff|
+               -> Result<
+            (
+                ValidateHeader,
+                GlobalParameters,
+                StageRef<DecodedChainSyncEvent, Void>,
+            ),
+            Error,
+        > {
+            let result = state.validate_header(&eff, msg, &global).await?;
+            eff.send(&downstream, result).await;
+            Ok((state, global, downstream))
+        },
+    );
+
+    let store_header_stage = network.stage(
+        "store_header",
+        async |(store, downstream),
+               msg: DecodedChainSyncEvent,
+               eff|
+               -> Result<(StoreHeader, StageRef<DecodedChainSyncEvent, Void>), Error> {
+            let result = store.handle_event(msg).await?;
+            eff.send(&downstream, result).await;
+            Ok((store, downstream))
+        },
+    );
+
+    let select_chain_stage = network.stage(
+        "select_chain",
+        async |(mut select_chain, downstream),
+               msg: DecodedChainSyncEvent,
+               eff|
+               -> Result<(SelectChain, StageRef<Vec<ValidateHeaderEvent>, Void>), Error> {
+            match msg {
+                DecodedChainSyncEvent::RollForward {
+                    peer, header, span, ..
+                } => {
+                    let result = select_chain.select_chain(peer, header, span).await?;
+                    eff.send(&downstream, result).await;
+                }
+                DecodedChainSyncEvent::Rollback {
+                    peer,
+                    rollback_point,
+                    span,
+                    ..
+                } => {
+                    let result = select_chain
+                        .select_rollback(peer, rollback_point, span)
+                        .await?;
+                    eff.send(&downstream, result).await;
+                }
+            }
+            Ok((select_chain, downstream))
+        },
+    );
+
+    let propagate_header_stage = network.stage(
+        "propagate_header",
+        async |(next_msg_id, downstream),
+               msgs: Vec<ValidateHeaderEvent>,
+               eff|
+               -> Result<(u64, StageRef<Envelope<ChainSyncMessage>, Void>), Error> {
+            let mut msg_id = next_msg_id;
+            for msg in msgs {
+                let (peer, chain_sync_message) = match msg {
+                    ValidateHeaderEvent::Validated { peer, header, .. } => (
+                        peer,
+                        ChainSyncMessage::Fwd {
+                            msg_id,
+                            slot: header.point().slot_or_default(),
+                            hash: Bytes {
+                                bytes: Hash::from(&header.point()).as_slice().to_vec(),
+                            },
+                            header: Bytes {
+                                bytes: to_cbor(&header),
+                            },
+                        },
+                    ),
+                    ValidateHeaderEvent::Rollback {
+                        peer,
+                        rollback_point,
+                        ..
+                    } => (
+                        peer,
+                        ChainSyncMessage::Bck {
+                            msg_id,
+                            slot: rollback_point.slot_or_default(),
+                            hash: Bytes {
+                                bytes: Hash::from(&rollback_point).as_slice().to_vec(),
+                            },
+                        },
+                    ),
+                };
+                eff.send(
+                    &downstream,
+                    Envelope {
+                        // FIXME: do we have the name of the node stored somewhere?
+                        src: "n1".to_string(),
+                        // XXX: this should be broadcast to ALL followers
+                        dest: peer.name,
+                        body: chain_sync_message,
+                    },
+                )
+                .await;
+                msg_id += 1;
+            }
+            Ok((msg_id, downstream))
+        },
+    );
+
+    let (output, rx) = network.output("output", 10);
+    let receive = network.wire_up(
+        receive_stage,
+        ((), validate_header_stage.sender(), output.clone()),
+    );
+    network.wire_up(
+        validate_header_stage,
+        (
+            init_st,
+            global_parameters.clone(),
+            store_header_stage.sender(),
+        ),
+    );
+    network.wire_up(
+        store_header_stage,
+        (init_store, select_chain_stage.sender()),
+    );
+    network.wire_up(
+        select_chain_stage,
+        (select_chain.clone(), propagate_header_stage.sender()),
+    );
+    network.wire_up(propagate_header_stage, (0, output.without_state()));
+    (rx, receive)
+}
+
+pub fn run(rt: tokio::runtime::Runtime, args: Args) {
     let number_of_nodes = 1;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
-    let buffer = trace_buffer.clone();
-    let spawn = move || {
-        println!("*** Spawning node!");
-        let mut network = SimulationBuilder::default().with_trace_buffer(buffer.clone());
-        let init_st = ValidateHeader {
-            ledger: validate_header.ledger.clone(),
-            store: validate_header.store.clone(),
-        };
 
-        let init_store = StoreHeader {
-            store: validate_header.store.clone(),
-        };
-
-        let receive_stage = network.stage(
-            "receive_header",
-            async |(_state, downstream, out),
-                   msg: Envelope<ChainSyncMessage>,
-                   eff|
-                   -> Result<
-                (
-                    (),
-                    StageRef<DecodedChainSyncEvent, Void>,
-                    StageRef<Envelope<ChainSyncMessage>, Void>,
-                ),
-                Error,
-            > {
-                match msg.body {
-                    ChainSyncMessage::Init { msg_id, .. } => {
-                        let reply_msg = ChainSyncMessage::InitOk {
-                            in_reply_to: msg_id,
-                        };
-                        let reply = Envelope {
-                            src: msg.dest,
-                            dest: msg.src,
-                            body: reply_msg,
-                        };
-                        eff.send(&out, reply).await
-                    }
-                    ChainSyncMessage::InitOk { .. } => (),
-                    ChainSyncMessage::Fwd {
-                        slot, hash, header, ..
-                    } => {
-                        let decoded = handle_chain_sync(ChainSyncEvent::RollForward {
-                            peer: Peer::new(&msg.src),
-                            point: Point::Specific(slot.into(), hash.into()),
-                            raw_header: header.into(),
-                            span: Span::current(),
-                        })?;
-                        eff.send(&downstream, decoded).await
-                    }
-                    ChainSyncMessage::Bck { slot, hash, .. } => {
-                        let decoded = handle_chain_sync(ChainSyncEvent::Rollback {
-                            peer: Peer::new(&msg.src),
-                            rollback_point: Point::Specific(slot.into(), hash.into()),
-                            span: Span::current(),
-                        })?;
-                        eff.send(&downstream, decoded).await
-                    }
-                };
-                Ok(((), downstream, out))
-            },
-        );
-
-        let validate_header_stage = network.stage(
-            "validate_header",
-            async |(mut state, global, downstream),
-                   msg: DecodedChainSyncEvent,
-                   eff|
-                   -> Result<
-                (
-                    ValidateHeader,
-                    GlobalParameters,
-                    StageRef<DecodedChainSyncEvent, Void>,
-                ),
-                Error,
-            > {
-                let result = state.validate_header(&eff, msg, &global).await?;
-                eff.send(&downstream, result).await;
-                Ok((state, global, downstream))
-            },
-        );
-
-        let store_header_stage =
-                network.stage(
-                    "store_header",
-                    async |(store, downstream),
-                           msg: DecodedChainSyncEvent,
-                           eff|
-                           -> Result<
-                        (StoreHeader, StageRef<DecodedChainSyncEvent, Void>),
-                        Error,
-                    > {
-                        let result = store.handle_event(msg).await?;
-                        eff.send(&downstream, result).await;
-                        Ok((store, downstream))
-                    },
-                );
-
-        let select_chain_stage =
-            network.stage(
-                "select_chain",
-                async |(mut select_chain, downstream),
-                       msg: DecodedChainSyncEvent,
-                       eff|
-                       -> Result<
-                    (SelectChain, StageRef<Vec<ValidateHeaderEvent>, Void>),
-                    Error,
-                > {
-                    match msg {
-                        DecodedChainSyncEvent::RollForward {
-                            peer, header, span, ..
-                        } => {
-                            let result = select_chain.select_chain(peer, header, span).await?;
-                            eff.send(&downstream, result).await;
-                        }
-                        DecodedChainSyncEvent::Rollback {
-                            peer,
-                            rollback_point,
-                            span,
-                            ..
-                        } => {
-                            let result = select_chain
-                                .select_rollback(peer, rollback_point, span)
-                                .await?;
-                            eff.send(&downstream, result).await;
-                        }
-                    }
-                    Ok((select_chain, downstream))
-                },
-            );
-
-        let propagate_header_stage = network.stage(
-            "propagate_header",
-            async |(next_msg_id, downstream),
-                   msgs: Vec<ValidateHeaderEvent>,
-                   eff|
-                   -> Result<(u64, StageRef<Envelope<ChainSyncMessage>, Void>), Error> {
-                let mut msg_id = next_msg_id;
-                for msg in msgs {
-                    let (peer, chain_sync_message) = match msg {
-                        ValidateHeaderEvent::Validated { peer, header, .. } => (
-                            peer,
-                            ChainSyncMessage::Fwd {
-                                msg_id,
-                                slot: header.point().slot_or_default(),
-                                hash: Bytes {
-                                    bytes: Hash::from(&header.point()).as_slice().to_vec(),
-                                },
-                                header: Bytes {
-                                    bytes: to_cbor(&header),
-                                },
-                            },
-                        ),
-                        ValidateHeaderEvent::Rollback {
-                            peer,
-                            rollback_point,
-                            ..
-                        } => (
-                            peer,
-                            ChainSyncMessage::Bck {
-                                msg_id,
-                                slot: rollback_point.slot_or_default(),
-                                hash: Bytes {
-                                    bytes: Hash::from(&rollback_point).as_slice().to_vec(),
-                                },
-                            },
-                        ),
-                    };
-                    eff.send(
-                        &downstream,
-                        Envelope {
-                            // FIXME: do we have the name of the node stored somewhere?
-                            src: "n1".to_string(),
-                            // XXX: this should be broadcast to ALL followers
-                            dest: peer.name,
-                            body: chain_sync_message,
-                        },
-                    )
-                    .await;
-                    msg_id += 1;
-                }
-                Ok((msg_id, downstream))
-            },
-        );
-
-        let (output, rx) = network.output("output", 10);
-        let receive = network.wire_up(
-            receive_stage,
-            ((), validate_header_stage.sender(), output.clone()),
-        );
-        network.wire_up(
-            validate_header_stage,
-            (init_st, global.clone(), store_header_stage.sender()),
-        );
-        network.wire_up(
-            store_header_stage,
-            (init_store, select_chain_stage.sender()),
-        );
-        network.wire_up(
-            select_chain_stage,
-            (select_chain.clone(), propagate_header_stage.sender()),
-        );
-        network.wire_up(propagate_header_stage, (0, output.without_state()));
-
+    let spawn = || {
+        let mut network = SimulationBuilder::default().with_trace_buffer(trace_buffer.clone());
+        let (rx, receive) = spawn_node(args.clone(), &mut network);
         let running = network.run(rt.handle().clone());
         pure_stage_node_handle(rx, receive, running).unwrap()
     };
@@ -347,9 +344,9 @@ fn run_simulator(
         Config::default(),
         number_of_nodes,
         spawn,
-        generate_inputs_strategy(chain_data_path, seed),
-        chain_property(chain_data_path),
-        trace_buffer,
+        generate_inputs_strategy(&args.block_tree_file, args.seed),
+        chain_property(&args.block_tree_file),
+        trace_buffer.clone(),
     );
 }
 
@@ -360,7 +357,7 @@ fn chain_property(
         match trace.0.last() {
             None => Err("impossible, no last entry in trace".to_string()),
             Some(entry) => {
-                assert_eq!(entry.src, "n1");
+                assert_eq!(entry.src, "n1", "entry: {:?}, trace: {:?}", entry, trace);
                 assert_eq!(entry.dest, "c1");
                 // FIXME: the property is wrong, we should check the property
                 // that the output message trace is a prefix of the read chain
@@ -379,12 +376,12 @@ fn chain_property(
                                 expected, actual
                             );
                         }
-                        println!("Success!")
+                        info!("Success!")
                     }
                     _ => {
-                        println!("TRACE:");
+                        info!("TRACE:");
                         for entry in &trace.0 {
-                            println!("{:?}", entry);
+                            info!("{:?}", entry);
                         }
                         panic!("Last entry in trace isn't a forward")
                     }
