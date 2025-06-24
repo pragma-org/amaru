@@ -37,113 +37,109 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
                 epoch: Epoch::from(0),
             },
             end: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(0),
+                time_ms: 89856000,
+                slot: Slot::from(4492800),
+                epoch: Epoch::from(208),
             },
             params: EraParams {
-                epoch_size_slots: 4320,
+                epoch_size_slots: 21600,
                 slot_length: 20000,
             },
         },
         Summary {
             start: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(4),
+                time_ms: 89856000,
+                slot: Slot::from(4492800),
+                epoch: Epoch::from(208),
             },
             end: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(0),
+                time_ms: 101952000,
+                slot: Slot::from(16588800),
+                epoch: Epoch::from(236),
             },
             params: EraParams {
-                epoch_size_slots: 86400,
+                epoch_size_slots: 432000,
                 slot_length: 1000,
             },
         },
         Summary {
             start: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(0),
+                time_ms: 101952000,
+                slot: Slot::from(16588800),
+                epoch: Epoch::from(236),
             },
             end: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(0),
+                time_ms: 108432000,
+                slot: Slot::from(23068800),
+                epoch: Epoch::from(251),
             },
-
             params: EraParams {
-                epoch_size_slots: 86400,
+                epoch_size_slots: 432000,
                 slot_length: 1000,
             },
         },
         Summary {
             start: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(0),
+                time_ms: 108432000,
+                slot: Slot::from(23068800),
+                epoch: Epoch::from(251),
             },
             end: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(0),
+                time_ms: 125280000,
+                slot: Slot::from(39916800),
+                epoch: Epoch::from(290),
             },
-
             params: EraParams {
-                epoch_size_slots: 86400,
+                epoch_size_slots: 432000,
                 slot_length: 1000,
             },
         },
         Summary {
             start: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(0),
+                time_ms: 125280000,
+                slot: Slot::from(39916800),
+                epoch: Epoch::from(290),
             },
             end: Bound {
-                time_ms: 259200,
-                slot: Slot::from(259200),
-                epoch: Epoch::from(3),
+                time_ms: 157680000,
+                slot: Slot::from(72316800),
+                epoch: Epoch::from(365),
             },
-
             params: EraParams {
-                epoch_size_slots: 86400,
+                epoch_size_slots: 432000,
                 slot_length: 1000,
             },
         },
         Summary {
             start: Bound {
-                time_ms: 259200,
-                slot: Slot::from(259200),
-                epoch: Epoch::from(3),
+                time_ms: 157680000,
+                slot: Slot::from(72316800),
+                epoch: Epoch::from(365),
             },
             end: Bound {
-                time_ms: 55814400,
-                slot: Slot::from(55814400),
-                epoch: Epoch::from(646),
+                time_ms: 219024000,
+                slot: Slot::from(133660800),
+                epoch: Epoch::from(507),
             },
-
             params: EraParams {
-                epoch_size_slots: 86400,
+                epoch_size_slots: 432000,
                 slot_length: 1000,
             },
         },
         Summary {
             start: Bound {
-                time_ms: 55814400,
-                slot: Slot::from(55814400),
-                epoch: Epoch::from(646),
+                time_ms: 219024000,
+                slot: Slot::from(133660800),
+                epoch: Epoch::from(507),
             },
             end: Bound {
-                time_ms: 81820800,
-                slot: Slot::from(81820800),
-                epoch: Epoch::from(947),
+                time_ms: 244944000,
+                slot: Slot::from(159580800),
+                epoch: Epoch::from(567),
             },
 
             params: EraParams {
-                epoch_size_slots: 86400,
+                epoch_size_slots: 432000,
                 slot_length: 1000,
             },
         },
