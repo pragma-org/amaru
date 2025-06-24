@@ -247,7 +247,8 @@ fn run_simulator(
                         DecodedChainSyncEvent::RollForward {
                             peer, header, span, ..
                         } => {
-                            let result = select_chain.select_chain(peer, header, span).await?;
+                            let result =
+                                vec![ValidateHeaderEvent::Validated { peer, header, span }]; // select_chain.select_chain(peer, header, span).await?;
                             eff.send(&downstream, result).await;
                         }
                         DecodedChainSyncEvent::Rollback {
@@ -256,9 +257,12 @@ fn run_simulator(
                             span,
                             ..
                         } => {
-                            let result = select_chain
-                                .select_rollback(peer, rollback_point, span)
-                                .await?;
+                            let result = vec![ValidateHeaderEvent::Rollback {
+                                peer,
+                                rollback_point,
+                                span,
+                            }];
+                            //select_chain.select_rollback(peer, rollback_point, span).await?;
                             eff.send(&downstream, result).await;
                         }
                     }
