@@ -192,6 +192,7 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
                 match self.nodes.get_mut(&envelope.dest) {
                     Some(node) => match (node.handle)(envelope.clone()) {
                         Ok(outgoing) => {
+                            info!(outgoing = ?outgoing, "outgoing");
                             let (client_responses, outputs): (
                                 Vec<Envelope<Msg>>,
                                 Vec<Envelope<Msg>>,
@@ -223,6 +224,7 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
     }
 
     pub fn run_world(&mut self) -> &[Envelope<Msg>] {
+        info!("run_world");
         let prev = self.trace.0.len();
         while self.step_world() == Next::Continue {}
         &self.trace.0[prev..]

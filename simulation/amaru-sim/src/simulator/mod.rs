@@ -360,7 +360,7 @@ fn chain_property(
         match trace.0.last() {
             None => Err("impossible, no last entry in trace".to_string()),
             Some(entry) => {
-                assert_eq!(entry.src, "n1");
+                assert_eq!(entry.src, "n1", "entry: {:?}, trace: {:?}", entry, trace);
                 assert_eq!(entry.dest, "c1");
                 // FIXME: the property is wrong, we should check the property
                 // that the output message trace is a prefix of the read chain
