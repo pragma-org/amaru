@@ -14,7 +14,7 @@
 
 use crate::context::ValidationContext;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, KeepRaw, MintedTransactionBody,
+    protocol_parameters::ProtocolParameters, Hash, KeepRaw, MintedTransactionBody,
     MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
 };
 use core::mem;
@@ -92,7 +92,7 @@ pub fn execute(
     is_valid: bool,
     transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
     transaction_witness_set: &MintedWitnessSet<'_>,
-    transaction_auxiliary_data: Option<&AuxiliaryData>,
+    transaction_auxiliary_data: Option<Hash<32>>,
 ) -> Result<(), InvalidTransaction> {
     // FIXME: this is temporary, to be replaced when we have some state that determines the node's network
     let network = Network::Testnet;

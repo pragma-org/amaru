@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{AuxiliaryData, Bytes, ComputeHash, Hash, MintedTransactionBody};
+use amaru_kernel::{Bytes, Hash, MintedTransactionBody};
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -32,20 +32,17 @@ pub enum InvalidTransactionMetadata {
 
 pub fn execute(
     transaction: &MintedTransactionBody<'_>,
-    auxilary_data: Option<&AuxiliaryData>,
+    auxiliary_data: Option<Hash<32>>,
 ) -> Result<(), InvalidTransactionMetadata> {
-    match (transaction.auxiliary_data_hash.as_ref(), auxilary_data) {
+    match (transaction.auxiliary_data_hash.as_ref(), auxiliary_data) {
         (None, None) => Ok(()),
-        (None, Some(auxiliary_data)) => Err(
-            InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(
-                auxiliary_data.compute_hash(),
-            ),
-        ),
+        (None, Some(auxiliary_data)) => {
+            Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(auxiliary_data))
+        }
         (Some(adh), None) => Err(InvalidTransactionMetadata::MissingTransactionMetadata(
             adh.clone(),
         )),
-        (Some(supplied_hash), Some(ad)) => {
-            let expected_hash = ad.compute_hash();
+        (Some(supplied_hash), Some(expected_hash)) => {
             let supplied_hash = Hash::from(&supplied_hash[..]);
             if expected_hash != supplied_hash {
                 Err(InvalidTransactionMetadata::ConflictingMetadataHash {
@@ -63,7 +60,7 @@ pub fn execute(
 #[cfg(test)]
 mod tests {
     use super::InvalidTransactionMetadata;
-    use amaru_kernel::{include_cbor, AuxiliaryData, MintedTransactionBody};
+    use amaru_kernel::{include_cbor, AuxiliaryData, Hasher, KeepRaw, MintedTransactionBody};
     use test_case::test_case;
 
     macro_rules! fixture_tx {
@@ -102,6 +99,10 @@ mod tests {
         "valid")
     ]
     #[test_case(
+        fixture!("a7a5b486773edf68c2874d2fd2737f20385be108d31fb25a0be5246d73b7660a");
+        "valid but does't roundtrip"
+    )]
+    #[test_case(
         fixture!("a944cb78b60b02a2f50d605717de4c314cbe5fca7cdae6dd58015a3d6dc645d7", "missing-adh") =>
         matches Err(InvalidTransactionMetadata::MissingTransactionAuxiliaryDataHash(hash))
             if &hash.to_string() == "880443667460ae3b3016366d5bf66aca62c8149d67a53e94dde37120adffa624";
@@ -118,8 +119,14 @@ mod tests {
         "missing auxiliary data"
     )]
     fn test_metadata(
-        (transaction, auxiliary_data): (MintedTransactionBody<'_>, Option<AuxiliaryData>),
+        (transaction, auxiliary_data): (
+            MintedTransactionBody<'_>,
+            Option<KeepRaw<'_, AuxiliaryData>>,
+        ),
     ) -> Result<(), InvalidTransactionMetadata> {
-        super::execute(&transaction, auxiliary_data.as_ref())
+        super::execute(
+            &transaction,
+            auxiliary_data.map(|aux| Hasher::<256>::hash(aux.raw_cbor())),
+        )
     }
 }

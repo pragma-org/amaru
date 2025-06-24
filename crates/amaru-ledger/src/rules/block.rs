@@ -22,7 +22,7 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryData, ExUnits, HasExUnits, Hash, MintedBlock,
+    protocol_parameters::ProtocolParameters, ExUnits, HasExUnits, Hash, Hasher, MintedBlock,
     OriginalHash, TransactionPointer,
 };
 use slot_arithmetic::Slot;
@@ -194,11 +194,11 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             }
         };
 
-        let auxiliary_data: Option<&AuxiliaryData> = block
+        let auxiliary_data: Option<Hash<32>> = block
             .auxiliary_data_set
             .iter()
             .find(|key_pair| key_pair.0 == i)
-            .map(|key_pair| key_pair.1.deref());
+            .map(|key_pair| Hasher::<256>::hash(key_pair.1.raw_cbor()));
 
         transaction
             .required_signers
