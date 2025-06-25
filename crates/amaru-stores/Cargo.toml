@@ -27,5 +27,5 @@ iter-borrow.workspace = true
 slot-arithmetic.workspace = true
 
 [dev-dependencies]
-proptest.workspace = true
+proptest = { workspace = true, features = [ "std" ] }
 tempfile.workspace = true

@@ -66,26 +66,3 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         Ok(Row::new(treasury, reserves, fees))
     }
 }
-
-#[cfg(test)]
-pub mod test {
-    use super::Row;
-    use amaru_kernel::{prop_cbor_roundtrip, Lovelace};
-    use proptest::prelude::*;
-
-    prop_cbor_roundtrip!(Row, any_row());
-
-    prop_compose! {
-        fn any_row()(
-            treasury in any::<Lovelace>(),
-            reserves in any::<Lovelace>(),
-            fees in any::<Lovelace>(),
-        ) -> Row {
-            Row {
-                treasury,
-                reserves,
-                fees,
-            }
-        }
-    }
-}

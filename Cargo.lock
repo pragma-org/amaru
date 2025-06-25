@@ -141,6 +141,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-kernel",
  "amaru-ouroboros-traits",
+ "amaru-stores",
  "anyhow",
  "hex",
  "iter-borrow",
@@ -148,6 +149,7 @@ dependencies = [
  "proptest",
  "serde",
  "slot-arithmetic",
+ "tempfile",
  "test-case",
  "thiserror 2.0.12",
  "tracing",

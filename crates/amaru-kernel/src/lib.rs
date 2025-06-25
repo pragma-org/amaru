@@ -724,7 +724,7 @@ pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddres
 // ProposalId
 // ----------------------------------------------------------------------------
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 // TODO: This type shouldn't exist, and `Ord` / `PartialOrd` should be derived in Pallas on
 // 'GovActionId' already.
 pub struct ComparableProposalId {

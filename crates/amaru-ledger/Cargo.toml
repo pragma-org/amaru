@@ -30,6 +30,8 @@ tracing-json.workspace = true
 proptest = { workspace = true, features = [ "std" ] }
 slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
 test-case.workspace = true
+amaru-stores = { workspace = true }
+tempfile = "3"
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [
