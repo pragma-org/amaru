@@ -111,7 +111,12 @@ pub fn bootstrap(
     let era_history: &EraHistory = config.network.into();
 
     let global_parameters: &GlobalParameters = config.network.into();
-    let (mut ledger_stage, tip) = make_ledger(&config, era_history, global_parameters)?;
+    let (mut ledger_stage, tip) = make_ledger(
+        consensus_metrics.clone(),
+        &config,
+        era_history,
+        global_parameters,
+    )?;
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -306,6 +311,7 @@ impl LedgerStage {
 }
 
 fn make_ledger(
+    metrics: Option<ConsensusMetrics>,
     config: &Config,
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
@@ -313,6 +319,7 @@ fn make_ledger(
     match config.ledger_store {
         StorePath::InMem => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
+                metrics,
                 MemoryStore {},
                 MemoryStore {},
                 era_history.clone(),
@@ -322,6 +329,7 @@ fn make_ledger(
         }
         StorePath::OnDisk(ref ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
+                metrics,
                 RocksDB::new(ledger_dir, era_history)?,
                 RocksDBHistoricalStores::new(ledger_dir),
                 era_history.clone(),
