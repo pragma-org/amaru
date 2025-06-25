@@ -19,7 +19,7 @@ use crate::{
         EVENT_TARGET,
     },
     peer::Peer,
-    ConsensusError,
+    ConsensusError, ConsensusMetrics, NO_KEY_VALUE,
 };
 use amaru_kernel::{Hash, Header, Point};
 use amaru_ouroboros::IsHeader;
@@ -33,6 +33,9 @@ use tracing::{trace, Span};
 pub struct SelectChain {
     #[serde(skip, default = "default_chain_selector")]
     chain_selector: Arc<Mutex<ChainSelector<Header>>>,
+
+    #[serde(skip)]
+    metrics: Option<ConsensusMetrics>,
 }
 
 fn default_chain_selector() -> Arc<Mutex<ChainSelector<Header>>> {
@@ -49,8 +52,14 @@ impl PartialEq for SelectChain {
 }
 
 impl SelectChain {
-    pub fn new(chain_selector: Arc<Mutex<ChainSelector<Header>>>) -> Self {
-        SelectChain { chain_selector }
+    pub fn new(
+        metrics: Option<ConsensusMetrics>,
+        chain_selector: Arc<Mutex<ChainSelector<Header>>>,
+    ) -> Self {
+        SelectChain {
+            chain_selector,
+            metrics,
+        }
     }
 
     fn forward_block(&self, peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
@@ -91,20 +100,21 @@ impl SelectChain {
 
         let events = match result {
             chain_selection::ForwardChainSelection::NewTip(hdr) => {
+                self.set_current_tip_slot(hdr.header_body.slot);
                 trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
                 vec![self.forward_block(peer, hdr, span)]
             }
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
-                tip: _,
+                tip,
                 fork,
             }) => {
+                self.set_current_tip_slot(tip.slot());
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 self.switch_to_fork(peer, rollback_point, fork, span)
             }
             chain_selection::ForwardChainSelection::NoChange => {
-                trace!(target: EVENT_TARGET, "no_change");
                 vec![]
             }
         };
@@ -156,6 +166,12 @@ impl SelectChain {
                 rollback_point,
                 span,
             } => self.select_rollback(peer, rollback_point, span).await,
+        }
+    }
+
+    fn set_current_tip_slot(&mut self, slot: u64) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics.current_tip_slot.record(slot, &NO_KEY_VALUE);
         }
     }
 }

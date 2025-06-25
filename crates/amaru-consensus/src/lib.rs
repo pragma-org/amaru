@@ -51,7 +51,7 @@ pub enum ConsensusError {
     NoncesError(#[from] consensus::store::NoncesError),
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ConsensusMetrics {
     /// The current slot for tip for this node.
     pub current_tip_slot: Gauge<u64>,

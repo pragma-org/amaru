@@ -105,12 +105,15 @@ fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
     )
     .unwrap();
 
-    let select_chain = SelectChain::new(make_chain_selector(
-        Origin,
-        &chain_store,
-        // FIXME: Shouldn't be hardcoded!
-        &vec![Peer::new("c1")],
-    ));
+    let select_chain = SelectChain::new(
+        None,
+        make_chain_selector(
+            Origin,
+            &chain_store,
+            // FIXME: Shouldn't be hardcoded!
+            &vec![Peer::new("c1")],
+        ),
+    );
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let validate_header =
         ValidateHeader::new(None, Arc::new(stake_distribution), chain_ref.clone());
