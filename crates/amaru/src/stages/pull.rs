@@ -14,12 +14,11 @@
 
 use crate::point::{from_network_point, to_network_point};
 use crate::{send, stages::PeerSession};
-use amaru_consensus::ConsensusMetrics;
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
+use amaru_consensus::{ConsensusMetrics, NO_KEY_VALUE};
 use amaru_kernel::Point;
 use anyhow::anyhow;
 use gasket::framework::*;
-use opentelemetry::KeyValue;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse};
 use pallas_traverse::MultiEraHeader;
 use std::time::Duration;
@@ -52,8 +51,6 @@ pub struct Stage {
 
     metrics: Option<ConsensusMetrics>,
 }
-
-const NO_KEY_VALUE: [KeyValue; 0] = [];
 
 impl Stage {
     pub fn new(

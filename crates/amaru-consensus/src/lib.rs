@@ -16,6 +16,7 @@ use amaru_kernel::Point;
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use opentelemetry::metrics::MeterProvider;
 use opentelemetry::metrics::{Counter, Gauge};
+use opentelemetry::KeyValue;
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use thiserror::Error;
 
@@ -94,6 +95,9 @@ pub struct ConsensusMetrics {
     /// The number of blocks sent to peers
     pub count_sent_block: Counter<u64>,
 }
+
+/// Useful constant where no metadata is passed for metrics
+pub const NO_KEY_VALUE: [KeyValue; 0] = [];
 
 impl ConsensusMetrics {
     pub fn new(metrics: &mut SdkMeterProvider) -> Self {

@@ -121,7 +121,8 @@ pub fn bootstrap(
         })
         .collect();
 
-    let mut fetch_block_stage = BlockFetchStage::new(peer_sessions.as_slice());
+    let mut fetch_block_stage =
+        BlockFetchStage::new(consensus_metrics.clone(), peer_sessions.as_slice());
 
     let mut stages = peer_sessions
         .iter()
