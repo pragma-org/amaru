@@ -288,7 +288,7 @@ pub fn simulate<Msg, F>(
     match result {
         Ok(_) => {
             if persist_on_success {
-                persist_schedule_(&".".into(), "success", trace_buffer)
+                persist_schedule_(Path::new("."), "success", trace_buffer)
             }
         }
         Err(TestError::Fail(what, entries)) => {
@@ -296,7 +296,7 @@ pub fn simulate<Msg, F>(
             entries
                 .into_iter()
                 .for_each(|entry| err += &format!("  {:?}\n", entry.0.envelope));
-            persist_schedule_(&".".into(), "failure", trace_buffer);
+            persist_schedule_(Path::new("."), "failure", trace_buffer);
             panic!(
                 "Found minimal failing case:\n\n{}\nError message:\n\n  {}",
                 err, what
@@ -306,7 +306,7 @@ pub fn simulate<Msg, F>(
     }
 }
 
-fn persist_schedule_(dir: &PathBuf, prefix: &str, trace_buffer: Arc<Mutex<TraceBuffer>>) {
+fn persist_schedule_(dir: &Path, prefix: &str, trace_buffer: Arc<Mutex<TraceBuffer>>) {
     match persist_schedule(dir, prefix, trace_buffer) {
         Err(err) => eprintln!("{}", err),
         Ok(path) => eprintln!("Saved schedule: {:?}", path),
@@ -314,7 +314,7 @@ fn persist_schedule_(dir: &PathBuf, prefix: &str, trace_buffer: Arc<Mutex<TraceB
 }
 
 fn persist_schedule(
-    dir: &PathBuf,
+    dir: &Path,
     prefix: &str,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 ) -> Result<PathBuf, anyhow::Error> {
