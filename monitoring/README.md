@@ -347,9 +347,29 @@ Filters can be provided as a sequence of `,`-separated values. Right-most filter
 
 ø
 
+
+
 ## Metrics
 
-Coming soon.
+### target: `consensus`
+
+These metrics are defined in the [amaru-consensus](https://github.com/pragma-org/amaru/blob/74652de42695ba47572d5bebb7383ec24d75bbdc/crates/amaru-consensus/src/lib.rs#L102) module.
+
+| name                        | unit | meaning                                                           |
+|-----------------------------|------|-------------------------------------------------------------------|
+| `current_tip_slot`          | Slot | The current slot for tip for this node.                           |
+| `chain_selection_size`      | -    | The number of headers kept in the `ChainSelector`                 |
+| `max_fragment_length`       | -    | The length of the longest fragment held in the `ChainSelector`    |
+| `count_forwards_received`   | -    | The number of `RollForward` messages received from upstream peers |
+| `count_rollbacks_received`  | -    | The number of `Rollback` messages received from upstream peers    |
+| `count_stored_headers`      | -    | The number of headers stored                                      |
+| `count_validated_headers`   | -    | The number of headers validated                                   |
+| `count_fetched_blocks`      | -    | The number of blocks fetched                                      |
+| `count_stored_blocks_bytes` | Byte | The accumulated count of bytes stored for blocks                  |
+| `count_validated_blocks`    | -    | The number of blocks validated                                    |
+| `count_forwarded_headers`   | -    | The number of forward headers propagated                          |
+| `count_sent_headers`        | -    | The number of headers sent to peers as a reply to `RequestNext`.  |
+| `count_sent_blocks`         | -    | The number of blocks sent to peers                                |
 
 > [!NOTE]
 > The plan so far is to maximise compatibility with the existing Haskell node Prometheus metrics such that tools like [`gLiveView`](https://cardano-community.github.io/guild-operators/Scripts/gliveview/?h=gliveview) and [`nview`](https://github.com/blinklabs-io/nview) keep working out-of-the-box.
@@ -362,4 +382,4 @@ Amaru provides a few options to configure OpenTelemetry:
 
 - `--amaru-service-name <STRING>` (environment variable `AMARU_SERVICE_NAME`): Sets the `service.name` key used to identify metrics and traces. This is useful when a single OTLP service stack collects telemetry from several Amaru instances
 - `--otlp_span_url <STRING>` (environment variable `AMARU_OTLP_SPAN_URL`): Sets the endpoint used to send spans, defaults to `http://localhost:4317`
-- `--otlp_metrics_url <STRING>` (environment variable `AMARU_OTLP_METRICS_URL`): Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
+- `--otlp-metrics-url <STRING>` (environment variable `AMARU_OTLP_METRICS_URL`): Sets the endpoint used to send metrics, defaults to `http://localhost:4318/v1/metrics`
