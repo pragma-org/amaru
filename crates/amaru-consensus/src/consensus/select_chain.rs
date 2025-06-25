@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{chain_selection::RollbackChainSelection, DecodedChainSyncEvent, ValidateHeaderEvent};
+use super::{
+    chain_selection::{ChainSelectionMetrics, RollbackChainSelection},
+    DecodedChainSyncEvent, ValidateHeaderEvent,
+};
 use crate::{
     consensus::{
         chain_selection::{self, ChainSelector, Fork, Tip},
@@ -157,7 +160,7 @@ impl SelectChain {
         &mut self,
         chain_sync: DecodedChainSyncEvent,
     ) -> Result<Vec<ValidateHeaderEvent>, ConsensusError> {
-        match chain_sync {
+        let result = match chain_sync {
             DecodedChainSyncEvent::RollForward {
                 peer, header, span, ..
             } => self.select_chain(peer, header, span).await,
@@ -166,12 +169,26 @@ impl SelectChain {
                 rollback_point,
                 span,
             } => self.select_rollback(peer, rollback_point, span).await,
-        }
+        };
+
+        self.update_chain_selection_metrics().await;
+
+        result
     }
 
     fn set_current_tip_slot(&mut self, slot: u64) {
         if let Some(metrics) = self.metrics.as_mut() {
             metrics.current_tip_slot.record(slot, &NO_KEY_VALUE);
+        }
+    }
+
+    async fn update_chain_selection_metrics(&mut self) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            let ChainSelectionMetrics { current_size } =
+                self.chain_selector.lock().await.current_metrics();
+            metrics
+                .chain_selection_size
+                .record(current_size as u64, &NO_KEY_VALUE);
         }
     }
 }
