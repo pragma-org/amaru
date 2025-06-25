@@ -112,7 +112,8 @@ fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
         &vec![Peer::new("c1")],
     ));
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
+    let validate_header =
+        ValidateHeader::new(None, Arc::new(stake_distribution), chain_ref.clone());
 
     (global_parameters.clone(), select_chain, validate_header)
 }
@@ -134,11 +135,6 @@ fn spawn_node(
     info!("Spawning node!");
 
     let (global_parameters, select_chain, validate_header) = init_node(&args);
-
-    let init_st = ValidateHeader {
-        ledger: validate_header.ledger.clone(),
-        store: validate_header.store.clone(),
-    };
 
     let init_store = StoreHeader::new(None, validate_header.store.clone());
 
@@ -318,7 +314,7 @@ fn spawn_node(
     network.wire_up(
         validate_header_stage,
         (
-            init_st,
+            validate_header,
             global_parameters.clone(),
             select_chain_stage.sender(),
         ),

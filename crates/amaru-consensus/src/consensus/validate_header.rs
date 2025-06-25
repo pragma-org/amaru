@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, is_header::IsHeader, peer::Peer, ConsensusError};
+use crate::{
+    consensus::store::ChainStore, is_header::IsHeader, peer::Peer, ConsensusError,
+    ConsensusMetrics, NO_KEY_VALUE,
+};
 use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point};
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
@@ -62,6 +65,8 @@ pub struct ValidateHeader {
     pub ledger: Arc<dyn HasStakeDistribution>,
     #[serde(skip, default = "default_store")]
     pub store: Arc<Mutex<dyn ChainStore<Header>>>,
+    #[serde(skip)]
+    pub metrics: Option<ConsensusMetrics>,
 }
 
 impl PartialEq for ValidateHeader {
@@ -165,10 +170,15 @@ impl ExternalEffectAPI for EvolveNonceEffect {
 
 impl ValidateHeader {
     pub fn new(
+        metrics: Option<ConsensusMetrics>,
         ledger: Arc<dyn HasStakeDistribution>,
         store: Arc<Mutex<dyn ChainStore<Header>>>,
     ) -> Self {
-        Self { ledger, store }
+        Self {
+            ledger,
+            store,
+            metrics,
+        }
     }
 
     #[instrument(
@@ -205,6 +215,8 @@ impl ValidateHeader {
             self.ledger.as_ref(),
             global_parameters,
         )?;
+
+        self.header_validated();
 
         Ok(DecodedChainSyncEvent::RollForward {
             peer,
@@ -300,6 +312,12 @@ impl ValidateHeader {
                     .await
             }
             DecodedChainSyncEvent::Rollback { .. } => Ok(chain_sync),
+        }
+    }
+
+    fn header_validated(&mut self) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics.count_validated_headers.add(1, &NO_KEY_VALUE);
         }
     }
 }
