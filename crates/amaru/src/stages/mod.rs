@@ -162,9 +162,12 @@ pub fn bootstrap(
     let mut validate_header_stage = ValidateHeaderStage::new(consensus, global_parameters);
 
     let mut select_chain_stage =
-        SelectChainStage::new(SelectChain::new(consensus_metrics, chain_selector));
+        SelectChainStage::new(SelectChain::new(consensus_metrics.clone(), chain_selector));
 
-    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
+    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(
+        consensus_metrics.clone(),
+        chain_store_ref.clone(),
+    ));
 
     let mut forward_chain_stage = ForwardChainStage::new(
         None,

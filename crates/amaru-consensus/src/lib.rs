@@ -78,8 +78,8 @@ pub struct ConsensusMetrics {
     /// The number of blocks fetched
     pub count_fetched_blocks: Counter<u64>,
 
-    /// The number of blocks stored
-    pub count_stored_blocks: Counter<u64>,
+    /// The accumulated count of bytes stored for blocks
+    pub count_stored_blocks_bytes: Counter<u64>,
 
     /// The number of blocks validated
     pub count_validated_blocks: Counter<u64>,
@@ -143,9 +143,10 @@ impl ConsensusMetrics {
             .with_description("Number of headers fetched from peers")
             .build();
 
-        let count_stored_blocks = meter
-            .u64_counter("count_stored_blocks")
-            .with_description("Number of write operations for storing blocks on disk")
+        let count_stored_blocks_bytes = meter
+            .u64_counter("count_stored_blocks_bytes")
+            .with_description("Number of bytes written storing blocks on disk")
+            .with_unit("B")
             .build();
 
         let count_validated_blocks = meter
@@ -177,7 +178,7 @@ impl ConsensusMetrics {
             count_stored_headers: stored_headers,
             count_validated_headers,
             count_fetched_blocks,
-            count_stored_blocks,
+            count_stored_blocks_bytes,
             count_validated_blocks,
             count_forwarded_headers,
             count_sent_headers,
