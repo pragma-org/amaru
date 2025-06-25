@@ -310,6 +310,10 @@ fn persist_schedule(
     prefix: &str,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
 ) -> Result<(), anyhow::Error> {
+    if trace_buffer.lock().used_size() == 0 {
+        return Ok(());
+    }
+
     let now = SystemTime::now();
     let mut file = File::create(format!(
         "{}-{}.schedule",
