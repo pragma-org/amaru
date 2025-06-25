@@ -38,6 +38,7 @@ use proptest::{
 use rand::rngs::StdRng;
 use rand::SeedableRng;
 use std::fs::File;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
 use std::{
@@ -287,8 +288,7 @@ pub fn simulate<Msg, F>(
     match result {
         Ok(_) => {
             if persist_on_success {
-                persist_schedule("success", trace_buffer)
-                    .unwrap_or_else(|err| eprintln!("{}", err));
+                persist_schedule_(&".".into(), "success", trace_buffer)
             }
         }
         Err(TestError::Fail(what, entries)) => {
@@ -296,7 +296,7 @@ pub fn simulate<Msg, F>(
             entries
                 .into_iter()
                 .for_each(|entry| err += &format!("  {:?}\n", entry.0.envelope));
-            persist_schedule("failure", trace_buffer).unwrap_or_else(|err| eprintln!("{}", err));
+            persist_schedule_(&".".into(), "failure", trace_buffer);
             panic!(
                 "Found minimal failing case:\n\n{}\nError message:\n\n  {}",
                 err, what
@@ -306,30 +306,49 @@ pub fn simulate<Msg, F>(
     }
 }
 
+fn persist_schedule_(dir: &PathBuf, prefix: &str, trace_buffer: Arc<Mutex<TraceBuffer>>) {
+    match persist_schedule(dir, prefix, trace_buffer) {
+        Err(err) => eprintln!("{}", err),
+        Ok(path) => eprintln!("Saved schedule: {:?}", path),
+    }
+}
+
 fn persist_schedule(
+    dir: &PathBuf,
     prefix: &str,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
-) -> Result<(), anyhow::Error> {
-    if trace_buffer.lock().used_size() == 0 {
-        return Ok(());
+) -> Result<PathBuf, anyhow::Error> {
+    if trace_buffer.lock().is_empty() {
+        return Err(anyhow::anyhow!("empty schedule"));
     }
 
     let now = SystemTime::now();
-    let mut file = File::create(format!(
-        "{}-{}.schedule",
+
+    let dir_str: &str = dir
+        .as_os_str()
+        .to_str()
+        .ok_or(anyhow::anyhow!("invalid bytes in dir"))?;
+
+    let path = PathBuf::from(format!(
+        "{}/{}-{}.schedule",
+        dir_str,
         prefix,
         now.duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs()
-    ))?;
+    ));
+
+    let mut file = File::create(&path)?;
     for bytes in trace_buffer.lock().iter() {
         file.write_all(bytes)?;
     }
-    Ok(())
+    Ok(path)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use super::*;
     use pure_stage::{simulation::SimulationBuilder, StageGraph, Void};
 
@@ -469,5 +488,32 @@ mod tests {
             TraceBuffer::new_shared(0, 0),
             false,
         )
+    }
+
+    #[test]
+    fn persist_empty_schedule() {
+        let schedule = TraceBuffer::new_shared(0, 0);
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path().to_path_buf();
+        let result = persist_schedule(&path, "test", schedule);
+        assert!(result.is_err())
+    }
+
+    #[test]
+    fn persist_non_empty_schedule() {
+        let schedule = TraceBuffer::new_shared(3, 128);
+        let now = Instant::at_offset(Duration::from_secs(0));
+        schedule.lock().push_clock(now);
+        schedule.lock().push_clock(now);
+        schedule.lock().push_clock(now);
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let path = tempdir.path().to_path_buf();
+
+        let result = persist_schedule(&path, "test", schedule);
+        assert!(result.is_ok(), "{:?}", result);
+
+        let file_size = fs::metadata(result.unwrap()).unwrap().len();
+        assert_eq!(file_size, 63)
     }
 }
