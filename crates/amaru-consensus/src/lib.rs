@@ -70,7 +70,7 @@ pub struct ConsensusMetrics {
     pub count_rollbacks_received: Counter<u64>,
 
     /// The number of headers stored
-    pub stored_headers: Counter<u64>,
+    pub count_stored_headers: Counter<u64>,
 
     /// The number of headers validated
     pub count_validated_headers: Counter<u64>,
@@ -174,7 +174,7 @@ impl ConsensusMetrics {
             max_fragment_length,
             count_forwards_received,
             count_rollbacks_received,
-            stored_headers,
+            count_stored_headers: stored_headers,
             count_validated_headers,
             count_fetched_blocks,
             count_stored_blocks,

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, ConsensusError};
+use crate::{consensus::store::ChainStore, ConsensusError, ConsensusMetrics, NO_KEY_VALUE};
 use amaru_kernel::{Header, Point};
 use amaru_ouroboros_traits::IsHeader;
 use std::{fmt, sync::Arc};
@@ -24,6 +24,9 @@ use super::DecodedChainSyncEvent;
 pub struct StoreHeader {
     #[serde(skip, default = "default_store")]
     pub store: Arc<Mutex<dyn ChainStore<Header>>>,
+
+    #[serde(skip)]
+    pub metrics: Option<ConsensusMetrics>,
 }
 fn default_store() -> Arc<Mutex<dyn ChainStore<Header>>> {
     Arc::new(Mutex::new(super::store::FakeStore::default()))
@@ -44,22 +47,30 @@ impl fmt::Debug for StoreHeader {
 }
 
 impl StoreHeader {
-    pub fn new(chain_store: Arc<Mutex<dyn ChainStore<Header>>>) -> Self {
-        StoreHeader { store: chain_store }
+    pub fn new(
+        metrics: Option<ConsensusMetrics>,
+        chain_store: Arc<Mutex<dyn ChainStore<Header>>>,
+    ) -> Self {
+        StoreHeader {
+            store: chain_store,
+            metrics,
+        }
     }
 
-    pub async fn store(&self, point: &Point, header: &Header) -> Result<(), ConsensusError> {
+    pub async fn store(&mut self, point: &Point, header: &Header) -> Result<(), ConsensusError> {
         // FIXME: we should check the header is not already known and _invalid_ to
         // prevent a peer from flooding use with duplicate crappy headers
         self.store
             .lock()
             .await
             .store_header(&header.hash(), header)
-            .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))
+            .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))?;
+        self.stored_header();
+        Ok(())
     }
 
     pub async fn handle_event(
-        &self,
+        &mut self,
         event: DecodedChainSyncEvent,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
         match event {
@@ -72,6 +83,12 @@ impl StoreHeader {
                 Ok(event)
             }
             DecodedChainSyncEvent::Rollback { .. } => Ok(event),
+        }
+    }
+
+    fn stored_header(&mut self) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics.count_stored_headers.add(1, &NO_KEY_VALUE);
         }
     }
 }

@@ -140,9 +140,7 @@ fn spawn_node(
         store: validate_header.store.clone(),
     };
 
-    let init_store = StoreHeader {
-        store: validate_header.store.clone(),
-    };
+    let init_store = StoreHeader::new(None, validate_header.store.clone());
 
     let receive_stage = network.stage(
         "receive_header",
@@ -215,7 +213,7 @@ fn spawn_node(
 
     let store_header_stage = network.stage(
         "store_header",
-        async |(store, downstream),
+        async |(mut store, downstream),
                msg: DecodedChainSyncEvent,
                eff|
                -> Result<(StoreHeader, StageRef<DecodedChainSyncEvent, Void>), Error> {

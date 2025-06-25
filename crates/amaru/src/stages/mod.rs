@@ -152,7 +152,10 @@ pub fn bootstrap(
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
-    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
+    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(
+        consensus_metrics.clone(),
+        chain_store_ref.clone(),
+    ));
 
     let mut validate_header_stage = ValidateHeaderStage::new(consensus, global_parameters);
 
