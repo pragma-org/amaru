@@ -71,7 +71,8 @@ pub async fn run(
     let mut clients: Vec<(String, Arc<Mutex<PeerClient>>)> = vec![];
     for peer in &config.upstream_peers {
         let client =
-            PeerClient::connect(peer.clone(), config.network.to_network_magic() as u64).await?;
+            PeerClient::connect(peer.clone(), config.network.to_network_magic() as u64).await
+            .inspect_err(|e| tracing::error!("failed to connect to peer {}: {}", peer, e))?;
         clients.push((peer.clone(), Arc::new(Mutex::new(client))));
     }
 

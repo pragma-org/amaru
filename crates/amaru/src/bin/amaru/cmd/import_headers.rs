@@ -88,7 +88,8 @@ pub(crate) async fn import_headers(
     let mut db = RocksDBStore::new(chain_db_dir, era_history)?;
 
     let peer_client = Arc::new(Mutex::new(
-        PeerClient::connect(peer_address, network_name.to_network_magic() as u64).await?,
+        PeerClient::connect(peer_address, network_name.to_network_magic() as u64).await
+        .inspect_err(|e|tracing::error!("failed to connect to peer {}: {}", peer_address, e))?
     ));
 
     let peer_session = PeerSession {
