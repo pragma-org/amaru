@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::stages::{common::adopt_current_span, PallasPoint};
-use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime};
+use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
 use amaru_consensus::{consensus::store::ChainStore, IsHeader};
 use amaru_kernel::{block::BlockValidationResult, Hash, Header};
 use client_protocol::{client_protocols, ClientProtocolMsg};
@@ -264,6 +264,13 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
 
         let clients = stage
             .runtime
+            // FIXME: This is a temporary stop gap solution while we wait
+            // to refactor to use pure-stage. Acto library has as a capped
+            // size for the mailbox and drops incoming messages when it's
+            // full.  This should not be a problem in real life, but while
+            // we are syncing _and_ forwarding at the same time for demo
+            // purpose, this is problematic.
+            .with_mailbox_size(1_000_000)
             .spawn_actor("chain_forward", |cell| {
                 client_supervisor(cell, stage.store.clone(), stage.max_peers)
             })
