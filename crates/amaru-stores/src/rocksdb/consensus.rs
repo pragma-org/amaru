@@ -21,7 +21,7 @@ use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use slot_arithmetic::EraHistory;
 use std::{collections::BTreeMap, path::PathBuf};
-use tracing::{instrument, Level};
+use tracing::{error, instrument, Level};
 
 pub struct RocksDBStore {
     pub basedir: PathBuf,
@@ -130,7 +130,7 @@ impl<H> InMemConsensusStore<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Sync + Send> ChainStore<H> for InMemConsensusStore<H> {
+impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H> {
     fn load_header(&self, hash: &Hash<32>) -> Option<H> {
         self.headers.get(hash).cloned()
     }
@@ -141,7 +141,13 @@ impl<H: IsHeader + Clone + Sync + Send> ChainStore<H> for InMemConsensusStore<H>
     }
 
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-        self.nonces.get(header).cloned()
+        self.nonces.get(header).cloned().or_else(|| {
+            error!("failed to find nonce {}", header);
+            for (key, value) in self.headers.iter() {
+                error!("{:?}: {:?}", key, value.hash());
+            }
+            None
+        })
     }
 
     fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
