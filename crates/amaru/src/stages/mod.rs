@@ -175,6 +175,7 @@ pub fn bootstrap(
     ));
 
     let mut forward_chain_stage = ForwardChainStage::new(
+        consensus_metrics.clone(),
         None,
         chain_store_ref.clone(),
         config.network_magic as u64,

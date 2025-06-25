@@ -93,7 +93,7 @@ pub struct ConsensusMetrics {
     pub count_sent_headers: Counter<u64>,
 
     /// The number of blocks sent to peers
-    pub count_sent_block: Counter<u64>,
+    pub count_sent_blocks: Counter<u64>,
 }
 
 /// Useful constant where no metadata is passed for metrics
@@ -164,9 +164,9 @@ impl ConsensusMetrics {
             .with_description("Number of headers sent to downstream peers")
             .build();
 
-        let count_sent_block = meter
-            .u64_counter("count_sent_headers")
-            .with_description("Number of headers sent to downstream peers")
+        let count_sent_blocks = meter
+            .u64_counter("count_sent_blocks")
+            .with_description("Number of blocks sent to downstream peers")
             .build();
 
         ConsensusMetrics {
@@ -182,7 +182,7 @@ impl ConsensusMetrics {
             count_validated_blocks,
             count_forwarded_headers,
             count_sent_headers,
-            count_sent_block,
+            count_sent_blocks,
         }
     }
 }

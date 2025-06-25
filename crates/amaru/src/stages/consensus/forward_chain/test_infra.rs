@@ -180,6 +180,7 @@ impl Setup {
             .me;
         let (block_tx, block_rx) = mpsc::channel(8);
         let mut stage = ForwardChainStage::new(
+            None,
             Some(downstream),
             Arc::new(Mutex::new(store.clone())),
             42,

@@ -14,7 +14,7 @@
 
 use crate::stages::{common::adopt_current_span, PallasPoint};
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
-use amaru_consensus::{consensus::store::ChainStore, IsHeader};
+use amaru_consensus::{consensus::store::ChainStore, ConsensusMetrics, IsHeader};
 use amaru_kernel::{block::BlockValidationResult, Hash, Header};
 use client_protocol::{client_protocols, ClientProtocolMsg};
 use gasket::framework::*;
@@ -51,6 +51,7 @@ pub struct ForwardChainStage {
     pub downstream: ActoRef<ForwardEvent>,
     pub max_peers: usize,
     pub our_tip: Tip,
+    pub metrics: Option<ConsensusMetrics>,
 }
 
 #[derive(Debug, Clone)]
@@ -62,6 +63,7 @@ pub enum ForwardEvent {
 
 impl ForwardChainStage {
     pub fn new(
+        metrics: Option<ConsensusMetrics>,
         downstream: Option<ActoRef<ForwardEvent>>,
         store: Arc<Mutex<dyn ChainStore<Header>>>,
         network_magic: u64,
@@ -81,6 +83,7 @@ impl ForwardChainStage {
             downstream: downstream.unwrap_or_else(ActoRef::blackhole),
             max_peers,
             our_tip,
+            metrics,
         }
     }
 }
@@ -272,7 +275,12 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
             // purpose, this is problematic.
             .with_mailbox_size(1_000_000)
             .spawn_actor("chain_forward", |cell| {
-                client_supervisor(cell, stage.store.clone(), stage.max_peers)
+                client_supervisor(
+                    cell,
+                    stage.store.clone(),
+                    stage.max_peers,
+                    stage.metrics.clone(),
+                )
             })
             .me;
 
@@ -371,6 +379,7 @@ async fn client_supervisor(
     mut cell: ActoCell<ClientMsg, impl ActoRuntime, anyhow::Result<()>>,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
     max_peers: usize,
+    metrics: Option<ConsensusMetrics>,
 ) {
     let mut clients = BTreeMap::new();
     while let Some(msg) = cell.recv().await.has_senders() {
@@ -388,7 +397,8 @@ async fn client_supervisor(
 
                 let client = cell.spawn_supervised(&addr, {
                     let store = store.clone();
-                    move |cell| client_protocols(cell, peer, store, tip)
+                    let metrics = metrics.clone();
+                    move |cell| client_protocols(cell, peer, store, tip, metrics)
                 });
                 clients.insert(client.id(), client);
             }
