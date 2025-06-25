@@ -324,19 +324,14 @@ fn persist_schedule(
 
     let now = SystemTime::now();
 
-    let dir_str: &str = dir
-        .as_os_str()
-        .to_str()
-        .ok_or(anyhow::anyhow!("invalid bytes in dir"))?;
-
-    let path = PathBuf::from(format!(
-        "{}/{}-{}.schedule",
-        dir_str,
+    let filename = format!(
+        "{}-{}.schedule",
         prefix,
         now.duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs()
-    ));
+    );
+    let path = dir.join(filename);
 
     let mut file = File::create(&path)?;
     for bytes in trace_buffer.lock().iter() {
