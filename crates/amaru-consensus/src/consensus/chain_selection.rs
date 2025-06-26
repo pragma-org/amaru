@@ -94,7 +94,7 @@ impl<H: IsHeader + Clone> Fragment<H> {
         let to_remove = self.headers.len() - max_length;
 
         // Update the anchor to the parent of the first header we'll keep
-        if !self.headers.is_empty() && to_remove < self.headers.len() {
+        if !self.headers.is_empty() {
             // The new anchor is the header just before the first one we keep
             if to_remove > 0 {
                 self.anchor = Tip::Hdr(self.headers[to_remove - 1].clone());
