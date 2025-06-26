@@ -228,7 +228,6 @@ impl ReadOnlyStore for MemoryStore {
     }
 
     #[allow(refining_impl_trait)]
-    #[allow(refining_impl_trait)]
     fn iter_dreps(
         &self,
     ) -> Result<
