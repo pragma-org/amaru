@@ -50,7 +50,7 @@ impl From<AssertPreparationContext> for AssertValidationContext {
             known_scripts: BTreeMap::default(),
             known_datums: BTreeMap::default(),
             required_supplemental_datums: BTreeSet::default(),
-            required_bootstrap_signers: BTreeSet::default(),
+            required_bootstrap_roots: BTreeSet::default(),
         }
     }
 }
@@ -101,7 +101,7 @@ pub struct AssertValidationContext {
     #[serde(default)]
     required_supplemental_datums: BTreeSet<Hash<32>>,
     #[serde(default)]
-    required_bootstrap_signers: BTreeSet<Hash<28>>,
+    required_bootstrap_roots: BTreeSet<Hash<28>>,
 }
 
 impl ValidationContext for AssertValidationContext {
@@ -307,7 +307,7 @@ impl WitnessSlice for AssertValidationContext {
         name = "require_bootstrap_witness"
     )]
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
-        self.required_bootstrap_signers.insert(root);
+        self.required_bootstrap_roots.insert(root);
     }
 
     fn required_signers(&mut self) -> BTreeSet<Hash<28>> {
@@ -318,8 +318,8 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_scripts)
     }
 
-    fn required_bootstrap_signers(&mut self) -> BTreeSet<Hash<28>> {
-        mem::take(&mut self.required_bootstrap_signers)
+    fn required_bootstrap_roots(&mut self) -> BTreeSet<Hash<28>> {
+        mem::take(&mut self.required_bootstrap_roots)
     }
 
     fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>) {

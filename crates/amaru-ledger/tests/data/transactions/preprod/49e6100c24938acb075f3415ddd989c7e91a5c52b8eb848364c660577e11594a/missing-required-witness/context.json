@@ -12,7 +12,7 @@
   ],
   "required_signers": [],
   "required_scripts": [],
-  "required_bootstrap_signers": [
+  "required_bootstrap_roots": [
     "65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8f"
   ]
 }
