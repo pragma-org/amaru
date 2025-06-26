@@ -18,7 +18,7 @@ use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     network::NetworkName,
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Hasher, MintedBlock, Point, RawBlock,
+    EraHistory, Hash, Hasher, MintedBlock, Network, Point, RawBlock,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -155,7 +155,12 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             info!(tip.slot = %point.slot_or_default(), tip.hash = %Hash::<32>::from(&point), "chain.extended");
         }
 
-        match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
+        match rules::validate_block(
+            &mut context,
+            &Network::from(*self.state.network()),
+            self.state.protocol_parameters(),
+            &block,
+        ) {
             BlockValidation::Err(err) => Err(err),
             BlockValidation::Invalid(slot, id, err) => {
                 error!("Block {id} invalid at slot={slot}: {}", err);
