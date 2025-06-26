@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use pallas_primitives::{conway::Multiasset, Bytes, Hash, PolicyId, PositiveCoin};
+
 use crate::{
     Address, AlonzoValue, AssetName, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedNativeScript,
     MemoizedPlutusData, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
@@ -338,11 +340,57 @@ fn serialize_value<S: serde::ser::Serializer>(
     }
 }
 
-// FIXME: Eventually allow deserializing complete values, not just coins.
 fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Value, D::Error> {
-    Ok(Value::Coin(serde::Deserialize::deserialize(deserializer)?))
+    #[derive(serde::Deserialize)]
+    enum ValueHelper {
+        Coin(u64),
+        Multiasset(u64, Vec<(String, Vec<(String, u64)>)>),
+    }
+
+    let helper: ValueHelper = serde::Deserialize::deserialize(deserializer)?;
+
+    match helper {
+        ValueHelper::Coin(coin) => Ok(Value::Coin(coin)),
+        ValueHelper::Multiasset(coin, multiasset_data) => {
+            let mut converted_multiasset = Vec::new();
+
+            for (policy_id, assets) in multiasset_data {
+                let policy_id = hex::decode(&policy_id).map_err(|_| {
+                    serde::de::Error::custom(format!("invalid hex string: {policy_id}"))
+                })?;
+
+                let mut converted_assets = Vec::new();
+                for (asset_name, quantity) in assets {
+                    let asset_name = hex::decode(&asset_name).map_err(|_| {
+                        serde::de::Error::custom(format!("invalid hex string: {asset_name}"))
+                    })?;
+
+                    converted_assets.push((
+                        Bytes::from(asset_name),
+                        quantity.try_into().map_err(|_| {
+                            serde::de::Error::custom(format!("invalid quantity value: {quantity}"))
+                        })?,
+                    ));
+                }
+
+                let policy_id: PolicyId = Hash::from(policy_id.as_slice());
+
+                converted_multiasset.push((
+                    policy_id,
+                    NonEmptyKeyValuePairs::from_vec(converted_assets).ok_or(
+                        serde::de::Error::custom(format!("empty asset bundle: {policy_id}")),
+                    )?,
+                ));
+            }
+
+            let multiasset: Multiasset<PositiveCoin> =
+                Multiasset::from_vec(converted_multiasset)
+                    .ok_or(serde::de::Error::custom("empty multiasset"))?;
+            Ok(Value::Multiasset(coin, multiasset))
+        }
+    }
 }
 
 pub fn serialize_script<S: serde::ser::Serializer>(

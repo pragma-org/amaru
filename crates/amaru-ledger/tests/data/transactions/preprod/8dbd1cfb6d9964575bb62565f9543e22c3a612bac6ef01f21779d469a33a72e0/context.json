@@ -7,9 +7,9 @@
       },
       {
         "address": "70e3637c649f72f6fe1a57988a7006eb55669fef4ec66ea83b28ee8413",
-	"value": 0,
-	"datum": null,
-	"script": null
+        "value": { "Coin": 0 },
+        "datum": null,
+        "script": null
       }
     ],
     [
@@ -19,9 +19,9 @@
       },
       {
         "address": "00a851fb22e72cdcc4f1f9b5f421f31338b0017d761468ece886c925fa95a3b5ab9af57c7671df57db18ded08ad170294edd918a292a67bd09",
-	"value": 0,
-	"datum": null,
-	"script": null
+        "value": { "Coin": 0 },
+        "datum": null,
+        "script": null
       }
     ],
     [
@@ -31,8 +31,8 @@
       },
       {
         "address": "70e3637c649f72f6fe1a57988a7006eb55669fef4ec66ea83b28ee8413",
-	"value": 0,
-	"datum": null,
+        "value": { "Coin": 0 },
+        "datum": null,
         "script": {
           "NativeScript": "820181830302838200581ca851fb22e72cdcc4f1f9b5f421f31338b0017d761468ece886c925fa8200581c49bd983d12353a48d39ad15212220ebd71dd3f897eb29ab89f3cb58e8200581c8e9ed3986a773db2420b0604357a65f5d9d26d094279918ad405fdca"
         }
