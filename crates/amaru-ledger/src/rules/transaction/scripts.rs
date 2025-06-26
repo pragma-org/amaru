@@ -142,9 +142,17 @@ where
                         }
                         BorrowedScript::NativeScript(..) | BorrowedScript::PlutusV3Script(..) => {}
                     },
-                    Some(DatumOption::Hash(hash)) => {
-                        input_datum_hashes.insert(*hash);
-                    }
+                    Some(DatumOption::Hash(hash)) => match script {
+                        // NOTE: One may very well send some funds to a native script, and attach a
+                        // datum hash to it. In which case, the datum has no effect and is simply
+                        // ignored.
+                        BorrowedScript::NativeScript(..) => {}
+                        BorrowedScript::PlutusV1Script(..)
+                        | BorrowedScript::PlutusV2Script(..)
+                        | BorrowedScript::PlutusV3Script(..) => {
+                            input_datum_hashes.insert(*hash);
+                        }
+                    },
                     Some(..) => {}
                 };
             }
