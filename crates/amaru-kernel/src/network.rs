@@ -14,13 +14,12 @@
 
 use crate::{
     protocol_parameters::{
-        GlobalParameters, PREPROD_GLOBAL_PARAMETERS, PREVIEW_GLOBAL_PARAMETERS,
-        TESTNET_GLOBAL_PARAMETERS,
+        GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
+        PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
     },
     ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
 };
 use pallas_addresses::Network;
-use slot_arithmetic::{Epoch, Slot};
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
 pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
@@ -145,10 +144,7 @@ static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             },
         },
     ];
-
-    EraHistory {
-        eras: eras.to_vec(),
-    }
+    EraHistory::new(&eras, MAINNET_GLOBAL_PARAMETERS.stability_window)
 });
 
 /// Era history for Preprod retrieved with:
@@ -276,7 +272,7 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
     ];
 
-    EraHistory::new(&eras, Slot::from(129600))
+    EraHistory::new(&eras, PREPROD_GLOBAL_PARAMETERS.stability_window)
 });
 
 /// Era history for Preview retrieved with:
@@ -427,7 +423,7 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
     }];
 
-    EraHistory::new(&eras, Slot::from(129600))
+    EraHistory::new(&eras, PREVIEW_GLOBAL_PARAMETERS.stability_window)
 });
 
 impl From<NetworkName> for &EraHistory {
@@ -445,7 +441,7 @@ impl From<NetworkName> for &EraHistory {
 impl From<NetworkName> for &GlobalParameters {
     fn from(value: NetworkName) -> Self {
         match value {
-            NetworkName::Mainnet => todo!(),
+            NetworkName::Mainnet => &MAINNET_GLOBAL_PARAMETERS,
             NetworkName::Preprod => &PREPROD_GLOBAL_PARAMETERS,
             NetworkName::Preview => &PREVIEW_GLOBAL_PARAMETERS,
             NetworkName::Testnet(_) => &TESTNET_GLOBAL_PARAMETERS,
