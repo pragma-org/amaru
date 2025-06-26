@@ -12,15 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::HasScriptRef;
+use std::ops::Deref;
 pub(crate) mod assert;
 mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    AddrKeyhash, Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
-    TransactionInput, TransactionOutput,
+    AddrKeyhash, Anchor, BorrowedDatumOption, CertificatePointer, DRep, DatumHash, HasDatum,
+    HasScriptRef, Hash, Lovelace, PlutusData, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput,
+    TransactionOutput,
 };
 use slot_arithmetic::Epoch;
 use std::{
@@ -259,18 +260,15 @@ pub trait ProposalsSlice {
 // Witnesses
 // -------------------------------------------------------------------------------------------------
 
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
-pub enum ScriptLocation {
-    AtInput(TransactionInput),
-    AtReferenceInput(TransactionInput),
-}
-
 pub trait WitnessSlice {
     /// Indicate a datum that may appear in the witness set that isn't required for spending an input
     fn allow_supplemental_datum(&mut self, datum_hash: Hash<32>);
 
     /// Acknowledge presence of a script in the transaction by its location, to use for later validations.
-    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation);
+    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: TransactionInput);
+
+    /// Acknowledge presence of an inline datum in the transaction by its location, to use for later validations.
+    fn acknowledge_datum(&mut self, datum_hash: DatumHash, location: TransactionInput);
 
     /// Indicate that a script wintess is required to be present (and valid) for the corresponding script data
     fn require_script_witness(&mut self, script: RequiredScript);
@@ -298,16 +296,19 @@ pub trait WitnessSlice {
 
     /// Obtain the full list of known scripts collected while traversing the transaction.
     fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef>;
+
+    /// Obtain the full list of known datums collected while traversing the transaction.
+    fn known_datums(&mut self) -> BTreeMap<DatumHash, &PlutusData>;
 }
 
-/// Implement 'known_script' using the provided script locations and a script context that is at
-/// least a UtxoSlice.
+/// Implement 'known_script' using the provided script locations and a context that is at least a
+/// UtxoSlice.
 ///
 /// Note that re-constructing the known scripts is relatively fast as the lookup are in logarithmic
 /// times, and no allocation (other than the BTreeMap) is happening whatsoever.
 pub fn blanket_known_scripts<C>(
     context: &'_ mut C,
-    known_scripts: impl Iterator<Item = (ScriptHash, ScriptLocation)>,
+    known_scripts: impl Iterator<Item = (ScriptHash, TransactionInput)>,
 ) -> BTreeMap<ScriptHash, &'_ ScriptRef>
 where
     C: UtxoSlice,
@@ -321,13 +322,39 @@ where
                 .unwrap_or_else(|| unreachable!("no script at expected location: {location:?}"))
         };
 
-        match &location {
-            ScriptLocation::AtInput(input) => scripts.insert(script_hash, lookup(input)),
-            ScriptLocation::AtReferenceInput(ref_input) => {
-                scripts.insert(script_hash, lookup(ref_input))
-            }
-        };
+        scripts.insert(script_hash, lookup(&location));
     }
 
     scripts
+}
+
+/// Implement 'known_datums' using the provided datum locations and a context that is at least a
+/// UtxoSlice.
+///
+/// Note that re-constructing the known datums is relatively fast as the lookup are in logarithmic
+/// times, and no allocation (other than the BTreeMap) is happening whatsoever.
+pub fn blanket_known_datums<C>(
+    context: &'_ mut C,
+    known_datums: impl Iterator<Item = (DatumHash, TransactionInput)>,
+) -> BTreeMap<DatumHash, &'_ PlutusData>
+where
+    C: UtxoSlice,
+{
+    let mut datums = BTreeMap::new();
+
+    for (datum_hash, location) in known_datums {
+        let lookup = |input| {
+            UtxoSlice::lookup(context, input)
+                .and_then(|output| output.datum())
+                .and_then(|datum| match datum {
+                    BorrowedDatumOption::Hash(..) => None,
+                    BorrowedDatumOption::Data(cbor) => Some(cbor.deref()),
+                })
+                .unwrap_or_else(|| unreachable!("no datum at expected location: {location:?}"))
+        };
+
+        datums.insert(datum_hash, lookup(&location));
+    }
+
+    datums
 }

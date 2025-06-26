@@ -1,13 +1,11 @@
-use std::collections::BTreeSet;
-
-use amaru_kernel::{
-    display_collection, get_provided_scripts, script_purpose_to_string, BorrowedScript,
-    DatumOption, Hash, MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash,
-    ScriptPurpose, ScriptRefWithHash,
-};
-use thiserror::Error;
-
 use crate::context::{UtxoSlice, WitnessSlice};
+use amaru_kernel::{
+    display_collection, get_provided_scripts, script_purpose_to_string, BorrowedScript, DatumHash,
+    DatumOption, Hash, MintedWitnessSet, OriginalHash, PlutusData, RedeemersKey, RequiredScript,
+    ScriptHash, ScriptPurpose, ScriptRefWithHash,
+};
+use std::collections::{BTreeMap, BTreeSet};
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidScripts {
@@ -44,6 +42,7 @@ pub enum InvalidScripts {
     MissingRedeemers(Vec<RedeemersKey>),
 }
 
+// TODO: Split this whole function into smaller functions to make it more graspable.
 pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice,
@@ -112,6 +111,16 @@ where
         })
         .collect::<Vec<_>>();
 
+    let mut redeemers_required = required_scripts
+        .iter()
+        .filter_map(|(required_script, script)| match script {
+            BorrowedScript::PlutusV1Script(..)
+            | BorrowedScript::PlutusV2Script(..)
+            | BorrowedScript::PlutusV3Script(..) => Some(RedeemersKey::from(required_script)),
+            BorrowedScript::NativeScript(_) => None,
+        })
+        .collect::<Vec<_>>();
+
     let mut input_datum_hashes: BTreeSet<Hash<32>> = BTreeSet::new();
     let mut input_indices_missing_datum = Vec::new();
 
@@ -148,7 +157,7 @@ where
         ));
     }
 
-    let witness_datum_hashes: BTreeSet<Hash<32>> = witness_set
+    let mut witness_datum_hashes: BTreeSet<Hash<32>> = witness_set
         .plutus_data
         .as_deref()
         .map(|datums| {
@@ -159,15 +168,21 @@ where
         })
         .unwrap_or_default();
 
+    let inline_datums: BTreeMap<DatumHash, &PlutusData> = context.known_datums();
+
+    let mut provided_datum_hashes: BTreeSet<DatumHash> = inline_datums.into_keys().collect();
+
+    provided_datum_hashes.append(&mut witness_datum_hashes);
+
     let unmatched_datums = input_datum_hashes
-        .difference(&witness_datum_hashes)
+        .difference(&provided_datum_hashes)
         .cloned()
         .collect::<Vec<_>>();
 
     if !unmatched_datums.is_empty() {
         return Err(InvalidScripts::MissingRequiredDatums {
             missing: unmatched_datums,
-            provided: input_datum_hashes,
+            provided: provided_datum_hashes,
         });
     }
 
@@ -187,16 +202,6 @@ where
             allowed: allowed_supplemental_datum,
         });
     }
-
-    let mut redeemers_required = required_scripts
-        .iter()
-        .filter_map(|(required_script, script)| match script {
-            BorrowedScript::PlutusV1Script(..)
-            | BorrowedScript::PlutusV2Script(..)
-            | BorrowedScript::PlutusV3Script(..) => Some(RedeemersKey::from(required_script)),
-            BorrowedScript::NativeScript(_) => None,
-        })
-        .collect::<Vec<_>>();
 
     let mut extra_redeemers = Vec::new();
 

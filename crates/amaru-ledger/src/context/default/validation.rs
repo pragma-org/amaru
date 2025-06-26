@@ -14,16 +14,17 @@
 
 use crate::{
     context::{
-        blanket_known_scripts, AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState,
-        DRepsSlice, DelegateError, PoolsSlice, PotsSlice, ProposalsSlice, RegisterError,
-        ScriptLocation, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+        blanket_known_datums, blanket_known_scripts, AccountState, AccountsSlice, CCMember,
+        CommitteeSlice, DRepState, DRepsSlice, DelegateError, PoolsSlice, PotsSlice,
+        ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
+        WitnessSlice,
     },
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, Hash, Lovelace, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput,
-    TransactionOutput,
+    Anchor, CertificatePointer, DRep, DatumHash, Hash, Lovelace, PlutusData, PoolId, PoolParams,
+    Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -34,7 +35,8 @@ use tracing::trace;
 pub struct DefaultValidationContext {
     utxo: BTreeMap<TransactionInput, TransactionOutput>,
     state: VolatileState,
-    known_scripts: BTreeMap<ScriptHash, ScriptLocation>,
+    known_scripts: BTreeMap<ScriptHash, TransactionInput>,
+    known_datums: BTreeMap<DatumHash, TransactionInput>,
     required_signers: BTreeSet<Hash<28>>,
     required_scripts: BTreeSet<RequiredScript>,
     required_supplemental_datums: BTreeSet<Hash<32>>,
@@ -48,6 +50,7 @@ impl DefaultValidationContext {
             state: VolatileState::default(),
             required_signers: BTreeSet::default(),
             known_scripts: BTreeMap::new(),
+            known_datums: BTreeMap::new(),
             required_scripts: BTreeSet::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
@@ -237,8 +240,12 @@ impl WitnessSlice for DefaultValidationContext {
         self.required_scripts.insert(script);
     }
 
-    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation) {
+    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: TransactionInput) {
         self.known_scripts.insert(script_hash, location);
+    }
+
+    fn acknowledge_datum(&mut self, datum_hash: DatumHash, location: TransactionInput) {
+        self.known_datums.insert(datum_hash, location);
     }
 
     fn require_bootstrap_witness(&mut self, root: Hash<28>) {
@@ -268,5 +275,10 @@ impl WitnessSlice for DefaultValidationContext {
     fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
+    }
+
+    fn known_datums(&mut self) -> BTreeMap<DatumHash, &PlutusData> {
+        let known_datums = mem::take(&mut self.known_datums);
+        blanket_known_datums(self, known_datums.into_iter())
     }
 }

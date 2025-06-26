@@ -13,16 +13,17 @@
 // limitations under the License.
 
 use crate::context::{
-    blanket_known_scripts, AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepState,
-    DRepsSlice, DelegateError, Hash, PoolsSlice, PotsSlice, PreparationContext,
-    PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
-    RegisterError, ScriptLocation, UnregisterError, UpdateError, UtxoSlice, ValidationContext,
-    WitnessSlice,
+    blanket_known_datums, blanket_known_scripts, AccountState, AccountsSlice, CCMember,
+    CommitteeSlice, DRepState, DRepsSlice, DelegateError, Hash, PoolsSlice, PotsSlice,
+    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice,
+    PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
+    ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
     serde_utils, stake_credential_hash, stake_credential_type, AddrKeyhash, Anchor,
-    CertificatePointer, DRep, Lovelace, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput, TransactionOutput,
+    CertificatePointer, DRep, DatumHash, Lovelace, PlutusData, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
+    TransactionInput, TransactionOutput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -47,6 +48,7 @@ impl From<AssertPreparationContext> for AssertValidationContext {
             required_signers: BTreeSet::default(),
             required_scripts: BTreeSet::default(),
             known_scripts: BTreeMap::default(),
+            known_datums: BTreeMap::default(),
             required_supplemental_datums: BTreeSet::default(),
             required_bootstrap_signers: BTreeSet::default(),
         }
@@ -93,7 +95,9 @@ pub struct AssertValidationContext {
     #[serde(default)]
     required_scripts: BTreeSet<RequiredScript>,
     #[serde(default)]
-    known_scripts: BTreeMap<ScriptHash, ScriptLocation>,
+    known_scripts: BTreeMap<ScriptHash, TransactionInput>,
+    #[serde(default)]
+    known_datums: BTreeMap<DatumHash, TransactionInput>,
     #[serde(default)]
     required_supplemental_datums: BTreeSet<Hash<32>>,
     #[serde(default)]
@@ -286,8 +290,12 @@ impl WitnessSlice for AssertValidationContext {
         self.required_scripts.insert(script);
     }
 
-    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: ScriptLocation) {
+    fn acknowledge_script(&mut self, script_hash: ScriptHash, location: TransactionInput) {
         self.known_scripts.insert(script_hash, location);
+    }
+
+    fn acknowledge_datum(&mut self, datum_hash: DatumHash, location: TransactionInput) {
+        self.known_datums.insert(datum_hash, location);
     }
 
     #[instrument(
@@ -325,5 +333,10 @@ impl WitnessSlice for AssertValidationContext {
     fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
+    }
+
+    fn known_datums(&mut self) -> BTreeMap<DatumHash, &PlutusData> {
+        let known_datums = mem::take(&mut self.known_datums);
+        blanket_known_datums(self, known_datums.into_iter())
     }
 }
