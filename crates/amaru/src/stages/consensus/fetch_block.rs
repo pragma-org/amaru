@@ -16,8 +16,8 @@ use std::collections::BTreeMap;
 
 use crate::stages::PeerSession;
 use crate::{schedule, stages::common::adopt_current_span};
-use amaru_consensus::IsHeader;
 use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
+use amaru_consensus::{ConsensusMetrics, IsHeader, NO_KEY_VALUE};
 use amaru_kernel::{block::ValidateBlockEvent, Point};
 use gasket::framework::*;
 use tracing::{error, instrument};
@@ -31,10 +31,11 @@ pub struct BlockFetchStage {
     pub peer_sessions: BTreeMap<Peer, PeerSession>,
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
+    metrics: Option<ConsensusMetrics>,
 }
 
 impl BlockFetchStage {
-    pub fn new(sessions: &[PeerSession]) -> Self {
+    pub fn new(metrics: Option<ConsensusMetrics>, sessions: &[PeerSession]) -> Self {
         let peer_sessions = sessions
             .iter()
             .map(|p| (p.peer.clone(), p.clone()))
@@ -43,6 +44,7 @@ impl BlockFetchStage {
             peer_sessions,
             upstream: Default::default(),
             downstream: Default::default(),
+            metrics,
         }
     }
 
@@ -54,6 +56,8 @@ impl BlockFetchStage {
                     error!(error=%e, "failed to fetch block");
                     WorkerError::Recv
                 })?;
+
+                self.fetched_block();
 
                 self.downstream
                     .send(ValidateBlockEvent::Validated { point, block, span }.into())
@@ -106,6 +110,12 @@ impl BlockFetchStage {
             .fetch_single(new_point)
             .await
             .map_err(|_| ConsensusError::FetchBlockFailed(point.clone()))
+    }
+
+    fn fetched_block(&mut self) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics.count_fetched_blocks.add(1, &NO_KEY_VALUE);
+        };
     }
 }
 

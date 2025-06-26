@@ -23,7 +23,7 @@ use amaru_consensus::{
         ChainSyncEvent,
     },
     peer::Peer,
-    ConsensusError, IsHeader,
+    ConsensusError, ConsensusMetrics, IsHeader,
 };
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
@@ -105,12 +105,18 @@ impl PeerSession {
 #[allow(clippy::todo)]
 pub fn bootstrap(
     config: Config,
+    consensus_metrics: Option<ConsensusMetrics>,
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     let era_history: &EraHistory = config.network.into();
 
     let global_parameters: &GlobalParameters = config.network.into();
-    let (mut ledger_stage, tip) = make_ledger(&config, era_history, global_parameters)?;
+    let (mut ledger_stage, tip) = make_ledger(
+        consensus_metrics.clone(),
+        &config,
+        era_history,
+        global_parameters,
+    )?;
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -120,11 +126,18 @@ pub fn bootstrap(
         })
         .collect();
 
-    let mut fetch_block_stage = BlockFetchStage::new(peer_sessions.as_slice());
+    let mut fetch_block_stage =
+        BlockFetchStage::new(consensus_metrics.clone(), peer_sessions.as_slice());
 
     let mut stages = peer_sessions
         .iter()
-        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
+        .map(|session| {
+            pull::Stage::new(
+                consensus_metrics.clone(),
+                session.clone(),
+                vec![tip.clone()],
+            )
+        })
         .collect::<Vec<_>>();
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
@@ -132,11 +145,13 @@ pub fn bootstrap(
     let chain_selector = make_chain_selector(&header, &peer_sessions)?;
     let consensus = match ledger_stage {
         LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
+            consensus_metrics.clone(),
             Arc::new(validate_block_stage.state.view_stake_distribution()),
             chain_store_ref.clone(),
         ),
 
         LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(
+            consensus_metrics.clone(),
             Arc::new(validate_block_stage.state.view_stake_distribution()),
             chain_store_ref.clone(),
         ),
@@ -144,15 +159,23 @@ pub fn bootstrap(
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
-    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
+    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(
+        consensus_metrics.clone(),
+        chain_store_ref.clone(),
+    ));
 
     let mut validate_header_stage = ValidateHeaderStage::new(consensus, global_parameters);
 
-    let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
+    let mut select_chain_stage =
+        SelectChainStage::new(SelectChain::new(consensus_metrics.clone(), chain_selector));
 
-    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
+    let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(
+        consensus_metrics.clone(),
+        chain_store_ref.clone(),
+    ));
 
     let mut forward_chain_stage = ForwardChainStage::new(
+        consensus_metrics.clone(),
         None,
         chain_store_ref.clone(),
         config.network_magic as u64,
@@ -289,6 +312,7 @@ impl LedgerStage {
 }
 
 fn make_ledger(
+    metrics: Option<ConsensusMetrics>,
     config: &Config,
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
@@ -296,6 +320,7 @@ fn make_ledger(
     match config.ledger_store {
         StorePath::InMem => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
+                metrics,
                 MemoryStore {},
                 MemoryStore {},
                 era_history.clone(),
@@ -305,6 +330,7 @@ fn make_ledger(
         }
         StorePath::OnDisk(ref ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
+                metrics,
                 RocksDB::new(ledger_dir, era_history)?,
                 RocksDBHistoricalStores::new(ledger_dir),
                 era_history.clone(),
@@ -381,7 +407,7 @@ mod tests {
             ..Config::default()
         };
 
-        let stages = bootstrap(config, vec![]).unwrap();
+        let stages = bootstrap(config, None, vec![]).unwrap();
 
         assert_eq!(8, stages.len());
     }

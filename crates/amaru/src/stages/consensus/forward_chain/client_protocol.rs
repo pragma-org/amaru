@@ -5,7 +5,7 @@ use super::{
     ClientOp,
 };
 use acto::{ActoCell, ActoInput, ActoRef, ActoRuntime};
-use amaru_consensus::consensus::store::ChainStore;
+use amaru_consensus::{consensus::store::ChainStore, ConsensusMetrics, NO_KEY_VALUE};
 use amaru_kernel::{to_cbor, Hash, Header};
 use pallas_network::{
     facades::PeerServer,
@@ -43,10 +43,12 @@ pub async fn client_protocols(
     server: PeerServer,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
     our_tip: Tip,
+    metrics: Option<ConsensusMetrics>,
 ) -> anyhow::Result<()> {
     let _block_fetch = cell.spawn_supervised("block_fetch", {
         let store = store.clone();
-        move |cell| block_fetch(cell, server.blockfetch, store)
+        let metrics = metrics.clone();
+        move |cell| block_fetch(cell, server.blockfetch, store, metrics)
     });
     let _tx_submission = cell.spawn_supervised("tx_submission", move |cell| {
         tx_submission(cell, server.txsubmission)
@@ -55,7 +57,7 @@ pub async fn client_protocols(
         cell.spawn_supervised("keep_alive", move |cell| keep_alive(cell, server.keepalive));
 
     let chain_sync = cell.spawn_supervised("chain_sync", move |cell| {
-        chain_sync(cell, server.chainsync, our_tip, store)
+        chain_sync(cell, server.chainsync, our_tip, store, metrics.clone())
     });
 
     while let ActoInput::Message(msg) = cell.recv().await {
@@ -80,6 +82,7 @@ async fn chain_sync(
     mut server: chainsync::Server<HeaderContent>,
     our_tip: Tip,
     store: Arc<Mutex<dyn ChainStore<Header>>>,
+    metrics: Option<ConsensusMetrics>,
 ) -> anyhow::Result<()> {
     // TODO: do we need to handle validation updates already here in case the client is really slow to ask for intersection?
     let Some(ClientRequest::Intersect(req)) = server.recv_while_idle().await? else {
@@ -101,7 +104,7 @@ async fn chain_sync(
 
     let parent = cell.me();
     let handler = cell.spawn_supervised("chainsync_handler", move |cell| {
-        chain_sync_handler(cell, server, parent)
+        chain_sync_handler(cell, server, parent, metrics)
     });
 
     let mut state = ClientState::new(catch_up.into());
@@ -154,7 +157,9 @@ async fn chain_sync_handler(
     mut cell: ActoCell<Option<(ClientOp, Tip)>, impl ActoRuntime>,
     mut server: chainsync::Server<HeaderContent>,
     parent: ActoRef<ChainSyncMsg>,
+    metrics: Option<ConsensusMetrics>,
 ) -> anyhow::Result<()> {
+    let mut metrics = metrics.clone();
     loop {
         let Some(req) = server.recv_while_idle().await? else {
             tracing::debug!("client terminated");
@@ -174,6 +179,7 @@ async fn chain_sync_handler(
                     server
                         .send_roll_forward(to_header_content(header), tip)
                         .await?;
+                    track_sent_headers(&mut metrics);
                 }
                 Some((ClientOp::Backward(point), tip)) => {
                     tracing::debug!("sending roll backward");
@@ -190,6 +196,7 @@ async fn chain_sync_handler(
                             server
                                 .send_roll_forward(to_header_content(header), tip)
                                 .await?;
+                            track_sent_headers(&mut metrics);
                         }
                         ClientOp::Backward(point) => {
                             server.send_roll_backward(point.0, tip).await?;
@@ -202,6 +209,12 @@ async fn chain_sync_handler(
             // parent terminated
             return Ok(());
         }
+    }
+}
+
+fn track_sent_headers(metrics: &mut Option<ConsensusMetrics>) {
+    if let Some(ref metrics) = metrics {
+        metrics.count_sent_headers.add(1, &NO_KEY_VALUE);
     }
 }
 
@@ -218,7 +231,8 @@ enum BlockFetchMsg {}
 async fn block_fetch(
     _cell: ActoCell<BlockFetchMsg, impl ActoRuntime>,
     mut server: blockfetch::Server,
-    store: Arc<Mutex<dyn ChainStore<Header>>>, // TODO: need a block store here
+    store: Arc<Mutex<dyn ChainStore<Header>>>,
+    metrics: Option<ConsensusMetrics>,
 ) -> anyhow::Result<()> {
     loop {
         let Some(req) = server.recv_while_idle().await? else {
@@ -238,6 +252,10 @@ async fn block_fetch(
         server.send_start_batch().await?;
         server.send_block(block).await?;
         server.send_batch_done().await?;
+
+        if let Some(ref metrics) = metrics {
+            metrics.count_sent_blocks.add(1, &NO_KEY_VALUE);
+        }
     }
 }
 

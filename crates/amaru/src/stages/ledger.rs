@@ -1,3 +1,4 @@
+use amaru_consensus::{ConsensusMetrics, NO_KEY_VALUE};
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     protocol_parameters::GlobalParameters,
@@ -30,6 +31,7 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
+    metrics: Option<ConsensusMetrics>,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
@@ -49,6 +51,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
 
 impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     pub fn new(
+        metrics: Option<ConsensusMetrics>,
         store: S,
         snapshots: HS,
         era_history: EraHistory,
@@ -63,6 +66,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
+                metrics,
             },
             tip,
         ))
@@ -135,6 +139,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
                 self.state
                     .forward(protocol_version, state.anchor(&point, issuer))?;
+                self.block_validated();
                 Ok(None)
             }
         }
@@ -154,6 +159,12 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             Err(BackwardError::UnknownRollbackPoint(_)) => {
                 BlockValidationResult::BlockValidationFailed { point, span }
             }
+        }
+    }
+
+    fn block_validated(&mut self) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics.count_validated_blocks.add(1, &NO_KEY_VALUE);
         }
     }
 }

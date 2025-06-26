@@ -97,6 +97,8 @@ dependencies = [
  "hex",
  "insta",
  "minicbor",
+ "opentelemetry",
+ "opentelemetry_sdk",
  "pallas-codec",
  "pallas-crypto",
  "pallas-math",

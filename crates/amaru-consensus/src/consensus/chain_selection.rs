@@ -174,6 +174,12 @@ pub struct ChainSelector<H: IsHeader> {
     pub peers_chains: BTreeMap<Peer, Fragment<H>>,
 }
 
+/// Collect metrics about the chain selection process.
+pub struct ChainSelectionMetrics {
+    /// The current size of the internal fragments structure.
+    pub current_size: usize,
+}
+
 /// Definition of a fork.
 ///
 /// FIXME: The peer should not be needed here, as the fork should be
@@ -369,6 +375,13 @@ where
         let fragment = self.peers_chains.get_mut(peer).unwrap();
         let rollback_point = fragment.position_of(point).map_or(0, |p| p + 1);
         fragment.headers.truncate(rollback_point);
+    }
+
+    /// Provide some metrics about the selection process' state.
+    pub fn current_metrics(&self) -> ChainSelectionMetrics {
+        ChainSelectionMetrics {
+            current_size: self.peers_chains.len(),
+        }
     }
 }
 

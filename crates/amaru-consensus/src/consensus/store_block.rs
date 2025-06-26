@@ -12,18 +12,25 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, ConsensusError};
+use crate::{consensus::store::ChainStore, ConsensusError, ConsensusMetrics, NO_KEY_VALUE};
 use amaru_kernel::{block::ValidateBlockEvent, Header, Point, RawBlock};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
 pub struct StoreBlock {
     store: Arc<Mutex<dyn ChainStore<Header>>>,
+    metrics: Option<ConsensusMetrics>,
 }
 
 impl StoreBlock {
-    pub fn new(chain_store: Arc<Mutex<dyn ChainStore<Header>>>) -> Self {
-        StoreBlock { store: chain_store }
+    pub fn new(
+        metrics: Option<ConsensusMetrics>,
+        chain_store: Arc<Mutex<dyn ChainStore<Header>>>,
+    ) -> Self {
+        StoreBlock {
+            store: chain_store,
+            metrics,
+        }
     }
 
     pub async fn store(&self, point: &Point, block: &RawBlock) -> Result<(), ConsensusError> {
@@ -35,7 +42,7 @@ impl StoreBlock {
     }
 
     pub async fn handle_event(
-        &self,
+        &mut self,
         event: &ValidateBlockEvent,
     ) -> Result<ValidateBlockEvent, ConsensusError> {
         match event {
@@ -45,9 +52,18 @@ impl StoreBlock {
                 ..
             } => {
                 self.store(point, block).await?;
+                self.block_stored(block.len());
                 Ok(event.clone())
             }
             ValidateBlockEvent::Rollback { .. } => Ok(event.clone()),
+        }
+    }
+
+    fn block_stored(&mut self, block_size: usize) {
+        if let Some(metrics) = self.metrics.as_mut() {
+            metrics
+                .count_stored_blocks_bytes
+                .add(block_size as u64, &NO_KEY_VALUE);
         }
     }
 }
@@ -113,7 +129,7 @@ mod tests {
     #[tokio::test]
     async fn handle_event_returns_passed_event_when_forwarding_given_store_succeeds() {
         let mock_store = Arc::new(Mutex::new(MockChainStore::new()));
-        let store_block = StoreBlock::new(mock_store.clone());
+        let mut store_block = StoreBlock::new(None, mock_store.clone());
 
         let event = ValidateBlockEvent::Validated {
             point: Point::Specific(123, Hash::from([1; 32]).to_vec()),
@@ -133,7 +149,7 @@ mod tests {
     #[tokio::test]
     async fn handle_event_returns_passed_event_when_rollbacking() {
         let mock_store = Arc::new(Mutex::new(MockChainStore::new()));
-        let store_block = StoreBlock::new(mock_store.clone());
+        let mut store_block = StoreBlock::new(None, mock_store.clone());
 
         let expected_rollback_point = Point::Specific(100, Hash::from([2; 32]).to_vec());
 
