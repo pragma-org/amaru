@@ -30,7 +30,6 @@ use pallas_codec::{
     utils::CborWrap,
 };
 use pallas_primitives::{
-    alonzo::Value as AlonzoValue,
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
         RedeemersValue,
@@ -57,6 +56,7 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
+    alonzo::Value as AlonzoValue,
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
@@ -211,6 +211,36 @@ impl<'b> Decode<'b, ()> for Point {
                 "can't decode Point from array of size",
             )),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TransactionInputAdapter(TransactionInput);
+pub type DisplayableTransactionInput = TransactionInputAdapter;
+
+impl Deref for TransactionInputAdapter {
+    type Target = TransactionInput;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for TransactionInputAdapter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}#{}", self.0.transaction_id, self.0.index)
+    }
+}
+
+impl From<TransactionInput> for TransactionInputAdapter {
+    fn from(value: TransactionInput) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&TransactionInput> for TransactionInputAdapter {
+    fn from(value: &TransactionInput) -> Self {
+        value.clone().into()
     }
 }
 
@@ -678,6 +708,36 @@ impl HasLovelace for MintedTransactionOutput<'_> {
     }
 }
 
+pub trait HasAssets {
+    fn has_assets(&self) -> bool;
+}
+
+impl HasAssets for Value {
+    fn has_assets(&self) -> bool {
+        match self {
+            Value::Coin(_) => false,
+            Value::Multiasset(_, _) => true,
+        }
+    }
+}
+
+impl HasAssets for AlonzoValue {
+    fn has_assets(&self) -> bool {
+        match self {
+            AlonzoValue::Coin(_) => false,
+            AlonzoValue::Multiasset(_, mutliasset) => !mutliasset.is_empty(),
+        }
+    }
+}
+
+impl HasAssets for TransactionOutput {
+    fn has_assets(&self) -> bool {
+        match self {
+            PseudoTransactionOutput::Legacy(legacy) => legacy.amount.has_assets(),
+            PseudoTransactionOutput::PostAlonzo(modern) => modern.value.has_assets(),
+        }
+    }
+}
 /// TODO: See 'output_lovelace', same remark applies.
 pub fn output_stake_credential(
     output: &TransactionOutput,
