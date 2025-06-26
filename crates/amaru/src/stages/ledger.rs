@@ -129,8 +129,8 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         let protocol_version = block.header.header_body.protocol_version;
         match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
             BlockValidation::Err(err) => Err(err),
-            BlockValidation::Invalid(err) => {
-                error!("Block invalid: {}", err);
+            BlockValidation::Invalid(slot, id, err) => {
+                error!("Block {id} invalid at slot={slot}: {}", err);
                 Ok(Some(err))
             }
             BlockValidation::Valid(()) => {
