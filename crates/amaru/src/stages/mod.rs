@@ -146,9 +146,9 @@ pub fn bootstrap(
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
-    let mut validate_header_stage = ValidateHeaderStage::new(consensus, global_parameters);
-
     let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
+
+    let mut validate_header_stage = ValidateHeaderStage::new(consensus, global_parameters);
 
     let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
 
@@ -163,9 +163,9 @@ pub fn bootstrap(
         our_tip,
     );
 
-    let (to_validate_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_store_header, from_validate_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_select_chain, from_store_header) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_store_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_validate_header, from_store_header) = gasket::messaging::tokio::mpsc_channel(50);
+    let (to_select_chain, from_validate_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_fetch_block, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
@@ -176,15 +176,15 @@ pub fn bootstrap(
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
     funnel_ports(outputs, &mut receive_header_stage.upstream, 50);
-    receive_header_stage.downstream.connect(to_validate_header);
+    receive_header_stage.downstream.connect(to_store_header);
 
-    validate_header_stage.upstream.connect(from_receive_header);
-    validate_header_stage.downstream.connect(to_store_header);
+    store_header_stage.upstream.connect(from_receive_header);
+    store_header_stage.downstream.connect(to_validate_header);
 
-    store_header_stage.upstream.connect(from_validate_header);
-    store_header_stage.downstream.connect(to_select_chain);
+    validate_header_stage.upstream.connect(from_store_header);
+    validate_header_stage.downstream.connect(to_select_chain);
 
-    select_chain_stage.upstream.connect(from_store_header);
+    select_chain_stage.upstream.connect(from_validate_header);
     select_chain_stage.downstream.connect(to_fetch_block);
 
     fetch_block_stage.upstream.connect(from_select_chain);
