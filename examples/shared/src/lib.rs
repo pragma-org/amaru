@@ -21,13 +21,14 @@ pub fn forward_ledger(raw_block: &str) {
 
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
     let network = NetworkName::Preprod;
-    let era_history: &EraHistory = network.into();
+    let era_history: &EraHistory = NetworkName::Preprod.into();
 
     let global_parameters: &GlobalParameters = network.into();
-    let store = MemoryStore {};
+    let store = MemoryStore::new(era_history.clone());
+    let historical_store = store.clone();
     let mut state = State::new(
         store,
-        MemoryStore {},
+        historical_store,
         era_history.clone(),
         global_parameters.clone(),
     )

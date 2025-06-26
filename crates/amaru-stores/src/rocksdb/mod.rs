@@ -616,18 +616,16 @@ mod tests {
     use amaru_kernel::EraHistory;
     use tempfile::TempDir;
 
+    use crate::rocksdb::RocksDB;
     use crate::tests::{
         add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
         test_read_pool, test_read_proposal, test_read_utxo, test_refund_account,
         test_remove_account, test_remove_drep, test_remove_pool, test_remove_proposal,
-        test_remove_utxo, test_slot_updated,
+        test_remove_utxo, test_slot_updated, Fixture,
     };
     use amaru_ledger::store::StoreError;
 
-    use crate::rocksdb::RocksDB;
-
-    #[test]
-    fn test_rockdb_store() -> Result<(), StoreError> {
+    fn setup_rocksdb_store() -> Result<(RocksDB, Fixture), StoreError> {
         let era_history: EraHistory =
             (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let tmp_dir = TempDir::new().expect("failed to create temp dir");
@@ -635,33 +633,97 @@ mod tests {
         let store = RocksDB::empty(tmp_dir.path(), &era_history)
             .map_err(|e| StoreError::Internal(e.into()))?;
 
-        {
-            // Add to store test
-            let seeded =
-                add_test_data_to_store(&store, &era_history).expect("adding data to store failed");
+        let fixture = add_test_data_to_store(&store, &era_history)?;
+        Ok((store, fixture))
+    }
 
-            // Validate add to store & read tests
-            test_read_utxo(&store, &seeded);
-            test_read_account(&store, &seeded);
-            test_read_pool(&store, &seeded);
-            test_read_drep(&store, &seeded);
-            test_read_proposal(&store, &seeded);
-            // TODO: Add cc_members iterator to validate getting stored cc_member works as intended
+    #[test]
+    fn test_rocksdb_read_utxo() {
+        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        test_read_utxo(&store, &fixture);
+    }
 
-            // Transactional tests
-            test_refund_account(&store, &seeded)?;
-            test_epoch_transition(&store)?;
-            test_slot_updated(&store, &seeded)?;
+    #[test]
+    fn test_rocksdb_read_account() {
+        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        test_read_account(&store, &fixture);
+    }
 
-            // Validate removal tests
-            test_remove_utxo(&store, &seeded)?;
-            test_remove_account(&store, &seeded)?;
-            test_remove_pool(&store, &seeded)?;
-            test_remove_drep(&store, &seeded)?;
-            test_remove_proposal(&store, &seeded)?;
-            // TODO: Add cc_members iterator to validate removal works as intended
-        }
+    #[test]
+    fn test_rocksdb_read_pool() {
+        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        test_read_pool(&store, &fixture);
+    }
 
-        Ok(())
+    #[test]
+    fn test_rocksdb_read_drep() {
+        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        test_read_drep(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_read_proposal() {
+        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        test_read_proposal(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_refund_account() -> Result<(), StoreError> {
+        let (store, fixture) = setup_rocksdb_store()?;
+        test_refund_account(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_epoch_transition() -> Result<(), StoreError> {
+        let (store, _) = setup_rocksdb_store()?;
+        test_epoch_transition(&store)
+    }
+
+    #[test]
+    fn test_rocksdb_slot_updated() -> Result<(), StoreError> {
+        let (store, fixture) = setup_rocksdb_store()?;
+        test_slot_updated(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_utxo() -> Result<(), StoreError> {
+        let (store, fixture) = setup_rocksdb_store()?;
+        test_remove_utxo(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_account() -> Result<(), StoreError> {
+        let (store, fixture) = setup_rocksdb_store()?;
+        test_remove_account(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_pool() -> Result<(), StoreError> {
+        let (store, fixture) = setup_rocksdb_store()?;
+        test_remove_pool(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_drep() -> Result<(), StoreError> {
+        let (store, fixture) = setup_rocksdb_store()?;
+        test_remove_drep(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_proposal() -> Result<(), StoreError> {
+        let (store, fixture) = setup_rocksdb_store()?;
+        test_remove_proposal(&store, &fixture)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rocksdb_iterate_cc_members() {
+        todo!("Add test to validate getting stored cc_member works as intended");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rocksdb_remove_cc_members() {
+        todo!("Add test to validate removal of cc_member works as intended");
     }
 }

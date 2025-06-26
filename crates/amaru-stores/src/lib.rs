@@ -156,7 +156,7 @@ pub mod tests {
     }
 
     #[derive(Debug, Clone)]
-    pub struct SeededData {
+    pub struct Fixture {
         pub txin: TransactionInput,
         pub output: TransactionOutput,
         pub account_key: StakeCredential,
@@ -176,7 +176,7 @@ pub mod tests {
     pub fn add_test_data_to_store(
         store: &impl Store,
         era_history: &EraHistory,
-    ) -> Result<SeededData, StoreError> {
+    ) -> Result<Fixture, StoreError> {
         use diff_bind::Resettable;
 
         // utxos
@@ -207,8 +207,8 @@ pub mod tests {
             std::iter::once((account_key_clone, (delegatee, drep, rewards, deposit)));
 
         // pools
-        let (pool_params, epoch) = generate_pool_row();
-        let pools_iter = std::iter::once((pool_params.clone(), epoch));
+        let (pool_params, pool_epoch) = generate_pool_row();
+        let pools_iter = std::iter::once((pool_params.clone(), pool_epoch));
 
         // dreps
         let drep_key = generate_stake_credential();
@@ -218,7 +218,7 @@ pub mod tests {
         let deposit = drep_row.deposit;
         let registered_at = drep_row.registered_at;
 
-        let epoch = era_history
+        let drep_epoch = era_history
             .slot_to_epoch(registered_at.transaction.slot)
             .expect("Failed to convert slot to epoch");
 
@@ -227,14 +227,13 @@ pub mod tests {
             (
                 Resettable::Set(anchor),
                 Some((deposit, registered_at)),
-                epoch,
+                drep_epoch,
             ),
         ));
 
         // proposals
         let proposal_key = generate_proposal_id();
         let proposal_row = generate_proposal_row();
-
         let proposal_iter = std::iter::once((proposal_key.clone(), proposal_row.clone()));
 
         // cc_members
@@ -252,6 +251,7 @@ pub mod tests {
         let slot = generate_slot();
         let point = Point::Specific(slot.into(), Hash::from([0u8; 32]).to_vec());
         let slot_leader = generate_pool_id();
+
         {
             let context = store.create_transaction();
 
@@ -289,13 +289,13 @@ pub mod tests {
             value
         };
 
-        Ok(SeededData {
+        Ok(Fixture {
             txin,
             output,
             account_key,
             account_row: stored_account_row,
             pool_params,
-            pool_epoch: epoch,
+            pool_epoch,
             drep_key,
             drep_row,
             proposal_key,
@@ -305,63 +305,63 @@ pub mod tests {
         })
     }
 
-    pub fn test_read_utxo(store: &impl ReadOnlyStore, seeded: &SeededData) {
+    pub fn test_read_utxo(store: &impl ReadOnlyStore, fixture: &Fixture) {
         let result = store
-            .utxo(&seeded.txin)
+            .utxo(&fixture.txin)
             .expect("failed to read UTXO from store");
 
         assert_eq!(
             result,
-            Some(seeded.output.clone()),
-            "UTXO did not match seeded output"
+            Some(fixture.output.clone()),
+            "UTXO did not match fixture output"
         );
     }
 
-    pub fn test_read_account(store: &impl ReadOnlyStore, seeded: &SeededData) {
+    pub fn test_read_account(store: &impl ReadOnlyStore, fixture: &Fixture) {
         let stored_account = store
-            .account(&seeded.account_key)
+            .account(&fixture.account_key)
             .expect("failed to read account from store");
 
         assert!(
             stored_account.is_some(),
-            "account not found in store for seeded key"
+            "account not found in store for fixture key"
         );
 
         let stored_account = stored_account.unwrap();
 
         assert_eq!(
-            stored_account.delegatee, seeded.account_row.delegatee,
+            stored_account.delegatee, fixture.account_row.delegatee,
             "delegatee mismatch"
         );
         assert_eq!(
-            stored_account.drep, seeded.account_row.drep,
+            stored_account.drep, fixture.account_row.drep,
             "drep mismatch"
         );
         assert_eq!(
-            stored_account.rewards, seeded.account_row.rewards,
+            stored_account.rewards, fixture.account_row.rewards,
             "rewards mismatch"
         );
         assert_eq!(
-            stored_account.deposit, seeded.account_row.deposit,
+            stored_account.deposit, fixture.account_row.deposit,
             "deposit mismatch"
         );
     }
 
-    pub fn test_read_pool(store: &impl ReadOnlyStore, seeded: &SeededData) {
-        let pool_id = seeded.pool_params.id;
+    pub fn test_read_pool(store: &impl ReadOnlyStore, fixture: &Fixture) {
+        let pool_id = fixture.pool_params.id;
         let stored_pool = store
             .pool(&pool_id)
             .expect("failed to read pool from store");
 
         assert!(
             stored_pool.is_some(),
-            "pool not found in store for seeded id"
+            "pool not found in store for fixture id"
         );
 
         let stored_pool = stored_pool.unwrap();
 
         assert_eq!(
-            stored_pool.current_params, seeded.pool_params,
+            stored_pool.current_params, fixture.pool_params,
             "current pool params mismatch"
         );
         assert_eq!(
@@ -371,34 +371,34 @@ pub mod tests {
         );
     }
 
-    pub fn test_read_drep(store: &impl ReadOnlyStore, seeded: &SeededData) {
+    pub fn test_read_drep(store: &impl ReadOnlyStore, fixture: &Fixture) {
         let stored_drep = store
             .iter_dreps()
             .expect("failed to iterate dreps")
-            .find(|(key, _)| key == &seeded.drep_key)
+            .find(|(key, _)| key == &fixture.drep_key)
             .map(|(_, row)| row)
             .expect("drep not found in store");
 
         assert_eq!(
-            stored_drep.anchor, seeded.drep_row.anchor,
+            stored_drep.anchor, fixture.drep_row.anchor,
             "drep anchor mismatch"
         );
         assert_eq!(
-            stored_drep.deposit, seeded.drep_row.deposit,
+            stored_drep.deposit, fixture.drep_row.deposit,
             "drep deposit mismatch"
         );
         assert_eq!(
-            stored_drep.registered_at, seeded.drep_row.registered_at,
+            stored_drep.registered_at, fixture.drep_row.registered_at,
             "drep registration time mismatch"
         );
         assert_eq!(
-            stored_drep.last_interaction, seeded.drep_row.last_interaction,
+            stored_drep.last_interaction, fixture.drep_row.last_interaction,
             "drep last interaction mismatch"
         );
 
         match (
             &stored_drep.previous_deregistration,
-            &seeded.drep_row.previous_deregistration,
+            &fixture.drep_row.previous_deregistration,
         ) {
             (Some(a), Some(b)) => assert_eq!(a, b, "drep previous deregistration mismatch"),
             (None, None) => {}
@@ -410,47 +410,47 @@ pub mod tests {
     }
 
     /* Disabled until ReadOnlyStore getter is implemented for cc_members column
-    pub fn test_read_cc_member(store: &MemoryStore, seeded: &SeededData) {
+    pub fn test_read_cc_member(store: &MemoryStore, fixture: &Fixture) {
         assert_eq!(
-            store.cc_member(&seeded.cc_member_key),
-            Some(seeded.cc_member_row.clone()),
+            store.cc_member(&fixture.cc_member_key),
+            Some(fixture.cc_member_row.clone()),
             "cc_member mismatch"
         );
     }*/
 
-    pub fn test_read_proposal(store: &impl Store, seeded: &SeededData) {
+    pub fn test_read_proposal(store: &impl Store, fixture: &Fixture) {
         let stored_proposal = store
             .iter_proposals()
             .expect("failed to iterate proposals")
-            .find(|(key, _)| key == &seeded.proposal_key)
+            .find(|(key, _)| key == &fixture.proposal_key)
             .map(|(_, row)| row);
 
         assert!(
             stored_proposal.is_some(),
-            "proposal not found in store for seeded key"
+            "proposal not found in store for fixture key"
         );
 
         let stored_proposal = stored_proposal.unwrap();
 
         assert_eq!(
-            stored_proposal.proposed_in, seeded.proposal_row.proposed_in,
+            stored_proposal.proposed_in, fixture.proposal_row.proposed_in,
             "proposal proposed_in mismatch"
         );
         assert_eq!(
-            stored_proposal.valid_until, seeded.proposal_row.valid_until,
+            stored_proposal.valid_until, fixture.proposal_row.valid_until,
             "proposal valid_until mismatch"
         );
         assert_eq!(
-            stored_proposal.proposal, seeded.proposal_row.proposal,
+            stored_proposal.proposal, fixture.proposal_row.proposal,
             "proposal data mismatch"
         );
     }
 
-    pub fn test_remove_utxo(store: &impl Store, seeded: &SeededData) -> Result<(), StoreError> {
+    pub fn test_remove_utxo(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 
         let remove = Columns {
-            utxo: std::iter::once(seeded.txin.clone()),
+            utxo: std::iter::once(fixture.txin.clone()),
             pools: std::iter::empty(),
             accounts: std::iter::empty(),
             dreps: std::iter::empty(),
@@ -470,7 +470,7 @@ pub mod tests {
         context.commit()?;
 
         assert_eq!(
-            store.utxo(&seeded.txin).expect("utxo lookup failed"),
+            store.utxo(&fixture.txin).expect("utxo lookup failed"),
             None,
             "utxo was not properly removed"
         );
@@ -478,13 +478,13 @@ pub mod tests {
         Ok(())
     }
 
-    pub fn test_remove_account(store: &impl Store, seeded: &SeededData) -> Result<(), StoreError> {
+    pub fn test_remove_account(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 
         let remove = Columns {
             utxo: std::iter::empty(),
             pools: std::iter::empty(),
-            accounts: std::iter::once(seeded.account_key.clone()),
+            accounts: std::iter::once(fixture.account_key.clone()),
             dreps: std::iter::empty(),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
@@ -501,17 +501,17 @@ pub mod tests {
         )?;
         context.commit()?;
 
-        assert_eq!(store.account(&seeded.account_key)?, None);
+        assert_eq!(store.account(&fixture.account_key)?, None);
 
         Ok(())
     }
 
-    pub fn test_remove_pool(store: &impl Store, seeded: &SeededData) -> Result<(), StoreError> {
+    pub fn test_remove_pool(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 
         let remove = Columns {
             utxo: std::iter::empty(),
-            pools: std::iter::once((seeded.pool_params.id, seeded.pool_epoch)),
+            pools: std::iter::once((fixture.pool_params.id, fixture.pool_epoch)),
             accounts: std::iter::empty(),
             dreps: std::iter::empty(),
             cc_members: std::iter::empty(),
@@ -531,23 +531,23 @@ pub mod tests {
 
         assert!(
             store
-                .pool(&seeded.pool_params.id)?
+                .pool(&fixture.pool_params.id)?
                 .expect("Expected pool row")
                 .future_params
                 .iter()
-                .any(|(p, e)| p.is_none() && *e == seeded.pool_epoch),
+                .any(|(p, e)| p.is_none() && *e == fixture.pool_epoch),
             "Expected pool to be scheduled for removal"
         );
 
         Ok(())
     }
 
-    pub fn test_remove_drep(store: &impl Store, seeded: &SeededData) -> Result<(), StoreError> {
+    pub fn test_remove_drep(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 
         let drep_registered_at = store
             .iter_dreps()?
-            .find(|(key, _)| *key == seeded.drep_key)
+            .find(|(key, _)| *key == fixture.drep_key)
             .map(|(_, row)| row.registered_at)
             .ok_or_else(|| StoreError::Internal("DRep not found before removal".into()))?;
 
@@ -555,13 +555,13 @@ pub mod tests {
             utxo: std::iter::empty(),
             pools: std::iter::empty(),
             accounts: std::iter::empty(),
-            dreps: std::iter::once((seeded.drep_key.clone(), drep_registered_at)),
+            dreps: std::iter::once((fixture.drep_key.clone(), drep_registered_at)),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
         };
 
         assert!(
-            store.iter_dreps()?.any(|(key, _)| key == seeded.drep_key),
+            store.iter_dreps()?.any(|(key, _)| key == fixture.drep_key),
             "DRep not present before removal"
         );
 
@@ -578,7 +578,7 @@ pub mod tests {
 
         let maybe_drep_row = store
             .iter_dreps()?
-            .find(|(key, _)| *key == seeded.drep_key)
+            .find(|(key, _)| *key == fixture.drep_key)
             .map(|(_, row)| row);
 
         let drep_row = maybe_drep_row.ok_or_else(|| {
@@ -594,10 +594,10 @@ pub mod tests {
         Ok(())
     }
 
-    pub fn test_remove_proposal(store: &impl Store, seeded: &SeededData) -> Result<(), StoreError> {
+    pub fn test_remove_proposal(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 
-        let proposal_id = seeded.proposal_key.clone();
+        let proposal_id = fixture.proposal_key.clone();
 
         assert!(
             store.iter_proposals()?.any(|(key, _)| key == proposal_id),
@@ -634,7 +634,7 @@ pub mod tests {
         Ok(())
     }
 
-    pub fn test_refund_account(store: &impl Store, seeded: &SeededData) -> Result<(), StoreError> {
+    pub fn test_refund_account(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let refund_amount = 100;
 
         let context = store.create_transaction();
@@ -642,14 +642,14 @@ pub mod tests {
         let mut result = None;
         context.with_accounts(|mut accounts| {
             result = accounts
-                .find(|(key, _)| *key == seeded.account_key)
+                .find(|(key, _)| *key == fixture.account_key)
                 .and_then(|(_, row)| row.borrow().as_ref().map(|acc| acc.rewards));
         })?;
 
         let rewards_before =
             result.ok_or_else(|| StoreError::Internal("Missing account before refund".into()))?;
 
-        let unrefunded = context.refund(&seeded.account_key, refund_amount)?;
+        let unrefunded = context.refund(&fixture.account_key, refund_amount)?;
         assert_eq!(unrefunded, 0, "Refund to existing account should succeed");
         context.commit()?;
 
@@ -658,7 +658,7 @@ pub mod tests {
             let mut result = None;
             context.with_accounts(|mut accounts| {
                 result = accounts
-                    .find(|(key, _)| *key == seeded.account_key)
+                    .find(|(key, _)| *key == fixture.account_key)
                     .and_then(|(_, row)| row.borrow().as_ref().map(|acc| acc.rewards));
             })?;
             context.commit()?;
@@ -674,7 +674,7 @@ pub mod tests {
 
         {
             let unknown = generate_stake_credential();
-            assert_ne!(unknown, seeded.account_key);
+            assert_ne!(unknown, fixture.account_key);
 
             let context = store.create_transaction();
             let refund_amount = 123;
@@ -713,17 +713,17 @@ pub mod tests {
         Ok(())
     }
 
-    pub fn test_slot_updated(store: &impl Store, seeded: &SeededData) -> Result<(), StoreError> {
+    pub fn test_slot_updated(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let issuers: Vec<_> = store.iter_block_issuers()?.collect();
 
         let found = issuers
             .iter()
-            .any(|(slot, row)| *slot == seeded.slot && row.slot_leader == seeded.slot_leader);
+            .any(|(slot, row)| *slot == fixture.slot && row.slot_leader == fixture.slot_leader);
 
         assert!(
             found,
             "expected slot {:?} with issuer {:?} not found",
-            seeded.slot, seeded.slot_leader
+            fixture.slot, fixture.slot_leader
         );
 
         Ok(())

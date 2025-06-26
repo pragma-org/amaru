@@ -1,17 +1,17 @@
 use amaru_kernel::{
-    network::NetworkName, protocol_parameters::ProtocolParameters, ComparableProposalId,
-    EraHistory, Lovelace, Point, PoolId, ProposalId, Slot, StakeCredential, TransactionInput,
-    TransactionOutput,
+    protocol_parameters::ProtocolParameters, ComparableProposalId, EraHistory, Lovelace, Point,
+    PoolId, ProposalId, Slot, StakeCredential, TransactionInput,
 };
-use amaru_ledger::{
-    state::diff_bind::Resettable,
-    store::{
-        columns::{self, accounts, cc_members, dreps, pools, pots, proposals, slots, utxo},
-        EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
-        TransactionalContext,
+use amaru_ledger::store::{
+    columns::{
+        accounts as account_column, cc_members as cc_member_column, dreps as drep_column,
+        pools as pool_column, pots, proposals as proposal_column, slots, utxo as utxo_column,
     },
+    EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
+    TransactionalContext,
 };
 
+use iter_borrow::IterBorrow;
 use slot_arithmetic::Epoch;
 use std::{
     borrow::{Borrow, BorrowMut},
@@ -19,6 +19,9 @@ use std::{
     collections::{BTreeMap, BTreeSet},
     ops::{Deref, DerefMut},
 };
+
+pub mod ledger;
+use crate::in_memory::ledger::columns::{accounts, cc_members, dreps, pools, proposals, utxo};
 
 pub struct RefMutAdapter<'a, T> {
     inner: RefMut<'a, T>,
@@ -65,17 +68,18 @@ impl<'a, T> BorrowMut<T> for RefMutAdapterMut<'a, T> {
 }
 
 // TODO: Add a field to MemoryStore for storing per-epoch snapshots as nested MemoryStores
+#[derive(Clone)]
 pub struct MemoryStore {
     tip: RefCell<Option<Point>>,
     epoch_progress: RefCell<Option<EpochTransitionProgress>>,
-    utxos: RefCell<BTreeMap<TransactionInput, utxo::Value>>,
-    accounts: RefCell<BTreeMap<StakeCredential, accounts::Row>>,
-    pools: RefCell<BTreeMap<PoolId, pools::Row>>,
+    utxos: RefCell<BTreeMap<TransactionInput, utxo_column::Value>>,
+    accounts: RefCell<BTreeMap<StakeCredential, account_column::Row>>,
+    pools: RefCell<BTreeMap<PoolId, pool_column::Row>>,
     pots: RefCell<pots::Row>,
     slots: RefCell<BTreeMap<Slot, slots::Row>>,
-    dreps: RefCell<BTreeMap<StakeCredential, dreps::Row>>,
-    proposals: RefCell<BTreeMap<ComparableProposalId, proposals::Row>>,
-    cc_members: RefCell<BTreeMap<StakeCredential, cc_members::Row>>,
+    dreps: RefCell<BTreeMap<StakeCredential, drep_column::Row>>,
+    proposals: RefCell<BTreeMap<ComparableProposalId, proposal_column::Row>>,
+    cc_members: RefCell<BTreeMap<StakeCredential, cc_member_column::Row>>,
     p_params: RefCell<BTreeMap<Epoch, ProtocolParameters>>,
     era_history: EraHistory,
 }
@@ -265,7 +269,7 @@ impl ReadOnlyStore for MemoryStore {
             .proposals
             .borrow()
             .iter()
-            .map(|(proposal_id, row)| (ProposalId::from((*proposal_id).clone()), row.clone()))
+            .map(|(proposal_id, row)| (ProposalId::from(proposal_id.clone()), row.clone()))
             .collect();
 
         Ok(proposals_vec.into_iter())
@@ -279,6 +283,39 @@ pub struct MemoryTransactionalContext<'a> {
 impl<'a> MemoryTransactionalContext<'a> {
     pub fn new(store: &'a MemoryStore) -> Self {
         Self { store }
+    }
+}
+
+impl<'a> MemoryTransactionalContext<'a> {
+    pub fn with_column<K, V, F>(
+        &self,
+        column: &RefCell<BTreeMap<K, V>>,
+        mut with: F,
+    ) -> Result<(), StoreError>
+    where
+        K: Clone + Ord + 'a,
+        V: Clone + 'a,
+        F: for<'iter> FnMut(IterBorrow<'iter, 'iter, K, Option<V>>),
+    {
+        let original = column.take();
+        let mut values: Vec<(K, Option<V>)> =
+            original.into_iter().map(|(k, v)| (k, Some(v))).collect();
+
+        let iter = values.iter_mut().map(|(k, v)| {
+            let key = k.clone();
+            let boxed: Box<dyn BorrowMut<Option<V>>> = Box::new(RefMutAdapterMut::new(v));
+            (key, boxed)
+        });
+
+        with(Box::new(iter));
+
+        let rebuilt: BTreeMap<K, V> = values
+            .into_iter()
+            .flat_map(|(k, v)| v.map(|v| (k, v)))
+            .collect();
+
+        column.replace(rebuilt);
+        Ok(())
     }
 }
 
@@ -408,206 +445,22 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
             }
         }
 
-        // Utxos
-        for (key, value) in add.utxo {
-            self.store.utxos.borrow_mut().insert(key, value);
-        }
+        utxo::add(self.store, add.utxo)?;
+        pools::add(self.store, add.pools);
+        dreps::add(self.store, add.dreps)?;
+        accounts::add(self.store, add.accounts)?;
+        cc_members::add(self.store, add.cc_members)?;
+        proposals::add(self.store, add.proposals)?;
 
-        // Pools
-        for (pool_params, epoch) in add.pools {
-            let mut pools = self.store.pools.borrow_mut();
-            let key = pool_params.id;
+        accounts::reset_many(self.store, withdrawals)?;
+        dreps::tick(self.store, &voting_dreps, &point)?;
 
-            let updated_row = match pools.get(&key).cloned() {
-                Some(mut row) => {
-                    row.future_params.push((Some(pool_params.clone()), epoch));
-                    row
-                }
-                None => columns::pools::Row {
-                    current_params: pool_params.clone(),
-                    future_params: vec![],
-                },
-            };
-
-            pools.insert(key, updated_row);
-        }
-
-        // Accounts
-        for (key, value) in add.accounts {
-            let (delegatee, drep, rewards, deposit) = value;
-
-            let mut row =
-                self.store
-                    .accounts
-                    .borrow()
-                    .get(&key)
-                    .cloned()
-                    .unwrap_or(columns::accounts::Row {
-                        delegatee: None,
-                        drep: None,
-                        rewards: 0,
-                        deposit,
-                    });
-
-            match delegatee {
-                Resettable::Set(val) => row.delegatee = Some(val),
-                Resettable::Reset => row.delegatee = None,
-                Resettable::Unchanged => {}
-            }
-
-            match drep {
-                Resettable::Set(val) => row.drep = Some(val),
-                Resettable::Reset => row.drep = None,
-                Resettable::Unchanged => {}
-            }
-
-            if let Some(r) = rewards {
-                row.rewards = r;
-            }
-
-            row.deposit = deposit;
-
-            self.store.accounts.borrow_mut().insert(key, row);
-        }
-
-        // Dreps
-        let dreps_vec: Vec<_> = add.dreps.collect();
-
-        let newly_registered: BTreeSet<_> = dreps_vec
-            .iter()
-            .filter_map(|(cred, (_, register, _))| {
-                if register.is_some() {
-                    Some(cred.clone())
-                } else {
-                    None
-                }
-            })
-            .collect();
-
-        for (credential, (anchor_resettable, register, _epoch)) in &dreps_vec {
-            let mut dreps = self.store.dreps.borrow_mut();
-            let existing = dreps.get(credential).cloned();
-
-            if let Some(mut row) = existing {
-                if let Some((deposit, registered_at)) = register {
-                    row.registered_at = *registered_at;
-                    row.deposit = *deposit;
-                    row.last_interaction = None;
-                }
-                anchor_resettable.clone().set_or_reset(&mut row.anchor);
-                dreps.insert(credential.clone(), row);
-            } else if let Some((deposit, registered_at)) = register {
-                let mut row = columns::dreps::Row {
-                    anchor: None,
-                    deposit: *deposit,
-                    registered_at: *registered_at,
-                    last_interaction: None,
-                    previous_deregistration: None,
-                };
-                anchor_resettable.clone().set_or_reset(&mut row.anchor);
-                dreps.insert(credential.clone(), row);
-            } else {
-                tracing::error!(
-                    target: "store::dreps::add",
-                    ?credential,
-                    "add.register_no_deposit",
-                );
-            }
-        }
-
-        // Update last_interaction for voting DReps, skipping newly registered ones
-        for drep in voting_dreps {
-            if newly_registered.contains(&drep) {
-                continue;
-            }
-
-            let slot = point.slot_or_default();
-            let current_epoch = self
-                .store
-                .era_history
-                .slot_to_epoch(slot)
-                .map_err(|err| StoreError::Internal(err.into()))?;
-
-            if let Some(drep_row) = self.store.dreps.borrow_mut().get_mut(&drep) {
-                drep_row.last_interaction = Some(current_epoch);
-            }
-        }
-
-        // cc_members
-        for (key, value) in add.cc_members {
-            match value {
-                Resettable::Set(cred) => {
-                    let row = columns::cc_members::Row {
-                        hot_credential: Some(cred),
-                    };
-                    self.store.cc_members.borrow_mut().insert(key, row);
-                }
-                Resettable::Reset => {
-                    self.store.cc_members.borrow_mut().remove(&key);
-                }
-                Resettable::Unchanged => {
-                    if let Some(existing) = self.store.cc_members.borrow().get(&key).cloned() {
-                        self.store.cc_members.borrow_mut().insert(key, existing);
-                    }
-                }
-            }
-        }
-
-        // proposals
-        for (proposal_id, value) in add.proposals {
-            let key = ComparableProposalId::from(proposal_id);
-            self.store.proposals.borrow_mut().insert(key, value);
-        }
-
-        // Delete removed data from each respective column in the store
-        for key in remove.utxo {
-            self.store.utxos.borrow_mut().remove(&key);
-        }
-
-        for (pool_id, epoch) in remove.pools {
-            let mut pools = self.store.pools.borrow_mut();
-
-            if let Some(row) = pools.get_mut(&pool_id) {
-                row.future_params.push((None, epoch));
-            }
-        }
-
-        for key in remove.accounts {
-            self.store.accounts.borrow_mut().remove(&key);
-        }
-
-        for (credential, pointer) in remove.dreps {
-            let mut dreps = self.store.dreps.borrow_mut();
-
-            if let Some(row) = dreps.get_mut(&credential) {
-                row.previous_deregistration = Some(pointer);
-            } else {
-                tracing::error!(
-                    target: "store::dreps::remove",
-                    ?credential,
-                    "remove.unknown_drep",
-                );
-            }
-        }
-
-        for key in remove.cc_members {
-            self.store.cc_members.borrow_mut().remove(&key);
-        }
-
-        for key in remove.proposals {
-            self.store
-                .proposals
-                .borrow_mut()
-                .remove(&ComparableProposalId::from(key));
-        }
-
-        // Reset rewards data for accounts on withdrawal
-        for key in withdrawals {
-            if let Some(account) = self.store.accounts.borrow_mut().get_mut(&key) {
-                account.rewards = 0;
-            }
-        }
-
+        utxo::remove(self.store, remove.utxo)?;
+        pools::remove(self.store, remove.pools)?;
+        accounts::remove(self.store, remove.accounts)?;
+        dreps::remove(self.store, remove.dreps)?;
+        cc_members::remove(self.store, remove.cc_members)?;
+        proposals::remove(self.store, remove.proposals)?;
         Ok(())
     }
 
@@ -620,179 +473,46 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn with_pools(&self, mut with: impl FnMut(pools::Iter<'_, '_>)) -> Result<(), StoreError> {
-        let mut pools = self.store.pools.borrow_mut();
-
-        let mut owned_pools = BTreeMap::<PoolId, pools::Row>::new();
-        std::mem::swap(pools.deref_mut(), &mut owned_pools);
-
-        let mut values: Vec<_> = owned_pools.into_iter().map(|(k, v)| (k, Some(v))).collect();
-
-        let iter = values.iter_mut().map(|(k, v)| {
-            let key = *k;
-            let boxed: Box<dyn BorrowMut<Option<pools::Row>>> = Box::new(RefMutAdapterMut::new(v));
-            (key, boxed)
-        });
-
-        with(Box::new(iter));
-
-        let mut reconstructed: BTreeMap<PoolId, pools::Row> = values
-            .into_iter()
-            .filter_map(|(k, v)| Some((k, v?)))
-            .collect();
-
-        std::mem::swap(pools.deref_mut(), &mut reconstructed);
-
-        Ok(())
+    fn with_pools(&self, with: impl FnMut(pool_column::Iter<'_, '_>)) -> Result<(), StoreError> {
+        self.with_column(&self.store.pools, with)
     }
 
     fn with_accounts(
         &self,
-        mut with: impl FnMut(accounts::Iter<'_, '_>),
+        with: impl FnMut(account_column::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
-        let mut accounts = self.store.accounts.borrow_mut();
-
-        let mut owned_accounts = BTreeMap::<StakeCredential, accounts::Row>::new();
-        std::mem::swap(accounts.deref_mut(), &mut owned_accounts);
-
-        let mut values: Vec<_> = owned_accounts
-            .into_iter()
-            .map(|(k, v)| (k, Some(v)))
-            .collect();
-
-        let iter = values.iter_mut().map(|(k, v)| {
-            let key = k.clone();
-            let boxed: Box<dyn BorrowMut<Option<accounts::Row>>> =
-                Box::new(RefMutAdapterMut::new(v));
-            (key, boxed)
-        });
-
-        with(Box::new(iter));
-
-        let mut reconstructed = values
-            .into_iter()
-            .filter_map(|(k, v)| Some((k, v?)))
-            .collect();
-
-        std::mem::swap(accounts.deref_mut(), &mut reconstructed);
-
-        Ok(())
+        self.with_column(&self.store.accounts, with)
     }
 
     fn with_block_issuers(
         &self,
-        mut with: impl FnMut(amaru_ledger::store::columns::slots::Iter<'_, '_>),
+        with: impl FnMut(amaru_ledger::store::columns::slots::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
-        let mut slots = self.store.slots.borrow_mut();
-
-        let mut owned_slots = BTreeMap::<Slot, slots::Row>::new();
-        std::mem::swap(slots.deref_mut(), &mut owned_slots);
-
-        let mut values: Vec<_> = owned_slots.into_iter().map(|(k, v)| (k, Some(v))).collect();
-
-        let iter = values.iter_mut().map(|(k, v)| {
-            let key = *k;
-            let boxed: Box<dyn BorrowMut<Option<slots::Row>>> = Box::new(RefMutAdapterMut::new(v));
-            (key, boxed)
-        });
-
-        with(Box::new(iter));
-
-        let mut reconstructed: BTreeMap<Slot, slots::Row> = values
-            .into_iter()
-            .filter_map(|(k, v)| Some((k, v?)))
-            .collect();
-
-        std::mem::swap(slots.deref_mut(), &mut reconstructed);
-
-        Ok(())
+        self.with_column(&self.store.slots, with)
     }
 
     fn with_utxo(
         &self,
-        mut with: impl FnMut(amaru_ledger::store::columns::utxo::Iter<'_, '_>),
+        with: impl FnMut(amaru_ledger::store::columns::utxo::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
-        let mut utxos = self.store.utxos.borrow_mut();
-
-        let mut owned_utxos = BTreeMap::<TransactionInput, TransactionOutput>::new();
-        std::mem::swap(utxos.deref_mut(), &mut owned_utxos);
-
-        let mut values: Vec<_> = owned_utxos.into_iter().map(|(k, v)| (k, Some(v))).collect();
-
-        let iter = values.iter_mut().map(|(k, v)| {
-            let key = k.clone();
-            let boxed: Box<dyn BorrowMut<Option<utxo::Value>>> = Box::new(RefMutAdapterMut::new(v));
-            (key, boxed)
-        });
-
-        with(Box::new(iter));
-
-        let mut reconstructed: BTreeMap<TransactionInput, TransactionOutput> = values
-            .into_iter()
-            .filter_map(|(k, v)| Some((k, v?)))
-            .collect();
-
-        std::mem::swap(utxos.deref_mut(), &mut reconstructed);
-        Ok(())
+        self.with_column(&self.store.utxos, with)
     }
 
     fn with_dreps(
         &self,
-        mut with: impl FnMut(amaru_ledger::store::columns::dreps::Iter<'_, '_>),
+        with: impl FnMut(amaru_ledger::store::columns::dreps::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
-        let mut dreps = self.store.dreps.borrow_mut();
-
-        let mut owned_dreps = BTreeMap::<StakeCredential, dreps::Row>::new();
-        std::mem::swap(dreps.deref_mut(), &mut owned_dreps);
-
-        let mut values: Vec<_> = owned_dreps.into_iter().map(|(k, v)| (k, Some(v))).collect();
-
-        let iter = values.iter_mut().map(|(k, v)| {
-            let key = k.clone();
-            let boxed: Box<dyn BorrowMut<Option<dreps::Row>>> = Box::new(RefMutAdapterMut::new(v));
-            (key, boxed)
-        });
-
-        with(Box::new(iter));
-
-        let mut reconstructed: BTreeMap<StakeCredential, dreps::Row> = values
-            .into_iter()
-            .filter_map(|(k, v)| Some((k, v?)))
-            .collect();
-
-        std::mem::swap(dreps.deref_mut(), &mut reconstructed);
-
-        Ok(())
+        self.with_column(&self.store.dreps, with)
     }
 
     fn with_proposals(
         &self,
         mut with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
-    ) -> Result<(), amaru_ledger::store::StoreError> {
-        let mut proposals = self.store.proposals.borrow_mut();
-
-        let mut owned = BTreeMap::<ComparableProposalId, proposals::Row>::new();
-        std::mem::swap(proposals.deref_mut(), &mut owned);
-
-        let mut values: Vec<_> = owned.into_iter().map(|(k, v)| (k, Some(v))).collect();
-
-        let iter = values.iter_mut().map(|(k, v)| {
-            let key = ProposalId::from(k.clone());
-            let boxed: Box<dyn BorrowMut<Option<proposals::Row>>> =
-                Box::new(RefMutAdapterMut::new(v));
-            (key, boxed)
-        });
-
-        with(Box::new(iter));
-
-        let mut reconstructed: BTreeMap<ComparableProposalId, proposals::Row> = values
-            .into_iter()
-            .filter_map(|(k, v)| Some((k, v?)))
-            .collect();
-
-        std::mem::swap(proposals.deref_mut(), &mut reconstructed);
-
-        Ok(())
+    ) -> Result<(), StoreError> {
+        self.with_column(&self.store.proposals, |iter| {
+            let mapped = iter.map(|(k, v)| (ProposalId::from(k), v));
+            with(Box::new(mapped));
+        })
     }
 }
 
@@ -826,56 +546,118 @@ impl Store for MemoryStore {
 // TODO: Implement HistoricalStores on MemoryStore (currently returns a new empty MemoryStore)
 impl HistoricalStores for MemoryStore {
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
-        let era_history: &EraHistory = NetworkName::Preprod.into();
-        Ok(MemoryStore::new(era_history.clone()))
+        Ok(MemoryStore::new(self.era_history.clone()))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::network::NetworkName;
-    use amaru_kernel::EraHistory;
-
-    use crate::in_memory::MemoryStore;
-    use crate::tests::{
-        add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-        test_read_pool, test_read_proposal, test_read_utxo, test_refund_account,
-        test_remove_account, test_remove_drep, test_remove_pool, test_remove_proposal,
-        test_remove_utxo, test_slot_updated,
+    use crate::{
+        in_memory::MemoryStore,
+        tests::{
+            add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
+            test_read_pool, test_read_proposal, test_read_utxo, test_refund_account,
+            test_remove_account, test_remove_drep, test_remove_pool, test_remove_proposal,
+            test_remove_utxo, test_slot_updated, Fixture,
+        },
     };
+    use amaru_kernel::{network::NetworkName, EraHistory};
     use amaru_ledger::store::StoreError;
 
-    #[test]
-    fn test_in_memory_store() -> Result<(), StoreError> {
-        let era_history: EraHistory =
-            (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+    pub fn setup_memory_store() -> Result<(MemoryStore, Fixture), StoreError> {
+        let era_history: &EraHistory = NetworkName::Preprod.into();
         let store = MemoryStore::new(era_history.clone());
+        let fixture = add_test_data_to_store(&store, &era_history)?;
+        Ok((store, fixture))
+    }
 
-        // Add to store test
-        let seeded =
-            add_test_data_to_store(&store, &era_history).expect("adding data to store failed");
+    #[test]
+    fn test_in_mem_read_utxo() {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_read_utxo(&store, &fixture);
+    }
 
-        // Validate add to store & read tests
-        test_read_utxo(&store, &seeded);
-        test_read_account(&store, &seeded);
-        test_read_pool(&store, &seeded);
-        test_read_drep(&store, &seeded);
-        test_read_proposal(&store, &seeded);
-        // TODO: Add cc_members iterator to validate getting stored cc_member works as intended
+    #[test]
+    fn test_in_mem_read_account() {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_read_account(&store, &fixture);
+    }
 
-        // Transactional tests
-        test_refund_account(&store, &seeded)?;
-        test_epoch_transition(&store)?;
-        test_slot_updated(&store, &seeded)?;
+    #[test]
+    fn test_in_mem_read_pool() {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_read_pool(&store, &fixture);
+    }
 
-        // Validate removal tests
-        test_remove_utxo(&store, &seeded)?;
-        test_remove_account(&store, &seeded)?;
-        test_remove_pool(&store, &seeded)?;
-        test_remove_drep(&store, &seeded)?;
-        test_remove_proposal(&store, &seeded)?;
-        // TODO: Add cc_members iterator to validate removal works as intended
+    #[test]
+    fn test_in_mem_read_drep() {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_read_drep(&store, &fixture);
+    }
 
-        Ok(())
+    #[test]
+    fn test_in_mem_read_proposal() {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_read_proposal(&store, &fixture);
+    }
+
+    #[test]
+    fn test_in_mem_refund_account() -> Result<(), StoreError> {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_refund_account(&store, &fixture)
+    }
+
+    #[test]
+    fn test_in_mem_epoch_transition() -> Result<(), StoreError> {
+        let (store, _) = setup_memory_store().expect("Failed to add test data to store");
+        test_epoch_transition(&store)
+    }
+
+    #[test]
+    fn test_in_mem_slot_updated() -> Result<(), StoreError> {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_slot_updated(&store, &fixture)
+    }
+
+    #[test]
+    fn test_in_mem_remove_utxo() -> Result<(), StoreError> {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_remove_utxo(&store, &fixture)
+    }
+
+    #[test]
+    fn test_in_mem_remove_account() -> Result<(), StoreError> {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_remove_account(&store, &fixture)
+    }
+
+    #[test]
+    fn test_in_mem_remove_pool() -> Result<(), StoreError> {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_remove_pool(&store, &fixture)
+    }
+
+    #[test]
+    fn test_in_mem_remove_drep() -> Result<(), StoreError> {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_remove_drep(&store, &fixture)
+    }
+
+    #[test]
+    fn test_in_mem_remove_proposal() -> Result<(), StoreError> {
+        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        test_remove_proposal(&store, &fixture)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_in_mem_iterate_cc_members() {
+        todo!("Add test to validate getting stored cc_member works as intended");
+    }
+
+    #[test]
+    #[ignore]
+    fn test_in_mem_remove_cc_members() {
+        todo!("Add test to validate removal of cc_member works as intended");
     }
 }
