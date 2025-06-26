@@ -7,8 +7,8 @@ use amaru_ledger::{
     context,
     rules::{self, block::BlockValidation},
     state::{State, VolatileState},
-    store::in_memory::MemoryStore,
 };
+use amaru_stores::in_memory::MemoryStore;
 use std::collections::BTreeMap;
 
 type BlockWrapper<'b> = (u16, MintedBlock<'b>);
