@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+# CONFIGURATION
+AWS_DEFAULT_REGION="auto"
+SOURCE_DIR="${1:-./snapshots}"
+
+# Check if a file exists in the bucket
+object_exists() {
+  local key="$1"
+  aws s3api head-object \
+    --bucket "$BUCKET_NAME" \
+    --key "$key" \
+    --endpoint-url "$ENDPOINT" \
+    >/dev/null 2>&1
+}
+
+# Get the size of a remote object in bytes
+get_remote_size() {
+  local key="$1"
+  aws s3api head-object \
+    --bucket "$BUCKET_NAME" \
+    --key "$key" \
+    --query 'ContentLength' \
+    --output text \
+    --endpoint-url "$ENDPOINT"
+}
+
+# Upload a file to the bucket
+upload_file() {
+  local file="$1"
+  local key="$2"
+  aws s3 cp "$file" "s3://$BUCKET_NAME/$key" \
+    --endpoint-url "$ENDPOINT"
+}
+
+if [ ! -d "$SOURCE_DIR" ]; then
+  echo "Error: Directory '$SOURCE_DIR' not found."
+  exit 1
+fi
+
+if [ -z "${AWS_ACCESS_KEY_ID:-}" ] || [ -z "${AWS_SECRET_ACCESS_KEY:-}" ] || [ -z "${BUCKET_NAME:-}" ] || [ -z "${ENDPOINT:-}" ]; then
+  echo "Error: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY must be set as environment variables."
+  echo "Example:"
+  echo "  export AWS_ACCESS_KEY_ID=\"<your-access-key>\""
+  echo "  export AWS_SECRET_ACCESS_KEY=\"<your-secret-key>\""
+  echo "  export BUCKET_NAME=\"<your-bucket-name>\""
+  echo "  export ENDPOINT=\"<your-endpoint>\""
+  exit 1
+fi
+
+echo "Uploading all files in '$SOURCE_DIR' (flattened) to bucket '$BUCKET_NAME'..."
+
+find "$SOURCE_DIR" -type f | while read -r file; do
+  filename="$(basename "$file")"
+  local_size=$(stat -c%s "$file")
+
+  if object_exists "$filename"; then
+    remote_size=$(get_remote_size "$filename")
+    if [ "$local_size" -eq "$remote_size" ]; then
+      echo "Skipping (already exists): $filename"
+      continue
+    else
+      echo "Re-uploading (size mismatch): $filename"
+    fi
+  else
+    echo "Uploading (new file): $filename"
+  fi
+
+  upload_file "$file" "$filename"
+done
+
+echo "Uploaded all snapshots!"
