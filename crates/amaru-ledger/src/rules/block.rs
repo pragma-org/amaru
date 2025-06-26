@@ -23,7 +23,7 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryDataHash, ExUnits, HasExUnits, Hasher,
-    MintedBlock, OriginalHash, TransactionId, TransactionPointer,
+    MintedBlock, Network, OriginalHash, TransactionId, TransactionPointer,
 };
 use slot_arithmetic::Slot;
 use std::{
@@ -163,6 +163,7 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 #[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     context: &mut C,
+    network: &Network,
     protocol_params: &ProtocolParameters,
     block: &MintedBlock<'_>,
 ) -> BlockValidation<(), anyhow::Error> {
@@ -217,6 +218,7 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
 
         if let Err(err) = transaction::execute(
             context,
+            network,
             protocol_params,
             pointer,
             !failed_transactions.has(i),

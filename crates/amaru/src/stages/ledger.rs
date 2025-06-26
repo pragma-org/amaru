@@ -1,7 +1,7 @@
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Hasher, MintedBlock, Point, RawBlock,
+    EraHistory, Hash, Hasher, MintedBlock, Network, Point, RawBlock,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -30,6 +30,7 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
+    network: Network,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
@@ -51,6 +52,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     pub fn new(
         store: S,
         snapshots: HS,
+        network: Network,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
     ) -> Result<(Self, Point), StoreError> {
@@ -63,6 +65,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
+                network,
             },
             tip,
         ))
@@ -127,7 +130,12 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
         let protocol_version = block.header.header_body.protocol_version;
-        match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
+        match rules::validate_block(
+            &mut context,
+            &self.network,
+            self.state.protocol_parameters(),
+            &block,
+        ) {
             BlockValidation::Err(err) => Err(err),
             BlockValidation::Invalid(err) => {
                 error!("Block invalid: {}", err);
