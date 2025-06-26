@@ -261,7 +261,7 @@ impl<H: IsHeader + Clone> ChainSelectorBuilder<H> {
         ChainSelectorBuilder {
             tip: None,
             peers: Vec::new(),
-            max_fragment_length: 1000,
+            max_fragment_length: DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
         }
     }
 

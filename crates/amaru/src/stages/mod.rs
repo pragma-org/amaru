@@ -138,7 +138,11 @@ pub fn bootstrap(
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
 
-    let chain_selector = make_chain_selector(&header, &peer_sessions)?;
+    let chain_selector = make_chain_selector(
+        &header,
+        &peer_sessions,
+        global_parameters.consensus_security_param,
+    )?;
     let consensus = match ledger_stage {
         LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
             Arc::new(validate_block_stage.state.view_stake_distribution()),
@@ -331,8 +335,11 @@ fn make_ledger(
 fn make_chain_selector(
     header: &Option<Header>,
     peers: &Vec<PeerSession>,
+    consensus_security_parameter: usize,
 ) -> Result<Arc<Mutex<ChainSelector<Header>>>, ConsensusError> {
     let mut builder = ChainSelectorBuilder::new();
+
+    builder.set_max_fragment_length(consensus_security_parameter);
 
     match header {
         Some(h) => builder.set_tip(h),
