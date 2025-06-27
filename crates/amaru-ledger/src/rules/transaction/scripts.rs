@@ -1,10 +1,27 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    display_collection, get_provided_scripts, script_purpose_to_string, BorrowedScript, DatumHash,
-    DatumOption, MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash,
+    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, MemoizedDatum,
+    MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash, ScriptKind,
     ScriptPurpose,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -45,7 +62,7 @@ pub enum InvalidScripts {
 // TODO: Split this whole function into smaller functions to make it more graspable.
 pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
 where
-    C: UtxoSlice + WitnessSlice,
+    C: UtxoSlice + WitnessSlice + fmt::Debug,
 {
     let required_scripts = context.required_scripts();
 
@@ -140,7 +157,7 @@ where
 /// The function fails if there's any input with missing mandatory datum (i.e. Plutus V1 or V2
 /// script-locked inputs without datum; those are simply "forever" unspendable).
 fn partition_scripts(
-    required_scripts: Vec<(RequiredScript, &BorrowedScript<'_>)>,
+    required_scripts: Vec<(RequiredScript, &ScriptKind)>,
 ) -> Result<(Vec<RedeemersKey>, BTreeSet<DatumHash>), InvalidScripts> {
     let mut required_redeemers = Vec::new();
     let mut required_datums = BTreeSet::new();
@@ -151,7 +168,7 @@ fn partition_scripts(
         .for_each(|(required_script, script)| {
             let RequiredScript {
                 index,
-                datum_option,
+                datum,
                 hash: _,
                 purpose,
             } = required_script;
@@ -160,35 +177,37 @@ fn partition_scripts(
                 || required_redeemers.push(RedeemersKey::from(required_script));
 
             let mut unspendable_without_datum = || {
-                if purpose == &ScriptPurpose::Spend && datum_option.is_none() {
+                if purpose == &ScriptPurpose::Spend && matches!(datum, MemoizedDatum::None) {
                     missing_datums.insert(*index);
                 }
             };
 
-            let mut require_datum_preimage = || match datum_option {
-                Some(DatumOption::Hash(hash)) => {
+            let mut require_datum_preimage = || match datum {
+                MemoizedDatum::Hash(hash) => {
                     required_datums.insert(*hash);
                 }
-                Some(DatumOption::Data(..)) | None => {}
+                MemoizedDatum::Inline(..) | MemoizedDatum::None => {}
             };
 
             match script {
                 // NOTE: One may very well send some funds to a native script, and attach a
                 // datum hash to it. In which case, the datum has no effect and is simply
                 // ignored.
-                BorrowedScript::NativeScript(..) => {}
+                ScriptKind::Native => {}
 
-                BorrowedScript::PlutusV1Script(..) => {
+                ScriptKind::PlutusV1 => {
                     require_redeemer();
                     unspendable_without_datum();
                     require_datum_preimage();
                 }
-                BorrowedScript::PlutusV2Script(..) => {
+
+                ScriptKind::PlutusV2 => {
                     require_redeemer();
                     unspendable_without_datum();
                     require_datum_preimage();
                 }
-                BorrowedScript::PlutusV3Script(..) => {
+
+                ScriptKind::PlutusV3 => {
                     require_redeemer();
                     require_datum_preimage();
                 }
@@ -219,7 +238,7 @@ fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
     required: &BTreeSet<&ScriptHash>,
     witness_set: &'a MintedWitnessSet<'_>,
-) -> BTreeMap<ScriptHash, BorrowedScript<'a>>
+) -> BTreeMap<ScriptHash, ScriptKind>
 where
     C: WitnessSlice,
 {
@@ -229,7 +248,7 @@ where
         // We only consider script references required by the transaction
         .filter_map(|(script_hash, script_ref)| {
             if required.contains(&script_hash) {
-                Some((script_hash, BorrowedScript::from(script_ref)))
+                Some((script_hash, ScriptKind::from(script_ref)))
             } else {
                 None
             }
@@ -243,10 +262,10 @@ where
 
 /// Ensures that the required and provided scripts match exactly (i.e. check that they're included
 /// in each other).
-fn fail_on_script_symmetric_differences<'a>(
+fn fail_on_script_symmetric_differences(
     required: BTreeSet<RequiredScript>,
-    provided: &'a BTreeMap<ScriptHash, BorrowedScript<'a>>,
-) -> Result<Vec<(RequiredScript, &'a BorrowedScript<'a>)>, InvalidScripts> {
+    provided: &BTreeMap<ScriptHash, ScriptKind>,
+) -> Result<Vec<(RequiredScript, &ScriptKind)>, InvalidScripts> {
     let mut missing = BTreeSet::new();
     let mut existing = BTreeSet::new();
 
@@ -398,8 +417,7 @@ mod tests {
             )
         };
     }
-    // TODO: Enable with #314: https://github.com/pragma-org/amaru/pull/314
-    // #[test_case(fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0"); "incorrect missing script due to re-serialisation")]
+    #[test_case(fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0"); "incorrect missing script due to re-serialisation")]
     #[test_case(fixture!("ebd7cda7805bc5b89c0fb3c8ad44f6549ab72c1040eb47019146e3f5f98298e1"); "native script locked with datum")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e"); "happy path")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output");

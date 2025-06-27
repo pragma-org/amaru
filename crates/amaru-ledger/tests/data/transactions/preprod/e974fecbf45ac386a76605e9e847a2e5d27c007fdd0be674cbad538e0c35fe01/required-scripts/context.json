@@ -6,7 +6,10 @@
         "index": 0
       },
       {
-        "address": "00de8bcbaa9dca00d04184221a39b6eb1feea604f96d464f8e3c20484fb5f97564c79d450ab5bc2cda0794c31de0676e168798f0d50eda0e6f"
+        "address": "00de8bcbaa9dca00d04184221a39b6eb1feea604f96d464f8e3c20484fb5f97564c79d450ab5bc2cda0794c31de0676e168798f0d50eda0e6f",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ]
   ],
@@ -15,7 +18,8 @@
     {
       "hash": "fa24fb305126805cf2164c161d852a0e7330cf988f1fe558cf7d4a64",
       "index": 0,
-      "purpose": "Propose"
+      "purpose": "Propose",
+      "datum": null
     }
   ],
   "required_bootstrap_roots": []

@@ -21,6 +21,7 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
+use crate::network::NetworkName;
 use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     Error, *,
@@ -44,6 +45,7 @@ use std::{
     ops::Deref,
 };
 
+pub use memoized::*;
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
     minicbor as cbor,
@@ -67,17 +69,16 @@ pub use pallas_primitives::{
         TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
         Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
-    DatumHash, PlutusData,
+    AssetName, DatumHash, PlutusData,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 pub use sha3;
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 
-use crate::network::NetworkName;
-
 pub mod block;
 pub mod macros;
+pub mod memoized;
 pub mod network;
 pub mod protocol_parameters;
 pub mod serde_utils;
@@ -105,8 +106,7 @@ pub struct RequiredScript {
     pub hash: ScriptHash,
     pub index: u32,
     pub purpose: ScriptPurpose,
-    #[serde(default, deserialize_with = "serde_utils::deserialize_option_proxy")]
-    pub datum_option: Option<DatumOption>,
+    pub datum: MemoizedDatum,
 }
 
 impl PartialOrd for RequiredScript {
@@ -267,29 +267,27 @@ impl RedeemersExt for Redeemers {
     }
 }
 
-// This allows us to avoid cloning, but it's a pretty awful API.
-// Ideally, this is something that Pallas would own and cleanup.
-#[derive(Debug, PartialEq, Eq)]
-pub enum BorrowedScript<'a> {
-    NativeScript(&'a NativeScript),
-    PlutusV1Script(&'a PlutusScript<1>),
-    PlutusV2Script(&'a PlutusScript<2>),
-    PlutusV3Script(&'a PlutusScript<3>),
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ScriptKind {
+    Native,
+    PlutusV1,
+    PlutusV2,
+    PlutusV3,
 }
 
-impl BorrowedScript<'_> {
+impl ScriptKind {
     pub fn is_native_script(&self) -> bool {
-        matches!(self, BorrowedScript::NativeScript(..))
+        matches!(self, Self::Native)
     }
 }
 
-impl<'a> From<&'a PseudoScript<NativeScript>> for BorrowedScript<'a> {
-    fn from(value: &'a PseudoScript<NativeScript>) -> Self {
+impl<'a, T> From<&'a PseudoScript<T>> for ScriptKind {
+    fn from(value: &'a PseudoScript<T>) -> Self {
         match value {
-            PseudoScript::NativeScript(script) => BorrowedScript::NativeScript(script),
-            PseudoScript::PlutusV1Script(script) => BorrowedScript::PlutusV1Script(script),
-            PseudoScript::PlutusV2Script(script) => BorrowedScript::PlutusV2Script(script),
-            PseudoScript::PlutusV3Script(script) => BorrowedScript::PlutusV3Script(script),
+            PseudoScript::NativeScript(..) => ScriptKind::Native,
+            PseudoScript::PlutusV1Script(..) => ScriptKind::PlutusV1,
+            PseudoScript::PlutusV2Script(..) => ScriptKind::PlutusV2,
+            PseudoScript::PlutusV3Script(..) => ScriptKind::PlutusV3,
         }
     }
 }
@@ -658,17 +656,14 @@ impl HasLovelace for MintedTransactionOutput<'_> {
     }
 }
 
-/// TODO: See 'output_lovelace', same remark applies.
-pub fn output_stake_credential(
-    output: &TransactionOutput,
-) -> Result<Option<StakeCredential>, Error> {
-    let address = Address::from_bytes(match output {
-        TransactionOutput::Legacy(legacy) => &legacy.address[..],
-        TransactionOutput::PostAlonzo(modern) => &modern.address[..],
-    })?;
-    //"unable to deserialise address from output: {output:#?}"
+impl HasLovelace for MemoizedTransactionOutput {
+    fn lovelace(&self) -> Lovelace {
+        self.value.lovelace()
+    }
+}
 
-    Ok(match address {
+pub fn output_stake_credential(output: &MemoizedTransactionOutput) -> Option<StakeCredential> {
+    match &output.address {
         Address::Shelley(shelley) => match shelley.delegation() {
             ShelleyDelegationPart::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
             ShelleyDelegationPart::Script(script) => Some(StakeCredential::ScriptHash(*script)),
@@ -676,7 +671,7 @@ pub fn output_stake_credential(
         },
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
-    })
+    }
 }
 
 // StakeAddress
@@ -806,30 +801,29 @@ impl HasExUnits for MintedBlock<'_> {
 }
 
 /// Collect provided scripts and compute each ScriptHash in a witness set
-pub fn get_provided_scripts<'a>(
-    witness_set: &'a MintedWitnessSet<'_>,
-) -> BTreeMap<ScriptHash, BorrowedScript<'a>> {
+pub fn get_provided_scripts(
+    witness_set: &MintedWitnessSet<'_>,
+) -> BTreeMap<ScriptHash, ScriptKind> {
     let mut provided_scripts = BTreeMap::new();
 
     if let Some(native_scripts) = witness_set.native_script.as_ref() {
-        provided_scripts.extend(native_scripts.iter().map(|native_script| {
-            (
-                native_script.script_hash(),
-                BorrowedScript::NativeScript(native_script.deref()),
-            )
-        }))
+        provided_scripts.extend(
+            native_scripts
+                .iter()
+                .map(|native_script| (native_script.script_hash(), ScriptKind::Native)),
+        )
     };
 
-    fn collect_plutus_scripts<'a, const VERSION: usize>(
-        accum: &mut BTreeMap<ScriptHash, BorrowedScript<'a>>,
-        scripts: Option<&'a NonEmptySet<PlutusScript<VERSION>>>,
-        lift: impl Fn(&'a PlutusScript<VERSION>) -> BorrowedScript<'a>,
+    fn collect_plutus_scripts<const VERSION: usize>(
+        accum: &mut BTreeMap<ScriptHash, ScriptKind>,
+        scripts: Option<&NonEmptySet<PlutusScript<VERSION>>>,
+        kind: ScriptKind,
     ) {
         if let Some(plutus_scripts) = scripts {
             accum.extend(
                 plutus_scripts
                     .iter()
-                    .map(|script| (script.script_hash(), lift(script))),
+                    .map(|script| (script.script_hash(), kind)),
             )
         }
     }
@@ -837,17 +831,19 @@ pub fn get_provided_scripts<'a>(
     collect_plutus_scripts(
         &mut provided_scripts,
         witness_set.plutus_v1_script.as_ref(),
-        BorrowedScript::PlutusV1Script,
+        ScriptKind::PlutusV1,
     );
+
     collect_plutus_scripts(
         &mut provided_scripts,
         witness_set.plutus_v2_script.as_ref(),
-        BorrowedScript::PlutusV2Script,
+        ScriptKind::PlutusV2,
     );
+
     collect_plutus_scripts(
         &mut provided_scripts,
         witness_set.plutus_v3_script.as_ref(),
-        BorrowedScript::PlutusV3Script,
+        ScriptKind::PlutusV3,
     );
 
     provided_scripts
@@ -905,21 +901,6 @@ impl HasDatum for TransactionOutput {
                 .datum_option
                 .as_ref()
                 .map(BorrowedDatumOption::from),
-        }
-    }
-}
-
-pub trait HasScriptRef {
-    fn has_script_ref(&self) -> Option<&ScriptRef>;
-}
-
-impl HasScriptRef for TransactionOutput {
-    fn has_script_ref(&self) -> Option<&ScriptRef> {
-        match self {
-            TransactionOutput::PostAlonzo(transaction_output) => {
-                transaction_output.script_ref.as_deref()
-            }
-            TransactionOutput::Legacy(_) => None,
         }
     }
 }
@@ -1031,18 +1012,26 @@ pub trait HasScriptHash {
     fn script_hash(&self) -> ScriptHash;
 }
 
-impl HasScriptHash for MintedScriptRef<'_> {
+impl<A: HasScriptHash> HasScriptHash for PseudoScript<A> {
     fn script_hash(&self) -> ScriptHash {
         match self {
-            PseudoScript::NativeScript(native_script) => {
-                let mut buffer: Vec<u8> = vec![0];
-                buffer.extend_from_slice(native_script.raw_cbor());
-                Hasher::<224>::hash(&buffer)
-            }
+            PseudoScript::NativeScript(native_script) => native_script.script_hash(),
             PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
             PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
             PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
         }
+    }
+}
+
+impl HasScriptHash for MemoizedNativeScript {
+    fn script_hash(&self) -> ScriptHash {
+        native_script_hash(self.original_bytes())
+    }
+}
+
+impl HasScriptHash for KeepRaw<'_, NativeScript> {
+    fn script_hash(&self) -> ScriptHash {
+        native_script_hash(self.raw_cbor())
     }
 }
 
@@ -1076,20 +1065,20 @@ impl HasScriptHash for ScriptRef {
     }
 }
 
-impl HasScriptHash for KeepRaw<'_, NativeScript> {
-    fn script_hash(&self) -> ScriptHash {
-        let mut buffer: Vec<u8> = vec![0];
-        buffer.extend_from_slice(self.raw_cbor());
-        Hasher::<224>::hash(&buffer)
-    }
+fn native_script_hash(bytes: &[u8]) -> ScriptHash {
+    tagged_script_hash(0, bytes)
 }
 
 impl<const VERSION: usize> HasScriptHash for PlutusScript<VERSION> {
     fn script_hash(&self) -> ScriptHash {
-        let mut buffer: Vec<u8> = vec![VERSION as u8];
-        buffer.extend_from_slice(self.as_ref());
-        Hasher::<224>::hash(&buffer)
+        tagged_script_hash(VERSION as u8, self.as_ref())
     }
+}
+
+fn tagged_script_hash(tag: u8, bytes: &[u8]) -> ScriptHash {
+    let mut buffer: Vec<u8> = vec![tag];
+    buffer.extend_from_slice(bytes);
+    Hasher::<224>::hash(&buffer)
 }
 
 /// Construct the bootstrap root from a bootstrap witness
