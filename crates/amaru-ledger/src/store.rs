@@ -13,7 +13,6 @@
 // limitations under the License.
 
 pub mod columns;
-pub mod in_memory;
 
 use crate::summary::Pots;
 use amaru_kernel::{
@@ -114,6 +113,10 @@ pub trait Snapshot: ReadOnlyStore {
 }
 
 pub trait Store: ReadOnlyStore {
+    type Transaction<'a>: TransactionalContext<'a>
+    where
+        Self: 'a;
+
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
     #[allow(clippy::panic)]
@@ -140,7 +143,7 @@ pub trait Store: ReadOnlyStore {
     fn next_snapshot(&self, epoch: Epoch) -> Result<(), StoreError>;
 
     /// Create a new transaction context. This is used to perform updates on the store.
-    fn create_transaction(&self) -> impl TransactionalContext<'_>;
+    fn create_transaction(&self) -> Self::Transaction<'_>;
 
     /// Access the tip of the stable store, corresponding to the latest point that was saved.
     fn tip(&self) -> Result<Point, StoreError>;
@@ -151,7 +154,7 @@ pub trait HistoricalStores {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
 
-#[derive(Debug, PartialEq, Eq, minicbor::Encode, minicbor::Decode)]
+#[derive(Debug, PartialEq, Eq, minicbor::Encode, minicbor::Decode, Clone)]
 pub enum EpochTransitionProgress {
     #[n(0)]
     EpochEnded,
@@ -282,6 +285,26 @@ impl<U, P, A, D, C, PP> Default
             dreps: iter::empty(),
             cc_members: iter::empty(),
             proposals: iter::empty(),
+        }
+    }
+}
+
+impl<U, P, A, D, C, PP> Columns<U, P, A, D, C, PP> {
+    pub fn empty() -> Columns<
+        std::iter::Empty<U>,
+        std::iter::Empty<P>,
+        std::iter::Empty<A>,
+        std::iter::Empty<D>,
+        std::iter::Empty<C>,
+        std::iter::Empty<PP>,
+    > {
+        Columns {
+            utxo: std::iter::empty(),
+            pools: std::iter::empty(),
+            accounts: std::iter::empty(),
+            dreps: std::iter::empty(),
+            cc_members: std::iter::empty(),
+            proposals: std::iter::empty(),
         }
     }
 }

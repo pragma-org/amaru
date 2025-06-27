@@ -313,7 +313,7 @@ fn with_prefix_iterator<
     Ok(())
 }
 
-struct RocksDBTransactionalContext<'a> {
+pub struct RocksDBTransactionalContext<'a> {
     db: &'a RocksDB,
     transaction: Transaction<'a, OptimisticTransactionDB>,
 }
@@ -524,6 +524,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 }
 
 impl Store for RocksDB {
+    type Transaction<'a> = RocksDBTransactionalContext<'a>;
+
     fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
         RocksDB::snapshots(&self.dir)
     }
@@ -548,9 +550,8 @@ impl Store for RocksDB {
     }
 
     #[allow(clippy::panic)] // Expected
-    fn create_transaction(&self) -> impl TransactionalContext<'_> {
+    fn create_transaction(&self) -> Self::Transaction<'_> {
         if self.ongoing_transaction.get() {
-            // Thats a bug in the code, we should never have two transactions at the same time
             panic!("RocksDB already has an ongoing transaction");
         }
         let transaction = self.db.transaction();
@@ -606,5 +607,137 @@ impl Snapshot for RocksDBSnapshot {
 impl HistoricalStores for RocksDBHistoricalStores {
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
         RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_kernel::network::NetworkName;
+    use amaru_kernel::EraHistory;
+    use proptest::test_runner::TestRunner;
+    use tempfile::TempDir;
+
+    use crate::rocksdb::RocksDB;
+    use crate::tests::{
+        add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
+        test_read_pool, test_read_proposal, test_read_utxo, test_refund_account,
+        test_remove_account, test_remove_drep, test_remove_pool, test_remove_proposal,
+        test_remove_utxo, test_slot_updated, Fixture,
+    };
+    use amaru_ledger::store::StoreError;
+
+    fn setup_rocksdb_store(runner: &mut TestRunner) -> Result<(RocksDB, Fixture), StoreError> {
+        let era_history: EraHistory =
+            (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let tmp_dir = TempDir::new().expect("failed to create temp dir");
+
+        let store = RocksDB::empty(tmp_dir.path(), &era_history)
+            .map_err(|e| StoreError::Internal(e.into()))?;
+
+        let fixture = add_test_data_to_store(&store, &era_history, runner)?;
+        Ok((store, fixture))
+    }
+
+    #[test]
+    fn test_rocksdb_read_utxo() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_utxo(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_read_account() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_account(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_read_pool() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_pool(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_read_drep() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_drep(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_read_proposal() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_proposal(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_refund_account() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_refund_account(&store, &fixture, &mut runner)
+    }
+
+    #[test]
+    fn test_rocksdb_epoch_transition() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, _) = setup_rocksdb_store(&mut runner)?;
+        test_epoch_transition(&store)
+    }
+
+    #[test]
+    fn test_rocksdb_slot_updated() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_slot_updated(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_utxo() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_utxo(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_account() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_account(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_pool() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_pool(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_drep() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_drep(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_proposal() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_proposal(&store, &fixture)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rocksdb_iterate_cc_members() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rocksdb_remove_cc_members() {
+        unimplemented!()
     }
 }
