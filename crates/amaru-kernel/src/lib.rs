@@ -271,7 +271,6 @@ impl<'b> Decode<'b, ()> for Point {
 
 #[derive(Debug, Clone)]
 pub struct TransactionInputAdapter(TransactionInput);
-pub type DisplayableTransactionInput = TransactionInputAdapter;
 
 impl Deref for TransactionInputAdapter {
     type Target = TransactionInput;

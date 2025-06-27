@@ -1,8 +1,8 @@
 use std::collections::BTreeMap;
 
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AlonzoValue, DisplayableTransactionInput,
-    MemoizedTransactionOutput, MintedTransactionOutput, TransactionInput, Value,
+    protocol_parameters::ProtocolParameters, AlonzoValue, MemoizedTransactionOutput,
+    MintedTransactionOutput, TransactionInput, TransactionInputAdapter, Value,
 };
 use thiserror::Error;
 
@@ -68,11 +68,11 @@ impl From<&AlonzoValue> for CollateralBalance {
 #[derive(Debug, Error)]
 pub enum InvalidCollateral {
     #[error("Unknown input: {0}")]
-    UnknownInput(DisplayableTransactionInput),
+    UnknownInput(TransactionInputAdapter),
     #[error("too many collateral inputs: provided: {provided} allowed: {allowed}")]
     TooManyInputs { provided: usize, allowed: usize },
     #[error("a collateral input is locked at a script address: {0}")]
-    LockedAtScriptAddress(DisplayableTransactionInput),
+    LockedAtScriptAddress(TransactionInputAdapter),
     #[error("total collateral value is insufficient: provided: {provided} required: {required}")]
     InsufficientBalance { provided: u64, required: u64 },
     #[error("total collateral field (expected) does not equal actual collateral (provided): provided: {provided} expected: {expected} ")]

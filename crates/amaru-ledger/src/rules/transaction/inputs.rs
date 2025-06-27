@@ -14,15 +14,15 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, DisplayableTransactionInput, HasScriptHash, MemoizedDatum, RequiredScript,
-    ScriptPurpose, TransactionInput,
+    AddrType, Address, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose,
+    TransactionInput, TransactionInputAdapter,
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
     #[error("Unknown input: {0}")]
-    UnknownInput(DisplayableTransactionInput),
+    UnknownInput(TransactionInputAdapter),
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
         intersection
@@ -34,7 +34,7 @@ pub enum InvalidInputs {
             .join(", ")
     )]
     NonDisjointRefInputs {
-        intersection: Vec<DisplayableTransactionInput>,
+        intersection: Vec<TransactionInputAdapter>,
     },
     #[error("input set empty")]
     EmptyInputSet,
