@@ -18,5 +18,5 @@
       "purpose": "Propose"
     }
   ],
-  "required_bootstrap_signers": []
+  "required_bootstrap_roots": []
 }

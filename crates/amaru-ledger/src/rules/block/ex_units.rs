@@ -14,12 +14,12 @@
 
 use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnits};
 
-use super::{BlockValidation, InvalidBlockDetails};
+use super::InvalidBlockDetails;
 
-pub fn block_ex_units_valid<E>(
+pub fn block_ex_units_valid(
     ex_units: Vec<ExUnits>,
     protocol_parameters: &ProtocolParameters,
-) -> BlockValidation<(), E> {
+) -> Result<(), InvalidBlockDetails> {
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally
 
     let pp_max_ex_units = protocol_parameters.max_block_ex_units;
@@ -28,10 +28,10 @@ pub fn block_ex_units_valid<E>(
         .fold(ExUnits { mem: 0, steps: 0 }, sum_ex_units);
 
     if ex_units.mem <= pp_max_ex_units.mem && ex_units.steps <= pp_max_ex_units.steps {
-        return BlockValidation::Valid(());
+        return Ok(());
     }
 
-    BlockValidation::Invalid(InvalidBlockDetails::TooManyExUnits {
+    Err(InvalidBlockDetails::TooManyExUnits {
         provided: ex_units,
         max: ExUnits {
             mem: pp_max_ex_units.mem,
@@ -42,7 +42,7 @@ pub fn block_ex_units_valid<E>(
 
 #[cfg(test)]
 mod tests {
-    use crate::rules::block::{BlockValidation, InvalidBlockDetails};
+    use crate::rules::block::InvalidBlockDetails;
     use amaru_kernel::{
         include_cbor, protocol_parameters::ProtocolParameters, ExUnits, HasExUnits, MintedBlock,
     };
@@ -70,11 +70,11 @@ mod tests {
             steps: 0
         },
         ..Default::default()
-    }) => matches BlockValidation::Invalid(InvalidBlockDetails::TooManyExUnits{provided, max: _})
+    }) => matches Err(InvalidBlockDetails::TooManyExUnits{provided, max: _})
     if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
     fn test_ex_units(
         (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
-    ) -> BlockValidation<(), String> {
+    ) -> Result<(), InvalidBlockDetails> {
         super::block_ex_units_valid(block.ex_units(), &protocol_parameters)
     }
 }

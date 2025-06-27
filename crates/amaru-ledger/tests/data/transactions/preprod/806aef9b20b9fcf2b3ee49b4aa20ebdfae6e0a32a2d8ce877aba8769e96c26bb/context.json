@@ -5,5 +5,5 @@
     "00000000000000000000000000000000000000000000000000000000"
   ],
   "required_scripts": [],
-  "required_bootstrap_signers": []
+  "required_bootstrap_roots": []
 }
