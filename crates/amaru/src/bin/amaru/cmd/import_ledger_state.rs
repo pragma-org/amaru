@@ -14,9 +14,9 @@
 
 use amaru_kernel::{
     default_ledger_dir, network::NetworkName, protocol_parameters::ProtocolParameters, Anchor,
-    CertificatePointer, DRep, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, Set, Slot, StakeCredential, TransactionInput, TransactionOutput,
-    TransactionPointer,
+    CertificatePointer, DRep, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential,
+    TransactionInput, TransactionPointer,
 };
 use amaru_ledger::{
     self,
@@ -282,9 +282,9 @@ fn decode_new_epoch_state(
     import_utxo(
         db,
         point,
-        d.decode::<BTreeMap<TransactionInput, TransactionOutput>>()?
+        d.decode::<BTreeMap<TransactionInput, MemoizedTransactionOutput>>()?
             .into_iter()
-            .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
+            .collect::<Vec<(TransactionInput, MemoizedTransactionOutput)>>(),
     )?;
 
     let _deposited: u64 = d.decode()?;
@@ -412,7 +412,7 @@ fn import_block_issuers(
 fn import_utxo(
     db: &impl Store,
     point: &Point,
-    mut utxo: Vec<(TransactionInput, TransactionOutput)>,
+    mut utxo: Vec<(TransactionInput, MemoizedTransactionOutput)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(what = "utxo_entries", size = utxo.len());
 

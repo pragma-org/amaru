@@ -17,8 +17,8 @@ use crate::context::{
     PoolsSlice, RegisterError, UnregisterError, UpdateError, WitnessSlice,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Certificate, CertificatePointer, DRep, NonEmptySet,
-    PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose, StakeCredential,
+    protocol_parameters::ProtocolParameters, Certificate, CertificatePointer, DRep, MemoizedDatum,
+    NonEmptySet, PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose, StakeCredential,
     TransactionPointer,
 };
 use slot_arithmetic::Epoch;
@@ -92,7 +92,7 @@ where
             hash,
             index: pointer.certificate_index as u32,
             purpose: ScriptPurpose::Cert,
-            datum_option: None,
+            datum: MemoizedDatum::None,
         }
     };
 
