@@ -14,11 +14,141 @@
 
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
+use crate::protocol_parameters::GlobalParameters;
 use pallas_addresses::Network;
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Summary};
 use slot_arithmetic::{Epoch, Slot};
 
-use crate::protocol_parameters::GlobalParameters;
+/// Era history for Mainnet retrieved with:
+///
+/// ```bash
+/// curl -X POST "https://mainnet.koios.rest/api/v1/ogmios"
+///  -H 'accept: application/json'
+///  -H 'content-type: application/json'
+///  -d '{"jsonrpc":"2.0","method":"queryLedgerState/eraSummaries"}' | jq -c '.result'
+/// ```
+///
+static MAINNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
+    let eras: [Summary; 7] = [
+        Summary {
+            start: Bound {
+                time_ms: 0,
+                slot: Slot::from(0),
+                epoch: Epoch::from(0),
+            },
+            end: Bound {
+                time_ms: 89856000,
+                slot: Slot::from(4492800),
+                epoch: Epoch::from(208),
+            },
+            params: EraParams {
+                epoch_size_slots: 21600,
+                slot_length: 20000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 89856000,
+                slot: Slot::from(4492800),
+                epoch: Epoch::from(208),
+            },
+            end: Bound {
+                time_ms: 101952000,
+                slot: Slot::from(16588800),
+                epoch: Epoch::from(236),
+            },
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 101952000,
+                slot: Slot::from(16588800),
+                epoch: Epoch::from(236),
+            },
+            end: Bound {
+                time_ms: 108432000,
+                slot: Slot::from(23068800),
+                epoch: Epoch::from(251),
+            },
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 108432000,
+                slot: Slot::from(23068800),
+                epoch: Epoch::from(251),
+            },
+            end: Bound {
+                time_ms: 125280000,
+                slot: Slot::from(39916800),
+                epoch: Epoch::from(290),
+            },
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 125280000,
+                slot: Slot::from(39916800),
+                epoch: Epoch::from(290),
+            },
+            end: Bound {
+                time_ms: 157680000,
+                slot: Slot::from(72316800),
+                epoch: Epoch::from(365),
+            },
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 157680000,
+                slot: Slot::from(72316800),
+                epoch: Epoch::from(365),
+            },
+            end: Bound {
+                time_ms: 219024000,
+                slot: Slot::from(133660800),
+                epoch: Epoch::from(507),
+            },
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+        Summary {
+            start: Bound {
+                time_ms: 219024000,
+                slot: Slot::from(133660800),
+                epoch: Epoch::from(507),
+            },
+            end: Bound {
+                time_ms: 244944000,
+                slot: Slot::from(159580800),
+                epoch: Epoch::from(567),
+            },
+
+            params: EraParams {
+                epoch_size_slots: 432000,
+                slot_length: 1000,
+            },
+        },
+    ];
+
+    EraHistory {
+        eras: eras.to_vec(),
+    }
+});
 
 /// Era history for Preprod retrieved with:
 ///
@@ -318,17 +448,37 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
     }
 });
 
-#[allow(clippy::todo)]
 impl From<NetworkName> for &EraHistory {
     fn from(value: NetworkName) -> Self {
         match value {
-            NetworkName::Mainnet => todo!(),
+            NetworkName::Mainnet => &MAINNET_ERA_HISTORY,
             NetworkName::Preprod => &PREPROD_ERA_HISTORY,
             NetworkName::Preview => &PREVIEW_ERA_HISTORY,
             NetworkName::Testnet(_) => &TESTNET_ERA_HISTORY,
         }
     }
 }
+
+static MAINNET_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
+    // https://cips.cardano.org/cip/CIP-9
+    let consensus_security_param = 2160;
+    let active_slot_coeff_inverse = 20;
+    let epoch_length_scale_factor = 10;
+    let epoch_length =
+        active_slot_coeff_inverse * epoch_length_scale_factor * consensus_security_param;
+    GlobalParameters {
+        consensus_security_param,
+        epoch_length_scale_factor,
+        active_slot_coeff_inverse,
+        max_lovelace_supply: 45_000_000_000_000_000,
+        slots_per_kes_period: 129_600,
+        max_kes_evolution: 62,
+        epoch_length,
+        stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
+        randomness_stabilization_window: (4 * consensus_security_param * active_slot_coeff_inverse)
+            as u64,
+    }
+});
 
 static PREPROD_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| {
     // https://cips.cardano.org/cip/CIP-9
@@ -395,7 +545,7 @@ static TESTNET_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| 
 impl From<NetworkName> for &GlobalParameters {
     fn from(value: NetworkName) -> Self {
         match value {
-            NetworkName::Mainnet => todo!(),
+            NetworkName::Mainnet => &MAINNET_GLOBAL_PARAMETERS,
             NetworkName::Preprod => &PREPROD_GLOBAL_PARAMETERS,
             NetworkName::Preview => &PREVIEW_GLOBAL_PARAMETERS,
             NetworkName::Testnet(_) => &TESTNET_GLOBAL_PARAMETERS,

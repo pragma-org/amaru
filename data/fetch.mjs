@@ -28,6 +28,10 @@ if (includeSnapshots) {
 
 // Each point corresponds to the last point of the associated epoch.
 const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
+if (!snapshots || !Array.isArray(snapshots)) {
+  console.error(`Invalid or missing snapshots in ${configFile}`);
+  process.exit(1);
+}
 
 const additionalStakeKeys = additionalStakeAddresses.reduce(collectAddressType(14), []);
 
@@ -70,11 +74,11 @@ process.stderr.cursorTo(0, 0);
 process.stderr.clearScreenDown();
 
 let frame = 0;
-const spinner = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const spinnerId = setInterval(() => {
   process.stderr.cursorTo(0, points.length);
   process.stderr.clearLine(0);
-  process.stderr.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)": ""}`);
+  process.stderr.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)" : ""}`);
   frame = (frame + 1) % spinner.length;
 }, 100);
 
@@ -129,9 +133,9 @@ function step(ws, i, point, done) {
 
     if (error) {
       if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
-    	process.stderr.clearLine(0);
+        process.stderr.clearLine(0);
         process.stderr.write(`${point.slot} => [error ${error.code}] ${error.message} (${error.data})`);
-	return done(false);
+        return done(false);
       }
 
       process.stderr.write(`${point.slot} => not available yet...`);
@@ -224,18 +228,18 @@ async function fetchDReps(ws, { stakePools }) {
   // new epoch state snapshot.
   let { verificationKey: keys, script: scripts } = Object.keys(stakePools).reduce((accum, pool) => {
     stakePools[pool].delegators.forEach((delegator) => {
-       accum[delegator.from].add(delegator.credential);
+      accum[delegator.from].add(delegator.credential);
     });
 
     return accum;
   }, { verificationKey: new Set(), script: new Set() });
 
   const drepsMap = dreps.reduce((accum, drep) => {
-    drep.delegators.forEach((delegator) => {
+    drep.delegators?.forEach((delegator) => {
       if (delegator.from === "verificationKey") {
-	keys.add(delegator.credential);
+        keys.add(delegator.credential);
       } else {
-	scripts.add(delegator.credential);
+        scripts.add(delegator.credential);
       }
     });
 

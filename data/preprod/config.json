@@ -1,4 +1,5 @@
 {
+  "snapshots": [ 163, 164, 165 ],
   "points": [
     {  "epoch": 163, "id": "6f99b5f3deaeae8dc43fce3db2f3cd36ad8ed174ca3400b5b1bed76fdf248912", "slot": 69206375},
     {  "epoch": 164, "id": "5da6ba37a4a07df015c4ea92c880e3600d7f098b97e73816f8df04bbb5fad3b7", "slot": 69638382},

@@ -42,9 +42,9 @@ pub fn block_ex_units_valid<E>(
 
 #[cfg(test)]
 mod tests {
-    use crate::rules::block::{BlockValidation, InvalidBlockDetails};
+    use crate::rules::block::{ex_units, BlockValidation, InvalidBlockDetails};
     use amaru_kernel::{
-        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, HasExUnits, MintedBlock,
+        include_cbor, protocol_parameters::ProtocolParameters, ExUnits, MintedBlock,
     };
     use test_case::test_case;
 
@@ -75,6 +75,9 @@ mod tests {
     fn test_ex_units(
         (block, protocol_parameters): (MintedBlock<'_>, ProtocolParameters),
     ) -> BlockValidation<(), String> {
-        super::block_ex_units_valid(block.ex_units(), &protocol_parameters)
+        super::block_ex_units_valid(
+            ex_units(&block.transaction_witness_sets),
+            &protocol_parameters,
+        )
     }
 }
