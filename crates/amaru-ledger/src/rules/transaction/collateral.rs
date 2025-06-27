@@ -73,8 +73,6 @@ pub enum InvalidCollateral {
     TooManyInputs { provided: usize, allowed: usize },
     #[error("a collateral input is locked at a script address: {0}")]
     LockedAtScriptAddress(DisplayableTransactionInput),
-    #[error("a collateral input contains non ADA value: {0}")]
-    ContainsNonAda(DisplayableTransactionInput),
     #[error("total collateral value is insufficient: provided: {provided} required: {required}")]
     InsufficientBalance { provided: u64, required: u64 },
     #[error("total collateral field (expected) does not equal actual collateral (provided): provided: {provided} expected: {expected} ")]
@@ -198,5 +196,122 @@ fn add_value_to_balance(balance: &mut CollateralBalance, output: &MemoizedTransa
             .entry(key)
             .and_modify(|v| *v += value)
             .or_insert(value);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use amaru_kernel::{
+        include_cbor, include_json, protocol_parameters::ProtocolParameters, KeepRaw,
+        MintedTransactionBody,
+    };
+
+    use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
+
+    use test_case::test_case;
+
+    use super::InvalidCollateral;
+
+    macro_rules! fixture {
+        ($hash:literal) => {
+            (
+                fixture_context!($hash),
+                include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
+                ProtocolParameters::default(),
+            )
+        };
+        ($hash:literal, $variant:literal) => {
+            (
+                fixture_context!($hash, $variant),
+                include_cbor!(concat!(
+                    "transactions/preprod/",
+                    $hash,
+                    "/",
+                    $variant,
+                    "/tx.cbor"
+                )),
+                ProtocolParameters::default(),
+            )
+        };
+    }
+
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "no-collateral-return");
+        "happy path - ada only collateral"
+    )]
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1");
+        "happy path - ada only collateral with return and total field"
+    )]
+    #[test_case(
+        fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9");
+        "happy path - assets in collateral with return"
+    )]
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "max-collateral-inputs") =>
+        matches Err(InvalidCollateral::TooManyInputs { .. });
+        "max collateral inputs"
+    )]
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "unknown-input") =>
+        matches Err(InvalidCollateral::UnknownInput(..));
+        "unknown input"
+    )]
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "locked-at-script") =>
+        matches Err(InvalidCollateral::LockedAtScriptAddress(..));
+        "locked at script"
+    )]
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "no-collateral") =>
+        matches Err(InvalidCollateral::NoCollateral);
+        "no collateral"
+    )]
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "insufficient-balance") =>
+        matches Err(InvalidCollateral::InsufficientBalance { .. });
+        "insufficient balance"
+    )]
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "incorrect-total-collateral") =>
+        matches Err(InvalidCollateral::IncorrectTotalCollateral { .. });
+        "incorrect total balance"
+    )]
+    #[test_case(
+        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "invalid-address") =>
+        matches Err(InvalidCollateral::UncategorizedError(..));
+        "invalid adddress"
+    )]
+    #[test_case(
+        fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9", "no-collateral-return") =>
+        matches Err(InvalidCollateral::ValueNotConserved);
+        "value not conserved - no collateral return"
+    )]
+    #[test_case(
+        fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9", "value-not-conserved-inputs") =>
+        matches Err(InvalidCollateral::ValueNotConserved);
+        "value not conserved - inputs > outputs"
+    )]
+    #[test_case(
+        fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9", "value-not-conserved-outputs") =>
+        matches Err(InvalidCollateral::ValueNotConserved);
+        "value not conserved - outputs > inputs"
+    )]
+    fn collateral(
+        (mut ctx, tx, pp): (
+            AssertValidationContext,
+            KeepRaw<'_, MintedTransactionBody<'_>>,
+            ProtocolParameters,
+        ),
+    ) -> Result<(), InvalidCollateral> {
+        super::execute(
+            &mut ctx,
+            tx.collateral.as_deref().map(|vec| vec.as_slice()),
+            tx.collateral_return.as_ref(),
+            tx.total_collateral,
+            tx.fee,
+            &pp,
+        )
     }
 }

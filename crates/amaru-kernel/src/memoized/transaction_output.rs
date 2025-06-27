@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use pallas_primitives::{conway::Multiasset, Hash, PolicyId, PositiveCoin};
+
 use crate::{
     cbor,
     script::{encode_script, serialize_memoized_script, PlaceholderScript},
@@ -385,11 +387,45 @@ fn serialize_value<S: serde::ser::Serializer>(
     }
 }
 
-// FIXME: Eventually allow deserializing complete values, not just coins.
 fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Value, D::Error> {
-    Ok(Value::Coin(serde::Deserialize::deserialize(deserializer)?))
+    #[derive(serde::Deserialize)]
+    #[serde(untagged)]
+    enum ValueHelper {
+        Coin(u64),
+        Multiasset(u64, Vec<(Vec<u8>, Vec<(Vec<u8>, u64)>)>),
+    }
+
+    let helper: ValueHelper = serde::Deserialize::deserialize(deserializer)?;
+
+    match helper {
+        ValueHelper::Coin(coin) => Ok(Value::Coin(coin)),
+        ValueHelper::Multiasset(coin, multiasset) => {
+            let multiasset: Multiasset<PositiveCoin> = Multiasset::from_vec(
+                multiasset
+                    .into_iter()
+                    .map(|(policy_id, assets)| {
+                        (
+                            Hash::from(policy_id.as_slice()),
+                            NonEmptyKeyValuePairs::from_vec(
+                                assets
+                                    .into_iter()
+                                    .map(|(asset_name, quantity)| {
+                                        (asset_name.into(), quantity.try_into().unwrap())
+                                    })
+                                    .collect::<Vec<(AssetName, PositiveCoin)>>(),
+                            )
+                            .unwrap(),
+                        )
+                    })
+                    .collect::<Vec<(PolicyId, NonEmptyKeyValuePairs<AssetName, PositiveCoin>)>>(),
+            )
+            .unwrap();
+
+            Ok(Value::Multiasset(coin, multiasset))
+        }
+    }
 }
 
 pub fn serialize_script<S: serde::ser::Serializer>(

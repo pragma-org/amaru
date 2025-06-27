@@ -27,11 +27,8 @@ use pallas_addresses::{
     Error, *,
 };
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
-use pallas_primitives::{
-    conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
-        RedeemersValue,
-    },
+use pallas_primitives::conway::{
+    MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag, RedeemersValue,
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
@@ -61,20 +58,20 @@ pub use pallas_primitives::{
     alonzo::Value as AlonzoValue,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
-        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
+        AddrKeyhash, Anchor, AssetName, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness,
+        Certificate, Coin, Constitution, Constr, Constr, CostModel, CostModels, DRep,
+        DRepVotingThresholds, DatumHash, DatumHash, DatumOption, DnsName, ExUnitPrices, ExUnits,
+        GovAction, GovActionId as ProposalId, HeaderBody, IPv4, IPv6, KeepRaw, MaybeIndefArray,
+        MaybeIndefArray, MintedBlock, MintedDatumOption, MintedScriptRef, MintedTransactionBody,
+        MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt,
+        PlutusData, PlutusData, PlutusScript, PolicyId, PoolMetadata, PoolVotingThresholds, Port,
+        PositiveCoin, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
         ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
         RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
         ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
         TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
         VotingProcedures, VrfKeyhash, WitnessSet,
     },
-    AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
-    PlutusScript, PolicyId, Port, PositiveCoin,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
