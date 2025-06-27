@@ -453,7 +453,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         proposals::add(self.store, add.proposals)?;
 
         accounts::reset_many(self.store, withdrawals)?;
-        dreps::tick(self.store, &voting_dreps, &point)?;
+        dreps::tick(self.store, &voting_dreps, point)?;
 
         utxo::remove(self.store, remove.utxo)?;
         pools::remove(self.store, remove.pools)?;
@@ -563,101 +563,129 @@ mod tests {
     };
     use amaru_kernel::{network::NetworkName, EraHistory};
     use amaru_ledger::store::StoreError;
+    use proptest::test_runner::TestRunner;
 
-    pub fn setup_memory_store() -> Result<(MemoryStore, Fixture), StoreError> {
+    pub fn setup_memory_store(
+        runner: &mut TestRunner,
+    ) -> Result<(MemoryStore, Fixture), StoreError> {
         let era_history: &EraHistory = NetworkName::Preprod.into();
         let store = MemoryStore::new(era_history.clone());
-        let fixture = add_test_data_to_store(&store, &era_history)?;
+        let fixture = add_test_data_to_store(&store, era_history, runner)?;
         Ok((store, fixture))
     }
 
     #[test]
     fn test_in_mem_read_utxo() {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_utxo(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_read_account() {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_account(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_read_pool() {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_pool(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_read_drep() {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_drep(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_read_proposal() {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_read_proposal(&store, &fixture);
     }
 
     #[test]
     fn test_in_mem_refund_account() -> Result<(), StoreError> {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
-        test_refund_account(&store, &fixture)
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
+        test_refund_account(&store, &fixture, &mut runner)
     }
 
     #[test]
     fn test_in_mem_epoch_transition() -> Result<(), StoreError> {
-        let (store, _) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, _) = setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_epoch_transition(&store)
     }
 
     #[test]
     fn test_in_mem_slot_updated() -> Result<(), StoreError> {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_slot_updated(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_remove_utxo() -> Result<(), StoreError> {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_utxo(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_remove_account() -> Result<(), StoreError> {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_account(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_remove_pool() -> Result<(), StoreError> {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_pool(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_remove_drep() -> Result<(), StoreError> {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_drep(&store, &fixture)
     }
 
     #[test]
     fn test_in_mem_remove_proposal() -> Result<(), StoreError> {
-        let (store, fixture) = setup_memory_store().expect("Failed to add test data to store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) =
+            setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_proposal(&store, &fixture)
     }
 
     #[test]
     #[ignore]
     fn test_in_mem_iterate_cc_members() {
-        todo!("Add test to validate getting stored cc_member works as intended");
+        unimplemented!()
     }
 
     #[test]
     #[ignore]
     fn test_in_mem_remove_cc_members() {
-        todo!("Add test to validate removal of cc_member works as intended");
+        unimplemented!()
     }
 }

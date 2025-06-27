@@ -16,9 +16,6 @@ pub mod in_memory;
 pub mod rocksdb;
 
 #[cfg(test)]
-pub mod test_utils;
-
-#[cfg(test)]
 pub mod tests {
     use std::collections::BTreeSet;
 
@@ -33,127 +30,16 @@ pub mod tests {
         state::diff_bind,
         store::{
             columns::{
-                accounts::{self},
-                cc_members::{self},
-                dreps, proposals,
+                accounts::{self, any_stake_credential},
+                dreps,
+                pools::any_pool_id,
+                proposals::{self, any_proposal_id},
+                slots::any_slot,
+                utxo::{any_pseudo_transaction_output, any_txin},
             },
             Columns, ReadOnlyStore, Store, StoreError, TransactionalContext,
         },
     };
-
-    use crate::test_utils::{
-        accounts::test::any_stake_credential,
-        pools::tests::{any_pool_id, any_pool_params},
-        slots::tests::any_slot,
-        utxo::test::{any_pseudo_transaction_output, any_txin},
-    };
-
-    fn generate_txin() -> TransactionInput {
-        any_txin()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current()
-    }
-
-    fn generate_output() -> TransactionOutput {
-        any_pseudo_transaction_output()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current()
-    }
-
-    fn generate_stake_credential() -> StakeCredential {
-        any_stake_credential()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current()
-    }
-
-    fn generate_account_row() -> accounts::Row {
-        crate::test_utils::accounts::test::any_row()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current()
-    }
-
-    fn generate_pool_row() -> (PoolParams, Epoch) {
-        let pool_params = any_pool_params()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current();
-
-        let epoch = Epoch::from(0u64);
-
-        (pool_params, epoch)
-    }
-
-    fn generate_pool_id() -> PoolId {
-        any_pool_id()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current()
-    }
-
-    fn generate_slot() -> Slot {
-        any_slot()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current()
-    }
-
-    fn generate_drep_row() -> dreps::Row {
-        let mut row = crate::test_utils::dreps::tests::any_row()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current();
-        if row.anchor.is_none() {
-            row.anchor = Some(dummy_anchor());
-        }
-        row.previous_deregistration = None;
-        row.last_interaction = None;
-
-        row
-    }
-
-    fn dummy_anchor() -> Anchor {
-        Anchor {
-            url: "https://example.com".to_string(),
-            content_hash: Hash::from([0u8; 32]),
-        }
-    }
-
-    fn generate_proposal_id() -> ProposalId {
-        crate::test_utils::proposals::tests::any_proposal_id()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current()
-    }
-
-    fn generate_proposal_row() -> amaru_ledger::store::columns::proposals::Row {
-        crate::test_utils::proposals::tests::any_row()
-            .new_tree(&mut TestRunner::default())
-            .unwrap()
-            .current()
-    }
-
-    fn generate_cc_member_row() -> cc_members::Row {
-        let mut runner = TestRunner::default();
-
-        let mut row = crate::test_utils::cc_members::test::any_row()
-            .new_tree(&mut runner)
-            .unwrap()
-            .current();
-
-        if row.hot_credential.is_none() {
-            let hot = any_stake_credential()
-                .new_tree(&mut runner)
-                .unwrap()
-                .current();
-            row.hot_credential = Some(hot);
-        }
-
-        row
-    }
 
     #[derive(Debug, Clone)]
     pub struct Fixture {
@@ -176,19 +62,26 @@ pub mod tests {
     pub fn add_test_data_to_store(
         store: &impl Store,
         era_history: &EraHistory,
+        runner: &mut TestRunner,
     ) -> Result<Fixture, StoreError> {
         use diff_bind::Resettable;
 
         // utxos
-        let txin = generate_txin();
-        let output = generate_output();
+        let txin = any_txin().new_tree(runner).unwrap().current();
+        let output = any_pseudo_transaction_output()
+            .new_tree(runner)
+            .unwrap()
+            .current();
         let utxos_iter = std::iter::once((txin.clone(), output.clone()));
 
         // accounts
-        let account_key = generate_stake_credential();
+        let account_key = any_stake_credential().new_tree(runner).unwrap().current();
         let account_key_clone = account_key.clone();
 
-        let account_row = generate_account_row();
+        let account_row = amaru_ledger::store::columns::accounts::any_row()
+            .new_tree(runner)
+            .unwrap()
+            .current();
 
         let delegatee = match &account_row.delegatee {
             Some(pool_id) => Resettable::Set(*pool_id),
@@ -207,12 +100,29 @@ pub mod tests {
             std::iter::once((account_key_clone, (delegatee, drep, rewards, deposit)));
 
         // pools
-        let (pool_params, pool_epoch) = generate_pool_row();
+        let pool_params = amaru_ledger::store::columns::pools::any_pool_params()
+            .new_tree(runner)
+            .unwrap()
+            .current();
+        let pool_epoch = Epoch::from(0u64);
+
         let pools_iter = std::iter::once((pool_params.clone(), pool_epoch));
 
         // dreps
-        let drep_key = generate_stake_credential();
-        let drep_row = generate_drep_row();
+        let drep_key = any_stake_credential().new_tree(runner).unwrap().current();
+        let mut drep_row = amaru_ledger::store::columns::dreps::any_row()
+            .new_tree(runner)
+            .unwrap()
+            .current();
+
+        if drep_row.anchor.is_none() {
+            drep_row.anchor = Some(Anchor {
+                url: "https://example.com".to_string(),
+                content_hash: Hash::from([0u8; 32]),
+            });
+        }
+        drep_row.previous_deregistration = None;
+        drep_row.last_interaction = None;
 
         let anchor = drep_row.anchor.clone().expect("Expected anchor to be Some");
         let deposit = drep_row.deposit;
@@ -232,25 +142,33 @@ pub mod tests {
         ));
 
         // proposals
-        let proposal_key = generate_proposal_id();
-        let proposal_row = generate_proposal_row();
+        let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
+        let proposal_row = amaru_ledger::store::columns::proposals::any_row()
+            .new_tree(runner)
+            .unwrap()
+            .current();
         let proposal_iter = std::iter::once((proposal_key.clone(), proposal_row.clone()));
 
         // cc_members
-        let cc_member_key = generate_stake_credential();
-        let cc_member_row = generate_cc_member_row();
-        let hot_credential = cc_member_row
-            .hot_credential
-            .clone()
-            .expect("Expected Some hot_credential");
-        let cc_members_iter = std::iter::once((
-            cc_member_key.clone(),
-            Resettable::Set(hot_credential.clone()),
-        ));
+        let cc_member_key = any_stake_credential().new_tree(runner).unwrap().current();
+        let mut cc_member_row = amaru_ledger::store::columns::cc_members::any_row()
+            .new_tree(runner)
+            .unwrap()
+            .current();
 
-        let slot = generate_slot();
+        // Ensure hot_credential is always Some
+        cc_member_row
+            .hot_credential
+            .get_or_insert_with(|| any_stake_credential().new_tree(runner).unwrap().current());
+
+        let hot_credential = cc_member_row.hot_credential.clone().unwrap();
+
+        let cc_members_iter =
+            std::iter::once((cc_member_key.clone(), Resettable::Set(hot_credential)));
+
+        let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot.into(), Hash::from([0u8; 32]).to_vec());
-        let slot_leader = generate_pool_id();
+        let slot_leader = any_pool_id().new_tree(runner).unwrap().current();
 
         {
             let context = store.create_transaction();
@@ -634,7 +552,11 @@ pub mod tests {
         Ok(())
     }
 
-    pub fn test_refund_account(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
+    pub fn test_refund_account(
+        store: &impl Store,
+        fixture: &Fixture,
+        runner: &mut TestRunner,
+    ) -> Result<(), StoreError> {
         let refund_amount = 100;
 
         let context = store.create_transaction();
@@ -673,7 +595,7 @@ pub mod tests {
         );
 
         {
-            let unknown = generate_stake_credential();
+            let unknown = any_stake_credential().new_tree(runner).unwrap().current();
             assert_ne!(unknown, fixture.account_key);
 
             let context = store.create_transaction();

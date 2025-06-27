@@ -28,4 +28,5 @@ slot-arithmetic.workspace = true
 
 [dev-dependencies]
 proptest = { workspace = true, features = [ "std" ] }
+amaru-ledger = { path = "../amaru-ledger", features = ["test-utils"] }
 tempfile.workspace = true

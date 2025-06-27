@@ -66,3 +66,26 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         Ok(Row::new(treasury, reserves, fees))
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+use amaru_kernel::prop_cbor_roundtrip;
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::prelude::*;
+
+#[cfg(any(test, feature = "test-utils"))]
+prop_compose! {
+    pub fn any_row()(
+        treasury in any::<Lovelace>(),
+        reserves in any::<Lovelace>(),
+        fees in any::<Lovelace>(),
+    ) -> Row {
+        Row {
+            treasury,
+            reserves,
+            fees,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row());

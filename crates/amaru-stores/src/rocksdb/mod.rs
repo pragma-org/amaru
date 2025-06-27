@@ -614,6 +614,7 @@ impl HistoricalStores for RocksDBHistoricalStores {
 mod tests {
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::EraHistory;
+    use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 
     use crate::rocksdb::RocksDB;
@@ -625,7 +626,7 @@ mod tests {
     };
     use amaru_ledger::store::StoreError;
 
-    fn setup_rocksdb_store() -> Result<(RocksDB, Fixture), StoreError> {
+    fn setup_rocksdb_store(runner: &mut TestRunner) -> Result<(RocksDB, Fixture), StoreError> {
         let era_history: EraHistory =
             (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let tmp_dir = TempDir::new().expect("failed to create temp dir");
@@ -633,97 +634,110 @@ mod tests {
         let store = RocksDB::empty(tmp_dir.path(), &era_history)
             .map_err(|e| StoreError::Internal(e.into()))?;
 
-        let fixture = add_test_data_to_store(&store, &era_history)?;
+        let fixture = add_test_data_to_store(&store, &era_history, runner)?;
         Ok((store, fixture))
     }
 
     #[test]
     fn test_rocksdb_read_utxo() {
-        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
         test_read_utxo(&store, &fixture);
     }
 
     #[test]
     fn test_rocksdb_read_account() {
-        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
         test_read_account(&store, &fixture);
     }
 
     #[test]
     fn test_rocksdb_read_pool() {
-        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
         test_read_pool(&store, &fixture);
     }
 
     #[test]
     fn test_rocksdb_read_drep() {
-        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
         test_read_drep(&store, &fixture);
     }
 
     #[test]
     fn test_rocksdb_read_proposal() {
-        let (store, fixture) = setup_rocksdb_store().expect("Failed to setup store");
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
         test_read_proposal(&store, &fixture);
     }
 
     #[test]
     fn test_rocksdb_refund_account() -> Result<(), StoreError> {
-        let (store, fixture) = setup_rocksdb_store()?;
-        test_refund_account(&store, &fixture)
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_refund_account(&store, &fixture, &mut runner)
     }
 
     #[test]
     fn test_rocksdb_epoch_transition() -> Result<(), StoreError> {
-        let (store, _) = setup_rocksdb_store()?;
+        let mut runner = TestRunner::default();
+        let (store, _) = setup_rocksdb_store(&mut runner)?;
         test_epoch_transition(&store)
     }
 
     #[test]
     fn test_rocksdb_slot_updated() -> Result<(), StoreError> {
-        let (store, fixture) = setup_rocksdb_store()?;
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_slot_updated(&store, &fixture)
     }
 
     #[test]
     fn test_rocksdb_remove_utxo() -> Result<(), StoreError> {
-        let (store, fixture) = setup_rocksdb_store()?;
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_remove_utxo(&store, &fixture)
     }
 
     #[test]
     fn test_rocksdb_remove_account() -> Result<(), StoreError> {
-        let (store, fixture) = setup_rocksdb_store()?;
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_remove_account(&store, &fixture)
     }
 
     #[test]
     fn test_rocksdb_remove_pool() -> Result<(), StoreError> {
-        let (store, fixture) = setup_rocksdb_store()?;
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_remove_pool(&store, &fixture)
     }
 
     #[test]
     fn test_rocksdb_remove_drep() -> Result<(), StoreError> {
-        let (store, fixture) = setup_rocksdb_store()?;
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_remove_drep(&store, &fixture)
     }
 
     #[test]
     fn test_rocksdb_remove_proposal() -> Result<(), StoreError> {
-        let (store, fixture) = setup_rocksdb_store()?;
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_remove_proposal(&store, &fixture)
     }
 
     #[test]
     #[ignore]
     fn test_rocksdb_iterate_cc_members() {
-        todo!("Add test to validate getting stored cc_member works as intended");
+        unimplemented!()
     }
 
     #[test]
     #[ignore]
     fn test_rocksdb_remove_cc_members() {
-        todo!("Add test to validate removal of cc_member works as intended");
+        unimplemented!()
     }
 }

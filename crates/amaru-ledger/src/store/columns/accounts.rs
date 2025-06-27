@@ -80,3 +80,56 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         })
     }
 }
+#[cfg(any(test, feature = "test-utils"))]
+use crate::store::columns::{dreps::any_certificate_pointer, pools::any_pool_id};
+#[cfg(any(test, feature = "test-utils"))]
+#[cfg(any(test, feature = "test-utils"))]
+use amaru_kernel::{prop_cbor_roundtrip, Hash};
+#[cfg(any(test, feature = "test-utils"))]
+use proptest::{option, prelude::*, prop_compose};
+
+#[cfg(any(test, feature = "test-utils"))]
+pub fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
+    prop_oneof![
+        any::<[u8; 28]>().prop_map(|hash| StakeCredential::AddrKeyhash(Hash::new(hash))),
+        any::<[u8; 28]>().prop_map(|hash| StakeCredential::ScriptHash(Hash::new(hash))),
+    ]
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+prop_compose! {
+    pub fn any_drep()(
+        credential in any::<[u8; 28]>(),
+        kind in any::<u8>(),
+    ) -> DRep {
+        let kind = kind % 4;
+        match kind {
+            0 => DRep::Key(Hash::from(credential)),
+            1 => DRep::Script(Hash::from(credential)),
+            2 => DRep::Abstain,
+            3 => DRep::NoConfidence,
+            _ => unreachable!("% 4")
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+prop_compose! {
+    pub fn any_row()(
+        delegatee in option::of(any_pool_id()),
+        deposit in any::<Lovelace>(),
+        drep in option::of(any_drep()),
+        drep_registered_at in any_certificate_pointer(),
+        rewards in any::<Lovelace>(),
+    ) -> Row {
+        Row {
+            delegatee,
+            deposit,
+            drep: drep.map(|drep| (drep, drep_registered_at)),
+            rewards,
+        }
+    }
+}
+
+#[cfg(any(test, feature = "test-utils"))]
+prop_cbor_roundtrip!(Row, any_row());

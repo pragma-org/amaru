@@ -12,6 +12,10 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-utils = ["proptest", "slot-arithmetic/test-utils"]
+
 [dependencies]
 hex.workspace = true
 num.workspace = true
@@ -25,9 +29,9 @@ amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 slot-arithmetic.workspace = true
 tracing-json.workspace = true
+proptest = { workspace = true, features = ["std"], optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true, features = [ "std" ] }
 slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
 test-case.workspace = true
 amaru-stores = { workspace = true }

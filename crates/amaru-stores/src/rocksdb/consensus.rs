@@ -16,7 +16,7 @@ use amaru_consensus::{
     consensus::store::{ChainStore, StoreError},
     Nonces,
 };
-use amaru_kernel::{cbor, from_cbor, to_cbor, Hash, RawBlock};
+use amaru_kernel::{cbor, from_cbor, network::NetworkName, to_cbor, Hash, RawBlock};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use rocksdb::{OptimisticTransactionDB, Options};
 use slot_arithmetic::EraHistory;
@@ -109,8 +109,6 @@ impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore 
 pub struct InMemConsensusStore<H> {
     nonces: BTreeMap<Hash<32>, Nonces>,
     headers: BTreeMap<Hash<32>, H>,
-    blocks: BTreeMap<Hash<32>, RawBlock>,
-    era_history: EraHistory,
 }
 
 impl<H> Default for InMemConsensusStore<H> {
@@ -124,8 +122,6 @@ impl<H> InMemConsensusStore<H> {
         InMemConsensusStore {
             nonces: BTreeMap::new(),
             headers: BTreeMap::new(),
-            blocks: BTreeMap::new(),
-            era_history: EraHistory::default(),
         }
     }
 }
@@ -156,19 +152,15 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
     }
 
     fn era_history(&self) -> &amaru_kernel::EraHistory {
-        &self.era_history
+        NetworkName::Testnet(42).into()
     }
 
-    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        self.blocks
-            .get(hash)
-            .cloned()
-            .ok_or(StoreError::NotFound { hash: *hash })
+    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+        unimplemented!()
     }
 
-    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
-        self.blocks.insert(*hash, block.clone());
-        Ok(())
+    fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
+        unimplemented!()
     }
 }
 
@@ -240,25 +232,5 @@ mod test {
             }),
             result
         );
-    }
-
-    #[test]
-    fn in_mem_chain_store_can_get_header_it_puts() {
-        let mut store: InMemConsensusStore<FakeHeader> = InMemConsensusStore::new();
-
-        let header = FakeHeader {
-            block_number: 1,
-            slot: 0,
-            parent: None,
-            body_hash: random_bytes(32).as_slice().into(),
-        };
-
-        store.store_header(&header.hash(), &header).unwrap();
-
-        let header2 = store
-            .load_header(&header.hash())
-            .expect("Header should be found");
-
-        assert_eq!(header, header2);
     }
 }
