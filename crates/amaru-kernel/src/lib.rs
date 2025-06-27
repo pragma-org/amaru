@@ -31,10 +31,7 @@ use pallas_codec::{
 };
 use pallas_primitives::{
     alonzo::Value as AlonzoValue,
-    conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
-        RedeemersValue,
-    },
+    conway::{MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption},
     DatumHash, PlutusData, PlutusScript,
 };
 use sha3::{Digest as _, Sha3_256};
@@ -43,7 +40,7 @@ use std::{
     cmp::Ordering,
     collections::BTreeSet,
     convert::Infallible,
-    fmt::{self, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     ops::Deref,
 };
 
@@ -66,9 +63,10 @@ pub use pallas_primitives::{
         MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
         PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
         ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
-        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
-        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        RedeemerTag, Redeemers, RedeemersKey, RedeemersValue, Relay, RewardAccount, ScriptHash,
+        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
+        WitnessSet,
     },
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
@@ -226,48 +224,6 @@ pub type PoolId = Hash<28>;
 pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
-
-pub struct ExUnitsIter<'a> {
-    source: ExUnitsIterSource<'a>,
-}
-
-type ExUnitsMapIter<'a> = std::iter::Map<
-    std::slice::Iter<'a, (RedeemersKey, RedeemersValue)>,
-    fn(&(RedeemersKey, RedeemersValue)) -> ExUnits,
->;
-
-enum ExUnitsIterSource<'a> {
-    List(std::iter::Map<std::slice::Iter<'a, Redeemer>, fn(&Redeemer) -> ExUnits>),
-    Map(ExUnitsMapIter<'a>),
-}
-
-impl Iterator for ExUnitsIter<'_> {
-    type Item = ExUnits;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.source {
-            ExUnitsIterSource::List(iter) => iter.next(),
-            ExUnitsIterSource::Map(iter) => iter.next(),
-        }
-    }
-}
-
-pub trait RedeemersExt {
-    fn ex_units_iter(&self) -> ExUnitsIter<'_>;
-}
-
-impl RedeemersExt for Redeemers {
-    fn ex_units_iter(&self) -> ExUnitsIter<'_> {
-        match self {
-            Redeemers::List(list) => ExUnitsIter {
-                source: ExUnitsIterSource::List(list.iter().map(|r| r.ex_units)),
-            },
-            Redeemers::Map(map) => ExUnitsIter {
-                source: ExUnitsIterSource::Map(map.iter().map(|(_, r)| r.ex_units)),
-            },
-        }
-    }
-}
 
 // This allows us to avoid cloning, but it's a pretty awful API.
 // Ideally, this is something that Pallas would own and cleanup.
@@ -809,20 +765,6 @@ pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<Sta
 pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
-}
-
-pub trait HasExUnits {
-    fn ex_units(&self) -> Vec<ExUnits>;
-}
-
-impl HasExUnits for MintedBlock<'_> {
-    fn ex_units(&self) -> Vec<ExUnits> {
-        self.transaction_witness_sets
-            .iter()
-            .flat_map(|witness_set| &witness_set.redeemer)
-            .flat_map(|redeemers| redeemers.ex_units_iter())
-            .collect()
-    }
 }
 
 /// Calculate the total ex units in a witness set

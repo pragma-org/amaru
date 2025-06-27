@@ -22,11 +22,14 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, ExUnits, HasExUnits, Hasher,
-    MintedBlock, Network, OriginalHash, TransactionId, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, ExUnits, Hasher, MintedBlock,
+    Network, OriginalHash, RedeemerTag, Redeemers, RedeemersValue, TransactionId,
+    TransactionPointer,
 };
 use slot_arithmetic::Slot;
 use std::{
+    cmp::Ordering,
+    collections::BTreeMap,
     fmt::Display,
     ops::{ControlFlow, Deref, FromResidual, Try},
     process::{ExitCode, Termination},
@@ -160,6 +163,95 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
     }
 }
 
+// FIXME Required as pallas RedeemersKey does not implement Ord
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RedeemersKey {
+    pub tag: RedeemerTag,
+    pub index: u32,
+}
+
+fn tag_order(tag: &RedeemerTag) -> u8 {
+    match tag {
+        RedeemerTag::Spend => 0,
+        RedeemerTag::Mint => 1,
+        RedeemerTag::Cert => 2,
+        RedeemerTag::Reward => 3,
+        RedeemerTag::Vote => 4,
+        RedeemerTag::Propose => 5,
+    }
+}
+
+impl Ord for RedeemersKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let tag_order = tag_order(&self.tag).cmp(&tag_order(&other.tag));
+        if tag_order == Ordering::Equal {
+            self.index.cmp(&other.index)
+        } else {
+            tag_order
+        }
+    }
+}
+
+impl PartialOrd for RedeemersKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+// Flatten all redeemers kind into a map
+fn redeemers_as_map(redeemers: &Redeemers) -> BTreeMap<RedeemersKey, RedeemersValue> {
+    match redeemers {
+        Redeemers::List(list) => list
+            .iter()
+            .map(|redeemer| {
+                (
+                    RedeemersKey {
+                        tag: redeemer.tag,
+                        index: redeemer.index,
+                    },
+                    RedeemersValue {
+                        ex_units: redeemer.ex_units,
+                        data: redeemer.data.clone(),
+                    },
+                )
+            })
+            .collect(),
+        Redeemers::Map(map) => map
+            .iter()
+            .map(|(key, r)| {
+                (
+                    RedeemersKey {
+                        tag: key.tag,
+                        index: key.index,
+                    },
+                    r.clone(),
+                )
+            })
+            .collect(),
+    }
+}
+
+pub fn ex_units(
+    witness_sets: &Vec<amaru_kernel::KeepRaw<'_, amaru_kernel::MintedWitnessSet<'_>>>,
+) -> Vec<ExUnits> {
+    let unique_redeemers = witness_sets.iter().fold(
+        BTreeMap::new(),
+        |acc: BTreeMap<RedeemersKey, RedeemersValue>, witness_set| {
+            let redeemers = witness_set
+                .redeemer
+                .clone()
+                .map(|redeemer| redeemers_as_map(redeemer.deref()));
+            acc.into_iter()
+                .chain(redeemers.into_iter().flatten())
+                .collect()
+        },
+    );
+    unique_redeemers
+        .values()
+        .map(|redeemers| redeemers.ex_units)
+        .collect::<Vec<_>>()
+}
+
 #[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
 pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     context: &mut C,
@@ -171,11 +263,12 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
 
     body_size::block_body_size_valid(block)?;
 
-    ex_units::block_ex_units_valid(block.ex_units(), protocol_params)?;
+    let witness_sets = block.transaction_witness_sets.deref();
+    let redeemers_ex_units = ex_units(witness_sets);
+
+    ex_units::block_ex_units_valid(redeemers_ex_units, protocol_params)?;
 
     let failed_transactions = FailedTransactions::from_block(block);
-
-    let witness_sets = block.transaction_witness_sets.deref().to_vec();
 
     let transactions = block.transaction_bodies.deref().to_vec();
 
