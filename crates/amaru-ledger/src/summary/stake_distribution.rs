@@ -122,7 +122,7 @@ impl StakeDistribution {
         // output's address and *lovelace* value, so we can skip on deserializing the rest of the value, as
         // well as the datum and/or script references if any.
         db.iter_utxos()?.for_each(|(_, output)| {
-            if let Ok(Some(credential)) = output_stake_credential(&output) {
+            if let Some(credential) = output_stake_credential(&output) {
                 let value = output.lovelace();
                 accounts
                     .entry(credential)

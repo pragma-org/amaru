@@ -1,6 +1,5 @@
-use amaru_kernel::{Multiasset, NonZeroInt, RequiredScript, ScriptPurpose};
-
 use crate::context::{UtxoSlice, WitnessSlice};
+use amaru_kernel::{MemoizedDatum, Multiasset, NonZeroInt, RequiredScript, ScriptPurpose};
 
 pub fn execute<C>(context: &mut C, mint: Option<&Multiasset<NonZeroInt>>)
 where
@@ -16,7 +15,7 @@ where
                 hash: policy,
                 index: mint_index as u32,
                 purpose: ScriptPurpose::Mint,
-                datum_option: None,
+                datum: MemoizedDatum::None,
             })
         }
     }

@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{TransactionInput, TransactionOutput};
+use amaru_kernel::{MemoizedTransactionOutput, TransactionInput};
 use iter_borrow::IterBorrow;
 
 pub type Key = TransactionInput;
 
-pub type Value = TransactionOutput;
+pub type Value = MemoizedTransactionOutput;
 
 /// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;

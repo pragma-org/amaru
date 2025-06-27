@@ -14,8 +14,8 @@
 
 use crate::context::{DRepsSlice, WitnessSlice};
 use amaru_kernel::{
-    NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose, StakeCredential, Voter,
-    VotingProcedure,
+    MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose,
+    StakeCredential, Voter, VotingProcedure,
 };
 
 pub(crate) fn execute<C>(
@@ -55,7 +55,7 @@ pub(crate) fn execute<C>(
                             hash,
                             index: index as u32,
                             purpose: ScriptPurpose::Vote,
-                            datum_option: None,
+                            datum: MemoizedDatum::None,
                         });
                     }
                     StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
