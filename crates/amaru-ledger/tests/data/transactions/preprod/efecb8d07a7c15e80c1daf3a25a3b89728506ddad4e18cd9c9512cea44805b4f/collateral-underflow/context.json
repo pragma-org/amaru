@@ -25,7 +25,7 @@
       },
       {
         "address": "008946d99adcbc18aecae9be72ce70ff36c3d935ef9a02bcb7dc84cdf95124e2df96da3f60e244545c7055088b8b1b69cbefff3933a1cb9659",
-        "value": 5000000
+        "value": { "Coin": 5000000 }
       }
     ]
   ]

@@ -13,13 +13,11 @@
 // limitations under the License.
 
 use pallas_codec::utils::CborWrap;
-use pallas_primitives::{
-    conway::{DatumOption, Hash, ScriptRef},
-    PlutusScript,
-};
 
 use crate::{
-    from_cbor, Bytes, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+    from_cbor, AssetName, Bytes, DatumOption, Hash, Multiasset, NonEmptyKeyValuePairs,
+    PlutusScript, PolicyId, PositiveCoin, PostAlonzoTransactionOutput, ScriptRef, TransactionInput,
+    TransactionOutput, Value,
 };
 use std::{collections::BTreeMap, ops::Deref};
 
@@ -69,7 +67,7 @@ impl HasProxy for TransactionInput {
 pub struct TransactionOutputProxy {
     address: Bytes,
     // TODO: support value that is more than just lovelace
-    value: Option<u64>,
+    value: Option<ValueProxy>,
     script_ref: Option<ScriptRefProxy>,
     datum: Option<DatumOptionProxy>,
     // TODO: expand this
@@ -83,7 +81,7 @@ impl From<TransactionOutputProxy> for TransactionOutput {
     fn from(proxy: TransactionOutputProxy) -> Self {
         Self::PostAlonzo(PostAlonzoTransactionOutput {
             address: proxy.address,
-            value: Value::Coin(proxy.value.unwrap_or_default()),
+            value: proxy.value.map(Value::from).unwrap_or(Value::Coin(0)),
             datum_option: proxy.datum.map(DatumOption::from),
             script_ref: proxy
                 .script_ref
@@ -141,6 +139,48 @@ impl From<DatumOptionProxy> for DatumOption {
             // This code should only be run during tests, so a panic here is fine
             DatumOptionProxy::Data(data) => {
                 DatumOption::Data(CborWrap(from_cbor(data.deref()).unwrap()))
+            }
+        }
+    }
+}
+
+// ------------------------------------------------------------------------------- Value
+#[derive(Debug, serde::Deserialize)]
+pub enum ValueProxy {
+    Coin(u64),
+    Multiasset(u64, Vec<(Bytes, Vec<(Bytes, u64)>)>),
+}
+
+impl From<ValueProxy> for Value {
+    // This logic is only used in testing, so it's okay to panic if we provide invalid data
+    #[allow(clippy::unwrap_used)]
+    fn from(value: ValueProxy) -> Self {
+        match value {
+            ValueProxy::Coin(coin) => Self::Coin(coin),
+            ValueProxy::Multiasset(coin, multiasset) => {
+                let multiasset: Multiasset<PositiveCoin> = Multiasset::from_vec(
+                    multiasset
+                        .into_iter()
+                        .map(|(policy_id, assets)| {
+                            (
+                                Hash::from(policy_id.as_slice()),
+                                NonEmptyKeyValuePairs::from_vec(
+                                    assets
+                                        .into_iter()
+                                        .map(|(asset_name, quantity)| {
+                                            (asset_name, quantity.try_into().unwrap())
+                                        })
+                                        .collect::<Vec<(AssetName, PositiveCoin)>>(),
+                                )
+                                .unwrap(),
+                            )
+                        })
+                        .collect::<Vec<(PolicyId, NonEmptyKeyValuePairs<AssetName, PositiveCoin>)>>(
+                        ),
+                )
+                .unwrap();
+
+                Self::Multiasset(coin, multiasset)
             }
         }
     }
