@@ -1,6 +1,6 @@
 use amaru::stages::{pull, PeerSession};
 use amaru_consensus::{consensus::store::ChainStore, peer::Peer, IsHeader};
-use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point};
+use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point, parse_point};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
@@ -46,7 +46,7 @@ pub struct Args {
     ///
     /// This is the "intersection" point which will be given to the peer as a starting point
     /// to import the chain database.
-    #[arg(long, value_name = "POINT", verbatim_doc_comment, value_parser = super::parse_point)]
+    #[arg(long, value_name = "POINT", verbatim_doc_comment, value_parser = parse_point)]
     starting_point: Point,
 
     /// Number of headers to import.

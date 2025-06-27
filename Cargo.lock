@@ -244,13 +244,17 @@ dependencies = [
  "amaru-ledger",
  "amaru-ouroboros-traits",
  "hex",
+ "indicatif",
  "iter-borrow",
+ "minicbor",
  "pallas-codec",
  "proptest",
  "rand 0.9.1",
  "rocksdb",
+ "serde",
  "slot-arithmetic",
  "tempfile",
+ "thiserror 2.0.12",
  "tracing",
 ]
 

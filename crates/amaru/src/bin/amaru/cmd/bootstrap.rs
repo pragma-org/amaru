@@ -17,7 +17,7 @@ use std::{error::Error, io, path::PathBuf};
 
 use amaru::snapshots_dir;
 use amaru_kernel::network::NetworkName;
-use amaru_kernel::{default_chain_dir, default_ledger_dir};
+use amaru_kernel::{default_chain_dir, default_ledger_dir, parse_point};
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
 use futures_util::TryStreamExt;
@@ -128,7 +128,7 @@ async fn import_headers_for_network(
     let points: Vec<String> = serde_json::from_str(&content)?;
     let mut initial_headers = Vec::new();
     for point_string in points {
-        match super::parse_point(&point_string) {
+        match parse_point(&point_string) {
             Ok(point) => initial_headers.push(point),
             Err(e) => tracing::warn!("Ignoring malformed header point '{}': {}", point_string, e),
         }
