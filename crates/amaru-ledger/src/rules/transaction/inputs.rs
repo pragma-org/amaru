@@ -15,25 +15,28 @@
 use crate::context::{ScriptLocation, UtxoSlice, WitnessSlice};
 use amaru_kernel::{
     AddrType, Address, BorrowedDatumOption, DatumOption, HasAddress, HasDatum, HasScriptHash,
-    HasScriptRef, RequiredScript, ScriptPurpose, TransactionInput, TransactionOutput,
+    HasScriptRef, RequiredScript, ScriptPurpose, TransactionInput, TransactionInputAdapter,
+    TransactionOutput,
 };
 use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidInputs {
-    #[error("Unknown input: {}#{}", .0.transaction_id, .0.index)]
-    UnknownInput(TransactionInput),
+    #[error("Unknown input: {0}")]
+    UnknownInput(TransactionInputAdapter),
     #[error(
         "inputs included in both reference inputs and spent inputs: intersection [{}]",
         intersection
             .iter()
             .map(|input|
-                format!("{}#{}", input.transaction_id, input.index)
+                input.to_string()
             )
             .collect::<Vec<_>>()
             .join(", ")
     )]
-    NonDisjointRefInputs { intersection: Vec<TransactionInput> },
+    NonDisjointRefInputs {
+        intersection: Vec<TransactionInputAdapter>,
+    },
     #[error("input set empty")]
     EmptyInputSet,
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
@@ -45,7 +48,6 @@ pub fn execute<C>(
     context: &mut C,
     inputs: &[TransactionInput],
     reference_inputs: Option<&[TransactionInput]>,
-    collaterals: Option<&[TransactionInput]>,
 ) -> Result<(), InvalidInputs>
 where
     C: UtxoSlice + WitnessSlice,
@@ -60,13 +62,13 @@ where
         for reference_input in reference_inputs {
             // Non-disjoint reference inputs
             if inputs.contains(reference_input) {
-                intersection.push(reference_input.clone());
+                intersection.push(reference_input.into());
                 continue;
             }
 
             let output = context
                 .lookup(reference_input)
-                .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
+                .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.into()))?;
 
             let datum_hash = match output.datum() {
                 Some(BorrowedDatumOption::Hash(hash)) => Some(*hash),
@@ -103,7 +105,7 @@ where
         let input = &inputs[*original_index];
         let output = context
             .lookup(input)
-            .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
+            .ok_or_else(|| InvalidInputs::UnknownInput(input.into()))?;
 
         let address = parse_address(output)?;
 
@@ -142,17 +144,6 @@ where
         if let Some(script_hash) = script {
             context.acknowledge_script(script_hash, ScriptLocation::AtInput(input.clone()));
         }
-    }
-
-    for _collateral in collaterals.iter() {
-        // FIXME: Handle collaterals properly here. They differ from normal inputs in a few ways:
-        //
-        // - Script-locked addresses aren't allowed.
-        // - Datums and scripts located at collateral are ignored.
-        //
-        // Collaterals used to be checked in the same loop as inputs, which was wrong but also
-        // showed a gap in testing (the case where a script/datum is only provided in a collateral
-        // input should be caught by the test suite).
     }
 
     Ok(())
@@ -259,7 +250,6 @@ mod tests {
                     &mut validation_context,
                     &tx.inputs,
                     tx.reference_inputs.as_deref().map(|vec| vec.as_slice()),
-                    tx.collateral.as_deref().map(|vec| vec.as_slice()),
                 )
             },
             expected_traces,
