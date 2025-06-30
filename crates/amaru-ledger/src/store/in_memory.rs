@@ -1,6 +1,6 @@
 use crate::{
     store::{
-        EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
+        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
         TransactionalContext,
     },
     summary::Pots,
@@ -17,7 +17,7 @@ impl Snapshot for MemoryStore {
     }
 }
 
-impl ReadOnlyStore for MemoryStore {
+impl ReadStore for MemoryStore {
     fn get_protocol_parameters_for(
         &self,
         _epoch: &Epoch,

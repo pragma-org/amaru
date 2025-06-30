@@ -20,7 +20,7 @@ use amaru_kernel::{
 use amaru_ledger::{
     store::{
         columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
-        ReadOnlyStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
+        ReadStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
     },
     summary::Pots,
 };
@@ -224,9 +224,9 @@ impl ReadOnlyRocksDB {
 // ----------------------------------------------------------- ReadOnlyStore(s)
 // ----------------------------------------------------------------------------
 
-macro_rules! impl_ReadOnlyStore {
+macro_rules! impl_ReadStore {
     (for $($s:ty),+) => {
-        $(impl ReadOnlyStore for $s {
+        $(impl ReadStore for $s {
             fn get_protocol_parameters_for(
                 &self,
                 epoch: &Epoch,
@@ -301,8 +301,8 @@ macro_rules! impl_ReadOnlyStore {
     }
 }
 
-// For now RocksDB and RocksDBSnapshot share their implementation of ReadOnlyStore
-impl_ReadOnlyStore!(for RocksDB, RocksDBSnapshot, ReadOnlyRocksDB, ReadOnlyRocksDBSnapshot);
+// For now RocksDB and RocksDBSnapshot share their implementation of ReadStore
+impl_ReadStore!(for RocksDB, RocksDBSnapshot, ReadOnlyRocksDB, ReadOnlyRocksDBSnapshot);
 
 // ------------------------------------------------ RocksDBTransactionalContext
 // ----------------------------------------------------------------------------

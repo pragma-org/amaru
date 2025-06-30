@@ -68,7 +68,7 @@ pub enum StoreError {
 // Store
 // ----------------------------------------------------------------------------
 
-pub trait ReadOnlyStore {
+pub trait ReadStore {
     /// Get the current protocol parameters for a given epoch, or most recent one
     fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError>;
 
@@ -109,11 +109,11 @@ pub trait ReadOnlyStore {
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
 }
 
-pub trait Snapshot: ReadOnlyStore {
+pub trait Snapshot: ReadStore {
     fn epoch(&self) -> Epoch;
 }
 
-pub trait Store: ReadOnlyStore {
+pub trait Store: ReadStore {
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
     #[allow(clippy::panic)]
