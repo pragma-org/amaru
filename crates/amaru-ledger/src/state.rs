@@ -255,6 +255,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         batch
             .save(
                 &stable_point,
+                &current_epoch,
                 Some(&stable_issuer),
                 add,
                 remove,

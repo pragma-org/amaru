@@ -176,9 +176,11 @@ pub trait TransactionalContext<'a> {
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
+    #[allow(clippy::too_many_arguments)]
     fn save(
         &self,
         point: &Point,
+        epoch: &Epoch,
         issuer: Option<&pools::Key>,
         add: Columns<
             impl Iterator<Item = (utxo::Key, utxo::Value)>,
