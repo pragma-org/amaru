@@ -379,29 +379,6 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
-    pub fn slot_to_absolute_time(
-        &self,
-        slot: Slot,
-        system_start: u64,
-    ) -> Result<u64, TimeHorizonError> {
-        self.slot_to_relative_time(slot).map(|t| system_start + t)
-    }
-
-    pub fn relative_time_to_slot(&self, time: u64) -> Result<Slot, TimeHorizonError> {
-        for era in &self.eras {
-            if era.start.time_ms > time {
-                return Err(TimeHorizonError::InvalidEraHistory);
-            }
-            if era.end.time_ms >= time {
-                let time_elapsed = time - era.start.time_ms;
-                let slots_elapsed = time_elapsed / era.params.slot_length;
-                let slot = era.start.slot.offset_by(slots_elapsed);
-                return Ok(slot);
-            }
-        }
-        Err(TimeHorizonError::PastTimeHorizon)
-    }
-
     pub fn slot_to_epoch(&self, slot: Slot) -> Result<Epoch, TimeHorizonError> {
         for era in &self.eras {
             if era.start.slot > slot {
