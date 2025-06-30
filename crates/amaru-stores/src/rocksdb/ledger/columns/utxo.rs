@@ -18,18 +18,16 @@ use amaru_ledger::store::{
     StoreError,
 };
 use pallas_codec::minicbor::{self as cbor};
-use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
+use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction, DB};
 
 /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x75, 0x74, 0x78, 0x6f];
 
 #[allow(clippy::panic)]
-pub fn get<T: ThreadMode>(
-    db: &OptimisticTransactionDB<T>,
-    key: &Key,
+fn get_value_from_bytes(
+    bytes: Result<Option<Vec<u8>>, rocksdb::Error>,
 ) -> Result<Option<Value>, StoreError> {
-    Ok(db
-        .get(as_key(&PREFIX, key))
+    Ok(bytes
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(|bytes| {
             cbor::decode(&bytes).unwrap_or_else(|e| {
@@ -39,6 +37,19 @@ pub fn get<T: ThreadMode>(
                 )
             })
         }))
+}
+
+pub fn get<T: ThreadMode>(
+    db: &OptimisticTransactionDB<T>,
+    key: &Key,
+) -> Result<Option<Value>, StoreError> {
+    let bytes = db.get(as_key(&PREFIX, key));
+    get_value_from_bytes(bytes)
+}
+
+pub fn get_from_db(db: &DB, key: &Key) -> Result<Option<Value>, StoreError> {
+    let bytes = db.get(as_key(&PREFIX, key));
+    get_value_from_bytes(bytes)
 }
 
 pub fn add<DB>(

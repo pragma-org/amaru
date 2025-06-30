@@ -18,7 +18,7 @@ use amaru_ledger::store::{
     columns::accounts::{Key, Row, Value, EVENT_TARGET},
     StoreError,
 };
-use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
+use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction, DB};
 use tracing::{debug, error};
 
 /// Name prefixed used for storing Account entries. UTF-8 encoding for "acct"
@@ -101,16 +101,28 @@ pub fn reset_many<DB>(
     Ok(())
 }
 
+fn get_row_from_bytes(
+    bytes: Result<Option<Vec<u8>>, rocksdb::Error>,
+) -> Result<Option<Row>, StoreError> {
+    Ok(bytes
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(Row::unsafe_decode))
+}
+
 /// Obtain a account from the store
 pub fn get<T: ThreadMode>(
     db: &OptimisticTransactionDB<T>,
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
     let key = as_key(&PREFIX, credential);
-    Ok(db
-        .get(&key)
-        .map_err(|err| StoreError::Internal(err.into()))?
-        .map(Row::unsafe_decode))
+    let bytes = db.get(&key);
+    get_row_from_bytes(bytes)
+}
+
+pub fn get_from_db(db: &DB, credential: &Key) -> Result<Option<Row>, StoreError> {
+    let key = as_key(&PREFIX, credential);
+    let bytes = db.get(&key);
+    get_row_from_bytes(bytes)
 }
 
 /// Alter balance of a specific account. If the account did not exist, returns the leftovers
