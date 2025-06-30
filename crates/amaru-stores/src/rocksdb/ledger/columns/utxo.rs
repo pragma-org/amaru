@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use amaru_kernel::cbor;
 use amaru_ledger::store::{
     columns::utxo::{Key, Value},
     StoreError,
 };
-use pallas_codec::minicbor::{self as cbor};
 use rocksdb::Transaction;
 
 /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"

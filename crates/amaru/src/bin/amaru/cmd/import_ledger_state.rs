@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::cbor;
 use amaru_kernel::{
     default_ledger_dir, network::NetworkName, protocol_parameters::ProtocolParameters, Anchor,
     CertificatePointer, DRep, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal,
@@ -28,7 +29,6 @@ use amaru_ledger::{
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use pallas_codec::minicbor as cbor;
 use slot_arithmetic::Epoch;
 use std::{
     collections::{BTreeMap, BTreeSet},

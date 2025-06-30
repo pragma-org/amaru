@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::ConsensusError;
+use amaru_kernel::cbor;
 use amaru_kernel::{Hash, Header, MintedHeader, Point};
-use pallas_codec::minicbor;
 use tracing::{instrument, Level};
 
 use super::{ChainSyncEvent, DecodedChainSyncEvent};
@@ -30,7 +30,7 @@ use super::{ChainSyncEvent, DecodedChainSyncEvent};
     )]
 pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, ConsensusError> {
     let header: MintedHeader<'_> =
-        minicbor::decode(raw_header).map_err(|_| ConsensusError::CannotDecodeHeader {
+        cbor::decode(raw_header).map_err(|_| ConsensusError::CannotDecodeHeader {
             point: point.clone(),
             header: raw_header.into(),
         })?;
