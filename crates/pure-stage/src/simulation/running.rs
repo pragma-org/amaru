@@ -91,11 +91,6 @@ impl SimulationRunning {
             .push((Name::from(name.as_ref()), Box::new(predicate)));
     }
 
-    /// Remove all breakpoints.
-    pub fn clear_breakpoints(&mut self) {
-        self.breakpoints.clear();
-    }
-
     /// Remove the breakpoint with the given name.
     pub fn clear_breakpoint(&mut self, name: impl AsRef<str>) {
         self.breakpoints
@@ -208,12 +203,6 @@ impl SimulationRunning {
         let data = self.stages.get_mut(&sr.name).unwrap();
         data.mailbox
             .extend(msg.into_iter().map(|m| Box::new(m) as Box<dyn SendData>));
-    }
-
-    /// Retrieve the number of messages currently in the given stage’s mailbox.
-    pub fn mailbox_len<Msg, St>(&self, sr: &StageRef<Msg, St>) -> usize {
-        let data = self.stages.get(&sr.name).unwrap();
-        data.mailbox.len()
     }
 
     /// Obtain a reference to the current state of the given stage.

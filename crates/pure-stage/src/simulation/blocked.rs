@@ -33,18 +33,6 @@ impl Blocked {
         }
     }
 
-    /// Assert that the blocking reason is `Deadlock` by at least the given stages.
-    pub fn assert_deadlock(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
-        let names = names
-            .into_iter()
-            .map(|n| Name::from(n.as_ref()))
-            .collect::<Vec<_>>();
-        match self {
-            Blocked::Deadlock(deadlock) if names.iter().all(|n| deadlock.contains(n)) => {}
-            _ => panic!("expected deadlock by {:?}, got {:?}", names, self),
-        }
-    }
-
     /// Assert that the blocking reason is `Busy` by at least the given stages.
     pub fn assert_busy(&self, names: impl IntoIterator<Item = impl AsRef<str>>) {
         let names = names

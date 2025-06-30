@@ -478,16 +478,6 @@ impl Effect {
         }
     }
 
-    pub fn assert_clock<Msg, St>(&self, at_stage: &StageRef<Msg, St>) {
-        match self {
-            Effect::Clock { at_stage: a } if a == &at_stage.name => {}
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for Clock at `{}`",
-                at_stage.name
-            ),
-        }
-    }
-
     pub fn assert_wait<Msg, St>(&self, at_stage: &StageRef<Msg, St>, duration: Duration) {
         match self {
             Effect::Wait {
@@ -539,23 +529,6 @@ impl Effect {
             } if a == &at_stage.name && *i == cr.id && &**m as &dyn SendData == &msg as &dyn SendData => {}
             _ => panic!(
                 "unexpected effect {self:?}\n  looking for Respond at `{}` with id {cr:?} and msg {msg:?}",
-                at_stage.name
-            ),
-        }
-    }
-
-    pub fn assert_external<Msg, St, Eff: ExternalEffect + PartialEq>(
-        &self,
-        at_stage: &StageRef<Msg, St>,
-        effect: &Eff,
-    ) {
-        match self {
-            Effect::External {
-                at_stage: a,
-                effect: e,
-            } if a == &at_stage.name && &**e as &dyn SendData == effect as &dyn SendData => {}
-            _ => panic!(
-                "unexpected effect {self:?}\n  looking for External at `{}` with effect {effect:?}",
                 at_stage.name
             ),
         }
