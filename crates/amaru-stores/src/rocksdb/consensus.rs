@@ -18,7 +18,7 @@ use amaru_consensus::{
 };
 use amaru_kernel::{cbor, from_cbor, network::NetworkName, to_cbor, Hash, RawBlock};
 use amaru_ouroboros_traits::is_header::IsHeader;
-use rocksdb::{OptimisticTransactionDB, Options};
+use rocksdb::{OptimisticTransactionDB, Options, DB};
 use slot_arithmetic::EraHistory;
 use std::{collections::BTreeMap, path::PathBuf};
 use tracing::{error, instrument, Level};
@@ -27,6 +27,10 @@ pub struct RocksDBStore {
     pub basedir: PathBuf,
     era_history: EraHistory,
     db: OptimisticTransactionDB,
+}
+
+pub struct ReadOnlyChainDB {
+    db: DB,
 }
 
 impl RocksDBStore {
@@ -43,39 +47,56 @@ impl RocksDBStore {
             era_history: era_history.clone(),
         })
     }
+
+    pub fn open_for_readonly(basedir: &PathBuf) -> Result<ReadOnlyChainDB, StoreError> {
+        let mut opts = Options::default();
+        opts.create_if_missing(true);
+        DB::open_for_read_only(&opts, basedir, false)
+            .map_err(|e| StoreError::OpenError {
+                error: e.to_string(),
+            })
+            .map(|db| ReadOnlyChainDB { db })
+    }
 }
 
 const NONCES_PREFIX: [u8; 5] = [0x6e, 0x6f, 0x6e, 0x63, 0x65];
 
 const BLOCK_PREFIX: [u8; 5] = [0x62, 0x6c, 0x6f, 0x63, 0x6b];
 
-impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ReadOnlyChainStore<H> for RocksDBStore {
-    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
-        self.db
-            .get_pinned(hash)
-            .ok()
-            .and_then(|bytes| from_cbor(bytes?.as_ref()))
-    }
+macro_rules! impl_ReadOnlyChainStore {
+    (for $($s:ty),+) => {
+        $(impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ReadOnlyChainStore<H> for $s {
+            fn load_header(&self, hash: &Hash<32>) -> Option<H> {
+                self.db
+                    .get_pinned(hash)
+                    .ok()
+                    .and_then(|bytes| from_cbor(bytes?.as_ref()))
+            }
 
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-        self.db
-            .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
-            .ok()
-            .flatten()
-            .as_deref()
-            .and_then(from_cbor)
-    }
+            fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+                self.db
+                    .get_pinned([&NONCES_PREFIX[..], &header[..]].concat())
+                    .ok()
+                    .flatten()
+                    .as_deref()
+                    .and_then(from_cbor)
+            }
 
-    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        self.db
-            .get_pinned([&BLOCK_PREFIX[..], &hash[..]].concat())
-            .map_err(|e| StoreError::ReadError {
-                error: e.to_string(),
-            })?
-            .ok_or(StoreError::NotFound { hash: *hash })
-            .map(|bytes| bytes.as_ref().into())
+            fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+                self.db
+                    .get_pinned([&BLOCK_PREFIX[..], &hash[..]].concat())
+                    .map_err(|e| StoreError::ReadError {
+                        error: e.to_string(),
+                    })?
+                    .ok_or(StoreError::NotFound { hash: *hash })
+                    .map(|bytes| bytes.as_ref().into())
+            }
+
+        })*
     }
 }
+
+impl_ReadOnlyChainStore!(for ReadOnlyChainDB, RocksDBStore);
 
 impl<H: IsHeader + for<'d> cbor::Decode<'d, ()>> ChainStore<H> for RocksDBStore {
     #[instrument(level = Level::TRACE, skip_all, fields(%hash))]
@@ -171,10 +192,11 @@ impl<H: IsHeader + Send + Sync + Clone> ChainStore<H> for InMemConsensusStore<H>
 #[cfg(test)]
 mod test {
     use super::*;
-    use amaru_kernel::network::NetworkName;
+    use amaru_kernel::{network::NetworkName, EraHistory};
     use amaru_ouroboros_traits::is_header::fake::FakeHeader;
     use rand::{rngs::StdRng, RngCore, SeedableRng};
-    use std::fs::create_dir;
+    use std::{fs::create_dir_all, path::PathBuf};
+    use tempfile::TempDir;
 
     /// FIXME: already exists in chain_selection test module
     pub fn random_bytes(arg: u32) -> Vec<u8> {
@@ -184,18 +206,30 @@ mod test {
         buffer
     }
 
-    fn initialise_test_store() -> RocksDBStore {
-        let tempdir = tempfile::tempdir().unwrap();
+    fn init_dir_and_era(tempdir: &TempDir) -> (PathBuf, EraHistory) {
         let basedir = tempdir.path().join("rocksdb_chain_store");
         let era_history: &EraHistory = NetworkName::Testnet(42).into();
+        (basedir, era_history.clone())
+    }
 
-        create_dir(&basedir).unwrap();
-        RocksDBStore::new(&basedir, era_history).expect("fail to initialise RocksDB")
+    fn initialise_test_rw_store(tempdir: &TempDir) -> RocksDBStore {
+        let (basedir, era_history) = init_dir_and_era(tempdir);
+        create_dir_all(&basedir).unwrap();
+
+        RocksDBStore::new(&basedir, &era_history).expect("fail to initialise RocksDB")
+    }
+
+    fn initialise_test_ro_store(tempdir: &TempDir) -> ReadOnlyChainDB {
+        let (basedir, _) = init_dir_and_era(tempdir);
+        create_dir_all(&basedir).unwrap();
+
+        RocksDBStore::open_for_readonly(&basedir).expect("fail to initialise RocksDB")
     }
 
     #[test]
     fn rocksdb_chain_store_can_get_header_it_puts() {
-        let mut store = initialise_test_store();
+        let tempdir = tempfile::tempdir().unwrap();
+        let mut store = initialise_test_rw_store(&tempdir);
 
         let header = FakeHeader {
             block_number: 1,
@@ -211,7 +245,8 @@ mod test {
 
     #[test]
     fn rocksdb_chain_store_can_get_block_it_puts() {
-        let mut store = initialise_test_store();
+        let tempdir = tempfile::tempdir().unwrap();
+        let mut store = initialise_test_rw_store(&tempdir);
 
         let hash: Hash<32> = random_bytes(32).as_slice().into();
         let block = vec![1; 64];
@@ -224,7 +259,8 @@ mod test {
 
     #[test]
     fn rocksdb_chain_store_returns_not_found_for_nonexistent_block() {
-        let store = initialise_test_store();
+        let tempdir = tempfile::tempdir().unwrap();
+        let store = initialise_test_rw_store(&tempdir);
 
         let nonexistent_hash: Hash<32> = random_bytes(32).as_slice().into();
 
@@ -237,5 +273,12 @@ mod test {
             }),
             result
         );
+    }
+
+    #[test]
+    fn both_rw_and_ro_can_be_open_on_same_dir() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let _rw_store = initialise_test_rw_store(&tempdir);
+        let _ro_store = initialise_test_ro_store(&tempdir);
     }
 }
