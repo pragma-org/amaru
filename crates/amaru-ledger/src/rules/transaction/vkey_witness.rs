@@ -223,7 +223,7 @@ mod tests {
         super::execute(
             &mut ctx,
             transaction_id,
-            None,
+            witness_set.bootstrap_witness.as_deref(),
             witness_set.vkeywitness.as_deref(),
         )
     }
@@ -259,7 +259,8 @@ mod tests {
         };
     }
 
-    #[test_case(fixture_bootstrap!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a"); "happy path")]
+    #[test_case(fixture_bootstrap!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a"); "happy path byron")]
+    #[test_case(fixture_bootstrap!("0c22edee0ffd7c8f32d2fe4da1f144e9ef78dfb51e1678d5198493a83d6cf8ec"); "happy path icarus")]
     #[test_case(fixture_bootstrap!("49e6100c24938acb075f3415ddd989c7e91a5c52b8eb848364c660577e11594a", "missing-required-witness") =>
         matches Err(InvalidVKeyWitness::MissingRequiredKeysOrRoots { missing_keys_or_roots })
         if missing_keys_or_roots.len() == 1 && hex::encode(missing_keys_or_roots[0]) == "65b1fe57f0ed455254aacf1486c448d7f34038c4c445fa905de33d8f";
@@ -293,7 +294,7 @@ mod tests {
                     &mut ctx,
                     transaction_id,
                     witness_set.bootstrap_witness.as_deref(),
-                    None,
+                    witness_set.vkeywitness.as_deref(),
                 )
             },
             expected_traces,
