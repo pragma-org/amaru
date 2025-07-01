@@ -272,17 +272,17 @@ impl<C> cbor::encode::Encode<C> for ProtocolParameters {
             count += 1;
         }
         e.map(count)?;
-        if let Some(&ref v) = &self.cost_models.plutus_v1.as_ref() {
+        if let Some(v) = self.cost_models.plutus_v1.as_ref() {
             e.u8(0)?;
-            e.encode_with(&v, ctx)?;
+            e.encode_with(v, ctx)?;
         }
-        if let Some(&ref v) = &self.cost_models.plutus_v2.as_ref() {
+        if let Some(v) = self.cost_models.plutus_v2.as_ref() {
             e.u8(1)?;
-            e.encode_with(&v, ctx)?;
+            e.encode_with(v, ctx)?;
         }
-        if let Some(&ref v) = &self.cost_models.plutus_v3.as_ref() {
+        if let Some(v) = self.cost_models.plutus_v3.as_ref() {
             e.u8(2)?;
-            e.encode_with(&v, ctx)?;
+            e.encode_with(v, ctx)?;
         }
 
         e.array(2)?;

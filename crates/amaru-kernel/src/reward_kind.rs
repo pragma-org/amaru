@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,4 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod rocksdb;
+use crate::cbor;
+
+#[derive(Debug)]
+pub enum RewardKind {
+    Member,
+    Leader,
+}
+
+impl<'b, C> cbor::decode::Decode<'b, C> for RewardKind {
+    #[allow(clippy::panic)]
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Ok(match d.u8()? {
+            0 => RewardKind::Member,
+            1 => RewardKind::Leader,
+            k => panic!("unexpected reward kind: {k}"),
+        })
+    }
+}

@@ -108,12 +108,13 @@ fn import_vector(
     fs::create_dir_all(ledger_dir)?;
     let db = RocksDB::empty(ledger_dir)?;
 
-    let epoch = amaru_stores::decode_new_epoch_state(
+    let epoch = amaru_ledger::state::snapshot::decode_new_epoch_state(
         &db,
         record.old_nes.raw_bytes(),
         &point,
         era_history,
-        &Some(pparams_dir),
+        amaru_ledger::state::snapshot::no_progress_bar,
+        Some(pparams_dir),
         false,
     )?;
     let transaction = db.create_transaction();

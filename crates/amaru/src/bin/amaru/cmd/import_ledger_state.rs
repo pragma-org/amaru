@@ -15,11 +15,12 @@
 use amaru_kernel::{default_ledger_dir, network::NetworkName, parse_point, EraHistory};
 use amaru_ledger::{
     self,
-    state::{self},
+    state::snapshot::ProgressBar,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
+use indicatif::{self, ProgressStyle};
 use std::{collections::BTreeSet, fs, iter, path::PathBuf};
 use tracing::info;
 
@@ -142,8 +143,16 @@ async fn import_one(
     let db = RocksDB::empty(ledger_dir)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch =
-        amaru_stores::decode_new_epoch_state(&db, &bytes, &point, era_history, &None, true)?;
+    let epoch = amaru_ledger::state::snapshot::decode_new_epoch_state(
+        &db,
+        &bytes,
+        &point,
+        era_history,
+        new_terminal_progress_bar,
+        None,
+        true,
+    )?;
+
     let transaction = db.create_transaction();
     transaction.save(
         &point,
@@ -164,4 +173,26 @@ async fn import_one(
 
     info!("Imported snapshot for epoch {}", epoch);
     Ok(())
+}
+
+struct TerminalProgressBar {
+    inner: indicatif::ProgressBar,
+}
+
+#[allow(clippy::unwrap_used)]
+fn new_terminal_progress_bar(size: usize, template: &str) -> Box<dyn ProgressBar> {
+    Box::new(TerminalProgressBar {
+        inner: indicatif::ProgressBar::new(size as u64)
+            .with_style(ProgressStyle::with_template(template).unwrap()),
+    })
+}
+
+impl ProgressBar for TerminalProgressBar {
+    fn tick(&self, size: usize) {
+        self.inner.inc(size as u64);
+    }
+
+    fn clear(&self) {
+        self.inner.finish_and_clear();
+    }
 }

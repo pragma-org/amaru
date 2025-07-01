@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{network::NetworkName, Nonce, Point};
 use pallas_network::facades::PeerClient;
+use amaru_kernel::network::NetworkName;
+
+use amaru_kernel::{Point, Nonce};
 
 pub(crate) mod bootstrap;
 pub(crate) mod daemon;

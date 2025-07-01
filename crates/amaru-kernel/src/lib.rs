@@ -75,7 +75,25 @@ pub use pallas_primitives::{
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 pub use sha3;
-pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
+pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+
+pub use drep_state::*;
+pub mod drep_state;
+
+pub use proposal_state::*;
+pub mod proposal_state;
+
+pub use account::*;
+pub mod account;
+
+pub use reward_kind::*;
+pub mod reward_kind;
+
+pub use reward::*;
+pub mod reward;
+
+pub use strict_maybe::*;
+pub mod strict_maybe;
 
 pub mod block;
 pub mod macros;
