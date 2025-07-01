@@ -30,6 +30,7 @@ use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_codec::minicbor as cbor;
 use slot_arithmetic::Epoch;
+use std::error::Error;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs, iter,
@@ -86,7 +87,7 @@ pub struct Args {
 }
 
 #[derive(Debug, thiserror::Error)]
-enum Error {
+enum ImportError {
     #[error("malformed date: {}", .0)]
     MalformedDate(String),
     #[error("You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)")]
@@ -104,7 +105,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     } else if let Some(snapshot_dir) = args.snapshot_dir {
         import_all_from_directory(&ledger_dir, era_history, &snapshot_dir).await
     } else {
-        Err(Error::IncorrectUsage.into())
+        Err(ImportError::IncorrectUsage.into())
     }
 }
 
@@ -148,12 +149,342 @@ async fn import_all(
     Ok(())
 }
 
+/// Various parts of a full ledger state
+enum StateFragment {
+    EpochNo(Epoch),
+    CurrentBlockIssuers(BTreeMap<PoolId, u64>),
+    Treasury {
+        treasury: i64,
+        reserve: i64,
+    },
+    DReps(BTreeMap<StakeCredential, DRepState>),
+    StakePools {
+        pools: BTreeMap<PoolId, PoolParams>,
+        updates: BTreeMap<PoolId, PoolParams>,
+        retirements: BTreeMap<PoolId, Epoch>,
+    },
+    Accounts(BTreeMap<StakeCredential, Account>),
+    UTxO(Vec<(TransactionInput, TransactionOutput)>),
+    #[allow(dead_code)]
+    // the first member, deposited, is currently unused
+    Fees(u64, i64),
+    Proposals(Vec<ProposalState>),
+    ProtocolParams(ProtocolParameters),
+    RewardsUpdate(u32),
+    DeltaTreasury {
+        treasury: i64,
+        reserves: i64,
+    },
+    Rewards(BTreeMap<StakeCredential, Set<Reward>>),
+    DeltaFees(i64),
+}
+
+/// Simple marker trait over an iterator to enumerate `StateFragment` for
+/// a given epoch
+trait EpochState<'a, E>: Iterator<Item = Result<StateFragment, E>> {}
+
+/// CBOR decoder based implementation of `EpochState` iterator.
+struct NewEpochState<'a> {
+    decoder: cbor::Decoder<'a>,
+    state: State,
+}
+
+impl<'a> NewEpochState<'a> {
+    fn from_cbor(bytes: &'a [u8]) -> Self {
+        NewEpochState {
+            decoder: cbor::Decoder::new(bytes),
+            state: State::Start,
+        }
+    }
+
+    fn epoch_no(&mut self) -> Result<Epoch, minicbor::decode::Error> {
+        self.decoder.array()?;
+        self.decoder.u64().map(Epoch::from)
+    }
+
+    fn current_blocks(&mut self) -> Result<BTreeMap<PoolId, u64>, minicbor::decode::Error> {
+        // Previous blocks made
+        self.decoder.skip()?;
+
+        // Current blocks made
+        // NOTE: We use the current blocks made here as we assume that users are providing snapshots of
+        // the last block of the epoch. We have no intrinsic ways to check that this is the case since
+        // we do not know what the last block of an epoch is, and we can't reliably look at the number
+        // of blocks either.
+        let blocks: BTreeMap<PoolId, u64> = self.decoder.decode()?;
+        Ok(blocks)
+    }
+
+    fn treasury(&mut self) -> Result<StateFragment, minicbor::decode::Error> {
+        // Epoch State
+        self.decoder.array()?;
+
+        // Epoch State / Account State
+        self.decoder.array()?;
+        let treasury: i64 = self.decoder.decode()?;
+        let reserve: i64 = self.decoder.decode()?;
+        Ok(StateFragment::Treasury { treasury, reserve })
+    }
+
+    fn dreps(&mut self) -> Result<BTreeMap<StakeCredential, DRepState>, minicbor::decode::Error> {
+        // Epoch State / Ledger State
+        self.decoder.array()?;
+
+        // Epoch State / Ledger State / Cert State
+        self.decoder.array()?;
+
+        // Epoch State / Ledger State / Cert State / Voting State
+        self.decoder.array()?;
+
+        self.decoder.decode()
+    }
+
+    fn stake_pools(&mut self) -> Result<StateFragment, minicbor::decode::Error> {
+        // Committee
+        self.decoder.skip()?;
+
+        // Dormant Epoch
+        self.decoder.skip()?;
+
+        // Epoch State / Ledger State / Cert State / Pool State
+        self.decoder.array()?;
+        let pools = self.decoder.decode()?;
+        let updates = self.decoder.decode()?;
+        let retirements = self.decoder.decode()?;
+        Ok(StateFragment::StakePools {
+            pools,
+            updates,
+            retirements,
+        })
+    }
+
+    fn accounts(&mut self) -> Result<BTreeMap<StakeCredential, Account>, minicbor::decode::Error> {
+        // Deposits
+        self.decoder.skip()?;
+
+        // Epoch State / Ledger State / Cert State / Delegation state
+        self.decoder.array()?;
+
+        // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
+        self.decoder.array()?;
+
+        // credentials
+        self.decoder.decode()
+    }
+
+    fn utxo(
+        &mut self,
+    ) -> Result<BTreeMap<TransactionInput, TransactionOutput>, minicbor::decode::Error> {
+        // pointers
+        self.decoder.skip()?;
+
+        // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
+        self.decoder.skip()?;
+
+        // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
+        self.decoder.skip()?;
+
+        // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
+        self.decoder.skip()?;
+
+        // Epoch State / Ledger State / UTxO State
+        self.decoder.array()?;
+
+        self.decoder.decode()
+    }
+
+    fn fees(&mut self) -> Result<(u64, i64), minicbor::decode::Error> {
+        let deposited: u64 = self.decoder.decode()?;
+
+        let fees: i64 = self.decoder.decode()?;
+
+        Ok((deposited, fees))
+    }
+
+    fn proposals(&mut self) -> Result<Vec<ProposalState>, minicbor::decode::Error> {
+        // Epoch State / Ledger State / UTxO State / utxosGovState
+        self.decoder.array()?;
+        // Proposals
+        self.decoder.array()?;
+        // Proposals roots
+        self.decoder.skip()?;
+        self.decoder.decode()
+    }
+
+    fn protocol_parameters(&mut self) -> Result<ProtocolParameters, minicbor::decode::Error> {
+        // Constitutional committee
+        self.decoder.skip()?;
+        // Constitution
+        self.decoder.skip()?;
+        // Current Protocol Params
+        self.decoder.decode()
+    }
+
+    fn rewards_update(&mut self) -> Result<u32, minicbor::decode::Error> {
+        // Previous Protocol Params
+        self.decoder.skip()?;
+        // Future Protocol Params
+        self.decoder.skip()?;
+        // DRep Pulsing State
+        self.decoder.skip()?;
+
+        // Epoch State / Ledger State / UTxO State / utxosStakeDistr
+        self.decoder.skip()?;
+
+        // Epoch State / Ledger State / UTxO State / utxosDonation
+        self.decoder.skip()?;
+
+        // Epoch State / Snapshots
+        self.decoder.skip()?;
+        // Epoch State / NonMyopic
+        self.decoder.skip()?;
+
+        // Rewards Update
+        self.decoder.array()?;
+        self.decoder.array()?;
+        self.decoder.u32()
+    }
+
+    fn delta_treasury(&mut self) -> Result<StateFragment, minicbor::decode::Error> {
+        self.decoder.array()?;
+
+        let treasury: i64 = self.decoder.decode()?;
+
+        let reserves: i64 = self.decoder.decode()?;
+
+        Ok(StateFragment::DeltaTreasury { treasury, reserves })
+    }
+
+    fn rewards(&mut self) -> Result<StateFragment, minicbor::decode::Error> {
+        let rewards: BTreeMap<StakeCredential, Set<Reward>> = self.decoder.decode()?;
+        Ok(StateFragment::Rewards(rewards))
+    }
+
+    fn delta_fees(&mut self) -> Result<StateFragment, minicbor::decode::Error> {
+        let delta_fees: i64 = self.decoder.decode()?;
+
+        // NonMyopic
+        self.decoder.skip()?;
+
+        Ok(StateFragment::DeltaFees(delta_fees))
+    }
+}
+
+enum State {
+    Start,
+    EpochNo,
+    Treasury,
+    DReps,
+    StakePools,
+    Accounts,
+    UTxO,
+    Fees,
+    Proposals,
+    ProtocolParams,
+    PulsingReward,
+    DeltaTreasury,
+    Rewards,
+    DeltaFees,
+    Finish,
+}
+
+impl<'a> Iterator for NewEpochState<'a> {
+    type Item = Result<StateFragment, minicbor::decode::Error>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.state {
+            State::Start => {
+                let result = self.epoch_no().map(StateFragment::EpochNo);
+                self.state = State::EpochNo;
+                Some(result)
+            }
+            State::EpochNo => {
+                let result = self
+                    .current_blocks()
+                    .map(StateFragment::CurrentBlockIssuers);
+                self.state = State::Treasury;
+                Some(result)
+            }
+            State::Treasury => {
+                let result = self.treasury();
+                self.state = State::DReps;
+                Some(result)
+            }
+            State::DReps => {
+                let result = self.dreps().map(StateFragment::DReps);
+                self.state = State::StakePools;
+                Some(result)
+            }
+            State::StakePools => {
+                let result = self.stake_pools();
+                self.state = State::Accounts;
+                Some(result)
+            }
+            State::Accounts => {
+                let result = self.accounts().map(StateFragment::Accounts);
+                self.state = State::UTxO;
+                Some(result)
+            }
+            State::UTxO => {
+                let result = self.utxo().map(|m| {
+                    StateFragment::UTxO(
+                        m.into_iter()
+                            .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
+                    )
+                });
+                self.state = State::Fees;
+                Some(result)
+            }
+            State::Fees => {
+                let result = self.fees().map(|(d, f)| StateFragment::Fees(d, f));
+                self.state = State::Proposals;
+                Some(result)
+            }
+            State::Proposals => {
+                let result = self.proposals().map(StateFragment::Proposals);
+                self.state = State::ProtocolParams;
+                Some(result)
+            }
+            State::ProtocolParams => {
+                let result = self
+                    .protocol_parameters()
+                    .map(StateFragment::ProtocolParams);
+                self.state = State::PulsingReward;
+                Some(result)
+            }
+            State::PulsingReward => {
+                let result = self.rewards_update().map(StateFragment::RewardsUpdate);
+                self.state = State::DeltaTreasury;
+                Some(result)
+            }
+            State::DeltaTreasury => {
+                let result = self.delta_treasury();
+                self.state = State::Rewards;
+                Some(result)
+            }
+            State::Rewards => {
+                let result = self.rewards();
+                self.state = State::DeltaFees;
+                Some(result)
+            }
+            State::DeltaFees => {
+                let result = self.delta_fees();
+                self.state = State::Finish;
+                Some(result)
+            }
+            State::Finish => None,
+        }
+    }
+}
+
+impl<'a> EpochState<'a, minicbor::decode::Error> for NewEpochState<'a> {}
+
 #[allow(clippy::unwrap_used)]
 async fn import_one(
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
     era_history: &EraHistory,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     info!("Importing snapshot {}", snapshot.display());
     let point = super::parse_point(
         snapshot
@@ -162,13 +493,15 @@ async fn import_one(
             .and_then(|s| s.to_str())
             .unwrap(),
     )
-    .map_err(Error::MalformedDate)?;
+    .map_err(ImportError::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
     let db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
+    let mut epoch_state = NewEpochState::from_cbor(&bytes);
+
+    let epoch = decode_new_epoch_state(&db, &mut epoch_state, &point, era_history)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,
@@ -190,171 +523,92 @@ async fn import_one(
     Ok(())
 }
 
-fn decode_new_epoch_state(
+fn decode_new_epoch_state<E: Error + 'static>(
     db: &(impl Store + 'static),
-    bytes: &[u8],
+    epoch_state: &mut dyn EpochState<'_, E>,
     point: &Point,
     era_history: &EraHistory,
-) -> Result<Epoch, Box<dyn std::error::Error>> {
-    let mut d = cbor::Decoder::new(bytes);
+) -> Result<Epoch, Box<dyn Error>> {
+    let mut epoch = Epoch::from(0);
+    let mut treasury = 0;
+    let mut reserves = 0;
+    let mut dreps = BTreeMap::new();
+    let mut accounts: BTreeMap<StakeCredential, Account> = BTreeMap::new();
+    let mut fees: i64 = 0;
+    let mut proposals: Vec<ProposalState> = vec![];
+    let mut protocol_parameters: ProtocolParameters = ProtocolParameters::default();
+    let mut delta_treasury: i64 = 0;
+    let mut delta_reserves: i64 = 0;
+    let mut unclaimed_rewards = 0;
 
-    d.array()?;
+    for state_fragment in &mut *epoch_state {
+        match state_fragment? {
+            StateFragment::EpochNo(epoc) => {
+                assert_eq!(epoc, era_history.slot_to_epoch(point.slot_or_default())?);
+                epoch = epoc;
+            }
+            StateFragment::CurrentBlockIssuers(block_issuers) => {
+                import_block_issuers(db, block_issuers)?
+            }
+            StateFragment::Treasury {
+                treasury: t,
+                reserve: r,
+            } => {
+                treasury = t;
+                reserves = r;
+            }
+            StateFragment::DReps(dreps_map) => {
+                dreps = dreps_map;
+            }
+            StateFragment::StakePools {
+                pools,
+                updates,
+                retirements,
+            } => {
+                import_stake_pools(db, point, epoch, pools, updates, retirements)?;
+            }
+            StateFragment::Accounts(acc) => {
+                accounts = acc;
+            }
+            StateFragment::UTxO(utxo) => {
+                import_utxo(db, point, utxo)?;
+            }
+            StateFragment::Fees(_, f) => {
+                fees = f;
+            }
+            StateFragment::Proposals(p) => {
+                proposals = p;
+            }
+            StateFragment::ProtocolParams(pparams) => {
+                protocol_parameters = pparams;
+                import_protocol_parameters(db, &epoch, &protocol_parameters)?;
+                import_dreps(db, era_history, point, epoch, &dreps, &protocol_parameters)?;
+                import_proposals(db, point, era_history, &proposals, &protocol_parameters)?;
+            }
+            StateFragment::RewardsUpdate(upd) => {
+                assert_eq!(upd, 1, "expected complete pulsing reward state")
+            }
+            StateFragment::DeltaTreasury { treasury, reserves } => {
+                delta_treasury = treasury;
+                delta_reserves = reserves;
+            }
+            StateFragment::Rewards(mut rewards) => {
+                import_accounts(db, point, &accounts, &mut rewards, &protocol_parameters)?;
 
-    // EpochNo
-    let epoch = Epoch::from(d.u64()?);
-    assert_eq!(epoch, era_history.slot_to_epoch(point.slot_or_default())?);
-
-    // Previous blocks made
-    d.skip()?;
-
-    // Current blocks made
-    // NOTE: We use the current blocks made here as we assume that users are providing snapshots of
-    // the last block of the epoch. We have no intrinsic ways to check that this is the case since
-    // we do not know what the last block of an epoch is, and we can't reliably look at the number
-    // of blocks either.
-    import_block_issuers(db, d.decode()?)?;
-
-    // Epoch State
-    d.array()?;
-
-    // Epoch State / Account State
-    d.array()?;
-    let treasury: i64 = d.decode()?;
-    let reserves: i64 = d.decode()?;
-
-    // Epoch State / Ledger State
-    d.array()?;
-
-    // Epoch State / Ledger State / Cert State
-    d.array()?;
-
-    // Epoch State / Ledger State / Cert State / Voting State
-    d.array()?;
-
-    let dreps = d.decode()?;
-
-    // Committee
-    d.skip()?;
-
-    // Dormant Epoch
-    d.skip()?;
-
-    // Epoch State / Ledger State / Cert State / Pool State
-    d.array()?;
-    import_stake_pools(
-        db,
-        point,
-        epoch,
-        // Pools
-        d.decode()?,
-        // Updates
-        d.decode()?,
-        // Retirements
-        d.decode()?,
-    )?;
-    // Deposits
-    d.skip()?;
-
-    // Epoch State / Ledger State / Cert State / Delegation state
-    d.array()?;
-
-    // Epoch State / Ledger State / Cert State / Delegation state / dsUnified
-    d.array()?;
-
-    // credentials
-    let accounts: BTreeMap<StakeCredential, Account> = d.decode()?;
-
-    // pointers
-    d.skip()?;
-
-    // Epoch State / Ledger State / Cert State / Delegation state / dsFutureGenDelegs
-    d.skip()?;
-
-    // Epoch State / Ledger State / Cert State / Delegation state / dsGenDelegs
-    d.skip()?;
-
-    // Epoch State / Ledger State / Cert State / Delegation state / dsIRewards
-    d.skip()?;
-
-    // Epoch State / Ledger State / UTxO State
-    d.array()?;
-
-    import_utxo(
-        db,
-        point,
-        d.decode::<BTreeMap<TransactionInput, TransactionOutput>>()?
-            .into_iter()
-            .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
-    )?;
-
-    let _deposited: u64 = d.decode()?;
-
-    let fees: i64 = d.decode()?;
-
-    // Epoch State / Ledger State / UTxO State / utxosGovState
-    d.array()?;
-
-    // Proposals
-    d.array()?;
-    // Proposals roots
-    d.skip()?;
-    let proposals: Vec<ProposalState> = d.decode()?;
-
-    // Constitutional committee
-    d.skip()?;
-    // Constitution
-    d.skip()?;
-    // Current Protocol Params
-    let protocol_parameters = import_protocol_parameters(db, &epoch, d.decode()?)?;
-    import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
-    import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
-
-    // Previous Protocol Params
-    d.skip()?;
-    // Future Protocol Params
-    d.skip()?;
-    // DRep Pulsing State
-    d.skip()?;
-
-    // Epoch State / Ledger State / UTxO State / utxosStakeDistr
-    d.skip()?;
-
-    // Epoch State / Ledger State / UTxO State / utxosDonation
-    d.skip()?;
-
-    // Epoch State / Snapshots
-    d.skip()?;
-    // Epoch State / NonMyopic
-    d.skip()?;
-
-    // Rewards Update
-    d.array()?;
-    d.array()?;
-    assert_eq!(d.u32()?, 1, "expected complete pulsing reward state");
-    d.array()?;
-
-    let delta_treasury: i64 = d.decode()?;
-
-    let delta_reserves: i64 = d.decode()?;
-
-    let mut rewards: BTreeMap<StakeCredential, Set<Reward>> = d.decode()?;
-    let delta_fees: i64 = d.decode()?;
-
-    // NonMyopic
-    d.skip()?;
-
-    import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
-
-    let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
-        total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
-    });
-
-    import_pots(
-        db,
-        (treasury + delta_treasury) as u64 + unclaimed_rewards,
-        (reserves - delta_reserves) as u64,
-        (fees - delta_fees) as u64,
-    )?;
+                unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
+                    total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
+                });
+            }
+            StateFragment::DeltaFees(delta_fees) => {
+                import_pots(
+                    db,
+                    (treasury + delta_treasury) as u64 + unclaimed_rewards,
+                    (reserves - delta_reserves) as u64,
+                    (fees - delta_fees) as u64,
+                )?;
+            }
+        }
+    }
 
     Ok(epoch)
 }
@@ -362,18 +616,18 @@ fn decode_new_epoch_state(
 fn import_protocol_parameters(
     db: &impl Store,
     epoch: &Epoch,
-    protocol_parameters: ProtocolParameters,
-) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
+    protocol_parameters: &ProtocolParameters,
+) -> Result<(), Box<dyn Error>> {
     let transaction = db.create_transaction();
-    transaction.set_protocol_parameters(epoch, &protocol_parameters)?;
+    transaction.set_protocol_parameters(epoch, protocol_parameters)?;
     transaction.commit()?;
-    Ok(protocol_parameters)
+    Ok(())
 }
 
 fn import_block_issuers(
     db: &impl Store,
     blocks: BTreeMap<PoolId, u64>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     let transaction = db.create_transaction();
     transaction.with_block_issuers(|iterator| {
         for (_, mut handle) in iterator {
@@ -413,7 +667,7 @@ fn import_utxo(
     db: &impl Store,
     point: &Point,
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     info!(what = "utxo_entries", size = utxo.len());
 
     let progress_delete = ProgressBar::no_length().with_style(ProgressStyle::with_template(
@@ -467,9 +721,9 @@ fn import_dreps(
     era_history: &EraHistory,
     point: &Point,
     epoch: Epoch,
-    dreps: BTreeMap<StakeCredential, DRepState>,
+    dreps: &BTreeMap<StakeCredential, DRepState>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), impl Error> {
     let mut known_dreps = BTreeMap::new();
 
     let era_first_epoch = era_history
@@ -497,7 +751,7 @@ fn import_dreps(
             utxo: iter::empty(),
             pools: iter::empty(),
             accounts: iter::empty(),
-            dreps: dreps.into_iter().map(|(credential, state)| {
+            dreps: dreps.iter().map(|(credential, state)| {
                 // 1. First DRep registrations in Conway are *sometimes* granted an extra epoch of
                 //    expiry; because the first Conway epoch is deemed as "dormant" (no proposals
                 //    in the epoch prior), and a bug in version 9 is causing new DRep registrations
@@ -545,7 +799,7 @@ fn import_dreps(
 
                 let registration =
                     known_dreps
-                        .remove(&credential)
+                        .remove(credential)
                         .unwrap_or_else(|| CertificatePointer {
                             transaction: TransactionPointer {
                                 slot: registration_slot,
@@ -555,9 +809,9 @@ fn import_dreps(
                         });
 
                 (
-                    credential,
+                    credential.clone(),
                     (
-                        Resettable::from(Option::from(state.anchor)),
+                        Resettable::from(Option::from(state.anchor.clone())),
                         Some((state.deposit, registration)),
                         last_interaction,
                     ),
@@ -577,9 +831,9 @@ fn import_proposals(
     db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
-    proposals: Vec<ProposalState>,
+    proposals: &[ProposalState],
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
         for (_, mut handle) in iterator {
@@ -599,11 +853,11 @@ fn import_proposals(
             dreps: iter::empty(),
             cc_members: iter::empty(),
             proposals: proposals
-                .into_iter()
-                .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
+                .iter()
+                .map(|proposal| -> Result<_, Box<dyn Error>> {
                     let proposal_index = proposal.id.action_index as usize;
                     Ok((
-                        proposal.id,
+                        proposal.id.clone(),
                         proposals::Value {
                             proposed_in: ProposalPointer {
                                 transaction: TransactionPointer {
@@ -614,7 +868,7 @@ fn import_proposals(
                             },
                             valid_until: proposal.proposed_in
                                 + protocol_parameters.gov_action_lifetime as u64,
-                            proposal: proposal.procedure,
+                            proposal: proposal.procedure.clone(),
                         },
                     ))
                 })
@@ -637,7 +891,7 @@ fn import_stake_pools(
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), impl Error> {
     let mut state = amaru_ledger::state::diff_epoch_reg::DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);
@@ -703,7 +957,7 @@ fn import_pots(
     treasury: u64,
     reserves: u64,
     fees: u64,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     let transaction = db.create_transaction();
     transaction.with_pots(|mut row| {
         let pots = row.borrow_mut();
@@ -719,10 +973,10 @@ fn import_pots(
 fn import_accounts(
     db: &impl Store,
     point: &Point,
-    accounts: BTreeMap<StakeCredential, Account>,
+    accounts: &BTreeMap<StakeCredential, Account>,
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), Box<dyn std::error::Error>> {
+) -> Result<(), Box<dyn Error>> {
     let transaction = db.create_transaction();
     transaction.with_accounts(|iterator| {
         for (_, mut handle) in iterator {
@@ -731,7 +985,7 @@ fn import_accounts(
     })?;
 
     let mut credentials = accounts
-        .into_iter()
+        .iter()
         .map(
             |(
                 credential,
@@ -745,16 +999,16 @@ fn import_accounts(
                 let (rewards, deposit) = Option::<(Lovelace, Lovelace)>::from(rewards_and_deposit)
                     .unwrap_or((0, protocol_parameters.stake_credential_deposit));
 
-                let rewards_update = match rewards_updates.remove(&credential) {
+                let rewards_update = match rewards_updates.remove(credential) {
                     None => 0,
                     Some(set) => set.iter().fold(0, |total, update| total + update.amount),
                 };
 
                 (
-                    credential,
+                    credential.clone(),
                     (
                         Resettable::from(Option::<PoolId>::from(pool)),
-                        //No slot to retrieve. All registrations coming from snapshot are considered valid.
+                        // No slot to retrieve. All registrations coming from snapshot are considered valid.
                         Resettable::from(
                             Option::<DRep>::from(drep)
                                 .map(|drep| (drep, *DEFAULT_CERTIFICATE_POINTER)),
@@ -802,7 +1056,7 @@ fn import_accounts(
     Ok(())
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum StrictMaybe<T> {
     Nothing,
     Just(T),
@@ -825,6 +1079,15 @@ impl<T> From<StrictMaybe<T>> for Option<T> {
         match value {
             StrictMaybe::Nothing => None,
             StrictMaybe::Just(t) => Some(t),
+        }
+    }
+}
+
+impl<T: Clone> From<&StrictMaybe<T>> for Option<T> {
+    fn from(value: &StrictMaybe<T>) -> Option<T> {
+        match value {
+            StrictMaybe::Nothing => None,
+            StrictMaybe::Just(t) => Some(t.clone()),
         }
     }
 }
