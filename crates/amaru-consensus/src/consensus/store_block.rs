@@ -54,7 +54,7 @@ impl StoreBlock {
 
 #[cfg(test)]
 mod tests {
-    use crate::consensus::store::StoreError;
+    use crate::consensus::store::{ReadOnlyChainStore, StoreError};
 
     use super::*;
     use amaru_kernel::{Hash, Point, RawBlock};
@@ -75,25 +75,25 @@ mod tests {
         }
     }
 
+    impl ReadOnlyChainStore<Header> for MockChainStore {
+        fn load_header(&self, _hash: &Hash<32>) -> Option<Header> {
+            unimplemented!()
+        }
+        fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+            unimplemented!()
+        }
+        fn get_nonces(&self, _header: &Hash<32>) -> Option<amaru_ouroboros::Nonces> {
+            unimplemented!()
+        }
+    }
+
     impl ChainStore<Header> for MockChainStore {
         fn store_block(&mut self, point: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
             self.stored_blocks.insert(*point, block.clone());
             Ok(())
         }
 
-        fn load_header(&self, _hash: &Hash<32>) -> Option<Header> {
-            unimplemented!()
-        }
-
         fn store_header(&mut self, _hash: &Hash<32>, _header: &Header) -> Result<(), StoreError> {
-            unimplemented!()
-        }
-
-        fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-            unimplemented!()
-        }
-
-        fn get_nonces(&self, _header: &Hash<32>) -> Option<amaru_ouroboros::Nonces> {
             unimplemented!()
         }
 
