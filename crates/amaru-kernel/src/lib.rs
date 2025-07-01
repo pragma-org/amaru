@@ -825,25 +825,6 @@ impl HasExUnits for MintedBlock<'_> {
     }
 }
 
-/// Calculate the total ex units in a witness set
-pub fn to_ex_units(witness_set: WitnessSet) -> ExUnits {
-    match witness_set.redeemer {
-        Some(redeemers) => match redeemers {
-            Redeemers::List(redeemers) => redeemers
-                .iter()
-                .fold(ExUnits { mem: 0, steps: 0 }, |acc, redeemer| {
-                    sum_ex_units(acc, redeemer.ex_units)
-                }),
-            Redeemers::Map(redeemers_map) => redeemers_map
-                .into_iter()
-                .fold(ExUnits { mem: 0, steps: 0 }, |acc, (_, redeemer)| {
-                    sum_ex_units(acc, redeemer.ex_units)
-                }),
-        },
-        None => ExUnits { mem: 0, steps: 0 },
-    }
-}
-
 /// Collect provided scripts and compute each ScriptHash in a witness set
 pub fn get_provided_scripts<'a>(
     witness_set: &'a MintedWitnessSet<'_>,
