@@ -17,32 +17,22 @@ use amaru_ledger::store::{
     columns::pools::{Key, Row, Value, EVENT_TARGET},
     StoreError,
 };
-use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction, DB};
+use rocksdb::Transaction;
 use slot_arithmetic::Epoch;
 use tracing::error;
 
 /// Name prefixed used for storing Pool entries. UTF-8 encoding for "pool"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x6f, 0x6c];
 
-fn get_row_from_bytes(
-    bytes: Result<Option<Vec<u8>>, rocksdb::Error>,
-) -> Result<Option<Row>, StoreError> {
-    Ok(bytes
-        .map_err(|err| StoreError::Internal(err.into()))?
-        .map(Row::unsafe_decode))
-}
-
-pub fn get<T: ThreadMode>(
-    db: &OptimisticTransactionDB<T>,
+pub fn get(
+    db_get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, rocksdb::Error>,
     pool: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    let bytes = db.get(as_key(&PREFIX, pool));
-    get_row_from_bytes(bytes)
-}
-
-pub fn get_from_db(db: &DB, pool: &Key) -> Result<Option<Row>, StoreError> {
-    let bytes = db.get(as_key(&PREFIX, pool));
-    get_row_from_bytes(bytes)
+    let key = as_key(&PREFIX, pool);
+    let bytes = (db_get)(&key);
+    bytes
+        .map_err(|err| StoreError::Internal(err.into()))
+        .map(|opt| opt.map(Row::unsafe_decode))
 }
 
 pub fn add<DB>(

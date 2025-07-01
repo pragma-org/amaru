@@ -26,7 +26,9 @@ use amaru_ledger::{
 };
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use pallas_codec::minicbor::{self as cbor};
-use rocksdb::{Direction, IteratorMode, ReadOptions, Transaction, DB};
+use rocksdb::{
+    DBAccess, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, Transaction, DB,
+};
 use slot_arithmetic::Epoch;
 use std::{
     collections::BTreeSet,
@@ -108,7 +110,7 @@ fn default_opts_with_prefix() -> Options {
     opts
 }
 
-pub struct ROLedgerDB {
+pub struct ReadOnlyLedgerDB {
     db: DB,
 }
 
@@ -157,12 +159,11 @@ impl RocksDB {
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
-    #[allow(dead_code)]
-    fn open_for_read_only(dir: &Path) -> Result<ROLedgerDB, StoreError> {
+    pub fn open_for_read_only(dir: &Path) -> Result<ReadOnlyLedgerDB, StoreError> {
         validate_snapshots(dir)?;
         let opts = default_opts_with_prefix();
         rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
-            .map(|db| ROLedgerDB { db })
+            .map(|db| ReadOnlyLedgerDB { db })
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
@@ -186,34 +187,35 @@ impl RocksDB {
     }
 }
 
-fn decode_cbor<T: for<'d> cbor::decode::Decode<'d, ()>>(
-    bytes: Option<impl AsRef<[u8]>>,
+fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
+    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+    key: &str,
 ) -> Result<Option<T>, StoreError> {
-    bytes
+    (db_get)(key)
+        .map_err(|err| StoreError::Internal(err.into()))?
         .map(|b| cbor::decode(b.as_ref()))
         .transpose()
         .map_err(StoreError::Undecodable)
 }
 
-fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
-    db: &OptimisticTransactionDB,
-    key: &str,
-) -> Result<Option<T>, StoreError> {
-    let bytes = db
-        .get(key)
-        .map_err(|err| StoreError::Internal(err.into()))?;
-    decode_cbor(bytes)
-}
-
 #[allow(clippy::panic)]
 #[allow(clippy::unwrap_used)]
-fn iter_decode<'a, K, V, I>(it: I) -> impl Iterator<Item = (K, V)> + 'a
+pub fn iter<'a, 'b, K, V, DB, F>(
+    db_iter_opt: F,
+    prefix: [u8; PREFIX_LEN],
+    direction: Direction,
+) -> Result<impl Iterator<Item = (K, V)> + 'a, StoreError>
 where
+    DB: 'a + 'b + DBAccess,
+    F: Fn(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
+    'b: 'a,
     K: for<'d> cbor::Decode<'d, ()> + 'a,
     V: for<'d> cbor::Decode<'d, ()> + 'a,
-    I: Iterator<Item = Result<(Box<[u8]>, Box<[u8]>), rocksdb::Error>> + 'a,
 {
-    it.map(|e| {
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    let it = (db_iter_opt)(IteratorMode::From(prefix.as_ref(), direction), opts);
+    let decoded_it = it.map(|e| {
         let (key, value) = e.unwrap();
         let k = cbor::decode(&key[PREFIX_LEN..])
             .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
@@ -225,37 +227,8 @@ where
             )
         });
         (k, v)
-    })
-}
-
-pub fn iter_db<'a, K, V>(
-    db: &'a DB,
-    prefix: [u8; PREFIX_LEN],
-    direction: Direction,
-) -> Result<impl Iterator<Item = (K, V)> + 'a, StoreError>
-where
-    K: for<'d> cbor::Decode<'d, ()> + 'a,
-    V: for<'d> cbor::Decode<'d, ()> + 'a,
-{
-    let mut opts = ReadOptions::default();
-    opts.set_prefix_same_as_start(true);
-    let it = db.iterator_opt(IteratorMode::From(prefix.as_ref(), direction), opts);
-    Ok(iter_decode(it))
-}
-
-pub fn iter<'a, K, V>(
-    db: &'a OptimisticTransactionDB,
-    prefix: [u8; PREFIX_LEN],
-    direction: Direction,
-) -> Result<impl Iterator<Item = (K, V)> + 'a, StoreError>
-where
-    K: for<'d> cbor::Decode<'d, ()> + 'a,
-    V: for<'d> cbor::Decode<'d, ()> + 'a,
-{
-    let mut opts = ReadOptions::default();
-    opts.set_prefix_same_as_start(true);
-    let it = db.iterator_opt(IteratorMode::From(prefix.as_ref(), direction), opts);
-    Ok(iter_decode(it))
+    });
+    Ok(decoded_it)
 }
 
 macro_rules! impl_ReadOnlyStore {
@@ -265,62 +238,62 @@ macro_rules! impl_ReadOnlyStore {
                 &self,
                 epoch: &Epoch,
             ) -> Result<ProtocolParameters, StoreError> {
-                get(&self.db, &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))
+                get(|key| self.db.get(key), &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))
                     .map(|row| row.unwrap_or_default())
             }
 
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
-                pools::get(&self.db, pool)
+                pools::get(|key| self.db.get(key), pool)
             }
 
             fn account(
                 &self,
                 credential: &StakeCredential,
             ) -> Result<Option<scolumns::accounts::Row>, StoreError> {
-                accounts::get(&self.db, credential)
+                accounts::get(|key| self.db.get(key), credential)
             }
 
             fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
-                utxo::get(&self.db, input)
+                utxo::get(|key| self.db.get(key), input)
             }
 
             fn iter_utxos(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
             {
-                iter::<scolumns::utxo::Key, scolumns::utxo::Value>(&self.db, utxo::PREFIX, Direction::Forward)
+                iter(|mode, opts| self.db.iterator_opt(mode, opts), utxo::PREFIX, Direction::Forward)
             }
 
             fn pots(&self) -> Result<Pots, StoreError> {
-                pots::get(&self.db.transaction()).map(|row| Pots::from(&row))
+                pots::get(|key| self.db.get(key)).map(|row| Pots::from(&row))
             }
 
             fn iter_accounts(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
             {
-                iter::<scolumns::accounts::Key, scolumns::accounts::Row>(&self.db, accounts::PREFIX, Direction::Forward)
+                iter(|mode, opts| self.db.iterator_opt(mode, opts), accounts::PREFIX, Direction::Forward)
             }
 
             fn iter_block_issuers(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
             {
-                iter::<scolumns::slots::Key, scolumns::slots::Value>(&self.db, slots::PREFIX, Direction::Forward)
+                iter(|mode, opts| self.db.iterator_opt(mode, opts), slots::PREFIX, Direction::Forward)
             }
 
             fn iter_pools(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
             {
-                iter::<scolumns::pools::Key, scolumns::pools::Row>(&self.db, pools::PREFIX, Direction::Forward)
+                iter(|mode, opts| self.db.iterator_opt(mode, opts), pools::PREFIX, Direction::Forward)
             }
 
             fn iter_dreps(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
             {
-                iter::<scolumns::dreps::Key, scolumns::dreps::Row>(&self.db, dreps::PREFIX, Direction::Forward)
+                iter(|mode, opts| self.db.iterator_opt(mode, opts), dreps::PREFIX, Direction::Forward)
             }
 
             fn iter_proposals(
@@ -329,98 +302,14 @@ macro_rules! impl_ReadOnlyStore {
                 impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
                 StoreError,
             > {
-                iter::<scolumns::proposals::Key, scolumns::proposals::Row>(&self.db, proposals::PREFIX, Direction::Forward)
+                iter(|mode, opts| self.db.iterator_opt(mode, opts), proposals::PREFIX, Direction::Forward)
             }
         })*
     }
 }
 
 // For now RocksDB and RocksDBSnapshot share their implementation of ReadOnlyStore
-impl_ReadOnlyStore!(for RocksDB, RocksDBSnapshot);
-
-fn get_from_db<T: for<'d> cbor::decode::Decode<'d, ()>>(
-    db: &rocksdb::DB,
-    key: &str,
-) -> Result<Option<T>, StoreError> {
-    let bytes = db.get(key).map_err(|e| StoreError::Internal(e.into()))?;
-    decode_cbor(bytes)
-}
-
-macro_rules! impl_ReadOnlyStoreForDB {
-    (for $($s:ty),+) => {
-        $(impl ReadOnlyStore for $s {
-            fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError> {
-                get_from_db(&self.db, &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))
-                    .map(|row| row.unwrap_or_default())
-            }
-
-            fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
-                pools::get_from_db(&self.db, pool)
-            }
-
-            fn account(
-                &self,
-                credential: &StakeCredential,
-            ) -> Result<Option<scolumns::accounts::Row>, StoreError> {
-                accounts::get_from_db(&self.db, credential)
-            }
-
-            fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
-                utxo::get_from_db(&self.db, input)
-            }
-
-            fn pots(&self) -> Result<Pots, StoreError> {
-                pots::get_from_db(&self.db).map(|row| Pots::from(&row))
-            }
-
-            fn iter_utxos(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
-            {
-                iter_db(&self.db, utxo::PREFIX, Direction::Forward)
-            }
-
-            fn iter_block_issuers(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
-            {
-                iter_db(&self.db, slots::PREFIX, Direction::Forward)
-            }
-
-            fn iter_pools(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
-            {
-                iter_db(&self.db, pools::PREFIX, Direction::Forward)
-            }
-
-            fn iter_accounts(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
-            {
-                iter_db(&self.db, accounts::PREFIX, Direction::Forward)
-            }
-
-            fn iter_dreps(
-                &self,
-            ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
-            {
-                iter_db(&self.db, dreps::PREFIX, Direction::Forward)
-            }
-
-            fn iter_proposals(
-                &self,
-            ) -> Result<
-                impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
-                StoreError,
-            > {
-                iter_db(&self.db, proposals::PREFIX, Direction::Forward)
-            }
-        })*
-    }
-}
-
-impl_ReadOnlyStoreForDB!(for ROLedgerDB, ROSnapshotLedgerDB);
+impl_ReadOnlyStore!(for RocksDB, RocksDBSnapshot, ReadOnlyLedgerDB, ReadOnlySnapshotLedgerDB);
 
 /// An generic column iterator, provided that rows from the column are (de)serialisable.
 #[allow(clippy::panic)]
@@ -605,7 +494,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     ) -> Result<(), StoreError> {
         let mut err = None;
         let proxy = Box::new(BorrowableProxy::new(
-            pots::get(&self.transaction)?,
+            pots::get(|key| self.transaction.get(key))?,
             |pots| {
                 let put = pots::put(&self.transaction, pots);
                 if let Err(e) = put {
@@ -701,7 +590,7 @@ impl Store for RocksDB {
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
-        get(&self.db, KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
+        get(|key| self.db.get(key), KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
     }
 }
 
@@ -709,7 +598,7 @@ pub struct RocksDBHistoricalStores {
     dir: PathBuf,
 }
 
-pub struct ROSnapshotLedgerDB {
+pub struct ReadOnlySnapshotLedgerDB {
     db: DB,
 }
 
@@ -728,11 +617,10 @@ impl RocksDBHistoricalStores {
         }
     }
 
-    #[allow(dead_code)]
-    fn open_for_read_only(dir: &Path) -> Result<ROSnapshotLedgerDB, StoreError> {
+    pub fn open_for_read_only(dir: &Path) -> Result<ReadOnlySnapshotLedgerDB, StoreError> {
         let opts = default_opts_with_prefix();
         rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
-            .map(|db| ROSnapshotLedgerDB { db })
+            .map(|db| ReadOnlySnapshotLedgerDB { db })
             .map_err(|err| StoreError::Internal(err.into()))
     }
 }
