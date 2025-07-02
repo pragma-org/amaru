@@ -89,7 +89,8 @@ bootstrap: clear-dbs ## Bootstrap the node from scratch
 		--chain-dir $(CHAIN_DIR) \
 		--network $(NETWORK)
 
-dev: ## Compile and run for development with default options
+dev: start # 'backward-compatibility'; might remove after a while.
+start: ## Compile and run for development with default options
 	cargo run --profile $(BUILD_PROFILE) -- daemon \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
