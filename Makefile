@@ -89,7 +89,7 @@ bootstrap: clear-dbs ## Bootstrap the node from scratch
 		--chain-dir $(CHAIN_DIR) \
 		--network $(NETWORK)
 
-dev: ## Compile and run for development with default options
+run-node: ## Compile and run for development with default options
 	cargo run --profile $(BUILD_PROFILE) -- daemon \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
