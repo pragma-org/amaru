@@ -29,10 +29,9 @@ pub fn get(
     pool: &Key,
 ) -> Result<Option<Row>, StoreError> {
     let key = as_key(&PREFIX, pool);
-    let bytes = (db_get)(&key);
-    bytes
-        .map_err(|err| StoreError::Internal(err.into()))
-        .map(|opt| opt.map(Row::unsafe_decode))
+    Ok(db_get(&key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(Row::unsafe_decode))
 }
 
 pub fn add<DB>(

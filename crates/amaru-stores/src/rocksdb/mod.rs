@@ -62,6 +62,9 @@ const PROTOCOL_PARAMETERS_PREFIX: &str = "ppar";
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
+// -------------------------------------------------------------------- RocksDB
+// ----------------------------------------------------------------------------
+
 /// An opaque handle for a store implementation of top of RocksDB. The database has the
 /// following structure:
 ///
@@ -95,25 +98,6 @@ pub struct RocksDB {
     ongoing_transaction: OngoingTransaction,
 }
 
-fn validate_snapshots(dir: &Path) -> Result<(), StoreError> {
-    let snapshots = RocksDB::snapshots(dir)?;
-    info!(target: EVENT_TARGET, snapshots = ?snapshots, "new.known_snapshots");
-    if snapshots.is_empty() {
-        return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
-    }
-    Ok(())
-}
-
-fn default_opts_with_prefix() -> Options {
-    let mut opts = Options::default();
-    opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
-    opts
-}
-
-pub struct ReadOnlyLedgerDB {
-    db: DB,
-}
-
 impl RocksDB {
     pub fn snapshots(dir: &Path) -> Result<Vec<Epoch>, StoreError> {
         let mut snapshots: Vec<Epoch> = Vec::new();
@@ -144,8 +128,8 @@ impl RocksDB {
         Ok(snapshots)
     }
 
-    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
-        validate_snapshots(dir)?;
+    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<Self, StoreError> {
+        assert_non_empty(dir)?;
         let mut opts = default_opts_with_prefix();
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, dir.join("live"))
@@ -156,14 +140,6 @@ impl RocksDB {
                 era_history: era_history.clone(),
                 ongoing_transaction: OngoingTransaction::new(),
             })
-            .map_err(|err| StoreError::Internal(err.into()))
-    }
-
-    pub fn open_for_read_only(dir: &Path) -> Result<ReadOnlyLedgerDB, StoreError> {
-        validate_snapshots(dir)?;
-        let opts = default_opts_with_prefix();
-        rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
-            .map(|db| ReadOnlyLedgerDB { db })
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
@@ -187,49 +163,70 @@ impl RocksDB {
     }
 }
 
-fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
-    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
-    key: &str,
-) -> Result<Option<T>, StoreError> {
-    (db_get)(key)
-        .map_err(|err| StoreError::Internal(err.into()))?
-        .map(|b| cbor::decode(b.as_ref()))
-        .transpose()
-        .map_err(StoreError::Undecodable)
+impl Store for RocksDB {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        RocksDB::snapshots(&self.dir)
+    }
+
+    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch))]
+    fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
+        let path = self.dir.join(epoch.to_string());
+
+        if path.exists() {
+            // RocksDB error can't be created externally, so panic instead
+            // It might be better to come up with a global error type
+            fs::remove_dir_all(&path).map_err(|_| {
+                StoreError::Internal("Unable to remove existing snapshot directory".into())
+            })?;
+        }
+
+        checkpoint::Checkpoint::new(&self.db)
+            .and_then(|handle| handle.create_checkpoint(path))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::panic)] // Expected
+    fn create_transaction(&self) -> impl TransactionalContext<'_> {
+        if self.ongoing_transaction.get() {
+            // Thats a bug in the code, we should never have two transactions at the same time
+            panic!("RocksDB already has an ongoing transaction");
+        }
+        let transaction = self.db.transaction();
+        self.ongoing_transaction.set(true);
+        RocksDBTransactionalContext {
+            transaction,
+            db: self,
+        }
+    }
+
+    fn tip(&self) -> Result<Point, StoreError> {
+        get(|key| self.db.get(key), KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
+    }
 }
 
-#[allow(clippy::panic)]
-#[allow(clippy::unwrap_used)]
-pub fn iter<'a, 'b, K, V, DB, F>(
-    db_iter_opt: F,
-    prefix: [u8; PREFIX_LEN],
-    direction: Direction,
-) -> Result<impl Iterator<Item = (K, V)> + 'a, StoreError>
-where
-    DB: 'a + 'b + DBAccess,
-    F: Fn(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
-    'b: 'a,
-    K: for<'d> cbor::Decode<'d, ()> + 'a,
-    V: for<'d> cbor::Decode<'d, ()> + 'a,
-{
-    let mut opts = ReadOptions::default();
-    opts.set_prefix_same_as_start(true);
-    let it = (db_iter_opt)(IteratorMode::From(prefix.as_ref(), direction), opts);
-    let decoded_it = it.map(|e| {
-        let (key, value) = e.unwrap();
-        let k = cbor::decode(&key[PREFIX_LEN..])
-            .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
-        let v = cbor::decode(&value).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode value ({}) for key ({}): {e:?}",
-                hex::encode(&value),
-                hex::encode(&key)
-            )
-        });
-        (k, v)
-    });
-    Ok(decoded_it)
+// ------------------------------------------------------------ RocksDBReadOnly
+// ----------------------------------------------------------------------------
+
+/// A version of the RocksDB implementation that holds a read-only connection. Useful for
+/// monitoring tools / API that are merely inspecting the database.
+pub struct ReadOnlyRocksDB {
+    db: DB,
 }
+
+impl ReadOnlyRocksDB {
+    pub fn new(dir: &Path) -> Result<Self, StoreError> {
+        assert_non_empty(dir)?;
+        let opts = default_opts_with_prefix();
+        rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
+            .map(|db| ReadOnlyRocksDB { db })
+            .map_err(|err| StoreError::Internal(err.into()))
+    }
+}
+
+// ----------------------------------------------------------- ReadOnlyStore(s)
+// ----------------------------------------------------------------------------
 
 macro_rules! impl_ReadOnlyStore {
     (for $($s:ty),+) => {
@@ -309,37 +306,10 @@ macro_rules! impl_ReadOnlyStore {
 }
 
 // For now RocksDB and RocksDBSnapshot share their implementation of ReadOnlyStore
-impl_ReadOnlyStore!(for RocksDB, RocksDBSnapshot, ReadOnlyLedgerDB, ReadOnlySnapshotLedgerDB);
+impl_ReadOnlyStore!(for RocksDB, RocksDBSnapshot, ReadOnlyRocksDB, ReadOnlyRocksDBSnapshot);
 
-/// An generic column iterator, provided that rows from the column are (de)serialisable.
-#[allow(clippy::panic)]
-fn with_prefix_iterator<
-    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
-    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
-    DB,
->(
-    db: &rocksdb::Transaction<'_, DB>,
-    prefix: [u8; PREFIX_LEN],
-    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
-) -> Result<(), StoreError> {
-    let mut iterator =
-        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-            // FIXME: clarify what kind of errors can come from the database at this point.
-            // We are merely iterating over a collection.
-            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-        }));
-
-    with(iterator.as_iter_borrow());
-
-    for (k, v) in iterator.into_iter_updates() {
-        match v {
-            Some(v) => db.put(k, as_value(v)),
-            None => db.delete(k),
-        }
-        .map_err(|err| StoreError::Internal(err.into()))?;
-    }
-    Ok(())
-}
+// ------------------------------------------------ RocksDBTransactionalContext
+// ----------------------------------------------------------------------------
 
 struct RocksDBTransactionalContext<'a> {
     db: &'a RocksDB,
@@ -551,55 +521,11 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     }
 }
 
-impl Store for RocksDB {
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        RocksDB::snapshots(&self.dir)
-    }
-
-    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch))]
-    fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
-        let path = self.dir.join(epoch.to_string());
-
-        if path.exists() {
-            // RocksDB error can't be created externally, so panic instead
-            // It might be better to come up with a global error type
-            fs::remove_dir_all(&path).map_err(|_| {
-                StoreError::Internal("Unable to remove existing snapshot directory".into())
-            })?;
-        }
-
-        checkpoint::Checkpoint::new(&self.db)
-            .and_then(|handle| handle.create_checkpoint(path))
-            .map_err(|err| StoreError::Internal(err.into()))?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::panic)] // Expected
-    fn create_transaction(&self) -> impl TransactionalContext<'_> {
-        if self.ongoing_transaction.get() {
-            // Thats a bug in the code, we should never have two transactions at the same time
-            panic!("RocksDB already has an ongoing transaction");
-        }
-        let transaction = self.db.transaction();
-        self.ongoing_transaction.set(true);
-        RocksDBTransactionalContext {
-            transaction,
-            db: self,
-        }
-    }
-
-    fn tip(&self) -> Result<Point, StoreError> {
-        get(|key| self.db.get(key), KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
-    }
-}
+// ---------------------------------------------------- RocksDBHistoricalStores
+// ----------------------------------------------------------------------------
 
 pub struct RocksDBHistoricalStores {
     dir: PathBuf,
-}
-
-pub struct ReadOnlySnapshotLedgerDB {
-    db: DB,
 }
 
 impl RocksDBHistoricalStores {
@@ -616,14 +542,16 @@ impl RocksDBHistoricalStores {
             dir: dir.to_path_buf(),
         }
     }
+}
 
-    pub fn open_for_read_only(dir: &Path) -> Result<ReadOnlySnapshotLedgerDB, StoreError> {
-        let opts = default_opts_with_prefix();
-        rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
-            .map(|db| ReadOnlySnapshotLedgerDB { db })
-            .map_err(|err| StoreError::Internal(err.into()))
+impl HistoricalStores for RocksDBHistoricalStores {
+    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
+        RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
     }
 }
+
+// ------------------------------------------------------------ RocksDBSnapshot
+// ----------------------------------------------------------------------------
 
 pub struct RocksDBSnapshot {
     epoch: Epoch,
@@ -636,25 +564,138 @@ impl Snapshot for RocksDBSnapshot {
     }
 }
 
-impl HistoricalStores for RocksDBHistoricalStores {
-    fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
-        RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
+// ---------------------------------------------------- ReadOnlyRocksDBSnapshot
+// ----------------------------------------------------------------------------
+
+pub struct ReadOnlyRocksDBSnapshot {
+    db: DB,
+}
+
+impl ReadOnlyRocksDBSnapshot {
+    pub fn new(dir: &Path) -> Result<Self, StoreError> {
+        let opts = default_opts_with_prefix();
+        rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
+            .map(|db| Self { db })
+            .map_err(|err| StoreError::Internal(err.into()))
     }
 }
 
+// -------------------------------------------------------------------- Helpers
+// ----------------------------------------------------------------------------
+
+fn assert_non_empty(dir: &Path) -> Result<(), StoreError> {
+    let snapshots = RocksDB::snapshots(dir)?;
+    info!(target: EVENT_TARGET, snapshots = ?snapshots, "new.known_snapshots");
+    if snapshots.is_empty() {
+        return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
+    }
+    Ok(())
+}
+
+fn default_opts_with_prefix() -> Options {
+    let mut opts = Options::default();
+    opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
+    opts
+}
+
+fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
+    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+    key: &str,
+) -> Result<Option<T>, StoreError> {
+    (db_get)(key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(|b| cbor::decode(b.as_ref()))
+        .transpose()
+        .map_err(StoreError::Undecodable)
+}
+
+#[allow(clippy::panic)]
+#[allow(clippy::unwrap_used)]
+pub fn iter<'a, 'b, K, V, DB, F>(
+    db_iter_opt: F,
+    prefix: [u8; PREFIX_LEN],
+    direction: Direction,
+) -> Result<impl Iterator<Item = (K, V)> + 'a, StoreError>
+where
+    DB: 'a + 'b + DBAccess,
+    F: Fn(IteratorMode<'_>, ReadOptions) -> DBIteratorWithThreadMode<'b, DB> + 'a,
+    'b: 'a,
+    K: for<'d> cbor::Decode<'d, ()> + 'a,
+    V: for<'d> cbor::Decode<'d, ()> + 'a,
+{
+    let mut opts = ReadOptions::default();
+    opts.set_prefix_same_as_start(true);
+    let it = (db_iter_opt)(IteratorMode::From(prefix.as_ref(), direction), opts);
+    let decoded_it = it.map(|e| {
+        let (key, value) = e.unwrap();
+        let k = cbor::decode(&key[PREFIX_LEN..])
+            .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
+        let v = cbor::decode(&value).unwrap_or_else(|e| {
+            panic!(
+                "unable to decode value ({}) for key ({}): {e:?}",
+                hex::encode(&value),
+                hex::encode(&key)
+            )
+        });
+        (k, v)
+    });
+    Ok(decoded_it)
+}
+
+/// An generic column iterator, provided that rows from the column are (de)serialisable.
+#[allow(clippy::panic)]
+fn with_prefix_iterator<
+    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    DB,
+>(
+    db: &rocksdb::Transaction<'_, DB>,
+    prefix: [u8; PREFIX_LEN],
+    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
+) -> Result<(), StoreError> {
+    let mut iterator =
+        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
+            // FIXME: clarify what kind of errors can come from the database at this point.
+            // We are merely iterating over a collection.
+            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+        }));
+
+    with(iterator.as_iter_borrow());
+
+    for (k, v) in iterator.into_iter_updates() {
+        match v {
+            Some(v) => db.put(k, as_value(v)),
+            None => db.delete(k),
+        }
+        .map_err(|err| StoreError::Internal(err.into()))?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------- Tests
+// ----------------------------------------------------------------------------
+
 #[cfg(test)]
-#[test]
-fn test_two_open_ledger_dbs() {
-    use amaru_kernel::network::NetworkName;
-    use std::fs::File;
-    use tempfile::TempDir;
+mod tests {
+    use super::*;
+    use amaru_kernel::EraHistory;
 
-    let dir = TempDir::new().unwrap();
-    let file_path = dir.path().join("0");
-    let _snapshot = File::create(&file_path).unwrap();
+    #[test]
+    fn open_one_writer_and_one_reader() {
+        use amaru_kernel::network::NetworkName;
+        use std::fs::File;
+        use tempfile::TempDir;
 
-    let era_history: &EraHistory = NetworkName::Preprod.into();
-    let _rw_db = RocksDB::new(dir.path(), era_history).unwrap();
+        let dir = TempDir::new().unwrap();
+        let file_path = dir.path().join("0");
+        let _fake_snapshot = File::create(&file_path).unwrap();
 
-    let _ro_db = RocksDB::open_for_read_only(dir.path()).expect("Unable to open read only db");
+        let era_history: &EraHistory = NetworkName::Preprod.into();
+
+        let rw_db = RocksDB::new(dir.path(), era_history).inspect_err(|e| println!("{e:#?}"));
+        assert!(matches!(rw_db, Ok(..)));
+
+        let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
+        assert!(matches!(ro_db, Ok(..)));
+    }
 }

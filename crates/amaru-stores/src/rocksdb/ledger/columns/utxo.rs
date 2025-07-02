@@ -29,7 +29,7 @@ pub fn get(
     key: &Key,
 ) -> Result<Option<Value>, StoreError> {
     let key = as_key(&PREFIX, key);
-    let bytes = (db_get)(&key);
+    let bytes = db_get(&key);
     Ok(bytes
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(|bytes| {

@@ -22,7 +22,7 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x74, 0x73];
 pub fn get(
     db_get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, rocksdb::Error>,
 ) -> Result<Row, StoreError> {
-    let bytes = (db_get)(&PREFIX);
+    let bytes = db_get(&PREFIX);
     Ok(bytes
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(Row::unsafe_decode)

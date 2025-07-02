@@ -107,7 +107,7 @@ pub fn get(
     credential: &Key,
 ) -> Result<Option<Row>, StoreError> {
     let key = as_key(&PREFIX, credential);
-    let bytes = (db_get)(&key);
+    let bytes = db_get(&key);
     bytes
         .map_err(|err| StoreError::Internal(err.into()))
         .map(|opt| opt.map(Row::unsafe_decode))
