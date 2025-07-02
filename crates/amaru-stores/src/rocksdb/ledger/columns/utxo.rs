@@ -18,18 +18,19 @@ use amaru_ledger::store::{
     StoreError,
 };
 use pallas_codec::minicbor::{self as cbor};
-use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
+use rocksdb::Transaction;
 
 /// Name prefixed used for storing UTxO entries. UTF-8 encoding for "utxo"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x75, 0x74, 0x78, 0x6f];
 
 #[allow(clippy::panic)]
-pub fn get<T: ThreadMode>(
-    db: &OptimisticTransactionDB<T>,
+pub fn get(
+    db_get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, rocksdb::Error>,
     key: &Key,
 ) -> Result<Option<Value>, StoreError> {
-    Ok(db
-        .get(as_key(&PREFIX, key))
+    let key = as_key(&PREFIX, key);
+    let bytes = db_get(&key);
+    Ok(bytes
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(|bytes| {
             cbor::decode(&bytes).unwrap_or_else(|e| {
