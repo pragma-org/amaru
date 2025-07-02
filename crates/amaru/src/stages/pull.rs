@@ -93,7 +93,10 @@ impl Stage {
         let _intersection = point
             .ok_or(anyhow!(
                 "couldn't find intersect for points: {:?}",
-                self.intersection.iter().map(|p| p.slot_or_default()).collect::<Vec<_>>()
+                self.intersection
+                    .iter()
+                    .map(|p| p.slot_or_default())
+                    .collect::<Vec<_>>()
             ))
             .or_panic()?;
         Ok(())
