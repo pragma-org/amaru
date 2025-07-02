@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{ScriptLocation, UtxoSlice, WitnessSlice};
+use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, BorrowedDatumOption, DatumOption, HasAddress, HasDatum, HasScriptHash,
-    HasScriptRef, RequiredScript, ScriptPurpose, TransactionInput, TransactionOutput,
+    AddrType, Address, BorrowedDatumOption, CborWrap, DatumOption, HasAddress, HasDatum,
+    HasScriptHash, HasScriptRef, Hasher, RequiredScript, ScriptPurpose, TransactionInput,
+    TransactionOutput,
 };
 use thiserror::Error;
 
@@ -68,20 +69,27 @@ where
                 .lookup(reference_input)
                 .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
 
-            let datum_hash = match output.datum() {
-                Some(BorrowedDatumOption::Hash(hash)) => Some(*hash),
-                None | Some(BorrowedDatumOption::Data(..)) => None,
+            let script_ref = output.has_script_ref().map(|s| s.script_hash());
+
+            match output.datum() {
+                Some(BorrowedDatumOption::Data(cbor)) => {
+                    // FIXME: We need to preserve the original Datum bytes when storing them,
+                    // so that we can recompute the hash without re-serialising the PlutusData.
+                    //
+                    // At the moment, PlutusData is still mapping the CBOR structure, so it
+                    // should reserialise okay. Yet this isn't a valid strategy long-term, nor
+                    // something we actually want to rely on.
+                    context
+                        .acknowledge_datum(Hasher::<256>::hash_cbor(cbor), reference_input.clone())
+                }
+                Some(BorrowedDatumOption::Hash(hash)) => {
+                    context.allow_supplemental_datum(*hash);
+                }
+                None => (),
             };
 
-            if let Some(script) = output.has_script_ref() {
-                context.acknowledge_script(
-                    script.script_hash(),
-                    ScriptLocation::AtReferenceInput(reference_input.clone()),
-                )
-            }
-
-            if let Some(hash) = datum_hash {
-                context.allow_supplemental_datum(hash);
+            if let Some(script_hash) = script_ref {
+                context.acknowledge_script(script_hash, reference_input.clone())
             }
         }
     }
@@ -107,9 +115,20 @@ where
 
         let address = parse_address(output)?;
 
-        let datum = output.datum();
-
         let script = output.has_script_ref().map(|script| script.script_hash());
+
+        let datum_option = match output.datum() {
+            Some(BorrowedDatumOption::Data(cbor)) => {
+                // TODO: Avoid cloning here. Could probably be achieved by having 'RequiredScript'
+                // always take a datum hash, and lookup its value when needed.
+                let cbor = cbor.to_owned();
+                // FIXME: Avoid re-reserializing. See above note for 'acknowledge_datum'.
+                context.acknowledge_datum(Hasher::<256>::hash_cbor(&cbor), input.clone());
+                Some(DatumOption::Data(CborWrap(cbor.unwrap())))
+            }
+            Some(BorrowedDatumOption::Hash(hash)) => Some(DatumOption::Hash(*hash)),
+            None => None,
+        };
 
         match address {
             Address::Byron(byron_address) => {
@@ -130,7 +149,7 @@ where
                         hash: *shelley_address.payment().as_hash(),
                         index: input_index as u32,
                         purpose: ScriptPurpose::Spend,
-                        datum_option: datum.map(DatumOption::from),
+                        datum_option,
                     });
                 } else {
                     context.require_vkey_witness(*shelley_address.payment().as_hash());
@@ -140,7 +159,7 @@ where
         }
 
         if let Some(script_hash) = script {
-            context.acknowledge_script(script_hash, ScriptLocation::AtInput(input.clone()));
+            context.acknowledge_script(script_hash, input.clone());
         }
     }
 

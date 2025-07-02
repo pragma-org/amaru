@@ -1,42 +1,40 @@
-use std::collections::BTreeSet;
-
-use amaru_kernel::{
-    display_collection, get_provided_scripts, script_purpose_to_string, BorrowedScript,
-    DatumOption, Hash, MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash,
-    ScriptPurpose, ScriptRefWithHash,
-};
-use thiserror::Error;
-
 use crate::context::{UtxoSlice, WitnessSlice};
+use amaru_kernel::{
+    display_collection, get_provided_scripts, script_purpose_to_string, BorrowedScript, DatumHash,
+    DatumOption, MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash,
+    ScriptPurpose,
+};
+use std::collections::{BTreeMap, BTreeSet};
+use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum InvalidScripts {
     #[error("missing required scripts: missing [{}]", display_collection(.0))]
-    MissingRequiredScripts(Vec<ScriptHash>),
+    MissingRequiredScripts(BTreeSet<ScriptHash>),
     #[error("extraneous script witnesses: extra [{}]", display_collection(.0))]
-    ExtraneousScriptWitnesses(Vec<ScriptHash>),
+    ExtraneousScriptWitnesses(BTreeSet<ScriptHash>),
     #[error(
-        "unspendable inputs; no datums. Input indices: [{}]",
+        "unspendable inputs at position(s) [{}]: no datums",
         display_collection(.0)
     )]
-    UnspendableInputsNoDatums(Vec<u32>),
+    UnspendableInputsNoDatums(BTreeSet<u32>),
     #[error(
         "missing required datums: missing [{}] provided [{}]",
         display_collection(missing),
         display_collection(provided)
     )]
     MissingRequiredDatums {
-        missing: Vec<Hash<32>>,
-        provided: BTreeSet<Hash<32>>,
+        missing: BTreeSet<DatumHash>,
+        provided: BTreeSet<DatumHash>,
     },
     #[error(
-        "extraneous supplemental datums: allowed: [{}] provided [{}]",
-        display_collection(allowed),
-        display_collection(provided)
+        "extraneous supplemental datums: supplemental: [{}], extraneous: [{}]",
+        display_collection(supplemental),
+        display_collection(extraneous)
     )]
     ExtraneousSupplementalDatums {
-        allowed: BTreeSet<Hash<32>>,
-        provided: BTreeSet<Hash<32>>,
+        supplemental: BTreeSet<DatumHash>,
+        extraneous: BTreeSet<DatumHash>,
     },
     #[error("extraneous redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
     ExtraneousRedeemers(Vec<RedeemersKey>),
@@ -44,159 +42,30 @@ pub enum InvalidScripts {
     MissingRedeemers(Vec<RedeemersKey>),
 }
 
+// TODO: Split this whole function into smaller functions to make it more graspable.
 pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
 where
     C: UtxoSlice + WitnessSlice,
 {
     let required_scripts = context.required_scripts();
-    let required_script_hashes = required_scripts
+
+    let required_script_hashes: BTreeSet<&ScriptHash> = required_scripts
         .iter()
-        .map(ScriptHash::from)
-        .collect::<BTreeSet<_>>();
-    let allowed_supplemental_datum = context.allowed_supplemental_datums();
-
-    let provided_script_refs = context.known_scripts();
-
-    // we only consider script references required by the transaction
-    let script_references = provided_script_refs
-        .into_iter()
-        .filter_map(|(script_hash, script_ref)| {
-            if required_script_hashes.contains(&script_hash) {
-                Some(ScriptRefWithHash {
-                    hash: script_hash,
-                    script: BorrowedScript::from(script_ref),
-                })
-            } else {
-                None
-            }
-        })
-        .collect::<BTreeSet<_>>();
-
-    let provided_scripts: BTreeSet<_> = get_provided_scripts(witness_set)
-        .into_iter()
-        .chain(script_references)
+        .map(|RequiredScript { hash, .. }| hash)
         .collect();
 
-    let provided_script_hashes: BTreeSet<ScriptHash> =
-        provided_scripts.iter().map(|script| script.hash).collect();
+    let provided_scripts = collect_provided_scripts(context, &required_script_hashes, witness_set);
 
-    let missing_scripts: Vec<ScriptHash> = required_script_hashes
-        .difference(&provided_script_hashes)
-        .cloned()
-        .collect();
+    let required_scripts =
+        fail_on_script_symmetric_differences(required_scripts, &provided_scripts)?;
 
-    if !missing_scripts.is_empty() {
-        return Err(InvalidScripts::MissingRequiredScripts(missing_scripts));
-    }
+    let (mut required_redeemers, required_datums) = partition_scripts(required_scripts)?;
 
-    let extra_scripts: Vec<ScriptHash> = provided_script_hashes
-        .difference(&required_script_hashes)
-        .copied()
-        .collect();
+    let witnessed_datums = datum_hashes(witness_set);
 
-    if !extra_scripts.is_empty() {
-        return Err(InvalidScripts::ExtraneousScriptWitnesses(extra_scripts));
-    }
+    fail_on_supplemental_datums(context, &required_datums, &witnessed_datums)?;
 
-    let required_scripts = required_scripts
-        .into_iter()
-        .map(|required_script| {
-            if let Some(script) = provided_scripts
-                .iter()
-                .find(|script| script.hash == required_script.hash)
-            {
-                (required_script, &script.script)
-            } else {
-                unreachable!("required script found missing after validation");
-            }
-        })
-        .collect::<Vec<_>>();
-
-    let mut input_datum_hashes: BTreeSet<Hash<32>> = BTreeSet::new();
-    let mut input_indices_missing_datum = Vec::new();
-
-    required_scripts.iter().for_each(
-        |(
-            RequiredScript {
-                index,
-                datum_option,
-                hash: _,
-                purpose,
-            },
-            script,
-        )| {
-            if purpose == &ScriptPurpose::Spend {
-                match datum_option {
-                    None => match script {
-                        BorrowedScript::PlutusV1Script(..) | BorrowedScript::PlutusV2Script(..) => {
-                            input_indices_missing_datum.push(*index);
-                        }
-                        BorrowedScript::NativeScript(..) | BorrowedScript::PlutusV3Script(..) => {}
-                    },
-                    Some(DatumOption::Hash(hash)) => {
-                        input_datum_hashes.insert(*hash);
-                    }
-                    Some(..) => {}
-                };
-            }
-        },
-    );
-
-    if !input_indices_missing_datum.is_empty() {
-        return Err(InvalidScripts::UnspendableInputsNoDatums(
-            input_indices_missing_datum,
-        ));
-    }
-
-    let witness_datum_hashes: BTreeSet<Hash<32>> = witness_set
-        .plutus_data
-        .as_deref()
-        .map(|datums| {
-            datums
-                .iter()
-                .map(|datum| datum.original_hash())
-                .collect::<BTreeSet<_>>()
-        })
-        .unwrap_or_default();
-
-    let unmatched_datums = input_datum_hashes
-        .difference(&witness_datum_hashes)
-        .cloned()
-        .collect::<Vec<_>>();
-
-    if !unmatched_datums.is_empty() {
-        return Err(InvalidScripts::MissingRequiredDatums {
-            missing: unmatched_datums,
-            provided: input_datum_hashes,
-        });
-    }
-
-    let supplemental_datums = witness_datum_hashes
-        .difference(&input_datum_hashes)
-        .cloned()
-        .collect::<BTreeSet<_>>();
-
-    let extraneous_supplemental_datums = supplemental_datums
-        .difference(&allowed_supplemental_datum)
-        .cloned()
-        .collect::<Vec<_>>();
-
-    if !extraneous_supplemental_datums.is_empty() {
-        return Err(InvalidScripts::ExtraneousSupplementalDatums {
-            provided: supplemental_datums,
-            allowed: allowed_supplemental_datum,
-        });
-    }
-
-    let mut redeemers_required = required_scripts
-        .iter()
-        .filter_map(|(required_script, script)| match script {
-            BorrowedScript::PlutusV1Script(..)
-            | BorrowedScript::PlutusV2Script(..)
-            | BorrowedScript::PlutusV3Script(..) => Some(RedeemersKey::from(required_script)),
-            BorrowedScript::NativeScript(_) => None,
-        })
-        .collect::<Vec<_>>();
+    fail_on_unmatched_datums(context, &required_datums, witnessed_datums)?;
 
     let mut extra_redeemers = Vec::new();
 
@@ -221,11 +90,11 @@ where
                     };
 
                     if !processed_keys.contains(&provided) {
-                        if let Some(index) = redeemers_required
+                        if let Some(index) = required_redeemers
                             .iter()
                             .position(|required| required == &provided)
                         {
-                            redeemers_required.remove(index);
+                            required_redeemers.remove(index);
                         } else {
                             extra_redeemers.push(provided.clone());
                         }
@@ -238,11 +107,11 @@ where
             // A map guarantees uniqueness of the RedeemerKey, therefore we don't need to do the same uniquness logic
             amaru_kernel::Redeemers::Map(redeemers) => {
                 redeemers.iter().for_each(|(provided, _)| {
-                    if let Some(index) = redeemers_required
+                    if let Some(index) = required_redeemers
                         .iter()
                         .position(|required| required == provided)
                     {
-                        redeemers_required.remove(index);
+                        required_redeemers.remove(index);
                     } else {
                         extra_redeemers.push(provided.clone());
                     }
@@ -251,12 +120,251 @@ where
         }
     }
 
-    if !redeemers_required.is_empty() {
-        return Err(InvalidScripts::MissingRedeemers(redeemers_required));
+    if !required_redeemers.is_empty() {
+        return Err(InvalidScripts::MissingRedeemers(required_redeemers));
     }
 
     if !extra_redeemers.is_empty() {
         return Err(InvalidScripts::ExtraneousRedeemers(extra_redeemers));
+    }
+
+    Ok(())
+}
+
+/// Split all required scripts information into two sub-partitions:
+///
+/// 1. The (ordered) list of redeemer keys (purpose and index) which needs to be executed.
+///
+/// 2. The set of datum hash digests for which a preimage is needed.
+///
+/// The function fails if there's any input with missing mandatory datum (i.e. Plutus V1 or V2
+/// script-locked inputs without datum; those are simply "forever" unspendable).
+fn partition_scripts(
+    required_scripts: Vec<(RequiredScript, &BorrowedScript<'_>)>,
+) -> Result<(Vec<RedeemersKey>, BTreeSet<DatumHash>), InvalidScripts> {
+    let mut required_redeemers = Vec::new();
+    let mut required_datums = BTreeSet::new();
+    let mut missing_datums = BTreeSet::new();
+
+    required_scripts
+        .iter()
+        .for_each(|(required_script, script)| {
+            let RequiredScript {
+                index,
+                datum_option,
+                hash: _,
+                purpose,
+            } = required_script;
+
+            let mut require_redeemer =
+                || required_redeemers.push(RedeemersKey::from(required_script));
+
+            let mut unspendable_without_datum = || {
+                if purpose == &ScriptPurpose::Spend && datum_option.is_none() {
+                    missing_datums.insert(*index);
+                }
+            };
+
+            let mut require_datum_preimage = || match datum_option {
+                Some(DatumOption::Hash(hash)) => {
+                    required_datums.insert(*hash);
+                }
+                Some(DatumOption::Data(..)) | None => {}
+            };
+
+            match script {
+                // NOTE: One may very well send some funds to a native script, and attach a
+                // datum hash to it. In which case, the datum has no effect and is simply
+                // ignored.
+                BorrowedScript::NativeScript(..) => {}
+
+                BorrowedScript::PlutusV1Script(..) => {
+                    require_redeemer();
+                    unspendable_without_datum();
+                    require_datum_preimage();
+                }
+                BorrowedScript::PlutusV2Script(..) => {
+                    require_redeemer();
+                    unspendable_without_datum();
+                    require_datum_preimage();
+                }
+                BorrowedScript::PlutusV3Script(..) => {
+                    require_redeemer();
+                    require_datum_preimage();
+                }
+            };
+        });
+
+    fail_on_missing_datums(missing_datums)?;
+
+    Ok((required_redeemers, required_datums))
+}
+
+// TODO: Should live in Pallas.
+/// Collect all datum hash digests found in the witness set.
+fn datum_hashes(witness_set: &MintedWitnessSet<'_>) -> BTreeSet<DatumHash> {
+    witness_set
+        .plutus_data
+        .as_deref()
+        .map(|datums| {
+            datums
+                .iter()
+                .map(|datum| datum.original_hash())
+                .collect::<BTreeSet<_>>()
+        })
+        .unwrap_or_default()
+}
+
+fn collect_provided_scripts<'a, C>(
+    context: &'a mut C,
+    required: &BTreeSet<&ScriptHash>,
+    witness_set: &'a MintedWitnessSet<'_>,
+) -> BTreeMap<ScriptHash, BorrowedScript<'a>>
+where
+    C: WitnessSlice,
+{
+    let referenced = context
+        .known_scripts()
+        .into_iter()
+        // We only consider script references required by the transaction
+        .filter_map(|(script_hash, script_ref)| {
+            if required.contains(&script_hash) {
+                Some((script_hash, BorrowedScript::from(script_ref)))
+            } else {
+                None
+            }
+        });
+
+    get_provided_scripts(witness_set)
+        .into_iter()
+        .chain(referenced)
+        .collect()
+}
+
+/// Ensures that the required and provided scripts match exactly (i.e. check that they're included
+/// in each other).
+fn fail_on_script_symmetric_differences<'a>(
+    required: BTreeSet<RequiredScript>,
+    provided: &'a BTreeMap<ScriptHash, BorrowedScript<'a>>,
+) -> Result<Vec<(RequiredScript, &'a BorrowedScript<'a>)>, InvalidScripts> {
+    let mut missing = BTreeSet::new();
+    let mut existing = BTreeSet::new();
+
+    let resolved = required
+        .into_iter()
+        .filter_map(|script| {
+            existing.insert(script.hash);
+            if let Some(borrowed) = provided.get(&script.hash) {
+                Some((script, borrowed))
+            } else {
+                missing.insert(script.hash);
+                None
+            }
+        })
+        .collect();
+
+    if !missing.is_empty() {
+        return Err(InvalidScripts::MissingRequiredScripts(missing));
+    }
+
+    let extraneous: BTreeSet<ScriptHash> = provided
+        .keys()
+        .filter(|k| !existing.contains(k))
+        .copied()
+        .collect();
+
+    if !extraneous.is_empty() {
+        return Err(InvalidScripts::ExtraneousScriptWitnesses(extraneous));
+    }
+
+    Ok(resolved)
+}
+
+/// Check whether any *unauthorized* extraneous datums are provided in the witness set. This is
+/// worth some explanation:
+///
+/// - Some datums are strictly *required*, and they are the one corresponding to inputs locked by
+///   (Plutus) scripts that carry a datum hash (and not an inline datum). For those, the preimage
+///   must be provided *somewhere* to be able to execute the script. That somewhere may be the
+///   witness set.
+///
+/// - However, we also enforce that the witness set doesn't contain extraneous datums that we can't
+///   correlate back to the transaction body. This is because it isn't otherwise possible to
+///   enforce that they don't get dropped by a malicious actors (the witness set isn't part of the
+///   signature!).
+///
+/// - Yet, some datum hashes that appear in the transaction body but that aren't strictly required
+///   are still allowed (since it's possible to account for them). This is the case when datum
+///   hash digests are present in:
+///
+///   - transaction outputs
+///   - outputs of reference inputs
+///
+///   It's worth noting that collateral inputs and collateral return aren't considered.
+fn fail_on_supplemental_datums<C>(
+    context: &mut C,
+    required: &BTreeSet<DatumHash>,
+    witnessed: &BTreeSet<DatumHash>,
+) -> Result<(), InvalidScripts>
+where
+    C: WitnessSlice,
+{
+    let supplemental = witnessed
+        .difference(required)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    let extraneous = supplemental
+        .difference(&context.allowed_supplemental_datums())
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    if !extraneous.is_empty() {
+        return Err(InvalidScripts::ExtraneousSupplementalDatums {
+            supplemental,
+            extraneous,
+        });
+    }
+
+    Ok(())
+}
+
+/// Fails when there are datum hash digests without matching preimages. The preimage can be found
+/// in 3 places:
+///
+/// - inputs
+/// - reference inputs
+/// - witness set
+///
+/// The first two are collected during the inputs sub-rule, and yielded by the context's
+/// known_datums. In particular, it's worth noting that inline datums in outputs can't be matched
+/// against hashes in the same transaction.
+fn fail_on_unmatched_datums<C>(
+    context: &mut C,
+    required: &BTreeSet<DatumHash>,
+    mut witnessed: BTreeSet<DatumHash>,
+) -> Result<(), InvalidScripts>
+where
+    C: WitnessSlice,
+{
+    let mut provided = context.known_datums().into_keys().collect::<BTreeSet<_>>();
+    provided.append(&mut witnessed);
+
+    let missing = required
+        .difference(&provided)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+
+    if !missing.is_empty() {
+        return Err(InvalidScripts::MissingRequiredDatums { missing, provided });
+    }
+
+    Ok(())
+}
+
+fn fail_on_missing_datums(missing: BTreeSet<u32>) -> Result<(), InvalidScripts> {
+    if !missing.is_empty() {
+        return Err(InvalidScripts::UnspendableInputsNoDatums(missing));
     }
 
     Ok(())
@@ -290,7 +398,9 @@ mod tests {
             )
         };
     }
-
+    // TODO: Enable with #314: https://github.com/pragma-org/amaru/pull/314
+    // #[test_case(fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0"); "incorrect missing script due to re-serialisation")]
+    #[test_case(fixture!("ebd7cda7805bc5b89c0fb3c8ad44f6549ab72c1040eb47019146e3f5f98298e1"); "native script locked with datum")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e"); "happy path")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output");
         "supplemental datum output"

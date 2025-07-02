@@ -25,23 +25,20 @@ use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     Error, *,
 };
-use pallas_codec::{
-    minicbor::{decode, encode, Decode, Decoder, Encode, Encoder},
-    utils::CborWrap,
-};
+use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::{
     alonzo::Value as AlonzoValue,
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
         RedeemersValue,
     },
-    DatumHash, PlutusData, PlutusScript,
+    PlutusScript,
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
     cmp::Ordering,
-    collections::BTreeSet,
+    collections::BTreeMap,
     convert::Infallible,
     fmt::{self, Display, Formatter},
     ops::Deref,
@@ -50,7 +47,7 @@ use std::{
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{Bytes, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, CborWrap, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
@@ -70,6 +67,7 @@ pub use pallas_primitives::{
         TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
         Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
+    DatumHash, PlutusData,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
@@ -279,6 +277,12 @@ pub enum BorrowedScript<'a> {
     PlutusV3Script(&'a PlutusScript<3>),
 }
 
+impl BorrowedScript<'_> {
+    pub fn is_native_script(&self) -> bool {
+        matches!(self, BorrowedScript::NativeScript(..))
+    }
+}
+
 impl<'a> From<&'a PseudoScript<NativeScript>> for BorrowedScript<'a> {
     fn from(value: &'a PseudoScript<NativeScript>) -> Self {
         match value {
@@ -314,30 +318,6 @@ impl From<BorrowedDatumOption<'_>> for DatumOption {
                 Self::Data(CborWrap(cbor_wrap.to_owned().unwrap()))
             }
         }
-    }
-}
-
-#[derive(Eq, PartialEq)]
-pub struct ScriptRefWithHash<'a> {
-    pub hash: ScriptHash,
-    pub script: BorrowedScript<'a>,
-}
-
-impl PartialOrd for ScriptRefWithHash<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl Ord for ScriptRefWithHash<'_> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.hash.cmp(&other.hash)
-    }
-}
-
-impl From<&ScriptRefWithHash<'_>> for ScriptHash {
-    fn from(value: &ScriptRefWithHash<'_>) -> Self {
-        value.hash
     }
 }
 
@@ -828,32 +808,29 @@ impl HasExUnits for MintedBlock<'_> {
 /// Collect provided scripts and compute each ScriptHash in a witness set
 pub fn get_provided_scripts<'a>(
     witness_set: &'a MintedWitnessSet<'_>,
-) -> BTreeSet<ScriptRefWithHash<'a>> {
-    let mut provided_scripts: BTreeSet<ScriptRefWithHash<'a>> = BTreeSet::new();
+) -> BTreeMap<ScriptHash, BorrowedScript<'a>> {
+    let mut provided_scripts = BTreeMap::new();
 
     if let Some(native_scripts) = witness_set.native_script.as_ref() {
-        provided_scripts.extend(
-            native_scripts
-                .iter()
-                .map(|native_script| ScriptRefWithHash {
-                    hash: native_script.script_hash(),
-                    script: BorrowedScript::NativeScript(native_script.deref()),
-                }),
-        )
+        provided_scripts.extend(native_scripts.iter().map(|native_script| {
+            (
+                native_script.script_hash(),
+                BorrowedScript::NativeScript(native_script.deref()),
+            )
+        }))
     };
 
-    fn collect_plutus_scripts<'a, const VERSION: usize, A>(
-        accum: &mut A,
+    fn collect_plutus_scripts<'a, const VERSION: usize>(
+        accum: &mut BTreeMap<ScriptHash, BorrowedScript<'a>>,
         scripts: Option<&'a NonEmptySet<PlutusScript<VERSION>>>,
         lift: impl Fn(&'a PlutusScript<VERSION>) -> BorrowedScript<'a>,
-    ) where
-        A: Extend<ScriptRefWithHash<'a>>,
-    {
+    ) {
         if let Some(plutus_scripts) = scripts {
-            accum.extend(plutus_scripts.iter().map(|script| ScriptRefWithHash {
-                hash: script.script_hash(),
-                script: lift(script),
-            }))
+            accum.extend(
+                plutus_scripts
+                    .iter()
+                    .map(|script| (script.script_hash(), lift(script))),
+            )
         }
     }
 
