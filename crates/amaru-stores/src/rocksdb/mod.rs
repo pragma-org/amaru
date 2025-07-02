@@ -133,7 +133,6 @@ impl RocksDB {
                 dir: dir.to_path_buf(),
                 incremental_save: false,
                 db,
-                era_history: era_history.clone(),
                 ongoing_transaction: OngoingTransaction::new(),
             })
             .map_err(|err| StoreError::Internal(err.into()))
@@ -668,11 +667,9 @@ fn with_prefix_iterator<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::EraHistory;
 
     #[test]
     fn open_one_writer_and_one_reader() {
-        use amaru_kernel::network::NetworkName;
         use std::fs::File;
         use tempfile::TempDir;
 
@@ -680,9 +677,7 @@ mod tests {
         let file_path = dir.path().join("0");
         let _fake_snapshot = File::create(&file_path).unwrap();
 
-        let era_history: &EraHistory = NetworkName::Preprod.into();
-
-        let rw_db = RocksDB::new(dir.path(), era_history).inspect_err(|e| println!("{e:#?}"));
+        let rw_db = RocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
         assert!(matches!(rw_db, Ok(..)));
 
         let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));

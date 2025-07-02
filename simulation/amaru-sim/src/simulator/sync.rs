@@ -281,7 +281,7 @@ mod test {
 
     fn some_forward() -> ChainSyncMessage {
         let header_bytes = hex::decode(TEST_HEADER).unwrap();
-        let header: babbage::MintedHeader<'_> = minicbor::decode(&header_bytes).unwrap();
+        let header: babbage::MintedHeader<'_> = cbor::decode(&header_bytes).unwrap();
         let header_hash = Hasher::<256>::hash(header.raw_cbor());
         Fwd {
             msg_id: 1,
