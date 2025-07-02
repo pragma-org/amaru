@@ -257,7 +257,7 @@ mod test {
             sync::{parse, read_peer_addresses_from_init, StringMessageReader},
         },
     };
-    use pallas_codec::minicbor;
+    use amaru_kernel::cbor;
     use pallas_crypto::hash::Hasher;
     use pallas_primitives::{babbage, Hash};
     use proptest::{
