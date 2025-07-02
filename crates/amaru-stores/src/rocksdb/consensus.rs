@@ -50,7 +50,7 @@ impl RocksDBStore {
 
     pub fn open_for_readonly(basedir: &PathBuf) -> Result<ReadOnlyChainDB, StoreError> {
         let mut opts = Options::default();
-        opts.create_if_missing(true);
+        opts.create_if_missing(false);
         DB::open_for_read_only(&opts, basedir, false)
             .map_err(|e| StoreError::OpenError {
                 error: e.to_string(),
@@ -219,11 +219,11 @@ mod test {
         RocksDBStore::new(&basedir, &era_history).expect("fail to initialise RocksDB")
     }
 
-    fn initialise_test_ro_store(tempdir: &TempDir) -> ReadOnlyChainDB {
+    fn initialise_test_ro_store(tempdir: &TempDir) -> Result<ReadOnlyChainDB, StoreError> {
         let (basedir, _) = init_dir_and_era(tempdir);
         create_dir_all(&basedir).unwrap();
 
-        RocksDBStore::open_for_readonly(&basedir).expect("fail to initialise RocksDB")
+        RocksDBStore::open_for_readonly(&basedir)
     }
 
     #[test]
@@ -279,6 +279,8 @@ mod test {
     fn both_rw_and_ro_can_be_open_on_same_dir() {
         let tempdir = tempfile::tempdir().unwrap();
         let _rw_store = initialise_test_rw_store(&tempdir);
-        let _ro_store = initialise_test_ro_store(&tempdir);
+        if let Err(e) = initialise_test_ro_store(&tempdir) {
+            panic!("failed to re-open DB in read-only mode: {}", e);
+        }
     }
 }
