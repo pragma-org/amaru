@@ -148,7 +148,7 @@ impl RocksDB {
                 dir: dir.to_path_buf(),
                 incremental_save: true,
                 db,
-                    ongoing_transaction: OngoingTransaction::new(),
+                ongoing_transaction: OngoingTransaction::new(),
             })
             .map_err(|err| StoreError::Internal(err.into()))
     }
