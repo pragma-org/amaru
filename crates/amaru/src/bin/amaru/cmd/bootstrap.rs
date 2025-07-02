@@ -22,6 +22,7 @@ use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
 use futures_util::TryStreamExt;
 use serde::Deserialize;
+use thiserror::Error;
 use tokio::fs::{self, File};
 use tokio::io::BufReader;
 use tokio_util::io::StreamReader;
@@ -171,16 +172,42 @@ struct Snapshot {
     url: String,
 }
 
+#[derive(Debug, Error)]
+pub enum BootstrapError {
+    #[error("Can not read Snapshot configuration file {0}: {1}")]
+    ReadSnapshotsFile(PathBuf, io::Error),
+
+    #[error("Can not create snapshots directory {0}: {1}")]
+    CreateSnapshotsDir(PathBuf, io::Error),
+
+    #[error("Failed to parse snapshots JSON file {0}: {1}")]
+    MalformedSnapshotsFile(PathBuf, serde_json::Error),
+
+    #[error("Unable to store snapshots on disk: {0}")]
+    Io(#[from] std::io::Error),
+
+    #[error("Failed to download snapshot at url {0}: {1}")]
+    DownloadError(String, reqwest::Error),
+
+    #[error("Failed to download snapshot from {0}: HTTP status code {1}")]
+    DownloadInvalidStatusCode(String, reqwest::StatusCode),
+}
+
 async fn download_snapshots(
     snapshots_file: &PathBuf,
     snapshots_dir: &PathBuf,
-) -> Result<(), Box<dyn Error>> {
+) -> Result<(), BootstrapError> {
     // Create the target directory if it doesn't exist
-    fs::create_dir_all(snapshots_dir).await?;
+    fs::create_dir_all(snapshots_dir)
+        .await
+        .map_err(|e| BootstrapError::CreateSnapshotsDir(snapshots_dir.clone(), e))?;
 
     // Read the snapshots JSON file
-    let snapshots_content = fs::read_to_string(snapshots_file).await?;
-    let snapshots: Vec<Snapshot> = serde_json::from_str(&snapshots_content)?;
+    let snapshots_content = fs::read_to_string(snapshots_file)
+        .await
+        .map_err(|e| BootstrapError::ReadSnapshotsFile(snapshots_file.clone(), e))?;
+    let snapshots: Vec<Snapshot> = serde_json::from_str(&snapshots_content)
+        .map_err(|e| BootstrapError::MalformedSnapshotsFile(snapshots_file.clone(), e))?;
 
     // Create a reqwest client
     let client = reqwest::Client::new();
@@ -202,14 +229,16 @@ async fn download_snapshots(
         }
 
         // Download the file
-        let response = client.get(&snapshot.url).send().await?;
+        let response = client
+            .get(&snapshot.url)
+            .send()
+            .await
+            .map_err(|e| BootstrapError::DownloadError(snapshot.url.clone(), e))?;
         if !response.status().is_success() {
-            return Err(format!(
-                "Failed to download snapshot from {}: HTTP status {}",
-                snapshot.url,
-                response.status()
-            )
-            .into());
+            return Err(BootstrapError::DownloadInvalidStatusCode(
+                snapshot.url.clone(),
+                response.status(),
+            ));
         }
 
         let (tmp_path, file) = uncompress_to_temp_file(&target_path, response).await?;
@@ -230,7 +259,7 @@ async fn download_snapshots(
 async fn uncompress_to_temp_file(
     target_path: &Path,
     response: reqwest::Response,
-) -> Result<(PathBuf, File), Box<dyn Error>> {
+) -> Result<(PathBuf, File), BootstrapError> {
     let tmp_path = target_path.with_extension("partial");
     let mut file = File::create(&tmp_path).await?;
     let raw_stream_reader = StreamReader::new(response.bytes_stream().map_err(io::Error::other));
