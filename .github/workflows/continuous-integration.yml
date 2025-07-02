@@ -319,3 +319,23 @@ jobs:
             cargo-x86_64-unknown-linux-gnu
       - name: Run amaru-consensus benches
         run: cargo bench -p amaru-consensus --features="test-utils profiling"
+
+  cli:
+    name: Test the CLI
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
+      - name: Install bash_unit
+        run: curl -s https://raw.githubusercontent.com/bash-unit/bash_unit/master/install.sh | bash
+      - name: Install expect
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y expect
+      - name: Run bash_unit
+        run: FORCE_COLOR=true ./bash_unit cli-tests/test_*
