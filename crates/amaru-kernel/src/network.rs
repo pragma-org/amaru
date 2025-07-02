@@ -344,7 +344,9 @@ static PREPROD_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| 
         slots_per_kes_period: 129_600,
         max_kes_evolution: 62,
         epoch_length,
-        stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
+        stability_window: Slot::from(
+            (active_slot_coeff_inverse * consensus_security_param * 2) as u64,
+        ),
         randomness_stabilization_window: (4 * consensus_security_param * active_slot_coeff_inverse)
             as u64,
     }
@@ -364,7 +366,9 @@ static PREVIEW_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| 
         slots_per_kes_period: 129_600,
         max_kes_evolution: 62,
         epoch_length,
-        stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
+        stability_window: Slot::from(
+            (active_slot_coeff_inverse * consensus_security_param * 2) as u64,
+        ),
         randomness_stabilization_window: (4 * consensus_security_param * active_slot_coeff_inverse)
             as u64,
     }
@@ -384,7 +388,9 @@ static TESTNET_GLOBAL_PARAMETERS: LazyLock<GlobalParameters> = LazyLock::new(|| 
         slots_per_kes_period: 129_600,
         max_kes_evolution: 62,
         epoch_length,
-        stability_window: active_slot_coeff_inverse * consensus_security_param * 2,
+        stability_window: Slot::from(
+            (active_slot_coeff_inverse * consensus_security_param * 2) as u64,
+        ),
         randomness_stabilization_window: (4 * consensus_security_param * active_slot_coeff_inverse)
             as u64,
     }

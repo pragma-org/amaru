@@ -1,4 +1,5 @@
 use pallas_codec::minicbor::{data::Tag, Decoder};
+use slot_arithmetic::Slot;
 
 use crate::{cbor, Coin, EpochInterval, ExUnits, Lovelace, RationalNumber};
 
@@ -336,7 +337,7 @@ pub struct GlobalParameters {
     pub epoch_length: usize,
 
     /// Relative slot from which data of the previous epoch can be considered stable.
-    pub stability_window: usize,
+    pub stability_window: Slot,
 
     /// Number of slots at the end of each epoch which do NOT contribute randomness to the candidate
     /// nonce of the following epoch.
