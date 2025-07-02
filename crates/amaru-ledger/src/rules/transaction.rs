@@ -21,9 +21,6 @@ use core::mem;
 use std::ops::Deref;
 use thiserror::Error;
 
-pub mod bootstrap_witness;
-pub use bootstrap_witness::InvalidBootstrapWitnesses;
-
 pub mod certificates;
 pub use certificates::InvalidCertificates;
 
@@ -73,9 +70,6 @@ pub enum InvalidTransaction {
 
     #[error("invalid transaction verification key witness: {0}")]
     VKeyWitness(#[from] InvalidVKeyWitness),
-
-    #[error("invalid transaction bootstrap witness: {0}")]
-    BootstrapWitnesses(#[from] InvalidBootstrapWitnesses),
 
     #[error("invalid transaction scripts: {0}")]
     Scripts(#[from] InvalidScripts),
@@ -186,13 +180,8 @@ pub fn execute(
     vkey_witness::execute(
         context,
         transaction_id,
-        transaction_witness_set.vkeywitness.as_deref(),
-    )?;
-
-    bootstrap_witness::execute(
-        context,
-        transaction_id,
         transaction_witness_set.bootstrap_witness.as_deref(),
+        transaction_witness_set.vkeywitness.as_deref(),
     )?;
 
     scripts::execute(context, transaction_witness_set)?;

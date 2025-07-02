@@ -269,10 +269,9 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
             },
             end: Bound {
                 time_ms: 89424000000,
-                slot: Slot::from(87782400),
-                epoch: Epoch::from(207),
+                slot: Slot::from(95558400),
+                epoch: Epoch::from(225),
             },
-
             params: EraParams {
                 epoch_size_slots: 432000,
                 slot_length: 1000,

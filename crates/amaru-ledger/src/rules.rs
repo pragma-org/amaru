@@ -212,7 +212,7 @@ pub(crate) mod tests {
 
         assert!(matches!(
             results,
-            BlockValidation::Invalid(InvalidBlockDetails::HeaderSizeTooBig { .. })
+            BlockValidation::Invalid(_, _, InvalidBlockDetails::HeaderSizeTooBig { .. })
         ))
     }
 

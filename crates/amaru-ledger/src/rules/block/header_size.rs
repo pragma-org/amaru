@@ -14,26 +14,29 @@
 
 use amaru_kernel::protocol_parameters::ProtocolParameters;
 
-use super::{BlockValidation, InvalidBlockDetails};
+use super::InvalidBlockDetails;
 
 pub fn block_header_size_valid(
     header: &[u8],
     protocol_params: &ProtocolParameters,
-) -> BlockValidation<(), anyhow::Error> {
+) -> Result<(), InvalidBlockDetails> {
     #[allow(clippy::unnecessary_fallible_conversions)]
     let max_header_size = protocol_params
         .max_header_size
         .try_into()
-        .map(BlockValidation::Valid)
-        .unwrap_or_else(|e| BlockValidation::anyhow(e).context("failed to convert u32 to usize"))?;
+        .unwrap_or_else(|e| {
+            unreachable!(
+                "failed to convert u32 to usize ({e:?})! Architecture is less than 32-bit ?!"
+            )
+        });
 
     if header.len() > max_header_size {
-        BlockValidation::Invalid(InvalidBlockDetails::HeaderSizeTooBig {
+        Err(InvalidBlockDetails::HeaderSizeTooBig {
             supplied: header.len(),
             max: max_header_size,
         })
     } else {
-        BlockValidation::Valid(())
+        Ok(())
     }
 }
 
@@ -54,7 +57,7 @@ mod tests {
 
         assert!(matches!(
             block_header_size_valid(block.header.raw_cbor(), &pp),
-            BlockValidation::Valid(())
+            Ok(())
         ))
     }
 }

@@ -22,7 +22,7 @@ use crate::{
     state::FailedTransactions,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, ExUnits, Hasher, MintedBlock,
+    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, ExUnits, Hash, Hasher, MintedBlock,
     Network, OriginalHash, RedeemerTag, Redeemers, RedeemersValue, TransactionId,
     TransactionPointer,
 };
@@ -60,7 +60,7 @@ pub enum InvalidBlockDetails {
 #[derive(Debug)]
 pub enum BlockValidation<A, E> {
     Valid(A),
-    Invalid(InvalidBlockDetails),
+    Invalid(Slot, Hash<32>, InvalidBlockDetails),
     Err(E),
 }
 
@@ -139,7 +139,7 @@ impl<A, E> Termination for BlockValidation<A, E> {
 
 impl<A, E> Try for BlockValidation<A, E> {
     type Output = A;
-    type Residual = Result<InvalidBlockDetails, E>;
+    type Residual = Result<(Slot, Hash<32>, InvalidBlockDetails), E>;
 
     fn from_output(result: Self::Output) -> Self {
         Self::Valid(result)
@@ -148,16 +148,16 @@ impl<A, E> Try for BlockValidation<A, E> {
     fn branch(self) -> ControlFlow<Self::Residual, Self::Output> {
         match self {
             Self::Valid(result) => ControlFlow::Continue(result),
-            Self::Invalid(violation) => ControlFlow::Break(Ok(violation)),
+            Self::Invalid(slot, id, violation) => ControlFlow::Break(Ok((slot, id, violation))),
             Self::Err(err) => ControlFlow::Break(Err(err)),
         }
     }
 }
 
 impl<A, E> FromResidual for BlockValidation<A, E> {
-    fn from_residual(residual: Result<InvalidBlockDetails, E>) -> Self {
+    fn from_residual(residual: Result<(Slot, Hash<32>, InvalidBlockDetails), E>) -> Self {
         match residual {
-            Ok(violation) => BlockValidation::Invalid(violation),
+            Ok((slot, id, violation)) => BlockValidation::Invalid(slot, id, violation),
             Err(err) => BlockValidation::Err(err),
         }
     }
@@ -259,14 +259,29 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
     protocol_params: &ProtocolParameters,
     block: &MintedBlock<'_>,
 ) -> BlockValidation<(), anyhow::Error> {
-    header_size::block_header_size_valid(block.header.raw_cbor(), protocol_params)?;
+    let with_block_context = |result| match result {
+        Ok(out) => BlockValidation::Valid(out),
+        Err(err) => BlockValidation::Invalid(
+            Slot::from(block.header.header_body.slot),
+            Hasher::<256>::hash(block.header.header_body.raw_cbor()),
+            err,
+        ),
+    };
 
-    body_size::block_body_size_valid(block)?;
+    with_block_context(header_size::block_header_size_valid(
+        block.header.raw_cbor(),
+        protocol_params,
+    ))?;
+
+    with_block_context(body_size::block_body_size_valid(block))?;
 
     let witness_sets = block.transaction_witness_sets.deref();
     let redeemers_ex_units = ex_units(witness_sets);
 
-    ex_units::block_ex_units_valid(redeemers_ex_units, protocol_params)?;
+    with_block_context(ex_units::block_ex_units_valid(
+        redeemers_ex_units,
+        protocol_params,
+    ))?;
 
     let failed_transactions = FailedTransactions::from_block(block);
 
@@ -319,11 +334,11 @@ pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
             witness_set,
             auxiliary_data,
         ) {
-            return BlockValidation::Invalid(InvalidBlockDetails::Transaction {
+            return with_block_context(Err(InvalidBlockDetails::Transaction {
                 transaction_hash,
                 transaction_index: i,
                 violation: err,
-            });
+            }));
         }
     }
 
