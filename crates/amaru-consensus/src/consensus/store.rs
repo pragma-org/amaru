@@ -234,7 +234,7 @@ impl ChainStore<Header> for FakeStore {
     }
 
     fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
-        unimplemented!()
+        Ok(())
     }
 }
 
