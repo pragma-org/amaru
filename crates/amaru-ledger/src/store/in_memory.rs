@@ -5,7 +5,9 @@ use crate::{
     },
     summary::Pots,
 };
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Lovelace, Point, StakeCredential};
+use amaru_kernel::{
+    protocol_parameters::ProtocolParameters, EraHistory, Lovelace, Point, StakeCredential,
+};
 use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 
@@ -220,6 +222,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         >,
         _withdrawals: impl Iterator<Item = crate::store::columns::accounts::Key>,
         _voting_dreps: BTreeSet<StakeCredential>,
+        _era_history: &EraHistory,
     ) -> Result<(), crate::store::StoreError> {
         Ok(())
     }

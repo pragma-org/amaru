@@ -23,6 +23,7 @@ use amaru_kernel::{
     cbor as minicbor,
     protocol_parameters::ProtocolParameters,
     CertificatePointer,
+    EraHistory,
     Lovelace,
     Point,
     PoolId,
@@ -176,6 +177,7 @@ pub trait TransactionalContext<'a> {
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
+    #[allow(clippy::too_many_arguments)]
     fn save(
         &self,
         point: &Point,
@@ -198,6 +200,7 @@ pub trait TransactionalContext<'a> {
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
+        era_history: &EraHistory,
     ) -> Result<(), StoreError>;
 
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
