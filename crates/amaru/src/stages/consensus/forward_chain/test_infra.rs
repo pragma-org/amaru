@@ -4,7 +4,7 @@ use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};
 use amaru_consensus::{
-    consensus::store::{ChainStore, StoreError},
+    consensus::store::{ChainStore, ReadOnlyChainStore, StoreError},
     IsHeader, Nonces,
 };
 use amaru_kernel::{block::BlockValidationResult, from_cbor, Hash, Header, RawBlock, EMPTY_BLOCK};
@@ -71,18 +71,23 @@ impl TestStore {
     }
 }
 
-impl ChainStore<Header> for TestStore {
+impl ReadOnlyChainStore<Header> for TestStore {
     fn load_header(&self, hash: &Hash<32>) -> Option<Header> {
         self.0.get(hash).cloned()
     }
+    fn get_nonces(&self, _header: &Hash<32>) -> Option<Nonces> {
+        unimplemented!()
+    }
 
+    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+        unimplemented!()
+    }
+}
+
+impl ChainStore<Header> for TestStore {
     fn store_header(&mut self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
         self.0.insert(*hash, header.clone());
         Ok(())
-    }
-
-    fn get_nonces(&self, _header: &Hash<32>) -> Option<Nonces> {
-        unimplemented!()
     }
 
     fn put_nonces(&mut self, _header: &Hash<32>, _nonces: &Nonces) -> Result<(), StoreError> {
@@ -90,10 +95,6 @@ impl ChainStore<Header> for TestStore {
     }
 
     fn era_history(&self) -> &slot_arithmetic::EraHistory {
-        unimplemented!()
-    }
-
-    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
         unimplemented!()
     }
 
