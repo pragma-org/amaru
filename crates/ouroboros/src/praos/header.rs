@@ -255,8 +255,8 @@ impl AssertVrfProofError {
 
 #[derive(Error, Debug, PartialEq)]
 pub enum AssertLeaderStakeError {
-    #[error("Insuficient leader stake.")]
-    InsuficientLeaderStake,
+    #[error("Insufficient leader stake.")]
+    InsufficientLeaderStake,
 }
 
 impl AssertLeaderStakeError {
@@ -273,7 +273,7 @@ impl AssertLeaderStakeError {
         let ordering = x.exp_cmp(1000, 3, &recip_q);
         match ordering.estimation {
             ExpOrdering::LT => Ok(()),
-            ExpOrdering::GT | ExpOrdering::UNKNOWN => Err(Self::InsuficientLeaderStake),
+            ExpOrdering::GT | ExpOrdering::UNKNOWN => Err(Self::InsufficientLeaderStake),
         }
     }
 }
