@@ -165,14 +165,13 @@ async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
-    let db = RocksDB::empty(ledger_dir)?;
+    let db = RocksDB::empty(ledger_dir, era_history)?;
     let bytes = fs::read(snapshot)?;
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,
-        &epoch,
         None,
         Default::default(),
         Default::default(),
@@ -283,7 +282,6 @@ fn decode_new_epoch_state(
     import_utxo(
         db,
         point,
-        &epoch,
         d.decode::<BTreeMap<TransactionInput, TransactionOutput>>()?
             .into_iter()
             .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
@@ -309,14 +307,7 @@ fn decode_new_epoch_state(
     // Current Protocol Params
     let protocol_parameters = import_protocol_parameters(db, &epoch, d.decode()?)?;
     import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
-    import_proposals(
-        db,
-        point,
-        &epoch,
-        era_history,
-        proposals,
-        &protocol_parameters,
-    )?;
+    import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
     // Previous Protocol Params
     d.skip()?;
@@ -352,14 +343,7 @@ fn decode_new_epoch_state(
     // NonMyopic
     d.skip()?;
 
-    import_accounts(
-        db,
-        point,
-        &epoch,
-        accounts,
-        &mut rewards,
-        &protocol_parameters,
-    )?;
+    import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
 
     let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
         total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
@@ -404,7 +388,6 @@ fn import_block_issuers(
         while count > 0 {
             transaction.save(
                 &Point::Specific(fake_slot, vec![]),
-                &Epoch::from(0),
                 Some(&pool),
                 store::Columns {
                     utxo: iter::empty(),
@@ -429,7 +412,6 @@ fn import_block_issuers(
 fn import_utxo(
     db: &impl Store,
     point: &Point,
-    epoch: &Epoch,
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(what = "utxo_entries", size = utxo.len());
@@ -458,7 +440,6 @@ fn import_utxo(
 
         transaction.save(
             point,
-            epoch,
             None,
             store::Columns {
                 utxo: chunk,
@@ -511,7 +492,6 @@ fn import_dreps(
 
     transaction.save(
         point,
-        &epoch,
         None,
         store::Columns {
             utxo: iter::empty(),
@@ -596,7 +576,6 @@ fn import_dreps(
 fn import_proposals(
     db: &impl Store,
     point: &Point,
-    epoch: &Epoch,
     era_history: &EraHistory,
     proposals: Vec<ProposalState>,
     protocol_parameters: &ProtocolParameters,
@@ -612,7 +591,6 @@ fn import_proposals(
 
     transaction.save(
         point,
-        epoch,
         None,
         store::Columns {
             utxo: iter::empty(),
@@ -689,7 +667,6 @@ fn import_stake_pools(
     let transaction = db.create_transaction();
     transaction.save(
         point,
-        &epoch,
         None,
         store::Columns {
             utxo: iter::empty(),
@@ -742,7 +719,6 @@ fn import_pots(
 fn import_accounts(
     db: &impl Store,
     point: &Point,
-    epoch: &Epoch,
     accounts: BTreeMap<StakeCredential, Account>,
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
     protocol_parameters: &ProtocolParameters,
@@ -803,7 +779,6 @@ fn import_accounts(
 
         transaction.save(
             point,
-            epoch,
             None,
             store::Columns {
                 utxo: iter::empty(),

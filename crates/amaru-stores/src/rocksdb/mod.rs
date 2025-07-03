@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, Lovelace, Point, PoolId,
-    StakeCredential, TransactionInput, TransactionOutput,
+    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace, Point,
+    PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
@@ -91,6 +91,9 @@ pub struct RocksDB {
     /// An instance of RocksDB.
     db: OptimisticTransactionDB,
 
+    /// The `EraHistory` of the network this database is tied to
+    era_history: EraHistory,
+
     ongoing_transaction: OngoingTransaction,
 }
 
@@ -124,7 +127,7 @@ impl RocksDB {
         Ok(snapshots)
     }
 
-    pub fn new(dir: &Path) -> Result<Self, StoreError> {
+    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<Self, StoreError> {
         assert_non_empty(dir)?;
         let mut opts = default_opts_with_prefix();
         opts.create_if_missing(true);
@@ -138,7 +141,7 @@ impl RocksDB {
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
-    pub fn empty(dir: &Path) -> Result<RocksDB, StoreError> {
+    pub fn empty(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
@@ -147,6 +150,7 @@ impl RocksDB {
                 dir: dir.to_path_buf(),
                 incremental_save: true,
                 db,
+                era_history: era_history.clone(),
                 ongoing_transaction: OngoingTransaction::new(),
             })
             .map_err(|err| StoreError::Internal(err.into()))
@@ -387,7 +391,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn save(
         &self,
         point: &Point,
-        epoch: &Epoch,
         issuer: Option<&scolumns::pools::Key>,
         add: Columns<
             impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>,
@@ -435,7 +438,13 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 proposals::add(&self.transaction, add.proposals)?;
 
                 accounts::reset_many(&self.transaction, withdrawals)?;
-                dreps::tick(&self.transaction, voting_dreps, *epoch)?;
+                dreps::tick(&self.transaction, voting_dreps, {
+                    let slot = point.slot_or_default();
+                    self.db
+                        .era_history
+                        .slot_to_epoch(slot)
+                        .map_err(|err| StoreError::Internal(err.into()))?
+                })?;
 
                 utxo::remove(&self.transaction, remove.utxo)?;
                 pools::remove(&self.transaction, remove.pools)?;

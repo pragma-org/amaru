@@ -171,7 +171,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
     fn save(
         &self,
         _point: &Point,
-        _epoch: &Epoch,
         _issuer: Option<&crate::store::columns::pools::Key>,
         _add: crate::store::Columns<
             impl Iterator<
