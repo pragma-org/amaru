@@ -1,0 +1,191 @@
+[
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "59f8cb3a4dca2cb9212417c17cc96a36c2d5a1ead8cd5ec91f1cbaa2",
+    "mandate": {
+      "epoch": 667
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 65924174723
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "b16c6d85dc4b033e4d64a7484da70daeb13a596d1eb197a49624d627"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "68a5f1348300ada6dcec67f9421bdac62ba621006408ece8c8e551d6",
+    "mandate": {
+      "epoch": 667
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 10254200997
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c29d5c628ca1cf08fc71d5bffc42695f41bbbeffc4aa2289d86fce1e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "739701e411d342e6a385dcbec1f78edc31434ad1ad166d20954912d7",
+    "mandate": {
+      "epoch": 668
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 110000616465
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "f3f30bc747f11395284c6a71b42beca3a9bdc1eebe5e9a19771bad6e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8f4fefcf28017a57b41517a67d56ef4c0dc04181a11d35178dd53f4c",
+    "mandate": {
+      "epoch": 669
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 140513562259
+      }
+    },
+    "metadata": {
+      "url": "https://my-ip.at/test/cip-0100.common.json",
+      "hash": "f9cd7a13cc72be5b3ba8e36a0ba1b75577340edc9a372912ca7b2594f2167b24"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c13582aec9a44fcc6d984be003c5058c660e1d2ff1370fd8b49ba73f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c2f45a16a6685616e566c00fc081fe59f8bd7ab679ee15e9ce203446",
+    "mandate": {
+      "epoch": 667
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497456725
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c2f45a16a6685616e566c00fc081fe59f8bd7ab679ee15e9ce203446"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d59db3f1a2dae9f47e81bfdeff219f475e7bfee666f64a40aae0791e",
+    "mandate": {
+      "epoch": 667
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Ryun1/metadata/main/cip100/ga.jsonld",
+      "hash": "d57d30d2d03298027fde6d1c887c65da2b98b7ddefab189dcadab9a1d6792fee"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4",
+    "mandate": {
+      "epoch": 666
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "abstain",
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "36eb82881b56185a96e4f7cfc8d1994f95eef429f6e617cf3fe8ba97"
+      }
+    ]
+  },
+  {
+    "type": "noConfidence",
+    "stake": {
+      "ada": {
+        "lovelace": 118969086417
+      }
+    },
+    "delegators": []
+  }
+]
