@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::cbor;
 use amaru_kernel::{
     default_ledger_dir, network::NetworkName, protocol_parameters::ProtocolParameters, Anchor,
     CertificatePointer, DRep, EraHistory, Lovelace, Point, PoolId, PoolParams, Proposal,
@@ -28,7 +29,6 @@ use amaru_ledger::{
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
-use pallas_codec::minicbor as cbor;
 use slot_arithmetic::Epoch;
 use std::{
     collections::{BTreeMap, BTreeSet},
@@ -165,7 +165,7 @@ async fn import_one(
     .map_err(Error::MalformedDate)?;
 
     fs::create_dir_all(ledger_dir)?;
-    let db = RocksDB::empty(ledger_dir, era_history)?;
+    let db = RocksDB::empty(ledger_dir)?;
     let bytes = fs::read(snapshot)?;
 
     let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
@@ -177,6 +177,7 @@ async fn import_one(
         Default::default(),
         iter::empty(),
         BTreeSet::new(),
+        era_history,
     )?;
     transaction.commit()?;
 
@@ -212,7 +213,7 @@ fn decode_new_epoch_state(
     // the last block of the epoch. We have no intrinsic ways to check that this is the case since
     // we do not know what the last block of an epoch is, and we can't reliably look at the number
     // of blocks either.
-    import_block_issuers(db, d.decode()?)?;
+    import_block_issuers(db, d.decode()?, era_history)?;
 
     // Epoch State
     d.array()?;
@@ -251,6 +252,7 @@ fn decode_new_epoch_state(
         d.decode()?,
         // Retirements
         d.decode()?,
+        era_history,
     )?;
     // Deposits
     d.skip()?;
@@ -285,6 +287,7 @@ fn decode_new_epoch_state(
         d.decode::<BTreeMap<TransactionInput, TransactionOutput>>()?
             .into_iter()
             .collect::<Vec<(TransactionInput, TransactionOutput)>>(),
+        era_history,
     )?;
 
     let _deposited: u64 = d.decode()?;
@@ -343,7 +346,14 @@ fn decode_new_epoch_state(
     // NonMyopic
     d.skip()?;
 
-    import_accounts(db, point, accounts, &mut rewards, &protocol_parameters)?;
+    import_accounts(
+        db,
+        point,
+        accounts,
+        &mut rewards,
+        &protocol_parameters,
+        era_history,
+    )?;
 
     let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
         total + rewards.into_iter().fold(0, |inner, r| inner + r.amount)
@@ -373,6 +383,7 @@ fn import_protocol_parameters(
 fn import_block_issuers(
     db: &impl Store,
     blocks: BTreeMap<PoolId, u64>,
+    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_block_issuers(|iterator| {
@@ -400,6 +411,7 @@ fn import_block_issuers(
                 Default::default(),
                 iter::empty(),
                 BTreeSet::new(),
+                era_history,
             )?;
             count -= 1;
             fake_slot += 1;
@@ -413,6 +425,7 @@ fn import_utxo(
     db: &impl Store,
     point: &Point,
     mut utxo: Vec<(TransactionInput, TransactionOutput)>,
+    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(what = "utxo_entries", size = utxo.len());
 
@@ -452,6 +465,7 @@ fn import_utxo(
             Default::default(),
             iter::empty(),
             BTreeSet::new(),
+            era_history,
         )?;
 
         progress.inc(n as u64);
@@ -569,6 +583,7 @@ fn import_dreps(
         Default::default(),
         iter::empty(),
         BTreeSet::new(),
+        era_history,
     )?;
     transaction.commit()
 }
@@ -624,6 +639,7 @@ fn import_proposals(
         Default::default(),
         iter::empty(),
         BTreeSet::new(),
+        era_history,
     )?;
     transaction.commit()?;
 
@@ -637,6 +653,7 @@ fn import_stake_pools(
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
+    era_history: &EraHistory,
 ) -> Result<(), impl std::error::Error> {
     let mut state = amaru_ledger::state::diff_epoch_reg::DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
@@ -694,6 +711,7 @@ fn import_stake_pools(
         },
         iter::empty(),
         BTreeSet::new(),
+        era_history,
     )?;
     transaction.commit()
 }
@@ -722,6 +740,7 @@ fn import_accounts(
     accounts: BTreeMap<StakeCredential, Account>,
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
     protocol_parameters: &ProtocolParameters,
+    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_accounts(|iterator| {
@@ -791,6 +810,7 @@ fn import_accounts(
             Default::default(),
             iter::empty(),
             BTreeSet::new(),
+            era_history,
         )?;
 
         progress.inc(n as u64);

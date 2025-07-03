@@ -23,6 +23,7 @@ use amaru_kernel::{
     cbor as minicbor,
     protocol_parameters::ProtocolParameters,
     CertificatePointer,
+    EraHistory,
     Lovelace,
     Point,
     PoolId,
@@ -68,7 +69,7 @@ pub enum StoreError {
 // Store
 // ----------------------------------------------------------------------------
 
-pub trait ReadOnlyStore {
+pub trait ReadStore {
     /// Get the current protocol parameters for a given epoch, or most recent one
     fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError>;
 
@@ -109,11 +110,11 @@ pub trait ReadOnlyStore {
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
 }
 
-pub trait Snapshot: ReadOnlyStore {
+pub trait Snapshot: ReadStore {
     fn epoch(&self) -> Epoch;
 }
 
-pub trait Store: ReadOnlyStore {
+pub trait Store: ReadStore {
     /// The most recent snapshot. Note that we never starts from genesis; so there's always a
     /// snapshot available.
     #[allow(clippy::panic)]
@@ -176,6 +177,7 @@ pub trait TransactionalContext<'a> {
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
+    #[allow(clippy::too_many_arguments)]
     fn save(
         &self,
         point: &Point,
@@ -198,6 +200,7 @@ pub trait TransactionalContext<'a> {
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
+        era_history: &EraHistory,
     ) -> Result<(), StoreError>;
 
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded

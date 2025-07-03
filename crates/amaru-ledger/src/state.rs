@@ -260,6 +260,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 remove,
                 withdrawals,
                 voting_dreps,
+                &self.era_history,
             )
             .and_then(|()| {
                 batch.with_pots(|mut row| {

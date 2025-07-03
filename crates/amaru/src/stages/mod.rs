@@ -322,7 +322,7 @@ fn make_ledger(
         }
         StorePath::OnDisk(ref ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
-                RocksDB::new(ledger_dir, era_history)?,
+                RocksDB::new(ledger_dir)?,
                 RocksDBHistoricalStores::new(ledger_dir),
                 era_history.clone(),
                 global_parameters.clone(),

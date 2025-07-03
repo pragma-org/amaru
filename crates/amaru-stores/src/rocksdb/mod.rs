@@ -14,18 +14,17 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace, Point,
+    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace, Point,
     PoolId, StakeCredential, TransactionInput, TransactionOutput,
 };
 use amaru_ledger::{
     store::{
         columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
-        ReadOnlyStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
+        ReadStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
     },
     summary::Pots,
 };
 use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
-use pallas_codec::minicbor::{self as cbor};
 use rocksdb::{
     DBAccess, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, Transaction, DB,
 };
@@ -92,9 +91,6 @@ pub struct RocksDB {
     /// An instance of RocksDB.
     db: OptimisticTransactionDB,
 
-    /// The `EraHistory` of the network this database is tied to
-    era_history: EraHistory,
-
     ongoing_transaction: OngoingTransaction,
 }
 
@@ -128,7 +124,7 @@ impl RocksDB {
         Ok(snapshots)
     }
 
-    pub fn new(dir: &Path, era_history: &EraHistory) -> Result<Self, StoreError> {
+    pub fn new(dir: &Path) -> Result<Self, StoreError> {
         assert_non_empty(dir)?;
         let mut opts = default_opts_with_prefix();
         opts.create_if_missing(true);
@@ -137,13 +133,12 @@ impl RocksDB {
                 dir: dir.to_path_buf(),
                 incremental_save: false,
                 db,
-                era_history: era_history.clone(),
                 ongoing_transaction: OngoingTransaction::new(),
             })
             .map_err(|err| StoreError::Internal(err.into()))
     }
 
-    pub fn empty(dir: &Path, era_history: &EraHistory) -> Result<RocksDB, StoreError> {
+    pub fn empty(dir: &Path) -> Result<RocksDB, StoreError> {
         let mut opts = Options::default();
         opts.create_if_missing(true);
         opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
@@ -152,7 +147,6 @@ impl RocksDB {
                 dir: dir.to_path_buf(),
                 incremental_save: true,
                 db,
-                era_history: era_history.clone(),
                 ongoing_transaction: OngoingTransaction::new(),
             })
             .map_err(|err| StoreError::Internal(err.into()))
@@ -228,9 +222,9 @@ impl ReadOnlyRocksDB {
 // ----------------------------------------------------------- ReadOnlyStore(s)
 // ----------------------------------------------------------------------------
 
-macro_rules! impl_ReadOnlyStore {
+macro_rules! impl_ReadStore {
     (for $($s:ty),+) => {
-        $(impl ReadOnlyStore for $s {
+        $(impl ReadStore for $s {
             fn get_protocol_parameters_for(
                 &self,
                 epoch: &Epoch,
@@ -305,8 +299,8 @@ macro_rules! impl_ReadOnlyStore {
     }
 }
 
-// For now RocksDB and RocksDBSnapshot share their implementation of ReadOnlyStore
-impl_ReadOnlyStore!(for RocksDB, RocksDBSnapshot, ReadOnlyRocksDB, ReadOnlyRocksDBSnapshot);
+// For now RocksDB and RocksDBSnapshot share their implementation of ReadStore
+impl_ReadStore!(for RocksDB, RocksDBSnapshot, ReadOnlyRocksDB, ReadOnlyRocksDBSnapshot);
 
 // ------------------------------------------------ RocksDBTransactionalContext
 // ----------------------------------------------------------------------------
@@ -412,6 +406,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
+        era_history: &EraHistory,
     ) -> Result<(), StoreError> {
         match (point, self.db.tip().ok()) {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
@@ -442,8 +437,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 accounts::reset_many(&self.transaction, withdrawals)?;
                 dreps::tick(&self.transaction, voting_dreps, {
                     let slot = point.slot_or_default();
-                    self.db
-                        .era_history
+                    era_history
                         .slot_to_epoch(slot)
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
@@ -678,11 +672,9 @@ fn with_prefix_iterator<
 #[cfg(test)]
 mod tests {
     use super::*;
-    use amaru_kernel::EraHistory;
 
     #[test]
     fn open_one_writer_and_one_reader() {
-        use amaru_kernel::network::NetworkName;
         use std::fs::File;
         use tempfile::TempDir;
 
@@ -690,9 +682,7 @@ mod tests {
         let file_path = dir.path().join("0");
         let _fake_snapshot = File::create(&file_path).unwrap();
 
-        let era_history: &EraHistory = NetworkName::Preprod.into();
-
-        let rw_db = RocksDB::new(dir.path(), era_history).inspect_err(|e| println!("{e:#?}"));
+        let rw_db = RocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
         assert!(matches!(rw_db, Ok(..)));
 
         let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
