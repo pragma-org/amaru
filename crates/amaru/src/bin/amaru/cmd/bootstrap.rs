@@ -135,7 +135,7 @@ async fn import_headers_for_network(
         }
     }
     for hdr in initial_headers {
-        // FIXME: why do we only importa 2 headers for each header listed in the
+        // FIXME: why do we only import 2 headers for each header listed in the
         // config file? The 2 headers make sense, but why starting from more than
         // one header?
         const NUM_HEADERS_TO_IMPORT: usize = 2;
