@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_codec::minicbor::{self as cbor};
+use amaru_kernel::cbor;
 
 /// Length of the prefix, here as a constant to keep is consistent across other constants and
 /// database options.

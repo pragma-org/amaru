@@ -128,7 +128,7 @@ impl Worker {
                     );
 
                     self.clients.send(ClientMsg::Op(ClientOp::Forward(
-                        header,
+                        header.clone(),
                         self.our_tip.clone(),
                     )));
 

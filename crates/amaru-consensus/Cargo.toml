@@ -14,7 +14,6 @@ rust-version.workspace = true
 
 [dependencies]
 hex.workspace = true
-pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
 rayon.workspace = true
@@ -35,6 +34,7 @@ insta.workspace = true
 minicbor.workspace = true
 proptest.workspace = true
 rand.workspace = true
+rand_distr.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }

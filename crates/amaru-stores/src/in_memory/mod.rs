@@ -7,7 +7,7 @@ use amaru_ledger::store::{
         accounts as account_column, cc_members as cc_member_column, dreps as drep_column,
         pools as pool_column, pots, proposals as proposal_column, slots, utxo as utxo_column,
     },
-    EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
+    EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
     TransactionalContext,
 };
 
@@ -110,7 +110,7 @@ impl Snapshot for MemoryStore {
     }
 }
 
-impl ReadOnlyStore for MemoryStore {
+impl ReadStore for MemoryStore {
     fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError> {
         let map = self.p_params.borrow();
         let params = map.get(epoch).cloned().unwrap_or_default();
@@ -421,6 +421,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         >,
         withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
+        _era_history: &EraHistory,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         let current_tip = self.store.tip.borrow().clone();
 

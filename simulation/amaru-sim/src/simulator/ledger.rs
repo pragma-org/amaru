@@ -170,7 +170,7 @@ pub struct ConsensusContext {
 
 #[cfg(test)]
 mod test {
-    use amaru_consensus::consensus::store::ChainStore;
+    use amaru_consensus::consensus::store::ReadOnlyChainStore;
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::Header;
     use amaru_stores::rocksdb::consensus::InMemConsensusStore;

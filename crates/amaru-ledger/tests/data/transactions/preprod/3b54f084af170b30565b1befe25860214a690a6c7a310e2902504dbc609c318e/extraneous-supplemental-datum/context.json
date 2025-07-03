@@ -104,24 +104,18 @@
   ],
   "known_scripts": {
     "da9525463841173ad1230b1d5a1b5d0a3116bbdeb4412327148a1b7a": {
-      "AtInput": {
-        "transaction_id": "8c98f0530cba144d264fbd2731488af25257d7ce6a0cd1586fc7209363724f03",
-        "index": 0
-      }
+      "transaction_id": "8c98f0530cba144d264fbd2731488af25257d7ce6a0cd1586fc7209363724f03",
+      "index": 0
     },
     "d6ba9b7509eac866288ff5072d2a18205ac56f744bc82dcd808cb8fe": {
-      "AtInput": {
-        "transaction_id": "9f30b1c3948a009ceebda32d0b1d25699674b2eaf8b91ef029a43bfc1073ce28",
-        "index": 0
-      }
+      "transaction_id": "9f30b1c3948a009ceebda32d0b1d25699674b2eaf8b91ef029a43bfc1073ce28",
+      "index": 0
     },
     "fb39ea6bb975ea6de4a2c51572234dc584c89beccc09a49934389e51": {
-      "AtInput": {
-        "transaction_id": "b0a6c5512735c7a183a167eed035ac75c191d6ff5be9736dfa1f1f02f7ae5dbc",
-        "index": 0
-      }
+      "transaction_id": "b0a6c5512735c7a183a167eed035ac75c191d6ff5be9736dfa1f1f02f7ae5dbc",
+      "index": 0
     }
   },
   "required_signers": [],
-  "required_bootstrap_signers": []
+  "required_bootstrap_roots": []
 }

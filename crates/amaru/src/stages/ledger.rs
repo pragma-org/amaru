@@ -1,7 +1,7 @@
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     protocol_parameters::GlobalParameters,
-    EraHistory, Hasher, MintedBlock, Point, RawBlock,
+    EraHistory, Hash, Hasher, MintedBlock, Point, RawBlock,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -114,8 +114,11 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "ledger.roll_forward"
-    )]
+        name = "ledger.roll_forward",
+        fields(
+            point.slot = %point.slot_or_default(),
+            point.hash = %Hash::<32>::from(&point),
+        ))]
     pub fn roll_forward(
         &mut self,
         point: Point,
@@ -126,8 +129,8 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         let protocol_version = block.header.header_body.protocol_version;
         match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
             BlockValidation::Err(err) => Err(err),
-            BlockValidation::Invalid(err) => {
-                error!("Block invalid: {}", err);
+            BlockValidation::Invalid(slot, id, err) => {
+                error!("Block {id} invalid at slot={slot}: {}", err);
                 Ok(Some(err))
             }
             BlockValidation::Valid(()) => {

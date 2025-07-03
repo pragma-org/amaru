@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::cbor;
 use amaru_kernel::Header;
 use amaru_ouroboros::{kes, praos};
 use amaru_ouroboros_traits::mock::MockLedgerState;
 use ctor::ctor;
-use pallas_codec::minicbor;
 use pallas_crypto::{hash::Hash, key::ed25519::SecretKey};
 use pallas_math::math::FixedDecimal;
 use pallas_primitives::babbage;
@@ -169,7 +169,7 @@ struct HeaderWrapper {
 
 impl HeaderWrapper {
     fn get_header(&mut self) -> Result<babbage::MintedHeader<'_>, ()> {
-        minicbor::decode(self.bytes.as_slice()).map_err(|_| ())
+        cbor::decode(self.bytes.as_slice()).map_err(|_| ())
     }
 }
 

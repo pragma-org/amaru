@@ -50,7 +50,7 @@ use gasket::{
 };
 use ledger::ValidateBlockStage;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
-use std::{error::Error, path::PathBuf, sync::Arc};
+use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 
 pub mod common;
@@ -65,6 +65,15 @@ pub type BlockHash = pallas_crypto::hash::Hash<32>;
 pub enum StorePath {
     InMem,
     OnDisk(PathBuf),
+}
+
+impl Display for StorePath {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            StorePath::InMem => write!(f, "<mem>"),
+            StorePath::OnDisk(path) => write!(f, "{}", path.display()),
+        }
+    }
 }
 
 pub struct Config {
@@ -131,7 +140,11 @@ pub fn bootstrap(
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
 
-    let chain_selector = make_chain_selector(&header, &peer_sessions)?;
+    let chain_selector = make_chain_selector(
+        &header,
+        &peer_sessions,
+        global_parameters.consensus_security_param,
+    )?;
     let consensus = match ledger_stage {
         LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
             Arc::new(validate_block_stage.state.view_stake_distribution()),
@@ -239,10 +252,14 @@ fn make_chain_store(
     };
 
     let (our_tip, header) = if let amaru_kernel::Point::Specific(_slot, hash) = &tip {
+        let tip_hash = &Hash::from(&**hash);
         #[allow(clippy::expect_used)]
-        let header: Header = chain_store
-            .load_header(&Hash::from(&**hash))
-            .expect("Tip not found");
+        let header: Header = chain_store.load_header(tip_hash).unwrap_or_else(|| {
+            panic!(
+                "Tip {} not found in chain database '{}'",
+                tip_hash, config.chain_store
+            )
+        });
         (
             Tip(header.pallas_point(), header.block_height()),
             Some(header),
@@ -307,7 +324,7 @@ fn make_ledger(
         }
         StorePath::OnDisk(ref ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
-                RocksDB::new(ledger_dir, era_history)?,
+                RocksDB::new(ledger_dir)?,
                 RocksDBHistoricalStores::new(ledger_dir),
                 era_history.clone(),
                 global_parameters.clone(),
@@ -320,8 +337,11 @@ fn make_ledger(
 fn make_chain_selector(
     header: &Option<Header>,
     peers: &Vec<PeerSession>,
+    consensus_security_parameter: usize,
 ) -> Result<Arc<Mutex<ChainSelector<Header>>>, ConsensusError> {
     let mut builder = ChainSelectorBuilder::new();
+
+    builder.set_max_fragment_length(consensus_security_parameter);
 
     match header {
         Some(h) => builder.set_tip(h),
@@ -372,8 +392,9 @@ impl AsTip for Header {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
 
-    use super::{bootstrap, Config, StorePath::*};
+    use super::{bootstrap, Config, StorePath, StorePath::*};
 
     #[test]
     fn bootstrap_all_stages() {
@@ -386,5 +407,19 @@ mod tests {
         let stages = bootstrap(config, vec![]).unwrap();
 
         assert_eq!(8, stages.len());
+    }
+
+    #[test]
+    fn test_store_path_display() {
+        assert_eq!(format!("{}", StorePath::InMem), "<mem>");
+        assert_eq!(
+            format!("{}", StorePath::OnDisk(PathBuf::from("/path/to/store"))),
+            "/path/to/store"
+        );
+        assert_eq!(
+            format!("{}", StorePath::OnDisk(PathBuf::from("./relative/path"))),
+            "./relative/path"
+        );
+        assert_eq!(format!("{}", StorePath::OnDisk(PathBuf::from(""))), "");
     }
 }

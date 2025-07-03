@@ -20,8 +20,8 @@ pub mod tests {
     use std::collections::BTreeSet;
 
     use amaru_kernel::{
-        Anchor, EraHistory, Hash, Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential,
-        TransactionInput, TransactionOutput,
+        network::NetworkName, Anchor, EraHistory, Hash, Point, PoolId, PoolParams, ProposalId,
+        Slot, StakeCredential, TransactionInput, TransactionOutput,
     };
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
     use slot_arithmetic::Epoch;
@@ -37,7 +37,7 @@ pub mod tests {
                 slots::any_slot,
                 utxo::{any_pseudo_transaction_output, any_txin},
             },
-            Columns, ReadOnlyStore, Store, StoreError, TransactionalContext,
+            Columns, ReadStore, Store, StoreError, TransactionalContext,
         },
     };
 
@@ -170,6 +170,8 @@ pub mod tests {
         let point = Point::Specific(slot.into(), Hash::from([0u8; 32]).to_vec());
         let slot_leader = any_pool_id().new_tree(runner).unwrap().current();
 
+        let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+
         {
             let context = store.create_transaction();
 
@@ -187,6 +189,7 @@ pub mod tests {
                 Columns::empty(),
                 std::iter::empty(),
                 BTreeSet::new(),
+                &era_history,
             )?;
 
             context.commit()?;
@@ -223,7 +226,7 @@ pub mod tests {
         })
     }
 
-    pub fn test_read_utxo(store: &impl ReadOnlyStore, fixture: &Fixture) {
+    pub fn test_read_utxo(store: &impl ReadStore, fixture: &Fixture) {
         let result = store
             .utxo(&fixture.txin)
             .expect("failed to read UTXO from store");
@@ -235,7 +238,7 @@ pub mod tests {
         );
     }
 
-    pub fn test_read_account(store: &impl ReadOnlyStore, fixture: &Fixture) {
+    pub fn test_read_account(store: &impl ReadStore, fixture: &Fixture) {
         let stored_account = store
             .account(&fixture.account_key)
             .expect("failed to read account from store");
@@ -265,7 +268,7 @@ pub mod tests {
         );
     }
 
-    pub fn test_read_pool(store: &impl ReadOnlyStore, fixture: &Fixture) {
+    pub fn test_read_pool(store: &impl ReadStore, fixture: &Fixture) {
         let pool_id = fixture.pool_params.id;
         let stored_pool = store
             .pool(&pool_id)
@@ -289,7 +292,7 @@ pub mod tests {
         );
     }
 
-    pub fn test_read_drep(store: &impl ReadOnlyStore, fixture: &Fixture) {
+    pub fn test_read_drep(store: &impl ReadStore, fixture: &Fixture) {
         let stored_drep = store
             .iter_dreps()
             .expect("failed to iterate dreps")
@@ -375,7 +378,7 @@ pub mod tests {
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
         };
-
+        let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let context = store.create_transaction();
         context.save(
             &point,
@@ -384,6 +387,7 @@ pub mod tests {
             remove,
             std::iter::empty(),
             BTreeSet::new(),
+            &era_history,
         )?;
         context.commit()?;
 
@@ -408,6 +412,7 @@ pub mod tests {
             proposals: std::iter::empty(),
         };
 
+        let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let context = store.create_transaction();
         context.save(
             &point,
@@ -416,6 +421,7 @@ pub mod tests {
             remove,
             std::iter::empty(),
             BTreeSet::new(),
+            &era_history,
         )?;
         context.commit()?;
 
@@ -435,7 +441,7 @@ pub mod tests {
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
         };
-
+        let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let context = store.create_transaction();
         context.save(
             &point,
@@ -444,6 +450,7 @@ pub mod tests {
             remove,
             std::iter::empty(),
             BTreeSet::new(),
+            &era_history,
         )?;
         context.commit()?;
 
@@ -483,6 +490,7 @@ pub mod tests {
             "DRep not present before removal"
         );
 
+        let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let context = store.create_transaction();
         context.save(
             &point,
@@ -491,6 +499,7 @@ pub mod tests {
             remove,
             std::iter::empty(),
             BTreeSet::new(),
+            &era_history,
         )?;
         context.commit()?;
 
@@ -531,6 +540,7 @@ pub mod tests {
             proposals: std::iter::once(proposal_id.clone()),
         };
 
+        let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let context = store.create_transaction();
         context.save(
             &point,
@@ -539,6 +549,7 @@ pub mod tests {
             remove,
             std::iter::empty(),
             BTreeSet::new(),
+            &era_history,
         )?;
         context.commit()?;
 

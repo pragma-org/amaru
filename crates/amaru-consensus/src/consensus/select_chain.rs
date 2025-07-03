@@ -12,7 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{chain_selection::RollbackChainSelection, DecodedChainSyncEvent, ValidateHeaderEvent};
+use super::{
+    chain_selection::{RollbackChainSelection, DEFAULT_MAXIMUM_FRAGMENT_LENGTH},
+    DecodedChainSyncEvent, ValidateHeaderEvent,
+};
 use crate::{
     consensus::{
         chain_selection::{self, ChainSelector, Fork, Tip},
@@ -39,6 +42,7 @@ fn default_chain_selector() -> Arc<Mutex<ChainSelector<Header>>> {
     Arc::new(Mutex::new(ChainSelector {
         tip: Tip::Genesis,
         peers_chains: BTreeMap::new(),
+        max_fragment_length: DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
     }))
 }
 
@@ -140,6 +144,13 @@ impl SelectChain {
                 tip: _,
             }) => Ok(self.switch_to_fork(peer, rollback_point, fork, span)),
             RollbackChainSelection::NoChange => Ok(vec![]),
+            RollbackChainSelection::RollbackBeyondLimit(peer, rollback_point, max_point) => {
+                Err(ConsensusError::InvalidRollback {
+                    peer,
+                    rollback_point,
+                    max_point,
+                })
+            }
         }
     }
 

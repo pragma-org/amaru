@@ -39,12 +39,10 @@
   ],
   "known_scripts": {
     "f654f6a31f6c4cc2c39a169f2c022404aa9f19d43137b0448b219a3e": {
-      "AtReferenceInput": {
-        "transaction_id": "f986104959bc29103f31f2f9dfced511dcd82531d140578e04593f5ea93effe5",
-        "index": 1
-      }
+      "transaction_id": "f986104959bc29103f31f2f9dfced511dcd82531d140578e04593f5ea93effe5",
+      "index": 1
     }
   },
   "required_signers": [],
-  "required_bootstrap_signers": []
+  "required_bootstrap_roots": []
 }
