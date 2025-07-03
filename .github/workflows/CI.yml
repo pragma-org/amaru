@@ -77,6 +77,8 @@ jobs:
     runs-on: ${{ matrix.environments.runner }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: true
       - id: timestamp
         shell: bash
         run: |
@@ -97,6 +99,10 @@ jobs:
           key: cargo-${{ matrix.environments.target }}
           restore-keys: |
             cargo-${{ matrix.environments.target }}
+      - name: Unpack test vectors
+        working-directory: cardano-blueprint/src/ledger/conformance-test-vectors
+        run: |
+          tar -xzf vectors.tar.gz
       - name: Run build
         run: |
           set +e
@@ -165,7 +171,7 @@ jobs:
           - name: preprod
             magic: 1
         cardano_node_version: [10.1.4]
-    continue-on-error: true 
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 

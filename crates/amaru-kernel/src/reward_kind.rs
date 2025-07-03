@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,15 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::network::NetworkName;
+use crate::cbor;
 
-pub(crate) mod bootstrap;
-pub(crate) mod daemon;
-pub(crate) mod import_headers;
-pub(crate) mod import_ledger_state;
-pub(crate) mod import_nonces;
+#[derive(Debug)]
+pub enum RewardKind {
+    Member,
+    Leader,
+}
 
-pub(crate) const DEFAULT_NETWORK: NetworkName = NetworkName::Preprod;
-
-/// Default address to listen on for incoming connections.
-pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
+impl<'b, C> cbor::decode::Decode<'b, C> for RewardKind {
+    #[allow(clippy::panic)]
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Ok(match d.u8()? {
+            0 => RewardKind::Member,
+            1 => RewardKind::Leader,
+            k => panic!("unexpected reward kind: {k}"),
+        })
+    }
+}
