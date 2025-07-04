@@ -59,29 +59,3 @@ impl HasProxy for TransactionInput {
 impl HasProxy for MemoizedTransactionOutput {
     type Proxy = MemoizedTransactionOutput;
 }
-
-// ----------------------------------------------------------------------------------- Visitors
-
-pub struct StringVisitor;
-
-impl<'de> serde::de::Visitor<'de> for StringVisitor {
-    type Value = String;
-
-    fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "hex-encoded Cardano address")
-    }
-
-    fn visit_string<E>(self, value: String) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(value)
-    }
-
-    fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
-    where
-        E: serde::de::Error,
-    {
-        Ok(value.to_string())
-    }
-}

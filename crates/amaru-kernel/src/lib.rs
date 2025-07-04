@@ -61,13 +61,14 @@ pub use pallas_primitives::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
         ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
-        MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
-        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
-        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
-        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
+        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
+        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
+        ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
+        RationalNumber, Redeemer, Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash,
+        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
+        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
+        WitnessSet,
     },
     AssetName, DatumHash, PlutusData,
 };
@@ -1032,36 +1033,6 @@ impl HasScriptHash for MemoizedNativeScript {
 impl HasScriptHash for KeepRaw<'_, NativeScript> {
     fn script_hash(&self) -> ScriptHash {
         native_script_hash(self.raw_cbor())
-    }
-}
-
-impl HasScriptHash for ScriptRef {
-    fn script_hash(&self) -> ScriptHash {
-        match self {
-            ScriptRef::NativeScript(native_script) => {
-                let mut buffer: Vec<u8>;
-                buffer = vec![0];
-                // FIXME: don't reserialize the native script here.
-                //
-                // This happens because scripts may be found in reference inputs, which have been
-                // stripped from their 'KeepRaw' structure already and thus; have lost their
-                // 'original' bytes.
-                //
-                // While native scripts are simple in essence, they don't have any canonical form.
-                // For example, an array of signatures (all-of) may be serialised as definite or
-                // indefinite. Which will change serialisation and hash.
-                //
-                // Rather than reserialising them when storing them in db, we shall keep their
-                // original bytes and possibly only deserialise on-demand (we only need to
-                // deserialise them if their execution is required).
-                let native_script = to_cbor(&native_script);
-                buffer.extend_from_slice(native_script.as_slice());
-                Hasher::<224>::hash(&buffer)
-            }
-            PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
-        }
     }
 }
 
