@@ -14,8 +14,8 @@
 
 use amaru_consensus::{consensus::store::ChainStore, Nonces};
 use amaru_kernel::{
-    default_chain_dir, network::NetworkName, EraHistory, Hash, Header, Nonce, Point, parse_nonce,
-    parse_point,
+    default_chain_dir, network::NetworkName, parse_nonce, parse_point, EraHistory, Hash, Header,
+    Nonce, Point,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;

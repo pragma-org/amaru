@@ -57,6 +57,7 @@ tempfile.workspace = true
 test-case.workspace = true
 iter-borrow.workspace = true
 rocksdb.workspace = true
+once_cell.workspace = true
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }

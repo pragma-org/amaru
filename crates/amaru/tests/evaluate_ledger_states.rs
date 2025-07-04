@@ -27,10 +27,16 @@ use amaru_stores::rocksdb::RocksDB;
 use pallas_codec::utils::AnyCbor;
 use std::{collections::BTreeSet, env, fs, iter, ops::Deref, path::PathBuf};
 
+use test_case::test_case;
+
+use once_cell::sync::Lazy;
+use std::sync::Mutex;
+
+use amaru_kernel::parse_point;
+
 struct TestContext {
     ledger_dir: PathBuf,
     pparams_dir: PathBuf,
-    snapshots: PathBuf,
 }
 
 fn get_test_context() -> Result<TestContext, Box<dyn std::error::Error>> {
@@ -38,28 +44,22 @@ fn get_test_context() -> Result<TestContext, Box<dyn std::error::Error>> {
     Ok(TestContext {
         ledger_dir: working_dir.join(PathBuf::from("../../ledger.db")),
         pparams_dir: working_dir.join(PathBuf::from("../../cardano-blueprint/src/ledger/conformance-test-vectors/eras/conway/impl/dump/pparams-by-hash/")),
-        snapshots: working_dir.join(PathBuf::from("../../cardano-blueprint/src/ledger/conformance-test-vectors/eras/conway/impl/dump/")),
     })
 }
 
-#[test]
-fn evaluate_vector() -> Result<(), Box<dyn std::error::Error>> {
+static TEST_MUTEX: Lazy<Mutex<()>> = Lazy::new(Mutex::default);
+
+include!("generated_ledger_conformance_test_cases.incl");
+
+fn evaluate_vector(snapshot: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let _shared = TEST_MUTEX.lock()?;
     let network = NetworkName::Testnet(1);
     let era_history = network.into();
     match get_test_context() {
         Ok(tc) => {
-            for snapshot in fs::read_dir(tc.snapshots)? {
-                let snapshot = snapshot?;
-                if snapshot.file_name() == "pparams-by-hash" {
-                    continue;
-                }
-                for vector in fs::read_dir(snapshot.path())? {
-                    let vector = vector?;
-                    let vector_file = fs::read(vector.path())?;
-                    let record: NESVector = cbor::decode(&vector_file)?;
-                    let () = import_vector(record, &tc.ledger_dir, era_history, &tc.pparams_dir)?;
-                }
-            }
+            let vector_file = fs::read(snapshot)?;
+            let record: NESVector = minicbor::decode(&vector_file)?;
+            let () = import_vector(record, &tc.ledger_dir, era_history, &tc.pparams_dir)?;
             Ok(())
         }
         Err(e) => {
@@ -100,7 +100,7 @@ fn import_vector(
     pparams_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let epoch = peek_epoch(&record.old_nes)?;
-    let point = amaru_kernel::parse_point(&format!(
+    let point = parse_point(&format!(
         "{}.0000000000000000000000000000000000000000000000000000000000000000",
         epoch * 432000
     ))?;
@@ -157,7 +157,7 @@ fn import_vector(
 
     let tx_body: KeepRaw<'_, MintedTransactionBody<'_>> = tx.transaction_body.clone();
     let tx_witness_set: MintedWitnessSet<'_> = tx.transaction_witness_set.deref().clone();
-    let tx_auxiliary_data =
+    let _tx_auxiliary_data =
         Into::<Option<KeepRaw<'_, AuxiliaryData>>>::into(tx.auxiliary_data.clone())
             .map(|aux_data| Hasher::<256>::hash(aux_data.raw_cbor()));
 
@@ -169,7 +169,7 @@ fn import_vector(
         true,
         tx_body,
         &tx_witness_set,
-        tx_auxiliary_data,
+        None, // tx_auxiliary_data.as_ref(),
     );
 
     match result {

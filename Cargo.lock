@@ -62,6 +62,7 @@ dependencies = [
  "insta",
  "iter-borrow",
  "minicbor",
+ "once_cell",
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
