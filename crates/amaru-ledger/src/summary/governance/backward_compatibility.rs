@@ -187,7 +187,7 @@ pub(crate) mod tests {
                 slot,
                 transaction_index,
             },
-            ERA_HISTORY.slot_to_epoch(slot).unwrap(),
+            ERA_HISTORY.slot_to_epoch_unchecked_horizon(slot).unwrap(),
         )
     }
 

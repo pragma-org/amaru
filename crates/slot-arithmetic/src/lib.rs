@@ -362,7 +362,7 @@ pub struct EpochBounds {
 // horizon is the end of the epoch containing the end of the current era's safe zone relative to
 // the current tip. Returns number of milliseconds elapsed since the system start time.
 impl EraHistory {
-    pub fn slot_to_relative_time(&self, slot: Slot) -> Result<u64, TimeHorizonError> {
+    pub fn slot_to_relative_time_unchecked_horizon(&self, slot: Slot) -> Result<u64, TimeHorizonError> {
         for era in &self.eras {
             if era.start.slot > slot {
                 return Err(TimeHorizonError::InvalidEraHistory);
@@ -379,7 +379,7 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
-    pub fn slot_to_epoch(&self, slot: Slot) -> Result<Epoch, TimeHorizonError> {
+    pub fn slot_to_epoch_unchecked_horizon(&self, slot: Slot) -> Result<Epoch, TimeHorizonError> {
         for era in &self.eras {
             if era.start.slot > slot {
                 return Err(TimeHorizonError::InvalidEraHistory);
@@ -396,7 +396,7 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
-    pub fn next_epoch_first_slot(&self, epoch: Epoch) -> Result<Slot, TimeHorizonError> {
+    pub fn next_epoch_first_slot_unchecked_horizon(&self, epoch: Epoch) -> Result<Slot, TimeHorizonError> {
         for era in &self.eras {
             if era.start.epoch > epoch {
                 return Err(TimeHorizonError::InvalidEraHistory);
@@ -412,7 +412,7 @@ impl EraHistory {
     }
 
     /// Find the first epoch of the era from which this epoch belongs.
-    pub fn era_first_epoch(&self, epoch: Epoch) -> Result<Epoch, TimeHorizonError> {
+    pub fn era_first_epoch_unchecked_horizon(&self, epoch: Epoch) -> Result<Epoch, TimeHorizonError> {
         for era in &self.eras {
             if epoch < era.end.epoch {
                 return Ok(era.start.epoch);
@@ -421,7 +421,7 @@ impl EraHistory {
         Err(TimeHorizonError::PastTimeHorizon)
     }
 
-    pub fn epoch_bounds(&self, epoch: Epoch) -> Result<EpochBounds, TimeHorizonError> {
+    pub fn epoch_bounds_unchecked_horizon(&self, epoch: Epoch) -> Result<EpochBounds, TimeHorizonError> {
         for era in &self.eras {
             if era.start.epoch > epoch {
                 return Err(TimeHorizonError::InvalidEraHistory);
@@ -448,9 +448,12 @@ impl EraHistory {
     ///
     /// Returns `TimeHorizonError::PastTimeHorizon` if the slot is beyond the time horizon.
     /// Returns `TimeHorizonError::InvalidEraHistory` if the era history is invalid.
-    pub fn slot_in_epoch(&self, slot: Slot) -> Result<Slot, TimeHorizonError> {
-        let epoch = self.slot_to_epoch(slot)?;
-        let bounds = self.epoch_bounds(epoch)?;
+    pub fn slot_in_epoch_unchecked_horizon(&self, slot: Slot) -> Result<Slot, TimeHorizonError> {
+        #[allow(clippy::disallowed_methods)]
+        let epoch = self.slot_to_epoch_unchecked_horizon(slot)?;
+        #[allow(clippy::disallowed_methods)]
+        let bounds = self.epoch_bounds_unchecked_horizon(epoch)?;
+        #[allow(clippy::disallowed_methods)]
         let elapsed = slot.elapsed_from(bounds.start)?;
         Ok(Slot(elapsed))
     }
@@ -617,34 +620,39 @@ mod tests {
     #[test]
     fn slot_to_time_example_1() {
         let eras = two_eras();
-        let t0 = eras.slot_to_relative_time(Slot(172800));
+        #[allow(clippy::disallowed_methods)]
+        let t0 = eras.slot_to_relative_time_unchecked_horizon(Slot(172800));
         assert_eq!(t0, Ok(172800000));
     }
 
     #[test]
     fn slot_to_time_fails_after_time_horizon() {
         let eras = two_eras();
-        let t0 = eras.slot_to_relative_time(Slot(172801));
+        #[allow(clippy::disallowed_methods)]
+        let t0 = eras.slot_to_relative_time_unchecked_horizon(Slot(172801));
         assert_eq!(t0, Err(TimeHorizonError::PastTimeHorizon));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn epoch_bounds_example_1() {
         let eras = one_era();
-        assert_eq!(eras.epoch_bounds(Epoch(1)).unwrap().start, Slot(86400));
+        assert_eq!(eras.epoch_bounds_unchecked_horizon(Epoch(1)).unwrap().start, Slot(86400));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn epoch_bounds_example_2() {
         let eras = one_era();
-        assert_eq!(eras.epoch_bounds(Epoch(1)).unwrap().end, Slot(172800));
+        assert_eq!(eras.epoch_bounds_unchecked_horizon(Epoch(1)).unwrap().end, Slot(172800));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn epoch_bounds_fails_after_time_horizon() {
         let eras = one_era();
         assert_eq!(
-            eras.epoch_bounds(Epoch(10)),
+            eras.epoch_bounds_unchecked_horizon(Epoch(10)),
             Err(TimeHorizonError::PastTimeHorizon)
         );
     }
@@ -652,48 +660,55 @@ mod tests {
     #[test]
     fn slot_to_epoch_example_1() {
         let eras = one_era();
-        let e = eras.slot_to_epoch(Slot(0));
+        #[allow(clippy::disallowed_methods)]
+        let e = eras.slot_to_epoch_unchecked_horizon(Slot(0));
         assert_eq!(e, Ok(Epoch(0)));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn slot_to_epoch_example_2() {
         let eras = one_era();
-        let e = eras.slot_to_epoch(Slot(86399));
+        let e = eras.slot_to_epoch_unchecked_horizon(Slot(86399));
         assert_eq!(e, Ok(Epoch(0)));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn slot_to_epoch_example_3() {
         let eras = one_era();
-        let e = eras.slot_to_epoch(Slot(864000));
+        let e = eras.slot_to_epoch_unchecked_horizon(Slot(864000));
         assert_eq!(e, Ok(Epoch(10)));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn slot_to_epoch_fails_after_time_horizon() {
         let eras = one_era();
-        let e = eras.slot_to_epoch(Slot(864001));
+        let e = eras.slot_to_epoch_unchecked_horizon(Slot(864001));
         assert_eq!(e, Err(TimeHorizonError::PastTimeHorizon));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn next_epoch_first_slot() {
         let eras = one_era();
-        assert_eq!(eras.next_epoch_first_slot(Epoch(0)), Ok(Slot(86400)));
+        assert_eq!(eras.next_epoch_first_slot_unchecked_horizon(Epoch(0)), Ok(Slot(86400)));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn next_epoch_first_slot_at_eras_boundary() {
         let eras = two_eras();
-        assert_eq!(eras.next_epoch_first_slot(Epoch(1)), Ok(Slot(172800)));
+        assert_eq!(eras.next_epoch_first_slot_unchecked_horizon(Epoch(1)), Ok(Slot(172800)));
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn next_epoch_first_slot_beyond_end_of_history() {
         let eras = two_eras();
         assert_eq!(
-            eras.next_epoch_first_slot(Epoch(2)),
+            eras.next_epoch_first_slot_unchecked_horizon(Epoch(2)),
             Err(TimeHorizonError::PastTimeHorizon)
         );
     }
@@ -701,35 +716,35 @@ mod tests {
     #[test]
     fn slot_in_epoch_example_1() {
         let eras = one_era();
-        let relative_slot = eras.slot_in_epoch(Slot(0));
+        let relative_slot = eras.slot_in_epoch_unchecked_horizon(Slot(0));
         assert_eq!(relative_slot, Ok(Slot(0)));
     }
 
     #[test]
     fn slot_in_epoch_example_2() {
         let eras = one_era();
-        let relative_slot = eras.slot_in_epoch(Slot(86400));
+        let relative_slot = eras.slot_in_epoch_unchecked_horizon(Slot(86400));
         assert_eq!(relative_slot, Ok(Slot(0)));
     }
 
     #[test]
     fn slot_in_epoch_example_3() {
         let eras = one_era();
-        let relative_slot = eras.slot_in_epoch(Slot(86401));
+        let relative_slot = eras.slot_in_epoch_unchecked_horizon(Slot(86401));
         assert_eq!(relative_slot, Ok(Slot(1)));
     }
 
     #[test]
     fn slot_in_epoch_example_4() {
         let eras = one_era();
-        let relative_slot = eras.slot_in_epoch(Slot(172799));
+        let relative_slot = eras.slot_in_epoch_unchecked_horizon(Slot(172799));
         assert_eq!(relative_slot, Ok(Slot(86399)));
     }
 
     #[test]
     fn slot_in_epoch_past_time_horizon() {
         let eras = one_era();
-        let relative_slot = eras.slot_in_epoch(Slot(864001));
+        let relative_slot = eras.slot_in_epoch_unchecked_horizon(Slot(864001));
         assert_eq!(relative_slot, Err(TimeHorizonError::PastTimeHorizon));
     }
 
@@ -768,7 +783,7 @@ mod tests {
             ],
         };
 
-        let relative_slot = invalid_eras.slot_in_epoch(Slot(60));
+        let relative_slot = invalid_eras.slot_in_epoch_unchecked_horizon(Slot(60));
         assert_eq!(relative_slot, Err(TimeHorizonError::InvalidEraHistory));
     }
 
@@ -809,7 +824,7 @@ mod tests {
         // A slot in epoch 1 but before the start of epoch 1's slots
         let problematic_slot = Slot(100000);
 
-        let result = invalid_eras.slot_in_epoch(problematic_slot);
+        let result = invalid_eras.slot_in_epoch_unchecked_horizon(problematic_slot);
         assert_eq!(result, Err(TimeHorizonError::InvalidEraHistory));
     }
 

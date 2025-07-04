@@ -538,35 +538,37 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn can_compute_slot_to_epoch_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
         assert_eq!(
             Epoch::from(4),
-            era_history.slot_to_epoch(Slot::from(86400)).unwrap()
+            era_history.slot_to_epoch_unchecked_horizon(Slot::from(86400)).unwrap()
         );
         assert_eq!(
             Epoch::from(11),
-            era_history.slot_to_epoch(Slot::from(3542399)).unwrap()
+            era_history.slot_to_epoch_unchecked_horizon(Slot::from(3542399)).unwrap()
         );
         assert_eq!(
             Epoch::from(12),
-            era_history.slot_to_epoch(Slot::from(3542400)).unwrap()
+            era_history.slot_to_epoch_unchecked_horizon(Slot::from(3542400)).unwrap()
         );
     }
 
     #[test]
+    #[allow(clippy::disallowed_methods)]
     fn can_compute_next_epoch_first_slot_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
         assert_eq!(
-            era_history.next_epoch_first_slot(Epoch::from(3)),
+            era_history.next_epoch_first_slot_unchecked_horizon(Epoch::from(3)),
             Ok(Slot::from(86400))
         );
         assert_eq!(
-            era_history.next_epoch_first_slot(Epoch::from(114)),
+            era_history.next_epoch_first_slot_unchecked_horizon(Epoch::from(114)),
             Ok(Slot::from(48038400))
         );
         assert_eq!(
-            era_history.next_epoch_first_slot(Epoch::from(150)),
+            era_history.next_epoch_first_slot_unchecked_horizon(Epoch::from(150)),
             Ok(Slot::from(63590400))
         );
     }
