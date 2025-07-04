@@ -72,10 +72,19 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-include!("generated_compare_snapshot_test_cases.incl");
+include!(concat!(
+    "snapshots/",
+    env!("NETWORK"),
+    "/generated_compare_snapshot_test_cases.incl"
+));
 
 #[allow(clippy::unwrap_used)]
-fn compare_snapshot(network: NetworkName, epoch: Epoch) {
+fn compare_snapshot(epoch: Epoch) {
+    #[allow(clippy::expect_used)]
+    let network: NetworkName = env!("NETWORK")
+        .to_string()
+        .parse()
+        .expect("$NETWORK must be set to a valid network name");
     let snapshot = db(network, epoch);
     let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();

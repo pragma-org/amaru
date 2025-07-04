@@ -1,0 +1,22 @@
+#[test_case(163)]
+#[test_case(164)]
+#[test_case(165)]
+#[test_case(166)]
+#[test_case(167)]
+#[test_case(168)]
+#[test_case(169)]
+#[test_case(170)]
+#[test_case(171)]
+#[test_case(172)]
+#[test_case(173)]
+#[test_case(174)]
+#[test_case(175)]
+#[test_case(176)]
+#[test_case(177)]
+#[test_case(178)]
+#[test_case(179)]
+#[ignore]
+pub fn compare_snapshot_test_case(epoch: u64) {
+    let epoch = Epoch::from(epoch);
+    compare_snapshot(epoch)
+}
