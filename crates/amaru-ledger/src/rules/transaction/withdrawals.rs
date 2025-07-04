@@ -16,7 +16,9 @@ use crate::{
     context::{AccountsSlice, WitnessSlice},
     rules::TransactionField,
 };
-use amaru_kernel::{Address, HasOwnership, Lovelace, RequiredScript, RewardAccount, ScriptPurpose};
+use amaru_kernel::{
+    Address, HasOwnership, Lovelace, MemoizedDatum, RequiredScript, RewardAccount, ScriptPurpose,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -58,7 +60,7 @@ where
                             hash,
                             index: position as u32,
                             purpose: ScriptPurpose::Reward,
-                            datum_option: None,
+                            datum: MemoizedDatum::None,
                         }),
                     amaru_kernel::StakeCredential::AddrKeyhash(hash) => {
                         context.require_vkey_witness(hash)

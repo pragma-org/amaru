@@ -44,7 +44,7 @@ impl ReadStore for MemoryStore {
     fn utxo(
         &self,
         _input: &amaru_kernel::TransactionInput,
-    ) -> Result<Option<amaru_kernel::TransactionOutput>, crate::store::StoreError> {
+    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, crate::store::StoreError> {
         Ok(None)
     }
 

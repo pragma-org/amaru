@@ -17,9 +17,8 @@ use crate::{
     rules::{format_vec, WithPosition},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, to_network_id, BorrowedDatumOption, HasAddress,
-    HasDatum, HasNetwork, Lovelace, MintedTransactionOutput, Network, TransactionInput,
-    TransactionOutput,
+    protocol_parameters::ProtocolParameters, to_network_id, HasAddress, HasNetwork, Lovelace,
+    MemoizedDatum, MemoizedTransactionOutput, MintedTransactionOutput, Network, TransactionInput,
 };
 use thiserror::Error;
 
@@ -72,22 +71,29 @@ where
         validate_network(&output, network)
             .unwrap_or_else(|element| invalid_outputs.push(WithPosition { position, element }));
 
-        let output = TransactionOutput::from(output);
+        match MemoizedTransactionOutput::try_from(output) {
+            Ok(output) => {
+                // FIXME: This line is wrong. According to the Haskell source code, we should only count
+                // supplemental datums for outputs (regardless of whether transaction fails or not).
+                //
+                // In particular, any datum present in a collateral return does NOT count towards the
+                // allowed supplemental datums.
+                //
+                // However, I am not fixing this now, because we have no test covering the case whatsoever.
+                // At the moment, that line can actually be fully removed without making any test fail.
+                if let MemoizedDatum::Hash(hash) = &output.datum {
+                    context.allow_supplemental_datum(*hash);
+                }
 
-        // FIXME: This line is wrong. According to the Haskell source code, we should only count
-        // supplemental datums for outputs (regardless of whether transaction fails or not).
-        //
-        // In particular, any datum present in a collateral return does NOT count towards the
-        // allowed supplemental datums.
-        //
-        // However, I am not fixing this now, because we have no test covering the case whatsoever.
-        // At the moment, that line can actually be fully removed without making any test fail.
-        if let Some(BorrowedDatumOption::Hash(hash)) = output.datum() {
-            context.allow_supplemental_datum(*hash);
-        }
-
-        if let Some(input) = construct_utxo(position as u64) {
-            context.produce(input, output);
+                if let Some(input) = construct_utxo(position as u64) {
+                    context.produce(input, output);
+                }
+            }
+            Err(err) => {
+                let element =
+                    InvalidOutput::UncategorizedError(format!("failed to convert output: {err}"));
+                invalid_outputs.push(WithPosition { position, element });
+            }
         }
     }
 

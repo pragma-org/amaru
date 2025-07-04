@@ -18,7 +18,7 @@ use amaru_kernel::{
     MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
 };
 use core::mem;
-use std::ops::Deref;
+use std::{fmt, ops::Deref};
 use thiserror::Error;
 
 pub mod certificates;
@@ -79,15 +79,18 @@ pub enum InvalidTransaction {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn execute(
-    context: &mut impl ValidationContext,
+pub fn execute<C>(
+    context: &mut C,
     protocol_parameters: &ProtocolParameters,
     pointer: TransactionPointer,
     is_valid: bool,
     transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
     transaction_witness_set: &MintedWitnessSet<'_>,
     transaction_auxiliary_data_hash: Option<AuxiliaryDataHash>,
-) -> Result<(), InvalidTransaction> {
+) -> Result<(), InvalidTransaction>
+where
+    C: ValidationContext + fmt::Debug,
+{
     // FIXME: this is temporary, to be replaced when we have some state that determines the node's network
     let network = Network::Testnet;
 

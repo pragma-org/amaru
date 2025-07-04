@@ -21,9 +21,9 @@ use crate::context::{
 };
 use amaru_kernel::{
     serde_utils, stake_credential_hash, stake_credential_type, AddrKeyhash, Anchor,
-    CertificatePointer, DRep, DatumHash, Lovelace, PlutusData, PoolId, PoolParams, Proposal,
-    ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
-    TransactionInput, TransactionOutput,
+    CertificatePointer, DRep, DatumHash, Lovelace, MemoizedPlutusData, MemoizedScript,
+    MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
+    RequiredScript, ScriptHash, StakeCredential, TransactionInput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -38,7 +38,7 @@ use tracing::{instrument, Level};
 #[derive(serde::Deserialize, Debug, Clone)]
 pub struct AssertPreparationContext {
     #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    pub utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    pub utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
 }
 
 impl From<AssertPreparationContext> for AssertValidationContext {
@@ -89,7 +89,7 @@ impl PrepareDRepsSlice<'_> for AssertPreparationContext {
 #[derive(Debug, serde::Deserialize)]
 pub struct AssertValidationContext {
     #[serde(deserialize_with = "serde_utils::deserialize_map_proxy")]
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     #[serde(default)]
     required_signers: BTreeSet<Hash<28>>,
     #[serde(default)]
@@ -125,7 +125,7 @@ impl PotsSlice for AssertValidationContext {
 }
 
 impl UtxoSlice for AssertValidationContext {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.utxo.get(input)
     }
 
@@ -133,7 +133,7 @@ impl UtxoSlice for AssertValidationContext {
         self.utxo.remove(&input);
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
+    fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
         self.utxo.insert(input, output);
     }
 }
@@ -330,12 +330,12 @@ impl WitnessSlice for AssertValidationContext {
         mem::take(&mut self.required_supplemental_datums)
     }
 
-    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &MemoizedScript> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
     }
 
-    fn known_datums(&mut self) -> BTreeMap<DatumHash, &PlutusData> {
+    fn known_datums(&mut self) -> BTreeMap<DatumHash, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
     }
