@@ -70,8 +70,9 @@ impl GovernanceSummary {
 
         db.iter_proposals()?
             .try_for_each(|(_, row)| -> Result<(), Error> {
+                #[allow(clippy::disallowed_methods)]
                 let epoch = era_history
-                    .slot_to_epoch(row.proposed_in.transaction.slot)
+                    .slot_to_epoch_unchecked_horizon(row.proposed_in.transaction.slot)
                     .map_err(|e| Error::TimeHorizonError(row.proposed_in.transaction.slot, e))?;
 
                 proposals.insert((row.proposed_in.transaction, epoch));
@@ -142,7 +143,8 @@ impl GovernanceSummary {
                                 // better errors.
                                 (
                                     registration_slot,
-                                    era_history.slot_to_epoch(registration_slot).map_err(|e| {
+                                    #[allow(clippy::disallowed_methods)]
+                                    era_history.slot_to_epoch_unchecked_horizon(registration_slot).map_err(|e| {
                                         Error::TimeHorizonError(registration_slot, e)
                                     })?,
                                 ),
@@ -287,7 +289,7 @@ fn drep_mandate_calculator(
     let all_epochs = BTreeSet::from_iter(from_epoch..=current_epoch);
 
     let era_first_epoch = era_history
-        .era_first_epoch(current_epoch)
+        .era_first_epoch_unchecked_horizon(current_epoch)
         .unwrap_or_else(|_| {
             unreachable!("malformed era history {era_history:#?}\ndoesn't contain current epoch: {current_epoch}")
         });
@@ -377,6 +379,7 @@ mod tests {
         Inconsistent { v9: u64, v10: u64 },
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn test_drep_mandate(
         governance_action_lifetime: EpochInterval,
         drep_expiry: u64,
@@ -386,7 +389,7 @@ mod tests {
         current_epoch: Epoch,
     ) -> EpochResult {
         let registration_slot = Slot::from(registered_at);
-        let registration_epoch = ERA_HISTORY.slot_to_epoch(registration_slot).unwrap();
+        let registration_epoch = ERA_HISTORY.slot_to_epoch_unchecked_horizon(registration_slot).unwrap();
         let proposals = proposals.into_iter().collect::<BTreeSet<_>>();
 
         let test_with = |protocol_version| {

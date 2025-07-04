@@ -179,7 +179,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     pub fn current_epoch(&self, slot: Slot) -> Result<Epoch, StateError> {
         self.era_history
-            .slot_to_epoch(slot)
+            .slot_to_epoch_unchecked_horizon(slot)
             .map_err(|e| StateError::ErrorComputingEpoch(slot, e))
     }
 
@@ -212,7 +212,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let current_epoch = self
             .era_history
-            .slot_to_epoch(start_slot)
+            .slot_to_epoch_unchecked_horizon(start_slot)
             .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
 
         let mut db = self.stable.lock().unwrap();
@@ -221,7 +221,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let tip_epoch = self
             .era_history
-            .slot_to_epoch(tip.slot_or_default())
+            .slot_to_epoch_unchecked_horizon(tip.slot_or_default())
             .map_err(|e| StateError::ErrorComputingEpoch(tip.slot_or_default(), e))?;
 
         let epoch_transitioning = current_epoch > tip_epoch;
@@ -342,7 +342,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let next_state_slot = next_state.anchor.0.slot_or_default();
         let relative_slot = self
             .era_history
-            .slot_in_epoch(next_state_slot)
+            .slot_in_epoch_unchecked_horizon(next_state_slot)
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
         if self.rewards_summary.is_none()
@@ -715,7 +715,7 @@ impl HasStakeDistribution for StakeDistributionView {
     #[allow(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
-        let epoch = self.era_history.slot_to_epoch(slot).ok()? - 2;
+        let epoch = self.era_history.slot_to_epoch_unchecked_horizon(slot).ok()? - 2;
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,

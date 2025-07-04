@@ -202,7 +202,7 @@ fn decode_new_epoch_state(
 
     // EpochNo
     let epoch = Epoch::from(d.u64()?);
-    assert_eq!(epoch, era_history.slot_to_epoch(point.slot_or_default())?);
+    assert_eq!(epoch, era_history.slot_to_epoch_unchecked_horizon(point.slot_or_default())?);
 
     // Previous blocks made
     d.skip()?;
@@ -486,7 +486,7 @@ fn import_dreps(
     let mut known_dreps = BTreeMap::new();
 
     let era_first_epoch = era_history
-        .era_first_epoch(epoch)
+        .era_first_epoch_unchecked_horizon(epoch)
         .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
     let transaction = db.create_transaction();
@@ -543,7 +543,7 @@ fn import_dreps(
                 #[allow(clippy::unwrap_used)]
                 let (registration_slot, last_interaction) = if epoch == era_first_epoch {
                     let last_interaction = era_first_epoch;
-                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
+                    let epoch_bound = era_history.epoch_bounds_unchecked_horizon(last_interaction).unwrap();
                     if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
                         (epoch_bound.start, last_interaction)
                     } else {
@@ -551,7 +551,7 @@ fn import_dreps(
                     }
                 } else {
                     let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
-                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
+                    let epoch_bound = era_history.epoch_bounds_unchecked_horizon(last_interaction).unwrap();
                     // start or end doesn't matter here.
                     (epoch_bound.start, last_interaction)
                 };
@@ -621,7 +621,7 @@ fn import_proposals(
                         proposals::Value {
                             proposed_in: ProposalPointer {
                                 transaction: TransactionPointer {
-                                    slot: era_history.epoch_bounds(proposal.proposed_in)?.start,
+                                    slot: era_history.epoch_bounds_unchecked_horizon(proposal.proposed_in)?.start,
                                     transaction_index: 0,
                                 },
                                 proposal_index,
