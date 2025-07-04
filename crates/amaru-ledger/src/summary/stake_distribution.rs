@@ -244,12 +244,12 @@ impl StakeDistribution {
 
         info!(
             target: EVENT_TARGET,
-            epoch = ?epoch,
-            accounts = ?accounts.len(),
-            pools = ?pools.len(),
-            active_stake = ?active_stake,
-            dreps = ?dreps.len(),
-            voting_stake = ?voting_stake,
+            epoch = %epoch,
+            accounts = %accounts.len(),
+            pools = %pools.len(),
+            active_stake = %active_stake,
+            dreps = %dreps.len(),
+            voting_stake = %voting_stake,
             "stake_distribution.snapshot",
         );
 

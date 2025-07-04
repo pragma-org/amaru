@@ -165,7 +165,7 @@ impl DRepsSlice for DefaultValidationContext {
         drep: StakeCredential,
         state: DRepState,
     ) -> Result<(), RegisterError<DRepState, StakeCredential>> {
-        trace!(?drep, deposit = ?state.deposit, anchor = ?state.anchor, "certificate.drep.registration");
+        trace!(?drep, deposit = %state.deposit, "certificate.drep.registration");
         self.state.dreps.register(
             drep,
             (state.deposit, state.registered_at),

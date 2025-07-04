@@ -206,7 +206,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[allow(clippy::unwrap_used)]
-    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = ?now_stable.anchor.0.slot_or_default()))]
+    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = %now_stable.anchor.0.slot_or_default()))]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
         let start_slot = now_stable.anchor.0.slot_or_default();
 

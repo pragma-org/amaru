@@ -579,7 +579,7 @@ impl ReadOnlyRocksDBSnapshot {
 
 fn assert_non_empty(dir: &Path) -> Result<(), StoreError> {
     let snapshots = RocksDB::snapshots(dir)?;
-    info!(target: EVENT_TARGET, snapshots = ?snapshots, "new.known_snapshots");
+    info!(target: EVENT_TARGET, snapshots = snapshots.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(","), "new.known_snapshots");
     if snapshots.is_empty() {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }
