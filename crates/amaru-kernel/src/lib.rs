@@ -70,7 +70,7 @@ pub use pallas_primitives::{
         UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
         WitnessSet,
     },
-    AssetName, DatumHash, PlutusData,
+    AssetName, Constr, DatumHash, MaybeIndefArray, PlutusData,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
