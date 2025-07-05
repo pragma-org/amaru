@@ -94,6 +94,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let network = args.network;
     let era_history = network.into();
+    let global_parameters = network.into();
 
     let ledger_dir = args
         .ledger_dir
@@ -109,7 +110,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
-    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await?;
+    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir, global_parameters).await?;
 
     import_nonces_for_network(era_history, &network_dir, &chain_dir).await?;
 
