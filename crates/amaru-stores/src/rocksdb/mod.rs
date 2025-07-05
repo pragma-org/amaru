@@ -14,8 +14,10 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput,
+    cbor,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    CertificatePointer, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
+    StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     store::{
@@ -158,10 +160,6 @@ impl RocksDB {
 }
 
 impl Store for RocksDB {
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        RocksDB::snapshots(&self.dir)
-    }
-
     #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch))]
     fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
         let path = self.dir.join(epoch.to_string());
@@ -407,6 +405,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
         era_history: &EraHistory,
+        global_parameters: &GlobalParameters,
     ) -> Result<(), StoreError> {
         match (point, self.db.tip().ok()) {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
@@ -415,16 +414,13 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
+                let tip = point.slot_or_default();
                 self.transaction
                     .put(KEY_TIP, as_value(point))
                     .map_err(|err| StoreError::Internal(err.into()))?;
 
                 if let Some(issuer) = issuer {
-                    slots::put(
-                        &self.transaction,
-                        &point.slot_or_default(),
-                        scolumns::slots::Row::new(*issuer),
-                    )?;
+                    slots::put(&self.transaction, &tip, scolumns::slots::Row::new(*issuer))?;
                 }
 
                 utxo::add(&self.transaction, add.utxo)?;
@@ -436,9 +432,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
                 accounts::reset_many(&self.transaction, withdrawals)?;
                 dreps::tick(&self.transaction, voting_dreps, {
-                    let slot = point.slot_or_default();
                     era_history
-                        .slot_to_epoch_unchecked_horizon(slot)
+                        .slot_to_epoch(tip, tip, global_parameters.stability_window)
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
 
@@ -539,6 +534,34 @@ impl RocksDBHistoricalStores {
 }
 
 impl HistoricalStores for RocksDBHistoricalStores {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        let mut snapshots: Vec<Epoch> = Vec::new();
+
+        for entry in fs::read_dir(&self.dir)
+            .map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?
+            .by_ref()
+        {
+            let entry = entry.map_err(|err| StoreError::Open(OpenErrorKind::IO(err)))?;
+            if let Ok(epoch) = entry
+                .file_name()
+                .to_str()
+                .unwrap_or_default()
+                .parse::<Epoch>()
+            {
+                snapshots.push(epoch);
+            } else if entry.file_name() != DIR_LIVE_DB {
+                warn!(
+                    target: EVENT_TARGET,
+                    filename = entry.file_name().to_str().unwrap_or_default(),
+                    "new.unexpected_file"
+                );
+            }
+        }
+
+        snapshots.sort();
+
+        Ok(snapshots)
+    }
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError> {
         RocksDBHistoricalStores::for_epoch_with(&self.dir, epoch)
     }

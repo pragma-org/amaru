@@ -16,6 +16,7 @@ pub mod columns;
 pub mod in_memory;
 
 use crate::summary::Pots;
+use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::MemoizedTransactionOutput;
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
@@ -118,20 +119,6 @@ pub trait Snapshot: ReadStore {
 }
 
 pub trait Store: ReadStore {
-    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
-    /// snapshot available.
-    #[allow(clippy::panic)]
-    fn most_recent_snapshot(&self) -> Epoch {
-        self.snapshots()
-            .unwrap_or_default()
-            .last()
-            .copied()
-            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
-    }
-
-    /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
-
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when
     /// there's no existing snapshot and, to ensure that snapshots are taken in order.
     ///
@@ -151,6 +138,31 @@ pub trait Store: ReadStore {
 }
 
 pub trait HistoricalStores {
+    /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
+
+    /// The least recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    #[allow(clippy::panic)]
+    fn least_recent_snapshot(&self) -> Epoch {
+        self.snapshots()
+            .unwrap_or_default()
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
+    }
+
+    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    #[allow(clippy::panic)]
+    fn most_recent_snapshot(&self) -> Epoch {
+        self.snapshots()
+            .unwrap_or_default()
+            .last()
+            .copied()
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
+    }
+
     ///Access a `Snapshot` for a specific `Epoch`
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
@@ -204,6 +216,7 @@ pub trait TransactionalContext<'a> {
         withdrawals: impl Iterator<Item = accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
         era_history: &EraHistory,
+        global_parameters: &GlobalParameters,
     ) -> Result<(), StoreError>;
 
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded

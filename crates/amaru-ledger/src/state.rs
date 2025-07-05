@@ -102,7 +102,7 @@ where
     /// The era history for the network this store is related to.
     era_history: Arc<EraHistory>,
 
-    global_parameters: Arc<GlobalParameters>,
+    pub global_parameters: Arc<GlobalParameters>,
 
     protocol_parameters: Arc<ProtocolParameters>,
 }
@@ -118,7 +118,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             initial_stake_distributions(&stable, &snapshots, &era_history, PROTOCOL_VERSION_9)?; // FIXME ProtocolVersion should be retrieved from the store
 
         let protocol_parameters =
-            stable.get_protocol_parameters_for(&stable.most_recent_snapshot())?;
+            stable.get_protocol_parameters_for(&snapshots.most_recent_snapshot())?;
 
         Ok(Self::new_with(
             stable,
@@ -177,12 +177,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
     }
 
-    pub fn current_epoch(&self, slot: Slot) -> Result<Epoch, StateError> {
-        self.era_history
-            .slot_to_epoch_unchecked_horizon(slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(slot, e))
-    }
-
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         &self.protocol_parameters
     }
@@ -210,19 +204,21 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
         let start_slot = now_stable.anchor.0.slot_or_default();
 
-        let current_epoch = self
-            .era_history
-            .slot_to_epoch_unchecked_horizon(start_slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
-
         let mut db = self.stable.lock().unwrap();
 
         let tip = db.tip().map_err(StateError::Storage)?;
+        let tip_slot = tip.slot_or_default();
+        let stability_window = self.global_parameters.stability_window;
+
+        let current_epoch = self
+            .era_history
+            .slot_to_epoch(start_slot, tip_slot, stability_window)
+            .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
 
         let tip_epoch = self
             .era_history
-            .slot_to_epoch_unchecked_horizon(tip.slot_or_default())
-            .map_err(|e| StateError::ErrorComputingEpoch(tip.slot_or_default(), e))?;
+            .slot_to_epoch(tip_slot, tip_slot, stability_window)
+            .map_err(|e| StateError::ErrorComputingEpoch(tip_slot, e))?;
 
         let epoch_transitioning = current_epoch > tip_epoch;
 
@@ -261,6 +257,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 withdrawals,
                 voting_dreps,
                 &self.era_history,
+                &self.global_parameters,
             )
             .and_then(|()| {
                 batch.with_pots(|mut row| {
@@ -311,6 +308,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             &self.era_history,
             protocol_version,
             &self.protocol_parameters,
+            self.snapshots.least_recent_snapshot(),
         )?);
 
         Ok(rewards_summary)
@@ -325,6 +323,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &mut self,
         protocol_version: ProtocolVersion,
         next_state: AnchoredVolatileState,
+        tip: Slot,
     ) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
@@ -342,7 +341,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let next_state_slot = next_state.anchor.0.slot_or_default();
         let relative_slot = self
             .era_history
-            .slot_in_epoch_unchecked_horizon(next_state_slot)
+            .slot_in_epoch(
+                next_state_slot,
+                tip,
+                self.global_parameters.stability_window,
+            )
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
         if self.rewards_summary.is_none()
@@ -428,7 +431,8 @@ pub fn initial_stake_distributions(
     era_history: &EraHistory,
     protocol_version: ProtocolVersion,
 ) -> Result<VecDeque<StakeDistribution>, StoreError> {
-    let latest_epoch = db.most_recent_snapshot();
+    let first_epoch = snapshots.least_recent_snapshot();
+    let latest_epoch = snapshots.most_recent_snapshot();
 
     let mut stake_distributions = VecDeque::new();
     for epoch in latest_epoch - 2..=latest_epoch - 1 {
@@ -441,6 +445,7 @@ pub fn initial_stake_distributions(
                 era_history,
                 protocol_version,
                 &protocol_parameters,
+                first_epoch,
             )
             .map_err(|err| StoreError::Internal(err.into()))?,
         );
@@ -454,11 +459,18 @@ pub fn recover_stake_distribution(
     era_history: &EraHistory,
     protocol_version: ProtocolVersion,
     protocol_parameters: &ProtocolParameters,
+    first_epoch: Epoch,
 ) -> Result<StakeDistribution, StateError> {
     StakeDistribution::new(
         snapshot,
         protocol_version,
-        GovernanceSummary::new(snapshot, protocol_version, era_history, protocol_parameters)?,
+        GovernanceSummary::new(
+            snapshot,
+            protocol_version,
+            era_history,
+            protocol_parameters,
+            first_epoch,
+        )?,
         protocol_parameters,
     )
     .map_err(StateError::Storage)
@@ -715,7 +727,11 @@ impl HasStakeDistribution for StakeDistributionView {
     #[allow(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
-        let epoch = self.era_history.slot_to_epoch_unchecked_horizon(slot).ok()? - 2;
+        let epoch = self
+            .era_history
+            .slot_to_epoch_unchecked_horizon(slot)
+            .ok()?
+            - 2;
         view.iter().find(|s| s.epoch == epoch).and_then(|s| {
             s.pools.get(pool).map(|st| PoolSummary {
                 vrf: st.parameters.vrf,

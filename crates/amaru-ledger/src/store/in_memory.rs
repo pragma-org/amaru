@@ -6,7 +6,8 @@ use crate::{
     summary::Pots,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, EraHistory, Lovelace, Point, StakeCredential,
+    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    EraHistory, Lovelace, Point, StakeCredential,
 };
 use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
@@ -223,6 +224,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         _withdrawals: impl Iterator<Item = crate::store::columns::accounts::Key>,
         _voting_dreps: BTreeSet<StakeCredential>,
         _era_history: &EraHistory,
+        _global_parameters: &GlobalParameters,
     ) -> Result<(), crate::store::StoreError> {
         Ok(())
     }
@@ -278,9 +280,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
 }
 
 impl Store for MemoryStore {
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        Ok(vec![Epoch::from(3)])
-    }
     fn next_snapshot(&self, _epoch: Epoch) -> Result<(), crate::store::StoreError> {
         Ok(())
     }
@@ -294,6 +293,9 @@ impl Store for MemoryStore {
 }
 
 impl HistoricalStores for MemoryStore {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![Epoch::from(3)])
+    }
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, crate::store::StoreError> {
         Ok(MemoryStore {})
     }
