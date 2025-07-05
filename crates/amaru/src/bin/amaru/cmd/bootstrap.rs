@@ -94,6 +94,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let network = args.network;
     let era_history = network.into();
+    let global_parameters = network.into();
 
     let ledger_dir = args
         .ledger_dir
@@ -109,7 +110,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
-    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await?;
+    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir, global_parameters).await?;
 
     import_nonces_for_network(era_history, &network_dir, &chain_dir).await?;
 
@@ -135,7 +136,7 @@ async fn import_headers_for_network(
         }
     }
     for hdr in initial_headers {
-        // FIXME: why do we only importa 2 headers for each header listed in the
+        // FIXME: why do we only import 2 headers for each header listed in the
         // config file? The 2 headers make sense, but why starting from more than
         // one header?
         const NUM_HEADERS_TO_IMPORT: usize = 2;

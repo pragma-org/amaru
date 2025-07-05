@@ -60,6 +60,7 @@ impl GovernanceSummary {
         protocol_version: ProtocolVersion,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
+        first_epoch: Epoch,
     ) -> Result<Self, Error> {
         let current_epoch = db.epoch();
 
@@ -70,8 +71,9 @@ impl GovernanceSummary {
 
         db.iter_proposals()?
             .try_for_each(|(_, row)| -> Result<(), Error> {
+                #[allow(clippy::disallowed_methods)]
                 let epoch = era_history
-                    .slot_to_epoch(row.proposed_in.transaction.slot)
+                    .slot_to_epoch_unchecked_horizon(row.proposed_in.transaction.slot)
                     .map_err(|e| Error::TimeHorizonError(row.proposed_in.transaction.slot, e))?;
 
                 proposals.insert((row.proposed_in.transaction, epoch));
@@ -96,6 +98,7 @@ impl GovernanceSummary {
             protocol_parameters.gov_action_lifetime,
             protocol_parameters.drep_expiry as u64,
             era_history,
+            first_epoch,
             current_epoch,
             proposals,
         );
@@ -142,9 +145,12 @@ impl GovernanceSummary {
                                 // better errors.
                                 (
                                     registration_slot,
-                                    era_history.slot_to_epoch(registration_slot).map_err(|e| {
-                                        Error::TimeHorizonError(registration_slot, e)
-                                    })?,
+                                    #[allow(clippy::disallowed_methods)]
+                                    era_history
+                                        .slot_to_epoch_unchecked_horizon(registration_slot)
+                                        .map_err(|e| {
+                                            Error::TimeHorizonError(registration_slot, e)
+                                        })?,
                                 ),
                                 last_interaction,
                             )),
@@ -242,6 +248,7 @@ fn drep_mandate_calculator(
     governance_action_lifetime: EpochInterval,
     drep_expiry: u64,
     era_history: &EraHistory,
+    first_known_epoch: Epoch,
     current_epoch: Epoch,
     proposals: BTreeSet<(TransactionPointer, Epoch)>,
 ) -> Box<dyn Fn((Slot, Epoch), Option<Epoch>) -> Epoch> {
@@ -274,20 +281,10 @@ fn drep_mandate_calculator(
 
     let first_proposal = proposals.first().copied();
 
-    // Pre-calculate all epochs, so that need not to re-allocate memory for all DReps.
-    //
-    // FIXME: This initial epoch should be bound to the oldest epoch known of Amaru.
-    // We cannot access data older than that *anyway*.
-    let from_epoch = era_history
-        .eras
-        .last()
-        .map(|summary| summary.start.epoch)
-        .unwrap_or_default();
-
-    let all_epochs = BTreeSet::from_iter(from_epoch..=current_epoch);
+    let all_epochs = BTreeSet::from_iter(first_known_epoch..=current_epoch);
 
     let era_first_epoch = era_history
-        .era_first_epoch(current_epoch)
+        .era_first_epoch_unchecked_horizon(current_epoch)
         .unwrap_or_else(|_| {
             unreachable!("malformed era history {era_history:#?}\ndoesn't contain current epoch: {current_epoch}")
         });
@@ -377,6 +374,7 @@ mod tests {
         Inconsistent { v9: u64, v10: u64 },
     }
 
+    #[allow(clippy::disallowed_methods)]
     fn test_drep_mandate(
         governance_action_lifetime: EpochInterval,
         drep_expiry: u64,
@@ -386,7 +384,9 @@ mod tests {
         current_epoch: Epoch,
     ) -> EpochResult {
         let registration_slot = Slot::from(registered_at);
-        let registration_epoch = ERA_HISTORY.slot_to_epoch(registration_slot).unwrap();
+        let registration_epoch = ERA_HISTORY
+            .slot_to_epoch_unchecked_horizon(registration_slot)
+            .unwrap();
         let proposals = proposals.into_iter().collect::<BTreeSet<_>>();
 
         let test_with = |protocol_version| {
@@ -395,6 +395,7 @@ mod tests {
                 governance_action_lifetime,
                 drep_expiry,
                 &ERA_HISTORY,
+                registration_epoch,
                 current_epoch,
                 proposals.clone(),
             )((registration_slot, registration_epoch), last_interaction)
