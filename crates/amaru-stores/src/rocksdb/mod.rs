@@ -674,9 +674,8 @@ mod tests {
     use crate::rocksdb::{ReadOnlyRocksDB, RocksDB};
     use crate::tests::{
         add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-        test_read_pool, test_read_proposal, test_read_utxo, test_refund_account,
-        test_remove_account, test_remove_drep, test_remove_pool, test_remove_proposal,
-        test_remove_utxo, test_slot_updated, Fixture,
+        test_read_pool, test_read_proposal, test_refund_account, test_remove_account,
+        test_remove_drep, test_remove_pool, test_remove_proposal, test_slot_updated, Fixture,
     };
     use amaru_ledger::store::StoreError;
 
@@ -705,13 +704,6 @@ mod tests {
 
         let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
-    }
-
-    #[test]
-    fn test_rocksdb_read_utxo() {
-        let mut runner = TestRunner::default();
-        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
-        test_read_utxo(&store, &fixture);
     }
 
     #[test]
@@ -763,12 +755,19 @@ mod tests {
         test_slot_updated(&store, &fixture)
     }
 
+    /* Disabled until MemoizedTransactionOutput is created
+    #[test]
+    fn test_rocksdb_read_utxo() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_utxo(&store, &fixture);
+    }
     #[test]
     fn test_rocksdb_remove_utxo() -> Result<(), StoreError> {
         let mut runner = TestRunner::default();
         let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_remove_utxo(&store, &fixture)
-    }
+    }*/
 
     #[test]
     fn test_rocksdb_remove_account() -> Result<(), StoreError> {

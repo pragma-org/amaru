@@ -22,7 +22,7 @@ pub mod tests {
 
     use amaru_kernel::{
         network::NetworkName, Anchor, EraHistory, Hash, Point, PoolId, PoolParams, ProposalId,
-        Slot, StakeCredential, TransactionInput, TransactionOutput,
+        Slot, StakeCredential,
     };
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
     use slot_arithmetic::Epoch;
@@ -36,7 +36,7 @@ pub mod tests {
                 pools::any_pool_id,
                 proposals::{self, any_proposal_id},
                 slots::any_slot,
-                utxo::{any_pseudo_transaction_output, any_txin},
+                //utxo::{any_pseudo_transaction_output, any_txin},
             },
             Columns, ReadStore, Store, StoreError, TransactionalContext,
         },
@@ -44,8 +44,8 @@ pub mod tests {
 
     #[derive(Debug, Clone)]
     pub struct Fixture {
-        pub txin: TransactionInput,
-        pub output: TransactionOutput,
+        //pub txin: TransactionInput,
+        //pub output: TransactionOutput,
         pub account_key: StakeCredential,
         pub account_row: accounts::Row,
         pub pool_params: PoolParams,
@@ -68,12 +68,14 @@ pub mod tests {
         use diff_bind::Resettable;
 
         // utxos
+        /*
         let txin = any_txin().new_tree(runner).unwrap().current();
         let output = any_pseudo_transaction_output()
             .new_tree(runner)
             .unwrap()
             .current();
         let utxos_iter = std::iter::once((txin.clone(), output.clone()));
+        */
 
         // accounts
         let account_key = any_stake_credential().new_tree(runner).unwrap().current();
@@ -180,7 +182,7 @@ pub mod tests {
                 &point,
                 Some(&slot_leader),
                 Columns {
-                    utxo: utxos_iter,
+                    utxo: std::iter::empty(),
                     pools: pools_iter,
                     accounts: accounts_iter,
                     dreps: drep_iter,
@@ -212,8 +214,8 @@ pub mod tests {
         };
 
         Ok(Fixture {
-            txin,
-            output,
+            //txin,
+            //output,
             account_key,
             account_row: stored_account_row,
             pool_params,
@@ -227,6 +229,7 @@ pub mod tests {
         })
     }
 
+    /*
     pub fn test_read_utxo(store: &impl ReadStore, fixture: &Fixture) {
         let result = store
             .utxo(&fixture.txin)
@@ -237,7 +240,7 @@ pub mod tests {
             Some(fixture.output.clone()),
             "UTXO did not match fixture output"
         );
-    }
+    }*/
 
     pub fn test_read_account(store: &impl ReadStore, fixture: &Fixture) {
         let stored_account = store
@@ -368,6 +371,7 @@ pub mod tests {
         );
     }
 
+    /* Disabled until MemoizedTransactionOutput generator is created
     pub fn test_remove_utxo(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 
@@ -399,7 +403,7 @@ pub mod tests {
         );
 
         Ok(())
-    }
+    }*/
 
     pub fn test_remove_account(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;

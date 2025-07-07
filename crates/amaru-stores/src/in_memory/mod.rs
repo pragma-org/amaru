@@ -558,9 +558,8 @@ mod tests {
         in_memory::MemoryStore,
         tests::{
             add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-            test_read_pool, test_read_proposal, test_read_utxo, test_refund_account,
-            test_remove_account, test_remove_drep, test_remove_pool, test_remove_proposal,
-            test_remove_utxo, test_slot_updated, Fixture,
+            test_read_pool, test_read_proposal, test_refund_account, test_remove_account,
+            test_remove_drep, test_remove_pool, test_remove_proposal, test_slot_updated, Fixture,
         },
     };
     use amaru_kernel::{network::NetworkName, EraHistory};
@@ -574,14 +573,6 @@ mod tests {
         let store = MemoryStore::new(era_history.clone());
         let fixture = add_test_data_to_store(&store, era_history, runner)?;
         Ok((store, fixture))
-    }
-
-    #[test]
-    fn test_in_mem_read_utxo() {
-        let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
-        test_read_utxo(&store, &fixture);
     }
 
     #[test]
@@ -639,13 +630,23 @@ mod tests {
         test_slot_updated(&store, &fixture)
     }
 
-    #[test]
-    fn test_in_mem_remove_utxo() -> Result<(), StoreError> {
-        let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
-        test_remove_utxo(&store, &fixture)
-    }
+    /* Disabled until MemoizedTransactionOutput is created
+        #[test]
+        fn test_in_mem_read_utxo() {
+            let mut runner = TestRunner::default();
+            let (store, fixture) =
+                setup_memory_store(&mut runner).expect("Failed to add test data to store");
+            test_read_utxo(&store, &fixture);
+        }
+
+        #[test]
+        fn test_in_mem_remove_utxo() -> Result<(), StoreError> {
+            let mut runner = TestRunner::default();
+            let (store, fixture) =
+                setup_memory_store(&mut runner).expect("Failed to add test data to store");
+            test_remove_utxo(&store, &fixture)
+        }
+    */
 
     #[test]
     fn test_in_mem_remove_account() -> Result<(), StoreError> {
