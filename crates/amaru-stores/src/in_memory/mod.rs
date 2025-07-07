@@ -136,7 +136,8 @@ impl ReadStore for MemoryStore {
     fn utxo(
         &self,
         input: &amaru_kernel::TransactionInput,
-    ) -> Result<Option<amaru_kernel::TransactionOutput>, amaru_ledger::store::StoreError> {
+    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, amaru_ledger::store::StoreError>
+    {
         Ok(self.utxos.borrow().get(input).cloned())
     }
 
