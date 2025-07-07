@@ -14,8 +14,8 @@
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptPurpose,
-    TransactionId, TransactionPointer,
+    MemoizedDatum, Nullable, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash,
+    ScriptPurpose, TransactionId, TransactionPointer,
 };
 
 pub(crate) fn execute<C>(
@@ -31,7 +31,7 @@ pub(crate) fn execute<C>(
                 hash: script_hash,
                 index: proposal_index as u32,
                 purpose: ScriptPurpose::Propose,
-                datum_option: None,
+                datum: MemoizedDatum::None,
             });
         }
 

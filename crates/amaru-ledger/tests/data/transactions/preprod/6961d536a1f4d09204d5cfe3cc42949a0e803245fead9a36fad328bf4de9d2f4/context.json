@@ -6,7 +6,10 @@
         "index": 2
       },
       {
-        "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3"
+        "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ],
     [
@@ -15,7 +18,10 @@
         "index": 0
       },
       {
-        "address": "703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad"
+        "address": "703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ],
     [
@@ -24,7 +30,10 @@
         "index": 2
       },
       {
-        "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3"
+        "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ],
     [
@@ -33,7 +42,10 @@
         "index": 1
       },
       {
-        "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3"
+        "address": "60bdebe65210d74725fffa6635f28ddeae6cbcd1a8aa6898ab75cfd5e3",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ],
     [
@@ -42,7 +54,10 @@
         "index": 0
       },
       {
-        "address": "703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad"
+        "address": "703f89c436844cd0acd2714201817836b2cd16b082e03e3a21bb69e5ad",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ]
   ]

@@ -15,6 +15,7 @@
 pub mod columns;
 
 use crate::summary::Pots;
+use amaru_kernel::MemoizedTransactionOutput;
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
@@ -28,7 +29,6 @@ use amaru_kernel::{
     PoolId,
     StakeCredential,
     TransactionInput,
-    TransactionOutput,
 };
 use columns::*;
 use slot_arithmetic::Epoch;
@@ -79,7 +79,10 @@ pub trait ReadStore {
     fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>, StoreError>;
 
     /// Get details about a specific UTxO
-    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError>;
+    fn utxo(
+        &self,
+        input: &TransactionInput,
+    ) -> Result<Option<MemoizedTransactionOutput>, StoreError>;
 
     /// Get current values of the treasury and reserves accounts.
     fn pots(&self) -> Result<Pots, StoreError>;

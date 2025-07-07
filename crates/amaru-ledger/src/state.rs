@@ -32,9 +32,9 @@ use crate::{
 use amaru_kernel::{
     expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, stake_credential_type, EraHistory, Hash, Lovelace, MintedBlock, Point,
-    PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput, TransactionOutput,
-    PROTOCOL_VERSION_9,
+    stake_credential_hash, stake_credential_type, EraHistory, Hash, Lovelace,
+    MemoizedTransactionOutput, MintedBlock, Point, PoolId, ProtocolVersion, Slot, StakeCredential,
+    TransactionInput, PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::{Epoch, TimeHorizonError};
@@ -206,7 +206,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     }
 
     #[allow(clippy::unwrap_used)]
-    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = ?now_stable.anchor.0.slot_or_default()))]
+    #[instrument(level = Level::TRACE, skip_all, fields(point.slot = %now_stable.anchor.0.slot_or_default()))]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
         let start_slot = now_stable.anchor.0.slot_or_default();
 
@@ -374,7 +374,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &'_ self,
         ongoing_state: &VolatileState,
         inputs: impl Iterator<Item = &'a TransactionInput>,
-    ) -> Result<Vec<(TransactionInput, Option<TransactionOutput>)>, StoreError> {
+    ) -> Result<Vec<(TransactionInput, Option<MemoizedTransactionOutput>)>, StoreError> {
         let mut result = Vec::new();
 
         let mut resolved_from_context = 0;

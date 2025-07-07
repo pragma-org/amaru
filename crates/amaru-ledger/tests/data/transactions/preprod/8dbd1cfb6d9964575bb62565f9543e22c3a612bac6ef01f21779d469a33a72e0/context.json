@@ -6,7 +6,10 @@
         "index": 0
       },
       {
-        "address": "70e3637c649f72f6fe1a57988a7006eb55669fef4ec66ea83b28ee8413"
+        "address": "70e3637c649f72f6fe1a57988a7006eb55669fef4ec66ea83b28ee8413",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ],
     [
@@ -15,7 +18,10 @@
         "index": 15
       },
       {
-        "address": "00a851fb22e72cdcc4f1f9b5f421f31338b0017d761468ece886c925fa95a3b5ab9af57c7671df57db18ded08ad170294edd918a292a67bd09"
+        "address": "00a851fb22e72cdcc4f1f9b5f421f31338b0017d761468ece886c925fa95a3b5ab9af57c7671df57db18ded08ad170294edd918a292a67bd09",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ],
     [
@@ -25,8 +31,10 @@
       },
       {
         "address": "70e3637c649f72f6fe1a57988a7006eb55669fef4ec66ea83b28ee8413",
-        "script_ref": {
-          "NativeScript": "820182830302838200581ca851fb22e72cdcc4f1f9b5f421f31338b0017d761468ece886c925fa8200581c49bd983d12353a48d39ad15212220ebd71dd3f897eb29ab89f3cb58e8200581c8e9ed3986a773db2420b0604357a65f5d9d26d094279918ad405fdca82051a0540359d"
+	"value": 0,
+	"datum": null,
+        "script": {
+          "NativeScript": "820181830302838200581ca851fb22e72cdcc4f1f9b5f421f31338b0017d761468ece886c925fa8200581c49bd983d12353a48d39ad15212220ebd71dd3f897eb29ab89f3cb58e8200581c8e9ed3986a773db2420b0604357a65f5d9d26d094279918ad405fdca"
         }
       }
     ]
@@ -37,22 +45,28 @@
       "hash": "da7f37fbe691d671ebd37675ebb67de30d17fb35277abf811102742d",
       "index": 0,
       "purpose": "Mint",
-      "datum_option": null
+      "datum": null
     },
     {
       "hash": "e3637c649f72f6fe1a57988a7006eb55669fef4ec66ea83b28ee8413",
       "index": 0,
       "purpose": "Spend",
-      "datum_option": null
+      "datum": null
+    },
+    {
+      "hash": "e3637c649f72f6fe1a57988a7006eb55669fef4ec66ea83b28ee8413",
+      "index": 2,
+      "purpose": "Spend",
+      "datum": null
     }
   ],
-  "known_scripts": {},
-  "known_datums": {
-    "b3ed29ee5ff7f00cf3301d008a122c47a936e094edafb6f05ea600954e67158b": {
+  "known_scripts": {
+    "e3637c649f72f6fe1a57988a7006eb55669fef4ec66ea83b28ee8413": {
       "transaction_id": "b631edc71595c71705126ae2dc9b57e177019fab23d281731ea3c42b074c008d",
       "index": 1
     }
   },
+  "known_datums": {},
   "required_supplemental_datums": [],
   "required_bootstrap_roots": []
 }

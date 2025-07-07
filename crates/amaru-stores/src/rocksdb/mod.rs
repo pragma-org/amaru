@@ -14,8 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace, Point,
-    PoolId, StakeCredential, TransactionInput, TransactionOutput,
+    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace,
+    MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     store::{
@@ -201,7 +201,7 @@ macro_rules! impl_ReadStore {
                 accounts::get(|key| self.db.get(key), credential)
             }
 
-            fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError> {
+            fn utxo(&self, input: &TransactionInput) -> Result<Option<MemoizedTransactionOutput>, StoreError> {
                 utxo::get(|key| self.db.get(key), input)
             }
 
@@ -604,7 +604,7 @@ impl ReadOnlyRocksDBSnapshot {
 
 fn assert_non_empty(dir: &Path) -> Result<(), StoreError> {
     let snapshots = RocksDB::snapshots(dir)?;
-    info!(target: EVENT_TARGET, snapshots = ?snapshots, "new.known_snapshots");
+    info!(target: EVENT_TARGET, snapshots = snapshots.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(","), "new.known_snapshots");
     if snapshots.is_empty() {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }

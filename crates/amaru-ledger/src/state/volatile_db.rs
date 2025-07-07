@@ -20,8 +20,8 @@ use super::{
 use crate::store::{self, columns::*};
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Anchor, CertificatePointer, ComparableProposalId,
-    DRep, Lovelace, Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    StakeCredential, TransactionInput, TransactionOutput,
+    DRep, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, StakeCredential, TransactionInput,
 };
 use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -60,7 +60,7 @@ impl VolatileDB {
         self.sequence.back()
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.cache.utxo.produced.get(input)
     }
 
@@ -119,11 +119,11 @@ impl VolatileDB {
 // DiffEpochReg aren't meant to be mergeable across epochs.
 #[derive(Default)]
 struct VolatileCache {
-    pub utxo: DiffSet<TransactionInput, TransactionOutput>,
+    pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
 }
 
 impl VolatileCache {
-    pub fn merge(&mut self, utxo: DiffSet<TransactionInput, TransactionOutput>) {
+    pub fn merge(&mut self, utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>) {
         self.utxo.merge(utxo);
     }
 }
@@ -133,7 +133,7 @@ impl VolatileCache {
 
 #[derive(Debug, Default)]
 pub struct VolatileState {
-    pub utxo: DiffSet<TransactionInput, TransactionOutput>,
+    pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
     pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
@@ -158,7 +158,7 @@ impl VolatileState {
         }
     }
 
-    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    pub fn resolve_input(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.utxo.produced.get(input)
     }
 }

@@ -6,7 +6,10 @@
         "index": 13
       },
       {
-        "address": "0092529f01b85021f5c9b53b5ec907b6d1cfe539ebc78ae41acf41f7c7eb54ea5e1faa92afe966f769d1f6b4d11d68450ca5d1f00e93aec38e"
+        "address": "0092529f01b85021f5c9b53b5ec907b6d1cfe539ebc78ae41acf41f7c7eb54ea5e1faa92afe966f769d1f6b4d11d68450ca5d1f00e93aec38e",
+	"value": 0,
+	"datum": null,
+	"script": null
       }
     ]
   ]

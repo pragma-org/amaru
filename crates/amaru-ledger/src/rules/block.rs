@@ -27,7 +27,7 @@ use amaru_kernel::{
 };
 use slot_arithmetic::Slot;
 use std::{
-    fmt::Display,
+    fmt::{self, Display},
     ops::{ControlFlow, Deref, FromResidual, Try},
     process::{ExitCode, Termination},
 };
@@ -161,11 +161,14 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 }
 
 #[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
-pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
+pub fn execute<C, S: From<C>>(
     context: &mut C,
     protocol_params: &ProtocolParameters,
     block: &MintedBlock<'_>,
-) -> BlockValidation<(), anyhow::Error> {
+) -> BlockValidation<(), anyhow::Error>
+where
+    C: ValidationContext<FinalState = S> + fmt::Debug,
+{
     let with_block_context = |result| match result {
         Ok(out) => BlockValidation::Valid(out),
         Err(err) => BlockValidation::Invalid(

@@ -12,16 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::ops::Deref;
 pub(crate) mod assert;
 mod default;
 
 use crate::state::diff_bind;
 use amaru_kernel::{
-    AddrKeyhash, Anchor, BorrowedDatumOption, CertificatePointer, DRep, DatumHash, HasDatum,
-    HasScriptRef, Hash, Lovelace, PlutusData, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential, TransactionInput,
-    TransactionOutput,
+    AddrKeyhash, Anchor, CertificatePointer, DRep, DatumHash, Hash, Lovelace, MemoizedDatum,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
 };
 use slot_arithmetic::Epoch;
 use std::{
@@ -121,9 +119,9 @@ pub trait PotsSlice {
 
 // An interface for interacting with a subset of the UTxO state.
 pub trait UtxoSlice {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput>;
+    fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput>;
     fn consume(&mut self, input: TransactionInput);
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput);
+    fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput);
 }
 
 /// An interface to help constructing the concrete UtxoSlice ahead of time.
@@ -295,10 +293,10 @@ pub trait WitnessSlice {
     fn required_bootstrap_roots(&mut self) -> BTreeSet<Hash<28>>;
 
     /// Obtain the full list of known scripts collected while traversing the transaction.
-    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef>;
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &MemoizedScript>;
 
     /// Obtain the full list of known datums collected while traversing the transaction.
-    fn known_datums(&mut self) -> BTreeMap<DatumHash, &PlutusData>;
+    fn known_datums(&mut self) -> BTreeMap<DatumHash, &MemoizedPlutusData>;
 }
 
 /// Implement 'known_script' using the provided script locations and a context that is at least a
@@ -309,7 +307,7 @@ pub trait WitnessSlice {
 pub fn blanket_known_scripts<C>(
     context: &'_ mut C,
     known_scripts: impl Iterator<Item = (ScriptHash, TransactionInput)>,
-) -> BTreeMap<ScriptHash, &'_ ScriptRef>
+) -> BTreeMap<ScriptHash, &'_ MemoizedScript>
 where
     C: UtxoSlice,
 {
@@ -318,7 +316,7 @@ where
     for (script_hash, location) in known_scripts {
         let lookup = |input| {
             UtxoSlice::lookup(context, input)
-                .and_then(|output| output.has_script_ref())
+                .and_then(|output| output.script.as_ref())
                 .unwrap_or_else(|| unreachable!("no script at expected location: {location:?}"))
         };
 
@@ -336,7 +334,7 @@ where
 pub fn blanket_known_datums<C>(
     context: &'_ mut C,
     known_datums: impl Iterator<Item = (DatumHash, TransactionInput)>,
-) -> BTreeMap<DatumHash, &'_ PlutusData>
+) -> BTreeMap<DatumHash, &'_ MemoizedPlutusData>
 where
     C: UtxoSlice,
 {
@@ -345,10 +343,10 @@ where
     for (datum_hash, location) in known_datums {
         let lookup = |input| {
             UtxoSlice::lookup(context, input)
-                .and_then(|output| output.datum())
-                .and_then(|datum| match datum {
-                    BorrowedDatumOption::Hash(..) => None,
-                    BorrowedDatumOption::Data(cbor) => Some(cbor.deref()),
+                .and_then(|output| match &output.datum {
+                    MemoizedDatum::None => None,
+                    MemoizedDatum::Hash(..) => None,
+                    MemoizedDatum::Inline(data) => Some(data),
                 })
                 .unwrap_or_else(|| unreachable!("no datum at expected location: {location:?}"))
         };

@@ -163,8 +163,8 @@ impl Worker {
             BlockValidationResult::BlockValidationFailed { point, .. } => {
                 error!(
                     target: EVENT_TARGET,
-                    slot = ?point.slot_or_default(),
-                    hash = ?Hash::<32>::from(point),
+                    slot = %point.slot_or_default(),
+                    hash = %Hash::<32>::from(point),
                     "block_validation_failed"
                 );
 
