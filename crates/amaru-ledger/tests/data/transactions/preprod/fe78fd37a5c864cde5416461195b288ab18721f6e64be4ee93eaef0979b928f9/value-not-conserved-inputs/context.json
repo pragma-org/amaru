@@ -10,7 +10,8 @@
         "value": { "Coin": 10000000 },
         "datum": {
           "Data": "d8799f581c9fc430ea1f3adc20eebb813b2649e85c934ea5bc13d7b7fbe2b24e50ff"
-        }
+        },
+        "script": null
       }
     ],
     [
@@ -72,7 +73,9 @@
               ]
             ]
           ]
-        }
+        },
+        "script": null,
+        "datum": null
       }
     ]
   ],

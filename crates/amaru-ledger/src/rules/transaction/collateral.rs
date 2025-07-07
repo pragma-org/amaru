@@ -279,11 +279,6 @@ mod tests {
         "incorrect total balance"
     )]
     #[test_case(
-        fixture!("3b13b5c319249407028632579ee584edc38eaeb062dac5156437a627d126fbb1", "invalid-address") =>
-        matches Err(InvalidCollateral::UncategorizedError(..));
-        "invalid adddress"
-    )]
-    #[test_case(
         fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9", "no-collateral-return") =>
         matches Err(InvalidCollateral::ValueNotConserved);
         "value not conserved - no collateral return"

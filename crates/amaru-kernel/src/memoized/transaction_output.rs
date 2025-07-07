@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_primitives::{conway::Multiasset, Hash, PolicyId, PositiveCoin};
+use pallas_primitives::{conway::Multiasset, Bytes, Hash, PolicyId, PositiveCoin};
 
 use crate::{
     cbor,
@@ -391,38 +391,50 @@ fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Value, D::Error> {
     #[derive(serde::Deserialize)]
-    #[serde(untagged)]
     enum ValueHelper {
         Coin(u64),
-        Multiasset(u64, Vec<(Vec<u8>, Vec<(Vec<u8>, u64)>)>),
+        Multiasset(u64, Vec<(String, Vec<(String, u64)>)>),
     }
 
     let helper: ValueHelper = serde::Deserialize::deserialize(deserializer)?;
 
     match helper {
         ValueHelper::Coin(coin) => Ok(Value::Coin(coin)),
-        ValueHelper::Multiasset(coin, multiasset) => {
-            let multiasset: Multiasset<PositiveCoin> = Multiasset::from_vec(
-                multiasset
-                    .into_iter()
-                    .map(|(policy_id, assets)| {
-                        (
-                            Hash::from(policy_id.as_slice()),
-                            NonEmptyKeyValuePairs::from_vec(
-                                assets
-                                    .into_iter()
-                                    .map(|(asset_name, quantity)| {
-                                        (asset_name.into(), quantity.try_into().unwrap())
-                                    })
-                                    .collect::<Vec<(AssetName, PositiveCoin)>>(),
-                            )
-                            .unwrap(),
-                        )
-                    })
-                    .collect::<Vec<(PolicyId, NonEmptyKeyValuePairs<AssetName, PositiveCoin>)>>(),
-            )
-            .unwrap();
+        ValueHelper::Multiasset(coin, multiasset_data) => {
+            let mut converted_multiasset = Vec::new();
 
+            for (policy_id, assets) in multiasset_data {
+                let policy_id = hex::decode(&policy_id).map_err(|_| {
+                    serde::de::Error::custom(format!("invalid hex string: {policy_id}"))
+                })?;
+
+                let mut converted_assets = Vec::new();
+                for (asset_name, quantity) in assets {
+                    let asset_name = hex::decode(&asset_name).map_err(|_| {
+                        serde::de::Error::custom(format!("invalid hex string: {asset_name}"))
+                    })?;
+
+                    converted_assets.push((
+                        Bytes::from(asset_name),
+                        quantity.try_into().map_err(|_| {
+                            serde::de::Error::custom(format!("invalid quantity value: {quantity}"))
+                        })?,
+                    ));
+                }
+
+                let policy_id: PolicyId = Hash::from(policy_id.as_slice());
+
+                converted_multiasset.push((
+                    policy_id,
+                    NonEmptyKeyValuePairs::from_vec(converted_assets).ok_or(
+                        serde::de::Error::custom(format!("empty asset bundle: {policy_id}")),
+                    )?,
+                ));
+            }
+
+            let multiasset: Multiasset<PositiveCoin> =
+                Multiasset::from_vec(converted_multiasset)
+                    .ok_or(serde::de::Error::custom("empty multiasset"))?;
             Ok(Value::Multiasset(coin, multiasset))
         }
     }

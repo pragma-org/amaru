@@ -8,6 +8,7 @@
       {
         "address": "70fdd6640d1c9a4392dd7e829f0cc4e26766539c48b2cf594959e33559",
         "value": { "Coin": 10000000 },
+        "script": null,
         "datum": {
           "Data": "d8799f581c9fc430ea1f3adc20eebb813b2649e85c934ea5bc13d7b7fbe2b24e50ff"
         }
@@ -68,7 +69,9 @@
               ]
             ]
           ]
-        }
+        },
+        "script": null,
+        "datum": null
       }
     ]
   ],
