@@ -141,10 +141,6 @@ impl PartialOrd for RedeemersKeyAdapter {
 }
 
 impl RedeemersKeyAdapter {
-    pub fn unwrap(self) -> PallasRedeemersKey {
-        self.inner
-    }
-
     fn tag_rank(&self) -> u8 {
         match self.tag {
             RedeemerTag::Spend => 0,
@@ -154,6 +150,12 @@ impl RedeemersKeyAdapter {
             RedeemerTag::Vote => 4,
             RedeemerTag::Propose => 5,
         }
+    }
+}
+
+impl From<RedeemersKeyAdapter> for PallasRedeemersKey {
+    fn from(value: RedeemersKeyAdapter) -> Self {
+        value.inner
     }
 }
 
