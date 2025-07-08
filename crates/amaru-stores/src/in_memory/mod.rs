@@ -420,6 +420,12 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
                     amaru_ledger::store::columns::proposals::Value,
                 ),
             >,
+            impl Iterator<
+                Item = (
+                    amaru_ledger::store::columns::votes::Key,
+                    amaru_ledger::store::columns::votes::Value,
+                ),
+            >,
         >,
         remove: amaru_ledger::store::Columns<
             impl Iterator<Item = amaru_ledger::store::columns::utxo::Key>,
@@ -432,7 +438,8 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
                 ),
             >,
             impl Iterator<Item = amaru_ledger::store::columns::cc_members::Key>,
-            impl Iterator<Item = amaru_ledger::store::columns::proposals::Key>,
+            impl Iterator<Item = ()>,
+            impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
@@ -476,7 +483,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         accounts::remove(self.store, remove.accounts)?;
         dreps::remove(self.store, remove.dreps)?;
         cc_members::remove(self.store, remove.cc_members)?;
-        proposals::remove(self.store, remove.proposals)?;
+
         Ok(())
     }
 
@@ -580,7 +587,7 @@ mod tests {
     use proptest::test_runner::TestRunner;
 
     #[cfg(not(target_os = "windows"))]
-    use crate::tests::{test_read_proposal, test_remove_proposal};
+    use crate::tests::test_read_proposal;
 
     pub fn setup_memory_store(
         runner: &mut TestRunner,
@@ -685,15 +692,6 @@ mod tests {
         let (store, fixture) =
             setup_memory_store(&mut runner).expect("Failed to add test data to store");
         test_remove_drep(&store, &fixture)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn test_in_mem_remove_proposal() -> Result<(), StoreError> {
-        let mut runner = TestRunner::default();
-        let (store, fixture) =
-            setup_memory_store(&mut runner).expect("Failed to add test data to store");
-        test_remove_proposal(&store, &fixture)
     }
 
     #[test]

@@ -18,7 +18,7 @@ use slot_arithmetic::Epoch;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 
-/// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
+/// Iterator used to browse rows from the proposals column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Key = ProposalId;

@@ -71,7 +71,7 @@ pub use pallas_primitives::{
         ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
         RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
         ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure,
         VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,

@@ -17,11 +17,14 @@ use super::{
     diff_epoch_reg::DiffEpochReg,
     diff_set::DiffSet,
 };
-use crate::store::{self, columns::*};
+use crate::{
+    state::diff_epoch_reg::Registrations,
+    store::{self, columns::*},
+};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Anchor, CertificatePointer, ComparableProposalId,
-    DRep, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, StakeCredential, TransactionInput,
+    protocol_parameters::ProtocolParameters, Anchor, Ballot, CertificatePointer,
+    ComparableProposalId, DRep, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams,
+    Proposal, ProposalId, ProposalPointer, StakeCredential, TransactionInput, Voter,
 };
 use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -142,6 +145,7 @@ pub struct VolatileState {
     pub withdrawals: BTreeSet<StakeCredential>,
     pub voting_dreps: BTreeSet<StakeCredential>,
     pub proposals: DiffBind<ComparableProposalId, Empty, Empty, (Proposal, ProposalPointer)>,
+    pub votes: DiffSet<Voter, Ballot>,
     pub fees: Lovelace,
 }
 
@@ -179,7 +183,7 @@ pub struct StoreUpdate<W, A, R> {
 impl AnchoredVolatileState {
     #[allow(clippy::type_complexity)]
     pub fn into_store_update(
-        mut self,
+        self,
         epoch: Epoch,
         protocol_parameters: &ProtocolParameters,
     ) -> StoreUpdate<
@@ -191,6 +195,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
             impl Iterator<Item = (cc_members::Key, cc_members::Value)>,
             impl Iterator<Item = (proposals::Key, proposals::Value)>,
+            impl Iterator<Item = (votes::Key, votes::Value)>,
         >,
         store::Columns<
             impl Iterator<Item = utxo::Key>,
@@ -198,7 +203,8 @@ impl AnchoredVolatileState {
             impl Iterator<Item = accounts::Key>,
             impl Iterator<Item = (dreps::Key, CertificatePointer)>,
             impl Iterator<Item = cc_members::Key>,
-            impl Iterator<Item = proposals::Key>,
+            impl Iterator<Item = ()>,
+            impl Iterator<Item = ()>,
         >,
     > {
         let gov_action_lifetime = protocol_parameters.gov_action_lifetime as u64;
@@ -211,118 +217,182 @@ impl AnchoredVolatileState {
             voting_dreps: self.state.voting_dreps,
             add: store::Columns {
                 utxo: self.state.utxo.produced.into_iter(),
-                pools: self.state.pools.registered.into_iter().flat_map(
-                    move |(_, registrations)| {
-                        registrations
-                            .into_iter()
-                            // NOTE/TODO: Re-registrations (a.k.a pool params updates) are always
-                            // happening on the following epoch. We do not explicitly store epochs
-                            // for registrations in the DiffEpochReg (which may be an arguable
-                            // choice?) so we have to artificially set it here. Note that for
-                            // registrations (when there's no existing entry), the epoch is wrong
-                            // but it is fully ignored. It's slightly ugly, but we cannot know if
-                            // an entry exists without querying the stable store -- and frankly, we
-                            // don't _have to_.
-                            .map(|pool| (pool, epoch + 1))
-                            .collect::<Vec<_>>()
-                    },
+                pools: add_pools(self.state.pools.registered.into_iter(), epoch),
+                accounts: add_accounts(self.state.accounts.registered.into_iter()),
+                dreps: add_dreps(self.state.dreps.registered.into_iter(), epoch),
+                cc_members: add_committee(self.state.committee.registered.into_iter()),
+                proposals: add_proposals(
+                    self.state.proposals.registered.into_iter(),
+                    epoch + gov_action_lifetime,
                 ),
-                accounts: self.state.accounts.registered.into_iter().map(
-                    move |(
-                        credential,
-                        Bind {
-                            left: pool,
-                            right: drep,
-                            value: deposit,
-                        },
-                    )| { (credential, (pool, drep, deposit, 0)) },
-                ),
-                dreps: self.state.dreps.registered.into_iter().map(
-                    move |(
-                        credential,
-                        Bind {
-                            left: anchor,
-                            right: _,
-                            value: registration,
-                        },
-                    ): (_, Bind<_, Empty, _>)| {
-                        (credential, (anchor, registration, epoch))
-                    },
-                ),
-                cc_members: self.state.committee.registered.into_iter().map(
-                    move |(
-                        credential,
-                        Bind {
-                            left: hot_credential,
-                            right: _,
-                            value: _,
-                        },
-                    )| { (credential, hot_credential) },
-                ),
-                proposals: self
-                    .state
-                    .proposals
-                    .registered
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(
-                        move |(
-                            index,
-                            (
-                                proposal_id,
-                                Bind {
-                                    left: _,
-                                    right: _,
-                                    value,
-                                },
-                            ),
-                        ): (usize, (_, Bind<_, Empty, _>))| {
-                            match value {
-                                Some((proposal, proposed_in)) => Some((
-                                    ProposalId::from(proposal_id),
-                                    proposals::Value {
-                                        proposed_in,
-                                        valid_until: epoch + gov_action_lifetime,
-                                        proposal,
-                                    },
-                                )),
-                                None => {
-                                    error!(
-                                        target: EVENT_TARGET,
-                                        index,
-                                        "add.proposals.no_proposal",
-                                    );
-                                    None
-                                }
-                            }
-                        },
-                    ),
+                votes: self.state.votes.produced.into_iter(),
             },
             remove: store::Columns {
                 utxo: self.state.utxo.consumed.into_iter(),
                 pools: self.state.pools.unregistered.into_iter(),
                 accounts: self.state.accounts.unregistered.into_iter(),
-                dreps: self
-                    .state
-                    .dreps
-                    .unregistered
-                    .into_iter()
-                    .map(move |credential| {
-                        #[allow(clippy::expect_used)]
-                        let pointer = self.state.dreps_deregistrations.remove(&credential).expect(
-                            "every 'unregistered' drep must have a matching deregistration",
-                        );
-
-                        (credential, pointer)
-                    }),
+                dreps: remove_dreps(
+                    self.state.dreps.unregistered.into_iter(),
+                    self.state.dreps_deregistrations,
+                ),
                 cc_members: self.state.committee.unregistered.into_iter(),
-                proposals: self
-                    .state
-                    .proposals
-                    .unregistered
-                    .into_iter()
-                    .map(ProposalId::from),
+                proposals: {
+                    debug_assert!(self.state.proposals.unregistered.is_empty());
+                    std::iter::empty()
+                },
+                votes: {
+                    debug_assert!(self.state.votes.consumed.is_empty());
+                    std::iter::empty()
+                },
             },
         }
     }
+}
+
+// -------------------------------------------------------------------- Pools
+// --------------------------------------------------------------------------
+
+fn add_pools(
+    iterator: impl Iterator<Item = (PoolId, Registrations<PoolParams>)>,
+    epoch: Epoch,
+) -> impl Iterator<Item = pools::Value> {
+    iterator.flat_map(move |(_, registrations)| {
+        registrations
+            .into_iter()
+            // NOTE/TODO: Re-registrations (a.k.a pool params updates) are always
+            // happening on the following epoch. We do not explicitly store epochs
+            // for registrations in the DiffEpochReg (which may be an arguable
+            // choice?) so we have to artificially set it here. Note that for
+            // registrations (when there's no existing entry), the epoch is wrong
+            // but it is fully ignored. It's slightly ugly, but we cannot know if
+            // an entry exists without querying the stable store -- and frankly, we
+            // don't _have to_.
+            .map(|pool| (pool, epoch + 1))
+            .collect::<Vec<_>>()
+    })
+}
+
+// ----------------------------------------------------------------- Accounts
+// --------------------------------------------------------------------------
+
+fn add_accounts(
+    iterator: impl Iterator<
+        Item = (
+            StakeCredential,
+            Bind<PoolId, (DRep, CertificatePointer), Lovelace>,
+        ),
+    >,
+) -> impl Iterator<Item = (accounts::Key, accounts::Value)> {
+    iterator.map(
+        |(
+            credential,
+            Bind {
+                left: pool,
+                right: drep,
+                value: deposit,
+            },
+        )| { (credential, (pool, drep, deposit, 0)) },
+    )
+}
+
+// -------------------------------------------------------------------- DReps
+// --------------------------------------------------------------------------
+
+fn add_dreps(
+    iterator: impl Iterator<
+        Item = (
+            StakeCredential,
+            Bind<Anchor, Empty, (Lovelace, CertificatePointer)>,
+        ),
+    >,
+    epoch: Epoch,
+) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
+    iterator.map(
+        move |(
+            credential,
+            Bind {
+                left: anchor,
+                right: _,
+                value: registration,
+            },
+        ): (_, Bind<_, Empty, _>)| { (credential, (anchor, registration, epoch)) },
+    )
+}
+
+fn remove_dreps(
+    iterator: impl Iterator<Item = StakeCredential>,
+    mut deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
+) -> impl Iterator<Item = (dreps::Key, CertificatePointer)> {
+    iterator.map(move |credential| {
+        #[allow(clippy::expect_used)]
+        let pointer = deregistrations
+            .remove(&credential)
+            .expect("every 'unregistered' drep must have a matching deregistration");
+
+        (credential, pointer)
+    })
+}
+
+// --------------------------------------------------------------- CC Members
+// --------------------------------------------------------------------------
+
+fn add_committee(
+    iterator: impl Iterator<Item = (StakeCredential, Bind<StakeCredential, Empty, Empty>)>,
+) -> impl Iterator<Item = (cc_members::Key, cc_members::Value)> {
+    iterator.map(
+        |(
+            credential,
+            Bind {
+                left: hot_credential,
+                right: _,
+                value: _,
+            },
+        )| { (credential, hot_credential) },
+    )
+}
+
+// ---------------------------------------------------------------- Proposals
+// --------------------------------------------------------------------------
+
+fn add_proposals(
+    iterator: impl Iterator<
+        Item = (
+            ComparableProposalId,
+            Bind<Empty, Empty, (Proposal, ProposalPointer)>,
+        ),
+    >,
+    expiration: Epoch,
+) -> impl Iterator<Item = (proposals::Key, proposals::Value)> {
+    iterator.enumerate().filter_map(
+        move |(
+            index,
+            (
+                proposal_id,
+                Bind {
+                    left: _,
+                    right: _,
+                    value,
+                },
+            ),
+        ): (usize, (_, Bind<_, Empty, _>))| {
+            match value {
+                Some((proposal, proposed_in)) => Some((
+                    ProposalId::from(proposal_id),
+                    proposals::Value {
+                        proposed_in,
+                        valid_until: expiration,
+                        proposal,
+                    },
+                )),
+                None => {
+                    error!(
+                        target: EVENT_TARGET,
+                        index,
+                        "add.proposals.no_proposal",
+                    );
+                    None
+                }
+            }
+        },
+    )
 }

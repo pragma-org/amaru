@@ -14,7 +14,7 @@
 
 use crate::{Anchor, ProposalId, Vote};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Ballot {
     pub proposal: ProposalId,
     pub vote: Vote,
