@@ -183,16 +183,6 @@ impl Row {
             .unwrap_or_else(|e| panic!("unable to encode pool params to CBOR: {e:?}"));
         [bytes, tail].concat()
     }
-
-    #[allow(clippy::panic)]
-    pub fn unsafe_decode(bytes: Vec<u8>) -> Self {
-        cbor::decode(&bytes).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode pool from CBOR ({}): {e:?}",
-                hex::encode(&bytes)
-            )
-        })
-    }
 }
 
 impl<C> cbor::encode::Encode<C> for Row {

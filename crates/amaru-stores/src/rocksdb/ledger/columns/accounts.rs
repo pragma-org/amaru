@@ -15,7 +15,10 @@
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_kernel::{stake_credential_hash, stake_credential_type, Lovelace};
 use amaru_ledger::store::{
-    columns::accounts::{Key, Row, Value, EVENT_TARGET},
+    columns::{
+        accounts::{Key, Row, Value, EVENT_TARGET},
+        unsafe_decode,
+    },
     StoreError,
 };
 use rocksdb::Transaction;
@@ -37,7 +40,7 @@ pub fn add<DB>(
         if let Some(mut row) = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(Row::unsafe_decode)
+            .map(unsafe_decode::<Row>)
         {
             delegatee.set_or_reset(&mut row.delegatee);
             drep.set_or_reset(&mut row.drep);
@@ -84,7 +87,7 @@ pub fn reset_many<DB>(
         if let Some(mut row) = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(Row::unsafe_decode)
+            .map(unsafe_decode::<Row>)
         {
             row.rewards = 0;
             db.put(key, as_value(row))
@@ -110,7 +113,7 @@ pub fn get(
     let bytes = db_get(&key);
     bytes
         .map_err(|err| StoreError::Internal(err.into()))
-        .map(|opt| opt.map(Row::unsafe_decode))
+        .map(|opt| opt.map(unsafe_decode::<Row>))
 }
 
 /// Alter balance of a specific account. If the account did not exist, returns the leftovers
@@ -125,7 +128,7 @@ pub fn set<DB>(
     if let Some(mut row) = db
         .get(&key)
         .map_err(|err| StoreError::Internal(err.into()))?
-        .map(Row::unsafe_decode)
+        .map(unsafe_decode::<Row>)
     {
         row.rewards = with_rewards(row.rewards);
         db.put(key, as_value(row))

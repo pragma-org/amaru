@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_value, PREFIX_LEN};
-use amaru_ledger::store::{columns::pots::Row, StoreError};
+use amaru_ledger::store::{
+    columns::{pots::Row, unsafe_decode},
+    StoreError,
+};
 use rocksdb::Transaction;
 
 /// Name prefixed used for storing protocol pots. UTF-8 encoding for "pots"
@@ -25,7 +28,7 @@ pub fn get(
     let bytes = db_get(&PREFIX);
     Ok(bytes
         .map_err(|err| StoreError::Internal(err.into()))?
-        .map(Row::unsafe_decode)
+        .map(unsafe_decode::<Row>)
         .unwrap_or_default())
 }
 

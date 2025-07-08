@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::cbor;
+
 pub mod accounts;
 pub mod cc_members;
 pub mod dreps;
@@ -21,3 +23,14 @@ pub mod proposals;
 pub mod slots;
 pub mod utxo;
 pub mod votes;
+
+#[allow(clippy::panic)]
+pub fn unsafe_decode<T: for<'d> cbor::Decode<'d, ()>>(bytes: Vec<u8>) -> T {
+    cbor::decode(&bytes).unwrap_or_else(|e| {
+        panic!(
+            "unable to decode {} from CBOR ({}): {e:?}",
+            std::any::type_name::<T>(),
+            hex::encode(&bytes)
+        )
+    })
+}
