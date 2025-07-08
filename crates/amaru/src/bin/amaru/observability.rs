@@ -138,18 +138,11 @@ impl TracingSubscriber<Registry> {
 // JSON TRACES
 // -----------------------------------------------------------------------------
 
-// Note: There is a known issue with JsonFields not properly escaping Debug output
-// (see issue #161 and https://github.com/tokio-rs/tracing/pull/377#discussion_r335311790).
-// When using `?field` syntax with structs that contain special JSON characters in their
-// Debug output (quotes, newlines, etc.), the resulting JSON may be invalid.
+// Note: Using EscapedJsonFields instead of JsonFields to fix JSON escaping issues
+// with Debug formatting (?field). This is a drop-in replacement that properly escapes
+// special JSON characters in Debug output, preventing invalid JSON generation.
 //
-// For cases where proper JSON escaping is critical, consider using the custom
-// tracing-json crate which provides a JsonLayer that properly escapes all values.
-//
-// Workarounds:
-// 1. Avoid using Debug formatting (`?field`) for fields that may contain special characters
-// 2. Use Display formatting (`%field`) when possible
-// 3. Use the custom tracing-json crate for critical applications
+// See issue #161 for details on the JSON escaping problem.
 
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {
     let format = || tracing_subscriber::fmt::format().json();
@@ -160,14 +153,14 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {
         || {
             tracing_subscriber::fmt::layer()
                 .event_format(format())
-                .fmt_fields(JsonFields::new())
+                .fmt_fields(tracing_json::EscapedJsonFields::new())
                 .with_span_events(events())
                 .with_filter(filter())
         },
         || {
             tracing_subscriber::fmt::layer()
                 .event_format(format())
-                .fmt_fields(JsonFields::new())
+                .fmt_fields(tracing_json::EscapedJsonFields::new())
                 .with_span_events(events())
                 .with_filter(filter())
         },
