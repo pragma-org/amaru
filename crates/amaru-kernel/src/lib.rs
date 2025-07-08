@@ -45,6 +45,7 @@ use std::{
     ops::Deref,
 };
 
+pub use ballot::*;
 pub use memoized::*;
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
@@ -67,8 +68,8 @@ pub use pallas_primitives::{
         ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
         RationalNumber, Redeemer, Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash,
         ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
-        WitnessSet,
+        UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure, VotingProcedures,
+        VrfKeyhash, WitnessSet,
     },
     AssetName, Constr, DatumHash, MaybeIndefArray, PlutusData,
 };
@@ -77,6 +78,7 @@ pub use serde_json as json;
 pub use sha3;
 pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
 
+pub mod ballot;
 pub mod block;
 pub mod macros;
 pub mod memoized;
@@ -752,10 +754,23 @@ impl std::fmt::Display for StakeCredentialType {
     }
 }
 
-pub fn stake_credential_type(credential: &StakeCredential) -> StakeCredentialType {
-    match credential {
-        StakeCredential::AddrKeyhash(..) => StakeCredentialType::VerificationKey,
-        StakeCredential::ScriptHash(..) => StakeCredentialType::Script,
+impl From<&StakeCredential> for StakeCredentialType {
+    fn from(credential: &StakeCredential) -> Self {
+        match credential {
+            StakeCredential::AddrKeyhash(..) => Self::VerificationKey,
+            StakeCredential::ScriptHash(..) => Self::Script,
+        }
+    }
+}
+
+impl From<&Voter> for StakeCredentialType {
+    fn from(voter: &Voter) -> Self {
+        match voter {
+            Voter::DRepKey(..)
+            | Voter::ConstitutionalCommitteeKey(..)
+            | Voter::StakePoolKey(..) => Self::VerificationKey,
+            Voter::DRepScript(..) | Voter::ConstitutionalCommitteeScript(..) => Self::Script,
+        }
     }
 }
 
@@ -786,6 +801,51 @@ pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
 }
+
+// Voter
+// ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum VoterType {
+    DRep,
+    ConstitutionalCommittee,
+    StakePool,
+}
+
+impl std::fmt::Display for VoterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::DRep => "drep",
+            Self::ConstitutionalCommittee => "committee",
+            Self::StakePool => "stake_pool",
+        })
+    }
+}
+
+impl From<&Voter> for VoterType {
+    fn from(voter: &Voter) -> Self {
+        match voter {
+            Voter::DRepKey(..) | Voter::DRepScript(..) => Self::DRep,
+            Voter::ConstitutionalCommitteeKey(..) | Voter::ConstitutionalCommitteeScript(..) => {
+                Self::ConstitutionalCommittee
+            }
+            Voter::StakePoolKey(..) => Self::StakePool,
+        }
+    }
+}
+
+pub fn voter_credential_hash(credential: &Voter) -> Hash<28> {
+    match credential {
+        Voter::DRepKey(hash)
+        | Voter::DRepScript(hash)
+        | Voter::ConstitutionalCommitteeKey(hash)
+        | Voter::ConstitutionalCommitteeScript(hash)
+        | Voter::StakePoolKey(hash) => *hash,
+    }
+}
+
+// ExUnits
+// ----------------------------------------------------------------------------
 
 pub trait HasExUnits {
     fn ex_units(&self) -> Vec<ExUnits>;

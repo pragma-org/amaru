@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::{DRepsSlice, WitnessSlice};
+use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
     MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose,
     StakeCredential, Voter, VotingProcedure,
@@ -22,30 +22,21 @@ pub(crate) fn execute<C>(
     context: &mut C,
     voting_procedures: Option<&Vec<(Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>)>>,
 ) where
-    C: WitnessSlice + DRepsSlice,
+    C: WitnessSlice + ProposalsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
         voting_procedures
             .iter()
             .enumerate()
-            .for_each(|(index, (voter, _))| {
+            .for_each(|(index, (voter, votes))| {
+                // TODO: create an accessor on the credential for Voter, and move to amaru_kernel or pallas.
                 let credential = match voter {
-                    Voter::ConstitutionalCommitteeKey(hash) | Voter::StakePoolKey(hash) => {
-                        StakeCredential::AddrKeyhash(*hash)
-                    }
-                    Voter::ConstitutionalCommitteeScript(hash) => {
-                        StakeCredential::ScriptHash(*hash)
-                    }
-                    Voter::DRepKey(hash) => {
-                        let credential = StakeCredential::AddrKeyhash(*hash);
-                        context.vote(credential.clone());
-                        credential
-                    }
+                    Voter::ConstitutionalCommitteeKey(hash)
+                    | Voter::StakePoolKey(hash)
+                    | Voter::DRepKey(hash) => StakeCredential::AddrKeyhash(*hash),
 
-                    Voter::DRepScript(hash) => {
-                        let credential = StakeCredential::ScriptHash(*hash);
-                        context.vote(credential.clone());
-                        credential
+                    Voter::ConstitutionalCommitteeScript(hash) | Voter::DRepScript(hash) => {
+                        StakeCredential::ScriptHash(*hash)
                     }
                 };
 
@@ -60,6 +51,16 @@ pub(crate) fn execute<C>(
                     }
                     StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 }
+
+                // TODO: Avoid clones here.
+                votes.iter().for_each(|(proposal_id, ballot)| {
+                    context.vote(
+                        proposal_id.clone(),
+                        voter.clone(),
+                        ballot.vote.clone(),
+                        Option::from(ballot.anchor.clone()),
+                    );
+                });
             });
     }
 }

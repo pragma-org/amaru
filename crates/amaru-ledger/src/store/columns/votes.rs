@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,25 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::cbor;
+use amaru_kernel::{Ballot, Voter};
+use iter_borrow::IterBorrow;
 
-pub mod accounts;
-pub mod cc_members;
-pub mod dreps;
-pub mod pools;
-pub mod pots;
-pub mod proposals;
-pub mod slots;
-pub mod utxo;
-pub mod votes;
+/// Iterator used to browse rows from the votes column. Meant to be referenced using qualified imports.
+pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 
-#[allow(clippy::panic)]
-pub fn unsafe_decode<T: for<'d> cbor::Decode<'d, ()>>(bytes: Vec<u8>) -> T {
-    cbor::decode(&bytes).unwrap_or_else(|e| {
-        panic!(
-            "unable to decode {} from CBOR ({}): {e:?}",
-            std::any::type_name::<T>(),
-            hex::encode(&bytes)
-        )
-    })
-}
+pub type Key = Voter;
+
+pub type Value = Ballot;
+
+pub type Row = Value;

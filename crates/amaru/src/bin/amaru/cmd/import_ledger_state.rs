@@ -29,12 +29,7 @@ use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
 use indicatif::{ProgressBar, ProgressStyle};
 use slot_arithmetic::Epoch;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs, iter,
-    path::PathBuf,
-    sync::LazyLock,
-};
+use std::{collections::BTreeMap, fs, iter, path::PathBuf, sync::LazyLock};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -175,7 +170,6 @@ async fn import_one(
         Default::default(),
         Default::default(),
         iter::empty(),
-        BTreeSet::new(),
         era_history,
     )?;
     transaction.commit()?;
@@ -406,10 +400,10 @@ fn import_block_issuers(
                     dreps: iter::empty(),
                     cc_members: iter::empty(),
                     proposals: iter::empty(),
+                    votes: iter::empty(),
                 },
                 Default::default(),
                 iter::empty(),
-                BTreeSet::new(),
                 era_history,
             )?;
             count -= 1;
@@ -460,10 +454,10 @@ fn import_utxo(
                 dreps: iter::empty(),
                 cc_members: iter::empty(),
                 proposals: iter::empty(),
+                votes: iter::empty(),
             },
             Default::default(),
             iter::empty(),
-            BTreeSet::new(),
             era_history,
         )?;
 
@@ -578,10 +572,10 @@ fn import_dreps(
             }),
             cc_members: iter::empty(),
             proposals: iter::empty(),
+            votes: iter::empty(),
         },
         Default::default(),
         iter::empty(),
-        BTreeSet::new(),
         era_history,
     )?;
     transaction.commit()
@@ -634,10 +628,10 @@ fn import_proposals(
                 })
                 .collect::<Result<Vec<_>, _>>()?
                 .into_iter(),
+            votes: iter::empty(),
         },
         Default::default(),
         iter::empty(),
-        BTreeSet::new(),
         era_history,
     )?;
     transaction.commit()?;
@@ -699,6 +693,7 @@ fn import_stake_pools(
             dreps: iter::empty(),
             cc_members: iter::empty(),
             proposals: iter::empty(),
+            votes: iter::empty(),
         },
         store::Columns {
             pools: state.unregistered.into_iter(),
@@ -707,9 +702,9 @@ fn import_stake_pools(
             dreps: iter::empty(),
             cc_members: iter::empty(),
             proposals: iter::empty(),
+            votes: iter::empty(),
         },
         iter::empty(),
-        BTreeSet::new(),
         era_history,
     )?;
     transaction.commit()
@@ -805,10 +800,10 @@ fn import_accounts(
                 dreps: iter::empty(),
                 cc_members: iter::empty(),
                 proposals: iter::empty(),
+                votes: iter::empty(),
             },
             Default::default(),
             iter::empty(),
-            BTreeSet::new(),
             era_history,
         )?;
 

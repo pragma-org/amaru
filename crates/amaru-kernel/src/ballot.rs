@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,45 +12,36 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-/// This modules captures blocks made by slot leaders throughout epochs.
-use amaru_kernel::{
-    cbor, {PoolId, Slot},
-};
-use iter_borrow::IterBorrow;
+use crate::{cbor, Anchor, ProposalId, Vote};
 
-pub type Key = Slot;
-
-pub type Value = Row;
-
-/// Iterator used to browse rows from the Pools column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct Row {
-    pub slot_leader: PoolId,
+#[derive(Debug, PartialEq)]
+pub struct Ballot {
+    pub proposal: ProposalId,
+    pub vote: Vote,
+    pub anchor: Option<Anchor>,
 }
 
-impl Row {
-    pub fn new(slot_leader: PoolId) -> Self {
-        Self { slot_leader }
-    }
-}
-
-impl<C> cbor::encode::Encode<C> for Row {
+impl<C> cbor::encode::Encode<C> for Ballot {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.encode_with(self.slot_leader, ctx)?;
-        e.end()?;
+        e.array(3)?;
+        e.encode_with(&self.proposal, ctx)?;
+        e.encode_with(&self.vote, ctx)?;
+        e.encode_with(&self.anchor, ctx)?;
         Ok(())
     }
 }
 
-impl<'a, C> cbor::decode::Decode<'a, C> for Row {
+impl<'a, C> cbor::decode::Decode<'a, C> for Ballot {
     fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let slot_leader = d.decode_with(ctx)?;
-        Ok(Row::new(slot_leader))
+        d.array()?;
+        Ok(Ballot {
+            proposal: d.decode_with(ctx)?,
+            vote: d.decode_with(ctx)?,
+            anchor: d.decode_with(ctx)?,
+        })
     }
 }

@@ -20,3 +20,4 @@ pub mod pots;
 pub mod proposals;
 pub mod slots;
 pub mod utxo;
+pub mod votes;

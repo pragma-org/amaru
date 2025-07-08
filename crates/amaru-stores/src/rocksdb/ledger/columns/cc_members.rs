@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_ledger::store::StoreError;
+use amaru_ledger::store::{columns::unsafe_decode, StoreError};
 use rocksdb::Transaction;
 
 use amaru_ledger::store::columns::cc_members::{Key, Row, Value};
@@ -34,7 +34,7 @@ pub fn add<DB>(
         let mut row = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(Row::unsafe_decode)
+            .map(unsafe_decode::<Row>)
             .unwrap_or(Row {
                 hot_credential: None,
             });

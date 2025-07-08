@@ -20,10 +20,11 @@ use crate::context::{
     ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
-    serde_utils, stake_credential_hash, stake_credential_type, AddrKeyhash, Anchor,
+    serde_utils, stake_credential_hash, voter_credential_hash, AddrKeyhash, Anchor,
     CertificatePointer, DRep, DatumHash, Lovelace, MemoizedPlutusData, MemoizedScript,
     MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, ScriptHash, StakeCredential, TransactionInput,
+    RequiredScript, ScriptHash, StakeCredential, StakeCredentialType, TransactionInput, Vote,
+    Voter, VoterType,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -187,7 +188,7 @@ impl AccountsSlice for AssertValidationContext {
     #[instrument(
         level = Level::TRACE,
         fields(
-            credential.type = %stake_credential_type(&credential),
+            credential.type = %StakeCredentialType::from(&credential),
             credential.hash = %stake_credential_hash(&credential),
         )
         skip_all,
@@ -227,19 +228,6 @@ impl DRepsSlice for AssertValidationContext {
     ) {
         unimplemented!()
     }
-
-    #[instrument(
-        level = Level::TRACE,
-        fields(
-            credential.type = %stake_credential_type(&_drep),
-            credential.hash = %stake_credential_hash(&_drep),
-        )
-        skip_all,
-        name = "vote"
-    )]
-    fn vote(&mut self, _drep: StakeCredential) {
-        // TODO: IMPLEMENT
-    }
 }
 
 impl CommitteeSlice for AssertValidationContext {
@@ -262,6 +250,19 @@ impl CommitteeSlice for AssertValidationContext {
 
 impl ProposalsSlice for AssertValidationContext {
     fn acknowledge(&mut self, _id: ProposalId, _pointer: ProposalPointer, _proposal: Proposal) {}
+
+    #[instrument(
+        level = Level::TRACE,
+        fields(
+            voter.type = %VoterType::from(&_voter),
+            credential.type = %StakeCredentialType::from(&_voter),
+            credential.hash = %voter_credential_hash(&_voter),
+        )
+        skip_all,
+        name = "vote"
+    )]
+    fn vote(&mut self, _proposal: ProposalId, _voter: Voter, _vote: Vote, _anchor: Option<Anchor>) {
+    }
 }
 
 impl WitnessSlice for AssertValidationContext {

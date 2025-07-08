@@ -14,7 +14,10 @@
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_ledger::store::{
-    columns::pools::{Key, Row, Value, EVENT_TARGET},
+    columns::{
+        pools::{Key, Row, Value, EVENT_TARGET},
+        unsafe_decode,
+    },
     StoreError,
 };
 use rocksdb::Transaction;
@@ -31,7 +34,7 @@ pub fn get(
     let key = as_key(&PREFIX, pool);
     Ok(db_get(&key)
         .map_err(|err| StoreError::Internal(err.into()))?
-        .map(Row::unsafe_decode))
+        .map(unsafe_decode::<Row>))
 }
 
 pub fn add<DB>(

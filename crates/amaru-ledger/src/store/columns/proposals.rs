@@ -18,7 +18,7 @@ use slot_arithmetic::Epoch;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 
-/// Iterator used to browse rows from the Accounts column. Meant to be referenced using qualified imports.
+/// Iterator used to browse rows from the proposals column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
 pub type Key = ProposalId;
@@ -30,18 +30,6 @@ pub struct Row {
     pub proposed_in: ProposalPointer,
     pub valid_until: Epoch,
     pub proposal: Proposal,
-}
-
-impl Row {
-    #[allow(clippy::panic)]
-    pub fn unsafe_decode(bytes: Vec<u8>) -> Self {
-        cbor::decode(&bytes).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode account from CBOR ({}): {e:?}",
-                hex::encode(&bytes)
-            )
-        })
-    }
 }
 
 impl<C> cbor::encode::Encode<C> for Row {
@@ -73,7 +61,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 pub(crate) mod tests {
     use super::*;
     use crate::store::{
-        accounts::test::any_stake_credential,
+        accounts::tests::any_stake_credential,
         columns::dreps::tests::{any_anchor, any_transaction_pointer},
     };
     use amaru_kernel::{

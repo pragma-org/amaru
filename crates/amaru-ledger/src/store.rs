@@ -33,7 +33,7 @@ use amaru_kernel::{
 };
 use columns::*;
 use slot_arithmetic::Epoch;
-use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
+use std::{borrow::BorrowMut, io, iter};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -192,6 +192,7 @@ pub trait TransactionalContext<'a> {
             impl Iterator<Item = (dreps::Key, dreps::Value)>,
             impl Iterator<Item = (cc_members::Key, cc_members::Value)>,
             impl Iterator<Item = (proposals::Key, proposals::Value)>,
+            impl Iterator<Item = (votes::Key, votes::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = utxo::Key>,
@@ -199,10 +200,10 @@ pub trait TransactionalContext<'a> {
             impl Iterator<Item = accounts::Key>,
             impl Iterator<Item = (dreps::Key, CertificatePointer)>,
             impl Iterator<Item = cc_members::Key>,
-            impl Iterator<Item = proposals::Key>,
+            impl Iterator<Item = ()>,
+            impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
-        voting_dreps: BTreeSet<StakeCredential>,
         era_history: &EraHistory,
     ) -> Result<(), StoreError>;
 
@@ -261,16 +262,17 @@ pub trait TransactionalContext<'a> {
 
 /// A summary of all database columns, in a single struct. This can be derived to provide updates
 /// operations on multiple columns in a single db-transaction.
-pub struct Columns<U, P, A, D, C, PP> {
+pub struct Columns<U, P, A, D, C, PP, V> {
     pub utxo: U,
     pub pools: P,
     pub accounts: A,
     pub dreps: D,
     pub cc_members: C,
     pub proposals: PP,
+    pub votes: V,
 }
 
-impl<U, P, A, D, C, PP> Default
+impl<U, P, A, D, C, PP, V> Default
     for Columns<
         iter::Empty<U>,
         iter::Empty<P>,
@@ -278,6 +280,7 @@ impl<U, P, A, D, C, PP> Default
         iter::Empty<D>,
         iter::Empty<C>,
         iter::Empty<PP>,
+        iter::Empty<V>,
     >
 {
     fn default() -> Self {
@@ -288,6 +291,7 @@ impl<U, P, A, D, C, PP> Default
             dreps: iter::empty(),
             cc_members: iter::empty(),
             proposals: iter::empty(),
+            votes: iter::empty(),
         }
     }
 }
