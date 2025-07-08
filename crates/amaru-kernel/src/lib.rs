@@ -45,6 +45,7 @@ use std::{
     ops::Deref,
 };
 
+pub use ballot::*;
 pub use memoized::*;
 pub use pallas_addresses::{
     byron::AddrType, Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
@@ -99,6 +100,7 @@ pub mod reward;
 pub use strict_maybe::*;
 pub mod strict_maybe;
 
+pub mod ballot;
 pub mod block;
 pub mod macros;
 pub mod memoized;
