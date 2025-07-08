@@ -32,7 +32,7 @@ use amaru_kernel::{
 };
 use columns::*;
 use slot_arithmetic::Epoch;
-use std::{borrow::BorrowMut, collections::BTreeSet, io, iter};
+use std::{borrow::BorrowMut, io, iter};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -218,7 +218,6 @@ pub trait TransactionalContext<'a> {
             impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
-        voting_dreps: BTreeSet<StakeCredential>,
         era_history: &EraHistory,
     ) -> Result<(), StoreError>;
 

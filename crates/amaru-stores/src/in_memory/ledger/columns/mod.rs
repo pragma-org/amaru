@@ -18,3 +18,4 @@ pub mod dreps;
 pub mod pools;
 pub mod proposals;
 pub mod utxo;
+pub mod votes;

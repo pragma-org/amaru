@@ -18,17 +18,11 @@ pub mod rocksdb;
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::BTreeSet;
-
     use amaru_kernel::{
         network::NetworkName, Anchor, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId,
         PoolParams, ProposalId, Slot, StakeCredential, TransactionInput,
     };
-
     use amaru_ledger::store::columns::cc_members;
-    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
-    use slot_arithmetic::Epoch;
-
     use amaru_ledger::{
         state::diff_bind,
         store::{
@@ -44,6 +38,8 @@ pub mod tests {
             Columns, ReadStore, Store, StoreError, TransactionalContext,
         },
     };
+    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
+    use slot_arithmetic::Epoch;
 
     #[cfg(not(target_os = "windows"))]
     #[derive(Debug, Clone)]
@@ -226,7 +222,6 @@ pub mod tests {
                 },
                 Columns::empty(),
                 std::iter::empty(),
-                BTreeSet::new(),
                 &era_history,
             )?;
 
@@ -421,7 +416,6 @@ pub mod tests {
             Columns::empty(),
             remove,
             std::iter::empty(),
-            BTreeSet::new(),
             &era_history,
         )?;
         context.commit()?;
@@ -456,7 +450,6 @@ pub mod tests {
             Columns::empty(),
             remove,
             std::iter::empty(),
-            BTreeSet::new(),
             &era_history,
         )?;
         context.commit()?;
@@ -486,7 +479,6 @@ pub mod tests {
             Columns::empty(),
             remove,
             std::iter::empty(),
-            BTreeSet::new(),
             &era_history,
         )?;
         context.commit()?;
@@ -536,7 +528,6 @@ pub mod tests {
             Columns::empty(),
             remove,
             std::iter::empty(),
-            BTreeSet::new(),
             &era_history,
         )?;
         context.commit()?;

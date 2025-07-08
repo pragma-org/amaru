@@ -246,7 +246,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             add,
             remove,
             withdrawals,
-            voting_dreps,
         } = now_stable.into_store_update(current_epoch, &self.protocol_parameters);
 
         let batch = db.create_transaction();
@@ -258,7 +257,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 add,
                 remove,
                 withdrawals,
-                voting_dreps,
                 &self.era_history,
             )
             .and_then(|()| {

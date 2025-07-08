@@ -12,88 +12,46 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::in_memory::ledger::columns::{
+    accounts, cc_members, dreps, pools, proposals, utxo, votes,
+};
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, ComparableProposalId, EraHistory, Lovelace, Point,
     PoolId, ProposalId, Slot, StakeCredential, TransactionInput,
 };
 use amaru_ledger::store::{
     columns::{
-        accounts as account_column, cc_members as cc_member_column, dreps as drep_column,
-        pools as pool_column, pots, proposals as proposal_column, slots, utxo as utxo_column,
+        accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
+        pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
+        votes as votes_column,
     },
     EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
     TransactionalContext,
 };
-
 use iter_borrow::IterBorrow;
 use slot_arithmetic::Epoch;
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::{RefCell, RefMut},
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     ops::{Deref, DerefMut},
 };
 
 pub mod ledger;
-use crate::in_memory::ledger::columns::{accounts, cc_members, dreps, pools, proposals, utxo};
-
-pub struct RefMutAdapter<'a, T> {
-    inner: RefMut<'a, T>,
-}
-
-impl<'a, T> RefMutAdapter<'a, T> {
-    pub fn new(inner: RefMut<'a, T>) -> Self {
-        Self { inner }
-    }
-}
-
-impl<'a, T> Borrow<T> for RefMutAdapter<'a, T> {
-    fn borrow(&self) -> &T {
-        self.inner.deref()
-    }
-}
-
-impl<'a, T> BorrowMut<T> for RefMutAdapter<'a, T> {
-    fn borrow_mut(&mut self) -> &mut T {
-        self.inner.deref_mut()
-    }
-}
-
-pub struct RefMutAdapterMut<'a, T> {
-    inner: &'a mut T,
-}
-
-impl<'a, T> RefMutAdapterMut<'a, T> {
-    pub fn new(inner: &'a mut T) -> Self {
-        Self { inner }
-    }
-}
-
-impl<'a, T> Borrow<T> for RefMutAdapterMut<'a, T> {
-    fn borrow(&self) -> &T {
-        self.inner
-    }
-}
-
-impl<'a, T> BorrowMut<T> for RefMutAdapterMut<'a, T> {
-    fn borrow_mut(&mut self) -> &mut T {
-        self.inner
-    }
-}
 
 // TODO: Add a field to MemoryStore for storing per-epoch snapshots as nested MemoryStores
-#[derive(Clone)]
 pub struct MemoryStore {
     tip: RefCell<Option<Point>>,
     epoch_progress: RefCell<Option<EpochTransitionProgress>>,
     utxos: RefCell<BTreeMap<TransactionInput, utxo_column::Value>>,
-    accounts: RefCell<BTreeMap<StakeCredential, account_column::Row>>,
-    pools: RefCell<BTreeMap<PoolId, pool_column::Row>>,
+    accounts: RefCell<BTreeMap<StakeCredential, accounts_column::Row>>,
+    pools: RefCell<BTreeMap<PoolId, pools_column::Row>>,
     pots: RefCell<pots::Row>,
     slots: RefCell<BTreeMap<Slot, slots::Row>>,
-    dreps: RefCell<BTreeMap<StakeCredential, drep_column::Row>>,
-    proposals: RefCell<BTreeMap<ComparableProposalId, proposal_column::Row>>,
-    cc_members: RefCell<BTreeMap<StakeCredential, cc_member_column::Row>>,
+    dreps: RefCell<BTreeMap<StakeCredential, dreps_column::Row>>,
+    proposals: RefCell<BTreeMap<ComparableProposalId, proposals_column::Row>>,
+    cc_members: RefCell<BTreeMap<StakeCredential, cc_members_column::Row>>,
+    votes: RefCell<BTreeMap<votes_column::Key, votes_column::Value>>,
     p_params: RefCell<BTreeMap<Epoch, ProtocolParameters>>,
     era_history: EraHistory,
 }
@@ -111,6 +69,7 @@ impl MemoryStore {
             dreps: RefCell::new(BTreeMap::new()),
             proposals: RefCell::new(BTreeMap::new()),
             cc_members: RefCell::new(BTreeMap::new()),
+            votes: RefCell::new(BTreeMap::new()),
             p_params: RefCell::new(BTreeMap::new()),
             era_history,
         }
@@ -442,7 +401,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
             impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
-        voting_dreps: BTreeSet<StakeCredential>,
         _era_history: &EraHistory,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         let current_tip = self.store.tip.borrow().clone();
@@ -474,6 +432,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         accounts::add(self.store, add.accounts)?;
         cc_members::add(self.store, add.cc_members)?;
         proposals::add(self.store, add.proposals)?;
+        let voting_dreps = votes::add(self.store, add.votes)?;
 
         accounts::reset_many(self.store, withdrawals)?;
         dreps::tick(self.store, &voting_dreps, point)?;
@@ -496,13 +455,13 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn with_pools(&self, with: impl FnMut(pool_column::Iter<'_, '_>)) -> Result<(), StoreError> {
+    fn with_pools(&self, with: impl FnMut(pools_column::Iter<'_, '_>)) -> Result<(), StoreError> {
         self.with_column(&self.store.pools, with)
     }
 
     fn with_accounts(
         &self,
-        with: impl FnMut(account_column::Iter<'_, '_>),
+        with: impl FnMut(accounts_column::Iter<'_, '_>),
     ) -> Result<(), amaru_ledger::store::StoreError> {
         self.with_column(&self.store.accounts, with)
     }
@@ -569,6 +528,50 @@ impl HistoricalStores for MemoryStore {
 
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
         Ok(MemoryStore::new(self.era_history.clone()))
+    }
+}
+
+pub struct RefMutAdapter<'a, T> {
+    inner: RefMut<'a, T>,
+}
+
+impl<'a, T> RefMutAdapter<'a, T> {
+    pub fn new(inner: RefMut<'a, T>) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a, T> Borrow<T> for RefMutAdapter<'a, T> {
+    fn borrow(&self) -> &T {
+        self.inner.deref()
+    }
+}
+
+impl<'a, T> BorrowMut<T> for RefMutAdapter<'a, T> {
+    fn borrow_mut(&mut self) -> &mut T {
+        self.inner.deref_mut()
+    }
+}
+
+pub struct RefMutAdapterMut<'a, T> {
+    inner: &'a mut T,
+}
+
+impl<'a, T> RefMutAdapterMut<'a, T> {
+    pub fn new(inner: &'a mut T) -> Self {
+        Self { inner }
+    }
+}
+
+impl<'a, T> Borrow<T> for RefMutAdapterMut<'a, T> {
+    fn borrow(&self) -> &T {
+        self.inner
+    }
+}
+
+impl<'a, T> BorrowMut<T> for RefMutAdapterMut<'a, T> {
+    fn borrow_mut(&mut self) -> &mut T {
+        self.inner
     }
 }
 

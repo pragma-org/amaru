@@ -23,12 +23,7 @@ use amaru_kernel::{
     TransactionPointer,
 };
 use progress_bar::ProgressBar;
-use std::{
-    collections::{BTreeMap, BTreeSet},
-    fs, iter,
-    path::PathBuf,
-    sync::LazyLock,
-};
+use std::{collections::BTreeMap, fs, iter, path::PathBuf, sync::LazyLock};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -269,7 +264,6 @@ fn save_point(
         Default::default(),
         Default::default(),
         iter::empty(),
-        BTreeSet::new(),
         era_history,
     )?;
 
@@ -320,7 +314,6 @@ fn import_block_issuers(
                 },
                 Default::default(),
                 iter::empty(),
-                BTreeSet::new(),
                 era_history,
             )?;
             count -= 1;
@@ -367,7 +360,6 @@ fn import_utxo(
             },
             Default::default(),
             iter::empty(),
-            BTreeSet::new(),
             era_history,
         )?;
 
@@ -487,7 +479,6 @@ fn import_dreps(
         },
         Default::default(),
         iter::empty(),
-        BTreeSet::new(),
         era_history,
     )?;
     transaction.commit()
@@ -544,7 +535,6 @@ fn import_proposals(
         },
         Default::default(),
         iter::empty(),
-        BTreeSet::new(),
         era_history,
     )?;
     transaction.commit()?;
@@ -618,7 +608,6 @@ fn import_stake_pools(
             votes: iter::empty(),
         },
         iter::empty(),
-        BTreeSet::new(),
         era_history,
     )?;
     transaction.commit()
@@ -717,7 +706,6 @@ fn import_accounts(
             },
             Default::default(),
             iter::empty(),
-            BTreeSet::new(),
             era_history,
         )?;
 
