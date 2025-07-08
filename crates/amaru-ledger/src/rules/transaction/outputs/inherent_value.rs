@@ -14,7 +14,7 @@
 
 use super::InvalidOutput;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, HasLovelace, MintedTransactionOutput, OriginalSize,
+    protocol_parameters::ProtocolParameters, to_cbor, HasLovelace, MintedTransactionOutput,
 };
 
 pub fn execute(
@@ -22,7 +22,8 @@ pub fn execute(
     output: &MintedTransactionOutput<'_>,
 ) -> Result<(), InvalidOutput> {
     // This conversion is safe with no loss of information
-    let minimum_value = output.original_size() as u64 * protocol_parameters.coins_per_utxo_byte;
+    // FIXME: do not re-serialize here
+    let minimum_value = to_cbor(output).len() as u64 * protocol_parameters.coins_per_utxo_byte;
     let given_value = output.lovelace();
 
     if given_value < minimum_value {
@@ -34,8 +35,8 @@ pub fn execute(
 
     let max_val_size = protocol_parameters.max_val_size;
     let given_val_size = match output {
-        amaru_kernel::PseudoTransactionOutput::Legacy(output) => output.amount.original_size(),
-        amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => output.value.original_size(),
+        amaru_kernel::PseudoTransactionOutput::Legacy(output) => to_cbor(&output.amount).len(),
+        amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => to_cbor(&output.value).len(),
     };
 
     // This conversion is safe becuase max_val_size will never be big enough to cause a problem

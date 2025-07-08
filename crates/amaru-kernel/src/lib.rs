@@ -747,10 +747,7 @@ pub trait OriginalSize {
     fn original_size(&self) -> usize;
 }
 
-impl<T> OriginalSize for T
-where
-    T: cbor::Encode<()>,
-{
+impl<T> OriginalSize for KeepRaw<'_, T> {
     fn original_size(&self) -> usize {
         to_cbor(self).len()
     }

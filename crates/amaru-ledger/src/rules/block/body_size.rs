@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{MintedBlock, OriginalSize};
+use amaru_kernel::{to_cbor, MintedBlock};
 
 use super::InvalidBlockDetails;
 
@@ -35,10 +35,10 @@ pub fn block_body_size_valid(block: &MintedBlock<'_>) -> Result<(), InvalidBlock
 
 // FIXME: Do not re-serialize block here, but rely on the original bytes.
 fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
-    block.transaction_bodies.original_size()
-        + block.transaction_witness_sets.original_size()
-        + block.auxiliary_data_set.original_size()
-        + block.invalid_transactions.original_size()
+    to_cbor(&block.transaction_bodies).len()
+        + to_cbor(&block.transaction_witness_sets).len()
+        + to_cbor(&block.auxiliary_data_set).len()
+        + to_cbor(&block.invalid_transactions).len()
 }
 
 #[cfg(test)]
