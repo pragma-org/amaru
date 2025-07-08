@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::metrics::track_system_metrics;
+use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
 use amaru::stages::{bootstrap, Config, StorePath};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use clap::{ArgAction, Parser};
@@ -70,9 +70,7 @@ pub async fn run(
 
     let mut clients: Vec<(String, Arc<Mutex<PeerClient>>)> = vec![];
     for peer in &config.upstream_peers {
-        let client =
-            PeerClient::connect(peer.clone(), config.network.to_network_magic() as u64).await
-            .inspect_err(|e| tracing::error!("failed to connect to peer {}: {}", peer, e))?;
+        let client = connect_to_peer(peer, &config.network).await?;
         clients.push((peer.clone(), Arc::new(Mutex::new(client))));
     }
 
