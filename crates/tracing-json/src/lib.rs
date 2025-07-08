@@ -232,4 +232,98 @@ mod tests {
             "result"
         );
     }
+
+    #[test]
+    fn assert_json_escaping_for_debug() {
+        // Test that fields with special JSON characters are properly escaped
+        #[derive(Debug)]
+        struct TestStruct {
+            value: String,
+        }
+
+        let test_data = TestStruct {
+            value: "contains \"quotes\" and \n newlines \t tabs \\ backslashes".to_string(),
+        };
+
+        assert_eq!(
+            assert_trace(
+                || {
+                    info_span!("test").in_scope(|| {
+                        info!(debug_field = ?test_data, "debug_test");
+                        "result"
+                    })
+                },
+                vec![
+                    json!({ "name": "test_span" }),
+                    json!({ 
+                        "name": "debug_test_event", 
+                        "debug_field": "TestStruct { value: \"contains \\\"quotes\\\" and \\n newlines \\t tabs \\\\ backslashes\" }" 
+                    }),
+                ],
+            ),
+            "result"
+        );
+    }
+
+    #[test] 
+    fn assert_json_escaping_for_errors() {
+        use std::io;
+
+        // Test that error messages with special JSON characters are properly escaped
+        let error = io::Error::new(io::ErrorKind::Other, "error with \"quotes\" and \n newlines");
+
+        assert_eq!(
+            assert_trace(
+                || {
+                    info_span!("error_test").in_scope(|| {
+                        info!(error_field = %error, "error_test");
+                        "result"
+                    })
+                },
+                vec![
+                    json!({ "name": "error_test_span" }),
+                    json!({ 
+                        "name": "error_test_event", 
+                        "error_field": "error with \"quotes\" and \n newlines" 
+                    }),
+                ],
+            ),
+            "result"
+        );
+    }
+
+    #[test]
+    fn test_json_output_manually() {
+        // Test to manually verify JSON output
+        let collector = JsonTraceCollector::default();
+        let layer = JsonLayer::new(collector.clone());
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let dispatch = tracing::Dispatch::new(subscriber);
+        let _guard = tracing::dispatcher::set_default(&dispatch);
+
+        #[derive(Debug)]
+        struct TestStruct {
+            value: String,
+        }
+
+        let test_data = TestStruct {
+            value: "contains \"quotes\" and \n newlines \t tabs \\ backslashes".to_string(),
+        };
+
+        info_span!("test").in_scope(|| {
+            info!(debug_field = ?test_data, "debug_test");
+        });
+
+        let traces = collector.flush();
+        for trace in &traces {
+            println!("JSON Trace: {}", serde_json::to_string_pretty(trace).unwrap());
+            
+            // Verify it's valid JSON by serializing and deserializing
+            let json_str = serde_json::to_string(trace).unwrap();
+            let _parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        }
+
+        // Ensure we got some traces
+        assert!(!traces.is_empty());
+    }
 }
