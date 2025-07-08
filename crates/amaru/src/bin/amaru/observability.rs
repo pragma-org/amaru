@@ -138,6 +138,19 @@ impl TracingSubscriber<Registry> {
 // JSON TRACES
 // -----------------------------------------------------------------------------
 
+// Note: There is a known issue with JsonFields not properly escaping Debug output
+// (see issue #161 and https://github.com/tokio-rs/tracing/pull/377#discussion_r335311790).
+// When using `?field` syntax with structs that contain special JSON characters in their
+// Debug output (quotes, newlines, etc.), the resulting JSON may be invalid.
+//
+// For cases where proper JSON escaping is critical, consider using the custom
+// tracing-json crate which provides a JsonLayer that properly escapes all values.
+//
+// Workarounds:
+// 1. Avoid using Debug formatting (`?field`) for fields that may contain special characters
+// 2. Use Display formatting (`%field`) when possible
+// 3. Use the custom tracing-json crate for critical applications
+
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {
     let format = || tracing_subscriber::fmt::format().json();
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;

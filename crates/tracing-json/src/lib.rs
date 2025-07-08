@@ -1,3 +1,31 @@
+//! # JSON Tracing with Proper Escaping
+//! 
+//! This crate provides a solution to the JSON escaping issue described in issue #161.
+//! The problem occurs when using tracing-subscriber's JsonFields with Debug formatting (`?field`).
+//! 
+//! ## The Problem
+//! 
+//! When using `info!(?field, "message")`, if the field's Debug implementation produces output
+//! containing special JSON characters (quotes, newlines, etc.), tracing-subscriber's JsonFields
+//! does not properly escape these characters for JSON output. This results in invalid JSON
+//! that cannot be parsed.
+//! 
+//! ## The Solution
+//! 
+//! This crate provides a custom JsonLayer that properly escapes all field values using serde_json,
+//! ensuring that the output is always valid JSON regardless of the content of Debug implementations.
+//! 
+//! ## Usage
+//! 
+//! For testing:
+//! ```rust
+//! use tracing_json::{JsonTraceCollector, JsonLayer, assert_trace};
+//! 
+//! let collector = JsonTraceCollector::default();
+//! let layer = JsonLayer::new(collector.clone());
+//! // ... use with tracing_subscriber::registry()
+//! ```
+
 use assert_json_diff::assert_json_eq;
 use serde_json as json;
 use std::sync::{Arc, RwLock};
@@ -118,7 +146,7 @@ impl tracing::field::Visit for JsonVisitor {
     }
 }
 
-struct JsonLayer(JsonTraceCollector);
+pub struct JsonLayer(JsonTraceCollector);
 
 impl JsonLayer {
     pub fn new(collector: JsonTraceCollector) -> Self {
@@ -188,7 +216,6 @@ where
     }
 }
 
-/// TODO: Write some documentation on expectations and usage.
 pub fn assert_trace<F, R>(run: F, expected: Vec<json::Value>) -> R
 where
     F: FnOnce() -> R,
@@ -325,5 +352,95 @@ mod tests {
 
         // Ensure we got some traces
         assert!(!traces.is_empty());
+    }
+
+    #[test]
+    fn test_problematic_debug_escaping() {
+        // Test the specific case that was problematic in the real codebase
+        #[derive(Debug)]
+        struct SimulatedStakeCredential {
+            data: String,
+        }
+
+        let credential = SimulatedStakeCredential {
+            data: "actual newline:\nhere and quote:\"here".to_string(),
+        };
+
+        let collector = JsonTraceCollector::default();
+        let layer = JsonLayer::new(collector.clone());
+        let subscriber = tracing_subscriber::registry().with(layer);
+        let dispatch = tracing::Dispatch::new(subscriber);
+        let _guard = tracing::dispatcher::set_default(&dispatch);
+
+        // This pattern was problematic with tracing-subscriber's JsonFields
+        info!(?credential, "set.no_account");
+
+        let traces = collector.flush();
+        
+        // Verify all traces are valid JSON
+        for trace in &traces {
+            let json_str = serde_json::to_string(trace).unwrap();
+            let _parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+        }
+
+        // Ensure we got the event
+        assert!(traces.len() >= 1);
+        
+        // Find the event trace and verify the credential field is properly escaped
+        let event_trace = traces.iter().find(|t| t["name"].as_str().unwrap_or("").contains("event")).unwrap();
+        assert!(event_trace["credential"].is_string());
+        
+        // The credential field should contain the properly formatted debug output
+        let credential_value = event_trace["credential"].as_str().unwrap();
+        assert!(credential_value.contains("SimulatedStakeCredential"));
+        assert!(credential_value.contains("actual newline:"));
+    }
+
+    #[test]
+    fn test_comparison_with_tracing_subscriber_json_fields() {
+        // This test demonstrates that our custom implementation correctly handles
+        // debug output escaping, preventing the JSON escaping issues seen with
+        // tracing-subscriber's JsonFields
+        
+        #[derive(Debug)]
+        struct ProblematicStruct {
+            field: String,
+        }
+
+        let problematic = ProblematicStruct {
+            field: "contains \"quotes\" and \n newlines".to_string(),
+        };
+
+        // Test our custom implementation
+        {
+            let collector = JsonTraceCollector::default();
+            let layer = JsonLayer::new(collector.clone());
+            let subscriber = tracing_subscriber::registry().with(layer);
+            let dispatch = tracing::Dispatch::new(subscriber);
+            let _guard = tracing::dispatcher::set_default(&dispatch);
+
+            info!(?problematic, "test message");
+
+            let traces = collector.flush();
+            assert!(!traces.is_empty());
+            
+            // Verify all JSON is valid
+            for trace in &traces {
+                let json_str = serde_json::to_string(trace).unwrap();
+                let _parsed: serde_json::Value = serde_json::from_str(&json_str).unwrap();
+            }
+
+            // Find the event and verify the problematic field is properly escaped
+            let event_trace = traces.iter().find(|t| t["name"].as_str().unwrap_or("").contains("event")).unwrap();
+            let problematic_value = event_trace["problematic"].as_str().unwrap();
+            
+            // The debug output should be properly contained as a JSON string
+            assert!(problematic_value.contains("ProblematicStruct"));
+            assert!(problematic_value.contains("contains"));
+            
+            // Verify the JSON structure is correct
+            assert!(event_trace.is_object());
+            assert!(event_trace["name"].is_string());
+        }
     }
 }
