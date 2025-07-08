@@ -1,3 +1,4 @@
+use crate::cmd::connect_to_peer;
 use amaru::stages::{pull, PeerSession};
 use amaru_consensus::{consensus::store::ChainStore, peer::Peer, IsHeader};
 use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point};
@@ -5,10 +6,7 @@ use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
-use pallas_network::{
-    facades::PeerClient,
-    miniprotocols::chainsync::{self, HeaderContent, NextResponse},
-};
+use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse};
 use std::{error::Error, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::timeout};
 use tracing::info;
@@ -88,7 +86,7 @@ pub(crate) async fn import_headers(
     let mut db = RocksDBStore::new(chain_db_dir, era_history)?;
 
     let peer_client = Arc::new(Mutex::new(
-        PeerClient::connect(peer_address, network_name.to_network_magic() as u64).await?,
+        connect_to_peer(peer_address, &network_name).await?,
     ));
 
     let peer_session = PeerSession {
