@@ -831,10 +831,23 @@ impl std::fmt::Display for StakeCredentialType {
     }
 }
 
-pub fn stake_credential_type(credential: &StakeCredential) -> StakeCredentialType {
-    match credential {
-        StakeCredential::AddrKeyhash(..) => StakeCredentialType::VerificationKey,
-        StakeCredential::ScriptHash(..) => StakeCredentialType::Script,
+impl From<&StakeCredential> for StakeCredentialType {
+    fn from(credential: &StakeCredential) -> Self {
+        match credential {
+            StakeCredential::AddrKeyhash(..) => Self::VerificationKey,
+            StakeCredential::ScriptHash(..) => Self::Script,
+        }
+    }
+}
+
+impl From<&Voter> for StakeCredentialType {
+    fn from(voter: &Voter) -> Self {
+        match voter {
+            Voter::DRepKey(..)
+            | Voter::ConstitutionalCommitteeKey(..)
+            | Voter::StakePoolKey(..) => Self::VerificationKey,
+            Voter::DRepScript(..) | Voter::ConstitutionalCommitteeScript(..) => Self::Script,
+        }
     }
 }
 
@@ -865,6 +878,51 @@ pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
 }
+
+// Voter
+// ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum VoterType {
+    DRep,
+    ConstitutionalCommittee,
+    StakePool,
+}
+
+impl std::fmt::Display for VoterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::DRep => "drep",
+            Self::ConstitutionalCommittee => "committee",
+            Self::StakePool => "stake_pool",
+        })
+    }
+}
+
+impl From<&Voter> for VoterType {
+    fn from(voter: &Voter) -> Self {
+        match voter {
+            Voter::DRepKey(..) | Voter::DRepScript(..) => Self::DRep,
+            Voter::ConstitutionalCommitteeKey(..) | Voter::ConstitutionalCommitteeScript(..) => {
+                Self::ConstitutionalCommittee
+            }
+            Voter::StakePoolKey(..) => Self::StakePool,
+        }
+    }
+}
+
+pub fn voter_credential_hash(credential: &Voter) -> Hash<28> {
+    match credential {
+        Voter::DRepKey(hash)
+        | Voter::DRepScript(hash)
+        | Voter::ConstitutionalCommitteeKey(hash)
+        | Voter::ConstitutionalCommitteeScript(hash)
+        | Voter::StakePoolKey(hash) => *hash,
+    }
+}
+
+// ExUnits
+// ----------------------------------------------------------------------------
 
 pub trait HasExUnits {
     fn ex_units(&self) -> Vec<ExUnits>;

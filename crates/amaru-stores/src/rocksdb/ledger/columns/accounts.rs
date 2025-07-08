@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_kernel::{stake_credential_hash, stake_credential_type, Lovelace};
+use amaru_kernel::{stake_credential_hash, Lovelace, StakeCredentialType};
 use amaru_ledger::store::{
     columns::{
         accounts::{Key, Row, Value, EVENT_TARGET},
@@ -138,7 +138,7 @@ pub fn set<DB>(
 
     debug!(
         target: EVENT_TARGET,
-        type = %stake_credential_type(credential),
+        type = %StakeCredentialType::from(credential),
         account = %stake_credential_hash(credential),
         "set.no_account",
     );

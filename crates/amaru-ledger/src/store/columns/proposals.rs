@@ -60,8 +60,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use crate::store::columns::cc_members::tests::any_stake_credential;
-    use crate::store::columns::dreps::tests::{any_anchor, any_transaction_pointer};
+    use crate::store::columns::{
+        accounts::tests::any_stake_credential,
+        dreps::tests::{any_anchor, any_transaction_pointer},
+    };
     use amaru_kernel::{
         new_stake_address, prop_cbor_roundtrip, Bytes, Constitution, CostModel, CostModels,
         DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, Hash, KeyValuePairs, Lovelace,

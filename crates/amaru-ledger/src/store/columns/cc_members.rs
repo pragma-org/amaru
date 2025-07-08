@@ -55,22 +55,9 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, Hash};
-    use proptest::prelude::*;
+    use crate::store::columns::accounts::tests::any_stake_credential;
+    use amaru_kernel::prop_cbor_roundtrip;
     use proptest::{option, prop_compose};
-
-    prop_compose! {
-        pub fn any_stake_credential()(
-            is_script in any::<bool>(),
-            credential in any::<[u8; 28]>(),
-        ) -> StakeCredential {
-            if is_script {
-                StakeCredential::ScriptHash(Hash::from(credential))
-            } else {
-                StakeCredential::AddrKeyhash(Hash::from(credential))
-            }
-        }
-    }
 
     prop_compose! {
         pub fn any_row()(

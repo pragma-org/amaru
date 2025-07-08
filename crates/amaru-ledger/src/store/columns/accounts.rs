@@ -68,11 +68,12 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         })
     }
 }
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::*;
+    use super::Row;
     use crate::store::columns::{dreps::tests::any_certificate_pointer, pools::tests::any_pool_id};
-    use amaru_kernel::{prop_cbor_roundtrip, Hash};
+    use amaru_kernel::{prop_cbor_roundtrip, DRep, Hash, Lovelace, StakeCredential};
     use proptest::{option, prelude::*, prop_compose};
 
     pub fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
