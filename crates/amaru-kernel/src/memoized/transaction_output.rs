@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use pallas_primitives::{conway::Multiasset, Bytes, Hash, PolicyId, PositiveCoin};
+
 use crate::{
     cbor,
     script::{encode_script, serialize_memoized_script, PlaceholderScript},
@@ -137,6 +139,50 @@ impl<'a> TryFrom<MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
     }
 }
 
+// TODO: avoid clones (just getting the rebase to continue, will fix after rebase)
+impl<'a> TryFrom<&MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
+    type Error = String;
+
+    fn try_from(
+        output: &MintedTransactionOutput<'a>,
+    ) -> Result<MemoizedTransactionOutput, Self::Error> {
+        match output {
+            MintedTransactionOutput::Legacy(output) => Ok(MemoizedTransactionOutput {
+                is_legacy: true,
+                address: Address::from_bytes(&output.address)
+                    .map_err(|e| format!("invalid address: {e:?}"))?,
+                value: from_legacy_value(output.amount.clone())?,
+                datum: MemoizedDatum::from(output.datum_hash),
+                script: None,
+            }),
+            MintedTransactionOutput::PostAlonzo(output) => Ok(MemoizedTransactionOutput {
+                is_legacy: false,
+                address: Address::from_bytes(&output.address)
+                    .map_err(|e| format!("invalid address: {e:?}"))?,
+                value: output.value.clone(),
+                datum: MemoizedDatum::from(output.datum_option.clone()),
+                script: output
+                    .script_ref
+                    .clone()
+                    .map(|script| match script.unwrap() {
+                        PseudoScript::NativeScript(native_script) => {
+                            PseudoScript::NativeScript(MemoizedNativeScript::from(native_script))
+                        }
+                        PseudoScript::PlutusV1Script(plutus_script) => {
+                            PseudoScript::PlutusV1Script(plutus_script)
+                        }
+                        PseudoScript::PlutusV2Script(plutus_script) => {
+                            PseudoScript::PlutusV2Script(plutus_script)
+                        }
+                        PseudoScript::PlutusV3Script(plutus_script) => {
+                            PseudoScript::PlutusV3Script(plutus_script)
+                        }
+                    }),
+            }),
+        }
+    }
+}
+
 // --------------------------------------------------------------------- Helpers
 
 fn from_legacy_value(value: AlonzoValue) -> Result<Value, String> {
@@ -206,11 +252,57 @@ fn serialize_value<S: serde::ser::Serializer>(
     }
 }
 
-// FIXME: Eventually allow deserializing complete values, not just coins.
 fn deserialize_value<'de, D: serde::de::Deserializer<'de>>(
     deserializer: D,
 ) -> Result<Value, D::Error> {
-    Ok(Value::Coin(serde::Deserialize::deserialize(deserializer)?))
+    #[derive(serde::Deserialize)]
+    enum ValueHelper {
+        Coin(u64),
+        Multiasset(u64, Vec<(String, Vec<(String, u64)>)>),
+    }
+
+    let helper: ValueHelper = serde::Deserialize::deserialize(deserializer)?;
+
+    match helper {
+        ValueHelper::Coin(coin) => Ok(Value::Coin(coin)),
+        ValueHelper::Multiasset(coin, multiasset_data) => {
+            let mut converted_multiasset = Vec::new();
+
+            for (policy_id, assets) in multiasset_data {
+                let policy_id = hex::decode(&policy_id).map_err(|_| {
+                    serde::de::Error::custom(format!("invalid hex string: {policy_id}"))
+                })?;
+
+                let mut converted_assets = Vec::new();
+                for (asset_name, quantity) in assets {
+                    let asset_name = hex::decode(&asset_name).map_err(|_| {
+                        serde::de::Error::custom(format!("invalid hex string: {asset_name}"))
+                    })?;
+
+                    converted_assets.push((
+                        Bytes::from(asset_name),
+                        quantity.try_into().map_err(|_| {
+                            serde::de::Error::custom(format!("invalid quantity value: {quantity}"))
+                        })?,
+                    ));
+                }
+
+                let policy_id: PolicyId = Hash::from(policy_id.as_slice());
+
+                converted_multiasset.push((
+                    policy_id,
+                    NonEmptyKeyValuePairs::from_vec(converted_assets).ok_or(
+                        serde::de::Error::custom(format!("empty asset bundle: {policy_id}")),
+                    )?,
+                ));
+            }
+
+            let multiasset: Multiasset<PositiveCoin> =
+                Multiasset::from_vec(converted_multiasset)
+                    .ok_or(serde::de::Error::custom("empty multiasset"))?;
+            Ok(Value::Multiasset(coin, multiasset))
+        }
+    }
 }
 
 pub fn serialize_script<S: serde::ser::Serializer>(
