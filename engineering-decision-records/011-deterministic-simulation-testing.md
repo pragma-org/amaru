@@ -47,6 +47,20 @@ changes:
 Apart from the goal of determinism, the design of the pure-stage library and
 the simulator were mainly driven by the following considerations.
 
+### Pipelined architecture
+
+One complication to both making the node deterministic and simulation testing
+it is the fact that the processing of incoming messages happens in a parallel
+pipeline. So the trick of implementing the system as a state machine of type:
+
+  (input, state) -> (output, state)
+
+doesn't quite work. One rather needs to implement it as several state machines
+(that can run in parallel) connected with queues. Further complications arise
+due to the fact that the different stages in the pipeline share state (or one
+stage needs to be able to send messages to another to update the other copy of
+the state).
+
 ### Maximising the overlap of what's being tested vs deployed
 
 We want the simulator to be as true to the "real world" as possible. Ideally
