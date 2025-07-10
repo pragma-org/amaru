@@ -310,7 +310,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             &self.era_history,
             protocol_version,
             &self.protocol_parameters,
-            self.snapshots.least_recent_snapshot(),
         )?);
 
         Ok(rewards_summary)
@@ -427,7 +426,6 @@ pub fn initial_stake_distributions(
     era_history: &EraHistory,
     protocol_version: ProtocolVersion,
 ) -> Result<VecDeque<StakeDistribution>, StoreError> {
-    let first_epoch = snapshots.least_recent_snapshot();
     let latest_epoch = snapshots.most_recent_snapshot();
 
     let mut stake_distributions = VecDeque::new();
@@ -441,7 +439,6 @@ pub fn initial_stake_distributions(
                 era_history,
                 protocol_version,
                 &protocol_parameters,
-                first_epoch,
             )
             .map_err(|err| StoreError::Internal(err.into()))?,
         );
@@ -455,18 +452,11 @@ pub fn recover_stake_distribution(
     era_history: &EraHistory,
     protocol_version: ProtocolVersion,
     protocol_parameters: &ProtocolParameters,
-    first_epoch: Epoch,
 ) -> Result<StakeDistribution, StateError> {
     StakeDistribution::new(
         snapshot,
         protocol_version,
-        GovernanceSummary::new(
-            snapshot,
-            protocol_version,
-            era_history,
-            protocol_parameters,
-            first_epoch,
-        )?,
+        GovernanceSummary::new(snapshot, protocol_version, era_history, protocol_parameters)?,
         protocol_parameters,
     )
     .map_err(StateError::Storage)

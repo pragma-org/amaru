@@ -60,7 +60,6 @@ impl GovernanceSummary {
         protocol_version: ProtocolVersion,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
-        first_epoch: Epoch,
     ) -> Result<Self, Error> {
         let current_epoch = db.epoch();
 
@@ -98,7 +97,6 @@ impl GovernanceSummary {
             protocol_parameters.gov_action_lifetime,
             protocol_parameters.drep_expiry as u64,
             era_history,
-            first_epoch,
             current_epoch,
             proposals,
         );
@@ -248,7 +246,6 @@ fn drep_mandate_calculator(
     governance_action_lifetime: EpochInterval,
     drep_expiry: u64,
     era_history: &EraHistory,
-    first_known_epoch: Epoch,
     current_epoch: Epoch,
     proposals: BTreeSet<(TransactionPointer, Epoch)>,
 ) -> Box<dyn Fn((Slot, Epoch), Option<Epoch>) -> Epoch> {
@@ -281,13 +278,14 @@ fn drep_mandate_calculator(
 
     let first_proposal = proposals.first().copied();
 
-    let all_epochs = BTreeSet::from_iter(first_known_epoch..=current_epoch);
-
     let era_first_epoch = era_history
         .era_first_epoch(current_epoch)
         .unwrap_or_else(|_| {
             unreachable!("malformed era history {era_history:#?}\ndoesn't contain current epoch: {current_epoch}")
         });
+
+    // Pre-calculate all epochs, so that need not to re-allocate memory for all DReps.
+    let all_epochs = BTreeSet::from_iter(era_first_epoch..=current_epoch);
 
     let v10_onwards = Box::new(
         move |registered_at: (Slot, Epoch), last_interaction: Option<Epoch>| -> Epoch {
@@ -395,7 +393,6 @@ mod tests {
                 governance_action_lifetime,
                 drep_expiry,
                 &ERA_HISTORY,
-                registration_epoch,
                 current_epoch,
                 proposals.clone(),
             )((registration_slot, registration_epoch), last_interaction)

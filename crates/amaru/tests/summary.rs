@@ -95,7 +95,6 @@ fn compare_snapshot(epoch: Epoch) {
         protocol_version,
         network.into(),
         &protocol_parameters,
-        snapshot.epoch(),
     )
     .unwrap();
 
