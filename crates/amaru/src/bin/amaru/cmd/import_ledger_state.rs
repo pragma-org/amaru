@@ -13,9 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    cbor, default_ledger_dir,
-    network::NetworkName,
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
+    cbor, default_ledger_dir, network::NetworkName, protocol_parameters::ProtocolParameters,
     Anchor, CertificatePointer, DRep, EraHistory, Lovelace, MemoizedTransactionOutput, Point,
     PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential,
     TransactionInput, TransactionPointer,
@@ -489,9 +487,8 @@ fn import_dreps(
 ) -> Result<(), impl std::error::Error> {
     let mut known_dreps = BTreeMap::new();
 
-    let tip = point.slot_or_default();
     let era_first_epoch = era_history
-        .era_first_epoch(epoch, tip)
+        .era_first_epoch(epoch)
         .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
     let transaction = db.create_transaction();
@@ -547,7 +544,8 @@ fn import_dreps(
                 //    expected to use a protocol version > 9, where this assumption doesn't matter.
                 let (registration_slot, last_interaction) = if epoch == era_first_epoch {
                     let last_interaction = era_first_epoch;
-                    let epoch_bound = era_history.epoch_bounds(last_interaction, tip).unwrap();
+                    #[allow(clippy::unwrap_used)]
+                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
                         (epoch_bound.start, last_interaction)
                     } else {
@@ -555,7 +553,8 @@ fn import_dreps(
                     }
                 } else {
                     let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
-                    let epoch_bound = era_history.epoch_bounds(last_interaction, tip).unwrap();
+                    #[allow(clippy::unwrap_used)]
+                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     // start or end doesn't matter here.
                     (epoch_bound.start, last_interaction)
                 };
@@ -625,12 +624,7 @@ fn import_proposals(
                         proposals::Value {
                             proposed_in: ProposalPointer {
                                 transaction: TransactionPointer {
-                                    slot: era_history
-                                        .epoch_bounds(
-                                            proposal.proposed_in,
-                                            point.slot_or_default(),
-                                        )?
-                                        .start,
+                                    slot: era_history.epoch_bounds(proposal.proposed_in)?.start,
                                     transaction_index: 0,
                                 },
                                 proposal_index,

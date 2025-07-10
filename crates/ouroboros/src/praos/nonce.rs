@@ -14,7 +14,7 @@
 
 use amaru_kernel::{protocol_parameters::GlobalParameters, EraHistory, Hasher, Nonce};
 use amaru_ouroboros_traits::IsHeader;
-use slot_arithmetic::{Epoch, Slot, TimeHorizonError};
+use slot_arithmetic::{Epoch, EraHistoryError, Slot};
 
 /// Obtain the final nonce at an epoch boundary for the epoch from the stable candidate and the
 /// last block (header) of the previous epoch.
@@ -51,12 +51,12 @@ pub fn randomness_stability_window<H: IsHeader>(
     header: &H,
     era_history: &EraHistory,
     global_parameters: &GlobalParameters,
-) -> Result<(Epoch, bool), TimeHorizonError> {
+) -> Result<(Epoch, bool), EraHistoryError> {
     let slot = header.slot();
     let tip = Slot::from(slot);
     let epoch = era_history.slot_to_epoch(tip, tip)?;
 
-    let next_epoch_first_slot = era_history.next_epoch_first_slot_unchecked_horizon(epoch)?;
+    let next_epoch_first_slot = era_history.next_epoch_first_slot(epoch, &tip)?;
 
     let is_within_stability_window =
         slot + global_parameters.randomness_stabilization_window < u64::from(next_epoch_first_slot);

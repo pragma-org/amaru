@@ -37,7 +37,7 @@ use amaru_kernel::{
     TransactionInput, PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
-use slot_arithmetic::{Epoch, TimeHorizonError};
+use slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},
@@ -725,8 +725,15 @@ impl HasStakeDistribution for StakeDistributionView {
     #[allow(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
+        #[allow(clippy::disallowed_methods)]
         let epoch = self
             .era_history
+            // NOTE: This function is called by the consensus when validating block headers. So in
+            // theory, the slot is either within the current epoch or the next since blocks must
+            // form a chain. Either the previous block is well within the current epoch, or it was
+            // the last block of the previous epoch.
+            //
+            // Either way, we do know at this point how to forecast this slot.
             .slot_to_epoch_unchecked_horizon(slot)
             .ok()?
             - 2;
@@ -802,13 +809,13 @@ pub enum StateError {
     #[error("rewards summary not ready")]
     RewardsSummaryNotReady,
     #[error("failed to compute epoch from slot {0:?}: {1}")]
-    ErrorComputingEpoch(Slot, TimeHorizonError),
+    ErrorComputingEpoch(Slot, EraHistoryError),
 }
 
 impl From<governance::Error> for StateError {
     fn from(origin: governance::Error) -> Self {
         match origin {
-            governance::Error::TimeHorizonError(slot, err) => {
+            governance::Error::EraHistoryError(slot, err) => {
                 StateError::ErrorComputingEpoch(slot, err)
             }
             governance::Error::StoreError(err) => StateError::Storage(err),

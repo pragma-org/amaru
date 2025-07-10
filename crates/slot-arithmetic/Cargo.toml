@@ -21,6 +21,7 @@ proptest = { workspace = true, optional = true, features = [ "std" ] }
 
 [dev-dependencies]
 proptest = { workspace = true, features = [ "std" ] }
+test-case.workspace = true
 
 [features]
 test-utils = ["proptest"]

@@ -544,19 +544,19 @@ mod tests {
     }
 
     #[test]
-    #[allow(clippy::disallowed_methods)]
     fn can_compute_next_epoch_first_slot_for_preprod() {
         let era_history = &*PREPROD_ERA_HISTORY;
+        let some_tip = Slot::from(96486650);
         assert_eq!(
-            era_history.next_epoch_first_slot_unchecked_horizon(Epoch::from(3)),
+            era_history.next_epoch_first_slot(Epoch::from(3), &some_tip),
             Ok(Slot::from(86400))
         );
         assert_eq!(
-            era_history.next_epoch_first_slot_unchecked_horizon(Epoch::from(114)),
+            era_history.next_epoch_first_slot(Epoch::from(114), &some_tip),
             Ok(Slot::from(48038400))
         );
         assert_eq!(
-            era_history.next_epoch_first_slot_unchecked_horizon(Epoch::from(150)),
+            era_history.next_epoch_first_slot(Epoch::from(150), &some_tip),
             Ok(Slot::from(63590400))
         );
     }

@@ -146,6 +146,7 @@ fn last_dormant_period<'a>(
 }
 
 #[cfg(test)]
+#[allow(clippy::disallowed_methods)]
 pub(crate) mod tests {
     use super::*;
     use amaru_kernel::{

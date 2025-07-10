@@ -20,7 +20,7 @@ use amaru_kernel::{
     CertificatePointer, DRep, EpochInterval, Lovelace, ProtocolVersion, Slot, StakeCredential,
     TransactionPointer,
 };
-use slot_arithmetic::{Epoch, TimeHorizonError};
+use slot_arithmetic::{Epoch, EraHistoryError};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]
@@ -49,7 +49,7 @@ pub struct ProposalState {
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("time horizon error: {0}")]
-    TimeHorizonError(Slot, TimeHorizonError),
+    EraHistoryError(Slot, EraHistoryError),
     #[error("store error: {0}")]
     StoreError(#[from] StoreError),
 }
@@ -74,7 +74,7 @@ impl GovernanceSummary {
                 #[allow(clippy::disallowed_methods)]
                 let epoch = era_history
                     .slot_to_epoch_unchecked_horizon(row.proposed_in.transaction.slot)
-                    .map_err(|e| Error::TimeHorizonError(row.proposed_in.transaction.slot, e))?;
+                    .map_err(|e| Error::EraHistoryError(row.proposed_in.transaction.slot, e))?;
 
                 proposals.insert((row.proposed_in.transaction, epoch));
 
@@ -149,7 +149,7 @@ impl GovernanceSummary {
                                     era_history
                                         .slot_to_epoch_unchecked_horizon(registration_slot)
                                         .map_err(|e| {
-                                            Error::TimeHorizonError(registration_slot, e)
+                                            Error::EraHistoryError(registration_slot, e)
                                         })?,
                                 ),
                                 last_interaction,
@@ -284,7 +284,7 @@ fn drep_mandate_calculator(
     let all_epochs = BTreeSet::from_iter(first_known_epoch..=current_epoch);
 
     let era_first_epoch = era_history
-        .era_first_epoch_unchecked_horizon(current_epoch)
+        .era_first_epoch(current_epoch)
         .unwrap_or_else(|_| {
             unreachable!("malformed era history {era_history:#?}\ndoesn't contain current epoch: {current_epoch}")
         });
