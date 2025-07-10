@@ -37,12 +37,13 @@ use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 use anyhow::Error;
 use bytes::Bytes;
 use clap::Parser;
-use generate::{generate_inputs_strategy, parse_json, read_chain_json};
+use generate::{generate_entries_strategy, parse_json, read_chain_json};
 use ledger::{populate_chain_store, FakeStakeDistribution};
 use proptest::test_runner::Config;
 use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
-use pure_stage::{Receiver, StageGraph, Void};
+use pure_stage::{Instant, Receiver, StageGraph, Void};
 use simulate::{pure_stage_node_handle, simulate, Trace};
+use std::time::Duration;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{info, Span};
@@ -109,7 +110,7 @@ fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
         Origin,
         &chain_store,
         // FIXME: Shouldn't be hardcoded!
-        &vec![Peer::new("c1")],
+        &vec![Peer::new("c1"), Peer::new("c2")],
     ));
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
@@ -348,7 +349,13 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
         Config::default(),
         number_of_nodes,
         spawn,
-        generate_inputs_strategy(&args.block_tree_file, args.seed),
+        generate_entries_strategy(
+            &args.block_tree_file,
+            args.seed,
+            Instant::at_offset(Duration::from_secs(0)),
+            200.0,
+            1,
+        ),
         chain_property(&args.block_tree_file),
         trace_buffer.clone(),
         args.persist_on_success,

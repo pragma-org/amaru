@@ -20,13 +20,17 @@ use rand::SeedableRng;
 use rand_distr::{Distribution, Exp};
 use serde::Deserialize;
 use serde_json::Result;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::echo::Envelope;
+
 use super::bytes::Bytes;
+use super::simulate::Entry;
 use super::sync::ChainSyncMessage;
 use slot_arithmetic::Slot;
 
@@ -327,6 +331,58 @@ pub fn generate_arrival_times<R: Rng>(
         time = time + Duration::from_millis(delay_ms);
     }
     arrival_times
+}
+
+pub fn generate_entries<R: Rng>(
+    rng: &mut R,
+    file_path: &PathBuf,
+    start_time: Instant,
+    mean_millis: f64,
+    number_of_clients: u8,
+) -> Vec<Reverse<Entry<ChainSyncMessage>>> {
+    let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
+    for client in 1..=number_of_clients {
+        let messages = generate_inputs(rng, file_path).unwrap();
+        let arrival_times = generate_arrival_times(rng, start_time, mean_millis, messages.len());
+        entries.extend(
+            messages
+                .into_iter()
+                .enumerate()
+                .map(|(idx, msg)| {
+                    Reverse(Entry {
+                        arrival_time: arrival_times[idx],
+                        envelope: Envelope {
+                            src: "c".to_owned() + &client.to_string(),
+                            dest: "n1".to_string(),
+                            body: msg,
+                        },
+                    })
+                })
+                .collect::<Vec<_>>(),
+        );
+    }
+    entries
+}
+
+pub fn generate_entries_strategy(
+    file_path: &PathBuf,
+    seed: Option<u64>,
+    start_time: Instant,
+    mean_millis: f64,
+    number_of_clients: u8,
+) -> impl Strategy<Value = Vec<Reverse<Entry<ChainSyncMessage>>>> + use<'_> {
+    any::<u64>().prop_map(move |s| {
+        let seed = seed.unwrap_or(s);
+        let mut rng = StdRng::seed_from_u64(seed);
+        println!("seed {}", seed);
+        generate_entries(
+            &mut rng,
+            file_path,
+            start_time,
+            mean_millis,
+            number_of_clients,
+        )
+    })
 }
 
 #[cfg(test)]

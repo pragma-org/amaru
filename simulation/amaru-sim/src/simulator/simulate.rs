@@ -34,8 +34,6 @@ use proptest::{
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::StageRef;
 use pure_stage::{simulation::SimulationRunning, Instant, Receiver};
-use rand::rngs::StdRng;
-use rand::SeedableRng;
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::fs::File;
@@ -53,12 +51,10 @@ use std::{
 };
 use tracing::info;
 
-use super::generate::generate_arrival_times;
-
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Entry<Msg> {
-    arrival_time: Instant,
-    envelope: Envelope<Msg>,
+    pub arrival_time: Instant,
+    pub envelope: Envelope<Msg>,
 }
 
 impl<Msg: PartialEq> PartialOrd for Entry<Msg> {
@@ -245,7 +241,7 @@ pub fn simulate<Msg, F>(
     config: Config,
     number_of_nodes: u8,
     spawn: F,
-    generate_messages: impl Strategy<Value = Vec<Msg>>,
+    generate_entries: impl Strategy<Value = Vec<Reverse<Entry<Msg>>>>,
     property: impl Fn(Trace<Msg>) -> Result<(), String>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     persist_on_success: bool,
@@ -254,25 +250,7 @@ pub fn simulate<Msg, F>(
     F: Fn() -> NodeHandle<Msg>,
 {
     let mut runner = TestRunner::new(config);
-    let now = Instant::at_offset(Duration::from_secs(0));
-    let generate_messages = (any::<u64>(), generate_messages).prop_map(|(seed, msgs)| {
-        let mut rng = StdRng::seed_from_u64(seed);
-        let arrival_times = generate_arrival_times(&mut rng, now, 200.0, msgs.len());
-        msgs.into_iter()
-            .enumerate()
-            .map(|(idx, msg)| {
-                Reverse(Entry {
-                    arrival_time: arrival_times[idx],
-                    envelope: Envelope {
-                        src: "c1".to_string(),
-                        dest: "n1".to_string(),
-                        body: msg,
-                    },
-                })
-            })
-            .collect()
-    });
-    let result = runner.run(&generate_messages, |initial_messages| {
+    let result = runner.run(&generate_entries, |initial_messages| {
         let node_handles: Vec<_> = (1..=number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))
             .collect();
@@ -403,10 +381,20 @@ mod tests {
 
             pure_stage_node_handle(rx, stage.without_state(), running).unwrap()
         };
+        let now = Instant::at_offset(Duration::from_secs(0));
         let generate_messages = prop::collection::vec(
-            (0..128u8).prop_map(|i| EchoMessage::Echo {
-                msg_id: 0,
-                echo: format!("Please echo {}", i),
+            (0..128u8).prop_map(|i| {
+                Reverse(Entry {
+                    arrival_time: now,
+                    envelope: Envelope {
+                        src: "c1".to_string(),
+                        dest: "n1".to_string(),
+                        body: EchoMessage::Echo {
+                            msg_id: 0,
+                            echo: format!("Please echo {}", i),
+                        },
+                    },
+                })
             }),
             0..20,
         );
@@ -468,10 +456,20 @@ mod tests {
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
+        let now = Instant::at_offset(Duration::from_secs(0));
         let generate_messages = prop::collection::vec(
-            (0..128u8).prop_map(|i| EchoMessage::Echo {
-                msg_id: 0,
-                echo: format!("Please echo {}", i),
+            (0..128u8).prop_map(|i| {
+                Reverse(Entry {
+                    arrival_time: now,
+                    envelope: Envelope {
+                        src: "c1".to_string(),
+                        dest: "n1".to_string(),
+                        body: EchoMessage::Echo {
+                            msg_id: 0,
+                            echo: format!("Please echo {}", i),
+                        },
+                    },
+                })
             }),
             0..20,
         );
