@@ -102,7 +102,7 @@ where
     /// The era history for the network this store is related to.
     era_history: Arc<EraHistory>,
 
-    pub global_parameters: Arc<GlobalParameters>,
+    global_parameters: Arc<GlobalParameters>,
 
     protocol_parameters: Arc<ProtocolParameters>,
 }
@@ -179,6 +179,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         &self.protocol_parameters
+    }
+
+    pub fn global_parameters(&self) -> &GlobalParameters {
+        &self.global_parameters
     }
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
