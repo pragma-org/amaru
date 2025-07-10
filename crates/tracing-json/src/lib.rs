@@ -1,3 +1,25 @@
+//! Escaped JSON fields formatter for tracing-subscriber
+//! 
+//! This crate provides a transparent solution to the JSON escaping issue with tracing-subscriber's JsonFields.
+//! The problem occurs when using Debug formatting (`?field`) with fields containing special JSON characters.
+//! 
+//! ## Usage
+//! 
+//! Simply replace `JsonFields::new()` with `EscapedJsonFields::new()`:
+//! 
+//! ```rust
+//! use tracing_json::EscapedJsonFields;
+//! use tracing_subscriber::fmt;
+//! 
+//! let layer = fmt::layer()
+//!     .event_format(fmt::format().json())
+//!     .fmt_fields(EscapedJsonFields::new());  // Instead of JsonFields::new()
+//! ```
+
+pub mod escaped_fields;
+
+pub use escaped_fields::EscapedJsonFields;
+
 use assert_json_diff::assert_json_eq;
 use serde_json as json;
 use std::sync::{Arc, RwLock};
@@ -231,5 +253,77 @@ mod tests {
             ),
             "result"
         );
+    }
+
+    #[test]
+    fn test_escaped_json_fields_integration() {
+        use crate::EscapedJsonFields;
+        use tracing_subscriber::fmt;
+        use tracing_subscriber::layer::SubscriberExt;
+        use std::sync::{Arc, Mutex};
+        
+        #[derive(Debug)]
+        struct ProblematicStruct {
+            value: String,
+        }
+
+        let problematic = ProblematicStruct {
+            value: "contains \"quotes\" and \n newlines \t tabs".to_string(),
+        };
+
+        // Capture output in a buffer using Arc<Mutex<Vec<u8>>>
+        let output = Arc::new(Mutex::new(Vec::new()));
+        let output_clone = output.clone();
+        
+        {
+            let layer = fmt::layer()
+                .event_format(fmt::format().json())
+                .fmt_fields(EscapedJsonFields::new())
+                .with_writer(move || {
+                    TestWriter::new(output_clone.clone())
+                });
+                
+            let subscriber = tracing_subscriber::registry().with(layer);
+            let dispatch = tracing::Dispatch::new(subscriber);
+            let _guard = tracing::dispatcher::set_default(&dispatch);
+
+            // This pattern was problematic with tracing-subscriber's JsonFields
+            info!(?problematic, "test message");
+        }
+
+        let output_bytes = output.lock().unwrap().clone();
+        let output_str = String::from_utf8(output_bytes).expect("Should be valid UTF-8");
+        println!("JSON output: {}", output_str);
+        
+        // Parse as JSON to ensure it's valid
+        let json_obj: serde_json::Value = serde_json::from_str(&output_str).expect("Should be valid JSON");
+        
+        // Verify the problematic field was properly escaped
+        assert!(json_obj["fields"]["problematic"].is_string());
+        let debug_value = json_obj["fields"]["problematic"].as_str().unwrap();
+        assert!(debug_value.contains("ProblematicStruct"));
+        assert!(debug_value.contains("contains"));
+    }
+
+    // Test writer that implements std::io::Write for capturing output
+    struct TestWriter {
+        output: Arc<std::sync::Mutex<Vec<u8>>>,
+    }
+
+    impl TestWriter {
+        fn new(output: Arc<std::sync::Mutex<Vec<u8>>>) -> Self {
+            Self { output }
+        }
+    }
+
+    impl std::io::Write for TestWriter {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.output.lock().unwrap().extend_from_slice(buf);
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
     }
 }
