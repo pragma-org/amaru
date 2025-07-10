@@ -48,7 +48,12 @@ use gasket::{
 };
 use ledger::ValidateBlockStage;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
-use std::{error::Error, fmt::Display, path::PathBuf, sync::Arc};
+use std::{
+    error::Error,
+    fmt::Display,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+};
 use tokio::sync::Mutex;
 
 pub mod common;
@@ -119,7 +124,15 @@ pub fn bootstrap(
     let era_history: &EraHistory = config.network.into();
 
     let global_parameters: &GlobalParameters = config.network.into();
-    let (mut ledger_stage, tip) = make_ledger(&config, era_history, global_parameters)?;
+
+    let is_catching_up = Arc::new(RwLock::new(true));
+
+    let (mut ledger_stage, tip) = make_ledger(
+        &config,
+        era_history.clone(),
+        global_parameters.clone(),
+        is_catching_up.clone(),
+    )?;
 
     let peer_sessions: Vec<PeerSession> = clients
         .iter()
@@ -133,7 +146,7 @@ pub fn bootstrap(
 
     let mut stages = peer_sessions
         .iter()
-        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
+        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()], is_catching_up.clone()))
         .collect::<Vec<_>>();
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
@@ -143,6 +156,7 @@ pub fn bootstrap(
         &peer_sessions,
         global_parameters.consensus_security_param,
     )?;
+
     let consensus = match ledger_stage {
         LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
             Arc::new(validate_block_stage.state.view_stake_distribution()),
@@ -307,16 +321,18 @@ impl LedgerStage {
 
 fn make_ledger(
     config: &Config,
-    era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
+    era_history: EraHistory,
+    global_parameters: GlobalParameters,
+    is_catching_up: Arc<RwLock<bool>>,
 ) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
     match config.ledger_store {
         StorePath::InMem => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 MemoryStore {},
                 MemoryStore {},
-                era_history.clone(),
-                global_parameters.clone(),
+                era_history,
+                global_parameters,
+                is_catching_up,
             )?;
             Ok((LedgerStage::InMemLedgerStage(ledger), tip))
         }
@@ -324,8 +340,9 @@ fn make_ledger(
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 RocksDB::new(ledger_dir)?,
                 RocksDBHistoricalStores::new(ledger_dir),
-                era_history.clone(),
-                global_parameters.clone(),
+                era_history,
+                global_parameters,
+                is_catching_up,
             )?;
             Ok((LedgerStage::OnDiskLedgerStage(ledger), tip))
         }

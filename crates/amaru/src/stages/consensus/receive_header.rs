@@ -33,8 +33,8 @@ pub struct ReceiveHeaderStage {
 
 impl ReceiveHeaderStage {
     async fn handle_event(&mut self, sync_event: ChainSyncEvent) -> Result<(), WorkerError> {
-        let event = receive_header::handle_chain_sync(sync_event).map_err(|e| {
-            error!("fail to handle chain sync {}", e);
+        let event = receive_header::handle_chain_sync(sync_event).map_err(|reason| {
+            error!(reason = %reason, "fail to handle chain sync");
             WorkerError::Recv
         })?;
 

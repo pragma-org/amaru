@@ -111,7 +111,9 @@ pub(crate) async fn import_nonces(
 
     let epoch = {
         let slot = initial_nonce.at.slot_or_default();
-        era_history.slot_to_epoch(slot)?
+        #[allow(clippy::disallowed_methods)]
+        // NOTE: The slot definitely exists and is within one of the known eras.
+        era_history.slot_to_epoch_unchecked_horizon(slot)?
     };
 
     let nonces = Nonces {

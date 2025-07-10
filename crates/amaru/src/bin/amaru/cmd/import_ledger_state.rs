@@ -202,7 +202,9 @@ fn decode_new_epoch_state(
 
     // EpochNo
     let epoch = Epoch::from(d.u64()?);
-    assert_eq!(epoch, era_history.slot_to_epoch(point.slot_or_default())?);
+    let tip = point.slot_or_default();
+
+    assert_eq!(epoch, era_history.slot_to_epoch(tip, tip)?);
 
     // Previous blocks made
     d.skip()?;
@@ -540,9 +542,9 @@ fn import_dreps(
                 //    very first epoch of the Conway era on this network. This is true of Preview,
                 //    Preprod and Mainnet. Any custom network for which this wouldn't be true is
                 //    expected to use a protocol version > 9, where this assumption doesn't matter.
-                #[allow(clippy::unwrap_used)]
                 let (registration_slot, last_interaction) = if epoch == era_first_epoch {
                     let last_interaction = era_first_epoch;
+                    #[allow(clippy::unwrap_used)]
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
                         (epoch_bound.start, last_interaction)
@@ -551,6 +553,7 @@ fn import_dreps(
                     }
                 } else {
                     let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
+                    #[allow(clippy::unwrap_used)]
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     // start or end doesn't matter here.
                     (epoch_bound.start, last_interaction)

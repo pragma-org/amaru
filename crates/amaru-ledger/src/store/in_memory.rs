@@ -278,9 +278,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
 }
 
 impl Store for MemoryStore {
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        Ok(vec![Epoch::from(3)])
-    }
     fn next_snapshot(&self, _epoch: Epoch) -> Result<(), crate::store::StoreError> {
         Ok(())
     }
@@ -294,6 +291,9 @@ impl Store for MemoryStore {
 }
 
 impl HistoricalStores for MemoryStore {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![Epoch::from(3)])
+    }
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, crate::store::StoreError> {
         Ok(MemoryStore {})
     }

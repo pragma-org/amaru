@@ -2840,6 +2840,7 @@ dependencies = [
  "minicbor",
  "proptest",
  "serde",
+ "test-case",
  "thiserror 2.0.12",
 ]
 

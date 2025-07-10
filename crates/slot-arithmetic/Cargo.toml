@@ -14,13 +14,14 @@ rust-version.workspace = true
 
 [dependencies]
 hex.workspace = true
-minicbor.workspace = true
-serde.workspace = true
+minicbor = { workspace = true, features = [ "alloc" ] }
+serde = { workspace = true, features = [ "std", "derive" ] }
 thiserror.workspace = true
-proptest = { workspace = true, optional = true }
+proptest = { workspace = true, optional = true, features = [ "std" ] }
 
 [dev-dependencies]
-proptest.workspace = true
+proptest = { workspace = true, features = [ "std" ] }
+test-case.workspace = true
 
 [features]
 test-utils = ["proptest"]
