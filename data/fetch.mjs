@@ -41,11 +41,29 @@ if (includeSnapshots) {
 }
 
 // Each point corresponds to the last point of the associated epoch.
-const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
+const { points: configPoints, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
 if (!snapshots || !Array.isArray(snapshots)) {
   console.error(`Invalid or missing snapshots in ${configFile}`);
   process.exit(1);
 }
+
+function filterExistingPoints() {
+  const folderPath = path.join(import.meta.dirname, "mainnet", "dreps");
+  if (!fs.existsSync(folderPath)) {
+    return new Set();
+  }
+
+  const files = fs.readdirSync(folderPath);
+  return new Set(
+    files
+      .filter(file => file.endsWith('.json'))
+      .map(file => parseInt(path.basename(file, '.json')))
+      .filter(num => !isNaN(num))
+  );
+}
+
+const existingPoints = filterExistingPoints();
+const points = configPoints.filter(point => !existingPoints.has(point.epoch));
 
 const additionalStakeKeys = additionalStakeAddresses.reduce(collectAddressType(14), []);
 
