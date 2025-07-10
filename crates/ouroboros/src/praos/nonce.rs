@@ -54,7 +54,8 @@ pub fn randomness_stability_window<H: IsHeader>(
 ) -> Result<(Epoch, bool), TimeHorizonError> {
     let slot = header.slot();
     let tip = Slot::from(slot);
-    let epoch = era_history.slot_to_epoch(tip, tip, global_parameters.stability_window)?;
+    let epoch = era_history.slot_to_epoch(tip, tip)?;
+
     let next_epoch_first_slot = era_history.next_epoch_first_slot_unchecked_horizon(epoch)?;
 
     let is_within_stability_window =

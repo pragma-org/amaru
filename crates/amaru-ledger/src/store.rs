@@ -16,7 +16,6 @@ pub mod columns;
 pub mod in_memory;
 
 use crate::summary::Pots;
-use amaru_kernel::protocol_parameters::GlobalParameters;
 use amaru_kernel::MemoizedTransactionOutput;
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
@@ -216,7 +215,6 @@ pub trait TransactionalContext<'a> {
         withdrawals: impl Iterator<Item = accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
         era_history: &EraHistory,
-        global_parameters: &GlobalParameters,
     ) -> Result<(), StoreError>;
 
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded

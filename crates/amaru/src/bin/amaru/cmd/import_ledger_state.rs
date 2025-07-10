@@ -97,14 +97,13 @@ enum Error {
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let network = args.network;
     let era_history = network.into();
-    let global_parameters: &GlobalParameters = network.into();
     let ledger_dir = args
         .ledger_dir
         .unwrap_or_else(|| default_ledger_dir(args.network).into());
     if !args.snapshot.is_empty() {
-        import_all(&args.snapshot, &ledger_dir, era_history, global_parameters).await
+        import_all(&args.snapshot, &ledger_dir, era_history).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
-        import_all_from_directory(&ledger_dir, era_history, &snapshot_dir, global_parameters).await
+        import_all_from_directory(&ledger_dir, era_history, &snapshot_dir).await
     } else {
         Err(Error::IncorrectUsage.into())
     }
@@ -114,7 +113,6 @@ pub(crate) async fn import_all_from_directory(
     ledger_dir: &PathBuf,
     era_history: &EraHistory,
     snapshot_dir: &PathBuf,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut snapshots = fs::read_dir(snapshot_dir)?
         .filter_map(|entry| entry.ok().map(|e| e.path()))
@@ -123,7 +121,7 @@ pub(crate) async fn import_all_from_directory(
 
     sort_snapshots_by_slot(&mut snapshots);
 
-    import_all(&snapshots, ledger_dir, era_history, global_parameters).await
+    import_all(&snapshots, ledger_dir, era_history).await
 }
 
 fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
@@ -143,11 +141,10 @@ async fn import_all(
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
     era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
-        import_one(snapshot, ledger_dir, era_history, global_parameters).await?;
+        import_one(snapshot, ledger_dir, era_history).await?;
     }
     Ok(())
 }
@@ -157,7 +154,6 @@ async fn import_one(
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
     era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing snapshot {}", snapshot.display());
     let point = super::parse_point(
@@ -173,7 +169,7 @@ async fn import_one(
     let db = RocksDB::empty(ledger_dir)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history, global_parameters)?;
+    let epoch = decode_new_epoch_state(&db, &bytes, &point, era_history)?;
     let transaction = db.create_transaction();
     transaction.save(
         &point,
@@ -183,7 +179,6 @@ async fn import_one(
         iter::empty(),
         BTreeSet::new(),
         era_history,
-        global_parameters,
     )?;
     transaction.commit()?;
 
@@ -202,7 +197,6 @@ fn decode_new_epoch_state(
     bytes: &[u8],
     point: &Point,
     era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
     let mut d = cbor::Decoder::new(bytes);
 
@@ -212,10 +206,7 @@ fn decode_new_epoch_state(
     let epoch = Epoch::from(d.u64()?);
     let tip = point.slot_or_default();
 
-    assert_eq!(
-        epoch,
-        era_history.slot_to_epoch(tip, tip, global_parameters.stability_window)?
-    );
+    assert_eq!(epoch, era_history.slot_to_epoch(tip, tip)?);
 
     // Previous blocks made
     d.skip()?;
@@ -225,7 +216,7 @@ fn decode_new_epoch_state(
     // the last block of the epoch. We have no intrinsic ways to check that this is the case since
     // we do not know what the last block of an epoch is, and we can't reliably look at the number
     // of blocks either.
-    import_block_issuers(db, d.decode()?, era_history, global_parameters)?;
+    import_block_issuers(db, d.decode()?, era_history)?;
 
     // Epoch State
     d.array()?;
@@ -265,7 +256,6 @@ fn decode_new_epoch_state(
         // Retirements
         d.decode()?,
         era_history,
-        global_parameters,
     )?;
     // Deposits
     d.skip()?;
@@ -301,7 +291,6 @@ fn decode_new_epoch_state(
             .into_iter()
             .collect::<Vec<(TransactionInput, MemoizedTransactionOutput)>>(),
         era_history,
-        global_parameters,
     )?;
 
     let _deposited: u64 = d.decode()?;
@@ -323,23 +312,8 @@ fn decode_new_epoch_state(
     d.skip()?;
     // Current Protocol Params
     let protocol_parameters = import_protocol_parameters(db, &epoch, d.decode()?)?;
-    import_dreps(
-        db,
-        era_history,
-        point,
-        epoch,
-        dreps,
-        &protocol_parameters,
-        &global_parameters,
-    )?;
-    import_proposals(
-        db,
-        point,
-        era_history,
-        proposals,
-        &protocol_parameters,
-        &global_parameters,
-    )?;
+    import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
+    import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
     // Previous Protocol Params
     d.skip()?;
@@ -382,7 +356,6 @@ fn decode_new_epoch_state(
         &mut rewards,
         &protocol_parameters,
         era_history,
-        global_parameters,
     )?;
 
     let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
@@ -414,7 +387,6 @@ fn import_block_issuers(
     db: &impl Store,
     blocks: BTreeMap<PoolId, u64>,
     era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_block_issuers(|iterator| {
@@ -443,7 +415,6 @@ fn import_block_issuers(
                 iter::empty(),
                 BTreeSet::new(),
                 era_history,
-                global_parameters,
             )?;
             count -= 1;
             fake_slot += 1;
@@ -458,7 +429,6 @@ fn import_utxo(
     point: &Point,
     mut utxo: Vec<(TransactionInput, MemoizedTransactionOutput)>,
     era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(what = "utxo_entries", size = utxo.len());
 
@@ -499,7 +469,6 @@ fn import_utxo(
             iter::empty(),
             BTreeSet::new(),
             era_history,
-            global_parameters,
         )?;
 
         progress.inc(n as u64);
@@ -517,13 +486,12 @@ fn import_dreps(
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
     protocol_parameters: &ProtocolParameters,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), impl std::error::Error> {
     let mut known_dreps = BTreeMap::new();
 
     let tip = point.slot_or_default();
     let era_first_epoch = era_history
-        .era_first_epoch(epoch, tip, global_parameters.stability_window)
+        .era_first_epoch(epoch, tip)
         .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
     let transaction = db.create_transaction();
@@ -579,9 +547,7 @@ fn import_dreps(
                 //    expected to use a protocol version > 9, where this assumption doesn't matter.
                 let (registration_slot, last_interaction) = if epoch == era_first_epoch {
                     let last_interaction = era_first_epoch;
-                    let epoch_bound = era_history
-                        .epoch_bounds(last_interaction, tip, global_parameters.stability_window)
-                        .unwrap();
+                    let epoch_bound = era_history.epoch_bounds(last_interaction, tip).unwrap();
                     if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
                         (epoch_bound.start, last_interaction)
                     } else {
@@ -589,9 +555,7 @@ fn import_dreps(
                     }
                 } else {
                     let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
-                    let epoch_bound = era_history
-                        .epoch_bounds(last_interaction, tip, global_parameters.stability_window)
-                        .unwrap();
+                    let epoch_bound = era_history.epoch_bounds(last_interaction, tip).unwrap();
                     // start or end doesn't matter here.
                     (epoch_bound.start, last_interaction)
                 };
@@ -623,7 +587,6 @@ fn import_dreps(
         iter::empty(),
         BTreeSet::new(),
         era_history,
-        global_parameters,
     )?;
     transaction.commit()
 }
@@ -634,7 +597,6 @@ fn import_proposals(
     era_history: &EraHistory,
     proposals: Vec<ProposalState>,
     protocol_parameters: &ProtocolParameters,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
@@ -667,7 +629,6 @@ fn import_proposals(
                                         .epoch_bounds(
                                             proposal.proposed_in,
                                             point.slot_or_default(),
-                                            global_parameters.stability_window,
                                         )?
                                         .start,
                                     transaction_index: 0,
@@ -687,7 +648,6 @@ fn import_proposals(
         iter::empty(),
         BTreeSet::new(),
         era_history,
-        global_parameters,
     )?;
     transaction.commit()?;
 
@@ -702,7 +662,6 @@ fn import_stake_pools(
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
     era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), impl std::error::Error> {
     let mut state = amaru_ledger::state::diff_epoch_reg::DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
@@ -761,7 +720,6 @@ fn import_stake_pools(
         iter::empty(),
         BTreeSet::new(),
         era_history,
-        global_parameters,
     )?;
     transaction.commit()
 }
@@ -791,7 +749,6 @@ fn import_accounts(
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
     protocol_parameters: &ProtocolParameters,
     era_history: &EraHistory,
-    global_parameters: &GlobalParameters,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_accounts(|iterator| {
@@ -862,7 +819,6 @@ fn import_accounts(
             iter::empty(),
             BTreeSet::new(),
             era_history,
-            global_parameters,
         )?;
 
         progress.inc(n as u64);

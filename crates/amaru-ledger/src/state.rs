@@ -212,16 +212,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let tip = db.tip().map_err(StateError::Storage)?;
         let tip_slot = tip.slot_or_default();
-        let stability_window = self.global_parameters.stability_window;
 
         let current_epoch = self
             .era_history
-            .slot_to_epoch(start_slot, tip_slot, stability_window)
+            .slot_to_epoch(start_slot, tip_slot)
             .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
 
         let tip_epoch = self
             .era_history
-            .slot_to_epoch(tip_slot, tip_slot, stability_window)
+            .slot_to_epoch(tip_slot, tip_slot)
             .map_err(|e| StateError::ErrorComputingEpoch(tip_slot, e))?;
 
         let epoch_transitioning = current_epoch > tip_epoch;
@@ -261,7 +260,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 withdrawals,
                 voting_dreps,
                 &self.era_history,
-                &self.global_parameters,
             )
             .and_then(|()| {
                 batch.with_pots(|mut row| {
@@ -345,11 +343,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let next_state_slot = next_state.anchor.0.slot_or_default();
         let relative_slot = self
             .era_history
-            .slot_in_epoch(
-                next_state_slot,
-                tip,
-                self.global_parameters.stability_window,
-            )
+            .slot_in_epoch(next_state_slot, tip)
             .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
 
         if self.rewards_summary.is_none()

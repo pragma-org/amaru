@@ -14,10 +14,8 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    cbor,
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
-    CertificatePointer, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
-    StakeCredential, TransactionInput,
+    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace,
+    MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     store::{
@@ -405,7 +403,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
         era_history: &EraHistory,
-        global_parameters: &GlobalParameters,
     ) -> Result<(), StoreError> {
         match (point, self.db.tip().ok()) {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
@@ -433,7 +430,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 accounts::reset_many(&self.transaction, withdrawals)?;
                 dreps::tick(&self.transaction, voting_dreps, {
                     era_history
-                        .slot_to_epoch(tip, tip, global_parameters.stability_window)
+                        .slot_to_epoch(tip, tip)
                         .map_err(|err| StoreError::Internal(err.into()))?
                 })?;
 

@@ -160,22 +160,25 @@ pub(crate) mod tests {
     /// slots or 1s each. The era starts at 0 and ends after 100 epochs, so make sure tests are
     /// within this bound.
     pub(crate) static ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
-        EraHistory::new(&[Summary {
-            start: Bound {
-                time_ms: 0,
-                slot: Slot::from(0),
-                epoch: Epoch::from(0),
-            },
-            end: Some(Bound {
-                time_ms: 1000000,
-                slot: Slot::from(1000),
-                epoch: Epoch::from(100),
-            }),
-            params: EraParams {
-                epoch_size_slots: 10,
-                slot_length: 1000,
-            },
-        }])
+        EraHistory::new(
+            &[Summary {
+                start: Bound {
+                    time_ms: 0,
+                    slot: Slot::from(0),
+                    epoch: Epoch::from(0),
+                },
+                end: Some(Bound {
+                    time_ms: 1000000,
+                    slot: Slot::from(1000),
+                    epoch: Epoch::from(100),
+                }),
+                params: EraParams {
+                    epoch_size_slots: 10,
+                    slot_length: 1000,
+                },
+            }],
+            Slot::from(10),
+        )
     });
 
     /// Create a transaction pointer from a slot and a transaction index. Also returns the epoch

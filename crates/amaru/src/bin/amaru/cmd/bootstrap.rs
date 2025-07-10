@@ -12,27 +12,33 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::path::Path;
-use std::{error::Error, io, path::PathBuf};
+use std::{
+    error::Error,
+    io,
+    path::{Path, PathBuf},
+};
 
 use amaru::snapshots_dir;
-use amaru_kernel::network::NetworkName;
-use amaru_kernel::{default_chain_dir, default_ledger_dir};
+use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
 use futures_util::TryStreamExt;
 use serde::Deserialize;
 use thiserror::Error;
-use tokio::fs::{self, File};
-use tokio::io::BufReader;
+use tokio::{
+    fs::{self, File},
+    io::BufReader,
+};
 use tokio_util::io::StreamReader;
 use tracing::info;
 
 use crate::cmd::DEFAULT_NETWORK;
 
-use super::import_headers::import_headers;
-use super::import_ledger_state::import_all_from_directory;
-use super::import_nonces::{import_nonces, InitialNonces};
+use super::{
+    import_headers::import_headers,
+    import_ledger_state::import_all_from_directory,
+    import_nonces::{import_nonces, InitialNonces},
+};
 
 #[derive(Debug, Parser)]
 pub struct Args {
@@ -94,11 +100,11 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     let network = args.network;
     let era_history = network.into();
-    let global_parameters = network.into();
 
     let ledger_dir = args
         .ledger_dir
         .unwrap_or_else(|| default_ledger_dir(args.network).into());
+
     let chain_dir = args
         .chain_dir
         .unwrap_or_else(|| default_chain_dir(args.network).into());
@@ -110,7 +116,7 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
-    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir, global_parameters).await?;
+    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await?;
 
     import_nonces_for_network(era_history, &network_dir, &chain_dir).await?;
 

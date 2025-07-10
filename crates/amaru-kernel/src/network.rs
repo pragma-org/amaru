@@ -145,7 +145,7 @@ static PREPROD_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
     ];
 
-    EraHistory::new(&eras)
+    EraHistory::new(&eras, Slot::from(129600))
 });
 
 /// Era history for Preview retrieved with:
@@ -274,7 +274,7 @@ static PREVIEW_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
     ];
 
-    EraHistory::new(&eras)
+    EraHistory::new(&eras, Slot::from(25920))
 });
 
 /// A default era history for testnets
@@ -296,7 +296,7 @@ static TESTNET_ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
         },
     }];
 
-    EraHistory::new(&eras)
+    EraHistory::new(&eras, Slot::from(129600))
 });
 
 #[allow(clippy::todo)]
