@@ -143,6 +143,8 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: True
       - uses: actions/cache/restore@v4
         with:
           path: ${{ env.RUST_CACHE_PATH }}
@@ -151,6 +153,10 @@ jobs:
             cargo-x86_64-unknown-linux-gnu
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
+      - name: Unpack test vectors
+        working-directory: cardano-blueprint/src/ledger/conformance-test-vectors
+        run: |
+          tar -xzf vectors.tar.gz
       - name: Generate code coverage
         run: make coverage-lconv
       - name: Upload coverage to Codecov

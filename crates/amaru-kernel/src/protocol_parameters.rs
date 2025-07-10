@@ -113,7 +113,7 @@ impl<'b, C> cbor::decode::Decode<'b, C> for ProtocolParameters {
                 2 => {
                     plutus_v3 = Some(v);
                 }
-                _ => {}
+                _ => unreachable!("unexpected language version: {k}"),
             }
         }
         d.array()?;
