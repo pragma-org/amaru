@@ -325,7 +325,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &mut self,
         protocol_version: ProtocolVersion,
         next_state: AnchoredVolatileState,
-        tip: Slot,
     ) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
@@ -339,16 +338,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             trace!(target: EVENT_TARGET, size = self.volatile.len(), "volatile.warming_up",);
         }
 
-        // Once we reach the stability window, compute rewards unless we've already done so.
-        let next_state_slot = next_state.anchor.0.slot_or_default();
+        let tip = next_state.anchor.0.slot_or_default();
         let relative_slot = self
             .era_history
-            .slot_in_epoch(next_state_slot, tip)
-            .map_err(|e| StateError::ErrorComputingEpoch(next_state_slot, e))?;
+            .slot_in_epoch(tip, tip)
+            .map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
 
-        if self.rewards_summary.is_none()
-            && relative_slot >= self.global_parameters.stability_window
-        {
+        // Once we reach the stability window, compute rewards unless we've already done so.
+        let stability_window = self.global_parameters.stability_window;
+        if self.rewards_summary.is_none() && relative_slot >= stability_window {
             self.rewards_summary = Some(self.compute_rewards(protocol_version)?);
         }
 
