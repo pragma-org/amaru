@@ -7,7 +7,12 @@ use clap::Parser;
 use gasket::framework::*;
 use indicatif::{ProgressBar, ProgressStyle};
 use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse};
-use std::{error::Error, path::PathBuf, sync::Arc, time::Duration};
+use std::{
+    error::Error,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+    time::Duration,
+};
 use tokio::{sync::Mutex, time::timeout};
 use tracing::info;
 
@@ -94,7 +99,11 @@ pub(crate) async fn import_headers(
         peer_client,
     };
 
-    let mut pull = pull::Stage::new(peer_session.clone(), vec![point.clone()]);
+    let mut pull = pull::Stage::new(
+        peer_session.clone(),
+        vec![point.clone()],
+        Arc::new(RwLock::new(true)),
+    );
 
     pull.find_intersection().await?;
 
