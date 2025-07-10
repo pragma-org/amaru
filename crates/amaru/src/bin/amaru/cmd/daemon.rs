@@ -66,7 +66,7 @@ pub async fn run(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config = parse_args(args)?;
 
-    let metrics = metrics.map(track_system_metrics);
+    let metrics = metrics.map(track_system_metrics).transpose()?;
 
     let mut clients: Vec<(String, Arc<Mutex<PeerClient>>)> = vec![];
     for peer in &config.upstream_peers {
