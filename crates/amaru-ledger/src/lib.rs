@@ -14,6 +14,7 @@
 
 #![feature(try_trait_v2)]
 
+pub mod bootstrap;
 pub mod context;
 pub mod rules;
 pub mod state;
