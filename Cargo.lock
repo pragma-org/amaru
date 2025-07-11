@@ -57,7 +57,6 @@ dependencies = [
  "futures-util",
  "gasket",
  "hex",
- "indicatif",
  "indoc",
  "insta",
  "iter-borrow",
@@ -70,6 +69,7 @@ dependencies = [
  "pallas-crypto",
  "pallas-network",
  "pallas-traverse",
+ "progress-bar",
  "proptest",
  "rand 0.9.1",
  "reqwest",
@@ -146,6 +146,7 @@ dependencies = [
  "hex",
  "iter-borrow",
  "num",
+ "progress-bar",
  "proptest",
  "serde",
  "slot-arithmetic",
@@ -2233,6 +2234,13 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "02b3e5e68a3a1a02aad3ec490a98007cbc13c37cbe84a3cd7b8e406d76e7f778"
 dependencies = [
  "unicode-ident",
+]
+
+[[package]]
+name = "progress-bar"
+version = "0.1.0"
+dependencies = [
+ "indicatif",
 ]
 
 [[package]]

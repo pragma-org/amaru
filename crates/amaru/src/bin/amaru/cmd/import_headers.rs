@@ -7,8 +7,8 @@ use amaru_kernel::{
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
-use indicatif::{ProgressBar, ProgressStyle};
 use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse};
+use progress_bar::{new_terminal_progress_bar, ProgressBar};
 use std::{
     error::Error,
     path::PathBuf,
@@ -111,11 +111,10 @@ pub(crate) async fn import_headers(
 
     let mut peer_client = pull.peer_session.lock().await;
     let mut count = 0;
-    let start = point.slot_or_default().into();
 
     let client = (*peer_client).chainsync();
 
-    let mut progress: Option<ProgressBar> = None;
+    let mut progress: Option<Box<dyn ProgressBar>> = None;
 
     // TODO: implement a proper pipelined client because this one is super slow
     // Pipelining in Haskell is single threaded which implies the code handles
@@ -126,15 +125,15 @@ pub(crate) async fn import_headers(
     // Pipelining stops when we reach the tip of the peer's chain.
     loop {
         let what = if client.has_agency() {
-            request_next_block(client, &mut db, &mut count, &mut progress, max, start).await?
+            request_next_block(client, &mut db, &mut count, &mut progress, max).await?
         } else {
-            await_for_next_block(client, &mut db, &mut count, &mut progress, max, start).await?
+            await_for_next_block(client, &mut db, &mut count, &mut progress, max).await?
         };
         match what {
             Continue => continue,
             Stop => {
                 if let Some(progress) = progress {
-                    progress.finish_and_clear()
+                    progress.clear()
                 }
                 break;
             }
@@ -148,26 +147,24 @@ async fn request_next_block(
     client: &mut chainsync::Client<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
-    progress: &mut Option<ProgressBar>,
+    progress: &mut Option<Box<dyn ProgressBar>>,
     max: usize,
-    start: u64,
 ) -> Result<What, WorkerError> {
     let next = client.request_next().await.or_restart()?;
-    handle_response(next, db, count, progress, max, start)
+    handle_response(next, db, count, progress, max)
 }
 
 async fn await_for_next_block(
     client: &mut chainsync::Client<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
-    progress: &mut Option<ProgressBar>,
+    progress: &mut Option<Box<dyn ProgressBar>>,
     max: usize,
-    start: u64,
 ) -> Result<What, WorkerError> {
     match timeout(Duration::from_secs(1), client.recv_while_must_reply()).await {
         Ok(result) => result
             .map_err(|_| WorkerError::Recv)
-            .and_then(|next| handle_response(next, db, count, progress, max, start)),
+            .and_then(|next| handle_response(next, db, count, progress, max)),
         Err(_) => Err(WorkerError::Retry)?,
     }
 }
@@ -177,9 +174,8 @@ fn handle_response(
     next: NextResponse<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
-    progress: &mut Option<ProgressBar>,
+    progress: &mut Option<Box<dyn ProgressBar>>,
     max: usize,
-    start: u64,
 ) -> Result<What, WorkerError> {
     match next {
         NextResponse::RollForward(content, tip) => {
@@ -195,7 +191,7 @@ fn handle_response(
             let tip_slot = tip.0.slot_or_default();
 
             if let Some(progress) = progress {
-                progress.set_position(slot - start);
+                progress.tick(1)
             }
 
             if *count >= max || slot == tip_slot {
@@ -207,19 +203,13 @@ fn handle_response(
         #[allow(clippy::unwrap_used)]
         NextResponse::RollBackward(point, tip) => {
             info!(?point, ?tip, "roll_backward");
-            let tip_slot = tip.0.slot_or_default();
             if progress.is_none() {
                 *progress = Some(
-                    ProgressBar::new(tip_slot - start).with_style(
-                        ProgressStyle::with_template(
-                            " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)",
-                        )
-                        .unwrap(),
-                    ),
+                    new_terminal_progress_bar(
+                        max,
+                        " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)"
+                    )
                 );
-                if let Some(progress) = progress {
-                    progress.tick();
-                }
             }
             Ok(Continue)
         }

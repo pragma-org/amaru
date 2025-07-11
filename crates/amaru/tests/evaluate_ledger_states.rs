@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    cbor, network::NetworkName, AuxiliaryData, EraHistory, Hasher, KeepRaw, MintedTransactionBody,
-    MintedTx, MintedWitnessSet, TransactionPointer,
+    cbor, network::NetworkName, parse_point, AuxiliaryData, EraHistory, Hasher, KeepRaw,
+    MintedTransactionBody, MintedTx, MintedWitnessSet, TransactionPointer,
 };
 use amaru_ledger::{
     self,
@@ -24,15 +24,10 @@ use amaru_ledger::{
     store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;
-use pallas_codec::utils::AnyCbor;
-use std::{collections::BTreeSet, env, fs, iter, ops::Deref, path::PathBuf};
-
-use test_case::test_case;
-
 use once_cell::sync::Lazy;
-use std::sync::Mutex;
-
-use amaru_kernel::parse_point;
+use pallas_codec::utils::AnyCbor;
+use std::{collections::BTreeSet, env, fs, iter, ops::Deref, path::PathBuf, sync::Mutex};
+use test_case::test_case;
 
 struct TestContext {
     ledger_dir: PathBuf,
@@ -113,7 +108,7 @@ fn import_vector(
         record.old_nes.raw_bytes(),
         &point,
         era_history,
-        amaru_ledger::state::snapshot::no_progress_bar,
+        progress_bar::no_progress_bar,
         Some(pparams_dir),
         false,
     )?;

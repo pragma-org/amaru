@@ -22,6 +22,7 @@ use amaru_kernel::{
     ProposalPointer, ProposalState, Reward, Set, Slot, StakeCredential, TransactionInput,
     TransactionPointer,
 };
+use progress_bar::ProgressBar;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fs, iter,
@@ -716,21 +717,4 @@ fn decode_seggregated_parameters(
     let pparams = cbor::Decoder::new(&pparams_file).decode()?;
 
     Ok(pparams)
-}
-
-pub trait ProgressBar {
-    fn tick(&self, size: usize);
-    fn clear(&self);
-}
-
-/// A dummy implementation of 'ProgressBar' which doesn't do anything.
-pub struct NoProgressBar {}
-
-pub fn no_progress_bar(_length: usize, _template: &str) -> Box<dyn ProgressBar> {
-    Box::new(NoProgressBar {})
-}
-
-impl ProgressBar for NoProgressBar {
-    fn tick(&self, _size: usize) {}
-    fn clear(&self) {}
 }
