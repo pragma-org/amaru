@@ -53,7 +53,7 @@ enum Error {
 /// -> https://github.com/IntersectMBO/cardano-ledger/blob/a81e6035006529ba0abc034716c2e21e7406500d/eras/shelley/impl/src/Cardano/Ledger/Shelley/LedgerState/Types.hs#L315-L345
 ///
 /// We rely on data present in these to bootstrap Amaru's initial state.
-pub fn decode_new_epoch_state(
+pub fn import_initial_snapshot(
     db: &(impl Store + 'static),
     bytes: &[u8],
     point: &Point,
@@ -251,7 +251,31 @@ pub fn decode_new_epoch_state(
         d.skip()?;
     }
 
+    save_point(db, point, era_history)?;
+
     Ok(epoch)
+}
+
+fn save_point(
+    db: &impl Store,
+    point: &Point,
+    era_history: &EraHistory,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    transaction.save(
+        point,
+        None,
+        Default::default(),
+        Default::default(),
+        iter::empty(),
+        BTreeSet::new(),
+        era_history,
+    )?;
+
+    transaction.commit()?;
+
+    Ok(())
 }
 
 fn import_protocol_parameters(

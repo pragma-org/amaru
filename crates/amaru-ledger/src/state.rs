@@ -15,7 +15,6 @@
 pub mod diff_bind;
 pub mod diff_epoch_reg;
 pub mod diff_set;
-pub mod snapshot;
 pub mod volatile_db;
 
 use crate::{

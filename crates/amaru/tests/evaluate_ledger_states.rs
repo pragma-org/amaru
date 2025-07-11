@@ -20,7 +20,10 @@ use amaru_ledger::{
     self,
     context::DefaultValidationContext,
     rules::transaction,
-    state::{self},
+    state::{
+        snapshot::import_snapshot,
+        {self},
+    },
     store::{EpochTransitionProgress, ReadStore, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;

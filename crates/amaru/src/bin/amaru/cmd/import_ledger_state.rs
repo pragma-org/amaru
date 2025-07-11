@@ -15,12 +15,13 @@
 use amaru_kernel::{default_ledger_dir, network::NetworkName, parse_point, EraHistory};
 use amaru_ledger::{
     self,
+    bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
 use progress_bar::new_terminal_progress_bar;
-use std::{collections::BTreeSet, fs, iter, path::PathBuf};
+use std::{fs, path::PathBuf};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -142,7 +143,7 @@ async fn import_one(
     let db = RocksDB::empty(ledger_dir)?;
     let bytes = fs::read(snapshot)?;
 
-    let epoch = amaru_ledger::state::snapshot::decode_new_epoch_state(
+    let epoch = import_initial_snapshot(
         &db,
         &bytes,
         &point,
@@ -151,18 +152,6 @@ async fn import_one(
         None,
         true,
     )?;
-
-    let transaction = db.create_transaction();
-    transaction.save(
-        &point,
-        None,
-        Default::default(),
-        Default::default(),
-        iter::empty(),
-        BTreeSet::new(),
-        era_history,
-    )?;
-    transaction.commit()?;
 
     db.next_snapshot(epoch)?;
 
