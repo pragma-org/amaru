@@ -138,9 +138,22 @@ fn compare_snapshot(epoch: Epoch) {
 }
 
 fn protocol_version(epoch: Epoch, network: NetworkName) -> ProtocolVersion {
-    if network == NetworkName::Preprod && epoch <= Epoch::from(180) {
-        return PROTOCOL_VERSION_9;
+    match network {
+        NetworkName::Preprod => {
+            if epoch <= Epoch::from(180) {
+                PROTOCOL_VERSION_9
+            } else {
+                PROTOCOL_VERSION_10
+            }
+        }
+        NetworkName::Preview => {
+            if epoch <= Epoch::from(741) {
+                PROTOCOL_VERSION_9
+            } else {
+                PROTOCOL_VERSION_10
+            }
+        }
+        NetworkName::Mainnet => unimplemented!(),
+        NetworkName::Testnet(..) => unimplemented!(),
     }
-
-    PROTOCOL_VERSION_10
 }
