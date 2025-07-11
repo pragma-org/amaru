@@ -718,10 +718,6 @@ impl HasLovelace for MemoizedTransactionOutput {
         self.value.lovelace()
     }
 }
-// This is a useful trait to have instead of writing `to_cbor(x).len()` everywhere
-// But this necessarily re-serializes objects that aren't wrapped in a `KeepRaw`.
-// This is not what we should do, we should instead rely on the original bytes.
-// However, everywhere this logic was used had a FIXME, so just moving the logic is OK here.
 pub trait OriginalSize {
     fn original_size(&self) -> usize;
 }
