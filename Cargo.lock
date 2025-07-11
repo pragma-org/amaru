@@ -65,7 +65,6 @@ dependencies = [
  "opentelemetry",
  "opentelemetry-otlp",
  "opentelemetry_sdk",
- "pallas-codec",
  "pallas-crypto",
  "pallas-network",
  "pallas-traverse",
