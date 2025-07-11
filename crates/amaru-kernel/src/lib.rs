@@ -31,13 +31,14 @@ use pallas_primitives::{
     alonzo::Value as AlonzoValue,
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
-        RedeemersKey as PallasRedeemersKey, RedeemersValue,
+        RedeemersValue,
     },
     PlutusScript,
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
+    borrow::Cow,
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
@@ -65,9 +66,10 @@ pub use pallas_primitives::{
         MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
         PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
         ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, Relay, RewardAccount, ScriptHash, ScriptRef,
-        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
-        VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
+        ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, Constr, DatumHash, MaybeIndefArray, PlutusData,
 };
@@ -118,31 +120,28 @@ pub type EpochInterval = u32;
 pub type ScriptPurpose = RedeemerTag;
 
 pub type AuxiliaryDataHash = Hash<32>;
-// Re-exporting as `RedeemersKey` for ease of use
-pub type RedeemersKey = RedeemersKeyAdapter;
 
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub struct RedeemersKeyAdapter {
-    inner: PallasRedeemersKey,
-}
+// TODO: rework once https://github.com/txpipe/pallas/pull/676 is merged and released.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ComparableRedeemerKey<'a>(Cow<'a, RedeemerKey>);
 
-impl Ord for RedeemersKeyAdapter {
+impl Ord for ComparableRedeemerKey<'_> {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.tag_rank()
-            .cmp(&other.tag_rank())
-            .then_with(|| self.index.cmp(&other.index))
+        self.tag()
+            .cmp(&other.tag())
+            .then_with(|| self.0.index.cmp(&other.0.index))
     }
 }
 
-impl PartialOrd for RedeemersKeyAdapter {
+impl PartialOrd for ComparableRedeemerKey<'_> {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl RedeemersKeyAdapter {
-    fn tag_rank(&self) -> u8 {
-        match self.tag {
+impl ComparableRedeemerKey<'_> {
+    fn tag(&self) -> u8 {
+        match &self.0.tag {
             RedeemerTag::Spend => 0,
             RedeemerTag::Mint => 1,
             RedeemerTag::Cert => 2,
@@ -152,24 +151,10 @@ impl RedeemersKeyAdapter {
         }
     }
 }
-
-impl From<RedeemersKeyAdapter> for PallasRedeemersKey {
-    fn from(value: RedeemersKeyAdapter) -> Self {
-        value.inner
-    }
-}
-
-impl Deref for RedeemersKeyAdapter {
-    type Target = PallasRedeemersKey;
-
+impl Deref for ComparableRedeemerKey<'_> {
+    type Target = RedeemerKey;
     fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
-impl From<PallasRedeemersKey> for RedeemersKeyAdapter {
-    fn from(value: PallasRedeemersKey) -> Self {
-        Self { inner: value }
+        &self.0
     }
 }
 
@@ -205,18 +190,12 @@ impl Ord for RequiredScript {
     }
 }
 
-impl From<&RequiredScript> for PallasRedeemersKey {
+impl From<&RequiredScript> for RedeemerKey {
     fn from(value: &RequiredScript) -> Self {
-        PallasRedeemersKey {
+        RedeemerKey {
             tag: value.purpose,
             index: value.index,
         }
-    }
-}
-
-impl From<&RequiredScript> for RedeemersKeyAdapter {
-    fn from(value: &RequiredScript) -> Self {
-        PallasRedeemersKey::from(value).into()
     }
 }
 
@@ -308,8 +287,8 @@ pub struct ExUnitsIter<'a> {
 }
 
 type ExUnitsMapIter<'a> = std::iter::Map<
-    std::slice::Iter<'a, (PallasRedeemersKey, RedeemersValue)>,
-    fn(&(PallasRedeemersKey, RedeemersValue)) -> ExUnits,
+    std::slice::Iter<'a, (RedeemerKey, RedeemersValue)>,
+    fn(&(RedeemerKey, RedeemersValue)) -> ExUnits,
 >;
 
 enum ExUnitsIterSource<'a> {
@@ -1239,11 +1218,11 @@ pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
 // Redeemers
 // ----------------------------------------------------------------------------
 pub trait HasRedeemerKeys {
-    fn to_redeemer_keys(&self) -> BTreeSet<RedeemersKey>;
+    fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>>;
 }
 
 impl HasRedeemerKeys for Redeemers {
-    fn to_redeemer_keys(&self) -> BTreeSet<RedeemersKey> {
+    fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>> {
         match self {
             /* It's possible that a list could have a (tag, index) tuple present more than once, with different data.
               The haskell node removes duplicates, keeping the last value present
@@ -1257,17 +1236,16 @@ impl HasRedeemerKeys for Redeemers {
             Redeemers::List(redeemers) => redeemers
                 .iter()
                 .map(|redeemer| {
-                    PallasRedeemersKey {
+                    ComparableRedeemerKey(Cow::Owned(RedeemerKey {
                         tag: redeemer.tag,
                         index: redeemer.index,
-                    }
-                    .into()
+                    }))
                 })
                 .collect(),
             Redeemers::Map(redeemers) => redeemers
                 .iter()
                 // TODO: can we avoid a clone here?
-                .map(|(key, _)| key.clone().into())
+                .map(|(key, _)| ComparableRedeemerKey(Cow::Borrowed(key)))
                 .collect(),
         }
     }

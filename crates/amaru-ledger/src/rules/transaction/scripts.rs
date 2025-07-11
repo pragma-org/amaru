@@ -1,12 +1,13 @@
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
     display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, HasRedeemerKeys,
-    MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash,
+    MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey, RequiredScript, ScriptHash,
     ScriptKind, ScriptPurpose,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
+    ops::Deref,
 };
 use thiserror::Error;
 
@@ -40,9 +41,9 @@ pub enum InvalidScripts {
         extraneous: BTreeSet<DatumHash>,
     },
     #[error("extraneous redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
-    ExtraneousRedeemers(Vec<RedeemersKey>),
+    ExtraneousRedeemers(Vec<RedeemerKey>),
     #[error("missing redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
-    MissingRedeemers(Vec<RedeemersKey>),
+    MissingRedeemers(Vec<RedeemerKey>),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -75,16 +76,16 @@ where
     if let Some(provided_redemeers) = witness_set
         .redeemer
         .as_deref()
-        .map(HasRedeemerKeys::to_redeemer_keys)
+        .map(HasRedeemerKeys::redeemer_keys)
     {
         provided_redemeers.iter().for_each(|provided| {
             if let Some(index) = required_redeemers
                 .iter()
-                .position(|required| required == provided)
+                .position(|required| required == provided.deref())
             {
                 required_redeemers.remove(index);
             } else {
-                extra_redeemers.push(provided.clone());
+                extra_redeemers.push(provided.deref().clone());
             }
         })
     }
@@ -110,7 +111,7 @@ where
 /// script-locked inputs without datum; those are simply "forever" unspendable).
 fn partition_scripts(
     required_scripts: Vec<(RequiredScript, &ScriptKind)>,
-) -> Result<(Vec<RedeemersKey>, BTreeSet<DatumHash>), InvalidScripts> {
+) -> Result<(Vec<RedeemerKey>, BTreeSet<DatumHash>), InvalidScripts> {
     let mut required_redeemers = Vec::new();
     let mut required_datums = BTreeSet::new();
     let mut missing_datums = BTreeSet::new();
@@ -126,7 +127,7 @@ fn partition_scripts(
             } = required_script;
 
             let mut require_redeemer =
-                || required_redeemers.push(RedeemersKey::from(required_script));
+                || required_redeemers.push(RedeemerKey::from(required_script));
 
             let mut unspendable_without_datum = || {
                 if purpose == &ScriptPurpose::Spend && matches!(datum, MemoizedDatum::None) {
