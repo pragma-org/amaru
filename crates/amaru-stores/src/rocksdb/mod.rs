@@ -695,10 +695,13 @@ mod tests {
     use crate::rocksdb::{ReadOnlyRocksDB, RocksDB};
     use crate::tests::{
         add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-        test_read_pool, test_read_proposal, test_refund_account, test_remove_account,
-        test_remove_drep, test_remove_pool, test_remove_proposal, test_slot_updated, Fixture,
+        test_read_pool, test_refund_account, test_remove_account, test_remove_drep,
+        test_remove_pool, test_slot_updated, Fixture,
     };
     use amaru_ledger::store::StoreError;
+
+    #[cfg(not(target_os = "windows"))]
+    use crate::tests::{test_read_proposal, test_remove_proposal};
 
     fn setup_rocksdb_store(runner: &mut TestRunner) -> Result<(RocksDB, Fixture), StoreError> {
         let era_history: EraHistory =

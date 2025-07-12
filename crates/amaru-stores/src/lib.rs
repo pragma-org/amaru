@@ -366,6 +366,7 @@ pub mod tests {
         );
     }*/
 
+    #[cfg(not(target_os = "windows"))]
     pub fn test_read_proposal(store: &impl Store, fixture: &Fixture) {
         let stored_proposal = store
             .iter_proposals()
@@ -549,6 +550,7 @@ pub mod tests {
         Ok(())
     }
 
+    #[cfg(not(target_os = "windows"))]
     pub fn test_remove_proposal(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 

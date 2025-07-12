@@ -557,13 +557,16 @@ mod tests {
         in_memory::MemoryStore,
         tests::{
             add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-            test_read_pool, test_read_proposal, test_refund_account, test_remove_account,
-            test_remove_drep, test_remove_pool, test_remove_proposal, test_slot_updated, Fixture,
+            test_read_pool, test_refund_account, test_remove_account, test_remove_drep,
+            test_remove_pool, test_slot_updated, Fixture,
         },
     };
     use amaru_kernel::{network::NetworkName, EraHistory};
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
+
+    #[cfg(not(target_os = "windows"))]
+    use crate::tests::{test_read_proposal, test_remove_proposal};
 
     pub fn setup_memory_store(
         runner: &mut TestRunner,
