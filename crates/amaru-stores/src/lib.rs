@@ -132,7 +132,10 @@ pub mod tests {
         let registered_at = drep_row.registered_at;
 
         let drep_epoch = era_history
-            .slot_to_epoch(registered_at.transaction.slot)
+            .slot_to_epoch(
+                registered_at.transaction.slot,
+                registered_at.transaction.slot,
+            )
             .expect("Failed to convert slot to epoch");
 
         let drep_iter = std::iter::once((

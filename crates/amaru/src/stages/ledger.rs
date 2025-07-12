@@ -1,3 +1,4 @@
+use crate::{schedule, send, stages::common::adopt_current_span};
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     protocol_parameters::GlobalParameters,
@@ -15,9 +16,8 @@ use amaru_ledger::{
 };
 use anyhow::Context;
 use gasket::framework::{WorkSchedule, WorkerError};
-use tracing::{error, instrument, Level, Span};
-
-use crate::{schedule, send, stages::common::adopt_current_span};
+use std::sync::{Arc, RwLock};
+use tracing::{error, info, instrument, trace, Level, Span};
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
@@ -30,6 +30,7 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
+    is_catching_up: Arc<RwLock<bool>>,
 }
 
 impl<S: Store + Send, HS: HistoricalStores + Send> gasket::framework::Stage
@@ -53,6 +54,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         snapshots: HS,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
+        is_catching_up: Arc<RwLock<bool>>,
     ) -> Result<(Self, Point), StoreError> {
         let state = state::State::new(store, snapshots, era_history, global_parameters)?;
 
@@ -63,6 +65,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
+                is_catching_up,
             },
             tip,
         ))
@@ -115,10 +118,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         level = Level::TRACE,
         skip_all,
         name = "ledger.roll_forward",
-        fields(
-            point.slot = %point.slot_or_default(),
-            point.hash = %Hash::<32>::from(&point),
-        ))]
+    )]
     pub fn roll_forward(
         &mut self,
         point: Point,
@@ -127,6 +127,14 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
         let protocol_version = block.header.header_body.protocol_version;
+
+        let is_catching_up = self.is_catching_up.read().map(|b| *b).unwrap_or(true);
+        if is_catching_up {
+            trace!(point.slot = %point.slot_or_default(), point.hash = %Hash::<32>::from(&point), "chain.extended");
+        } else {
+            info!(tip.slot = %point.slot_or_default(), tip.hash = %Hash::<32>::from(&point), "chain.extended");
+        }
+
         match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
             BlockValidation::Err(err) => Err(err),
             BlockValidation::Invalid(slot, id, err) => {

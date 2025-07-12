@@ -121,20 +121,6 @@ pub trait Store: ReadStore {
     where
         Self: 'a;
 
-    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
-    /// snapshot available.
-    #[allow(clippy::panic)]
-    fn most_recent_snapshot(&self) -> Epoch {
-        self.snapshots()
-            .unwrap_or_default()
-            .last()
-            .copied()
-            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
-    }
-
-    /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
-
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when
     /// there's no existing snapshot and, to ensure that snapshots are taken in order.
     ///
@@ -154,6 +140,31 @@ pub trait Store: ReadStore {
 }
 
 pub trait HistoricalStores {
+    /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
+
+    /// The least recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    #[allow(clippy::panic)]
+    fn least_recent_snapshot(&self) -> Epoch {
+        self.snapshots()
+            .unwrap_or_default()
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
+    }
+
+    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    #[allow(clippy::panic)]
+    fn most_recent_snapshot(&self) -> Epoch {
+        self.snapshots()
+            .unwrap_or_default()
+            .last()
+            .copied()
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
+    }
+
     ///Access a `Snapshot` for a specific `Epoch`
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }

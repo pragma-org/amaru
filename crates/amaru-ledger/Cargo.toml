@@ -24,9 +24,10 @@ tracing.workspace = true
 thiserror.workspace = true
 anyhow.workspace = true
 
-iter-borrow.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
+iter-borrow.workspace = true
+progress-bar.workspace = true
 slot-arithmetic.workspace = true
 tracing-json.workspace = true
 proptest = { workspace = true, features = ["std"], optional = true }

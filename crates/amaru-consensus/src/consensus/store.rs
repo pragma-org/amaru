@@ -19,7 +19,7 @@ use amaru_kernel::{
 use amaru_ouroboros::{praos::nonce, Nonces};
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;
-use slot_arithmetic::TimeHorizonError;
+use slot_arithmetic::EraHistoryError;
 use std::{collections::BTreeMap, fmt::Display};
 use thiserror::Error;
 
@@ -110,7 +110,7 @@ pub enum NoncesError {
     StoreError(#[from] StoreError),
 
     #[error("{0}")]
-    EraHistoryError(#[from] TimeHorizonError),
+    EraHistoryError(#[from] EraHistoryError),
 }
 
 impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {

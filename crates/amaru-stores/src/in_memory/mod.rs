@@ -521,11 +521,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
 impl Store for MemoryStore {
     type Transaction<'a> = MemoryTransactionalContext<'a>;
 
-    // TODO: Implement snapshots on MemoryStore (Placeholder used to pass bootstrap all stages test)
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        Ok(vec![Epoch::from(3)])
-    }
-
     // TODO: Implement next_snapshot on MemoryStore
     fn next_snapshot(&self, _epoch: Epoch) -> Result<(), StoreError> {
         Err(StoreError::Internal(
@@ -547,6 +542,10 @@ impl Store for MemoryStore {
 
 // TODO: Implement HistoricalStores on MemoryStore (currently returns a new empty MemoryStore)
 impl HistoricalStores for MemoryStore {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![Epoch::from(3)])
+    }
+
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
         Ok(MemoryStore::new(self.era_history.clone()))
     }

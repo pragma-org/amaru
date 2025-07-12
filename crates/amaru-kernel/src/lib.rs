@@ -38,8 +38,9 @@ use pallas_primitives::{
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
+    borrow::Cow,
     cmp::Ordering,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     convert::Infallible,
     fmt::{self, Display, Formatter},
     ops::Deref,
@@ -65,17 +66,35 @@ pub use pallas_primitives::{
         MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
         PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
         ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, RedeemersKey, Relay, RewardAccount, ScriptHash,
-        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
-        WitnessSet,
+        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
+        ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
+        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
+        VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, Constr, DatumHash, MaybeIndefArray, PlutusData,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 pub use sha3;
-pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
+pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+
+pub use drep_state::*;
+pub mod drep_state;
+
+pub use proposal_state::*;
+pub mod proposal_state;
+
+pub use account::*;
+pub mod account;
+
+pub use reward_kind::*;
+pub mod reward_kind;
+
+pub use reward::*;
+pub mod reward;
+
+pub use strict_maybe::*;
+pub mod strict_maybe;
 
 pub mod block;
 pub mod macros;
@@ -101,6 +120,43 @@ pub type EpochInterval = u32;
 pub type ScriptPurpose = RedeemerTag;
 
 pub type AuxiliaryDataHash = Hash<32>;
+
+// TODO: rework once https://github.com/txpipe/pallas/pull/676 is merged and released.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ComparableRedeemerKey<'a>(Cow<'a, RedeemerKey>);
+
+impl Ord for ComparableRedeemerKey<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tag()
+            .cmp(&other.tag())
+            .then_with(|| self.0.index.cmp(&other.0.index))
+    }
+}
+
+impl PartialOrd for ComparableRedeemerKey<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl ComparableRedeemerKey<'_> {
+    fn tag(&self) -> u8 {
+        match &self.0.tag {
+            RedeemerTag::Spend => 0,
+            RedeemerTag::Mint => 1,
+            RedeemerTag::Cert => 2,
+            RedeemerTag::Reward => 3,
+            RedeemerTag::Vote => 4,
+            RedeemerTag::Propose => 5,
+        }
+    }
+}
+impl Deref for ComparableRedeemerKey<'_> {
+    type Target = RedeemerKey;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 pub struct RequiredScript {
@@ -134,9 +190,9 @@ impl Ord for RequiredScript {
     }
 }
 
-impl From<&RequiredScript> for RedeemersKey {
+impl From<&RequiredScript> for RedeemerKey {
     fn from(value: &RequiredScript) -> Self {
-        RedeemersKey {
+        RedeemerKey {
             tag: value.purpose,
             index: value.index,
         }
@@ -231,8 +287,8 @@ pub struct ExUnitsIter<'a> {
 }
 
 type ExUnitsMapIter<'a> = std::iter::Map<
-    std::slice::Iter<'a, (RedeemersKey, RedeemersValue)>,
-    fn(&(RedeemersKey, RedeemersValue)) -> ExUnits,
+    std::slice::Iter<'a, (RedeemerKey, RedeemersValue)>,
+    fn(&(RedeemerKey, RedeemersValue)) -> ExUnits,
 >;
 
 enum ExUnitsIterSource<'a> {
@@ -660,6 +716,15 @@ impl HasLovelace for MintedTransactionOutput<'_> {
 impl HasLovelace for MemoizedTransactionOutput {
     fn lovelace(&self) -> Lovelace {
         self.value.lovelace()
+    }
+}
+pub trait OriginalSize {
+    fn original_size(&self) -> usize;
+}
+
+impl<T> OriginalSize for KeepRaw<'_, T> {
+    fn original_size(&self) -> usize {
+        to_cbor(self).len()
     }
 }
 
@@ -1111,6 +1176,77 @@ pub fn default_chain_dir(network: NetworkName) -> String {
     format!("./chain.{}.db", network.to_string().to_lowercase())
 }
 
+/// Utility function to parse a point from a string.
+///
+/// Expects the input to be of the form '<point>.<hash>', where `<point>` is a number and `<hash>`
+/// is a hex-encoded 32 bytes hash.
+/// The first argument is the string to parse, the `bail` function is user to
+/// produce the error type `E` in case of failure to parse.
+pub fn parse_point(raw_str: &str) -> Result<Point, String> {
+    let mut split = raw_str.split('.');
+
+    let slot = split
+        .next()
+        .ok_or("missing slot number before '.'")
+        .and_then(|s| {
+            s.parse::<u64>()
+                .map_err(|_| "failed to parse point's slot as a non-negative integer")
+        })?;
+
+    let block_header_hash = split
+        .next()
+        .ok_or("missing block header hash after '.'")
+        .and_then(|s| hex::decode(s).map_err(|_| "unable to decode block header hash from hex"))?;
+
+    Ok(Point::Specific(slot, block_header_hash))
+}
+
+/// Utility function to parse a nonce (i.e. a blake2b-256 hash digest) from an hex-encoded string.
+pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
+    hex::decode(hex_str)
+        .map_err(|e| format!("invalid hex encoding: {e}"))
+        .and_then(|bytes| {
+            <[u8; 32]>::try_from(bytes).map_err(|_| "expected 32-byte nonce".to_string())
+        })
+        .map(Nonce::from)
+}
+
+// Redeemers
+// ----------------------------------------------------------------------------
+pub trait HasRedeemerKeys {
+    fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>>;
+}
+
+impl HasRedeemerKeys for Redeemers {
+    fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>> {
+        match self {
+            /* It's possible that a list could have a (tag, index) tuple present more than once, with different data.
+              The haskell node removes duplicates, keeping the last value present
+              See (https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626):
+                  - The Map.fromList behavior is documented here: https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList
+
+               In this case, we don't care about the data provided in the redeemer (we're returning just the keys), so it doesn't matter.
+               But this will come up during Phase 2 validation, so keep in mind that BTreeSet always keeps the first occurance based on the `PartialEq` result
+                   https://doc.rust-lang.org/std/collections/btree_set/struct.BTreeSet.html#method.insert
+            */
+            Redeemers::List(redeemers) => redeemers
+                .iter()
+                .map(|redeemer| {
+                    ComparableRedeemerKey(Cow::Owned(RedeemerKey {
+                        tag: redeemer.tag,
+                        index: redeemer.index,
+                    }))
+                })
+                .collect(),
+            Redeemers::Map(redeemers) => redeemers
+                .iter()
+                // TODO: can we avoid a clone here?
+                .map(|(key, _)| ComparableRedeemerKey(Cow::Borrowed(key)))
+                .collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1155,5 +1291,60 @@ mod test {
     #[test_case(fixture!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"))]
     fn to_root_key_hash((bootstrap_witness, root): (BootstrapWitness, Hash<28>)) {
         assert_eq!(to_root(&bootstrap_witness).as_slice(), root.as_slice())
+    }
+
+    #[test]
+    fn test_parse_point() {
+        let point = parse_point("42.0123456789abcdef").unwrap();
+        match point {
+            Point::Specific(slot, hash) => {
+                assert_eq!(42, slot);
+                assert_eq!(vec![1, 35, 69, 103, 137, 171, 205, 239], hash);
+            }
+            _ => panic!("expected a specific point"),
+        }
+    }
+
+    #[test]
+    fn test_parse_real_point() {
+        let point = parse_point(
+            "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
+        )
+        .unwrap();
+        match point {
+            Point::Specific(slot, _hash) => {
+                assert_eq!(70070379, slot);
+            }
+            _ => panic!("expected a specific point"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nonce() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
+            Ok(..)
+        ));
+    }
+
+    #[test]
+    fn test_parse_nonce_not_hex() {
+        assert!(matches!(parse_nonce("patate"), Err(..)));
+    }
+
+    #[test]
+    fn test_parse_nonce_too_long() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d1234"),
+            Err(..)
+        ));
+    }
+
+    #[test]
+    fn test_parse_nonce_too_short() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a"),
+            Err(..)
+        ));
     }
 }

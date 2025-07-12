@@ -3,4 +3,14 @@ allow-panic-in-tests = true
 allow-unwrap-in-tests = true
 type-complexity-threshold = 600
 enum-variant-size-threshold = 1024
-disallowed-types = ["std::collections::HashSet", "std::collections::HashMap"]
+disallowed-types = [
+    "std::collections::HashSet",
+    "std::collections::HashMap"
+]
+disallowed-methods = [
+    "slot_arithmetic::EraHistory::slot_to_relative_time_unchecked_horizon",
+    "slot_arithmetic::EraHistory::slot_to_epoch_unchecked_horizon",
+    "slot_arithmetic::EraHistory::next_epoch_first_slot_unchecked_horizon",
+    "slot_arithmetic::EraHistory::era_first_epoch_unchecked_horizon",
+    "slot_arithmetic::EraHistory::epoch_bounds_unchecked_horizon"
+]

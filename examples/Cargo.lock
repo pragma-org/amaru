@@ -91,6 +91,7 @@ dependencies = [
  "hex",
  "iter-borrow",
  "num",
+ "progress-bar",
  "serde",
  "slot-arithmetic",
  "thiserror 2.0.12",
@@ -1169,21 +1170,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "pure-stage"
+name = "progress-bar"
 version = "0.1.0"
-dependencies = [
- "anyhow",
- "cbor4ii",
- "either",
- "futures-util",
- "parking_lot",
- "serde",
- "thiserror 2.0.12",
- "tokio",
- "tracing",
- "tracing-subscriber",
- "typetag",
-]
 
 [[package]]
 name = "quote"

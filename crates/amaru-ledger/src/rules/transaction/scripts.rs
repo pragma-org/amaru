@@ -14,13 +14,14 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, MemoizedDatum,
-    MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash, ScriptKind,
-    ScriptPurpose,
+    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, HasRedeemerKeys,
+    MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey, RequiredScript, ScriptHash,
+    ScriptKind, ScriptPurpose,
 };
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
+    ops::Deref,
 };
 use thiserror::Error;
 
@@ -54,9 +55,9 @@ pub enum InvalidScripts {
         extraneous: BTreeSet<DatumHash>,
     },
     #[error("extraneous redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
-    ExtraneousRedeemers(Vec<RedeemersKey>),
+    ExtraneousRedeemers(Vec<RedeemerKey>),
     #[error("missing redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
-    MissingRedeemers(Vec<RedeemersKey>),
+    MissingRedeemers(Vec<RedeemerKey>),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
@@ -86,55 +87,21 @@ where
 
     let mut extra_redeemers = Vec::new();
 
-    if let Some(redeemers) = witness_set.redeemer.as_deref() {
-        match redeemers {
-            amaru_kernel::Redeemers::List(redeemers) => {
-                /* It's possible that a list could have a (tag, index) tuple present more than once.
-                The haskell node removes duplicates, keeping the last value present
-                See (https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626):
-                    - The Map.fromList behavior is documented here: https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList
-
-                This will be relevant during Phase 2 validation as well, so when that edge case inevitably pops up, refer back to this
-
-                In this case, we don't care about the data provided in the redeemer, we only care about the presence of a needed redeemer.
-                Therefore, order doesn't matter in this case.
-                */
-                let mut processed_keys: Vec<RedeemersKey> = Vec::new();
-                redeemers.iter().for_each(|redeemer| {
-                    let provided = RedeemersKey {
-                        tag: redeemer.tag,
-                        index: redeemer.index,
-                    };
-
-                    if !processed_keys.contains(&provided) {
-                        if let Some(index) = required_redeemers
-                            .iter()
-                            .position(|required| required == &provided)
-                        {
-                            required_redeemers.remove(index);
-                        } else {
-                            extra_redeemers.push(provided.clone());
-                        }
-
-                        processed_keys.push(provided);
-                    }
-                });
+    if let Some(provided_redemeers) = witness_set
+        .redeemer
+        .as_deref()
+        .map(HasRedeemerKeys::redeemer_keys)
+    {
+        provided_redemeers.iter().for_each(|provided| {
+            if let Some(index) = required_redeemers
+                .iter()
+                .position(|required| required == provided.deref())
+            {
+                required_redeemers.remove(index);
+            } else {
+                extra_redeemers.push(provided.deref().clone());
             }
-
-            // A map guarantees uniqueness of the RedeemerKey, therefore we don't need to do the same uniquness logic
-            amaru_kernel::Redeemers::Map(redeemers) => {
-                redeemers.iter().for_each(|(provided, _)| {
-                    if let Some(index) = required_redeemers
-                        .iter()
-                        .position(|required| required == provided)
-                    {
-                        required_redeemers.remove(index);
-                    } else {
-                        extra_redeemers.push(provided.clone());
-                    }
-                });
-            }
-        }
+        })
     }
 
     if !required_redeemers.is_empty() {
@@ -158,7 +125,7 @@ where
 /// script-locked inputs without datum; those are simply "forever" unspendable).
 fn partition_scripts(
     required_scripts: Vec<(RequiredScript, &ScriptKind)>,
-) -> Result<(Vec<RedeemersKey>, BTreeSet<DatumHash>), InvalidScripts> {
+) -> Result<(Vec<RedeemerKey>, BTreeSet<DatumHash>), InvalidScripts> {
     let mut required_redeemers = Vec::new();
     let mut required_datums = BTreeSet::new();
     let mut missing_datums = BTreeSet::new();
@@ -174,7 +141,7 @@ fn partition_scripts(
             } = required_script;
 
             let mut require_redeemer =
-                || required_redeemers.push(RedeemersKey::from(required_script));
+                || required_redeemers.push(RedeemerKey::from(required_script));
 
             let mut unspendable_without_datum = || {
                 if purpose == &ScriptPurpose::Spend && matches!(datum, MemoizedDatum::None) {

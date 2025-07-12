@@ -173,6 +173,7 @@ mod test {
     use amaru_consensus::consensus::store::ReadOnlyChainStore;
     use amaru_kernel::network::NetworkName;
     use amaru_kernel::Header;
+    use amaru_kernel::Slot;
     use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 
     use super::populate_chain_store;
@@ -206,7 +207,7 @@ mod test {
         );
 
         assert!(stake_distribution
-            .get_pool(From::from(42), &pool_id)
+            .get_pool(Slot::from(42), &pool_id)
             .is_some())
     }
 
@@ -227,7 +228,7 @@ mod test {
         assert_eq!(
             Some(10000000000000000),
             stake_distribution
-                .get_pool(From::from(42), &pool_id)
+                .get_pool(Slot::from(42), &pool_id)
                 .map(|p| p.active_stake)
         )
     }

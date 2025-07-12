@@ -59,7 +59,7 @@ pub fn tick(
 ) -> Result<(), StoreError> {
     let epoch = store
         .era_history
-        .slot_to_epoch(point.slot_or_default())
+        .slot_to_epoch(point.slot_or_default(), point.slot_or_default())
         .map_err(|err| StoreError::Internal(err.into()))?;
 
     let mut dreps = store.dreps.borrow_mut();
