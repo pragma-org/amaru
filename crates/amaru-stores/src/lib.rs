@@ -237,15 +237,15 @@ pub mod tests {
         };
 
         Ok(Fixture {
-            //txin,
-            //output,
             account_key,
             account_row: stored_account_row,
             pool_params,
             pool_epoch,
             drep_key,
             drep_row,
+            #[cfg(not(target_os = "windows"))]
             proposal_key,
+            #[cfg(not(target_os = "windows"))]
             proposal_row,
             slot,
             slot_leader,
