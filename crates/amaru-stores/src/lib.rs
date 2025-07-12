@@ -42,10 +42,9 @@ pub mod tests {
         },
     };
 
+    #[cfg(not(target_os = "windows"))]
     #[derive(Debug, Clone)]
     pub struct Fixture {
-        //pub txin: TransactionInput,
-        //pub output: TransactionOutput,
         pub account_key: StakeCredential,
         pub account_row: accounts::Row,
         pub pool_params: PoolParams,
@@ -56,8 +55,19 @@ pub mod tests {
         pub proposal_row: proposals::Row,
         pub slot: Slot,
         pub slot_leader: PoolId,
-        //pub cc_member_key: StakeCredential,
-        //pub cc_member_row: cc_members::Row,
+    }
+
+    #[cfg(target_os = "windows")]
+    #[derive(Debug, Clone)]
+    pub struct Fixture {
+        pub account_key: StakeCredential,
+        pub account_row: accounts::Row,
+        pub pool_params: PoolParams,
+        pub pool_epoch: Epoch,
+        pub drep_key: StakeCredential,
+        pub drep_row: dreps::Row,
+        pub slot: Slot,
+        pub slot_leader: PoolId,
     }
 
     pub fn add_test_data_to_store(
@@ -147,13 +157,23 @@ pub mod tests {
             ),
         ));
 
-        // proposals
-        let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
-        let proposal_row = amaru_ledger::store::columns::proposals::any_row()
-            .new_tree(runner)
-            .unwrap()
-            .current();
-        let proposal_iter = std::iter::once((proposal_key.clone(), proposal_row.clone()));
+        // proposals (Does not generate proposal row on Windows due to stack overflow)
+        #[cfg(not(target_os = "windows"))]
+        let (proposal_iter, proposal_key, proposal_row) = {
+            let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
+            let proposal_row = amaru_ledger::store::columns::proposals::any_row()
+                .new_tree(runner)
+                .unwrap()
+                .current();
+            (
+                std::iter::once((proposal_key.clone(), proposal_row.clone())),
+                proposal_key,
+                proposal_row,
+            )
+        };
+
+        #[cfg(target_os = "windows")]
+        let proposal_iter = std::iter::empty();
 
         // cc_members
         let cc_member_key = any_stake_credential().new_tree(runner).unwrap().current();

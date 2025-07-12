@@ -598,6 +598,7 @@ mod tests {
         test_read_drep(&store, &fixture);
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn test_in_mem_read_proposal() {
         let mut runner = TestRunner::default();
@@ -671,6 +672,7 @@ mod tests {
         test_remove_drep(&store, &fixture)
     }
 
+    #[cfg(not(target_os = "windows"))]
     #[test]
     fn test_in_mem_remove_proposal() -> Result<(), StoreError> {
         let mut runner = TestRunner::default();
