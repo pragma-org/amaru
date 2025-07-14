@@ -760,14 +760,14 @@ mod tests {
     #[test]
     fn pp_all_continuous() {
         let input = vec![vec![1, 2, 3]];
-        let expected = "[1-3]".to_string();
+        let expected = "[1..3]".to_string();
         assert_eq!(pretty_print_snapshot_ranges(&input), expected);
     }
 
     #[test]
     fn pp_mixed_groups() {
         let input = vec![vec![1, 2, 3], vec![5], vec![7, 8]];
-        let expected = "[1-3],5,[7-8]".to_string();
+        let expected = "[1..3],[5],[7..8]".to_string();
         assert_eq!(pretty_print_snapshot_ranges(&input), expected);
     }
 }
