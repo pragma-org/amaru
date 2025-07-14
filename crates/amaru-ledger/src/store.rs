@@ -41,7 +41,7 @@ use thiserror::Error;
 pub enum OpenErrorKind {
     #[error(transparent)]
     IO(#[from] io::Error),
-    #[error("no ledger stable snapshot found; at least one is expected")]
+    #[error("no ledger stable snapshot found; at least two are expected")]
     NoStableSnapshot,
 }
 
