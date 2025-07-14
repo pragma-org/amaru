@@ -621,10 +621,10 @@ fn pretty_print_snapshot_ranges(ranges: &[Vec<u64>]) -> String {
     ranges
         .iter()
         .map(|g| match g.len() {
-            0 => String::new(),
-            1 => g[0].to_string(),
+            0 => "[]".to_string(),
+            1 => format!("[{}]", g[0]),
             #[allow(clippy::unwrap_used)] // Infallible error.
-            _ => format!("[{}-{}]", g.first().unwrap(), g.last().unwrap()),
+            _ => format!("[{}..{}]", g.first().unwrap(), g.last().unwrap()),
         })
         .collect::<Vec<_>>()
         .join(",")
