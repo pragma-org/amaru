@@ -634,7 +634,7 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshots = RocksDB::snapshots(dir)?;
     let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
     info!(target: EVENT_TARGET, snapshots = pretty_print_snapshot_ranges(&snapshots_ranges), "new.known_snapshots");
-    if snapshots.is_empty() {
+    if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }
     Ok(())
