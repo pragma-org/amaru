@@ -61,6 +61,56 @@ due to the fact that the different stages in the pipeline share state (or one
 stage needs to be able to send messages to another to update the other copy of
 the state).
 
+### Simulating time
+
+Discrete event simulators are typically implemented using a heap of events
+ordered by when the events occur. Before processing an event the clock is first
+advanced to the arrival time of the event, if there are any timers (such as
+timeouts or sleeps) that have happened meanwhile we need to handle them first
+before processing the event, and any new events that result from processing the
+event are assigned random arrival times and put back into the heap, the
+simulation then continues until either some end time has been reached or the
+simulator runs out of events.
+
+This is what creates the effect of being able to "speed up time". For example
+if one event is "there's a partition between node A and B", followed by events
+trying to deliever messages between A and B, then those messages will timeout
+immediately (unlike if we do Jepsen-style system tests where we have to wait
+for the timeouts to happen in real-time).
+
+Since the pure-stage library allows for modelling several connected stages that
+might share memory, one cannot simply assume that the processing of one message
+is a discrete event that produces output messages instantly. So the simulator
+needs to not only orchestrate the network, but also the thread scheduler so to
+say.
+
+Here's a sketch of the algorithm for the simulator:
+
+ 1. Ask all nodes when the next interesting point in time is;
+
+ 2. Pop world heap to figure out which message to deliever next;
+
+ 3. If there are no interesting times from step 1 or they all happen after the
+    next message is supposed to be delivered, then advance the time to the
+    arrival time of the message on all nodes and deliver the popped message.
+
+    Otherwise put all the interesting times into the world heap and recurse.
+    (We need to make it so that if we ask for the next interesting points in
+    time in step 1, the nodes returns an empty list?)
+
+So the API should be something like:
+
+```
+  handle : ArrivalTime -> Message -> NextArrivalTime -> Vec<Message>
+  nextInteresting : Time
+  advanceTime : Time -> Vec<Message>
+```
+
+Where `NextArrivalTime` is when the next message (after the one we just popped)
+arrives, the idea being that the node we are currently stepping is free to run
+all its yield points until that time (since nothing interesting is happining in
+the world until then anyway).
+
 ### Maximising the overlap of what's being tested vs deployed
 
 We want the simulator to be as true to the "real world" as possible. Ideally
