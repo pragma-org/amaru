@@ -29,8 +29,7 @@ deterministically reproduce it from some seed.
 
 ## Decision
 
-In order to tackle the problem of testing and debugging we've introduced two
-changes:
+To tackle the problem of testing and debugging we've introduced two changes:
 
   1. Introduced a library, called pure-stage, for building parallel processing
      networks that can be run in a completely deterministic fashion. The idea
@@ -78,7 +77,7 @@ simulator runs out of events.
 
 This is what creates the effect of being able to "speed up time". For example
 if one event is "there's a partition between node A and B", followed by events
-trying to deliever messages between A and B, then those messages will timeout
+trying to deliver messages between A and B, then those messages will timeout
 immediately (unlike if we do Jepsen-style system tests where we have to wait
 for the timeouts to happen in real-time).
 
@@ -114,7 +113,7 @@ So the API should be something like:
 
 Where `NextArrivalTime` is when the next message (after the one we just popped)
 arrives, the idea being that the node we are currently stepping is free to run
-all its yield points until that time (since nothing interesting is happining in
+all its yield points until that time (since nothing interesting is happening in
 the world until then anyway).
 
 ### Maximising the overlap of what's being tested vs deployed
@@ -125,7 +124,9 @@ within the simulator (and any failure to do so should be considered a bug in
 the simulator), but of course one has to draw a line somewhere.
 
 To achieve this the pure-stage library has a runtime interface that can be
-toggled between being deterministic or to use tokio.
+toggled between being deterministic or to use tokio. This is described in more
+detail under the section ["relation to production
+mode"](https://github.com/pragma-org/amaru/blob/stevan/main/engineering-decision-records/011-deterministic-simulation-testing.md#relation-to-production-mode).
 
 On the simulator side it's important to be able to simulate a realistic
 networking environment as well as realistic faults. We'll describe these two
@@ -285,7 +286,7 @@ Some differences that may or may not motivate the double effort:
    system had not been made deterministic (and solely relied on Antithesis for
    determinism).
 
-## Relation to Production Mode
+## Relation to production Mode
 
 The above description focuses on a special mode of execution for the pure-stage
 infrastructure that allows us to deterministically run a whole network while
