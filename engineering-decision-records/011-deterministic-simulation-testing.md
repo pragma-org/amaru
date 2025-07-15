@@ -34,8 +34,9 @@ changes:
 
   1. Introduced a library, called pure-stage, for building parallel processing
      networks that can be run in a completely deterministic fashion. The idea
-     being that the consensus pipeline will be ported from using gasket (which
-     wasn't designed with determinism in mind) to pure-stage;
+     being that the whole node-internal processing network will be ported from
+     using gasket (which wasn't designed with determinism in mind) to
+     pure-stage;
 
   2. A discrete-event simulator which spawns a network of nodes and simulates
      the network connections between them. The simulator decides when, or if,
