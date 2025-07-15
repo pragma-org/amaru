@@ -21,6 +21,7 @@ It's also the right place to put rather general functions or types that ought to
 While elements are being contributed upstream, they might transiently live in this module.
 */
 
+use crate::network::NetworkName;
 use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     Error, *,
@@ -34,13 +35,15 @@ use pallas_primitives::{
 use sha3::{Digest as _, Sha3_256};
 use std::{
     array::TryFromSliceError,
+    borrow::Cow,
     cmp::Ordering,
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     convert::Infallible,
     fmt::{self, Debug, Display, Formatter},
     ops::Deref,
 };
 
+pub use memoized::*;
 pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
 pub use pallas_codec::{
     minicbor as cbor,
@@ -56,26 +59,43 @@ pub use pallas_primitives::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
         ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
-        MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
-        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
-        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
-        RedeemerTag, Redeemers, RedeemersKey, RedeemersValue, Relay, RewardAccount, ScriptHash,
-        ScriptRef, StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx,
-        UnitInterval, VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash,
-        WitnessSet,
+        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
+        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
+        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
+        ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
+        RationalNumber, Redeemer, RedeemerTag, Redeemers, RedeemersKey as RedeemerKey,
+        RedeemersValue, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
-    DatumHash, PlutusData,
+    AssetName, Constr, DatumHash, MaybeIndefArray, PlutusData,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 pub use sha3;
-pub use slot_arithmetic::{Bound, EraHistory, EraParams, Slot, Summary};
+pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 
-use crate::network::NetworkName;
+pub use drep_state::*;
+pub mod drep_state;
+
+pub use proposal_state::*;
+pub mod proposal_state;
+
+pub use account::*;
+pub mod account;
+
+pub use reward_kind::*;
+pub mod reward_kind;
+
+pub use reward::*;
+pub mod reward;
+
+pub use strict_maybe::*;
+pub mod strict_maybe;
 
 pub mod block;
 pub mod macros;
+pub mod memoized;
 pub mod network;
 pub mod protocol_parameters;
 pub mod serde_utils;
@@ -98,13 +118,49 @@ pub type ScriptPurpose = RedeemerTag;
 
 pub type AuxiliaryDataHash = Hash<32>;
 
+// TODO: rework once https://github.com/txpipe/pallas/pull/676 is merged and released.
+#[derive(Debug, Eq, PartialEq)]
+pub struct ComparableRedeemerKey<'a>(Cow<'a, RedeemerKey>);
+
+impl Ord for ComparableRedeemerKey<'_> {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.tag()
+            .cmp(&other.tag())
+            .then_with(|| self.0.index.cmp(&other.0.index))
+    }
+}
+
+impl PartialOrd for ComparableRedeemerKey<'_> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl ComparableRedeemerKey<'_> {
+    fn tag(&self) -> u8 {
+        match &self.0.tag {
+            RedeemerTag::Spend => 0,
+            RedeemerTag::Mint => 1,
+            RedeemerTag::Cert => 2,
+            RedeemerTag::Reward => 3,
+            RedeemerTag::Vote => 4,
+            RedeemerTag::Propose => 5,
+        }
+    }
+}
+impl Deref for ComparableRedeemerKey<'_> {
+    type Target = RedeemerKey;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 #[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 pub struct RequiredScript {
     pub hash: ScriptHash,
     pub index: u32,
     pub purpose: ScriptPurpose,
-    #[serde(default, deserialize_with = "serde_utils::deserialize_option_proxy")]
-    pub datum_option: Option<DatumOption>,
+    pub datum: MemoizedDatum,
 }
 
 impl PartialOrd for RequiredScript {
@@ -131,9 +187,9 @@ impl Ord for RequiredScript {
     }
 }
 
-impl From<&RequiredScript> for RedeemersKey {
+impl From<&RequiredScript> for RedeemerKey {
     fn from(value: &RequiredScript) -> Self {
-        RedeemersKey {
+        RedeemerKey {
             tag: value.purpose,
             index: value.index,
         }
@@ -223,29 +279,69 @@ pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
 
-// This allows us to avoid cloning, but it's a pretty awful API.
-// Ideally, this is something that Pallas would own and cleanup.
-#[derive(Debug, PartialEq, Eq)]
-pub enum BorrowedScript<'a> {
-    NativeScript(&'a NativeScript),
-    PlutusV1Script(&'a PlutusScript<1>),
-    PlutusV2Script(&'a PlutusScript<2>),
-    PlutusV3Script(&'a PlutusScript<3>),
+pub struct ExUnitsIter<'a> {
+    source: ExUnitsIterSource<'a>,
 }
 
-impl BorrowedScript<'_> {
-    pub fn is_native_script(&self) -> bool {
-        matches!(self, BorrowedScript::NativeScript(..))
+type ExUnitsMapIter<'a> = std::iter::Map<
+    std::slice::Iter<'a, (RedeemerKey, RedeemersValue)>,
+    fn(&(RedeemerKey, RedeemersValue)) -> ExUnits,
+>;
+
+enum ExUnitsIterSource<'a> {
+    List(std::iter::Map<std::slice::Iter<'a, Redeemer>, fn(&Redeemer) -> ExUnits>),
+    Map(ExUnitsMapIter<'a>),
+}
+
+impl Iterator for ExUnitsIter<'_> {
+    type Item = ExUnits;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.source {
+            ExUnitsIterSource::List(iter) => iter.next(),
+            ExUnitsIterSource::Map(iter) => iter.next(),
+        }
     }
 }
 
-impl<'a> From<&'a PseudoScript<NativeScript>> for BorrowedScript<'a> {
-    fn from(value: &'a PseudoScript<NativeScript>) -> Self {
+pub trait RedeemersExt {
+    fn ex_units_iter(&self) -> ExUnitsIter<'_>;
+}
+
+impl RedeemersExt for Redeemers {
+    fn ex_units_iter(&self) -> ExUnitsIter<'_> {
+        match self {
+            Redeemers::List(list) => ExUnitsIter {
+                source: ExUnitsIterSource::List(list.iter().map(|r| r.ex_units)),
+            },
+            Redeemers::Map(map) => ExUnitsIter {
+                source: ExUnitsIterSource::Map(map.iter().map(|(_, r)| r.ex_units)),
+            },
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ScriptKind {
+    Native,
+    PlutusV1,
+    PlutusV2,
+    PlutusV3,
+}
+
+impl ScriptKind {
+    pub fn is_native_script(&self) -> bool {
+        matches!(self, Self::Native)
+    }
+}
+
+impl<'a, T> From<&'a PseudoScript<T>> for ScriptKind {
+    fn from(value: &'a PseudoScript<T>) -> Self {
         match value {
-            PseudoScript::NativeScript(script) => BorrowedScript::NativeScript(script),
-            PseudoScript::PlutusV1Script(script) => BorrowedScript::PlutusV1Script(script),
-            PseudoScript::PlutusV2Script(script) => BorrowedScript::PlutusV2Script(script),
-            PseudoScript::PlutusV3Script(script) => BorrowedScript::PlutusV3Script(script),
+            PseudoScript::NativeScript(..) => ScriptKind::Native,
+            PseudoScript::PlutusV1Script(..) => ScriptKind::PlutusV1,
+            PseudoScript::PlutusV2Script(..) => ScriptKind::PlutusV2,
+            PseudoScript::PlutusV3Script(..) => ScriptKind::PlutusV3,
         }
     }
 }
@@ -382,7 +478,16 @@ impl serde::Serialize for PoolParams {
                             )?;
                         }
                         if let Nullable::Some(ipv6) = ipv6 {
-                            s.serialize_field("ipv6", ipv6)?;
+                            let bytes: [u8; 16] = [
+                                ipv6[3], ipv6[2], ipv6[1], ipv6[0], // 1st fragment
+                                ipv6[7], ipv6[6], ipv6[5], ipv6[4], // 2nd fragment
+                                ipv6[11], ipv6[10], ipv6[9], ipv6[8], // 3rd fragment
+                                ipv6[15], ipv6[14], ipv6[13], ipv6[12], // 4th fragment
+                            ];
+                            s.serialize_field(
+                                "ipv6",
+                                &format!("{}", std::net::Ipv6Addr::from(bytes)),
+                            )?;
                         }
                         if let Nullable::Some(port) = port {
                             s.serialize_field("port", port)?;
@@ -614,17 +719,23 @@ impl HasLovelace for MintedTransactionOutput<'_> {
     }
 }
 
-/// TODO: See 'output_lovelace', same remark applies.
-pub fn output_stake_credential(
-    output: &TransactionOutput,
-) -> Result<Option<StakeCredential>, Error> {
-    let address = Address::from_bytes(match output {
-        TransactionOutput::Legacy(legacy) => &legacy.address[..],
-        TransactionOutput::PostAlonzo(modern) => &modern.address[..],
-    })?;
-    //"unable to deserialise address from output: {output:#?}"
+impl HasLovelace for MemoizedTransactionOutput {
+    fn lovelace(&self) -> Lovelace {
+        self.value.lovelace()
+    }
+}
+pub trait OriginalSize {
+    fn original_size(&self) -> usize;
+}
 
-    Ok(match address {
+impl<T> OriginalSize for KeepRaw<'_, T> {
+    fn original_size(&self) -> usize {
+        to_cbor(self).len()
+    }
+}
+
+pub fn output_stake_credential(output: &MemoizedTransactionOutput) -> Option<StakeCredential> {
+    match &output.address {
         Address::Shelley(shelley) => match shelley.delegation() {
             ShelleyDelegationPart::Key(key) => Some(StakeCredential::AddrKeyhash(*key)),
             ShelleyDelegationPart::Script(script) => Some(StakeCredential::ScriptHash(*script)),
@@ -632,7 +743,7 @@ pub fn output_stake_credential(
         },
         Address::Byron(..) => None,
         Address::Stake(..) => unreachable!("stake address inside output?"),
-    })
+    }
 }
 
 // StakeAddress
@@ -748,30 +859,29 @@ pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
 }
 
 /// Collect provided scripts and compute each ScriptHash in a witness set
-pub fn get_provided_scripts<'a>(
-    witness_set: &'a MintedWitnessSet<'_>,
-) -> BTreeMap<ScriptHash, BorrowedScript<'a>> {
+pub fn get_provided_scripts(
+    witness_set: &MintedWitnessSet<'_>,
+) -> BTreeMap<ScriptHash, ScriptKind> {
     let mut provided_scripts = BTreeMap::new();
 
     if let Some(native_scripts) = witness_set.native_script.as_ref() {
-        provided_scripts.extend(native_scripts.iter().map(|native_script| {
-            (
-                native_script.script_hash(),
-                BorrowedScript::NativeScript(native_script.deref()),
-            )
-        }))
+        provided_scripts.extend(
+            native_scripts
+                .iter()
+                .map(|native_script| (native_script.script_hash(), ScriptKind::Native)),
+        )
     };
 
-    fn collect_plutus_scripts<'a, const VERSION: usize>(
-        accum: &mut BTreeMap<ScriptHash, BorrowedScript<'a>>,
-        scripts: Option<&'a NonEmptySet<PlutusScript<VERSION>>>,
-        lift: impl Fn(&'a PlutusScript<VERSION>) -> BorrowedScript<'a>,
+    fn collect_plutus_scripts<const VERSION: usize>(
+        accum: &mut BTreeMap<ScriptHash, ScriptKind>,
+        scripts: Option<&NonEmptySet<PlutusScript<VERSION>>>,
+        kind: ScriptKind,
     ) {
         if let Some(plutus_scripts) = scripts {
             accum.extend(
                 plutus_scripts
                     .iter()
-                    .map(|script| (script.script_hash(), lift(script))),
+                    .map(|script| (script.script_hash(), kind)),
             )
         }
     }
@@ -779,17 +889,19 @@ pub fn get_provided_scripts<'a>(
     collect_plutus_scripts(
         &mut provided_scripts,
         witness_set.plutus_v1_script.as_ref(),
-        BorrowedScript::PlutusV1Script,
+        ScriptKind::PlutusV1,
     );
+
     collect_plutus_scripts(
         &mut provided_scripts,
         witness_set.plutus_v2_script.as_ref(),
-        BorrowedScript::PlutusV2Script,
+        ScriptKind::PlutusV2,
     );
+
     collect_plutus_scripts(
         &mut provided_scripts,
         witness_set.plutus_v3_script.as_ref(),
-        BorrowedScript::PlutusV3Script,
+        ScriptKind::PlutusV3,
     );
 
     provided_scripts
@@ -847,21 +959,6 @@ impl HasDatum for TransactionOutput {
                 .datum_option
                 .as_ref()
                 .map(BorrowedDatumOption::from),
-        }
-    }
-}
-
-pub trait HasScriptRef {
-    fn has_script_ref(&self) -> Option<&ScriptRef>;
-}
-
-impl HasScriptRef for TransactionOutput {
-    fn has_script_ref(&self) -> Option<&ScriptRef> {
-        match self {
-            TransactionOutput::PostAlonzo(transaction_output) => {
-                transaction_output.script_ref.as_deref()
-            }
-            TransactionOutput::Legacy(_) => None,
         }
     }
 }
@@ -973,14 +1070,10 @@ pub trait HasScriptHash {
     fn script_hash(&self) -> ScriptHash;
 }
 
-impl HasScriptHash for MintedScriptRef<'_> {
+impl<A: HasScriptHash> HasScriptHash for PseudoScript<A> {
     fn script_hash(&self) -> ScriptHash {
         match self {
-            PseudoScript::NativeScript(native_script) => {
-                let mut buffer: Vec<u8> = vec![0];
-                buffer.extend_from_slice(native_script.raw_cbor());
-                Hasher::<224>::hash(&buffer)
-            }
+            PseudoScript::NativeScript(native_script) => native_script.script_hash(),
             PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
             PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
             PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
@@ -988,50 +1081,32 @@ impl HasScriptHash for MintedScriptRef<'_> {
     }
 }
 
-impl HasScriptHash for ScriptRef {
+impl HasScriptHash for MemoizedNativeScript {
     fn script_hash(&self) -> ScriptHash {
-        match self {
-            ScriptRef::NativeScript(native_script) => {
-                let mut buffer: Vec<u8>;
-                buffer = vec![0];
-                // FIXME: don't reserialize the native script here.
-                //
-                // This happens because scripts may be found in reference inputs, which have been
-                // stripped from their 'KeepRaw' structure already and thus; have lost their
-                // 'original' bytes.
-                //
-                // While native scripts are simple in essence, they don't have any canonical form.
-                // For example, an array of signatures (all-of) may be serialised as definite or
-                // indefinite. Which will change serialisation and hash.
-                //
-                // Rather than reserialising them when storing them in db, we shall keep their
-                // original bytes and possibly only deserialise on-demand (we only need to
-                // deserialise them if their execution is required).
-                let native_script = to_cbor(&native_script);
-                buffer.extend_from_slice(native_script.as_slice());
-                Hasher::<224>::hash(&buffer)
-            }
-            PseudoScript::PlutusV1Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV2Script(plutus_script) => plutus_script.script_hash(),
-            PseudoScript::PlutusV3Script(plutus_script) => plutus_script.script_hash(),
-        }
+        native_script_hash(self.original_bytes())
     }
 }
 
 impl HasScriptHash for KeepRaw<'_, NativeScript> {
     fn script_hash(&self) -> ScriptHash {
-        let mut buffer: Vec<u8> = vec![0];
-        buffer.extend_from_slice(self.raw_cbor());
-        Hasher::<224>::hash(&buffer)
+        native_script_hash(self.raw_cbor())
     }
+}
+
+fn native_script_hash(bytes: &[u8]) -> ScriptHash {
+    tagged_script_hash(0, bytes)
 }
 
 impl<const VERSION: usize> HasScriptHash for PlutusScript<VERSION> {
     fn script_hash(&self) -> ScriptHash {
-        let mut buffer: Vec<u8> = vec![VERSION as u8];
-        buffer.extend_from_slice(self.as_ref());
-        Hasher::<224>::hash(&buffer)
+        tagged_script_hash(VERSION as u8, self.as_ref())
     }
+}
+
+fn tagged_script_hash(tag: u8, bytes: &[u8]) -> ScriptHash {
+    let mut buffer: Vec<u8> = vec![tag];
+    buffer.extend_from_slice(bytes);
+    Hasher::<224>::hash(&buffer)
 }
 
 /// Construct the bootstrap root from a bootstrap witness
@@ -1093,6 +1168,77 @@ pub fn default_chain_dir(network: NetworkName) -> String {
     format!("./chain.{}.db", network.to_string().to_lowercase())
 }
 
+/// Utility function to parse a point from a string.
+///
+/// Expects the input to be of the form '<point>.<hash>', where `<point>` is a number and `<hash>`
+/// is a hex-encoded 32 bytes hash.
+/// The first argument is the string to parse, the `bail` function is user to
+/// produce the error type `E` in case of failure to parse.
+pub fn parse_point(raw_str: &str) -> Result<Point, String> {
+    let mut split = raw_str.split('.');
+
+    let slot = split
+        .next()
+        .ok_or("missing slot number before '.'")
+        .and_then(|s| {
+            s.parse::<u64>()
+                .map_err(|_| "failed to parse point's slot as a non-negative integer")
+        })?;
+
+    let block_header_hash = split
+        .next()
+        .ok_or("missing block header hash after '.'")
+        .and_then(|s| hex::decode(s).map_err(|_| "unable to decode block header hash from hex"))?;
+
+    Ok(Point::Specific(slot, block_header_hash))
+}
+
+/// Utility function to parse a nonce (i.e. a blake2b-256 hash digest) from an hex-encoded string.
+pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
+    hex::decode(hex_str)
+        .map_err(|e| format!("invalid hex encoding: {e}"))
+        .and_then(|bytes| {
+            <[u8; 32]>::try_from(bytes).map_err(|_| "expected 32-byte nonce".to_string())
+        })
+        .map(Nonce::from)
+}
+
+// Redeemers
+// ----------------------------------------------------------------------------
+pub trait HasRedeemerKeys {
+    fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>>;
+}
+
+impl HasRedeemerKeys for Redeemers {
+    fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>> {
+        match self {
+            /* It's possible that a list could have a (tag, index) tuple present more than once, with different data.
+              The haskell node removes duplicates, keeping the last value present
+              See (https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626):
+                  - The Map.fromList behavior is documented here: https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList
+
+               In this case, we don't care about the data provided in the redeemer (we're returning just the keys), so it doesn't matter.
+               But this will come up during Phase 2 validation, so keep in mind that BTreeSet always keeps the first occurance based on the `PartialEq` result
+                   https://doc.rust-lang.org/std/collections/btree_set/struct.BTreeSet.html#method.insert
+            */
+            Redeemers::List(redeemers) => redeemers
+                .iter()
+                .map(|redeemer| {
+                    ComparableRedeemerKey(Cow::Owned(RedeemerKey {
+                        tag: redeemer.tag,
+                        index: redeemer.index,
+                    }))
+                })
+                .collect(),
+            Redeemers::Map(redeemers) => redeemers
+                .iter()
+                // TODO: can we avoid a clone here?
+                .map(|(key, _)| ComparableRedeemerKey(Cow::Borrowed(key)))
+                .collect(),
+        }
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
@@ -1137,5 +1283,60 @@ mod test {
     #[test_case(fixture!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"))]
     fn to_root_key_hash((bootstrap_witness, root): (BootstrapWitness, Hash<28>)) {
         assert_eq!(to_root(&bootstrap_witness).as_slice(), root.as_slice())
+    }
+
+    #[test]
+    fn test_parse_point() {
+        let point = parse_point("42.0123456789abcdef").unwrap();
+        match point {
+            Point::Specific(slot, hash) => {
+                assert_eq!(42, slot);
+                assert_eq!(vec![1, 35, 69, 103, 137, 171, 205, 239], hash);
+            }
+            _ => panic!("expected a specific point"),
+        }
+    }
+
+    #[test]
+    fn test_parse_real_point() {
+        let point = parse_point(
+            "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
+        )
+        .unwrap();
+        match point {
+            Point::Specific(slot, _hash) => {
+                assert_eq!(70070379, slot);
+            }
+            _ => panic!("expected a specific point"),
+        }
+    }
+
+    #[test]
+    fn test_parse_nonce() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d"),
+            Ok(..)
+        ));
+    }
+
+    #[test]
+    fn test_parse_nonce_not_hex() {
+        assert!(matches!(parse_nonce("patate"), Err(..)));
+    }
+
+    #[test]
+    fn test_parse_nonce_too_long() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d1234"),
+            Err(..)
+        ));
+    }
+
+    #[test]
+    fn test_parse_nonce_too_short() {
+        assert!(matches!(
+            parse_nonce("d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a"),
+            Err(..)
+        ));
     }
 }

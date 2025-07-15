@@ -12,16 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use pallas_codec::utils::CborWrap;
-use pallas_primitives::{
-    conway::{DatumOption, Hash, ScriptRef},
-    PlutusScript,
-};
-
-use crate::{
-    from_cbor, Bytes, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
-};
-use std::{collections::BTreeMap, ops::Deref};
+use crate::{MemoizedTransactionOutput, TransactionInput};
+use std::collections::BTreeMap;
 
 // ----------------------------------------------------------------------------------- Generic utils
 
@@ -64,84 +56,6 @@ impl HasProxy for TransactionInput {
 
 // ------------------------------------------------------------------------------- TransactionOutput
 
-// Adding new fields here as an `Option` to not break existing context.json files. Can go back through and clean up later
-#[derive(Debug, serde::Deserialize)]
-pub struct TransactionOutputProxy {
-    address: Bytes,
-    // TODO: support value that is more than just lovelace
-    value: Option<u64>,
-    script_ref: Option<ScriptRefProxy>,
-    datum: Option<DatumOptionProxy>,
-    // TODO: expand this
-}
-
-impl HasProxy for TransactionOutput {
-    type Proxy = TransactionOutputProxy;
-}
-
-impl From<TransactionOutputProxy> for TransactionOutput {
-    fn from(proxy: TransactionOutputProxy) -> Self {
-        Self::PostAlonzo(PostAlonzoTransactionOutput {
-            address: proxy.address,
-            value: Value::Coin(proxy.value.unwrap_or_default()),
-            datum_option: proxy.datum.map(DatumOption::from),
-            script_ref: proxy
-                .script_ref
-                .map(|proxy| CborWrap(ScriptRef::from(proxy))),
-        })
-    }
-}
-
-// ------------------------------------------------------------------------------- ScriptRef
-
-#[derive(Debug, serde::Deserialize)]
-pub enum ScriptRefProxy {
-    NativeScript(Bytes),
-    PlutusV1(Bytes),
-    PlutusV2(Bytes),
-    PlutusV3(Bytes),
-}
-
-impl HasProxy for ScriptRef {
-    type Proxy = ScriptRefProxy;
-}
-
-impl From<ScriptRefProxy> for ScriptRef {
-    #[allow(clippy::unwrap_used)]
-    fn from(value: ScriptRefProxy) -> Self {
-        match value {
-            ScriptRefProxy::NativeScript(bytes) => {
-                // This code should only be run during tests, so a panic here is fine
-                ScriptRef::NativeScript(from_cbor(bytes.deref()).unwrap())
-            }
-            ScriptRefProxy::PlutusV1(bytes) => ScriptRef::PlutusV1Script(PlutusScript::<1>(bytes)),
-            ScriptRefProxy::PlutusV2(bytes) => ScriptRef::PlutusV2Script(PlutusScript::<2>(bytes)),
-            ScriptRefProxy::PlutusV3(bytes) => ScriptRef::PlutusV3Script(PlutusScript::<3>(bytes)),
-        }
-    }
-}
-
-// ------------------------------------------------------------------------------- DatumOption
-
-#[derive(Debug, serde::Deserialize)]
-pub enum DatumOptionProxy {
-    Hash(Bytes),
-    Data(Bytes),
-}
-
-impl HasProxy for DatumOption {
-    type Proxy = DatumOptionProxy;
-}
-
-impl From<DatumOptionProxy> for DatumOption {
-    #[allow(clippy::unwrap_used)]
-    fn from(value: DatumOptionProxy) -> Self {
-        match value {
-            DatumOptionProxy::Hash(bytes) => DatumOption::Hash(Hash::from(bytes.as_slice())),
-            // This code should only be run during tests, so a panic here is fine
-            DatumOptionProxy::Data(data) => {
-                DatumOption::Data(CborWrap(from_cbor(data.deref()).unwrap()))
-            }
-        }
-    }
+impl HasProxy for MemoizedTransactionOutput {
+    type Proxy = MemoizedTransactionOutput;
 }

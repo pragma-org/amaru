@@ -1,11 +1,13 @@
 use crate::{
     store::{
-        EpochTransitionProgress, HistoricalStores, ReadOnlyStore, Snapshot, Store, StoreError,
+        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
         TransactionalContext,
     },
     summary::Pots,
 };
-use amaru_kernel::{protocol_parameters::ProtocolParameters, Lovelace, Point, StakeCredential};
+use amaru_kernel::{
+    protocol_parameters::ProtocolParameters, EraHistory, Lovelace, Point, StakeCredential,
+};
 use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 
@@ -17,7 +19,7 @@ impl Snapshot for MemoryStore {
     }
 }
 
-impl ReadOnlyStore for MemoryStore {
+impl ReadStore for MemoryStore {
     fn get_protocol_parameters_for(
         &self,
         _epoch: &Epoch,
@@ -42,7 +44,7 @@ impl ReadOnlyStore for MemoryStore {
     fn utxo(
         &self,
         _input: &amaru_kernel::TransactionInput,
-    ) -> Result<Option<amaru_kernel::TransactionOutput>, crate::store::StoreError> {
+    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, crate::store::StoreError> {
         Ok(None)
     }
 
@@ -220,6 +222,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
         >,
         _withdrawals: impl Iterator<Item = crate::store::columns::accounts::Key>,
         _voting_dreps: BTreeSet<StakeCredential>,
+        _era_history: &EraHistory,
     ) -> Result<(), crate::store::StoreError> {
         Ok(())
     }
@@ -275,9 +278,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext {
 }
 
 impl Store for MemoryStore {
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
-        Ok(vec![Epoch::from(3)])
-    }
     fn next_snapshot(&self, _epoch: Epoch) -> Result<(), crate::store::StoreError> {
         Ok(())
     }
@@ -291,6 +291,9 @@ impl Store for MemoryStore {
 }
 
 impl HistoricalStores for MemoryStore {
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError> {
+        Ok(vec![Epoch::from(3)])
+    }
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, crate::store::StoreError> {
         Ok(MemoryStore {})
     }

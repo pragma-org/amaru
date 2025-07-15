@@ -19,7 +19,7 @@ use amaru_kernel::{
 use amaru_ouroboros::{praos::nonce, Nonces};
 use amaru_ouroboros_traits::{IsHeader, Praos};
 use pallas_crypto::hash::Hash;
-use slot_arithmetic::TimeHorizonError;
+use slot_arithmetic::EraHistoryError;
 use std::{collections::BTreeMap, fmt::Display};
 use thiserror::Error;
 
@@ -42,34 +42,44 @@ impl Display for StoreError {
     }
 }
 
-/// A simple chain store interface that can store and retrieve headers indexed by their hash.
-pub trait ChainStore<H>: Send + Sync
+pub trait ReadOnlyChainStore<H>
 where
     H: IsHeader,
 {
     fn load_header(&self, hash: &Hash<32>) -> Option<H>;
-    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
-
     fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError>;
-    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
-
     fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces>;
+}
+
+impl<H: IsHeader> ReadOnlyChainStore<H> for Box<dyn ChainStore<H>> {
+    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
+        self.as_ref().load_header(hash)
+    }
+
+    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+        self.as_ref().load_block(hash)
+    }
+
+    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+        self.as_ref().get_nonces(header)
+    }
+}
+
+/// A simple chain store interface that can store and retrieve headers indexed by their hash.
+pub trait ChainStore<H>: ReadOnlyChainStore<H> + Send + Sync
+where
+    H: IsHeader,
+{
+    fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError>;
+    fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError>;
     fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError>;
 
     fn era_history(&self) -> &EraHistory;
 }
 
 impl<H: IsHeader> ChainStore<H> for Box<dyn ChainStore<H>> {
-    fn load_header(&self, hash: &Hash<32>) -> Option<H> {
-        self.as_ref().load_header(hash)
-    }
-
     fn store_header(&mut self, hash: &Hash<32>, header: &H) -> Result<(), StoreError> {
         self.as_mut().store_header(hash, header)
-    }
-
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-        self.as_ref().get_nonces(header)
     }
 
     fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
@@ -78,10 +88,6 @@ impl<H: IsHeader> ChainStore<H> for Box<dyn ChainStore<H>> {
 
     fn era_history(&self) -> &EraHistory {
         self.as_ref().era_history()
-    }
-
-    fn load_block(&self, hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        self.as_ref().load_block(hash)
     }
 
     fn store_block(&mut self, hash: &Hash<32>, block: &RawBlock) -> Result<(), StoreError> {
@@ -104,7 +110,7 @@ pub enum NoncesError {
     StoreError(#[from] StoreError),
 
     #[error("{0}")]
-    EraHistoryError(#[from] TimeHorizonError),
+    EraHistoryError(#[from] EraHistoryError),
 }
 
 impl<H: IsHeader> Praos<H> for dyn ChainStore<H> {
@@ -198,18 +204,24 @@ pub struct FakeStore {
     nonces: BTreeMap<Hash<32>, Nonces>,
 }
 
-impl ChainStore<Header> for FakeStore {
+impl ReadOnlyChainStore<Header> for FakeStore {
     fn load_header(&self, hash: &Hash<32>) -> Option<Header> {
         self.headers.get(hash).cloned()
     }
 
+    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
+        self.nonces.get(header).cloned()
+    }
+
+    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
+        unimplemented!()
+    }
+}
+
+impl ChainStore<Header> for FakeStore {
     fn store_header(&mut self, hash: &Hash<32>, header: &Header) -> Result<(), StoreError> {
         self.headers.insert(*hash, header.clone());
         Ok(())
-    }
-
-    fn get_nonces(&self, header: &Hash<32>) -> Option<Nonces> {
-        self.nonces.get(header).cloned()
     }
 
     fn put_nonces(&mut self, header: &Hash<32>, nonces: &Nonces) -> Result<(), StoreError> {
@@ -221,12 +233,8 @@ impl ChainStore<Header> for FakeStore {
         NetworkName::Preprod.into()
     }
 
-    fn load_block(&self, _hash: &Hash<32>) -> Result<RawBlock, StoreError> {
-        unimplemented!()
-    }
-
     fn store_block(&mut self, _hash: &Hash<32>, _block: &RawBlock) -> Result<(), StoreError> {
-        unimplemented!()
+        Ok(())
     }
 }
 

@@ -35,15 +35,10 @@ pub fn block_body_size_valid(block: &MintedBlock<'_>) -> Result<(), InvalidBlock
 
 // FIXME: Do not re-serialize block here, but rely on the original bytes.
 fn calculate_block_body_size(block: &MintedBlock<'_>) -> usize {
-    let tx_bodies_raw = to_cbor(&block.transaction_bodies);
-    let tx_witness_sets_raw = to_cbor(&block.transaction_witness_sets);
-    let auxiliary_data_raw = to_cbor(&block.auxiliary_data_set);
-    let invalid_transactions_raw = to_cbor(&block.invalid_transactions);
-
-    tx_bodies_raw.len()
-        + tx_witness_sets_raw.len()
-        + auxiliary_data_raw.len()
-        + invalid_transactions_raw.len()
+    to_cbor(&block.transaction_bodies).len()
+        + to_cbor(&block.transaction_witness_sets).len()
+        + to_cbor(&block.auxiliary_data_set).len()
+        + to_cbor(&block.invalid_transactions).len()
 }
 
 #[cfg(test)]

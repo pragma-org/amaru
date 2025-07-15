@@ -72,10 +72,19 @@ fn db(network: NetworkName, epoch: Epoch) -> Arc<impl Snapshot + Send + Sync> {
     handle
 }
 
-include!("generated_compare_snapshot_test_cases.incl");
+include!(concat!(
+    "snapshots/",
+    env!("NETWORK"),
+    "/generated_compare_snapshot_test_cases.incl"
+));
 
 #[allow(clippy::unwrap_used)]
-fn compare_snapshot(network: NetworkName, epoch: Epoch) {
+fn compare_snapshot(epoch: Epoch) {
+    #[allow(clippy::expect_used)]
+    let network: NetworkName = env!("NETWORK")
+        .to_string()
+        .parse()
+        .expect("$NETWORK must be set to a valid network name");
     let snapshot = db(network, epoch);
     let global_parameters: &GlobalParameters = network.into();
     let protocol_parameters = ProtocolParameters::default();
@@ -129,9 +138,22 @@ fn compare_snapshot(network: NetworkName, epoch: Epoch) {
 }
 
 fn protocol_version(epoch: Epoch, network: NetworkName) -> ProtocolVersion {
-    if network == NetworkName::Preprod && epoch <= Epoch::from(180) {
-        return PROTOCOL_VERSION_9;
+    match network {
+        NetworkName::Preprod => {
+            if epoch <= Epoch::from(180) {
+                PROTOCOL_VERSION_9
+            } else {
+                PROTOCOL_VERSION_10
+            }
+        }
+        NetworkName::Preview => {
+            if epoch <= Epoch::from(741) {
+                PROTOCOL_VERSION_9
+            } else {
+                PROTOCOL_VERSION_10
+            }
+        }
+        NetworkName::Mainnet => unimplemented!(),
+        NetworkName::Testnet(..) => unimplemented!(),
     }
-
-    PROTOCOL_VERSION_10
 }

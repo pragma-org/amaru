@@ -1,7 +1,7 @@
 use amaru_kernel::{
-    cbor, network::NetworkName, protocol_parameters::GlobalParameters, Bytes, EraHistory, Hash,
-    Hasher, MintedBlock, Point, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput,
-    Value, PROTOCOL_VERSION_9,
+    cbor, from_cbor, network::NetworkName, protocol_parameters::GlobalParameters, to_cbor, Bytes,
+    EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Point,
+    PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     context,
@@ -47,13 +47,15 @@ pub fn forward_ledger(raw_block: &str) {
         }
     }
 
-    fn create_output(address: &str) -> TransactionOutput {
-        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
+    fn create_output(address: &str) -> MemoizedTransactionOutput {
+        let output = TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
             address: Bytes::from(hex::decode(address).unwrap()),
             value: Value::Coin(0),
             datum_option: None,
             script_ref: None,
-        })
+        });
+
+        from_cbor(&to_cbor(&output)).unwrap()
     }
 
     let inputs = BTreeMap::from([

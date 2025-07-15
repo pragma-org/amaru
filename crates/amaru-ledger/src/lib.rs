@@ -14,6 +14,7 @@
 
 #![feature(try_trait_v2)]
 
+pub mod bootstrap;
 pub mod context;
 pub mod rules;
 pub mod state;
@@ -23,7 +24,8 @@ pub mod summary;
 #[cfg(test)]
 pub(crate) mod tests {
     use amaru_kernel::{
-        Bytes, Hash, PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value,
+        from_cbor, to_cbor, Bytes, Hash, MemoizedTransactionOutput, PostAlonzoTransactionOutput,
+        TransactionInput, TransactionOutput, Value,
     };
 
     pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {
@@ -33,12 +35,14 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn fake_output(address: &str) -> TransactionOutput {
-        TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
+    pub(crate) fn fake_output(address: &str) -> MemoizedTransactionOutput {
+        let output = TransactionOutput::PostAlonzo(PostAlonzoTransactionOutput {
             address: Bytes::from(hex::decode(address).expect("Invalid hex address")),
             value: Value::Coin(0),
             datum_option: None,
             script_ref: None,
-        })
+        });
+
+        from_cbor(&to_cbor(&output)).unwrap()
     }
 }

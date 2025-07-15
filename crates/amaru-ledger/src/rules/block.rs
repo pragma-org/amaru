@@ -30,7 +30,7 @@ use slot_arithmetic::Slot;
 use std::{
     cmp::Ordering,
     collections::BTreeMap,
-    fmt::Display,
+    fmt::{self, Display},
     ops::{ControlFlow, Deref, FromResidual, Try},
     process::{ExitCode, Termination},
 };
@@ -253,12 +253,15 @@ pub fn ex_units(
 }
 
 #[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
-pub fn execute<C: ValidationContext<FinalState = S>, S: From<C>>(
+pub fn execute<C, S: From<C>>(
     context: &mut C,
     network: &Network,
     protocol_params: &ProtocolParameters,
     block: &MintedBlock<'_>,
-) -> BlockValidation<(), anyhow::Error> {
+) -> BlockValidation<(), anyhow::Error>
+where
+    C: ValidationContext<FinalState = S> + fmt::Debug,
+{
     let with_block_context = |result| match result {
         Ok(out) => BlockValidation::Valid(out),
         Err(err) => BlockValidation::Invalid(

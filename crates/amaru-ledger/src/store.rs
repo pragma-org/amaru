@@ -16,6 +16,7 @@ pub mod columns;
 pub mod in_memory;
 
 use crate::summary::Pots;
+use amaru_kernel::MemoizedTransactionOutput;
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
@@ -23,12 +24,12 @@ use amaru_kernel::{
     cbor as minicbor,
     protocol_parameters::ProtocolParameters,
     CertificatePointer,
+    EraHistory,
     Lovelace,
     Point,
     PoolId,
     StakeCredential,
     TransactionInput,
-    TransactionOutput,
 };
 use columns::*;
 use slot_arithmetic::Epoch;
@@ -40,7 +41,7 @@ use thiserror::Error;
 pub enum OpenErrorKind {
     #[error(transparent)]
     IO(#[from] io::Error),
-    #[error("no ledger stable snapshot found; at least one is expected")]
+    #[error("no ledger stable snapshot found; at least two are expected")]
     NoStableSnapshot,
 }
 
@@ -68,7 +69,7 @@ pub enum StoreError {
 // Store
 // ----------------------------------------------------------------------------
 
-pub trait ReadOnlyStore {
+pub trait ReadStore {
     /// Get the current protocol parameters for a given epoch, or most recent one
     fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError>;
 
@@ -79,7 +80,10 @@ pub trait ReadOnlyStore {
     fn account(&self, credential: &StakeCredential) -> Result<Option<accounts::Row>, StoreError>;
 
     /// Get details about a specific UTxO
-    fn utxo(&self, input: &TransactionInput) -> Result<Option<TransactionOutput>, StoreError>;
+    fn utxo(
+        &self,
+        input: &TransactionInput,
+    ) -> Result<Option<MemoizedTransactionOutput>, StoreError>;
 
     /// Get current values of the treasury and reserves accounts.
     fn pots(&self) -> Result<Pots, StoreError>;
@@ -109,25 +113,11 @@ pub trait ReadOnlyStore {
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
 }
 
-pub trait Snapshot: ReadOnlyStore {
+pub trait Snapshot: ReadStore {
     fn epoch(&self) -> Epoch;
 }
 
-pub trait Store: ReadOnlyStore {
-    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
-    /// snapshot available.
-    #[allow(clippy::panic)]
-    fn most_recent_snapshot(&self) -> Epoch {
-        self.snapshots()
-            .unwrap_or_default()
-            .last()
-            .copied()
-            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
-    }
-
-    /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
-    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
-
+pub trait Store: ReadStore {
     /// Construct and save on-disk a snapshot of the store. The epoch number is used when
     /// there's no existing snapshot and, to ensure that snapshots are taken in order.
     ///
@@ -147,6 +137,31 @@ pub trait Store: ReadOnlyStore {
 }
 
 pub trait HistoricalStores {
+    /// Get a list of all snapshots available. The list is ordered from the oldest to the newest.
+    fn snapshots(&self) -> Result<Vec<Epoch>, StoreError>;
+
+    /// The least recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    #[allow(clippy::panic)]
+    fn least_recent_snapshot(&self) -> Epoch {
+        self.snapshots()
+            .unwrap_or_default()
+            .first()
+            .copied()
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
+    }
+
+    /// The most recent snapshot. Note that we never starts from genesis; so there's always a
+    /// snapshot available.
+    #[allow(clippy::panic)]
+    fn most_recent_snapshot(&self) -> Epoch {
+        self.snapshots()
+            .unwrap_or_default()
+            .last()
+            .copied()
+            .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
+    }
+
     ///Access a `Snapshot` for a specific `Epoch`
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
@@ -176,6 +191,7 @@ pub trait TransactionalContext<'a> {
 
     /// Add or remove entries to/from the store. The exact semantic of 'add' and 'remove' depends
     /// on the column type. All updates are atomatic and attached to the given `Point`.
+    #[allow(clippy::too_many_arguments)]
     fn save(
         &self,
         point: &Point,
@@ -198,6 +214,7 @@ pub trait TransactionalContext<'a> {
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
         voting_dreps: BTreeSet<StakeCredential>,
+        era_history: &EraHistory,
     ) -> Result<(), StoreError>;
 
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded

@@ -33,17 +33,17 @@ pub type RawHeader = Vec<u8>;
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
-    #[error("Failed to fetch block at {0:?}")]
+    #[error("Failed to fetch block at {0}")]
     FetchBlockFailed(Point),
-    #[error("Failed to validate header at {0:?}: {1}")]
+    #[error("Failed to validate header at {0}: {1}")]
     InvalidHeader(Point, AssertHeaderError),
-    #[error("Failed to store header at {0:?}: {1}")]
+    #[error("Failed to store header at {0}: {1}")]
     StoreHeaderFailed(Point, consensus::store::StoreError),
-    #[error("Failed to store block body at {0:?}: {1}")]
+    #[error("Failed to store block body at {0}: {1}")]
     StoreBlockFailed(Point, consensus::store::StoreError),
     #[error("Failed to decode header at {}: {}", point, hex::encode(header))]
     CannotDecodeHeader { point: Point, header: Vec<u8> },
-    #[error("Unknown peer {0:?}, bailing out")]
+    #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(peer::Peer),
     #[error(
         "Invalid rollback {} from peer {}, cannot go further than {}",

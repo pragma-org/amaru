@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::cbor;
 use amaru_stores::rocksdb::common::as_key;
 use iter_borrow::{new, IterBorrow, KeyValueIterator};
-use pallas_codec::minicbor as cbor;
 use rocksdb::OptimisticTransactionDB;
 use tempfile::Builder;
 

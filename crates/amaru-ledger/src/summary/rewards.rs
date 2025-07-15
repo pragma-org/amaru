@@ -486,16 +486,16 @@ impl RewardsSummary {
 
         info!(
             target: EVENT_TARGET,
-            epoch = ?stake_distribution.epoch,
+            epoch = %stake_distribution.epoch,
             %efficiency,
-            ?incentives,
-            ?treasury_tax,
-            ?total_rewards,
-            ?available_rewards,
-            ?effective_rewards,
-            pots.reserves = ?pots.reserves,
-            pots.treasury = ?pots.treasury,
-            pots.fees = ?pots.fees,
+            %incentives,
+            %treasury_tax,
+            %total_rewards,
+            %available_rewards,
+            %effective_rewards,
+            pots.reserves = %pots.reserves,
+            pots.treasury = %pots.treasury,
+            pots.fees = %pots.fees,
             "rewards.summary",
         );
 

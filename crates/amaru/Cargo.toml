@@ -21,13 +21,11 @@ clap.workspace = true
 futures-util.workspace = true
 gasket.workspace = true
 hex.workspace = true
-indicatif.workspace = true
 indoc.workspace = true
 minicbor.workspace = true
 opentelemetry-otlp.workspace = true
 opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
-pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-network.workspace = true
 pallas-traverse.workspace = true
@@ -43,6 +41,7 @@ tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
+progress-bar = { workspace = true, features = ["terminal"] }
 
 amaru-consensus.workspace = true
 amaru-kernel.workspace = true
@@ -57,6 +56,7 @@ tempfile.workspace = true
 test-case.workspace = true
 iter-borrow.workspace = true
 rocksdb.workspace = true
+once_cell.workspace = true
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }

@@ -1,10 +1,28 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    display_collection, get_provided_scripts, script_purpose_to_string, BorrowedScript, DatumHash,
-    DatumOption, MintedWitnessSet, OriginalHash, RedeemersKey, RequiredScript, ScriptHash,
-    ScriptPurpose,
+    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, HasRedeemerKeys,
+    MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey, RequiredScript, ScriptHash,
+    ScriptKind, ScriptPurpose,
 };
-use std::collections::{BTreeMap, BTreeSet};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    ops::Deref,
+};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -37,15 +55,15 @@ pub enum InvalidScripts {
         extraneous: BTreeSet<DatumHash>,
     },
     #[error("extraneous redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
-    ExtraneousRedeemers(Vec<RedeemersKey>),
+    ExtraneousRedeemers(Vec<RedeemerKey>),
     #[error("missing redeemers: [{}]", .0.iter().map(|redeemer_key| format!("[{}, {}]", script_purpose_to_string(redeemer_key.tag), redeemer_key.index)).collect::<Vec<_>>().join(", "))]
-    MissingRedeemers(Vec<RedeemersKey>),
+    MissingRedeemers(Vec<RedeemerKey>),
 }
 
 // TODO: Split this whole function into smaller functions to make it more graspable.
 pub fn execute<C>(context: &mut C, witness_set: &MintedWitnessSet<'_>) -> Result<(), InvalidScripts>
 where
-    C: UtxoSlice + WitnessSlice,
+    C: UtxoSlice + WitnessSlice + fmt::Debug,
 {
     let required_scripts = context.required_scripts();
 
@@ -69,55 +87,21 @@ where
 
     let mut extra_redeemers = Vec::new();
 
-    if let Some(redeemers) = witness_set.redeemer.as_deref() {
-        match redeemers {
-            amaru_kernel::Redeemers::List(redeemers) => {
-                /* It's possible that a list could have a (tag, index) tuple present more than once.
-                The haskell node removes duplicates, keeping the last value present
-                See (https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626):
-                    - The Map.fromList behavior is documented here: https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList
-
-                This will be relevant during Phase 2 validation as well, so when that edge case inevitably pops up, refer back to this
-
-                In this case, we don't care about the data provided in the redeemer, we only care about the presence of a needed redeemer.
-                Therefore, order doesn't matter in this case.
-                */
-                let mut processed_keys: Vec<RedeemersKey> = Vec::new();
-                redeemers.iter().for_each(|redeemer| {
-                    let provided = RedeemersKey {
-                        tag: redeemer.tag,
-                        index: redeemer.index,
-                    };
-
-                    if !processed_keys.contains(&provided) {
-                        if let Some(index) = required_redeemers
-                            .iter()
-                            .position(|required| required == &provided)
-                        {
-                            required_redeemers.remove(index);
-                        } else {
-                            extra_redeemers.push(provided.clone());
-                        }
-
-                        processed_keys.push(provided);
-                    }
-                });
+    if let Some(provided_redemeers) = witness_set
+        .redeemer
+        .as_deref()
+        .map(HasRedeemerKeys::redeemer_keys)
+    {
+        provided_redemeers.iter().for_each(|provided| {
+            if let Some(index) = required_redeemers
+                .iter()
+                .position(|required| required == provided.deref())
+            {
+                required_redeemers.remove(index);
+            } else {
+                extra_redeemers.push(provided.deref().clone());
             }
-
-            // A map guarantees uniqueness of the RedeemerKey, therefore we don't need to do the same uniquness logic
-            amaru_kernel::Redeemers::Map(redeemers) => {
-                redeemers.iter().for_each(|(provided, _)| {
-                    if let Some(index) = required_redeemers
-                        .iter()
-                        .position(|required| required == provided)
-                    {
-                        required_redeemers.remove(index);
-                    } else {
-                        extra_redeemers.push(provided.clone());
-                    }
-                });
-            }
-        }
+        })
     }
 
     if !required_redeemers.is_empty() {
@@ -140,8 +124,8 @@ where
 /// The function fails if there's any input with missing mandatory datum (i.e. Plutus V1 or V2
 /// script-locked inputs without datum; those are simply "forever" unspendable).
 fn partition_scripts(
-    required_scripts: Vec<(RequiredScript, &BorrowedScript<'_>)>,
-) -> Result<(Vec<RedeemersKey>, BTreeSet<DatumHash>), InvalidScripts> {
+    required_scripts: Vec<(RequiredScript, &ScriptKind)>,
+) -> Result<(Vec<RedeemerKey>, BTreeSet<DatumHash>), InvalidScripts> {
     let mut required_redeemers = Vec::new();
     let mut required_datums = BTreeSet::new();
     let mut missing_datums = BTreeSet::new();
@@ -151,44 +135,46 @@ fn partition_scripts(
         .for_each(|(required_script, script)| {
             let RequiredScript {
                 index,
-                datum_option,
+                datum,
                 hash: _,
                 purpose,
             } = required_script;
 
             let mut require_redeemer =
-                || required_redeemers.push(RedeemersKey::from(required_script));
+                || required_redeemers.push(RedeemerKey::from(required_script));
 
             let mut unspendable_without_datum = || {
-                if purpose == &ScriptPurpose::Spend && datum_option.is_none() {
+                if purpose == &ScriptPurpose::Spend && matches!(datum, MemoizedDatum::None) {
                     missing_datums.insert(*index);
                 }
             };
 
-            let mut require_datum_preimage = || match datum_option {
-                Some(DatumOption::Hash(hash)) => {
+            let mut require_datum_preimage = || match datum {
+                MemoizedDatum::Hash(hash) => {
                     required_datums.insert(*hash);
                 }
-                Some(DatumOption::Data(..)) | None => {}
+                MemoizedDatum::Inline(..) | MemoizedDatum::None => {}
             };
 
             match script {
                 // NOTE: One may very well send some funds to a native script, and attach a
                 // datum hash to it. In which case, the datum has no effect and is simply
                 // ignored.
-                BorrowedScript::NativeScript(..) => {}
+                ScriptKind::Native => {}
 
-                BorrowedScript::PlutusV1Script(..) => {
+                ScriptKind::PlutusV1 => {
                     require_redeemer();
                     unspendable_without_datum();
                     require_datum_preimage();
                 }
-                BorrowedScript::PlutusV2Script(..) => {
+
+                ScriptKind::PlutusV2 => {
                     require_redeemer();
                     unspendable_without_datum();
                     require_datum_preimage();
                 }
-                BorrowedScript::PlutusV3Script(..) => {
+
+                ScriptKind::PlutusV3 => {
                     require_redeemer();
                     require_datum_preimage();
                 }
@@ -219,7 +205,7 @@ fn collect_provided_scripts<'a, C>(
     context: &'a mut C,
     required: &BTreeSet<&ScriptHash>,
     witness_set: &'a MintedWitnessSet<'_>,
-) -> BTreeMap<ScriptHash, BorrowedScript<'a>>
+) -> BTreeMap<ScriptHash, ScriptKind>
 where
     C: WitnessSlice,
 {
@@ -229,7 +215,7 @@ where
         // We only consider script references required by the transaction
         .filter_map(|(script_hash, script_ref)| {
             if required.contains(&script_hash) {
-                Some((script_hash, BorrowedScript::from(script_ref)))
+                Some((script_hash, ScriptKind::from(script_ref)))
             } else {
                 None
             }
@@ -243,10 +229,10 @@ where
 
 /// Ensures that the required and provided scripts match exactly (i.e. check that they're included
 /// in each other).
-fn fail_on_script_symmetric_differences<'a>(
+fn fail_on_script_symmetric_differences(
     required: BTreeSet<RequiredScript>,
-    provided: &'a BTreeMap<ScriptHash, BorrowedScript<'a>>,
-) -> Result<Vec<(RequiredScript, &'a BorrowedScript<'a>)>, InvalidScripts> {
+    provided: &BTreeMap<ScriptHash, ScriptKind>,
+) -> Result<Vec<(RequiredScript, &ScriptKind)>, InvalidScripts> {
     let mut missing = BTreeSet::new();
     let mut existing = BTreeSet::new();
 
@@ -398,8 +384,7 @@ mod tests {
             )
         };
     }
-    // TODO: Enable with #314: https://github.com/pragma-org/amaru/pull/314
-    // #[test_case(fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0"); "incorrect missing script due to re-serialisation")]
+    #[test_case(fixture!("8dbd1cfb6d9964575bb62565f9543e22c3a612bac6ef01f21779d469a33a72e0"); "incorrect missing script due to re-serialisation")]
     #[test_case(fixture!("ebd7cda7805bc5b89c0fb3c8ad44f6549ab72c1040eb47019146e3f5f98298e1"); "native script locked with datum")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e"); "happy path")]
     #[test_case(fixture!("3b54f084af170b30565b1befe25860214a690a6c7a310e2902504dbc609c318e", "supplemental-datum-output");

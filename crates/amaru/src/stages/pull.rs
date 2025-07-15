@@ -12,16 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::point::{from_network_point, to_network_point};
-use crate::{send, stages::PeerSession};
+use crate::{
+    point::{from_network_point, to_network_point},
+    send,
+    stages::PeerSession,
+};
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
 use anyhow::anyhow;
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
-use std::time::Duration;
-use tokio::time::timeout;
+use std::sync::{Arc, RwLock};
 use tracing::{instrument, Level, Span};
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
@@ -45,25 +47,42 @@ pub enum WorkUnit {
 pub struct Stage {
     pub peer_session: PeerSession,
     intersection: Vec<Point>,
-
     pub downstream: DownstreamPort,
 
-    #[metric]
-    chain_tip: gasket::metrics::Gauge,
+    /// A shared variable which indicates whether the node is catching up. Useful to change logging
+    /// behaviour across a variety of components.
+    pub is_catching_up: Arc<RwLock<bool>>,
 }
 
 impl Stage {
-    pub fn new(peer_session: PeerSession, intersection: Vec<Point>) -> Self {
+    pub fn new(
+        peer_session: PeerSession,
+        intersection: Vec<Point>,
+        is_catching_up: Arc<RwLock<bool>>,
+    ) -> Self {
         Self {
             peer_session,
             intersection,
             downstream: Default::default(),
-            chain_tip: Default::default(),
+            is_catching_up,
         }
     }
 
-    fn track_tip(&self, tip: &Tip) {
-        self.chain_tip.set(tip.0.slot_or_default() as i64);
+    #[allow(clippy::unwrap_used)]
+    fn no_longer_catching_up(is_catching_up: &RwLock<bool>) {
+        // Do not acquire the lock unless necessary.
+        if is_catching_up.read().map(|lock| *lock).unwrap_or(true) {
+            tracing::info!("chain tip reached; awaiting next block");
+            *is_catching_up.write().unwrap() = false;
+        }
+    }
+
+    #[allow(clippy::unwrap_used)]
+    fn catching_up(is_catching_up: &RwLock<bool>) {
+        // Do not acquire the lock unless necessary.
+        if !is_catching_up.read().map(|lock| *lock).unwrap_or(false) {
+            *is_catching_up.write().unwrap() = true;
+        }
     }
 
     #[instrument(
@@ -119,9 +138,7 @@ impl Stage {
         send!(&mut self.downstream, event)
     }
 
-    pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
-        self.track_tip(&tip);
-
+    pub async fn roll_back(&mut self, rollback_point: Point, _tip: Tip) -> Result<(), WorkerError> {
         let peer = &self.peer_session.peer;
         self.downstream
             .send(
@@ -173,14 +190,24 @@ impl gasket::framework::Worker<Stage> for Worker {
             let client = (*peer_client).chainsync();
 
             match unit {
-                WorkUnit::Pull => client.request_next().await.or_restart()?,
+                WorkUnit::Pull => {
+                    Stage::catching_up(&stage.is_catching_up);
+                    client
+                        .request_next()
+                        .await
+                        .inspect_err(
+                            |err| tracing::error!(reason = %err, "request next failed; retrying"),
+                        )
+                        .or_restart()?
+                }
                 WorkUnit::Await => {
-                    //FIXME: This isn't ideal to use a timeout because we won't see the block the second
-                    // it arrives. Ideally, we could just recv_while_must_reply().await forever, but that
-                    // causes worker starvation downstream because they cannot lock() the peer_session.
-                    match timeout(Duration::from_secs(1), client.recv_while_must_reply()).await {
-                        Ok(result) => result.or_restart()?,
-                        Err(_) => Err(WorkerError::Retry)?,
+                    Stage::no_longer_catching_up(&stage.is_catching_up);
+                    match client.recv_while_must_reply().await {
+                        Ok(result) => result,
+                        Err(err) => {
+                            tracing::error!(reason = %err, "failed while awaiting for next block");
+                            Err(WorkerError::Retry)?
+                        }
                     }
                 }
             }

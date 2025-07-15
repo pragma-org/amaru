@@ -1,15 +1,20 @@
+use crate::cmd::connect_to_peer;
 use amaru::stages::{pull, PeerSession};
 use amaru_consensus::{consensus::store::ChainStore, peer::Peer, IsHeader};
-use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point};
+use amaru_kernel::{
+    default_chain_dir, from_cbor, network::NetworkName, parse_point, Header, Point,
+};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
-use indicatif::{ProgressBar, ProgressStyle};
-use pallas_network::{
-    facades::PeerClient,
-    miniprotocols::chainsync::{self, HeaderContent, NextResponse},
+use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse};
+use progress_bar::{new_terminal_progress_bar, ProgressBar};
+use std::{
+    error::Error,
+    path::PathBuf,
+    sync::{Arc, RwLock},
+    time::Duration,
 };
-use std::{error::Error, path::PathBuf, sync::Arc, time::Duration};
 use tokio::{sync::Mutex, time::timeout};
 use tracing::info;
 
@@ -46,7 +51,7 @@ pub struct Args {
     ///
     /// This is the "intersection" point which will be given to the peer as a starting point
     /// to import the chain database.
-    #[arg(long, value_name = "POINT", verbatim_doc_comment, value_parser = super::parse_point)]
+    #[arg(long, value_name = "POINT", verbatim_doc_comment, value_parser = parse_point)]
     starting_point: Point,
 
     /// Number of headers to import.
@@ -88,7 +93,7 @@ pub(crate) async fn import_headers(
     let mut db = RocksDBStore::new(chain_db_dir, era_history)?;
 
     let peer_client = Arc::new(Mutex::new(
-        PeerClient::connect(peer_address, network_name.to_network_magic() as u64).await?,
+        connect_to_peer(peer_address, &network_name).await?,
     ));
 
     let peer_session = PeerSession {
@@ -96,17 +101,20 @@ pub(crate) async fn import_headers(
         peer_client,
     };
 
-    let mut pull = pull::Stage::new(peer_session.clone(), vec![point.clone()]);
+    let mut pull = pull::Stage::new(
+        peer_session.clone(),
+        vec![point.clone()],
+        Arc::new(RwLock::new(true)),
+    );
 
     pull.find_intersection().await?;
 
     let mut peer_client = pull.peer_session.lock().await;
     let mut count = 0;
-    let start = point.slot_or_default().into();
 
     let client = (*peer_client).chainsync();
 
-    let mut progress: Option<ProgressBar> = None;
+    let mut progress: Option<Box<dyn ProgressBar>> = None;
 
     // TODO: implement a proper pipelined client because this one is super slow
     // Pipelining in Haskell is single threaded which implies the code handles
@@ -117,15 +125,15 @@ pub(crate) async fn import_headers(
     // Pipelining stops when we reach the tip of the peer's chain.
     loop {
         let what = if client.has_agency() {
-            request_next_block(client, &mut db, &mut count, &mut progress, max, start).await?
+            request_next_block(client, &mut db, &mut count, &mut progress, max).await?
         } else {
-            await_for_next_block(client, &mut db, &mut count, &mut progress, max, start).await?
+            await_for_next_block(client, &mut db, &mut count, &mut progress, max).await?
         };
         match what {
             Continue => continue,
             Stop => {
                 if let Some(progress) = progress {
-                    progress.finish_and_clear()
+                    progress.clear()
                 }
                 break;
             }
@@ -139,26 +147,24 @@ async fn request_next_block(
     client: &mut chainsync::Client<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
-    progress: &mut Option<ProgressBar>,
+    progress: &mut Option<Box<dyn ProgressBar>>,
     max: usize,
-    start: u64,
 ) -> Result<What, WorkerError> {
     let next = client.request_next().await.or_restart()?;
-    handle_response(next, db, count, progress, max, start)
+    handle_response(next, db, count, progress, max)
 }
 
 async fn await_for_next_block(
     client: &mut chainsync::Client<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
-    progress: &mut Option<ProgressBar>,
+    progress: &mut Option<Box<dyn ProgressBar>>,
     max: usize,
-    start: u64,
 ) -> Result<What, WorkerError> {
     match timeout(Duration::from_secs(1), client.recv_while_must_reply()).await {
         Ok(result) => result
             .map_err(|_| WorkerError::Recv)
-            .and_then(|next| handle_response(next, db, count, progress, max, start)),
+            .and_then(|next| handle_response(next, db, count, progress, max)),
         Err(_) => Err(WorkerError::Retry)?,
     }
 }
@@ -168,9 +174,8 @@ fn handle_response(
     next: NextResponse<HeaderContent>,
     db: &mut RocksDBStore,
     count: &mut usize,
-    progress: &mut Option<ProgressBar>,
+    progress: &mut Option<Box<dyn ProgressBar>>,
     max: usize,
-    start: u64,
 ) -> Result<What, WorkerError> {
     match next {
         NextResponse::RollForward(content, tip) => {
@@ -186,7 +191,7 @@ fn handle_response(
             let tip_slot = tip.0.slot_or_default();
 
             if let Some(progress) = progress {
-                progress.set_position(slot - start);
+                progress.tick(1)
             }
 
             if *count >= max || slot == tip_slot {
@@ -198,19 +203,13 @@ fn handle_response(
         #[allow(clippy::unwrap_used)]
         NextResponse::RollBackward(point, tip) => {
             info!(?point, ?tip, "roll_backward");
-            let tip_slot = tip.0.slot_or_default();
             if progress.is_none() {
                 *progress = Some(
-                    ProgressBar::new(tip_slot - start).with_style(
-                        ProgressStyle::with_template(
-                            " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)",
-                        )
-                        .unwrap(),
-                    ),
+                    new_terminal_progress_bar(
+                        max,
+                        " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)"
+                    )
                 );
-                if let Some(progress) = progress {
-                    progress.tick();
-                }
             }
             Ok(Continue)
         }

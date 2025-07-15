@@ -18,7 +18,7 @@ use amaru_kernel::{
     MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
 };
 use core::mem;
-use std::ops::Deref;
+use std::{fmt, ops::Deref};
 use thiserror::Error;
 
 pub mod certificates;
@@ -79,8 +79,8 @@ pub enum InvalidTransaction {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub fn execute(
-    context: &mut impl ValidationContext,
+pub fn execute<C>(
+    context: &mut C,
     network: &Network,
     protocol_parameters: &ProtocolParameters,
     pointer: TransactionPointer,
@@ -88,7 +88,10 @@ pub fn execute(
     transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
     transaction_witness_set: &MintedWitnessSet<'_>,
     transaction_auxiliary_data_hash: Option<AuxiliaryDataHash>,
-) -> Result<(), InvalidTransaction> {
+) -> Result<(), InvalidTransaction>
+where
+    C: ValidationContext + fmt::Debug,
+{
     let transaction_id = transaction_body.original_hash();
 
     let mut transaction_body = transaction_body.unwrap();

@@ -98,7 +98,7 @@ run-node: ## Compile and run for development with default options
 		--listen-address $(LISTEN_ADDRESS)
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
-	cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
+	NETWORK=$(NETWORK) cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored
 
 test-e2e-from-scratch: bootstrap demo test-e2e ## Run end-to-end tests from scratch
 

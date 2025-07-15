@@ -22,9 +22,9 @@ use crate::{
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DatumHash, Hash, Lovelace, PlutusData, PoolId, PoolParams,
-    Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, ScriptRef, StakeCredential,
-    TransactionInput, TransactionOutput,
+    Anchor, CertificatePointer, DRep, DatumHash, Hash, Lovelace, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -33,7 +33,7 @@ use tracing::trace;
 
 #[derive(Debug)]
 pub struct DefaultValidationContext {
-    utxo: BTreeMap<TransactionInput, TransactionOutput>,
+    utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>,
     state: VolatileState,
     known_scripts: BTreeMap<ScriptHash, TransactionInput>,
     known_datums: BTreeMap<DatumHash, TransactionInput>,
@@ -44,7 +44,7 @@ pub struct DefaultValidationContext {
 }
 
 impl DefaultValidationContext {
-    pub fn new(utxo: BTreeMap<TransactionInput, TransactionOutput>) -> Self {
+    pub fn new(utxo: BTreeMap<TransactionInput, MemoizedTransactionOutput>) -> Self {
         Self {
             utxo,
             state: VolatileState::default(),
@@ -75,7 +75,7 @@ impl PotsSlice for DefaultValidationContext {
 }
 
 impl UtxoSlice for DefaultValidationContext {
-    fn lookup(&self, input: &TransactionInput) -> Option<&TransactionOutput> {
+    fn lookup(&self, input: &TransactionInput) -> Option<&MemoizedTransactionOutput> {
         self.utxo.get(input).or(self.state.utxo.produced.get(input))
     }
 
@@ -84,7 +84,7 @@ impl UtxoSlice for DefaultValidationContext {
         self.state.utxo.consume(input)
     }
 
-    fn produce(&mut self, input: TransactionInput, output: TransactionOutput) {
+    fn produce(&mut self, input: TransactionInput, output: MemoizedTransactionOutput) {
         self.state.utxo.produce(input, output)
     }
 }
@@ -165,7 +165,7 @@ impl DRepsSlice for DefaultValidationContext {
         drep: StakeCredential,
         state: DRepState,
     ) -> Result<(), RegisterError<DRepState, StakeCredential>> {
-        trace!(?drep, deposit = ?state.deposit, anchor = ?state.anchor, "certificate.drep.registration");
+        trace!(?drep, deposit = %state.deposit, "certificate.drep.registration");
         self.state.dreps.register(
             drep,
             (state.deposit, state.registered_at),
@@ -272,12 +272,12 @@ impl WitnessSlice for DefaultValidationContext {
         mem::take(&mut self.required_supplemental_datums)
     }
 
-    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &ScriptRef> {
+    fn known_scripts(&mut self) -> BTreeMap<ScriptHash, &MemoizedScript> {
         let known_scripts = mem::take(&mut self.known_scripts);
         blanket_known_scripts(self, known_scripts.into_iter())
     }
 
-    fn known_datums(&mut self) -> BTreeMap<DatumHash, &PlutusData> {
+    fn known_datums(&mut self) -> BTreeMap<DatumHash, &MemoizedPlutusData> {
         let known_datums = mem::take(&mut self.known_datums);
         blanket_known_datums(self, known_datums.into_iter())
     }

@@ -14,9 +14,8 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    AddrType, Address, BorrowedDatumOption, CborWrap, DatumOption, HasAddress, HasDatum,
-    HasScriptHash, HasScriptRef, Hasher, RequiredScript, ScriptPurpose, TransactionInput,
-    TransactionOutput,
+    AddrType, Address, HasScriptHash, MemoizedDatum, RequiredScript, ScriptPurpose,
+    TransactionInput,
 };
 use thiserror::Error;
 
@@ -69,23 +68,16 @@ where
                 .lookup(reference_input)
                 .ok_or_else(|| InvalidInputs::UnknownInput(reference_input.clone()))?;
 
-            let script_ref = output.has_script_ref().map(|s| s.script_hash());
+            let script_ref = output.script.as_ref().map(|s| s.script_hash());
 
-            match output.datum() {
-                Some(BorrowedDatumOption::Data(cbor)) => {
-                    // FIXME: We need to preserve the original Datum bytes when storing them,
-                    // so that we can recompute the hash without re-serialising the PlutusData.
-                    //
-                    // At the moment, PlutusData is still mapping the CBOR structure, so it
-                    // should reserialise okay. Yet this isn't a valid strategy long-term, nor
-                    // something we actually want to rely on.
-                    context
-                        .acknowledge_datum(Hasher::<256>::hash_cbor(cbor), reference_input.clone())
+            match &output.datum {
+                MemoizedDatum::Inline(data) => {
+                    context.acknowledge_datum(data.hash(), reference_input.clone())
                 }
-                Some(BorrowedDatumOption::Hash(hash)) => {
+                MemoizedDatum::Hash(hash) => {
                     context.allow_supplemental_datum(*hash);
                 }
-                None => (),
+                MemoizedDatum::None => (),
             };
 
             if let Some(script_hash) = script_ref {
@@ -109,28 +101,18 @@ where
 
     for (input_index, original_index) in indices.iter().enumerate() {
         let input = &inputs[*original_index];
+
         let output = context
             .lookup(input)
             .ok_or_else(|| InvalidInputs::UnknownInput(input.clone()))?;
 
-        let address = parse_address(output)?;
+        let script = output.script.as_ref().map(|script| script.script_hash());
 
-        let script = output.has_script_ref().map(|script| script.script_hash());
+        // TODO: Avoid cloning here. Could probably be achieved by having 'RequiredScript'
+        // always take a datum hash, and lookup its value when needed.
+        let datum = output.datum.clone();
 
-        let datum_option = match output.datum() {
-            Some(BorrowedDatumOption::Data(cbor)) => {
-                // TODO: Avoid cloning here. Could probably be achieved by having 'RequiredScript'
-                // always take a datum hash, and lookup its value when needed.
-                let cbor = cbor.to_owned();
-                // FIXME: Avoid re-reserializing. See above note for 'acknowledge_datum'.
-                context.acknowledge_datum(Hasher::<256>::hash_cbor(&cbor), input.clone());
-                Some(DatumOption::Data(CborWrap(cbor.unwrap())))
-            }
-            Some(BorrowedDatumOption::Hash(hash)) => Some(DatumOption::Hash(*hash)),
-            None => None,
-        };
-
-        match address {
+        match &output.address {
             Address::Byron(byron_address) => {
                 let payload = byron_address.decode().map_err(|e| {
                     InvalidInputs::UncategorizedError(format!(
@@ -149,7 +131,7 @@ where
                         hash: *shelley_address.payment().as_hash(),
                         index: input_index as u32,
                         purpose: ScriptPurpose::Spend,
-                        datum_option,
+                        datum,
                     });
                 } else {
                     context.require_vkey_witness(*shelley_address.payment().as_hash());
@@ -175,15 +157,6 @@ where
     }
 
     Ok(())
-}
-
-fn parse_address(output: &TransactionOutput) -> Result<Address, InvalidInputs> {
-    output.address().map_err(|e| {
-        InvalidInputs::UncategorizedError(format!(
-            "Invalid output address. (error {:?}) output: {:?}",
-            e, output,
-        ))
-    })
 }
 
 #[cfg(test)]
@@ -240,11 +213,6 @@ mod tests {
             if  intersection.len() == 1
                 && InvalidInputs::NonDisjointRefInputs { intersection: intersection.clone() }.to_string() == "inputs included in both reference inputs and spent inputs: intersection [47a890217e4577ec3e6d5db161a4aa524a5cce3302e389ccb22b5662146f52ab#0]";
         "Non-Disjoint Reference Inputs"
-    )]
-    #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "invalid-address-header") =>
-        matches Err(InvalidInputs::UncategorizedError(e))
-        if e.contains("InvalidHeader");
-        "invalid address header"
     )]
     #[test_case(fixture!("7a098c13f3fb0119bc1ea6a418af3b9b8fef18bb65147872bf5037d28dda7b7b", "unknown-input") =>
         matches Err(InvalidInputs::UnknownInput(input))

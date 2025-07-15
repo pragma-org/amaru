@@ -17,19 +17,19 @@ use amaru_ledger::store::{
     columns::pools::{Key, Row, Value, EVENT_TARGET},
     StoreError,
 };
-use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
+use rocksdb::Transaction;
 use slot_arithmetic::Epoch;
 use tracing::error;
 
 /// Name prefixed used for storing Pool entries. UTF-8 encoding for "pool"
 pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x6f, 0x6f, 0x6c];
 
-pub fn get<T: ThreadMode>(
-    db: &OptimisticTransactionDB<T>,
+pub fn get(
+    db_get: impl Fn(&[u8]) -> Result<Option<Vec<u8>>, rocksdb::Error>,
     pool: &Key,
 ) -> Result<Option<Row>, StoreError> {
-    Ok(db
-        .get(as_key(&PREFIX, pool))
+    let key = as_key(&PREFIX, pool);
+    Ok(db_get(&key)
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(Row::unsafe_decode))
 }
