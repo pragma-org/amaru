@@ -215,7 +215,7 @@ the node binaries (this would be slower than the default in-process tests).
 ### Test case generation
 
 Due to the consensus protocol's requirement that all messages need to be hashed
-and refer to the previous message's hash (i.e. hash-chained), it's not possible
+and refer to the previous message's hash (i.e. hash-chained), it's difficult
 to generate "random" traffic as one normally would with property-based testing.
 
 Instead a pre-generated "block tree" is used and the simulation tests merely
