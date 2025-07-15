@@ -169,7 +169,7 @@ sketch of how to implement them:
   running on. I/O pauses can be implemented at the pure-stage level by delaying
   when a future becomes available;
 
-* Time skews (the clock of nodes drifts a part). The simulator controls the
+* Time skews (the clock of nodes drifts apart). The simulator controls the
   clock of the nodes, via pure-stage's API, so skews can be implemented by
   advancing some node's clocks more than others;
 
