@@ -57,9 +57,12 @@ pipeline. So the trick of implementing the system as a state machine of type:
 
 doesn't quite work. One rather needs to implement it as several state machines
 (that can run in parallel) connected with queues. Further complications arise
-due to the fact that the different stages in the pipeline share state (or one
-stage needs to be able to send messages to another to update the other copy of
-the state).
+due to the fact that the different stages in the pipeline share external state (e.g.
+the contents of a persistent storage for blocks, headers, tips). Here, the design
+goal for the concrete stages should be that updates to some entity be made by
+only one stage and messages to other stages carry the knowledge about what
+has been written and can thus be read. This is aided by the append-only nature
+of the content-addressed storage items used within a blockchain node.
 
 ### Simulating time
 
@@ -277,3 +280,29 @@ Some differences that may or may not motivate the double effort:
    of nodes and faults, which is something that would not been possible if the
    system had not been made deterministic (and solely relied on Antithesis for
    determinism).
+
+## Relation to Production Mode
+
+The above description focuses on a special mode of execution for the pure-stage infrastructure that
+allows us to deterministically run a whole network while precisely following what each node is doing.
+This mode is single-threaded by definition due to the ordering guarantees it needs to make.
+When running an Amaru node in production, the very same pure-stage components are used with a
+non-deterministic execution engine that allows for parallelism, namely the Tokio runtime. The idea
+here is that simulation testing should eventually exhaust all possible interleavings of messages and
+other effects, thus covering the range of possible behaviours of the Tokio implementation.
+
+We still want to be able to diagnose, reproduce, and correct any runtime failures observed during
+production mode. This is why all relevant effects (which include message reception but also the
+results of external effects like reading the clock or accessing disk storage) are recorded in a trace
+that can then be taken to an offline system and be replayed. This requires that the offline system has
+been primed with a suitable starting state (disk storage as well as stage state) because the trace
+will usually be truncated (e.g. by recording to an in-memory ring buffer that overwrites old entries).
+Care has been taken to ensure that all relevant state can be snapshotted and stored periodically,
+making it possible to recreate the exact runtime state of an Amaru node from the youngest snapshot
+and the trace written since.
+
+Due to the true parallelism available in production mode it is impossible to recreate the exact
+temporal evolution of a node’s state when replaying a trace. When focusing on a single stage
+the result is exact, though, because a stage only processes inputs sequentially due to its state
+machine signature. We can thus envision a time travelling debugger for a single stage, with a
+bit of fuzz regarding the execution order between different stages.
