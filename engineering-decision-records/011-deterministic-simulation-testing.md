@@ -186,8 +186,9 @@ message or any piece of state on a faulty node is allowed. Although the
 protocol, with its use of cryptographically secure hashes, should render all of
 these attacks useless, nevertheless this needs to be tested to some extent.
 
-As a first approximation one could have the simulator mutate messages between
-or the stable storage of a node to ensure that hashes are checked.
+As a first approximation one could introduce data corruption by having the
+simulator mutate messages being sent between nodes or mutate data in
+the stable storage of a node to ensure that hashes are checked.
 
 Coordinated attacks that explore the extremes of protocol parameters and timings
 of messages is out of scope of this decision. Let us just note there's the
@@ -283,26 +284,31 @@ Some differences that may or may not motivate the double effort:
 
 ## Relation to Production Mode
 
-The above description focuses on a special mode of execution for the pure-stage infrastructure that
-allows us to deterministically run a whole network while precisely following what each node is doing.
-This mode is single-threaded by definition due to the ordering guarantees it needs to make.
-When running an Amaru node in production, the very same pure-stage components are used with a
-non-deterministic execution engine that allows for parallelism, namely the Tokio runtime. The idea
-here is that simulation testing should eventually exhaust all possible interleavings of messages and
-other effects, thus covering the range of possible behaviours of the Tokio implementation.
+The above description focuses on a special mode of execution for the pure-stage
+infrastructure that allows us to deterministically run a whole network while
+precisely following what each node is doing. This mode is single-threaded by
+definition due to the ordering guarantees it needs to make. When running an
+Amaru node in production, the very same pure-stage components are used with a
+non-deterministic execution engine that allows for parallelism, namely the
+Tokio runtime. The idea here is that simulation testing should eventually
+exhaust all possible interleavings of messages and other effects, thus covering
+the range of possible behaviours of the Tokio implementation.
 
-We still want to be able to diagnose, reproduce, and correct any runtime failures observed during
-production mode. This is why all relevant effects (which include message reception but also the
-results of external effects like reading the clock or accessing disk storage) are recorded in a trace
-that can then be taken to an offline system and be replayed. This requires that the offline system has
-been primed with a suitable starting state (disk storage as well as stage state) because the trace
-will usually be truncated (e.g. by recording to an in-memory ring buffer that overwrites old entries).
-Care has been taken to ensure that all relevant state can be snapshotted and stored periodically,
-making it possible to recreate the exact runtime state of an Amaru node from the youngest snapshot
-and the trace written since.
+We still want to be able to diagnose, reproduce, and correct any runtime
+failures observed during production mode. This is why all relevant effects
+(which include message reception but also the results of external effects like
+reading the clock or accessing disk storage) are recorded in a trace that can
+then be taken to an offline system and be replayed. This requires that the
+offline system has been primed with a suitable starting state (disk storage as
+well as stage state) because the trace will usually be truncated (e.g. by
+recording to an in-memory ring buffer that overwrites old entries). Care has
+been taken to ensure that all relevant state can be snapshotted and stored
+periodically, making it possible to recreate the exact runtime state of an
+Amaru node from the youngest snapshot and the trace written since.
 
-Due to the true parallelism available in production mode it is impossible to recreate the exact
-temporal evolution of a node’s state when replaying a trace. When focusing on a single stage
-the result is exact, though, because a stage only processes inputs sequentially due to its state
-machine signature. We can thus envision a time travelling debugger for a single stage, with a
-bit of fuzz regarding the execution order between different stages.
+Due to the true parallelism available in production mode it is impossible to
+recreate the exact temporal evolution of a node’s state when replaying a trace.
+When focusing on a single stage the result is exact, though, because a stage
+only processes inputs sequentially due to its state machine signature. We can
+thus envision a time travelling debugger for a single stage, with a bit of fuzz
+regarding the execution order between different stages.
