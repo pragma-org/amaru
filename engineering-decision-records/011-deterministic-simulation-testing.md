@@ -90,17 +90,19 @@ say.
 
 Here's a sketch of the algorithm for the simulator:
 
- 1. Ask all nodes when the next interesting point in time is;
-
- 2. Pop world heap to figure out which message to deliever next;
-
- 3. If there are no interesting times from step 1 or they all happen after the
-    next message is supposed to be delivered, then advance the time to the
-    arrival time of the message on all nodes and deliver the popped message.
-
-    Otherwise put all the interesting times into the world heap and recurse.
-    (We need to make it so that if we ask for the next interesting points in
-    time in step 1, the nodes returns an empty list?)
+  1. The simulation heap starts out with external input messages, each paired
+     with an arrival time and a target node;
+  2. Each node is polled for the next time at which something would occur
+     internally; the node is also inserted into the simulation heap with that
+     time;
+  3. The simulator pops the task with the smallest time from the heap (message
+     delivery or internal node action) and performs it; this may enqueue
+     messages for other nodes that cause them to be woken up sooner than dictated
+     by their current position in the heap — if so, remove and re-insert;
+  4. That node is then queried for the next interesting time and inserted back
+     into the heap with that time;
+  5. The simulator starts over from 3 (unless some stop condition is
+     satisfied).
 
 So the API should be something like:
 
