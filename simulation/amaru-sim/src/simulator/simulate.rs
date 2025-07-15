@@ -239,6 +239,7 @@ impl<Msg> Drop for World<Msg> {
 
 pub fn simulate<Msg, F>(
     config: Config,
+    seed: u64,
     number_of_nodes: u8,
     spawn: F,
     generate_entries: impl Strategy<Value = Vec<Reverse<Entry<Msg>>>>,
@@ -277,8 +278,8 @@ pub fn simulate<Msg, F>(
                 .for_each(|entry| err += &format!("  {:?}\n", entry.0.envelope));
             persist_schedule_(Path::new("."), "failure", trace_buffer);
             panic!(
-                "Found minimal failing case:\n\n{}\nError message:\n\n  {}",
-                err, what
+                "Found minimal failing case:\n\n{}\nError message:\n\n  {}\n\nSeed: {}\n",
+                err, what, seed
             )
         }
         Err(TestError::Abort(e)) => panic!("Test aborted: {}", e),
@@ -340,6 +341,7 @@ mod tests {
         struct State(u64, StageRef<Envelope<EchoMessage>, Void>);
 
         let config = Config::default();
+        let seed = 42;
 
         let number_of_nodes = 1;
 
@@ -400,6 +402,7 @@ mod tests {
         );
         simulate(
             config,
+            seed,
             number_of_nodes,
             spawn,
             generate_messages,
@@ -452,6 +455,8 @@ mod tests {
             ..Default::default()
         };
 
+        let seed = 42;
+
         let number_of_nodes = 1;
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
@@ -475,6 +480,7 @@ mod tests {
         );
         simulate(
             config,
+            seed,
             number_of_nodes,
             spawn,
             generate_messages,

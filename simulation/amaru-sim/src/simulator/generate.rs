@@ -309,7 +309,6 @@ pub fn generate_inputs_strategy(
     any::<u64>().prop_map(move |s| {
         let seed = seed.unwrap_or(s);
         let mut rng = StdRng::seed_from_u64(seed);
-        println!("seed {}", seed);
         generate_inputs(&mut rng, file_path).unwrap()
     })
 }
@@ -366,15 +365,14 @@ pub fn generate_entries<R: Rng>(
 
 pub fn generate_entries_strategy(
     file_path: &PathBuf,
-    seed: Option<u64>,
+    seed: u64,
     start_time: Instant,
     mean_millis: f64,
     number_of_clients: u8,
 ) -> impl Strategy<Value = Vec<Reverse<Entry<ChainSyncMessage>>>> + use<'_> {
-    any::<u64>().prop_map(move |s| {
-        let seed = seed.unwrap_or(s);
+    // XXX: Is there an easier way to build a `Strategy`?
+    any::<()>().prop_map(move |_| {
         let mut rng = StdRng::seed_from_u64(seed);
-        println!("seed {}", seed);
         generate_entries(
             &mut rng,
             file_path,

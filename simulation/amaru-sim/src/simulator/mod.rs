@@ -42,6 +42,7 @@ use ledger::{populate_chain_store, FakeStakeDistribution};
 use proptest::test_runner::Config;
 use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
 use pure_stage::{Instant, Receiver, StageGraph, Void};
+use rand::Rng;
 use simulate::{pure_stage_node_handle, simulate, Trace};
 use std::time::Duration;
 use std::{path::PathBuf, sync::Arc};
@@ -336,6 +337,7 @@ fn spawn_node(
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
     let number_of_nodes = 1;
+    let number_of_clients = 1;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
 
     let spawn = || {
@@ -345,16 +347,22 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
         pure_stage_node_handle(rx, receive, running).unwrap()
     };
 
+    let seed = args.seed.unwrap_or({
+        let mut rng = rand::rng();
+        rng.random::<u64>()
+    });
+
     simulate(
         Config::default(),
+        seed,
         number_of_nodes,
         spawn,
         generate_entries_strategy(
             &args.block_tree_file,
-            args.seed,
+            seed,
             Instant::at_offset(Duration::from_secs(0)),
             200.0,
-            1,
+            number_of_clients,
         ),
         chain_property(&args.block_tree_file),
         trace_buffer.clone(),
