@@ -72,12 +72,13 @@ if (!exists) {
   console.error(`Source file ${source} does not exist.`);
   process.exit(1);
 }
+const destination = `../crates/amaru/tests/snapshots/${network}`;
 
 // ---------- Rewards summary snapshot
 
 const poolIds = Object.keys(distr.stakePools).sort();
 
-withStream(`summary__stake_distribution_${network}_${epoch}.snap`, (stream) => {
+withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
   stream.write(`expression: "stake_distr.for_network(Network::Testnet)"\n`)
@@ -146,7 +147,7 @@ withStream(`summary__stake_distribution_${network}_${epoch}.snap`, (stream) => {
 
 // ---------- Rewards summary snapshots
 
-withStream(`summary__rewards_summary_${network}_${epoch}.snap`, (stream) => {
+withStream(`summary__rewards_summary_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
   stream.write(`expression: rewards_summary\n`)
@@ -182,11 +183,9 @@ function load(dataset, epoch) {
 }
 
 function withStream(filename, callback) {
-  const dir = path.join(import.meta.dirname, "..", "generated");
-  fs.mkdirSync(dir, { recursive: true });
-  const stream = fs.createWriteStream(path.join(dir, filename));
+  fs.mkdirSync(destination, { recursive: true });
+  const stream = fs.createWriteStream(path.join(destination, filename));
   callback(stream);
-  console.log(`✓ ${path.relative(path.join(import.meta.dirname, ".."), stream.path)}`);
 }
 
 // As per CIP-0129
