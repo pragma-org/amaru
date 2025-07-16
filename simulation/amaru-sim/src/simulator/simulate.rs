@@ -19,10 +19,10 @@
 // Call get_state to dump the current/pre-state on the receiving node;
 // Deliver the message the receiving enqueue_msg (unless there's some network fault stopping it);
 // Process the message using run_until_blocked and drain.collect all outgoing messages (storage effects will later have to be dealt with here as well);
-// Dump the post-state and append the pre-state, post-state, incoming message and outgoing messages to the simulator's "trace";
+// Dump the post-state and append the pre-state, post-state, incoming message and outgoing messages to the simulator's "history";
 // Assign random arrival times for the outgoing messages (this creates different message interleavings) and insert them back into the heap;
 // Go to 3 and continue until heap is empty;
-// Make assertions on the trace to ensure the execution was correct, if not, shrink and present minimal trace that breaks the assertion together with the seed that allows us to reproduce the execution.
+// Make assertions on the history to ensure the execution was correct, if not, shrink and present minimal history that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
 use anyhow::anyhow;
@@ -148,7 +148,7 @@ pub fn pipe_node_handle(filepath: &Path, args: &[&str]) -> anyhow::Result<NodeHa
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct Trace<Msg>(pub Vec<Envelope<Msg>>);
+pub struct History<Msg>(pub Vec<Envelope<Msg>>);
 
 #[derive(Debug, PartialEq)]
 pub enum Next {
@@ -159,7 +159,7 @@ pub enum Next {
 pub struct World<Msg> {
     heap: BinaryHeap<Reverse<Entry<Msg>>>,
     nodes: BTreeMap<NodeId, NodeHandle<Msg>>,
-    trace: Trace<Msg>,
+    history: History<Msg>,
 }
 
 impl<Msg: PartialEq + Clone + Debug> World<Msg> {
@@ -170,7 +170,7 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
         World {
             heap: BinaryHeap::from(initial_messages),
             nodes: node_handles.into_iter().collect(),
-            trace: Trace(Vec::new()),
+            history: History(Vec::new()),
         }
     }
 
@@ -205,11 +205,11 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
                                 })
                                 .for_each(|msg| self.heap.push(Reverse(msg)));
                             if envelope.src.starts_with("c") {
-                                self.trace.0.push(envelope);
+                                self.history.0.push(envelope);
                             }
                             client_responses
                                 .iter()
-                                .for_each(|msg| self.trace.0.push(msg.clone()));
+                                .for_each(|msg| self.history.0.push(msg.clone()));
                             Next::Continue
                         }
                         Err(err) => panic!("{}", err),
@@ -223,9 +223,9 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
 
     pub fn run_world(&mut self) -> &[Envelope<Msg>] {
         info!("run_world");
-        let prev = self.trace.0.len();
+        let prev = self.history.0.len();
         while self.step_world() == Next::Continue {}
-        &self.trace.0[prev..]
+        &self.history.0[prev..]
     }
 }
 
@@ -243,7 +243,7 @@ pub fn simulate<Msg, F>(
     number_of_nodes: u8,
     spawn: F,
     generate_entries: impl Strategy<Value = Vec<Reverse<Entry<Msg>>>>,
-    property: impl Fn(Trace<Msg>) -> Result<(), String>,
+    property: impl Fn(History<Msg>) -> Result<(), String>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) where
@@ -257,9 +257,9 @@ pub fn simulate<Msg, F>(
             .collect();
 
         let mut world = World::new(initial_messages, node_handles);
-        let trace = world.run_world();
+        let history = world.run_world();
 
-        match property(Trace(trace.to_vec())) {
+        match property(History(history.to_vec())) {
             Ok(()) => (),
             Err(reason) => prop_assert!(false, "{}", reason),
         }
@@ -413,17 +413,17 @@ mod tests {
     }
 
     // TODO: Take response time into account.
-    const ECHO_PROPERTY: fn(Trace<EchoMessage>) -> Result<(), String> = |trace: Trace<
+    const ECHO_PROPERTY: fn(History<EchoMessage>) -> Result<(), String> = |history: History<
         EchoMessage,
     >| {
-        for (index, msg) in trace
+        for (index, msg) in history
             .0
             .iter()
             .enumerate()
             .filter(|(_index, msg)| msg.src.starts_with("c"))
         {
             if let EchoMessage::Echo { msg_id, echo } = &msg.body {
-                let response = trace.0.split_at(index + 1).1.iter().find(|resp| {
+                let response = history.0.split_at(index + 1).1.iter().find(|resp| {
                         resp.dest == msg.src
                             && matches!(&resp.body, EchoMessage::EchoOk { in_reply_to, echo: resp_echo, .. }
                                 if in_reply_to == msg_id && resp_echo == echo)
@@ -431,10 +431,10 @@ mod tests {
                 if response.is_none() {
                     let mut err = String::new();
                     err += &format!(
-                        "No matching response found for echo request:\n    {:?}\n\nTrace:\n",
+                        "No matching response found for echo request:\n    {:?}\n\nHistory:\n",
                         msg
                     );
-                    for envelope in trace.0 {
+                    for envelope in history.0 {
                         err += &format!("  {envelope:?}\n");
                     }
                     return Err(err);

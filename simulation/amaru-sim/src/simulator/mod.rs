@@ -43,7 +43,7 @@ use proptest::test_runner::Config;
 use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
 use pure_stage::{Instant, Receiver, StageGraph, Void};
 use rand::Rng;
-use simulate::{pure_stage_node_handle, simulate, Trace};
+use simulate::{pure_stage_node_handle, simulate, History};
 use std::time::Duration;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
@@ -337,7 +337,7 @@ fn spawn_node(
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
     let number_of_nodes = 1;
-    let number_of_clients = 1;
+    let number_of_clients = 2;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
 
     let spawn = || {
@@ -372,15 +372,19 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
 
 fn chain_property(
     chain_data_path: &PathBuf,
-) -> impl Fn(Trace<ChainSyncMessage>) -> Result<(), String> + use<'_> {
-    move |trace| {
-        match trace.0.last() {
-            None => Err("impossible, no last entry in trace".to_string()),
+) -> impl Fn(History<ChainSyncMessage>) -> Result<(), String> + use<'_> {
+    move |history| {
+        match history.0.last() {
+            None => Err("impossible, no last entry in history".to_string()),
             Some(entry) => {
-                assert_eq!(entry.src, "n1", "entry: {:?}, trace: {:?}", entry, trace);
+                assert_eq!(
+                    entry.src, "n1",
+                    "entry: {:?}, history: {:?}",
+                    entry, history
+                );
                 assert_eq!(entry.dest, "c1");
                 // FIXME: the property is wrong, we should check the property
-                // that the output message trace is a prefix of the read chain
+                // that the output message history is a prefix of the read chain
                 let data = read_chain_json(chain_data_path);
                 let blocks = parse_json(data.as_bytes()).map_err(|err| err.to_string())?;
                 match &entry.body {
@@ -400,10 +404,10 @@ fn chain_property(
                     }
                     _ => {
                         info!("TRACE:");
-                        for entry in &trace.0 {
+                        for entry in &history.0 {
                             info!("{:?}", entry);
                         }
-                        panic!("Last entry in trace isn't a forward")
+                        panic!("Last entry in history isn't a forward")
                     }
                 }
                 Ok(())
