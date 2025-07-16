@@ -1,4 +1,5 @@
 use crate::{schedule, send, stages::common::adopt_current_span};
+use amaru_consensus::IsHeader;
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     protocol_parameters::GlobalParameters,
@@ -126,7 +127,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         &mut self,
         point: Point,
         raw_block: RawBlock,
-    ) -> anyhow::Result<Option<InvalidBlockDetails>> {
+    ) -> anyhow::Result<Result<u64, InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
         let protocol_version = block.header.header_body.protocol_version;
@@ -147,14 +148,15 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             BlockValidation::Err(err) => Err(err),
             BlockValidation::Invalid(slot, id, err) => {
                 error!("Block {id} invalid at slot={slot}: {}", err);
-                Ok(Some(err))
+                Ok(Err(err))
             }
             BlockValidation::Valid(()) => {
                 let state: VolatileState = context.into();
+                let block_height = &block.header.block_height();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
                 self.state
                     .forward(protocol_version, state.anchor(&point, issuer))?;
-                Ok(None)
+                Ok(Ok(*block_height))
             }
         }
     }
@@ -211,12 +213,13 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
                 let block = block.to_vec();
 
                 match stage.roll_forward(point.clone(), block.clone()) {
-                    Ok(None) => BlockValidationResult::BlockValidated {
+                    Ok(Ok(block_height)) => BlockValidationResult::BlockValidated {
                         point,
                         block,
                         span: span.clone(),
+                        block_height,
                     },
-                    Ok(Some(_)) => BlockValidationResult::BlockValidationFailed {
+                    Ok(Err(_)) => BlockValidationResult::BlockValidationFailed {
                         point,
                         span: span.clone(),
                     },

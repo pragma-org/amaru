@@ -34,6 +34,7 @@ pub enum BlockValidationResult {
         point: Point,
         block: RawBlock,
         span: Span,
+        block_height: u64,
     },
     BlockValidationFailed {
         point: Point,

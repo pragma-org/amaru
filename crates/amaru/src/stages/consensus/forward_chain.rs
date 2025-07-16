@@ -105,12 +105,18 @@ impl Worker {
         result: &BlockValidationResult,
     ) -> Result<(), WorkerError> {
         match result {
-            BlockValidationResult::BlockValidated { point, .. } => {
-                // FIXME: block height should be part of BlockValidated message
+            BlockValidationResult::BlockValidated {
+                point,
+                block_height,
+                ..
+            } => {
                 let store = stage.store.lock().await;
                 if let Some(header) = store.load_header(&Hash::from(point)) {
+                    let expected_height = header.block_height();
+                    println!("THE EXPECTED HEIGHT: {expected_height}");
+
                     // assert that the new tip is a direct successor of the old tip
-                    assert_eq!(header.block_height(), self.our_tip.1 + 1);
+                    assert_eq!(*block_height, self.our_tip.1 + 1);
                     match header.parent() {
                         Some(parent) => assert_eq!(
                             Point::new(self.our_tip.0.slot_or_default(), parent.as_ref().to_vec()),
@@ -119,7 +125,7 @@ impl Worker {
                         None => assert_eq!(self.our_tip.0, Point::Origin),
                     }
 
-                    self.our_tip = Tip(point.pallas_point(), header.block_height());
+                    self.our_tip = Tip(point.pallas_point(), *block_height);
 
                     trace!(
                         target: EVENT_TARGET,

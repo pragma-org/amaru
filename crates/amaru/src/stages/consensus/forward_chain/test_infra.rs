@@ -214,13 +214,17 @@ impl Setup {
     }
 
     pub fn send_validated(&mut self, s: &str) {
-        let point = self.store.get(&hash(s)).unwrap().point();
+        let header = self.store.get(&hash(s)).unwrap();
+        let point = header.point();
+        let block_height = header.block_height();
         let span = tracing::debug_span!("whatever");
+
         let f = self.block.send(
             BlockValidationResult::BlockValidated {
                 point: point.clone(),
                 span,
                 block: EMPTY_BLOCK,
+                block_height,
             }
             .into(),
         );
