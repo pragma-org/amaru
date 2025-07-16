@@ -86,7 +86,6 @@ if (!exists) {
   console.error(`Source file ${source} does not exist.`);
   process.exit(1);
 }
-
 // ---------- Rewards summary snapshot
 
 const poolIds = Object.keys(distr.stakePools).sort();
@@ -200,7 +199,6 @@ function withStream(filename, callback) {
   fs.mkdirSync(dir, { recursive: true });
   const stream = fs.createWriteStream(path.join(dir, filename));
   callback(stream);
-  console.log(`✓ ${path.relative(path.join(import.meta.dirname, ".."), stream.path)}`);
 }
 
 // As per CIP-0129

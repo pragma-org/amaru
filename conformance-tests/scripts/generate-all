@@ -18,10 +18,10 @@ if (( hi < lo )); then
   exit 1
 fi
 
-echo "Generating epochs from $lo to $hi for network $NETWORK"
-
 for EPOCH in $(seq $lo $hi); do
   node $scripts/generate.mjs $NETWORK $EPOCH &
 done;
+
+echo "✅ Generated snapshots for epochs from $lo to $hi for network $NETWORK"
 
 wait
