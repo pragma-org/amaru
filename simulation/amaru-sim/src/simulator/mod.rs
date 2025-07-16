@@ -37,13 +37,12 @@ use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 use anyhow::Error;
 use bytes::Bytes;
 use clap::Parser;
-use generate::{generate_entries_strategy, parse_json, read_chain_json};
+use generate::{generate_entries, parse_json, read_chain_json};
 use ledger::{populate_chain_store, FakeStakeDistribution};
-use proptest::test_runner::Config;
 use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
 use pure_stage::{Instant, Receiver, StageGraph, Void};
 use rand::Rng;
-use simulate::{pure_stage_node_handle, simulate, History};
+use simulate::{pure_stage_node_handle, simulate, History, SimulateConfig};
 use std::time::Duration;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
@@ -336,6 +335,7 @@ fn spawn_node(
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
+    let number_of_tests = 10;
     let number_of_nodes = 1;
     let number_of_clients = 2;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
@@ -353,13 +353,14 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
     });
 
     simulate(
-        Config::default(),
-        seed,
-        number_of_nodes,
-        spawn,
-        generate_entries_strategy(
-            &args.block_tree_file,
+        SimulateConfig {
+            number_of_tests,
             seed,
+            number_of_nodes,
+        },
+        spawn,
+        generate_entries(
+            &args.block_tree_file,
             Instant::at_offset(Duration::from_secs(0)),
             200.0,
             number_of_clients,
@@ -377,12 +378,12 @@ fn chain_property(
         match history.0.last() {
             None => Err("impossible, no last entry in history".to_string()),
             Some(entry) => {
-                assert_eq!(
-                    entry.src, "n1",
-                    "entry: {:?}, history: {:?}",
-                    entry, history
-                );
-                assert_eq!(entry.dest, "c1");
+                if entry.src != "n1" {
+                    return Err(format!("In last history entry: {:?}", entry));
+                }
+                if entry.dest != "c1" {
+                    return Err(format!("In last history entry: {:?}", entry));
+                }
                 // FIXME: the property is wrong, we should check the property
                 // that the output message history is a prefix of the read chain
                 let data = read_chain_json(chain_data_path);
@@ -395,20 +396,13 @@ fn chain_property(
                             .map(|block| (block.hash.clone(), Slot::from(block.slot)))
                             .expect("empty chain data");
                         if actual != expected {
-                            panic!(
+                            return Err(format!(
                                 "tip of chains don't match, expected {:?}, got {:?}",
                                 expected, actual
-                            );
+                            ));
                         }
-                        info!("Success!")
                     }
-                    _ => {
-                        info!("TRACE:");
-                        for entry in &history.0 {
-                            info!("{:?}", entry);
-                        }
-                        panic!("Last entry in history isn't a forward")
-                    }
+                    _ => return Err("Last entry in history isn't a forward".to_string()),
                 }
                 Ok(())
             }

@@ -27,16 +27,14 @@
 use crate::echo::{EchoMessage, Envelope};
 use anyhow::anyhow;
 use parking_lot::Mutex;
-use proptest::{
-    prelude::*,
-    test_runner::{Config, TestError, TestRunner},
-};
 use pure_stage::trace_buffer::TraceBuffer;
 use pure_stage::StageRef;
 use pure_stage::{simulation::SimulationRunning, Instant, Receiver};
+use rand::{rngs::StdRng, SeedableRng};
 use serde::Serialize;
 use std::cmp::Ordering;
 use std::fs::File;
+use std::panic;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::SystemTime;
@@ -49,7 +47,13 @@ use std::{
     process::{Command, Stdio},
     time::Duration,
 };
-use tracing::info;
+use tracing::{info, warn};
+
+pub struct SimulateConfig {
+    pub number_of_tests: u32,
+    pub seed: u64,
+    pub number_of_nodes: u8,
+}
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct Entry<Msg> {
@@ -154,6 +158,7 @@ pub struct History<Msg>(pub Vec<Envelope<Msg>>);
 pub enum Next {
     Done,
     Continue,
+    Panic(String),
 }
 
 pub struct World<Msg> {
@@ -212,7 +217,7 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
                                 .for_each(|msg| self.history.0.push(msg.clone()));
                             Next::Continue
                         }
-                        Err(err) => panic!("{}", err),
+                        Err(err) => Next::Panic(format!("{}", err)),
                     },
                     None => panic!("unknown destination node '{}'", envelope.dest),
                 }
@@ -221,11 +226,18 @@ impl<Msg: PartialEq + Clone + Debug> World<Msg> {
         }
     }
 
-    pub fn run_world(&mut self) -> &[Envelope<Msg>] {
+    pub fn run_world(&mut self) -> Result<&[Envelope<Msg>], (String, &[Envelope<Msg>])> {
         info!("run_world");
         let prev = self.history.0.len();
-        while self.step_world() == Next::Continue {}
-        &self.history.0[prev..]
+        let mut next = Next::Continue;
+        while next == Next::Continue {
+            next = self.step_world()
+        }
+        match next {
+            Next::Panic(reason) => Err((reason, &self.history.0[prev..])),
+            Next::Continue => unreachable!(),
+            Next::Done => Ok(&self.history.0[prev..]),
+        }
     }
 }
 
@@ -238,11 +250,9 @@ impl<Msg> Drop for World<Msg> {
 }
 
 pub fn simulate<Msg, F>(
-    config: Config,
-    seed: u64,
-    number_of_nodes: u8,
+    config: SimulateConfig,
     spawn: F,
-    generate_entries: impl Strategy<Value = Vec<Reverse<Entry<Msg>>>>,
+    generator: impl Fn(&mut StdRng) -> Vec<Reverse<Entry<Msg>>>,
     property: impl Fn(History<Msg>) -> Result<(), String>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     persist_on_success: bool,
@@ -250,40 +260,95 @@ pub fn simulate<Msg, F>(
     Msg: Debug + PartialEq + Clone + Serialize,
     F: Fn() -> NodeHandle<Msg>,
 {
-    let mut runner = TestRunner::new(config);
-    let result = runner.run(&generate_entries, |initial_messages| {
-        let node_handles: Vec<_> = (1..=number_of_nodes)
+    let mut rng = StdRng::seed_from_u64(config.seed);
+
+    for test_number in 0..config.number_of_tests {
+        let entries = generator(&mut rng);
+
+        let node_handles: Vec<_> = (1..=config.number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))
             .collect();
 
-        let mut world = World::new(initial_messages, node_handles);
-        let history = world.run_world();
+        let mut world = World::new(entries.clone(), node_handles);
 
-        match property(History(history.to_vec())) {
-            Ok(()) => (),
-            Err(reason) => prop_assert!(false, "{}", reason),
+        match world.run_world() {
+            Err((reason, history)) => display_failure(
+                test_number,
+                config.seed,
+                entries,
+                History(history.to_vec()),
+                trace_buffer.clone(),
+                reason,
+            ),
+            Ok(history) => match property(History(history.to_vec())) {
+                Ok(()) => continue,
+                Err(reason) => display_failure(
+                    test_number,
+                    config.seed,
+                    entries,
+                    History(history.to_vec()),
+                    trace_buffer.clone(),
+                    reason,
+                ),
+            },
         }
-        Ok(())
-    });
-    match result {
-        Ok(_) => {
-            if persist_on_success {
-                persist_schedule_(Path::new("."), "success", trace_buffer)
-            }
-        }
-        Err(TestError::Fail(what, entries)) => {
-            let mut err = String::new();
-            entries
-                .into_iter()
-                .for_each(|entry| err += &format!("  {:?}\n", entry.0.envelope));
-            persist_schedule_(Path::new("."), "failure", trace_buffer);
-            panic!(
-                "Found minimal failing case:\n\n{}\nError message:\n\n  {}\n\nSeed: {}\n",
-                err, what, seed
-            )
-        }
-        Err(TestError::Abort(e)) => panic!("Test aborted: {}", e),
     }
+    if persist_on_success {
+        persist_schedule_(Path::new("."), "success", trace_buffer)
+    }
+    info!("Success! ({} tests passed.)", config.number_of_tests);
+}
+
+fn display_failure<Msg: Debug>(
+    test_number: u32,
+    seed: u64,
+    entries: Vec<Reverse<Entry<Msg>>>,
+    history: History<Msg>,
+    trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
+    reason: String,
+) {
+    let mut test_case = String::new();
+    entries
+        .into_iter()
+        .for_each(|entry| test_case += &format!("  {:?}\n", entry.0.envelope));
+    let mut history_string = String::new();
+    history
+        .0
+        .into_iter()
+        .enumerate()
+        .for_each(|(index, envelope)| {
+            history_string += &format!(
+                "{:5}.  {:?} ==> {:?}   {:?}\n",
+                index, envelope.src, envelope.dest, envelope.body
+            )
+        });
+
+    let panic_message = |mschedule_path| {
+        format!(
+            "Failed after {test_number} tests\n\n \
+                Found minimal failing case:\n\n{}\n \
+                History:\n\n{}\n \
+                Error message:\n\n  {}\n\n \
+                {} \
+                Seed: {}\n",
+            test_case,
+            history_string,
+            reason,
+            match mschedule_path {
+                None => "".to_string(),
+                Some(path) => format!("Saved schedule: {:?}\n", path),
+            },
+            seed
+        )
+    };
+
+    match persist_schedule(Path::new("."), "failure", trace_buffer) {
+        Err(err) => {
+            warn!("persist_schedule, failed: {}", err);
+            panic!("{}", panic_message(None))
+        }
+        Ok(schedule_path) => panic!("{}", panic_message(Some(schedule_path))),
+    };
 }
 
 fn persist_schedule_(dir: &Path, prefix: &str, trace_buffer: Arc<Mutex<TraceBuffer>>) {
@@ -324,6 +389,8 @@ fn persist_schedule(
 mod tests {
     use std::fs;
 
+    use crate::simulator::generate::{generate_u8_then, generate_vec};
+
     use super::*;
     use pure_stage::{simulation::SimulationBuilder, StageGraph, Void};
 
@@ -331,7 +398,9 @@ mod tests {
     fn run_stops_when_no_message_to_process_is_left() {
         let mut world: World<EchoMessage> = World::new(Vec::new(), Vec::new());
 
-        assert_eq!(world.run_world(), &Vec::new());
+        let result: &[Envelope<EchoMessage>] = &Vec::new();
+
+        assert_eq!(world.run_world(), Ok(result));
     }
 
     #[test]
@@ -340,9 +409,8 @@ mod tests {
         #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
         struct State(u64, StageRef<Envelope<EchoMessage>, Void>);
 
-        let config = Config::default();
+        let number_of_tests = 100;
         let seed = 42;
-
         let number_of_nodes = 1;
 
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
@@ -384,8 +452,9 @@ mod tests {
             pure_stage_node_handle(rx, stage.without_state(), running).unwrap()
         };
         let now = Instant::at_offset(Duration::from_secs(0));
-        let generate_messages = prop::collection::vec(
-            (0..128u8).prop_map(|i| {
+        let generate_messages = generate_vec(
+            10,
+            generate_u8_then(0, 128, |i| {
                 Reverse(Entry {
                     arrival_time: now,
                     envelope: Envelope {
@@ -398,12 +467,14 @@ mod tests {
                     },
                 })
             }),
-            0..20,
         );
+
         simulate(
-            config,
-            seed,
-            number_of_nodes,
+            SimulateConfig {
+                number_of_tests,
+                seed,
+                number_of_nodes,
+            },
             spawn,
             generate_messages,
             ECHO_PROPERTY,
@@ -449,21 +520,17 @@ mod tests {
     #[allow(dead_code)]
     #[ignore]
     fn blackbox_test_echo() {
-        let config = proptest::test_runner::Config {
-            cases: 100,
-            verbose: 1,
-            ..Default::default()
-        };
-
+        let number_of_tests = 100;
         let seed = 42;
-
         let number_of_nodes = 1;
+
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
         let now = Instant::at_offset(Duration::from_secs(0));
-        let generate_messages = prop::collection::vec(
-            (0..128u8).prop_map(|i| {
+        let generate_messages = generate_vec(
+            10,
+            generate_u8_then(0, 128, |i| {
                 Reverse(Entry {
                     arrival_time: now,
                     envelope: Envelope {
@@ -476,12 +543,13 @@ mod tests {
                     },
                 })
             }),
-            0..20,
         );
         simulate(
-            config,
-            seed,
-            number_of_nodes,
+            SimulateConfig {
+                number_of_tests,
+                seed,
+                number_of_nodes,
+            },
             spawn,
             generate_messages,
             ECHO_PROPERTY,

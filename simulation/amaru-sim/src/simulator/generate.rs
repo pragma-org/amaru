@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use proptest::prelude::*;
 use pure_stage::Instant;
 use rand::rngs::StdRng;
 use rand::Rng;
-use rand::SeedableRng;
 use rand_distr::{Distribution, Exp};
 use serde::Deserialize;
 use serde_json::Result;
@@ -302,17 +300,6 @@ pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &PathBuf) -> Result<Vec<C
     }
 }
 
-pub fn generate_inputs_strategy(
-    file_path: &PathBuf,
-    seed: Option<u64>,
-) -> impl Strategy<Value = Vec<ChainSyncMessage>> + use<'_> {
-    any::<u64>().prop_map(move |s| {
-        let seed = seed.unwrap_or(s);
-        let mut rng = StdRng::seed_from_u64(seed);
-        generate_inputs(&mut rng, file_path).unwrap()
-    })
-}
-
 pub fn generate_arrival_times<R: Rng>(
     rng: &mut R,
     start_time: Instant,
@@ -333,61 +320,81 @@ pub fn generate_arrival_times<R: Rng>(
 }
 
 pub fn generate_entries<R: Rng>(
-    rng: &mut R,
     file_path: &PathBuf,
     start_time: Instant,
     mean_millis: f64,
     number_of_clients: u8,
-) -> Vec<Reverse<Entry<ChainSyncMessage>>> {
-    let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
-    for client in 1..=number_of_clients {
-        let messages = generate_inputs(rng, file_path).unwrap();
-        let arrival_times = generate_arrival_times(rng, start_time, mean_millis, messages.len());
-        entries.extend(
-            messages
-                .into_iter()
-                .enumerate()
-                .map(|(idx, msg)| {
-                    Reverse(Entry {
-                        arrival_time: arrival_times[idx],
-                        envelope: Envelope {
-                            src: "c".to_owned() + &client.to_string(),
-                            dest: "n1".to_string(),
-                            body: msg,
-                        },
+) -> impl Fn(&mut R) -> Vec<Reverse<Entry<ChainSyncMessage>>> + use<'_, R> {
+    move |rng| {
+        let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
+        for client in 1..=number_of_clients {
+            let messages = generate_inputs(rng, file_path).unwrap();
+            let arrival_times =
+                generate_arrival_times(rng, start_time, mean_millis, messages.len());
+            entries.extend(
+                messages
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, msg)| {
+                        Reverse(Entry {
+                            arrival_time: arrival_times[idx],
+                            envelope: Envelope {
+                                src: "c".to_owned() + &client.to_string(),
+                                dest: "n1".to_string(),
+                                body: msg,
+                            },
+                        })
                     })
-                })
-                .collect::<Vec<_>>(),
-        );
+                    .collect::<Vec<_>>(),
+            );
+        }
+        entries
     }
-    entries
 }
 
-pub fn generate_entries_strategy(
-    file_path: &PathBuf,
-    seed: u64,
-    start_time: Instant,
-    mean_millis: f64,
-    number_of_clients: u8,
-) -> impl Strategy<Value = Vec<Reverse<Entry<ChainSyncMessage>>>> + use<'_> {
-    // XXX: Is there an easier way to build a `Strategy`?
-    any::<()>().prop_map(move |_| {
-        let mut rng = StdRng::seed_from_u64(seed);
-        generate_entries(
-            &mut rng,
-            file_path,
-            start_time,
-            mean_millis,
-            number_of_clients,
-        )
-    })
+pub fn generate_vec<A>(
+    size: usize,
+    generator: impl Fn(&mut StdRng) -> A,
+) -> impl Fn(&mut StdRng) -> Vec<A> {
+    move |rng| {
+        let mut result = Vec::<A>::with_capacity(size);
+        for item in result.iter_mut().take(size) {
+            *item = generator(rng);
+        }
+        result
+    }
+}
+
+pub fn generate_u8_then<A>(low: u8, high: u8, then: impl Fn(u8) -> A) -> impl Fn(&mut StdRng) -> A {
+    move |rng| {
+        let x = rng.random::<u8>().min(low).max(high);
+        then(x)
+    }
+}
+
+pub fn generate_u8(low: u8, high: u8) -> impl Fn(&mut StdRng) -> u8 {
+    generate_u8_then(low, high, |x| x)
 }
 
 #[cfg(test)]
 mod test {
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use std::path::Path;
 
     use crate::simulator::generate::*;
+
+    #[test]
+    fn test_generate_u8() {
+        let seed = 1234;
+        let mut rng = StdRng::seed_from_u64(seed);
+        for _i in 0..100 {
+            let x = generate_u8(1, 6)(&mut rng);
+            assert_ne!(x, 0);
+            assert!(1 <= x);
+            assert!(x <= 6);
+        }
+    }
 
     #[test]
     fn test_ancestors() {
