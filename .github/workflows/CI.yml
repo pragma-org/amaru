@@ -73,6 +73,11 @@ jobs:
             setup: rustup target add aarch64-unknown-linux-musl
             cross-compile: true
 
+          - runner: ubuntu-latest
+            target: arm-unknown-linux-gnueabi #armv6 architecture
+            command: test
+            cross-compile: true
+
     timeout-minutes: 30
     runs-on: ${{ matrix.environments.runner }}
     steps:
