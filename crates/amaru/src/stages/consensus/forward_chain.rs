@@ -112,8 +112,6 @@ impl Worker {
             } => {
                 let store = stage.store.lock().await;
                 if let Some(header) = store.load_header(&Hash::from(point)) {
-                    let expected_height = header.block_height();
-                    println!("THE EXPECTED HEIGHT: {expected_height}");
 
                     // assert that the new tip is a direct successor of the old tip
                     assert_eq!(*block_height, self.our_tip.1 + 1);
