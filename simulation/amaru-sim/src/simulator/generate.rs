@@ -73,8 +73,7 @@ struct Chain {
 }
 
 pub fn read_chain_json(file_path: &PathBuf) -> String {
-    fs::read_to_string(file_path).unwrap_or_else(|_| 
-        panic!("cannot find blocktree file '{}', use --block-tree-file <FILE> to set the file to load block tree from", file_path.display()))
+    fs::read_to_string(file_path).unwrap_or_else(|_| panic!("cannot find blocktree file '{}', use --block-tree-file <FILE> to set the file to load block tree from", file_path.display()))
 }
 
 pub fn parse_json(bytes: &[u8]) -> Result<Vec<Block>> {
