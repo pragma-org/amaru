@@ -77,7 +77,7 @@ pub fn forward_ledger(raw_block: &str) {
 
     let mut context = context::DefaultValidationContext::new(inputs);
     if let BlockValidation::Invalid(_slot, _id, _err) =
-        rules::validate_block(&mut context, state.protocol_parameters(), &block)
+        rules::validate_block(&mut context, &network.into(), state.protocol_parameters(), &block)
     {
         panic!("Failed to validate block")
     };

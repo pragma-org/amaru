@@ -2,7 +2,7 @@ use crate::{schedule, send, stages::common::adopt_current_span};
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Hasher, MintedBlock, Point, RawBlock,
+    EraHistory, Hash, Hasher, MintedBlock, Network, Point, RawBlock,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -30,6 +30,7 @@ where
     pub upstream: UpstreamPort,
     pub downstream: DownstreamPort,
     pub state: state::State<S, HS>,
+    network: Network,
     is_catching_up: Arc<RwLock<bool>>,
 }
 
@@ -52,6 +53,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     pub fn new(
         store: S,
         snapshots: HS,
+        network: Network,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
         is_catching_up: Arc<RwLock<bool>>,
@@ -65,6 +67,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 upstream: Default::default(),
                 downstream: Default::default(),
                 state,
+                network,
                 is_catching_up,
             },
             tip,
@@ -135,7 +138,12 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             info!(tip.slot = %point.slot_or_default(), tip.hash = %Hash::<32>::from(&point), "chain.extended");
         }
 
-        match rules::validate_block(&mut context, self.state.protocol_parameters(), &block) {
+        match rules::validate_block(
+            &mut context,
+            &self.network,
+            self.state.protocol_parameters(),
+            &block,
+        ) {
             BlockValidation::Err(err) => Err(err),
             BlockValidation::Invalid(slot, id, err) => {
                 error!("Block {id} invalid at slot={slot}: {}", err);

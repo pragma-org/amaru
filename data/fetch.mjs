@@ -28,6 +28,24 @@ if (includeSnapshots) {
 
 // Each point corresponds to the last point of the associated epoch.
 const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
+if (!snapshots || !Array.isArray(snapshots)) {
+  console.error(`Invalid or missing snapshots in ${configFile}`);
+  process.exit(1);
+}
+
+function filterExistingPoints() {
+  const folderPath = 'mainnet/dreps';
+  const files = fs.readdirSync(folderPath);
+  return new Set(
+    files
+      .filter(file => file.endsWith('.json'))
+      .map(file => parseInt(path.basename(file, '.json')))
+      .filter(num => !isNaN(num))
+  );
+}
+
+const existingPoints = filterExistingPoints();
+const missingPoints = points.filter(point => !existingPoints.has(point.epoch));
 
 const additionalStakeKeys = additionalStakeAddresses.reduce(collectAddressType(14), []);
 
@@ -70,11 +88,11 @@ process.stderr.cursorTo(0, 0);
 process.stderr.clearScreenDown();
 
 let frame = 0;
-const spinner = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const spinnerId = setInterval(() => {
-  process.stderr.cursorTo(0, points.length);
+  process.stderr.cursorTo(0, missingPoints.length);
   process.stderr.clearLine(0);
-  process.stderr.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)": ""}`);
+  process.stderr.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)" : ""}`);
   frame = (frame + 1) % spinner.length;
 }, 100);
 
@@ -82,19 +100,19 @@ const spinnerId = setInterval(() => {
 // synchronizing. If a given point isn't available _yet_, pause and
 // retry until available.
 const tasks = [];
-for (let i = 0; i < points.length; i += 1) {
+for (let i = 0; i < missingPoints.length; i += 1) {
   const tryConnect = async (retry) => {
     const exit = await ogmios((ws, done) => {
       process.stderr.cursorTo(0, i);
       process.stderr.clearLine(0);
-      process.stderr.write(`${points[i].slot} => scheduling...`);
-      step(ws, i, points[i], done);
+      process.stderr.write(`${missingPoints[i].slot} => scheduling...`);
+      step(ws, i, missingPoints[i], done);
     });
 
     if (exit === undefined) {
       process.stderr.cursorTo(0, i);
       process.stderr.clearLine(0);
-      process.stderr.write(`${points[i].slot} => failed to connect; retrying...`);
+      process.stderr.write(`${missingPoints[i].slot} => failed to connect; retrying...`);
       await sleep(1000);
       return retry(retry);
     } else {
@@ -108,7 +126,7 @@ for (let i = 0; i < points.length; i += 1) {
 
 const results = await Promise.all(tasks);
 clearInterval(spinnerId);
-process.stderr.cursorTo(0, points.length);
+process.stderr.cursorTo(0, missingPoints.length);
 process.stderr.clearLine(0);
 
 if (!results.every(exit => exit)) {
@@ -129,9 +147,9 @@ function step(ws, i, point, done) {
 
     if (error) {
       if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
-    	process.stderr.clearLine(0);
+        process.stderr.clearLine(0);
         process.stderr.write(`${point.slot} => [error ${error.code}] ${error.message} (${error.data})`);
-	return done(false);
+        return done(false);
       }
 
       process.stderr.write(`${point.slot} => not available yet...`);
@@ -224,18 +242,18 @@ async function fetchDReps(ws, { stakePools }) {
   // new epoch state snapshot.
   let { verificationKey: keys, script: scripts } = Object.keys(stakePools).reduce((accum, pool) => {
     stakePools[pool].delegators.forEach((delegator) => {
-       accum[delegator.from].add(delegator.credential);
+      accum[delegator.from].add(delegator.credential);
     });
 
     return accum;
   }, { verificationKey: new Set(), script: new Set() });
 
   const drepsMap = dreps.reduce((accum, drep) => {
-    drep.delegators.forEach((delegator) => {
+    drep.delegators?.forEach((delegator) => {
       if (delegator.from === "verificationKey") {
-	keys.add(delegator.credential);
+        keys.add(delegator.credential);
       } else {
-	scripts.add(delegator.credential);
+        scripts.add(delegator.credential);
       }
     });
 

@@ -325,11 +325,13 @@ fn make_ledger(
     global_parameters: GlobalParameters,
     is_catching_up: Arc<RwLock<bool>>,
 ) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
+    let network = config.network.into();
     match config.ledger_store {
         StorePath::InMem => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 MemoryStore {},
                 MemoryStore {},
+                network,
                 era_history,
                 global_parameters,
                 is_catching_up,
@@ -340,6 +342,7 @@ fn make_ledger(
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 RocksDB::new(ledger_dir)?,
                 RocksDBHistoricalStores::new(ledger_dir),
+                network,
                 era_history,
                 global_parameters,
                 is_catching_up,

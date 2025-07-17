@@ -81,6 +81,7 @@ pub enum InvalidTransaction {
 #[allow(clippy::too_many_arguments)]
 pub fn execute<C>(
     context: &mut C,
+    network: &Network,
     protocol_parameters: &ProtocolParameters,
     pointer: TransactionPointer,
     is_valid: bool,
@@ -91,9 +92,6 @@ pub fn execute<C>(
 where
     C: ValidationContext + fmt::Debug,
 {
-    // FIXME: this is temporary, to be replaced when we have some state that determines the node's network
-    let network = Network::Testnet;
-
     let transaction_id = transaction_body.original_hash();
 
     let mut transaction_body = transaction_body.unwrap();
@@ -133,7 +131,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        &network,
+        network,
         mem::take(&mut transaction_body.collateral_return)
             .map(|x| vec![x])
             .unwrap_or_default(),
@@ -158,7 +156,7 @@ where
     outputs::execute(
         context,
         protocol_parameters,
-        &network,
+        network,
         mem::take(&mut transaction_body.outputs),
         |index| {
             if !is_valid {
