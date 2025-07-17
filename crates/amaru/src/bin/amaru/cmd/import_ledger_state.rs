@@ -13,16 +13,16 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    cbor, default_ledger_dir, network::NetworkName, protocol_parameters::ProtocolParameters,
     Anchor, CertificatePointer, DRep, EraHistory, Lovelace, MemoizedTransactionOutput, Point,
     PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, Set, Slot, StakeCredential,
-    TransactionInput, TransactionPointer,
+    TransactionInput, TransactionPointer, cbor, default_ledger_dir, network::NetworkName,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     self,
     state::diff_bind::Resettable,
     store::{
-        self, columns::proposals, EpochTransitionProgress, Store, StoreError, TransactionalContext,
+        self, EpochTransitionProgress, Store, StoreError, TransactionalContext, columns::proposals,
     },
 };
 use amaru_stores::rocksdb::RocksDB;
@@ -88,7 +88,9 @@ pub struct Args {
 enum Error {
     #[error("malformed date: {}", .0)]
     MalformedDate(String),
-    #[error("You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)")]
+    #[error(
+        "You must provide either a single .cbor snapshot file (--snapshot) or a directory containing multiple .cbor snapshots (--snapshot-dir)"
+    )]
     IncorrectUsage,
 }
 
@@ -482,7 +484,7 @@ fn import_dreps(
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), impl std::error::Error + 'static> {
     let mut known_dreps = BTreeMap::new();
 
     let era_first_epoch = era_history
@@ -653,7 +655,7 @@ fn import_stake_pools(
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
     era_history: &EraHistory,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), impl std::error::Error + 'static> {
     let mut state = amaru_ledger::state::diff_epoch_reg::DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);

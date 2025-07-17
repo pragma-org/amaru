@@ -13,28 +13,28 @@
 // limitations under the License.
 
 use amaru_consensus::{
+    ConsensusError, IsHeader,
     consensus::{
+        ChainSyncEvent,
         chain_selection::{ChainSelector, ChainSelectorBuilder},
         select_chain::SelectChain,
         store::ChainStore,
         store_block::StoreBlock,
         store_header::StoreHeader,
         validate_header::ValidateHeader,
-        ChainSyncEvent,
     },
     peer::Peer,
-    ConsensusError, IsHeader,
 };
 use amaru_kernel::{
+    EraHistory, Hash, Header,
     block::{BlockValidationResult, ValidateBlockEvent},
     network::NetworkName,
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Header,
 };
 use amaru_ledger::store::in_memory::MemoryStore;
 use amaru_stores::rocksdb::{
-    consensus::{InMemConsensusStore, RocksDBStore},
     RocksDB, RocksDBHistoricalStores,
+    consensus::{InMemConsensusStore, RocksDBStore},
 };
 use consensus::{
     fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
@@ -43,8 +43,8 @@ use consensus::{
     validate_header::ValidateHeaderStage,
 };
 use gasket::{
-    messaging::{tokio::funnel_ports, OutputPort},
-    runtime::{self, spawn_stage, Tether},
+    messaging::{OutputPort, tokio::funnel_ports},
+    runtime::{self, Tether, spawn_stage},
 };
 use ledger::ValidateBlockStage;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
@@ -392,7 +392,7 @@ impl AsTip for Header {
 mod tests {
     use std::path::PathBuf;
 
-    use super::{bootstrap, Config, StorePath, StorePath::*};
+    use super::{Config, StorePath, StorePath::*, bootstrap};
 
     #[test]
     fn bootstrap_all_stages() {
