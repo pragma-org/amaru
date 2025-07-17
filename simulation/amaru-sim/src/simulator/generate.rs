@@ -358,8 +358,8 @@ pub fn generate_vec<A>(
 ) -> impl Fn(&mut StdRng) -> Vec<A> {
     move |rng| {
         let mut result = Vec::<A>::with_capacity(size);
-        for item in result.iter_mut().take(size) {
-            *item = generator(rng);
+        for _ in 0..size {
+            result.push(generator(rng));
         }
         result
     }
@@ -367,7 +367,7 @@ pub fn generate_vec<A>(
 
 pub fn generate_u8_then<A>(low: u8, high: u8, then: impl Fn(u8) -> A) -> impl Fn(&mut StdRng) -> A {
     move |rng| {
-        let x = rng.random::<u8>().min(low).max(high);
+        let x = rng.random_range(low..=high);
         then(x)
     }
 }

@@ -414,7 +414,6 @@ mod tests {
         let number_of_nodes = 1;
 
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
-            println!("*** Spawning node!");
             let mut network = SimulationBuilder::default();
             let stage = network.stage(
                 "echo",
