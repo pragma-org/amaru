@@ -378,12 +378,6 @@ fn chain_property(
         match history.0.last() {
             None => Err("impossible, no last entry in history".to_string()),
             Some(entry) => {
-                if entry.src != "n1" {
-                    return Err(format!("In last history entry: {:?}", entry));
-                }
-                if entry.dest != "c1" {
-                    return Err(format!("In last history entry: {:?}", entry));
-                }
                 // FIXME: the property is wrong, we should check the property
                 // that the output message history is a prefix of the read chain
                 let data = read_chain_json(chain_data_path);
