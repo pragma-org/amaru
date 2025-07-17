@@ -73,7 +73,8 @@ struct Chain {
 }
 
 pub fn read_chain_json(file_path: &PathBuf) -> String {
-    fs::read_to_string(file_path).unwrap_or_else(|_| panic!("cannot find blocktree file '{}', use --block-tree-file <FILE> to set the file to load block tree from", file_path.display()))
+    fs::read_to_string(file_path).unwrap_or_else(|_| 
+        panic!("cannot find blocktree file '{}', use --block-tree-file <FILE> to set the file to load block tree from", file_path.display()))
 }
 
 pub fn parse_json(bytes: &[u8]) -> Result<Vec<Block>> {
@@ -323,12 +324,13 @@ pub fn generate_entries<R: Rng>(
     file_path: &PathBuf,
     start_time: Instant,
     mean_millis: f64,
-    number_of_clients: u8,
+    number_of_upstream_peers: u8,
 ) -> impl Fn(&mut R) -> Vec<Reverse<Entry<ChainSyncMessage>>> + use<'_, R> {
     move |rng| {
         let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
-        for client in 1..=number_of_clients {
-            let messages = generate_inputs(rng, file_path).unwrap();
+        for client in 1..=number_of_upstream_peers {
+            let messages = generate_inputs(rng, file_path)
+                .expect("Failed to generate inputs from chain file");
             let arrival_times =
                 generate_arrival_times(rng, start_time, mean_millis, messages.len());
             entries.extend(
@@ -388,11 +390,16 @@ mod test {
     fn test_generate_u8() {
         let seed = 1234;
         let mut rng = StdRng::seed_from_u64(seed);
-        for _i in 0..100 {
+        let mut counts = std::collections::BTreeMap::new();
+
+        for _i in 0..1000 {
             let x = generate_u8(1, 6)(&mut rng);
-            assert_ne!(x, 0);
-            assert!(1 <= x);
-            assert!(x <= 6);
+            *counts.entry(x).or_insert(0) += 1;
+        }
+
+        assert_eq!(counts.len(), 6);
+        for i in 1..=6 {
+            assert!(counts.contains_key(&i), "value {} was never generated", i);
         }
     }
 
