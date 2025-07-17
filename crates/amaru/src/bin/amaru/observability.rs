@@ -240,6 +240,7 @@ pub fn setup_open_telemetry(
     let opentelemetry_tracer = opentelemetry_provider.tracer(config.service_name.clone());
     let opentelemetry_layer = tracing_opentelemetry::layer()
         .with_tracer(opentelemetry_tracer)
+        .with_level(true)
         .with_filter(default_filter(AMARU_TRACE_VAR, DEFAULT_AMARU_TRACE_FILTER));
 
     subscriber.with_open_telemetry(opentelemetry_layer);
