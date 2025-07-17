@@ -329,8 +329,8 @@ pub fn generate_entries<R: Rng>(
     move |rng| {
         let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
         for client in 1..=number_of_upstream_peers {
-            let messages = generate_inputs(rng, file_path)
-                .expect("Failed to generate inputs from chain file");
+            let messages =
+                generate_inputs(rng, file_path).expect("Failed to generate inputs from chain file");
             let arrival_times =
                 generate_arrival_times(rng, start_time, mean_millis, messages.len());
             entries.extend(
