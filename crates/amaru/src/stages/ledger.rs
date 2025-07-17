@@ -115,6 +115,10 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         Ok(context::DefaultValidationContext::new(inputs))
     }
 
+    /// Returns:
+    /// * `Ok(Ok(u64))` - if no error occurred and the block is valid. `u64` is the blockheight.
+    /// * `Ok(Err(<InvalidBlockDetails>))` - if no error occurred but block is invalid.
+    /// * `Err(_)` - if an error occurred.
     #[instrument(
         level = Level::TRACE,
         skip_all,
