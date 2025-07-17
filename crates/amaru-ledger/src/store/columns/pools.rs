@@ -236,7 +236,9 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, Hash, Nullable, RationalNumber};
+    use amaru_kernel::{
+        prop_cbor_roundtrip, Hash, IPv4, IPv6, Nullable, Port, RationalNumber, Relay,
+    };
     use proptest::{collection, prelude::*};
     use proptest::{collection::vec, prop_compose};
 
@@ -249,6 +251,61 @@ pub mod tests {
         }
     }
 
+    fn any_nullable_port() -> impl Strategy<Value = Nullable<Port>> {
+        prop_oneof![
+            Just(Nullable::Undefined),
+            Just(Nullable::Null),
+            any::<u32>().prop_map(Nullable::Some),
+        ]
+    }
+
+    fn any_nullable_ipv4() -> impl Strategy<Value = Nullable<IPv4>> {
+        prop_oneof![
+            Just(Nullable::Undefined),
+            Just(Nullable::Null),
+            any::<[u8; 4]>().prop_map(|a| Nullable::Some(Vec::from(a).into())),
+        ]
+    }
+
+    fn any_nullable_ipv6() -> impl Strategy<Value = Nullable<IPv6>> {
+        prop_oneof![
+            Just(Nullable::Undefined),
+            Just(Nullable::Null),
+            any::<[u8; 16]>().prop_map(|a| Nullable::Some(Vec::from(a).into())),
+        ]
+    }
+
+    prop_compose! {
+        fn single_host_addr()(
+            port in any_nullable_port(),
+            ipv4 in any_nullable_ipv4(),
+            ipv6 in any_nullable_ipv6()
+        ) -> Relay {
+            Relay::SingleHostAddr(port, ipv4, ipv6)
+        }
+    }
+
+    prop_compose! {
+        fn single_host_name()(
+            port in any_nullable_port(),
+            dnsname in any::<String>(),
+        ) -> Relay {
+            Relay::SingleHostName(port, dnsname)
+        }
+    }
+
+    prop_compose! {
+        fn multi_host_name()(
+            dnsname in any::<String>(),
+        ) -> Relay {
+            Relay::MultiHostName(dnsname)
+        }
+    }
+
+    fn any_relay() -> BoxedStrategy<Relay> {
+        prop_oneof![single_host_addr(), single_host_name(), multi_host_name(),].boxed()
+    }
+
     prop_compose! {
         pub fn any_pool_params()(
             id in any_pool_id(),
@@ -257,6 +314,8 @@ pub mod tests {
             cost in any::<u64>(),
             margin in 0..100u64,
             reward_account in any::<[u8; 28]>(),
+            owners in any::<Vec<[u8; 28]>>(),
+            relays in proptest::collection::vec(any_relay(), 0..10),
         ) -> PoolParams {
             PoolParams {
                 id,
@@ -265,8 +324,8 @@ pub mod tests {
                 cost,
                 margin: RationalNumber { numerator: margin, denominator: 100 },
                 reward_account: [&[0xF0], &reward_account[..]].concat().into(),
-                owners: vec![].into(),
-                relays: vec![],
+                owners: owners.into_iter().map(|h| h.into()).collect::<Vec<Hash<28>>>().into(),
+                relays,
                 metadata: Nullable::Null,
             }
         }
