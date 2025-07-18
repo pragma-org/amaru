@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use pure_stage::Instant;
-use rand::Rng;
 use rand::rngs::StdRng;
+use rand::Rng;
 use rand_distr::{Distribution, Exp};
 use serde::Deserialize;
 use serde_json::Result;
@@ -324,7 +324,7 @@ pub fn generate_entries<R: Rng>(
     start_time: Instant,
     mean_millis: f64,
     number_of_upstream_peers: u8,
-) -> impl Fn(&mut R) -> Vec<Reverse<Entry<ChainSyncMessage>>> {
+) -> impl Fn(&mut R) -> Vec<Reverse<Entry<ChainSyncMessage>>> + use<'_, R> {
     move |rng| {
         let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
         for client in 1..=number_of_upstream_peers {
@@ -379,8 +379,8 @@ pub fn generate_u8(low: u8, high: u8) -> impl Fn(&mut StdRng) -> u8 {
 
 #[cfg(test)]
 mod test {
-    use rand::SeedableRng;
     use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use std::path::Path;
 
     use crate::simulator::generate::*;

@@ -20,8 +20,8 @@ pub mod volatile_db;
 use crate::{
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{
-        EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
-        TransactionalContext, columns::pools,
+        columns::pools, EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
+        TransactionalContext,
     },
     summary::{
         governance::{self, GovernanceSummary},
@@ -30,10 +30,11 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    EraHistory, Hash, Lovelace, MemoizedTransactionOutput, MintedBlock, PROTOCOL_VERSION_9, Point,
-    PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput, expect_stake_credential,
+    expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, stake_credential_type,
+    stake_credential_hash, stake_credential_type, EraHistory, Hash, Lovelace,
+    MemoizedTransactionOutput, MintedBlock, Point, PoolId, ProtocolVersion, Slot, StakeCredential,
+    TransactionInput, PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::{Epoch, TimeHorizonError};
@@ -43,7 +44,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
-use tracing::{Level, debug, instrument, trace};
+use tracing::{debug, instrument, trace, Level};
 use volatile_db::AnchoredVolatileState;
 
 pub use volatile_db::VolatileState;
@@ -168,7 +169,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
     /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + 'static {
+    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution {
         StakeDistributionView {
             view: self.stake_distributions.clone(),
             era_history: self.era_history.clone(),

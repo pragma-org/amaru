@@ -1,6 +1,6 @@
 [workspace.package]
 version = "0.1.0"
-edition = "2024"
+edition = "2021"
 description = "A Cardano blockchain node implementation"
 license = "Apache-2.0"
 authors = ["Amaru Maintainers <amaru@pragma.builders>"]
