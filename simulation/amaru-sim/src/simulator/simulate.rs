@@ -263,7 +263,7 @@ pub fn simulate<Msg, F>(
     let mut rng = StdRng::seed_from_u64(config.seed);
 
     for test_number in 0..config.number_of_tests {
-        let entries = generator(&mut rng);
+        let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
 
         let node_handles: Vec<_> = (1..=config.number_of_nodes)
             .map(|i| (format!("n{}", i), spawn()))
@@ -272,24 +272,30 @@ pub fn simulate<Msg, F>(
         let mut world = World::new(entries.clone(), node_handles);
 
         match world.run_world() {
-            Err((reason, history)) => display_failure(
-                test_number,
-                config.seed,
-                entries,
-                History(history.to_vec()),
-                trace_buffer.clone(),
-                reason,
-            ),
-            Ok(history) => match property(History(history.to_vec())) {
-                Ok(()) => continue,
-                Err(reason) => display_failure(
+            Err((reason, history)) => {
+                display_failure(
                     test_number,
                     config.seed,
                     entries,
                     History(history.to_vec()),
                     trace_buffer.clone(),
                     reason,
-                ),
+                );
+                break;
+            }
+            Ok(history) => match property(History(history.to_vec())) {
+                Ok(()) => continue,
+                Err(reason) => {
+                    display_failure(
+                        test_number,
+                        config.seed,
+                        entries,
+                        History(history.to_vec()),
+                        trace_buffer.clone(),
+                        reason,
+                    );
+                    break;
+                }
             },
         }
     }
