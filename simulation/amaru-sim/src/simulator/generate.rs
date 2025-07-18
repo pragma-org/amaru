@@ -12,21 +12,23 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use proptest::prelude::*;
 use pure_stage::Instant;
 use rand::rngs::StdRng;
 use rand::Rng;
-use rand::SeedableRng;
 use rand_distr::{Distribution, Exp};
 use serde::Deserialize;
 use serde_json::Result;
+use std::cmp::Reverse;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use crate::echo::Envelope;
+
 use super::bytes::Bytes;
+use super::simulate::Entry;
 use super::sync::ChainSyncMessage;
 use slot_arithmetic::Slot;
 
@@ -298,18 +300,6 @@ pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &PathBuf) -> Result<Vec<C
     }
 }
 
-pub fn generate_inputs_strategy(
-    file_path: &PathBuf,
-    seed: Option<u64>,
-) -> impl Strategy<Value = Vec<ChainSyncMessage>> + use<'_> {
-    any::<u64>().prop_map(move |s| {
-        let seed = seed.unwrap_or(s);
-        let mut rng = StdRng::seed_from_u64(seed);
-        println!("seed {}", seed);
-        generate_inputs(&mut rng, file_path).unwrap()
-    })
-}
-
 pub fn generate_arrival_times<R: Rng>(
     rng: &mut R,
     start_time: Instant,
@@ -329,11 +319,88 @@ pub fn generate_arrival_times<R: Rng>(
     arrival_times
 }
 
+pub fn generate_entries<R: Rng>(
+    file_path: &PathBuf,
+    start_time: Instant,
+    mean_millis: f64,
+    number_of_upstream_peers: u8,
+) -> impl Fn(&mut R) -> Vec<Reverse<Entry<ChainSyncMessage>>> + use<'_, R> {
+    move |rng| {
+        let mut entries: Vec<Reverse<Entry<ChainSyncMessage>>> = vec![];
+        for client in 1..=number_of_upstream_peers {
+            let messages =
+                generate_inputs(rng, file_path).expect("Failed to generate inputs from chain file");
+            let arrival_times =
+                generate_arrival_times(rng, start_time, mean_millis, messages.len());
+            entries.extend(
+                messages
+                    .into_iter()
+                    .enumerate()
+                    .map(|(idx, msg)| {
+                        Reverse(Entry {
+                            arrival_time: arrival_times[idx],
+                            envelope: Envelope {
+                                src: "c".to_owned() + &client.to_string(),
+                                dest: "n1".to_string(),
+                                body: msg,
+                            },
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            );
+        }
+        entries
+    }
+}
+
+pub fn generate_vec<A>(
+    size: usize,
+    generator: impl Fn(&mut StdRng) -> A,
+) -> impl Fn(&mut StdRng) -> Vec<A> {
+    move |rng| {
+        let mut result = Vec::<A>::with_capacity(size);
+        for _ in 0..size {
+            result.push(generator(rng));
+        }
+        result
+    }
+}
+
+pub fn generate_u8_then<A>(low: u8, high: u8, then: impl Fn(u8) -> A) -> impl Fn(&mut StdRng) -> A {
+    move |rng| {
+        let x = rng.random_range(low..=high);
+        then(x)
+    }
+}
+
+pub fn generate_u8(low: u8, high: u8) -> impl Fn(&mut StdRng) -> u8 {
+    generate_u8_then(low, high, |x| x)
+}
+
 #[cfg(test)]
 mod test {
+    use rand::rngs::StdRng;
+    use rand::SeedableRng;
     use std::path::Path;
 
     use crate::simulator::generate::*;
+
+    #[test]
+    fn test_generate_u8() {
+        let seed = 1234;
+        let mut rng = StdRng::seed_from_u64(seed);
+        let mut counts = std::collections::BTreeMap::new();
+
+        for _i in 0..1000 {
+            let x = generate_u8(1, 6)(&mut rng);
+            *counts.entry(x).or_insert(0) += 1;
+        }
+
+        assert_eq!(counts.len(), 6);
+        for i in 1..=6 {
+            assert!(counts.contains_key(&i), "value {} was never generated", i);
+        }
+    }
 
     #[test]
     fn test_ancestors() {
