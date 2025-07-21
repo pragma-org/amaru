@@ -12,6 +12,9 @@ fn run_simulator() {
         chain_dir: "./chain.db".into(),
         block_tree_file: "tests/data/chain.json".into(),
         start_header: Hash::from([0; 32]),
+        number_of_tests: Some(50),
+        number_of_nodes: Some(1),
+        number_of_upstream_peers: Some(2),
         seed: std::env::var("AMARU_TEST_SEED")
             .ok()
             .and_then(|s| s.parse().ok()),
