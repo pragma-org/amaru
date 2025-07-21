@@ -448,7 +448,7 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         }
 
         utxo::add(self.store, add.utxo)?;
-        pools::add(self.store, add.pools);
+        pools::add(self.store, add.pools)?;
         dreps::add(self.store, add.dreps)?;
         accounts::add(self.store, add.accounts)?;
         cc_members::add(self.store, add.cc_members)?;

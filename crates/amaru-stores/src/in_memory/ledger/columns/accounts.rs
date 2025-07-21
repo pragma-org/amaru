@@ -17,7 +17,7 @@ pub fn add(
             delegatee: None,
             drep: None,
             rewards: 0,
-            deposit,
+            deposit: 0,
         });
 
         delegatee.set_or_reset(&mut row.delegatee);

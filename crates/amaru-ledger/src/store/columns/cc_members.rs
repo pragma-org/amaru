@@ -26,7 +26,7 @@ pub type Value = Resettable<StakeCredential>;
 
 pub type Key = StakeCredential;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Row {
     pub hot_credential: Option<StakeCredential>,
 }

@@ -83,7 +83,6 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 use crate::store::columns::{dreps::any_certificate_pointer, pools::any_pool_id};
 #[cfg(any(test, feature = "test-utils"))]
-#[cfg(any(test, feature = "test-utils"))]
 use amaru_kernel::{prop_cbor_roundtrip, Hash};
 #[cfg(any(test, feature = "test-utils"))]
 use proptest::{option, prelude::*, prop_compose};

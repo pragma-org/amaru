@@ -1,6 +1,6 @@
 use crate::in_memory::MemoryStore;
 use amaru_ledger::store::{
-    columns::cc_members::{Key, Row, Value},
+    columns::cc_members::{Key, Value},
     StoreError,
 };
 
@@ -11,9 +11,7 @@ pub fn add(
     let mut cc_members = store.cc_members.borrow_mut();
 
     for (key, hot_credential) in rows {
-        let mut row = cc_members.get(&key).cloned().unwrap_or(Row {
-            hot_credential: None,
-        });
+        let mut row = cc_members.get(&key).cloned().unwrap_or_default();
 
         hot_credential.set_or_reset(&mut row.hot_credential);
         cc_members.insert(key, row);

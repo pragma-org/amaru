@@ -9,22 +9,21 @@ use tracing::error;
 pub fn add(
     store: &MemoryStore,
     rows: impl Iterator<Item = Value>, // Value = (PoolParams, Epoch)
-) {
+) -> Result<(), StoreError> {
     let mut pools = store.pools.borrow_mut();
 
     for (pool_params, epoch) in rows {
         let key = pool_params.id;
 
-        let updated_row = match pools.get(&key).cloned() {
-            Some(mut row) => {
-                row.future_params.push((Some(pool_params.clone()), epoch));
-                row
-            }
-            None => Row::new(pool_params.clone()),
-        };
-
-        pools.insert(key, updated_row);
+        if let Some(row) = pools.get_mut(&key) {
+            row.future_params.push((Some(pool_params), epoch));
+        } else {
+            let row = Row::new(pool_params);
+            pools.insert(key, row);
+        }
     }
+
+    Ok(())
 }
 
 pub fn remove(

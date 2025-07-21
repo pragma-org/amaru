@@ -14,7 +14,7 @@ pub fn add(
     let mut dreps = store.dreps.borrow_mut();
 
     for (credential, (anchor, register, epoch)) in rows {
-        let row = if let Some(mut row) = dreps.get(&credential).cloned() {
+        if let Some(row) = dreps.get_mut(&credential) {
             // Re-registration or update
             if let Some((deposit, registered_at)) = register {
                 row.registered_at = registered_at;
@@ -25,7 +25,6 @@ pub fn add(
             }
 
             anchor.set_or_reset(&mut row.anchor);
-            row
         } else if let Some((deposit, registered_at)) = register {
             // New registration
             let mut row = Row {
@@ -36,17 +35,14 @@ pub fn add(
                 previous_deregistration: None,
             };
             anchor.set_or_reset(&mut row.anchor);
-            row
+            dreps.insert(credential, row);
         } else {
             error!(
                 target: "store::dreps::add",
                 ?credential,
                 "add.register_no_deposit",
             );
-            continue;
-        };
-
-        dreps.insert(credential, row);
+        }
     }
 
     Ok(())

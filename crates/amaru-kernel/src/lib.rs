@@ -481,7 +481,16 @@ impl serde::Serialize for PoolParams {
                             )?;
                         }
                         if let Nullable::Some(ipv6) = ipv6 {
-                            s.serialize_field("ipv6", ipv6)?;
+                            let bytes: [u8; 16] = [
+                                ipv6[3], ipv6[2], ipv6[1], ipv6[0], // 1st fragment
+                                ipv6[7], ipv6[6], ipv6[5], ipv6[4], // 2nd fragment
+                                ipv6[11], ipv6[10], ipv6[9], ipv6[8], // 3rd fragment
+                                ipv6[15], ipv6[14], ipv6[13], ipv6[12], // 4th fragment
+                            ];
+                            s.serialize_field(
+                                "ipv6",
+                                &format!("{}", std::net::Ipv6Addr::from(bytes)),
+                            )?;
                         }
                         if let Nullable::Some(port) = port {
                             s.serialize_field("port", port)?;
