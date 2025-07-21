@@ -28,7 +28,6 @@ use pallas_addresses::{
 };
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::{
-    alonzo::Value as AlonzoValue,
     conway::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
         RedeemersValue,
@@ -57,9 +56,10 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
+    alonzo::Value as AlonzoValue,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
+        AddrKeyhash, Anchor, AssetName, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
         ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
         MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
@@ -71,7 +71,7 @@ pub use pallas_primitives::{
         TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
         VotingProcedures, VrfKeyhash, WitnessSet,
     },
-    AssetName, Constr, DatumHash, MaybeIndefArray, PlutusData,
+    Constr, DatumHash, MaybeIndefArray, PlutusData,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
@@ -266,6 +266,35 @@ impl<'b> Decode<'b, ()> for Point {
                 "can't decode Point from array of size",
             )),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TransactionInputAdapter(TransactionInput);
+
+impl Deref for TransactionInputAdapter {
+    type Target = TransactionInput;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for TransactionInputAdapter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}#{}", self.0.transaction_id, self.0.index)
+    }
+}
+
+impl From<TransactionInput> for TransactionInputAdapter {
+    fn from(value: TransactionInput) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&TransactionInput> for TransactionInputAdapter {
+    fn from(value: &TransactionInput) -> Self {
+        value.clone().into()
     }
 }
 
