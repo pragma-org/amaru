@@ -37,12 +37,13 @@ use amaru_stores::rocksdb::consensus::InMemConsensusStore;
 use anyhow::Error;
 use bytes::Bytes;
 use clap::Parser;
-use generate::{generate_inputs_strategy, parse_json, read_chain_json};
+use generate::{generate_entries, parse_json, read_chain_json};
 use ledger::{populate_chain_store, FakeStakeDistribution};
-use proptest::test_runner::Config;
 use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
-use pure_stage::{Receiver, StageGraph, Void};
-use simulate::{pure_stage_node_handle, simulate, Trace};
+use pure_stage::{Instant, Receiver, StageGraph, Void};
+use rand::Rng;
+use simulate::{pure_stage_node_handle, simulate, History, SimulateConfig};
+use std::time::Duration;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{info, Span};
@@ -82,6 +83,18 @@ pub struct Args {
     #[arg(long, default_value_t = Hash::from([0; 32]))]
     pub start_header: Hash<32>,
 
+    /// Number of tests to run in simulation
+    #[arg(long, default_value = "50")]
+    pub number_of_tests: Option<u32>,
+
+    /// Number of nodes in simulation.
+    #[arg(long, default_value = "1")]
+    pub number_of_nodes: Option<u8>,
+
+    /// Number of upstream peers to simulate
+    #[arg(long, default_value = "2")]
+    pub number_of_upstream_peers: Option<u8>,
+
     /// Seed for simulation testing.
     #[arg(long)]
     pub seed: Option<u64>,
@@ -109,8 +122,9 @@ fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
     let select_chain = SelectChain::new(make_chain_selector(
         Origin,
         &chain_store,
-        // FIXME: Shouldn't be hardcoded!
-        &vec![Peer::new("c1")],
+        &(1..=args.number_of_upstream_peers.unwrap_or(2))
+            .map(|i| Peer::new(&format!("c{}", i)))
+            .collect::<Vec<_>>(),
     ));
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
@@ -335,7 +349,9 @@ fn spawn_node(
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {
-    let number_of_nodes = 1;
+    let number_of_tests = args.number_of_tests.unwrap_or(50);
+    let number_of_nodes = args.number_of_nodes.unwrap_or(1);
+    let number_of_upstream_peers = args.number_of_upstream_peers.unwrap_or(2);
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
 
     let spawn = || {
@@ -345,11 +361,24 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
         pure_stage_node_handle(rx, receive, running).unwrap()
     };
 
+    let seed = args.seed.unwrap_or({
+        let mut rng = rand::rng();
+        rng.random::<u64>()
+    });
+
     simulate(
-        Config::default(),
-        number_of_nodes,
+        SimulateConfig {
+            number_of_tests,
+            seed,
+            number_of_nodes,
+        },
         spawn,
-        generate_inputs_strategy(&args.block_tree_file, args.seed),
+        generate_entries(
+            &args.block_tree_file,
+            Instant::at_offset(Duration::from_secs(0)),
+            200.0,
+            number_of_upstream_peers,
+        ),
         chain_property(&args.block_tree_file),
         trace_buffer.clone(),
         args.persist_on_success,
@@ -358,15 +387,13 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
 
 fn chain_property(
     chain_data_path: &PathBuf,
-) -> impl Fn(Trace<ChainSyncMessage>) -> Result<(), String> + use<'_> {
-    move |trace| {
-        match trace.0.last() {
-            None => Err("impossible, no last entry in trace".to_string()),
+) -> impl Fn(History<ChainSyncMessage>) -> Result<(), String> + use<'_> {
+    move |history| {
+        match history.0.last() {
+            None => Err("impossible, no last entry in history".to_string()),
             Some(entry) => {
-                assert_eq!(entry.src, "n1", "entry: {:?}, trace: {:?}", entry, trace);
-                assert_eq!(entry.dest, "c1");
                 // FIXME: the property is wrong, we should check the property
-                // that the output message trace is a prefix of the read chain
+                // that the output message history is a prefix of the read chain
                 let data = read_chain_json(chain_data_path);
                 let blocks = parse_json(data.as_bytes()).map_err(|err| err.to_string())?;
                 match &entry.body {
@@ -377,20 +404,13 @@ fn chain_property(
                             .map(|block| (block.hash.clone(), Slot::from(block.slot)))
                             .expect("empty chain data");
                         if actual != expected {
-                            panic!(
+                            return Err(format!(
                                 "tip of chains don't match, expected {:?}, got {:?}",
                                 expected, actual
-                            );
+                            ));
                         }
-                        info!("Success!")
                     }
-                    _ => {
-                        info!("TRACE:");
-                        for entry in &trace.0 {
-                            info!("{:?}", entry);
-                        }
-                        panic!("Last entry in trace isn't a forward")
-                    }
+                    _ => return Err("Last entry in history isn't a forward".to_string()),
                 }
                 Ok(())
             }
