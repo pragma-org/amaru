@@ -52,6 +52,7 @@ pub use sync::*;
 mod bytes;
 pub mod generate;
 mod ledger;
+pub mod shrink;
 pub mod simulate;
 mod sync;
 
