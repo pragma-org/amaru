@@ -54,7 +54,7 @@ pub fn shrink<A: Debug + Clone, B: Debug>(
                 number_of_shrinks += 1;
                 last_error = result;
                 input = complement;
-                n = n.saturating_sub(1).max(2);
+                n = n.max(2) - 1;
                 some_complement_is_failing = true;
                 break;
             }

@@ -250,6 +250,29 @@ impl<Msg> Drop for World<Msg> {
     }
 }
 
+fn run_test<Msg: Debug + PartialEq + Clone, F: Fn() -> NodeHandle<Msg>>(
+    number_of_nodes: u8,
+    spawn: F,
+    property: impl Fn(History<Msg>) -> Result<(), String>,
+) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>) {
+    move |entries| {
+        let node_handles: Vec<_> = (1..=number_of_nodes)
+            .map(|i| (format!("n{}", i), spawn()))
+            .collect();
+
+        let mut world = World::new(entries.to_vec(), node_handles);
+
+        match world.run_world() {
+            Ok(history) => {
+                let history = History(history.to_vec());
+                let result = property(history.clone());
+                (history, result)
+            }
+            Err((reason, history)) => (History(history.to_vec()), Err(reason)),
+        }
+    }
+}
+
 pub fn simulate<Msg, F>(
     config: SimulateConfig,
     spawn: F,
@@ -263,35 +286,13 @@ pub fn simulate<Msg, F>(
 {
     let mut rng = StdRng::seed_from_u64(config.seed);
 
-    fn test<Msg: Debug + PartialEq + Clone, F: Fn() -> NodeHandle<Msg>>(
-        number_of_nodes: u8,
-        spawn: F,
-        property: impl Fn(History<Msg>) -> Result<(), String>,
-    ) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>) {
-        move |entries| {
-            let node_handles: Vec<_> = (1..=number_of_nodes)
-                .map(|i| (format!("n{}", i), spawn()))
-                .collect();
-
-            let mut world = World::new(entries.to_vec(), node_handles);
-
-            match world.run_world() {
-                Ok(history) => (
-                    History(history.to_vec()),
-                    property(History(history.to_vec())),
-                ),
-                Err((reason, history)) => (History(history.to_vec()), Err(reason)),
-            }
-        }
-    }
-
     for test_number in 1..=config.number_of_tests {
         let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
 
-        match test(config.number_of_nodes, &spawn, &property)(&entries) {
+        match run_test(config.number_of_nodes, &spawn, &property)(&entries) {
             (_history, Err(reason)) => {
                 let (shrunk_entries, (shrunk_history, result), number_of_shrinks) = shrink(
-                    test(config.number_of_nodes, &spawn, &property),
+                    run_test(config.number_of_nodes, &spawn, &property),
                     entries,
                     |result| result.1 == Err(reason.clone()),
                 );

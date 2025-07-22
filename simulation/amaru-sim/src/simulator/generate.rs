@@ -386,12 +386,7 @@ pub fn generate_zip_with<A: Copy, B: Copy, C>(
         let xs = generator1(rng);
         let ys = generator2(rng);
         assert_eq!(xs.len(), ys.len());
-        let mut zs = Vec::with_capacity(xs.len());
-
-        for i in 0..xs.len() {
-            zs.push(f(xs[i], ys[i]));
-        }
-        zs
+        xs.into_iter().zip(ys).map(|(x, y)| f(x, y)).collect()
     }
 }
 
