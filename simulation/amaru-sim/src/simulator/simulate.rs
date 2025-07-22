@@ -25,6 +25,7 @@
 // Make assertions on the history to ensure the execution was correct, if not, shrink and present minimal history that breaks the assertion together with the seed that allows us to reproduce the execution.
 
 use crate::echo::{EchoMessage, Envelope};
+use crate::simulator::shrink::shrink;
 use anyhow::anyhow;
 use parking_lot::Mutex;
 use pure_stage::trace_buffer::TraceBuffer;
@@ -249,6 +250,29 @@ impl<Msg> Drop for World<Msg> {
     }
 }
 
+fn run_test<Msg: Debug + PartialEq + Clone, F: Fn() -> NodeHandle<Msg>>(
+    number_of_nodes: u8,
+    spawn: F,
+    property: impl Fn(History<Msg>) -> Result<(), String>,
+) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>) {
+    move |entries| {
+        let node_handles: Vec<_> = (1..=number_of_nodes)
+            .map(|i| (format!("n{}", i), spawn()))
+            .collect();
+
+        let mut world = World::new(entries.to_vec(), node_handles);
+
+        match world.run_world() {
+            Ok(history) => {
+                let history = History(history.to_vec());
+                let result = property(history.clone());
+                (history, result)
+            }
+            Err((reason, history)) => (History(history.to_vec()), Err(reason)),
+        }
+    }
+}
+
 pub fn simulate<Msg, F>(
     config: SimulateConfig,
     spawn: F,
@@ -262,41 +286,29 @@ pub fn simulate<Msg, F>(
 {
     let mut rng = StdRng::seed_from_u64(config.seed);
 
-    for test_number in 0..config.number_of_tests {
+    for test_number in 1..=config.number_of_tests {
         let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
 
-        let node_handles: Vec<_> = (1..=config.number_of_nodes)
-            .map(|i| (format!("n{}", i), spawn()))
-            .collect();
-
-        let mut world = World::new(entries.clone(), node_handles);
-
-        match world.run_world() {
-            Err((reason, history)) => {
+        match run_test(config.number_of_nodes, &spawn, &property)(&entries) {
+            (_history, Err(reason)) => {
+                let (shrunk_entries, (shrunk_history, result), number_of_shrinks) = shrink(
+                    run_test(config.number_of_nodes, &spawn, &property),
+                    entries,
+                    |result| result.1 == Err(reason.clone()),
+                );
+                assert_eq!(Err(reason.clone()), result);
                 display_failure(
                     test_number,
                     config.seed,
-                    entries,
-                    History(history.to_vec()),
+                    shrunk_entries,
+                    number_of_shrinks,
+                    shrunk_history,
                     trace_buffer.clone(),
                     reason,
                 );
                 break;
             }
-            Ok(history) => match property(History(history.to_vec())) {
-                Ok(()) => continue,
-                Err(reason) => {
-                    display_failure(
-                        test_number,
-                        config.seed,
-                        entries,
-                        History(history.to_vec()),
-                        trace_buffer.clone(),
-                        reason,
-                    );
-                    break;
-                }
-            },
+            (_history, Ok(())) => continue,
         }
     }
     if persist_on_success {
@@ -309,6 +321,7 @@ fn display_failure<Msg: Debug>(
     test_number: u32,
     seed: u64,
     entries: Vec<Reverse<Entry<Msg>>>,
+    number_of_shrinks: u32,
     history: History<Msg>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     reason: String,
@@ -331,8 +344,8 @@ fn display_failure<Msg: Debug>(
 
     let panic_message = |mschedule_path| {
         format!(
-            "Failed after {test_number} tests\n\n \
-                Found minimal failing case:\n\n{}\n \
+            "\nFailed after {test_number} tests\n\n \
+                Minimised input ({number_of_shrinks} shrinks):\n\n{}\n \
                 History:\n\n{}\n \
                 Error message:\n\n  {}\n\n \
                 {} \
@@ -395,7 +408,9 @@ fn persist_schedule(
 mod tests {
     use std::fs;
 
-    use crate::simulator::generate::{generate_u8_then, generate_vec};
+    use crate::simulator::generate::{
+        generate_arrival_times, generate_u8, generate_u8_then, generate_vec, generate_zip_with,
+    };
 
     use super::*;
     use pure_stage::{simulation::SimulationBuilder, StageGraph, Void};
@@ -441,7 +456,7 @@ mod tests {
                                 echo: echo_response,
                             },
                         };
-                        println!(" ==> {:?}", reply);
+                        // println!(" ==> {:?}", reply);
                         eff.send(&state.1, reply).await;
                         Ok(state)
                     } else {
@@ -457,21 +472,23 @@ mod tests {
             pure_stage_node_handle(rx, stage.without_state(), running).unwrap()
         };
         let now = Instant::at_offset(Duration::from_secs(0));
-        let generate_messages = generate_vec(
-            10,
-            generate_u8_then(0, 128, |i| {
+        let size = 20;
+        let generator = generate_zip_with(
+            generate_vec(size, generate_u8(0, 128)),
+            |rng| generate_arrival_times(rng, now, 200.0, size),
+            |msg, arrival_time| {
                 Reverse(Entry {
-                    arrival_time: now,
+                    arrival_time,
                     envelope: Envelope {
                         src: "c1".to_string(),
                         dest: "n1".to_string(),
                         body: EchoMessage::Echo {
                             msg_id: 0,
-                            echo: format!("Please echo {}", i),
+                            echo: format!("Please echo {}", msg),
                         },
                     },
                 })
-            }),
+            },
         );
 
         simulate(
@@ -481,7 +498,7 @@ mod tests {
                 number_of_nodes,
             },
             spawn,
-            generate_messages,
+            generator,
             ECHO_PROPERTY,
             TraceBuffer::new_shared(0, 0),
             false,
@@ -505,15 +522,10 @@ mod tests {
                                 if in_reply_to == msg_id && resp_echo == echo)
                     });
                 if response.is_none() {
-                    let mut err = String::new();
-                    err += &format!(
-                        "No matching response found for echo request:\n    {:?}\n\nHistory:\n",
+                    return Err(format!(
+                        "No matching response found for echo request: {:?}",
                         msg
-                    );
-                    for envelope in history.0 {
-                        err += &format!("  {envelope:?}\n");
-                    }
-                    return Err(err);
+                    ));
                 }
             }
         }

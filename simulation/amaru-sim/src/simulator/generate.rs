@@ -377,6 +377,19 @@ pub fn generate_u8(low: u8, high: u8) -> impl Fn(&mut StdRng) -> u8 {
     generate_u8_then(low, high, |x| x)
 }
 
+pub fn generate_zip_with<A: Copy, B: Copy, C>(
+    generator1: impl Fn(&mut StdRng) -> Vec<A>,
+    generator2: impl Fn(&mut StdRng) -> Vec<B>,
+    f: impl Fn(A, B) -> C,
+) -> impl Fn(&mut StdRng) -> Vec<C> {
+    move |rng| {
+        let xs = generator1(rng);
+        let ys = generator2(rng);
+        assert_eq!(xs.len(), ys.len());
+        xs.into_iter().zip(ys).map(|(x, y)| f(x, y)).collect()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use rand::rngs::StdRng;
