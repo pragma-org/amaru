@@ -125,7 +125,7 @@ impl RocksDB {
     }
 
     pub fn new(dir: &Path) -> Result<Self, StoreError> {
-        assert_non_empty(dir)?;
+        assert_sufficient_snapshots(dir)?;
         let mut opts = default_opts_with_prefix();
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, dir.join("live"))
@@ -207,7 +207,7 @@ pub struct ReadOnlyRocksDB {
 
 impl ReadOnlyRocksDB {
     pub fn new(dir: &Path) -> Result<Self, StoreError> {
-        assert_non_empty(dir)?;
+        assert_sufficient_snapshots(dir)?;
         let opts = default_opts_with_prefix();
         rocksdb::DB::open_for_read_only(&opts, dir.join("live"), false)
             .map(|db| ReadOnlyRocksDB { db })
@@ -597,10 +597,44 @@ impl ReadOnlyRocksDBSnapshot {
 // -------------------------------------------------------------------- Helpers
 // ----------------------------------------------------------------------------
 
-fn assert_non_empty(dir: &Path) -> Result<(), StoreError> {
+/// Splits a vector of numbers into groups of continuous numbers.
+/// e.g. `[1, 2, 3, 5, 6, 8]` becomes `[[1, 2, 3], [5, 6], [8]]`.
+fn split_continuous(input: Vec<u64>) -> Vec<Vec<u64>> {
+    input
+        .into_iter()
+        .fold(vec![], |mut acc, x| match acc.last() {
+            Some(last_group) if last_group.last().is_some_and(|&last| x == last + 1) => {
+                let mut new_acc = acc[..acc.len() - 1].to_vec();
+                let mut new_group = last_group.clone();
+                new_group.push(x);
+                new_acc.push(new_group);
+                new_acc
+            }
+            _ => {
+                acc.push(vec![x]);
+                acc
+            }
+        })
+}
+
+fn pretty_print_snapshot_ranges(ranges: &[Vec<u64>]) -> String {
+    ranges
+        .iter()
+        .map(|g| match g.len() {
+            0 => "[]".to_string(),
+            1 => format!("[{}]", g[0]),
+            #[allow(clippy::unwrap_used)] // Infallible error.
+            _ => format!("[{}..{}]", g.first().unwrap(), g.last().unwrap()),
+        })
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshots = RocksDB::snapshots(dir)?;
-    info!(target: EVENT_TARGET, snapshots = snapshots.iter().map(|e| e.to_string()).collect::<Vec<_>>().join(","), "new.known_snapshots");
-    if snapshots.is_empty() {
+    let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
+    info!(target: EVENT_TARGET, snapshots = pretty_print_snapshot_ranges(&snapshots_ranges), "new.known_snapshots");
+    if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }
     Ok(())
@@ -707,5 +741,33 @@ mod tests {
 
         let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
+    }
+
+    #[test]
+    fn split_all_continuous() {
+        let input = vec![1, 2, 3, 4, 5];
+        let expected = vec![vec![1, 2, 3, 4, 5]];
+        assert_eq!(split_continuous(input), expected);
+    }
+
+    #[test]
+    fn split_mixed_groups() {
+        let input = vec![1, 2, 3, 5, 6, 10];
+        let expected = vec![vec![1, 2, 3], vec![5, 6], vec![10]];
+        assert_eq!(split_continuous(input), expected);
+    }
+
+    #[test]
+    fn pp_all_continuous() {
+        let input = vec![vec![1, 2, 3]];
+        let expected = "[1..3]".to_string();
+        assert_eq!(pretty_print_snapshot_ranges(&input), expected);
+    }
+
+    #[test]
+    fn pp_mixed_groups() {
+        let input = vec![vec![1, 2, 3], vec![5], vec![7, 8]];
+        let expected = "[1..3],[5],[7..8]".to_string();
+        assert_eq!(pretty_print_snapshot_ranges(&input), expected);
     }
 }
