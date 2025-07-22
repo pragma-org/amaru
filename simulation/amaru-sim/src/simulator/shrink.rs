@@ -12,38 +12,47 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::Debug;
+
 // Andreas Zeller's delta debugging (`ddmin`) algorithm from the paper
 // "Simplifying and Isolating Failure-Inducing Input" (2002).
 //
 // Basically tries to bisect the input (git's bisect algorithm uses the same technique). Will first
 // try throwing away half of the input, but if that fails it will throw away smaller and smaller
 // parts until it finds the smallest counter example.
-pub fn shrink<T: Clone>(
-    test: impl Fn(&[T]) -> Result<(), String>,
-    mut input: Vec<T>,
-    expected_error: &str,
-) -> Vec<T> {
-    assert_eq!(
-        test(&input),
-        Err(expected_error.to_string()),
-        "shrink, initial input doesn't fail with '{}'",
-        expected_error
-    );
-
+pub fn shrink<A: Debug + Clone, B: Debug>(
+    test: impl Fn(&[A]) -> B,
+    mut input: Vec<A>,
+    error_predicate: impl Fn(&B) -> bool,
+) -> (Vec<A>, B, u32) {
+    let mut number_of_shrinks = 0;
+    let mut last_error: B;
+    let result = test(&input);
+    if error_predicate(&result) {
+        last_error = result;
+    } else {
+        panic!(
+            "shrink, error predicate doesn't hold for initial input: '{:?}'",
+            input
+        )
+    }
     let mut n = 2;
     while input.len() >= 2 {
         let mut start = 0;
         let subset_length = input.len() / n;
         let mut some_complement_is_failing = false;
-
         while start < input.len() {
-            let mut complement: Vec<T> = Vec::new();
+            let mut complement: Vec<A> = Vec::new();
             complement.extend_from_slice(&input[..start]);
-            complement.extend_from_slice(&input[start + subset_length..]);
-
+            if start + subset_length < input.len() {
+                complement.extend_from_slice(&input[start + subset_length..]);
+            }
             // NOTE: that if we get a different error than the expected one, we treat it as a
             // passing test.
-            if test(&complement) == Err(expected_error.to_string()) {
+            let result = test(&complement);
+            if error_predicate(&result) {
+                number_of_shrinks += 1;
+                last_error = result;
                 input = complement;
                 n = n.saturating_sub(1).max(2);
                 some_complement_is_failing = true;
@@ -57,11 +66,10 @@ pub fn shrink<T: Clone>(
             if n == input.len() {
                 break;
             }
-            n *= 2.min(input.len());
+            n = (n * 2).min(input.len())
         }
     }
-
-    input
+    (input, last_error, number_of_shrinks)
 }
 
 #[cfg(test)]
@@ -89,7 +97,11 @@ mod test {
             }
         };
 
-        assert_eq!(shrink(test, failing_input, "Found 42"), vec![42]);
+        assert_eq!(
+            shrink(test, failing_input, |err| *err
+                == Err("Found 42".to_string())),
+            (vec![42], Err("Found 42".to_string()), 3)
+        );
     }
 
     #[test]
@@ -119,11 +131,17 @@ mod test {
             }
         };
 
-        assert_eq!(shrink(test, failing_input, "Found 42"), vec![42])
+        assert_eq!(
+            shrink(test, failing_input, |err| *err
+                == Err("Found 42".to_string())),
+            (vec![42], Err("Found 42".to_string()), 4)
+        )
     }
 
     #[test]
-    #[should_panic(expected = "shrink, initial input doesn't fail with 'Found 4'")]
+    #[should_panic(
+        expected = "shrink, error predicate doesn't hold for initial input: '[1, 2, 3]'"
+    )]
     fn test_shrink_passing() {
         let failing_input = vec![1, 2, 3];
 
@@ -134,6 +152,10 @@ mod test {
                 Ok(())
             }
         };
-        assert_eq!(shrink(test, failing_input, "Found 4"), vec![4])
+        assert_eq!(
+            shrink(test, failing_input, |err| *err
+                == Err("Found 4".to_string())),
+            (vec![4], Err("Found 4".to_string()), 0)
+        )
     }
 }

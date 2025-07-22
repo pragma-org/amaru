@@ -359,7 +359,7 @@ pub fn generate_vec<A>(
 ) -> impl Fn(&mut StdRng) -> Vec<A> {
     move |rng| {
         let mut result = Vec::<A>::with_capacity(size);
-        for _ in 0..size {
+        for _i in 0..size {
             result.push(generator(rng));
         }
         result
@@ -375,6 +375,24 @@ pub fn generate_u8_then<A>(low: u8, high: u8, then: impl Fn(u8) -> A) -> impl Fn
 
 pub fn generate_u8(low: u8, high: u8) -> impl Fn(&mut StdRng) -> u8 {
     generate_u8_then(low, high, |x| x)
+}
+
+pub fn generate_zip_with<A: Copy, B: Copy, C>(
+    generator1: impl Fn(&mut StdRng) -> Vec<A>,
+    generator2: impl Fn(&mut StdRng) -> Vec<B>,
+    f: impl Fn(A, B) -> C,
+) -> impl Fn(&mut StdRng) -> Vec<C> {
+    move |rng| {
+        let xs = generator1(rng);
+        let ys = generator2(rng);
+        assert_eq!(xs.len(), ys.len());
+        let mut zs = Vec::with_capacity(xs.len());
+
+        for i in 0..xs.len() {
+            zs.push(f(xs[i], ys[i]));
+        }
+        zs
+    }
 }
 
 #[cfg(test)]
