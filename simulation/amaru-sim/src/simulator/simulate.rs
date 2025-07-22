@@ -285,7 +285,7 @@ pub fn simulate<Msg, F>(
         }
     }
 
-    for test_number in 0..config.number_of_tests {
+    for test_number in 1..=config.number_of_tests {
         let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
 
         match test(config.number_of_nodes, &spawn, &property)(&entries) {
@@ -297,7 +297,7 @@ pub fn simulate<Msg, F>(
                 );
                 assert_eq!(Err(reason.clone()), result);
                 display_failure(
-                    test_number + 1,
+                    test_number,
                     config.seed,
                     shrunk_entries,
                     number_of_shrinks,

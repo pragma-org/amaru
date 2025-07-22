@@ -359,7 +359,7 @@ pub fn generate_vec<A>(
 ) -> impl Fn(&mut StdRng) -> Vec<A> {
     move |rng| {
         let mut result = Vec::<A>::with_capacity(size);
-        for _i in 0..size {
+        for _ in 0..size {
             result.push(generator(rng));
         }
         result
