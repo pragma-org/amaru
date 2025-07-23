@@ -35,7 +35,7 @@ jobs:
       - name: Run clippy
         run: cargo clippy-amaru
   build:
-    name: Build on ${{ matrix.environments.runner }} with target ${{ matrix.environments.target }}
+    name: Build for ${{ matrix.environments.target }} on ${{ matrix.environments.runner }}
     strategy:
       fail-fast: false
       matrix:
@@ -71,6 +71,16 @@ jobs:
             target: aarch64-unknown-linux-musl
             command: test # This is a cross specific command. Do not change
             setup: rustup target add aarch64-unknown-linux-musl
+            cross-compile: true
+
+          - runner: ubuntu-latest
+            target: arm-unknown-linux-gnueabi #armv6 architecture
+            command: test
+            cross-compile: true
+
+          - runner: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            command: test
             cross-compile: true
 
     timeout-minutes: 30
