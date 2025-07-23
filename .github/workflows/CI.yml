@@ -78,6 +78,11 @@ jobs:
             command: test
             cross-compile: true
 
+          - runner: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            command: test
+            cross-compile: true
+
     timeout-minutes: 30
     runs-on: ${{ matrix.environments.runner }}
     steps:
