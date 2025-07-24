@@ -21,11 +21,9 @@ pub mod tests {
     use std::collections::BTreeSet;
 
     use amaru_kernel::{
-        network::NetworkName, Anchor, EraHistory, Hash, Point, PoolId, PoolParams, ProposalId,
-        Slot, StakeCredential,
+        network::NetworkName, Anchor, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId,
+        PoolParams, ProposalId, Slot, StakeCredential, TransactionInput,
     };
-    #[cfg(not(target_os = "windows"))]
-    use amaru_kernel::{MemoizedTransactionOutput, TransactionInput};
 
     use amaru_ledger::store::columns::cc_members;
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};

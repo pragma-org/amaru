@@ -99,7 +99,7 @@ pub mod tests {
     }
 
     pub fn any_value() -> impl Strategy<Value = amaru_kernel::Value> {
-        any::<u64>().prop_map(|c| amaru_kernel::Value::Coin(c))
+        any::<u64>().prop_map(amaru_kernel::Value::Coin)
     }
 
     pub fn any_memoized_inline_datum() -> impl Strategy<Value = MemoizedDatum> {
@@ -113,6 +113,7 @@ pub mod tests {
                 fields: MaybeIndefArray::Def(vec![PlutusData::BigInt(big_int)]),
             });
 
+            #[allow(clippy::expect_used)]
             let memoized =
                 MemoizedPlutusData::new(pd).expect("PlutusData encoding should never fail");
 
