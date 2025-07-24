@@ -113,7 +113,8 @@ pub mod tests {
                 fields: MaybeIndefArray::Def(vec![PlutusData::BigInt(big_int)]),
             });
 
-            let memoized = MemoizedPlutusData::new(pd);
+            let memoized =
+                MemoizedPlutusData::new(pd).expect("PlutusData encoding should never fail");
 
             MemoizedDatum::Inline(memoized)
         })
