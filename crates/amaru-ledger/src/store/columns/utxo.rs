@@ -25,12 +25,11 @@ pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use crate::store::minicbor;
     use amaru_kernel::{
-        Address, Bytes, Constr, Hash, Int, KeepRaw, MaybeIndefArray, MemoizedDatum,
-        MemoizedPlutusData, MemoizedScript, Network, PlutusData, PlutusScript,
-        PostAlonzoTransactionOutput, PseudoTransactionOutput, ShelleyAddress,
-        ShelleyDelegationPart, ShelleyPaymentPart, Value as KernelValue,
+        Address, Bytes, Constr, Hash, Int, MaybeIndefArray, MemoizedDatum, MemoizedPlutusData,
+        MemoizedScript, Network, PlutusData, PlutusScript, PostAlonzoTransactionOutput,
+        PseudoTransactionOutput, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
+        Value as KernelValue,
     };
     use proptest::option;
     use proptest::prelude::*;
@@ -114,13 +113,9 @@ pub mod tests {
                 fields: MaybeIndefArray::Def(vec![PlutusData::BigInt(big_int)]),
             });
 
-            let mut buf = Vec::new();
-            minicbor::encode(&pd, &mut buf).unwrap();
+            let memoized = MemoizedPlutusData::new(pd);
 
-            let raw = Bytes::from(buf);
-            let keep_raw = KeepRaw::new(raw.as_ref(), pd);
-
-            MemoizedDatum::Inline(MemoizedPlutusData::from(keep_raw))
+            MemoizedDatum::Inline(memoized)
         })
     }
 
