@@ -95,6 +95,9 @@ pub struct Args {
     #[arg(long, default_value = "2")]
     pub number_of_upstream_peers: Option<u8>,
 
+    #[arg(long)]
+    pub disable_shrinking: bool,
+
     /// Seed for simulation testing.
     #[arg(long)]
     pub seed: Option<u64>,
@@ -352,6 +355,7 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
     let number_of_tests = args.number_of_tests.unwrap_or(50);
     let number_of_nodes = args.number_of_nodes.unwrap_or(1);
     let number_of_upstream_peers = args.number_of_upstream_peers.unwrap_or(2);
+    let disable_shrinking = args.disable_shrinking;
     let trace_buffer = Arc::new(parking_lot::Mutex::new(TraceBuffer::new(42, 1_000_000_000)));
 
     let spawn = || {
@@ -371,6 +375,7 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
             number_of_tests,
             seed,
             number_of_nodes,
+            disable_shrinking,
         },
         spawn,
         generate_entries(

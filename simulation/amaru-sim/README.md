@@ -14,6 +14,22 @@ increasing order of fidelity:
    full-blown deployment of a cluster and actual networking stack
 4. 🔴 [Antithesis](https://antithesis.com) support
 
+## Overview
+
+The main components of the simulator are:
+
+* Test case generation, found in
+  [`src/simulator/generate.rs`](src/simulator/generate.rs), which uses the
+  pre-generated block tree which is saved in
+  [`tests/data/chain.json`](tests/data/chain.json);
+* The (discrete-event) simulator itself, lives in
+  [`src/simulator/simulate.rs`](src/simulator/simulate.rs);
+* The property-based test and property that uses the simulator, defined in
+  [`src/simulator/mod.rs`](src/simulator/mod.rs);
+  and property that uses the simulator is defined;
+* The actual Rust `#test` which gets picked up by `cargo test`, found in
+  [`tests/simulation.rs`](tests/simulation.rs). 
+
 ## Usage
 
 The `simulator` test uses is a pared-down version of Amaru where network
@@ -22,11 +38,14 @@ communications are abstracted away.
 The test can be run as with default options follows:
 
 ```
-PROPTEST_CASES=256                   # Set the number of test cases to generate. \
-PROPTEST_MAX_SHRINK_ITERS=4294967295 # How many times to shrink, use 0 to disable. \
+AMARU_NUMBER_OF_TESTS=50             # Set the number of test cases to generate. \
+AMARU_NUMBER_OF_NODES=1              # Set the number of nodes in a simulation. \
+AMARU_NUMBER_OF_UPSTREAM_PEERS=2     # Set the number of upstream peers.
+AMARU_DISABLE_SHRINKING=             # Set to disable shrinking. \
 AMARU_TEST_SEED=                     # Seed to use to reproduce a test case. \
 AMARU_PERSIST_ON_SUCCESS=            # Don't persist pure-stage schedule on success. \
 AMARU_SIMULATION_LOG="error"         # Only show error-level logging. \
+\
 cargo test run_simulator
 ```
 
@@ -73,20 +92,6 @@ Let's break the components down:
   for more details of how to use this information;
 * The seed is what was used to produce the test case, it can be used to replay
   the test (see `AMARU_TEST_SEED` above).
-
-## Module structure
-
-The main modules of the simulator are:
-
-* [`src/simulator/generate.rs`](src/simulator/generate.rs): which defines the
-  test case generator, which uses the pre-generated block tree which is saved in
-  [`tests/data/chain.json`](tests/data/chain.json);
-* [`src/simulator/simulate.rs`](src/simulator/simulate.rs): in which the
-  actually discrete-event simulator lives;
-* [`src/simulator/mod.rs`](src/simulator/mod.rs): where the property-based test
-  and property that uses the simulator is defined;
-* [`tests/simulation.rs`](tests/simulation.rs): where the actual Rust `#test`
-  is defined.
 
 ## References
 

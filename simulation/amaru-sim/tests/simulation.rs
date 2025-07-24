@@ -12,9 +12,19 @@ fn run_simulator() {
         chain_dir: "./chain.db".into(),
         block_tree_file: "tests/data/chain.json".into(),
         start_header: Hash::from([0; 32]),
-        number_of_tests: Some(50),
-        number_of_nodes: Some(1),
-        number_of_upstream_peers: Some(2),
+        number_of_tests: env::var("AMARU_NUMBER_OF_TESTS")
+            .ok()
+            .and_then(|v| v.parse::<u32>().ok())
+            .or(Some(50)),
+        number_of_nodes: env::var("AMARU_NUMBER_OF_NODES")
+            .ok()
+            .and_then(|v| v.parse::<u8>().ok())
+            .or(Some(1)),
+        number_of_upstream_peers: env::var("AMARU_NUMBER_OF_UPSTREAM_PEERS")
+            .ok()
+            .and_then(|v| v.parse::<u8>().ok())
+            .or(Some(2)),
+        disable_shrinking: std::env::var("AMARU_DISABLE_SHRINKING").is_ok(),
         seed: std::env::var("AMARU_TEST_SEED")
             .ok()
             .and_then(|s| s.parse().ok()),
