@@ -52,7 +52,7 @@ pub use pallas_addresses::{
 };
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{Bytes, CborWrap, Int, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, CborWrap, Int, KeepRaw, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
@@ -63,15 +63,14 @@ pub use pallas_primitives::{
     conway::{
         AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
         Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
-        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
-        ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
-        ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, MintedBlock, MintedDatumOption,
+        MintedScriptRef, MintedTransactionBody, MintedTransactionOutput, MintedTx,
+        MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount, ScriptHash, ScriptRef,
+        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
+        VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, BigInt, Constr, DatumHash, MaybeIndefArray, PlutusData, PlutusScript, PolicyId,
     PositiveCoin,
