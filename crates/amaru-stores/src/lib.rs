@@ -24,6 +24,10 @@ pub mod tests {
         network::NetworkName, Anchor, EraHistory, Hash, Point, PoolId, PoolParams, ProposalId,
         Slot, StakeCredential,
     };
+    #[cfg(not(target_os = "windows"))]
+    use amaru_kernel::{MemoizedTransactionOutput, TransactionInput};
+
+    use amaru_ledger::store::columns::cc_members;
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
     use slot_arithmetic::Epoch;
 
@@ -31,11 +35,12 @@ pub mod tests {
         state::diff_bind,
         store::{
             columns::{
-                accounts::{self, any_stake_credential},
+                accounts::{self, tests::any_stake_credential},
                 dreps,
-                pools::any_pool_id,
-                proposals::{self, any_proposal_id},
-                slots::any_slot,
+                pools::tests::any_pool_id,
+                proposals::{self, tests::any_proposal_id},
+                slots::tests::any_slot,
+                utxo::tests::{any_memoized_transaction_output, any_txin},
                 //utxo::{any_pseudo_transaction_output, any_txin},
             },
             Columns, ReadStore, Store, StoreError, TransactionalContext,
@@ -47,12 +52,16 @@ pub mod tests {
     pub struct Fixture {
         pub account_key: StakeCredential,
         pub account_row: accounts::Row,
+        pub txin: TransactionInput,
+        pub output: MemoizedTransactionOutput,
         pub pool_params: PoolParams,
         pub pool_epoch: Epoch,
         pub drep_key: StakeCredential,
         pub drep_row: dreps::Row,
         pub proposal_key: ProposalId,
         pub proposal_row: proposals::Row,
+        pub cc_member_key: StakeCredential,
+        pub cc_member_row: cc_members::Row,
         pub slot: Slot,
         pub slot_leader: PoolId,
     }
@@ -62,10 +71,14 @@ pub mod tests {
     pub struct Fixture {
         pub account_key: StakeCredential,
         pub account_row: accounts::Row,
+        pub txin: TransactionInput,
+        pub output: MemoizedTransactionOutput,
         pub pool_params: PoolParams,
         pub pool_epoch: Epoch,
         pub drep_key: StakeCredential,
         pub drep_row: dreps::Row,
+        pub cc_member_key: StakeCredential,
+        pub cc_member_row: cc_members::Row,
         pub slot: Slot,
         pub slot_leader: PoolId,
     }
@@ -78,20 +91,18 @@ pub mod tests {
         use diff_bind::Resettable;
 
         // utxos
-        /*
         let txin = any_txin().new_tree(runner).unwrap().current();
-        let output = any_pseudo_transaction_output()
+        let output = any_memoized_transaction_output()
             .new_tree(runner)
             .unwrap()
             .current();
         let utxos_iter = std::iter::once((txin.clone(), output.clone()));
-        */
 
         // accounts
         let account_key = any_stake_credential().new_tree(runner).unwrap().current();
         let account_key_clone = account_key.clone();
 
-        let account_row = amaru_ledger::store::columns::accounts::any_row()
+        let account_row = amaru_ledger::store::columns::accounts::tests::any_row()
             .new_tree(runner)
             .unwrap()
             .current();
@@ -113,7 +124,7 @@ pub mod tests {
             std::iter::once((account_key_clone, (delegatee, drep, rewards, deposit)));
 
         // pools
-        let pool_params = amaru_ledger::store::columns::pools::any_pool_params()
+        let pool_params = amaru_ledger::store::columns::pools::tests::any_pool_params()
             .new_tree(runner)
             .unwrap()
             .current();
@@ -123,7 +134,7 @@ pub mod tests {
 
         // dreps
         let drep_key = any_stake_credential().new_tree(runner).unwrap().current();
-        let mut drep_row = amaru_ledger::store::columns::dreps::any_row()
+        let mut drep_row = amaru_ledger::store::columns::dreps::tests::any_row()
             .new_tree(runner)
             .unwrap()
             .current();
@@ -161,7 +172,7 @@ pub mod tests {
         #[cfg(not(target_os = "windows"))]
         let (proposal_iter, proposal_key, proposal_row) = {
             let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
-            let proposal_row = amaru_ledger::store::columns::proposals::any_row()
+            let proposal_row = amaru_ledger::store::columns::proposals::tests::any_row()
                 .new_tree(runner)
                 .unwrap()
                 .current();
@@ -177,7 +188,7 @@ pub mod tests {
 
         // cc_members
         let cc_member_key = any_stake_credential().new_tree(runner).unwrap().current();
-        let mut cc_member_row = amaru_ledger::store::columns::cc_members::any_row()
+        let mut cc_member_row = amaru_ledger::store::columns::cc_members::tests::any_row()
             .new_tree(runner)
             .unwrap()
             .current();
@@ -205,7 +216,7 @@ pub mod tests {
                 &point,
                 Some(&slot_leader),
                 Columns {
-                    utxo: std::iter::empty(),
+                    utxo: utxos_iter,
                     pools: pools_iter,
                     accounts: accounts_iter,
                     dreps: drep_iter,
@@ -239,6 +250,8 @@ pub mod tests {
         Ok(Fixture {
             account_key,
             account_row: stored_account_row,
+            txin,
+            output,
             pool_params,
             pool_epoch,
             drep_key,
@@ -247,12 +260,13 @@ pub mod tests {
             proposal_key,
             #[cfg(not(target_os = "windows"))]
             proposal_row,
+            cc_member_key,
+            cc_member_row,
             slot,
             slot_leader,
         })
     }
 
-    /*
     pub fn test_read_utxo(store: &impl ReadStore, fixture: &Fixture) {
         let result = store
             .utxo(&fixture.txin)
@@ -263,7 +277,7 @@ pub mod tests {
             Some(fixture.output.clone()),
             "UTXO did not match fixture output"
         );
-    }*/
+    }
 
     pub fn test_read_account(store: &impl ReadStore, fixture: &Fixture) {
         let stored_account = store
@@ -357,15 +371,6 @@ pub mod tests {
         }
     }
 
-    /* Disabled until ReadOnlyStore getter is implemented for cc_members column
-    pub fn test_read_cc_member(store: &MemoryStore, fixture: &Fixture) {
-        assert_eq!(
-            store.cc_member(&fixture.cc_member_key),
-            Some(fixture.cc_member_row.clone()),
-            "cc_member mismatch"
-        );
-    }*/
-
     #[cfg(not(target_os = "windows"))]
     pub fn test_read_proposal(store: &impl Store, fixture: &Fixture) {
         let stored_proposal = store
@@ -395,7 +400,6 @@ pub mod tests {
         );
     }
 
-    /* Disabled until MemoizedTransactionOutput generator is created
     pub fn test_remove_utxo(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;
 
@@ -427,7 +431,7 @@ pub mod tests {
         );
 
         Ok(())
-    }*/
+    }
 
     pub fn test_remove_account(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
         let point = Point::Origin;

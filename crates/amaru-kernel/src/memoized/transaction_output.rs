@@ -20,10 +20,10 @@ use crate::{
     Value,
 };
 
-#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
 pub struct MemoizedTransactionOutput {
     #[serde(skip)]
-    is_legacy: bool,
+    pub is_legacy: bool,
 
     #[serde(serialize_with = "serialize_address")]
     #[serde(deserialize_with = "deserialize_address")]

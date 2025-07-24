@@ -33,7 +33,6 @@ use pallas_primitives::{
         MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
         RedeemersValue,
     },
-    PlutusScript,
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
@@ -47,10 +46,13 @@ use std::{
 };
 
 pub use memoized::*;
-pub use pallas_addresses::{byron::AddrType, Address, Network, StakeAddress, StakePayload};
+pub use pallas_addresses::{
+    byron::AddrType, Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
+    StakeAddress, StakePayload,
+};
 pub use pallas_codec::{
     minicbor as cbor,
-    utils::{Bytes, CborWrap, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
+    utils::{Bytes, CborWrap, Int, KeyValuePairs, NonEmptyKeyValuePairs, Nullable, Set},
 };
 pub use pallas_crypto::{
     hash::{Hash, Hasher},
@@ -71,7 +73,8 @@ pub use pallas_primitives::{
         TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
         VotingProcedures, VrfKeyhash, WitnessSet,
     },
-    AssetName, Constr, DatumHash, MaybeIndefArray, PlutusData,
+    AssetName, BigInt, Constr, DatumHash, MaybeIndefArray, PlutusData, PlutusScript, PolicyId,
+    PositiveCoin,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;

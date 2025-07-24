@@ -65,36 +65,34 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-use amaru_kernel::{prop_cbor_roundtrip, Hash};
-#[cfg(any(test, feature = "test-utils"))]
-use proptest::prelude::*;
-#[cfg(any(test, feature = "test-utils"))]
-use proptest::{option, prop_compose};
+pub mod tests {
+    use super::*;
+    use amaru_kernel::{prop_cbor_roundtrip, Hash};
+    use proptest::prelude::*;
+    use proptest::{option, prop_compose};
 
-#[cfg(any(test, feature = "test-utils"))]
-prop_compose! {
-    pub fn any_stake_credential()(
-        is_script in any::<bool>(),
-        credential in any::<[u8; 28]>(),
-    ) -> StakeCredential {
-        if is_script {
-            StakeCredential::ScriptHash(Hash::from(credential))
-        } else {
-            StakeCredential::AddrKeyhash(Hash::from(credential))
+    prop_compose! {
+        pub fn any_stake_credential()(
+            is_script in any::<bool>(),
+            credential in any::<[u8; 28]>(),
+        ) -> StakeCredential {
+            if is_script {
+                StakeCredential::ScriptHash(Hash::from(credential))
+            } else {
+                StakeCredential::AddrKeyhash(Hash::from(credential))
+            }
         }
     }
-}
 
-#[cfg(any(test, feature = "test-utils"))]
-prop_compose! {
-    pub fn any_row()(
-        hot_credential in option::of(any_stake_credential()),
-    ) -> Row {
-        Row {
-            hot_credential,
+    prop_compose! {
+        pub fn any_row()(
+            hot_credential in option::of(any_stake_credential()),
+        ) -> Row {
+            Row {
+                hot_credential,
+            }
         }
     }
-}
 
-#[cfg(any(test, feature = "test-utils"))]
-prop_cbor_roundtrip!(Row, any_row());
+    prop_cbor_roundtrip!(Row, any_row());
+}

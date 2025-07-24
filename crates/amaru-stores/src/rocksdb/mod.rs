@@ -731,8 +731,8 @@ mod tests {
     };
     use crate::tests::{
         add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-        test_read_pool, test_refund_account, test_remove_account, test_remove_drep,
-        test_remove_pool, test_slot_updated, Fixture,
+        test_read_pool, test_read_utxo, test_refund_account, test_remove_account, test_remove_drep,
+        test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
     };
     use amaru_ledger::store::StoreError;
 
@@ -816,7 +816,6 @@ mod tests {
         test_slot_updated(&store, &fixture)
     }
 
-    /* Disabled until MemoizedTransactionOutput is created
     #[test]
     fn test_rocksdb_read_utxo() {
         let mut runner = TestRunner::default();
@@ -828,7 +827,7 @@ mod tests {
         let mut runner = TestRunner::default();
         let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_remove_utxo(&store, &fixture)
-    }*/
+    }
 
     #[test]
     fn test_rocksdb_remove_account() -> Result<(), StoreError> {

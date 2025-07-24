@@ -90,73 +90,69 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 }
 
 #[cfg(any(test, feature = "test-utils"))]
-use amaru_kernel::{prop_cbor_roundtrip, Hash, Slot, TransactionPointer};
-#[cfg(any(test, feature = "test-utils"))]
-use proptest::{option, prelude::*, prop_compose, string};
+pub mod tests {
+    use super::*;
+    use amaru_kernel::{prop_cbor_roundtrip, Hash, Slot, TransactionPointer};
+    use proptest::{option, prelude::*, prop_compose, string};
 
-#[cfg(any(test, feature = "test-utils"))]
-prop_compose! {
-    pub fn any_transaction_pointer()(
-        slot in 0..10_000_000u64,
-        transaction_index in any::<usize>(),
-    ) -> TransactionPointer {
-        TransactionPointer {
-            slot: Slot::from(slot),
-            transaction_index,
+    prop_compose! {
+        pub fn any_transaction_pointer()(
+            slot in 0..10_000_000u64,
+            transaction_index in any::<usize>(),
+        ) -> TransactionPointer {
+            TransactionPointer {
+                slot: Slot::from(slot),
+                transaction_index,
+            }
         }
     }
-}
 
-#[cfg(any(test, feature = "test-utils"))]
-prop_compose! {
-    pub fn any_certificate_pointer()(
-        transaction in any_transaction_pointer(),
-        certificate_index in any::<usize>(),
-    ) -> CertificatePointer {
-        CertificatePointer {
-            transaction,
-            certificate_index,
+    prop_compose! {
+        pub fn any_certificate_pointer()(
+            transaction in any_transaction_pointer(),
+            certificate_index in any::<usize>(),
+        ) -> CertificatePointer {
+            CertificatePointer {
+                transaction,
+                certificate_index,
+            }
         }
     }
-}
 
-#[cfg(any(test, feature = "test-utils"))]
-prop_compose! {
-    pub fn any_anchor()(
-        // NOTE: This can be any string really, but it's cute to generate URLs, isn't it?
-        url in {
-            #[allow(clippy::unwrap_used)]
-            string::string_regex(
-                r"(https:)?[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})(\.[a-zA-Z0-9]{2,})?"
-            ).unwrap()
-        },
-        content_hash in any::<[u8; 32]>(),
-    ) -> Anchor {
-        Anchor {
-            url,
-            content_hash: Hash::from(content_hash),
+    prop_compose! {
+        pub fn any_anchor()(
+            url in {
+                #[allow(clippy::unwrap_used)]
+                string::string_regex(
+                    r"(https:)?[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})(\.[a-zA-Z0-9]{2,})?"
+                ).unwrap()
+            },
+            content_hash in any::<[u8; 32]>(),
+        ) -> Anchor {
+            Anchor {
+                url,
+                content_hash: Hash::from(content_hash),
+            }
         }
     }
-}
 
-#[cfg(any(test, feature = "test-utils"))]
-prop_compose! {
-    pub fn any_row()(
-        deposit in any::<Lovelace>(),
-        anchor in option::of(any_anchor()),
-        registered_at in any_certificate_pointer(),
-        last_interaction in option::of(any::<Epoch>()),
-        previous_deregistration in option::of(any_certificate_pointer()),
-    ) -> Row {
-        Row {
-            deposit,
-            anchor,
-            registered_at,
-            last_interaction,
-            previous_deregistration,
+    prop_compose! {
+        pub fn any_row()(
+            deposit in any::<Lovelace>(),
+            anchor in option::of(any_anchor()),
+            registered_at in any_certificate_pointer(),
+            last_interaction in option::of(any::<Epoch>()),
+            previous_deregistration in option::of(any_certificate_pointer()),
+        ) -> Row {
+            Row {
+                deposit,
+                anchor,
+                registered_at,
+                last_interaction,
+                previous_deregistration,
+            }
         }
     }
-}
 
-#[cfg(any(test, feature = "test-utils"))]
-prop_cbor_roundtrip!(Row, any_row());
+    prop_cbor_roundtrip!(Row, any_row());
+}
