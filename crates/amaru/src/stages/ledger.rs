@@ -20,6 +20,9 @@ use gasket::framework::{WorkSchedule, WorkerError};
 use std::sync::{Arc, RwLock};
 use tracing::{error, info, instrument, trace, Level, Span};
 
+#[cfg(feature = "tracy")]
+use tracy_client::span;
+
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<BlockValidationResult>;
 
@@ -202,6 +205,9 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         unit: &ValidateBlockEvent,
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
+        #[cfg(feature = "tracy")]
+        let _span = span!("Block");
+
         adopt_current_span(unit);
         let result = match unit {
             ValidateBlockEvent::Validated { point, block, span } => {

@@ -90,7 +90,7 @@ bootstrap: clear-dbs ## Bootstrap the node from scratch
 		--network $(NETWORK)
 
 dev: ## Compile and run for development with default options
-	cargo run --profile $(BUILD_PROFILE) -- daemon \
+	cargo run --profile $(BUILD_PROFILE) $(EXTRA_CARGO_FLAGS) -- --with-open-telemetry daemon \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
 		--peer-address $(AMARU_PEER_ADDRESS) \
