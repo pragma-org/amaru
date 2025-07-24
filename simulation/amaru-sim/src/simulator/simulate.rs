@@ -362,7 +362,7 @@ fn display_failure<Msg: Debug>(
                 Minimised input ({number_of_shrinks} shrinks):\n\n{}\n \
                 History:\n\n{}\n \
                 Error message:\n\n  {}\n\n \
-                {} \
+                {}\n \
                 Seed: {}\n",
             test_case,
             history_string,

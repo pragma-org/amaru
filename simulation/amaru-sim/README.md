@@ -41,9 +41,9 @@ The test can be run as with default options follows:
 AMARU_NUMBER_OF_TESTS=50             # Set the number of test cases to generate. \
 AMARU_NUMBER_OF_NODES=1              # Set the number of nodes in a simulation. \
 AMARU_NUMBER_OF_UPSTREAM_PEERS=2     # Set the number of upstream peers.
-AMARU_DISABLE_SHRINKING=             # Set to disable shrinking. \
+AMARU_DISABLE_SHRINKING=0            # Set to 1 to disable shrinking. \
 AMARU_TEST_SEED=                     # Seed to use to reproduce a test case. \
-AMARU_PERSIST_ON_SUCCESS=            # Don't persist pure-stage schedule on success. \
+AMARU_PERSIST_ON_SUCCESS=0           # Set to 1 to persist pure-stage schedule on success. \
 AMARU_SIMULATION_LOG="error"         # Only show error-level logging. \
 \
 cargo test run_simulator
@@ -54,24 +54,30 @@ cargo test run_simulator
 When the test fails, the output looks something like this:
 
 ```
-Found minimal failing case:
+ Minimised input (0 shrinks):
 
-  Envelope { src: "c1", dest: "n1", body: Fwd { msg_id: 0, slot: Slot(31), hash: "2487bd",
- header: "828a0118" } }
-  Envelope { src: "c1", dest: "n1", body: Fwd { msg_id: 1, slot: Slot(38), hash: "4fcd1d",
- header: "828a0218" } }
-  Envelope { src: "c1", dest: "n1", body: Fwd { msg_id: 2, slot: Slot(41), hash: "739307",
- header: "828a0318" } }
- [...]
+  Envelope { src: "c1", dest: "n1", body: Fwd { msg_id: 0, slot: Slot(31), hash: "2487bd", header: "828a0118" } }
+  Envelope { src: "c1", dest: "n1", body: Fwd { msg_id: 1, slot: Slot(38), hash: "4fcd1d", header: "828a0218" } }
+  Envelope { src: "c1", dest: "n1", body: Fwd { msg_id: 2, slot: Slot(41), hash: "739307", header: "828a0318" } }
+  Envelope { src: "c1", dest: "n1", body: Fwd { msg_id: 3, slot: Slot(55), hash: "726ef3", header: "828a0418" } }
+  Envelope { src: "c1", dest: "n1", body: Fwd { msg_id: 4, slot: Slot(93), hash: "597ea6", header: "828a0518" } }
+  [...]
 
 History:
-  XXX: to be implemented
+
+    0.  "c1" ==> "n1"   Fwd { msg_id: 0, slot: Slot(31), hash: "2487bd", header: "828a0118" }
+    1.  "n1" ==> "c1"   Fwd { msg_id: 0, slot: Slot(31), hash: "2487bd", header: "828a0118" }
+    2.  "c2" ==> "n1"   Fwd { msg_id: 0, slot: Slot(31), hash: "2487bd", header: "828a0118" }
+    3.  "c2" ==> "n1"   Fwd { msg_id: 1, slot: Slot(38), hash: "4fcd1d", header: "828a0218" }
+    4.  "n1" ==> "c2"   Fwd { msg_id: 1, slot: Slot(38), hash: "4fcd1d", header: "828a0218" }
+    [...]
 
 Error message:
 
-  assertion `left == right`
-  left: "c1"
- right: "n1"
+  tip of chains don't match, expected:
+    (Bytes { bytes: "fcb4a51..." }, Slot(990))
+  got:
+    (Bytes { bytes: "gcb4a51..." }, Slot(990))
 
 Saved schedule: "./failure-1752489042.schedule"
 
@@ -80,12 +86,13 @@ Seed: 42
 
 Let's break the components down:
 
-* The minimal failing test case is printed so that it can be copy-pasted into a
+* The minimised failing test case is printed so that it can be copy-pasted into a
   `#test` to create a regression test;
-* The history is the same as test case, but also contains the responses that we
-  got back from the system under test. The history is what the property is
-  checked against;
-* The error message is how the property property failed;
+* The history is the same as test case, but the `src` and `dest` of each
+  message has been pretty printed to be easier to read and it also contains the
+  responses that we got back from the system under test. The history is what the
+  property is checked against;
+* The error message is how the property failed;
 * Saved schedule is the execution schedule from `pure-stage`, which can provide
   low-level details about how the stage processing happened. See the following
   [note](https://github.com/pragma-org/amaru/wiki/log-::-2025%E2%80%9006#debugging-simulation-tests-failure)

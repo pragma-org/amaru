@@ -24,11 +24,11 @@ fn run_simulator() {
             .ok()
             .and_then(|v| v.parse::<u8>().ok())
             .or(Some(2)),
-        disable_shrinking: std::env::var("AMARU_DISABLE_SHRINKING").is_ok(),
+        disable_shrinking: std::env::var("AMARU_DISABLE_SHRINKING").map_or(false, |v| v == "1"),
         seed: std::env::var("AMARU_TEST_SEED")
             .ok()
             .and_then(|s| s.parse().ok()),
-        persist_on_success: std::env::var("AMARU_PERSIST_ON_SUCCESS").is_ok(),
+        persist_on_success: std::env::var("AMARU_PERSIST_ON_SUCCESS").map_or(false, |v| v == "1"),
     };
 
     tracing_subscriber::fmt()

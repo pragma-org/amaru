@@ -410,7 +410,7 @@ fn chain_property(
                             .expect("empty chain data");
                         if actual != expected {
                             return Err(format!(
-                                "tip of chains don't match, expected {:?}, got {:?}",
+                                "tip of chains don't match, expected:\n    {:?}\n  got:\n    {:?}",
                                 expected, actual
                             ));
                         }
