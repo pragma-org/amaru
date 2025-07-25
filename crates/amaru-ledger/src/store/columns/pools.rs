@@ -233,14 +233,16 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
     use super::*;
     use amaru_kernel::{prop_cbor_roundtrip, Hash, Nullable, RationalNumber};
-    use proptest::prelude::*;
+    use proptest::{collection, prelude::*};
+    use proptest::{collection::vec, prop_compose};
 
     prop_compose! {
-        pub(crate) fn any_pool_id()(
+        /// Generates arbitrary `PoolId` values using random 28-byte arrays.
+        pub fn any_pool_id()(
             bytes in any::<[u8; 28]>(),
         ) -> PoolId {
             Hash::from(bytes)
@@ -248,7 +250,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_pool_params()(
+        pub fn any_pool_params()(
             id in any_pool_id(),
             vrf in any::<[u8; 32]>(),
             pledge in any::<u64>(),
@@ -263,7 +265,6 @@ pub(crate) mod tests {
                 cost,
                 margin: RationalNumber { numerator: margin, denominator: 100 },
                 reward_account: [&[0xF0], &reward_account[..]].concat().into(),
-                // TODO: Generate some arbitrary data
                 owners: vec![].into(),
                 relays: vec![],
                 metadata: Nullable::Null,
@@ -271,7 +272,7 @@ pub(crate) mod tests {
         }
     }
 
-    fn any_future_params(epoch: Epoch) -> impl Strategy<Value = (Option<PoolParams>, Epoch)> {
+    pub fn any_future_params(epoch: Epoch) -> impl Strategy<Value = (Option<PoolParams>, Epoch)> {
         prop_oneof![
             Just((None, epoch)),
             any_pool_params().prop_map(move |params| (Some(params), epoch))
@@ -279,12 +280,12 @@ pub(crate) mod tests {
     }
 
     // Generate arbitrary `Row`, good for serialization for not for logic.
-    fn any_row() -> impl Strategy<Value = Row> {
-        prop::collection::vec(0..3u64, 0..3)
+    pub fn any_row() -> impl Strategy<Value = Row> {
+        collection::vec(0..3u64, 0..3)
             .prop_flat_map(|epochs| {
                 epochs
                     .into_iter()
-                    .map(|u: u64| any_future_params(Epoch::from(u)))
+                    .map(|u| any_future_params(Epoch::from(u)))
                     .collect::<Vec<_>>()
             })
             .prop_flat_map(|future_params| {
@@ -297,8 +298,8 @@ pub(crate) mod tests {
 
     // Generate a sequence of plausible updates, where each item in the vector correspond to an
     // epoch's update. So a caller is expected to tick a base Row between each application.
-    fn any_row_seq_updates() -> impl Strategy<Value = Vec<Vec<(Option<PoolParams>, Epoch)>>> {
-        prop::collection::vec(Just(()), 0..10).prop_flat_map(|cols| {
+    pub fn any_row_seq_updates() -> impl Strategy<Value = Vec<Vec<(Option<PoolParams>, Epoch)>>> {
+        vec(Just(()), 0..10).prop_flat_map(|cols| {
             cols.iter()
                 .enumerate()
                 .map(|(epoch, _)| {
@@ -312,7 +313,7 @@ pub(crate) mod tests {
                             ))
                         ]
                     };
-                    prop::collection::vec(future_params(), 0..3)
+                    vec(future_params(), 0..3)
                 })
                 .collect::<Vec<_>>()
         })
@@ -331,12 +332,10 @@ pub(crate) mod tests {
 
             let row_extended: Row = cbor::decode(&bytes_extended).unwrap();
 
-            assert_eq!(row_extended.future_params.len(), row.future_params.len() + 1);
-            assert_eq!(row_extended.future_params.last(), Some(&future_params));
+            prop_assert_eq!(row_extended.future_params.len(), row.future_params.len() + 1);
+            prop_assert_eq!(row_extended.future_params.last(), Some(&future_params));
         }
-    }
 
-    proptest! {
         #[test]
         fn prop_tick_pool(initial_params in any_pool_params(), updates in any_row_seq_updates()) {
             #[derive(Debug)]
@@ -354,28 +353,22 @@ pub(crate) mod tests {
 
             let mut row = Some(Row::new(initial_params));
             for (current_epoch, updates) in updates.into_iter().enumerate() {
+                let current_epoch = Epoch::from(current_epoch as u64);
                 // Apply model's changes at the epoch boundary
                 if let Some(retirement) = model.retiring {
-                    if retirement <= Epoch::from(current_epoch as u64) {
+                    if retirement <= current_epoch {
                         model.current = None;
                     }
                 }
-                if let Some(future) = model.future {
+                if let Some(future) = model.future.take() {
                     model.current = Some(future);
                 }
-                model.future = None;
 
                 // Process all updates through our simpler model
                 model = updates.iter().fold(model, |mut model, (update, epoch)| {
-                    // Schedule or apply updates according to the current state
                     match update {
-                        // NOTE: cannot happen in principle as the ledger rules forbids this.
-                        // But our model is imperfect, so we simply ignore retirement when there's
-                        // no pool.
                         None if model.current.is_none() => {},
-                        None => {
-                            model.retiring = Some(*epoch);
-                        },
+                        None => { model.retiring = Some(*epoch); },
                         Some(params) if model.current.is_none() => {
                             model.retiring = None;
                             model.current = Some(params.clone());
@@ -385,33 +378,39 @@ pub(crate) mod tests {
                             model.future = Some(params.clone());
                         },
                     }
-
                     model
                 });
 
                 // Process them through row ticks, and ensure conformance with the model
-                Row::tick(Box::new(&mut row), Epoch::from(current_epoch as u64));
+                Row::tick(Box::new(&mut row), current_epoch);
                 match row.as_mut() {
                     None => {
-                        // Re-register the pool if we end up de-registering it.
                         if let Some(params) = updates.iter().find(|(params, _)| params.is_some()).cloned() {
                             let mut new = Row::new(params.0.unwrap());
-                            new.future_params.extend(updates);
+                            new.future_params.extend(updates.clone());
                             row = Some(new);
                         }
                     },
                     Some(row) => {
-                        assert_eq!(
+                        prop_assert_eq!(
                             model.current.as_ref(),
                             Some(&row.current_params),
-                            "current_epoch = {current_epoch:?}, model = {model:?}",
+                            "current_epoch = {:?}, model = {:?}",
+                            current_epoch,
+                            model
                         );
-                        assert!(
-                            row.future_params.iter().filter(|(_, epoch)| epoch <= &(Epoch::from(current_epoch as u64))).count() == 0,
-                            "future params = {:?}",
-                            row.future_params,
+
+                        let obsolete_count = row.future_params.iter()
+                            .filter(|(_, epoch)| epoch <= &current_epoch)
+                            .count();
+                        prop_assert_eq!(
+                            obsolete_count,
+                            0,
+                            "future_params should not contain obsolete entries: {:?}",
+                            row.future_params
                         );
-                        row.future_params.extend(updates);
+
+                        row.future_params.extend(updates.clone());
                     }
                 }
             }

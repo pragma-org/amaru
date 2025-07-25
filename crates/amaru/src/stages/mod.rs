@@ -31,10 +31,12 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
     EraHistory, Hash, Header,
 };
-use amaru_ledger::store::in_memory::MemoryStore;
-use amaru_stores::rocksdb::{
-    consensus::{InMemConsensusStore, RocksDBStore},
-    RocksDB, RocksDBHistoricalStores,
+use amaru_stores::{
+    in_memory::MemoryStore,
+    rocksdb::{
+        consensus::{InMemConsensusStore, RocksDBStore},
+        RocksDB, RocksDBHistoricalStores,
+    },
 };
 use consensus::{
     fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
@@ -328,8 +330,8 @@ fn make_ledger(
     match config.ledger_store {
         StorePath::InMem => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
-                MemoryStore {},
-                MemoryStore {},
+                MemoryStore::new(era_history.clone()),
+                MemoryStore::new(era_history.clone()),
                 era_history,
                 global_parameters,
                 is_catching_up,

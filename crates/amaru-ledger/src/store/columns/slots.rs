@@ -64,3 +64,28 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         Ok(Row::new(slot_leader))
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::*;
+    use amaru_kernel::{prop_cbor_roundtrip, PoolId, Slot};
+    use proptest::{prelude::*, prop_compose};
+
+    prop_compose! {
+        pub fn any_slot()(
+            n in 0u64..87782400,
+        ) -> Slot {
+            Slot::from(n)
+        }
+    }
+
+    prop_compose! {
+        pub fn any_row()(
+            slot_leader in any::<[u8; 28]>().prop_map(PoolId::new),
+        ) -> Row {
+            Row::new(slot_leader)
+        }
+    }
+
+    prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row());
+}

@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use crate::{cbor, memoized::blanket_try_from_hex_bytes, Bytes, Hash, Hasher, KeepRaw, PlutusData};
+use pallas_codec::minicbor;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(try_from = "&str")]
@@ -26,6 +27,16 @@ pub struct MemoizedPlutusData {
 }
 
 impl MemoizedPlutusData {
+    pub fn new(data: PlutusData) -> Result<Self, String> {
+        let mut buf = Vec::new();
+        minicbor::encode(&data, &mut buf).map_err(|_| "failed to encode PlutusData".to_string())?;
+
+        Ok(Self {
+            original_bytes: Bytes::from(buf),
+            data,
+        })
+    }
+
     pub fn original_bytes(&self) -> &[u8] {
         &self.original_bytes
     }
