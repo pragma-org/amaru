@@ -21,6 +21,9 @@ mod metrics;
 mod observability;
 mod panic;
 
+#[cfg(feature = "tracy")]
+use tracy_client::{span, Client};
+
 #[derive(Debug, Subcommand)]
 enum Command {
     /// Bootstrap the node with needed data.
@@ -85,6 +88,11 @@ const DEFAULT_OTLP_METRIC_URL: &str = "http://localhost:4318/v1/metrics";
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     panic_handler();
+
+    #[cfg(feature = "tracy")]
+    Client::start();
+    #[cfg(feature = "tracy")]
+    let _span = span!("Main");
 
     let args = Cli::parse();
 
