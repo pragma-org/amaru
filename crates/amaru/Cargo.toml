@@ -61,3 +61,11 @@ once_cell.workspace = true
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
 amaru-kernel.workspace = true
+
+[target.'cfg(target_arch = "aarch64-unknown-linux-musl")'.dependencies.rocksdb]
+workspace = true
+features = [
+    "bindgen-static",
+    "snappy",
+    "multi-threaded-cf"
+]
