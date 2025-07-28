@@ -33,7 +33,7 @@ NETWORK=${5:-preprod}
 
 LEDGER_DIR=${LEDGER_DIR:-./ledger.${NETWORK}.db}
 
-CHAIN_DIR=${CHAIN_DIR:-./chain.db}
+CHAIN_DIR=${CHAIN_DIR:-./chain.${NETWORK}.db}
 
 echo -e "      \033[1;32mTarget\033[00m epoch $TARGET_EPOCH"
 
