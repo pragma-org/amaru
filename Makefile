@@ -4,7 +4,7 @@ DATA_FOLDER := $(CONFIG_FOLDER)/$(NETWORK)
 SNAPSHOTS_FILE := $(DATA_FOLDER)/snapshots.json
 NONCES_FILE := $(DATA_FOLDER)/nonces.json
 HEADERS_FILE := $(DATA_FOLDER)/headers.json
-AMARU_PEER_ADDRESS ?= 127.0.0.1:3001
+PEER_ADDRESS ?= 127.0.0.1:3001
 HASKELL_NODE_CONFIG_DIR ?= cardano-node-config
 DEMO_TARGET_EPOCH ?= 182
 HASKELL_NODE_CONFIG_SOURCE := https://book.world.dev.cardano.org/environments
@@ -46,14 +46,14 @@ import-snapshots: snapshots/$(NETWORK) ## Import snapshots for demo
 		--ledger-dir "$(LEDGER_DIR)" \
 		$$SNAPSHOT_ARGS
 
-import-headers: ## Import headers from $AMARU_PEER_ADDRESS for demo
+import-headers: ## Import headers from $PEER_ADDRESS for demo
 	@if [ ! -f "$(HEADERS_FILE)" ]; then echo "HEADERS_FILE not found: $(HEADERS_FILE)"; exit 1; fi; \
 	HEADERS=$$(jq -r '.[]' $(HEADERS_FILE)); \
 	for HEADER in $$HEADERS; do \
 		cargo run --profile $(BUILD_PROFILE) -- import-headers \
 			--network $(NETWORK) \
 			--chain-dir $(CHAIN_DIR) \
-			--peer-address $(AMARU_PEER_ADDRESS) \
+			--peer-address $(PEER_ADDRESS) \
 			--starting-point $$HEADER \
 			--count 2; \
 	done
@@ -83,7 +83,7 @@ clear-dbs: ## Clear the databases
 
 bootstrap: clear-dbs ## Bootstrap the node from scratch
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
-		--peer-address $(AMARU_PEER_ADDRESS) \
+		--peer-address $(PEER_ADDRESS) \
 		--config-dir $(CONFIG_FOLDER) \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
@@ -93,7 +93,7 @@ dev: ## Compile and run for development with default options
 	cargo run --profile $(BUILD_PROFILE) -- daemon \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
-		--peer-address $(AMARU_PEER_ADDRESS) \
+		--peer-address $(PEER_ADDRESS) \
 		--network=$(NETWORK) \
 		--listen-address $(LISTEN_ADDRESS)
 
@@ -125,7 +125,7 @@ coverage-lconv: ## Run test coverage for CI to upload to Codecov
 
 demo: ## Synchronize Amaru until a target epoch $DEMO_TARGET_EPOCH
 	LEDGER_DIR=$(LEDGER_DIR) CHAIN_DIR=$(CHAIN_DIR) \
-		./scripts/demo $(BUILD_PROFILE) $(AMARU_PEER_ADDRESS) $(LISTEN_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
+		./scripts/demo $(BUILD_PROFILE) $(PEER_ADDRESS) $(LISTEN_ADDRESS) $(DEMO_TARGET_EPOCH) $(NETWORK)
 
 build-examples: ## Build all examples
 	@for dir in $(wildcard examples/*/.); do \
