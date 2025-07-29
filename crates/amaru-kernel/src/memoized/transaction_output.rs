@@ -82,6 +82,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                                 d.tag()?;
                                 // Not sure why, but there is 1 extra byte when decoding
                                 // the PlutusData if this is not moved ahead one position
+                                // TODO: Determine why this is necessary
                                 d.set_position(d.position() + 1);
                                 let plutus_data: KeepRaw<'_, PlutusData> = d.decode_with(ctx)?;
                                 let memoized_data = MemoizedPlutusData::from(plutus_data);
@@ -116,8 +117,10 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                                 }
                             },
                             Err(e) => {
-                                println!("Failed to decode script: {:?}", e);
-                                None
+                                return Err(cbor::decode::Error::message(format!(
+                                    "failed to decode script: {:?}",
+                                    e
+                                )));
                             }
                         };
                     }
@@ -140,7 +143,10 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                 datum = MemoizedDatum::Hash(d.bytes()?.into());
             }
         } else {
-            unreachable!("output not in array or map ?!")
+            return Err(cbor::decode::Error::message(format!(
+                "unexpected CBOR type for output: {:?}",
+                data_type
+            )));
         }
 
         let address = address
