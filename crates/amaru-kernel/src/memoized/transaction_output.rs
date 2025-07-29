@@ -365,13 +365,11 @@ mod tests {
             script: None,
         };
 
-        // Encode
         let mut encoder = cbor::Encoder::new(Vec::new());
         let mut ctx = ();
         original.encode(&mut encoder, &mut ctx).unwrap();
         let encoded_bytes = encoder.writer().clone();
 
-        // Decode
         let mut decoder = cbor::Decoder::new(&encoded_bytes);
         let decoded: MemoizedTransactionOutput = decoder.decode_with(&mut ctx).unwrap();
 
@@ -396,13 +394,11 @@ mod tests {
             script: None,
         };
 
-        // Encode
         let mut encoder = cbor::Encoder::new(Vec::new());
         let mut ctx = ();
         original.encode(&mut encoder, &mut ctx).unwrap();
         let encoded_bytes = encoder.writer().clone();
 
-        // Decode
         let mut decoder = cbor::Decoder::new(&encoded_bytes);
         let decoded: MemoizedTransactionOutput = decoder.decode_with(&mut ctx).unwrap();
 
