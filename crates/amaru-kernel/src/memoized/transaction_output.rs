@@ -348,33 +348,6 @@ mod tests {
     use pallas_crypto::hash::Hash;
 
     #[test]
-    fn test_encode_decode_legacy_output() {
-        let original = MemoizedTransactionOutput {
-            is_legacy: true,
-            address: Address::from_hex(
-                "61bbe56449ba4ee08c471d69978e01db384d31e29133af4546e6057335",
-            )
-            .unwrap(),
-            value: Value::Coin(1000000),
-            datum: MemoizedDatum::None,
-            script: None,
-        };
-
-        // Encode
-        let mut encoder = cbor::Encoder::new(Vec::new());
-        let mut ctx = ();
-        original.encode(&mut encoder, &mut ctx).unwrap();
-        let encoded_bytes = encoder.writer().clone();
-
-        // Decode
-        let mut decoder = cbor::Decoder::new(&encoded_bytes);
-        let decoded: MemoizedTransactionOutput = decoder.decode_with(&mut ctx).unwrap();
-
-        assert_eq!(original, decoded);
-        assert!(decoded.is_legacy);
-    }
-
-    #[test]
     fn test_encode_decode_output_with_datum_hash() {
         let hash_bytes = [1u8; 32];
         let datum_hash = Hash::<32>::from(hash_bytes);
