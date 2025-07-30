@@ -80,11 +80,8 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                             }
                             1 => {
                                 d.tag()?;
-                                // Not sure why, but there is 1 extra byte when decoding
-                                // the PlutusData if this is not moved ahead one position
-                                // TODO: Determine why this is necessary
-                                d.set_position(d.position() + 1);
-                                let plutus_data: KeepRaw<'_, PlutusData> = d.decode_with(ctx)?;
+                                let plutus_data: KeepRaw<'_, PlutusData> =
+                                    cbor::decode(d.bytes()?)?;
                                 let memoized_data = MemoizedPlutusData::from(plutus_data);
                                 datum = MemoizedDatum::Inline(memoized_data);
                             }
@@ -367,7 +364,7 @@ mod tests {
             )
             .unwrap(),
             value: Value::Coin(1500000),
-            datum: datum,
+            datum,
             script: None,
         };
 
@@ -396,7 +393,7 @@ mod tests {
             )
             .unwrap(),
             value: Value::Coin(1500000),
-            datum: datum,
+            datum,
             script: None,
         };
 
