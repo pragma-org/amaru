@@ -290,7 +290,8 @@ pub fn simulate<Msg, F>(
     for test_number in 1..=config.number_of_tests {
         let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
 
-        match run_test(config.number_of_nodes, &spawn, &property)(&entries) {
+        let test = run_test(config.number_of_nodes, &spawn, &property);
+        match test(&entries) {
             (history, Err(reason)) => {
                 if config.disable_shrinking {
                     let number_of_shrinks = 0;
@@ -304,11 +305,8 @@ pub fn simulate<Msg, F>(
                         reason,
                     );
                 } else {
-                    let (shrunk_entries, (shrunk_history, result), number_of_shrinks) = shrink(
-                        run_test(config.number_of_nodes, &spawn, &property),
-                        entries,
-                        |result| result.1 == Err(reason.clone()),
-                    );
+                    let (shrunk_entries, (shrunk_history, result), number_of_shrinks) =
+                        shrink(test, entries, |result| result.1 == Err(reason.clone()));
                     assert_eq!(Err(reason.clone()), result);
                     display_failure(
                         test_number,
