@@ -54,6 +54,7 @@ pub struct SimulateConfig {
     pub number_of_tests: u32,
     pub seed: u64,
     pub number_of_nodes: u8,
+    pub disable_shrinking: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -289,23 +290,34 @@ pub fn simulate<Msg, F>(
     for test_number in 1..=config.number_of_tests {
         let entries: Vec<Reverse<Entry<Msg>>> = generator(&mut rng);
 
-        match run_test(config.number_of_nodes, &spawn, &property)(&entries) {
-            (_history, Err(reason)) => {
-                let (shrunk_entries, (shrunk_history, result), number_of_shrinks) = shrink(
-                    run_test(config.number_of_nodes, &spawn, &property),
-                    entries,
-                    |result| result.1 == Err(reason.clone()),
-                );
-                assert_eq!(Err(reason.clone()), result);
-                display_failure(
-                    test_number,
-                    config.seed,
-                    shrunk_entries,
-                    number_of_shrinks,
-                    shrunk_history,
-                    trace_buffer.clone(),
-                    reason,
-                );
+        let test = run_test(config.number_of_nodes, &spawn, &property);
+        match test(&entries) {
+            (history, Err(reason)) => {
+                if config.disable_shrinking {
+                    let number_of_shrinks = 0;
+                    display_failure(
+                        test_number,
+                        config.seed,
+                        entries,
+                        number_of_shrinks,
+                        history,
+                        trace_buffer.clone(),
+                        reason,
+                    );
+                } else {
+                    let (shrunk_entries, (shrunk_history, result), number_of_shrinks) =
+                        shrink(test, entries, |result| result.1 == Err(reason.clone()));
+                    assert_eq!(Err(reason.clone()), result);
+                    display_failure(
+                        test_number,
+                        config.seed,
+                        shrunk_entries,
+                        number_of_shrinks,
+                        shrunk_history,
+                        trace_buffer.clone(),
+                        reason,
+                    );
+                }
                 break;
             }
             (_history, Ok(())) => continue,
@@ -348,7 +360,7 @@ fn display_failure<Msg: Debug>(
                 Minimised input ({number_of_shrinks} shrinks):\n\n{}\n \
                 History:\n\n{}\n \
                 Error message:\n\n  {}\n\n \
-                {} \
+                {}\n \
                 Seed: {}\n",
             test_case,
             history_string,
@@ -496,6 +508,7 @@ mod tests {
                 number_of_tests,
                 seed,
                 number_of_nodes,
+                disable_shrinking: false,
             },
             spawn,
             generator,
@@ -566,6 +579,7 @@ mod tests {
                 number_of_tests,
                 seed,
                 number_of_nodes,
+                disable_shrinking: false,
             },
             spawn,
             generate_messages,
