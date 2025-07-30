@@ -80,11 +80,21 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                                 datum = MemoizedDatum::Hash(d.bytes()?.into());
                             }
                             1 => {
-                                d.tag()?;
-                                let plutus_data: KeepRaw<'_, PlutusData> =
-                                    cbor::decode(d.bytes()?)?;
-                                let memoized_data = MemoizedPlutusData::from(plutus_data);
-                                datum = MemoizedDatum::Inline(memoized_data);
+                                let tag = d.tag()?;
+
+                                match tag.as_u64() {
+                                    24 => {
+                                        let plutus_data: KeepRaw<'_, PlutusData> =
+                                            cbor::decode(d.bytes()?)?;
+                                        let memoized_data = MemoizedPlutusData::from(plutus_data);
+                                        datum = MemoizedDatum::Inline(memoized_data);
+                                    }
+                                    _ => {
+                                        return Err(cbor::decode::Error::message(format!(
+                                            "unknown tag for datum tag"
+                                        )));
+                                    }
+                                };
                             }
                             _ => {
                                 return Err(cbor::decode::Error::message(format!(
@@ -96,40 +106,46 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                     }
                     3 => {
                         let tag = d.tag()?;
-                        if tag == IanaTag::Cbor.tag() {
-                            let mut script_decoder: cbor::Decoder<'_> =
-                                cbor::Decoder::new(d.bytes()?);
-                            let pseudo_script: Result<PseudoScript<KeepRaw<'_, NativeScript>>, _> =
-                                script_decoder.decode_with(ctx);
 
-                            script = match pseudo_script {
-                                Ok(pseudo_script_type) => match pseudo_script_type {
-                                    PseudoScript::NativeScript(script_bytes) => {
-                                        Some(PseudoScript::NativeScript(
-                                            MemoizedNativeScript::from(script_bytes),
-                                        ))
+                        match tag.as_u64() {
+                            24 => {
+                                let mut script_decoder: cbor::Decoder<'_> =
+                                    cbor::Decoder::new(d.bytes()?);
+                                let pseudo_script: Result<
+                                    PseudoScript<KeepRaw<'_, NativeScript>>,
+                                    _,
+                                > = script_decoder.decode_with(ctx);
+
+                                script = match pseudo_script {
+                                    Ok(pseudo_script_type) => match pseudo_script_type {
+                                        PseudoScript::NativeScript(script_bytes) => {
+                                            Some(PseudoScript::NativeScript(
+                                                MemoizedNativeScript::from(script_bytes),
+                                            ))
+                                        }
+                                        PseudoScript::PlutusV1Script(script_bytes) => {
+                                            Some(PseudoScript::PlutusV1Script(script_bytes))
+                                        }
+                                        PseudoScript::PlutusV2Script(script_bytes) => {
+                                            Some(PseudoScript::PlutusV2Script(script_bytes))
+                                        }
+                                        PseudoScript::PlutusV3Script(script_byte) => {
+                                            Some(PseudoScript::PlutusV3Script(script_byte))
+                                        }
+                                    },
+                                    Err(e) => {
+                                        return Err(cbor::decode::Error::message(format!(
+                                            "failed to decode script: {:?}",
+                                            e
+                                        )));
                                     }
-                                    PseudoScript::PlutusV1Script(script_bytes) => {
-                                        Some(PseudoScript::PlutusV1Script(script_bytes))
-                                    }
-                                    PseudoScript::PlutusV2Script(script_bytes) => {
-                                        Some(PseudoScript::PlutusV2Script(script_bytes))
-                                    }
-                                    PseudoScript::PlutusV3Script(script_byte) => {
-                                        Some(PseudoScript::PlutusV3Script(script_byte))
-                                    }
-                                },
-                                Err(e) => {
-                                    return Err(cbor::decode::Error::message(format!(
-                                        "failed to decode script: {:?}",
-                                        e
-                                    )));
-                                }
-                            };
-                        } else {
-                            return Err(cbor::decode::Error::message(format!(
-                                "expected script tag, found: {tag:?}"
-                            )));
+                                };
+                            }
+                            _ => {
+                                return Err(cbor::decode::Error::message(format!(
+                                    "unknown tag for script tag"
+                                )));
+                            }
                         }
                     }
                     _ => {
