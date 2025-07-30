@@ -383,7 +383,7 @@ impl<'b, C> Decode<'b, C> for Summary {
 }
 
 // A complete history of eras that have taken place.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct EraHistory {
     /// Number of slots for which the chain growth property guarantees at least k blocks.
     ///

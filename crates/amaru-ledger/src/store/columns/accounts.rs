@@ -80,18 +80,38 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
         })
     }
 }
-
-#[cfg(test)]
-pub(crate) mod test {
-    use super::Row;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::*;
     use crate::store::columns::{dreps::tests::any_certificate_pointer, pools::tests::any_pool_id};
-    use amaru_kernel::{prop_cbor_roundtrip, DRep, Hash, Lovelace, StakeCredential};
-    use proptest::{option, prelude::*};
+    use amaru_kernel::{prop_cbor_roundtrip, Hash};
+    use proptest::{option, prelude::*, prop_compose};
 
-    prop_cbor_roundtrip!(Row, any_row());
+    pub fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
+        prop_oneof![
+            any::<[u8; 28]>().prop_map(|hash| StakeCredential::AddrKeyhash(Hash::new(hash))),
+            any::<[u8; 28]>().prop_map(|hash| StakeCredential::ScriptHash(Hash::new(hash))),
+        ]
+    }
 
     prop_compose! {
-        fn any_row()(
+        pub fn any_drep()(
+            credential in any::<[u8; 28]>(),
+            kind in any::<u8>(),
+        ) -> DRep {
+            let kind = kind % 4;
+            match kind {
+                0 => DRep::Key(Hash::from(credential)),
+                1 => DRep::Script(Hash::from(credential)),
+                2 => DRep::Abstain,
+                3 => DRep::NoConfidence,
+                _ => unreachable!("% 4")
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_row()(
             delegatee in option::of(any_pool_id()),
             deposit in any::<Lovelace>(),
             drep in option::of(any_drep()),
@@ -107,27 +127,5 @@ pub(crate) mod test {
         }
     }
 
-    prop_compose! {
-        pub(crate) fn any_drep()(
-            credential in any::<[u8; 28]>(),
-            kind in any::<u8>(),
-        ) -> DRep {
-            let kind = kind % 4;
-            match kind {
-                0 => DRep::Key(Hash::from(credential)),
-                1 => DRep::Script(Hash::from(credential)),
-                2 => DRep::Abstain,
-                3 => DRep::NoConfidence,
-                _ => unreachable!("% 4")
-            }
-
-        }
-    }
-
-    pub(crate) fn any_stake_credential() -> impl Strategy<Value = StakeCredential> {
-        prop_oneof![
-            any::<[u8; 28]>().prop_map(|hash| StakeCredential::AddrKeyhash(Hash::new(hash))),
-            any::<[u8; 28]>().prop_map(|hash| StakeCredential::ScriptHash(Hash::new(hash))),
-        ]
-    }
+    prop_cbor_roundtrip!(Row, any_row());
 }

@@ -14,9 +14,9 @@ rust-version.workspace = true
 
 [dependencies]
 hex.workspace = true
-rocksdb.workspace = true
+rocksdb = { workspace = true, optional = true }
 tracing.workspace = true
-rand.workspace = true
+rand = { workspace = true, optional = true }
 
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
@@ -26,5 +26,10 @@ iter-borrow.workspace = true
 slot-arithmetic.workspace = true
 
 [dev-dependencies]
-proptest.workspace = true
+proptest = { workspace = true, features = [ "std" ] }
+amaru-ledger = { path = "../amaru-ledger", features = ["test-utils"] }
 tempfile.workspace = true
+
+[features]
+default = ["rocksdb"]
+rocksdb = ["dep:rocksdb", "dep:rand"]

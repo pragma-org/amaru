@@ -157,45 +157,6 @@ impl RocksDB {
     }
 }
 
-impl Store for RocksDB {
-    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch))]
-    fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
-        let path = self.dir.join(epoch.to_string());
-
-        if path.exists() {
-            // RocksDB error can't be created externally, so panic instead
-            // It might be better to come up with a global error type
-            fs::remove_dir_all(&path).map_err(|_| {
-                StoreError::Internal("Unable to remove existing snapshot directory".into())
-            })?;
-        }
-
-        checkpoint::Checkpoint::new(&self.db)
-            .and_then(|handle| handle.create_checkpoint(path))
-            .map_err(|err| StoreError::Internal(err.into()))?;
-
-        Ok(())
-    }
-
-    #[allow(clippy::panic)] // Expected
-    fn create_transaction(&self) -> impl TransactionalContext<'_> {
-        if self.ongoing_transaction.get() {
-            // Thats a bug in the code, we should never have two transactions at the same time
-            panic!("RocksDB already has an ongoing transaction");
-        }
-        let transaction = self.db.transaction();
-        self.ongoing_transaction.set(true);
-        RocksDBTransactionalContext {
-            transaction,
-            db: self,
-        }
-    }
-
-    fn tip(&self) -> Result<Point, StoreError> {
-        get(|key| self.db.get(key), KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
-    }
-}
-
 // ------------------------------------------------------------ RocksDBReadOnly
 // ----------------------------------------------------------------------------
 
@@ -295,13 +256,40 @@ macro_rules! impl_ReadStore {
     }
 }
 
-// For now RocksDB and RocksDBSnapshot share their implementation of ReadStore
+// For now RocksDB and RocksDBSnapshot share their implementation of ReadOnlyStore
 impl_ReadStore!(for RocksDB, RocksDBSnapshot, ReadOnlyRocksDB, ReadOnlyRocksDBSnapshot);
 
-// ------------------------------------------------ RocksDBTransactionalContext
-// ----------------------------------------------------------------------------
+/// An generic column iterator, provided that rows from the column are (de)serialisable.
+#[allow(clippy::panic)]
+fn with_prefix_iterator<
+    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
+    DB,
+>(
+    db: &rocksdb::Transaction<'_, DB>,
+    prefix: [u8; PREFIX_LEN],
+    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
+) -> Result<(), StoreError> {
+    let mut iterator =
+        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
+            // FIXME: clarify what kind of errors can come from the database at this point.
+            // We are merely iterating over a collection.
+            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
+        }));
 
-struct RocksDBTransactionalContext<'a> {
+    with(iterator.as_iter_borrow());
+
+    for (k, v) in iterator.into_iter_updates() {
+        match v {
+            Some(v) => db.put(k, as_value(v)),
+            None => db.delete(k),
+        }
+        .map_err(|err| StoreError::Internal(err.into()))?;
+    }
+    Ok(())
+}
+
+pub struct RocksDBTransactionalContext<'a> {
     db: &'a RocksDB,
     transaction: Transaction<'a, OptimisticTransactionDB>,
 }
@@ -507,8 +495,46 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     }
 }
 
-// ---------------------------------------------------- RocksDBHistoricalStores
-// ----------------------------------------------------------------------------
+impl Store for RocksDB {
+    type Transaction<'a> = RocksDBTransactionalContext<'a>;
+
+    #[instrument(level = Level::INFO, target = EVENT_TARGET, name = "snapshot", skip_all, fields(epoch))]
+    fn next_snapshot(&'_ self, epoch: Epoch) -> Result<(), StoreError> {
+        let path = self.dir.join(epoch.to_string());
+
+        if path.exists() {
+            // RocksDB error can't be created externally, so panic instead
+            // It might be better to come up with a global error type
+            fs::remove_dir_all(&path).map_err(|_| {
+                StoreError::Internal("Unable to remove existing snapshot directory".into())
+            })?;
+        }
+
+        checkpoint::Checkpoint::new(&self.db)
+            .and_then(|handle| handle.create_checkpoint(path))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+
+        Ok(())
+    }
+
+    #[allow(clippy::panic)] // Expected
+    fn create_transaction(&self) -> RocksDBTransactionalContext<'_> {
+        if self.ongoing_transaction.get() {
+            // Thats a bug in the code, we should never have two transactions at the same time
+            panic!("RocksDB already has an ongoing transaction");
+        }
+        let transaction = self.db.transaction();
+        self.ongoing_transaction.set(true);
+        RocksDBTransactionalContext {
+            transaction,
+            db: self,
+        }
+    }
+
+    fn tip(&self) -> Result<Point, StoreError> {
+        get(|key| self.db.get(key), KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
+    }
+}
 
 pub struct RocksDBHistoricalStores {
     dir: PathBuf,
@@ -690,42 +716,39 @@ where
     Ok(decoded_it)
 }
 
-/// An generic column iterator, provided that rows from the column are (de)serialisable.
-#[allow(clippy::panic)]
-fn with_prefix_iterator<
-    K: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
-    V: Clone + fmt::Debug + for<'d> cbor::Decode<'d, ()> + cbor::Encode<()>,
-    DB,
->(
-    db: &rocksdb::Transaction<'_, DB>,
-    prefix: [u8; PREFIX_LEN],
-    mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
-) -> Result<(), StoreError> {
-    let mut iterator =
-        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
-            // FIXME: clarify what kind of errors can come from the database at this point.
-            // We are merely iterating over a collection.
-            item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))
-        }));
-
-    with(iterator.as_iter_borrow());
-
-    for (k, v) in iterator.into_iter_updates() {
-        match v {
-            Some(v) => db.put(k, as_value(v)),
-            None => db.delete(k),
-        }
-        .map_err(|err| StoreError::Internal(err.into()))?;
-    }
-    Ok(())
-}
-
 // ---------------------------------------------------------------------- Tests
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use amaru_kernel::network::NetworkName;
+    use amaru_kernel::EraHistory;
+    use proptest::test_runner::TestRunner;
+    use tempfile::TempDir;
+
+    use crate::rocksdb::{
+        pretty_print_snapshot_ranges, split_continuous, ReadOnlyRocksDB, RocksDB,
+    };
+    use crate::tests::{
+        add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
+        test_read_pool, test_read_utxo, test_refund_account, test_remove_account, test_remove_drep,
+        test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
+    };
+    use amaru_ledger::store::StoreError;
+
+    #[cfg(not(target_os = "windows"))]
+    use crate::tests::{test_read_proposal, test_remove_proposal};
+
+    fn setup_rocksdb_store(runner: &mut TestRunner) -> Result<(RocksDB, Fixture), StoreError> {
+        let era_history: EraHistory =
+            (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let tmp_dir = TempDir::new().expect("failed to create temp dir");
+
+        let store = RocksDB::empty(tmp_dir.path()).map_err(|e| StoreError::Internal(e.into()))?;
+
+        let fixture = add_test_data_to_store(&store, &era_history, runner)?;
+        Ok((store, fixture))
+    }
 
     #[test]
     fn open_one_writer_and_one_reader() {
@@ -741,6 +764,110 @@ mod tests {
 
         let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
+    }
+
+    #[test]
+    fn test_rocksdb_read_account() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_account(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_read_pool() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_pool(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_read_drep() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_drep(&store, &fixture);
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_rocksdb_read_proposal() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_proposal(&store, &fixture);
+    }
+
+    #[test]
+    fn test_rocksdb_refund_account() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_refund_account(&store, &fixture, &mut runner)
+    }
+
+    #[test]
+    fn test_rocksdb_epoch_transition() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, _) = setup_rocksdb_store(&mut runner)?;
+        test_epoch_transition(&store)
+    }
+
+    #[test]
+    fn test_rocksdb_slot_updated() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_slot_updated(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_read_utxo() {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner).expect("Failed to setup store");
+        test_read_utxo(&store, &fixture);
+    }
+    #[test]
+    fn test_rocksdb_remove_utxo() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_utxo(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_account() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_account(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_pool() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_pool(&store, &fixture)
+    }
+
+    #[test]
+    fn test_rocksdb_remove_drep() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_drep(&store, &fixture)
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    #[test]
+    fn test_rocksdb_remove_proposal() -> Result<(), StoreError> {
+        let mut runner = TestRunner::default();
+        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
+        test_remove_proposal(&store, &fixture)
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rocksdb_iterate_cc_members() {
+        unimplemented!()
+    }
+
+    #[test]
+    #[ignore]
+    fn test_rocksdb_remove_cc_members() {
+        unimplemented!()
     }
 
     #[test]

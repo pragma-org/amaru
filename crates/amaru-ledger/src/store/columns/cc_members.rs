@@ -26,7 +26,7 @@ pub type Value = Resettable<StakeCredential>;
 
 pub type Key = StakeCredential;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Default, Clone, PartialEq)]
 pub struct Row {
     pub hot_credential: Option<StakeCredential>,
 }
@@ -64,26 +64,15 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     }
 }
 
-#[cfg(test)]
-pub mod test {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, Hash, StakeCredential};
-    use proptest::{option, prelude::*};
-
-    prop_cbor_roundtrip!(Row, any_row());
-
-    prop_compose! {
-        fn any_row()(
-            hot_credential in option::of(any_stake_credential()),
-        ) -> Row {
-            Row {
-                hot_credential,
-            }
-        }
-    }
+    use amaru_kernel::{prop_cbor_roundtrip, Hash};
+    use proptest::prelude::*;
+    use proptest::{option, prop_compose};
 
     prop_compose! {
-        fn any_stake_credential()(
+        pub fn any_stake_credential()(
             is_script in any::<bool>(),
             credential in any::<[u8; 28]>(),
         ) -> StakeCredential {
@@ -94,4 +83,16 @@ pub mod test {
             }
         }
     }
+
+    prop_compose! {
+        pub fn any_row()(
+            hot_credential in option::of(any_stake_credential()),
+        ) -> Row {
+            Row {
+                hot_credential,
+            }
+        }
+    }
+
+    prop_cbor_roundtrip!(Row, any_row());
 }

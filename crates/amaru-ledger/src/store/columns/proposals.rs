@@ -69,29 +69,22 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod tests {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
     use super::*;
-    use crate::store::{
-        accounts::test::any_stake_credential,
-        columns::dreps::tests::{any_anchor, any_transaction_pointer},
-    };
+    use crate::store::columns::cc_members::tests::any_stake_credential;
+    use crate::store::columns::dreps::tests::{any_anchor, any_transaction_pointer};
     use amaru_kernel::{
         new_stake_address, prop_cbor_roundtrip, Bytes, Constitution, CostModel, CostModels,
         DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, Hash, KeyValuePairs, Lovelace,
-        Network, Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, ProtocolVersion,
-        RewardAccount, ScriptHash, Set, StakeCredential, StakePayload, UnitInterval,
+        Network, Nullable, PoolVotingThresholds, Proposal, ProposalId, ProposalPointer,
+        ProtocolParamUpdate, ProtocolVersion, RewardAccount, ScriptHash, Set, StakeCredential,
+        StakePayload, UnitInterval,
     };
-    use proptest::{option, prelude::*};
-
-    // Causes a StackOverflow on Windows, somehow...
-    #[cfg(not(target_os = "windows"))]
-    prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row());
-
-    prop_cbor_roundtrip!(prop_cbor_roundtrip_key, Key, any_proposal_id());
+    use proptest::{collection, option, prelude::*, prop_compose};
 
     prop_compose! {
-        pub(crate) fn any_proposal_id()(
+        pub fn any_proposal_id()(
             transaction_id in any::<[u8; 32]>(),
             action_index in any::<u32>(),
         ) -> ProposalId {
@@ -103,7 +96,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_unit_interval()(
+        pub fn any_unit_interval()(
             numerator in any::<u64>(),
             denominator in 1..u64::MAX,
         ) -> UnitInterval {
@@ -115,7 +108,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_drep_voting_thresholds()(
+        pub fn any_drep_voting_thresholds()(
             motion_no_confidence in any_unit_interval(),
             committee_normal in any_unit_interval(),
             committee_no_confidence in any_unit_interval(),
@@ -143,7 +136,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_pool_voting_thresholds()(
+        pub fn any_pool_voting_thresholds()(
             motion_no_confidence in any_unit_interval(),
             committee_normal in any_unit_interval(),
             committee_no_confidence in any_unit_interval(),
@@ -161,7 +154,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_cost_model()(
+        pub fn any_cost_model()(
             machine_cost in option::of(any::<i64>()),
             some_builtin in option::of(any::<i64>()),
             some_other_builtin in option::of(any::<i64>()),
@@ -178,7 +171,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_cost_models()(
+        pub fn any_cost_models()(
             plutus_v1 in option::of(any_cost_model()),
             plutus_v2 in option::of(any_cost_model()),
             plutus_v3 in option::of(any_cost_model()),
@@ -192,7 +185,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_ex_unit_prices()(
+        pub fn any_ex_unit_prices()(
             mem_price in any_unit_interval(),
             step_price in any_unit_interval(),
         ) -> ExUnitPrices {
@@ -200,12 +193,11 @@ pub(crate) mod tests {
                 mem_price,
                 step_price,
             }
-
         }
     }
 
     prop_compose! {
-        pub(crate) fn any_ex_units()(
+        pub fn any_ex_units()(
             mem in any::<u64>(),
             steps in any::<u64>(),
         ) -> ExUnits {
@@ -217,7 +209,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_protocol_params_update()(
+        pub fn any_protocol_params_update()(
             minfee_a in option::of(any::<u64>()),
             minfee_b in option::of(any::<u64>()),
             max_block_body_size in option::of(any::<u64>()),
@@ -279,13 +271,13 @@ pub(crate) mod tests {
                 governance_action_deposit,
                 drep_deposit,
                 drep_inactivity_period,
-                minfee_refscript_cost_per_byte
+                minfee_refscript_cost_per_byte,
             }
         }
     }
 
     prop_compose! {
-        pub(crate) fn any_protocol_version()(
+        pub fn any_protocol_version()(
             major in any::<u64>(),
             minor in any::<u64>(),
         ) -> ProtocolVersion {
@@ -294,7 +286,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_withdrawal()(
+        pub fn any_withdrawal()(
             reward_account in any_reward_account(),
             amount in any::<Lovelace>(),
         ) -> (RewardAccount, Lovelace) {
@@ -303,15 +295,15 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_guardrails_script()(
-            script in option::of(any::<[u8; 28]>()),
+        pub fn any_guardrails_script()(
+            script in proptest::option::of(any::<[u8; 28]>()),
         ) -> Nullable<ScriptHash> {
             Nullable::from(script.map(Hash::new))
         }
     }
 
     prop_compose! {
-        pub(crate) fn any_constitution()(
+        pub fn any_constitution()(
             anchor in any_anchor(),
             guardrail_script in any_guardrails_script(),
         ) -> Constitution {
@@ -322,7 +314,7 @@ pub(crate) mod tests {
         }
     }
 
-    pub(crate) fn any_gov_action() -> impl Strategy<Value = GovAction> {
+    pub fn any_gov_action() -> impl Strategy<Value = GovAction> {
         prop_compose! {
             fn any_parent_proposal_id()(
                 proposal_id in option::of(any_proposal_id()),
@@ -352,7 +344,7 @@ pub(crate) mod tests {
 
         prop_compose! {
             fn any_treasury_withdrawals()(
-                withdrawals in prop::collection::vec(any_withdrawal(), 0..3),
+                withdrawals in collection::vec(any_withdrawal(), 0..3),
                 guardrails in any_guardrails_script(),
                 is_definite in any::<bool>(),
             ) -> GovAction {
@@ -387,8 +379,8 @@ pub(crate) mod tests {
         prop_compose! {
             fn any_committee_update()(
                 parent_proposal_id in any_parent_proposal_id(),
-                to_remove in prop::collection::btree_set(any_stake_credential(), 0..3),
-                to_add in prop::collection::vec(any_committee_registration(), 0..3),
+                to_remove in collection::btree_set(any_stake_credential(), 0..3),
+                to_add in collection::vec(any_committee_registration(), 0..3),
                 is_definite in any::<bool>(),
                 quorum in any_unit_interval(),
             ) -> GovAction {
@@ -430,7 +422,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_network()(
+        pub fn any_network()(
             is_testnet in any::<bool>(),
         ) -> Network {
             if is_testnet {
@@ -439,11 +431,10 @@ pub(crate) mod tests {
                 Network::Mainnet
             }
         }
-
     }
 
     prop_compose! {
-        pub(crate) fn any_reward_account()(
+        pub fn any_reward_account()(
             network in any_network(),
             credential in any::<[u8; 28]>(),
             is_script in any::<bool>(),
@@ -459,7 +450,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_proposal()(
+        pub fn any_proposal()(
             deposit in any::<Lovelace>(),
             reward_account in any_reward_account(),
             gov_action in any_gov_action(),
@@ -475,7 +466,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_proposal_pointer()(
+        pub fn any_proposal_pointer()(
             transaction in any_transaction_pointer(),
             proposal_index in any::<usize>(),
         ) -> ProposalPointer {
@@ -487,7 +478,7 @@ pub(crate) mod tests {
     }
 
     prop_compose! {
-        pub(crate) fn any_row()(
+        pub fn any_row()(
             proposed_in in any_proposal_pointer(),
             valid_until in any::<Epoch>(),
             proposal in any_proposal(),
@@ -498,6 +489,10 @@ pub(crate) mod tests {
                 proposal,
             }
         }
-
     }
+
+    #[cfg(not(target_os = "windows"))]
+    prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row());
+
+    prop_cbor_roundtrip!(prop_cbor_roundtrip_key, Key, any_proposal_id());
 }

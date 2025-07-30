@@ -7,8 +7,8 @@ use amaru_ledger::{
     context,
     rules::{self, block::BlockValidation},
     state::{State, VolatileState},
-    store::in_memory::MemoryStore,
 };
+use amaru_stores::in_memory::MemoryStore;
 use std::collections::BTreeMap;
 
 type BlockWrapper<'b> = (u16, MintedBlock<'b>);
@@ -24,10 +24,11 @@ pub fn forward_ledger(raw_block: &str) {
     let era_history: &EraHistory = network.into();
 
     let global_parameters: &GlobalParameters = network.into();
-    let store = MemoryStore {};
+    let store = MemoryStore::new(era_history.clone());
+    let historical_store = store.clone();
     let mut state = State::new(
         store,
-        MemoryStore {},
+        historical_store,
         era_history.clone(),
         global_parameters.clone(),
     )

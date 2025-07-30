@@ -23,7 +23,7 @@ cargo build --release
 on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network.
 >
 > To run a local peer, refer to [Cardano's developers portal](https://developers.cardano.org/docs/get-started/cardano-node/running-cardano).
-> Make sure your peer listens to port `3001` or adapt the `AMARU_PEER_ADDRESS` environment variable (e.g. `export AMARU_PEER_ADDRESS=127.0.0.1:3002`)
+> Make sure your peer listens to port `3001` or adapt the `PEER_ADDRESS` environment variable (e.g. `export PEER_ADDRESS=127.0.0.1:3002`)
 
 1. Bootstrap the node:
 
