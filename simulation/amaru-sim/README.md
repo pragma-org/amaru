@@ -32,10 +32,11 @@ The main components of the simulator are:
 
 ## Usage
 
-The `simulator` test uses is a pared-down version of Amaru where network
+The `simulator` test is a pared-down version of Amaru where network
 communications are abstracted away.
 
-The test can be run as with default options follows:
+The test can be run as follows (environment variables can be used to override
+options, we show the default values here):
 
 ```
 AMARU_NUMBER_OF_TESTS=50             # Set the number of test cases to generate. \
