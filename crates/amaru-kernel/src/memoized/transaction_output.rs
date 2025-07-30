@@ -20,6 +20,7 @@ use crate::{
     PseudoScript, ScriptHash, Value,
 };
 
+use pallas_codec::minicbor::data::IanaTag;
 use pallas_primitives::{conway::NativeScript, KeepRaw, PlutusData};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
@@ -86,43 +87,53 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                                 datum = MemoizedDatum::Inline(memoized_data);
                             }
                             _ => {
-                                d.skip()?;
+                                return Err(cbor::decode::Error::message(format!(
+                                    "unknown datum option: {}",
+                                    datum_option
+                                )));
                             }
                         }
                     }
                     3 => {
-                        d.tag()?;
-                        let mut script_decoder = cbor::Decoder::new(d.bytes()?);
-                        let pseudo_script: Result<PseudoScript<KeepRaw<'_, NativeScript>>, _> =
-                            script_decoder.decode_with(ctx);
+                        let tag = d.tag()?;
+                        if tag == IanaTag::Cbor.tag() {
+                            let mut script_decoder: cbor::Decoder<'_> =
+                                cbor::Decoder::new(d.bytes()?);
+                            let pseudo_script: Result<PseudoScript<KeepRaw<'_, NativeScript>>, _> =
+                                script_decoder.decode_with(ctx);
 
-                        script = match pseudo_script {
-                            Ok(pseudo_script_type) => match pseudo_script_type {
-                                PseudoScript::NativeScript(script_bytes) => {
-                                    Some(PseudoScript::NativeScript(MemoizedNativeScript::from(
-                                        script_bytes,
-                                    )))
+                            script = match pseudo_script {
+                                Ok(pseudo_script_type) => match pseudo_script_type {
+                                    PseudoScript::NativeScript(script_bytes) => {
+                                        Some(PseudoScript::NativeScript(
+                                            MemoizedNativeScript::from(script_bytes),
+                                        ))
+                                    }
+                                    PseudoScript::PlutusV1Script(script_bytes) => {
+                                        Some(PseudoScript::PlutusV1Script(script_bytes))
+                                    }
+                                    PseudoScript::PlutusV2Script(script_bytes) => {
+                                        Some(PseudoScript::PlutusV2Script(script_bytes))
+                                    }
+                                    PseudoScript::PlutusV3Script(script_byte) => {
+                                        Some(PseudoScript::PlutusV3Script(script_byte))
+                                    }
+                                },
+                                Err(e) => {
+                                    return Err(cbor::decode::Error::message(format!(
+                                        "failed to decode script: {:?}",
+                                        e
+                                    )));
                                 }
-                                PseudoScript::PlutusV1Script(script_bytes) => {
-                                    Some(PseudoScript::PlutusV1Script(script_bytes))
-                                }
-                                PseudoScript::PlutusV2Script(script_bytes) => {
-                                    Some(PseudoScript::PlutusV2Script(script_bytes))
-                                }
-                                PseudoScript::PlutusV3Script(script_byte) => {
-                                    Some(PseudoScript::PlutusV3Script(script_byte))
-                                }
-                            },
-                            Err(e) => {
-                                return Err(cbor::decode::Error::message(format!(
-                                    "failed to decode script: {:?}",
-                                    e
-                                )));
-                            }
-                        };
+                            };
+                        } else {
+                            return Err(cbor::decode::Error::message(format!(
+                                "expected script tag, found: {tag:?}"
+                            )));
+                        }
                     }
                     _ => {
-                        d.skip()?;
+                        return Err(cbor::decode::Error::message(format!("unknown key option")));
                     }
                 }
             }
