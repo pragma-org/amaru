@@ -20,7 +20,6 @@ use crate::{
     PseudoScript, ScriptHash, Value,
 };
 
-use pallas_codec::minicbor::data::IanaTag;
 use pallas_primitives::{conway::NativeScript, KeepRaw, PlutusData};
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
@@ -90,9 +89,9 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                                         datum = MemoizedDatum::Inline(memoized_data);
                                     }
                                     _ => {
-                                        return Err(cbor::decode::Error::message(format!(
-                                            "unknown tag for datum tag"
-                                        )));
+                                        return Err(cbor::decode::Error::message(
+                                            "unknown tag for datum tag",
+                                        ));
                                     }
                                 };
                             }
@@ -142,14 +141,14 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
                                 };
                             }
                             _ => {
-                                return Err(cbor::decode::Error::message(format!(
-                                    "unknown tag for script tag"
-                                )));
+                                return Err(cbor::decode::Error::message(
+                                    "unknown tag for script tag",
+                                ));
                             }
                         }
                     }
                     _ => {
-                        return Err(cbor::decode::Error::message(format!("unknown key option")));
+                        return Err(cbor::decode::Error::message("unknown key option"));
                     }
                 }
             }
