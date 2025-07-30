@@ -42,6 +42,7 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 progress-bar = { workspace = true, features = ["terminal"] }
+tracy-client = { workspace = true, optional = true }
 
 amaru-consensus.workspace = true
 amaru-kernel.workspace = true
@@ -61,3 +62,7 @@ once_cell.workspace = true
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
 amaru-kernel.workspace = true
+
+[features]
+default = []
+tracy = ["tracy-client"]

@@ -67,6 +67,7 @@ tracing-subscriber = { version = "0.3.18", features = [
     "std",
     "json",
 ] }
+tracy-client = "=0.18.0" # Works with tracy 0.11.1, latest published on brew
 typetag = "0.2.20"
 
 amaru-consensus = { path = "crates/amaru-consensus" }
