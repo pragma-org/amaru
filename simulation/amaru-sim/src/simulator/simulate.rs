@@ -254,7 +254,7 @@ impl<Msg> Drop for World<Msg> {
 fn run_test<Msg: Debug + PartialEq + Clone, F: Fn() -> NodeHandle<Msg>>(
     number_of_nodes: u8,
     spawn: F,
-    property: impl Fn(History<Msg>) -> Result<(), String>,
+    property: impl Fn(&History<Msg>) -> Result<(), String>,
 ) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>) {
     move |entries| {
         let node_handles: Vec<_> = (1..=number_of_nodes)
@@ -266,7 +266,7 @@ fn run_test<Msg: Debug + PartialEq + Clone, F: Fn() -> NodeHandle<Msg>>(
         match world.run_world() {
             Ok(history) => {
                 let history = History(history.to_vec());
-                let result = property(history.clone());
+                let result = property(&history);
                 (history, result)
             }
             Err((reason, history)) => (History(history.to_vec()), Err(reason)),
@@ -278,7 +278,7 @@ pub fn simulate<Msg, F>(
     config: SimulateConfig,
     spawn: F,
     generator: impl Fn(&mut StdRng) -> Vec<Reverse<Entry<Msg>>>,
-    property: impl Fn(History<Msg>) -> Result<(), String>,
+    property: impl Fn(&History<Msg>) -> Result<(), String>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) where
@@ -525,7 +525,7 @@ mod tests {
     };
 
     // TODO: Take response time into account.
-    const ECHO_PROPERTY: fn(History<EchoMessage>) -> Result<(), String> = |history: History<
+    const ECHO_PROPERTY: fn(&History<EchoMessage>) -> Result<(), String> = |history: &History<
         EchoMessage,
     >| {
         for (index, msg) in history
