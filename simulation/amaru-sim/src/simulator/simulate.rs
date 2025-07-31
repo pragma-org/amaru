@@ -421,7 +421,7 @@ mod tests {
     use std::fs;
 
     use crate::simulator::generate::{
-        generate_arrival_times, generate_u8, generate_u8_then, generate_vec, generate_zip_with,
+        generate_arrival_times, generate_u8, generate_vec, generate_zip_with,
     };
 
     use super::*;
@@ -483,26 +483,6 @@ mod tests {
 
             pure_stage_node_handle(rx, stage.without_state(), running).unwrap()
         };
-        let now = Instant::at_offset(Duration::from_secs(0));
-        let size = 20;
-        let generator = generate_zip_with(
-            generate_vec(size, generate_u8(0, 128)),
-            |rng| generate_arrival_times(rng, now, 200.0, size),
-            |msg, arrival_time| {
-                Reverse(Entry {
-                    arrival_time,
-                    envelope: Envelope {
-                        src: "c1".to_string(),
-                        dest: "n1".to_string(),
-                        body: EchoMessage::Echo {
-                            msg_id: 0,
-                            echo: format!("Please echo {}", msg),
-                        },
-                    },
-                })
-            },
-        );
-
         simulate(
             SimulateConfig {
                 number_of_tests,
@@ -511,12 +491,38 @@ mod tests {
                 disable_shrinking: false,
             },
             spawn,
-            generator,
+            ECHO_GENERATOR,
             ECHO_PROPERTY,
             TraceBuffer::new_shared(0, 0),
             false,
         )
     }
+
+    const ECHO_GENERATOR: fn(&mut StdRng) -> Vec<Reverse<Entry<EchoMessage>>> = {
+        |rng| {
+            let now = Instant::at_offset(Duration::from_secs(0));
+            let size = 20;
+            let messages = generate_zip_with(
+                size,
+                generate_vec(generate_u8(0, 128)),
+                generate_arrival_times(now, 200.0),
+                |msg, arrival_time| {
+                    Reverse(Entry {
+                        arrival_time,
+                        envelope: Envelope {
+                            src: "c1".to_string(),
+                            dest: "n1".to_string(),
+                            body: EchoMessage::Echo {
+                                msg_id: 0,
+                                echo: format!("Please echo {}", msg),
+                            },
+                        },
+                    })
+                },
+            )(rng);
+            messages
+        }
+    };
 
     // TODO: Take response time into account.
     const ECHO_PROPERTY: fn(History<EchoMessage>) -> Result<(), String> = |history: History<
@@ -557,23 +563,6 @@ mod tests {
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
-        let now = Instant::at_offset(Duration::from_secs(0));
-        let generate_messages = generate_vec(
-            10,
-            generate_u8_then(0, 128, |i| {
-                Reverse(Entry {
-                    arrival_time: now,
-                    envelope: Envelope {
-                        src: "c1".to_string(),
-                        dest: "n1".to_string(),
-                        body: EchoMessage::Echo {
-                            msg_id: 0,
-                            echo: format!("Please echo {}", i),
-                        },
-                    },
-                })
-            }),
-        );
         simulate(
             SimulateConfig {
                 number_of_tests,
@@ -582,7 +571,7 @@ mod tests {
                 disable_shrinking: false,
             },
             spawn,
-            generate_messages,
+            ECHO_GENERATOR,
             ECHO_PROPERTY,
             TraceBuffer::new_shared(0, 0),
             false,
