@@ -114,19 +114,21 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         era_history: EraHistory,
         global_parameters: GlobalParameters,
     ) -> Result<Self, StoreError> {
-        let stake_distributions =
-            initial_stake_distributions(&stable, &snapshots, &era_history, PROTOCOL_VERSION_9)?; // FIXME ProtocolVersion should be retrieved from the store
+        // TODO should consider for Epoch 0 and 1. For those 2 Epochs there is no staking rewards not distribution
+        //let stake_distributions =
+        //    initial_stake_distributions(&stable, &snapshots, &era_history, PROTOCOL_VERSION_9)?; // FIXME ProtocolVersion should be retrieved from the store
 
-        let protocol_parameters =
-            stable.get_protocol_parameters_for(&snapshots.most_recent_snapshot())?;
+        // TODO Should be retrieved from live DB
+        //let protocol_parameters =
+        //    stable.get_protocol_parameters_for(&snapshots.most_recent_snapshot())?;
 
         Ok(Self::new_with(
             stable,
             snapshots,
             era_history,
             global_parameters,
-            protocol_parameters,
-            stake_distributions,
+            ProtocolParameters::default(),
+            VecDeque::new(),
         ))
     }
 

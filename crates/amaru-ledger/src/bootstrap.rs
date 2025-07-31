@@ -193,6 +193,7 @@ pub fn import_initial_snapshot(
     // Previous Protocol Params
     d.skip()?;
     // Future Protocol Params
+    // TODO if last snapshot, should be stored in live DB
     d.skip()?;
     // DRep Pulsing State
     d.skip()?;
