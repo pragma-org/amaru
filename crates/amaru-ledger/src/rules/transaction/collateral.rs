@@ -17,14 +17,16 @@ impl From<&Value> for CollateralBalance {
     fn from(value: &Value) -> Self {
         match value {
             Value::Multiasset(coin, multiasset) => {
-                let mut map = BTreeMap::new();
-                multiasset.iter().for_each(|(policy, assets)| {
-                    assets.iter().for_each(|(asset_name, quantity)| {
-                        let key = [policy.as_ref(), asset_name.as_ref()].concat();
+                let map = multiasset
+                    .iter()
+                    .flat_map(|(policy, assets)| {
+                        assets.iter().map(|(asset_name, quantity)| {
+                            let key = [policy.as_ref(), asset_name.as_ref()].concat();
 
-                        map.insert(key, u64::from(quantity));
+                            (key, u64::from(quantity))
+                        })
                     })
-                });
+                    .collect::<BTreeMap<_, _>>();
 
                 Self {
                     coin: *coin,
@@ -43,14 +45,16 @@ impl From<&AlonzoValue> for CollateralBalance {
     fn from(value: &AlonzoValue) -> Self {
         match value {
             AlonzoValue::Multiasset(coin, multiasset) => {
-                let mut map = BTreeMap::new();
-                multiasset.iter().for_each(|(policy, assets)| {
-                    assets.iter().for_each(|(asset_name, quantity)| {
-                        let key = [policy.as_ref(), asset_name.as_ref()].concat();
+                let map = multiasset
+                    .iter()
+                    .flat_map(|(policy, assets)| {
+                        assets.iter().map(|(asset_name, quantity)| {
+                            let key = [policy.as_ref(), asset_name.as_ref()].concat();
 
-                        map.insert(key, *quantity);
+                            (key, *quantity)
+                        })
                     })
-                });
+                    .collect::<BTreeMap<_, _>>();
 
                 Self {
                     coin: *coin,
@@ -145,11 +149,16 @@ where
         },
     };
 
-    balance.coin -= collateral_return_balance.coin;
+    balance.coin = balance
+        .coin
+        .checked_sub(collateral_return_balance.coin)
+        .ok_or(InvalidCollateral::ValueNotConserved)?;
     for (key, value) in collateral_return_balance.multiasset {
         match balance.multiasset.get_mut(&key) {
             Some(v) => {
-                *v -= value;
+                *v = v
+                    .checked_sub(value)
+                    .ok_or(InvalidCollateral::ValueNotConserved)?;
                 if *v == 0 {
                     balance.multiasset.remove(&key);
                 }
