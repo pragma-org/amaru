@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 //! This module contains the [`TraceBuffer`] type, which is used to record the trace of a simulation.
 
 use crate::{effect::StageResponse, serde::to_cbor, Effect, Instant, Name, SendData};

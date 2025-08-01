@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 use super::{ForwardChainStage, ForwardEvent, PrettyPoint};
 use crate::stages::PallasPoint;
 use acto::{AcTokio, AcTokioRuntime, ActoCell, ActoInput, ActoRuntime};

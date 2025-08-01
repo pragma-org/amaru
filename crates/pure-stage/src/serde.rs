@@ -13,7 +13,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-
 //! This module contains some serialization and deserialization code for the Pure Stage library.
 
 use cbor4ii::serde::to_writer;
