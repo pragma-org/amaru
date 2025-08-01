@@ -274,50 +274,6 @@ impl<'a> TryFrom<MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
     }
 }
 
-// TODO: avoid clones (just getting the rebase to continue, will fix after rebase)
-impl<'a> TryFrom<&MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
-    type Error = String;
-
-    fn try_from(
-        output: &MintedTransactionOutput<'a>,
-    ) -> Result<MemoizedTransactionOutput, Self::Error> {
-        match output {
-            MintedTransactionOutput::Legacy(output) => Ok(MemoizedTransactionOutput {
-                is_legacy: true,
-                address: Address::from_bytes(&output.address)
-                    .map_err(|e| format!("invalid address: {e:?}"))?,
-                value: from_legacy_value(output.amount.clone())?,
-                datum: MemoizedDatum::from(output.datum_hash),
-                script: None,
-            }),
-            MintedTransactionOutput::PostAlonzo(output) => Ok(MemoizedTransactionOutput {
-                is_legacy: false,
-                address: Address::from_bytes(&output.address)
-                    .map_err(|e| format!("invalid address: {e:?}"))?,
-                value: output.value.clone(),
-                datum: MemoizedDatum::from(output.datum_option.clone()),
-                script: output
-                    .script_ref
-                    .clone()
-                    .map(|script| match script.unwrap() {
-                        PseudoScript::NativeScript(native_script) => {
-                            PseudoScript::NativeScript(MemoizedNativeScript::from(native_script))
-                        }
-                        PseudoScript::PlutusV1Script(plutus_script) => {
-                            PseudoScript::PlutusV1Script(plutus_script)
-                        }
-                        PseudoScript::PlutusV2Script(plutus_script) => {
-                            PseudoScript::PlutusV2Script(plutus_script)
-                        }
-                        PseudoScript::PlutusV3Script(plutus_script) => {
-                            PseudoScript::PlutusV3Script(plutus_script)
-                        }
-                    }),
-            }),
-        }
-    }
-}
-
 // --------------------------------------------------------------------- Helpers
 
 fn from_legacy_value(value: AlonzoValue) -> Result<Value, String> {

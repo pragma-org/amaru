@@ -163,15 +163,15 @@ where
     }
 
     let collateral_return_balance = match collateral_return {
-        Some(output) => match MemoizedTransactionOutput::try_from(output) {
-            Ok(output) => (&output.value).into(),
-            Err(err) => {
-                return Err(InvalidCollateral::UncategorizedError(format!(
-                    "failed to convert output: {err}"
-                )));
+        Some(output) => match output {
+            amaru_kernel::PseudoTransactionOutput::Legacy(output) => {
+                CollateralBalance::from(&output.amount)
+            }
+
+            amaru_kernel::PseudoTransactionOutput::PostAlonzo(output) => {
+                CollateralBalance::from(&output.value)
             }
         },
-
         None => CollateralBalance {
             coin: 0,
             multiasset: BTreeMap::new(),
