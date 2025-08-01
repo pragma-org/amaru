@@ -142,6 +142,12 @@ impl TracingSubscriber<Registry> {
 // JSON TRACES
 // -----------------------------------------------------------------------------
 
+// Note: Using EscapedJsonFields instead of JsonFields to fix JSON escaping issues
+// with Debug formatting (?field). This is a drop-in replacement that properly escapes
+// special JSON characters in Debug output, preventing invalid JSON generation.
+//
+// See issue #161 for details on the JSON escaping problem.
+
 pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {
     let format = || tracing_subscriber::fmt::format().json();
     let events = || FmtSpan::ENTER | FmtSpan::EXIT;
@@ -151,14 +157,14 @@ pub fn setup_json_traces(subscriber: &mut TracingSubscriber<Registry>) {
         || {
             tracing_subscriber::fmt::layer()
                 .event_format(format())
-                .fmt_fields(JsonFields::new())
+                .fmt_fields(tracing_json::EscapedJsonFields::new())
                 .with_span_events(events())
                 .with_filter(filter())
         },
         || {
             tracing_subscriber::fmt::layer()
                 .event_format(format())
-                .fmt_fields(JsonFields::new())
+                .fmt_fields(tracing_json::EscapedJsonFields::new())
                 .with_span_events(events())
                 .with_filter(filter())
         },
