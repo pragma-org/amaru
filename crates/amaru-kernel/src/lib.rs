@@ -29,10 +29,7 @@ use pallas_addresses::{
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::{
     alonzo::Value as AlonzoValue,
-    conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
-        RedeemersValue,
-    },
+    conway::{MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption},
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
@@ -41,7 +38,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
-    fmt::{self, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     ops::Deref,
 };
 
@@ -68,10 +65,10 @@ pub use pallas_primitives::{
         MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
         PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
         ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
-        ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        RationalNumber, Redeemer, RedeemerTag, Redeemers, RedeemersKey as RedeemerKey,
+        RedeemersValue, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
     PlutusScript, PolicyId, Port, PositiveCoin,
@@ -862,20 +859,6 @@ pub fn reward_account_to_stake_credential(account: &RewardAccount) -> Option<Sta
 pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
-}
-
-pub trait HasExUnits {
-    fn ex_units(&self) -> Vec<ExUnits>;
-}
-
-impl HasExUnits for MintedBlock<'_> {
-    fn ex_units(&self) -> Vec<ExUnits> {
-        self.transaction_witness_sets
-            .iter()
-            .flat_map(|witness_set| &witness_set.redeemer)
-            .flat_map(|redeemers| redeemers.ex_units_iter())
-            .collect()
-    }
 }
 
 /// Collect provided scripts and compute each ScriptHash in a witness set

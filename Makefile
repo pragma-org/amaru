@@ -89,13 +89,20 @@ bootstrap: clear-dbs ## Bootstrap the node from scratch
 		--chain-dir $(CHAIN_DIR) \
 		--network $(NETWORK)
 
-dev: ## Compile and run for development with default options
+run-node: ## Compile and run for development with default options
 	cargo run --profile $(BUILD_PROFILE) -- daemon \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
 		--peer-address $(PEER_ADDRESS) \
 		--network=$(NETWORK) \
 		--listen-address $(LISTEN_ADDRESS)
+
+fetch-data: ## Fetch data from the node
+	@cd data; npm run fetch
+
+generate-test-snapshots: ## Generate test snapshots for test-e2e
+	@cd conformance-tests; npm run generate-all ${NETWORK}
+	@./scripts/generate-snapshot-test-cases
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
 	NETWORK=$(NETWORK) cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored

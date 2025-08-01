@@ -1,5 +1,5 @@
 ---
-source: crates/amaru/tests/summary.rs
+source: crates/amaru-ledger/src/summary/rewards.rs
 expression: rewards_summary
 ---
 {

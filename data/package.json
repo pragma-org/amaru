@@ -12,6 +12,7 @@
   "dependencies": {
     "@cardano-ogmios/mdk": "^1.0.0",
     "@cardanosolutions/json-bigint": "^1.0.1",
-    "bech32": "^2.0.0"
+    "bech32": "^2.0.0",
+    "ws": "^8.18.2"
   }
 }

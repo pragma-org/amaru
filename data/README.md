@@ -56,6 +56,7 @@ Data will be fetched for each point listed network's configurations `points` fie
 
 - [`preview/config.json`](./preview/config.json)
 - [`preprod/config.json`](./preprod/config.json)
+- [`mainnet/config.json`](./mainnet/config.json)
 
 > [!IMPORTANT]
 > Those points needs to be the _last point_ of target epochs.
