@@ -73,8 +73,8 @@ pub use pallas_primitives::{
         TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
         VotingProcedures, VrfKeyhash, WitnessSet,
     },
-    AssetName, BigInt, Constr, DatumHash, MaybeIndefArray, PlutusData, PlutusScript, PolicyId,
-    PositiveCoin,
+    AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
+    PlutusScript, PolicyId, Port, PositiveCoin,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
