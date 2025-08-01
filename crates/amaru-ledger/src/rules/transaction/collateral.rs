@@ -8,9 +8,38 @@ use thiserror::Error;
 
 use crate::context::UtxoSlice;
 
-struct CollateralBalance {
-    pub coin: u64,
-    pub multiasset: BTreeMap<Vec<u8>, u64>,
+/*
+ * CollateralBalance is used to track difference in collateral input vlaue and collateral return value.
+ * The value of everything should be zero in this struct, otherwise value is not conserved.
+ * We allow negative values here so that we are able to display them in an error message
+ *
+ * i64 has a lower maximum than u64 due to the data structure, but the value for coins must always be in the range:
+ *  [-9223372036854775808, 18446744073709551615]
+ * Which is within the bounds of an i64, so conversions are safe i64<->u64
+ */
+#[derive(Debug)]
+pub struct CollateralBalance {
+    pub coin: i64,
+    pub multiasset: BTreeMap<Vec<u8>, i64>,
+}
+
+impl CollateralBalance {
+    fn sub(&mut self, other: Self) {
+        self.coin -= other.coin;
+        for (key, value) in other.multiasset {
+            match self.multiasset.get_mut(&key) {
+                Some(v) => {
+                    *v -= value;
+                    if *v == 0 {
+                        self.multiasset.remove(&key);
+                    }
+                }
+                None => {
+                    self.multiasset.insert(key, -value);
+                }
+            };
+        }
+    }
 }
 
 impl From<&Value> for CollateralBalance {
@@ -23,18 +52,18 @@ impl From<&Value> for CollateralBalance {
                         assets.iter().map(|(asset_name, quantity)| {
                             let key = [policy.as_ref(), asset_name.as_ref()].concat();
 
-                            (key, u64::from(quantity))
+                            (key, u64::from(quantity) as i64)
                         })
                     })
                     .collect::<BTreeMap<_, _>>();
 
                 Self {
-                    coin: *coin,
+                    coin: *coin as i64,
                     multiasset: map,
                 }
             }
             Value::Coin(coin) => Self {
-                coin: *coin,
+                coin: *coin as i64,
                 multiasset: BTreeMap::new(),
             },
         }
@@ -51,18 +80,18 @@ impl From<&AlonzoValue> for CollateralBalance {
                         assets.iter().map(|(asset_name, quantity)| {
                             let key = [policy.as_ref(), asset_name.as_ref()].concat();
 
-                            (key, *quantity)
+                            (key, *quantity as i64)
                         })
                     })
                     .collect::<BTreeMap<_, _>>();
 
                 Self {
-                    coin: *coin,
+                    coin: *coin as i64,
                     multiasset: map,
                 }
             }
             AlonzoValue::Coin(coin) => Self {
-                coin: *coin,
+                coin: *coin as i64,
                 multiasset: BTreeMap::new(),
             },
         }
@@ -85,14 +114,14 @@ pub enum InvalidCollateral {
     NoCollateral,
     // TODO: can we provide more context, such as the difference in values?
     #[error("Collateral input value not conserved")]
-    ValueNotConserved,
+    ValueNotConserved(CollateralBalance),
     // TODO: This error shouldn't exist, it's a placeholder for better error handling in less straight forward cases
     #[error("uncategorized error: {0}")]
     UncategorizedError(String),
 }
 
 /*
- Collateral validation occurs during fee validation in the Haskell node. See the comments below for ntoes on collateral validation:
+ Collateral validation occurs during fee validation in the Haskell node. See the comments below for notes on collateral validation:
  https://github.com/IntersectMBO/cardano-ledger/blob/master/eras/babbage/impl/src/Cardano/Ledger/Babbage/Rules/Utxo.hs#L180-L195
 */
 pub fn execute<C>(
@@ -149,26 +178,10 @@ where
         },
     };
 
-    balance.coin = balance
-        .coin
-        .checked_sub(collateral_return_balance.coin)
-        .ok_or(InvalidCollateral::ValueNotConserved)?;
-    for (key, value) in collateral_return_balance.multiasset {
-        match balance.multiasset.get_mut(&key) {
-            Some(v) => {
-                *v = v
-                    .checked_sub(value)
-                    .ok_or(InvalidCollateral::ValueNotConserved)?;
-                if *v == 0 {
-                    balance.multiasset.remove(&key);
-                }
-            }
-            None => return Err(InvalidCollateral::ValueNotConserved),
-        };
-    }
+    balance.sub(collateral_return_balance);
 
-    if !balance.multiasset.is_empty() {
-        return Err(InvalidCollateral::ValueNotConserved);
+    if !balance.multiasset.is_empty() || balance.coin < 0 {
+        return Err(InvalidCollateral::ValueNotConserved(balance));
     }
 
     // We're avoiding floating points and truncating values (exactly what the Haskell node does)
@@ -176,17 +189,17 @@ where
     // When we display to the user, we want to display minimum_collateral in lovelace, not in 100ths of a lovelace,
     // so we divide by 100 and round up
     let minimum_collateral = fee * protocol_parameters.collateral_percentage as u64;
-    if balance.coin * 100 < minimum_collateral {
+    if balance.coin * 100 < minimum_collateral as i64 {
         return Err(InvalidCollateral::InsufficientBalance {
-            provided: balance.coin,
+            provided: balance.coin as u64,
             required: minimum_collateral.div_ceil(100),
         });
     }
 
     if let Some(expected_balance) = tx_collateral {
-        if expected_balance != balance.coin {
+        if expected_balance != balance.coin as u64 {
             return Err(InvalidCollateral::IncorrectTotalCollateral {
-                provided: balance.coin,
+                provided: balance.coin as u64,
                 expected: expected_balance,
             });
         }
@@ -289,17 +302,17 @@ mod tests {
     )]
     #[test_case(
         fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9", "no-collateral-return") =>
-        matches Err(InvalidCollateral::ValueNotConserved);
+        matches Err(InvalidCollateral::ValueNotConserved(..));
         "value not conserved - no collateral return"
     )]
     #[test_case(
         fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9", "value-not-conserved-inputs") =>
-        matches Err(InvalidCollateral::ValueNotConserved);
+        matches Err(InvalidCollateral::ValueNotConserved(..));
         "value not conserved - inputs > outputs"
     )]
     #[test_case(
         fixture!("fe78fd37a5c864cde5416461195b288ab18721f6e64be4ee93eaef0979b928f9", "value-not-conserved-outputs") =>
-        matches Err(InvalidCollateral::ValueNotConserved);
+        matches Err(InvalidCollateral::ValueNotConserved(..));
         "value not conserved - outputs > inputs"
     )]
     fn collateral(
