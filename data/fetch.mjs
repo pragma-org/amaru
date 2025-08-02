@@ -86,9 +86,9 @@ process.stderr.clearScreenDown();
 let frame = 0;
 const spinner = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
 const spinnerId = setInterval(() => {
-  process.stderr.cursorTo(0, points.length);
+  process.stderr.cursorTo(0, Math.min(10, points.length));
   process.stderr.clearLine(0);
-  process.stderr.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)": ""}`);
+  process.stderr.write(`${spinner[frame]} fetching data${includeSnapshots ? " (incl. snapshots)" : ""}`);
   frame = (frame + 1) % spinner.length;
 }, 100);
 
@@ -96,13 +96,13 @@ const spinnerId = setInterval(() => {
 // synchronizing. If a given point isn't available _yet_, pause and
 // retry until available.
 const tasks = [];
-for (let i = 0; i < points.length; i += 1) {
+for (let i = 0; i < Math.min(10, points.length); i += 1) {
   const tryConnect = async (retry) => {
     const exit = await ogmios((ws, done) => {
       process.stderr.cursorTo(0, i);
       process.stderr.clearLine(0);
       process.stderr.write(`${points[i].slot} => scheduling...`);
-      step(ws, i, points[i], done);
+      step(ws, i, points[i], andThen(ws, done))
     });
 
     if (exit === undefined) {
@@ -122,7 +122,7 @@ for (let i = 0; i < points.length; i += 1) {
 
 const results = await Promise.all(tasks);
 clearInterval(spinnerId);
-process.stderr.cursorTo(0, points.length);
+process.stderr.cursorTo(0, Math.min(10, points.length));
 process.stderr.clearLine(0);
 
 if (!results.every(exit => exit)) {
@@ -135,9 +135,20 @@ async function sleep(ms) {
   await new Promise(resolve => setTimeout(resolve, ms));
 }
 
+
+function andThen(ws, done) {
+  return (ok, i) => {
+    if (ok && points[i + 10] !== undefined) {
+      return step(ws, i + 10, points[i + 10], andThen(ws, done))
+    }
+
+    return done(ok);
+  };
+}
+
 function step(ws, i, point, done) {
   ws.once("message", async (data) => {
-    process.stderr.cursorTo(0, i);
+    process.stderr.cursorTo(0, i % 10);
 
     const { error } = Json.parse(data);
 
@@ -145,11 +156,11 @@ function step(ws, i, point, done) {
       if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
     	process.stderr.clearLine(0);
         process.stderr.write(`${point.slot} => [error ${error.code}] ${error.message} (${error.data})`);
-	return done(false);
+	return done(false, i);
       }
 
       process.stderr.write(`${point.slot} => not available yet...`);
-      process.stderr.cursorTo(0, i);
+      process.stderr.cursorTo(0, i % 10);
       return setTimeout(() => step(ws, i, point, done), 500);
     }
 
@@ -170,11 +181,11 @@ function step(ws, i, point, done) {
       fs.writeFileSync(filename, Json.stringify(result, null, 2));
     }
 
-    process.stderr.cursorTo(0, i);
+    process.stderr.cursorTo(0, i % 10);
     process.stderr.clearLine(0);
     process.stderr.write(`${point.slot} => ✓`);
 
-    done(true);
+    done(true, i);
   });
 
   ws.rpc("acquireLedgerState", { point });
@@ -237,7 +248,7 @@ async function fetchDReps(ws, { stakePools }) {
   // protocol at the node's level -- or, by resorting to using a debug
   // new epoch state snapshot.
   let { verificationKey: keys, script: scripts } = Object.keys(stakePools).reduce((accum, pool) => {
-    stakePools[pool].delegators.forEach((delegator) => {
+    (stakePools[pool].delegators ?? []).forEach((delegator) => {
        accum[delegator.from].add(delegator.credential);
     });
 
@@ -245,7 +256,7 @@ async function fetchDReps(ws, { stakePools }) {
   }, { verificationKey: new Set(), script: new Set() });
 
   const drepsMap = dreps.reduce((accum, drep) => {
-    drep.delegators.forEach((delegator) => {
+    (drep.delegators ?? []).forEach((delegator) => {
       if (delegator.from === "verificationKey") {
 	keys.add(delegator.credential);
       } else {
