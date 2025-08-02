@@ -180,7 +180,10 @@ where
         mem::take(&mut transaction_body.proposal_procedures).map(|xs| xs.to_vec()),
     );
 
-    voting_procedures::execute(context, transaction_body.voting_procedures.as_deref());
+    voting_procedures::execute(
+        context,
+        mem::take(&mut transaction_body.voting_procedures).map(|xs| xs.to_vec()),
+    );
 
     vkey_witness::execute(
         context,

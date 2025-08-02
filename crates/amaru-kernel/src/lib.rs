@@ -1128,6 +1128,24 @@ impl HasNetwork for ByronAddress {
         Network::Mainnet
     }
 }
+
+pub trait HasStakeCredential {
+    fn stake_credential(&self) -> StakeCredential;
+}
+
+impl HasStakeCredential for Voter {
+    fn stake_credential(&self) -> StakeCredential {
+        match self {
+            Self::ConstitutionalCommitteeKey(hash)
+            | Self::StakePoolKey(hash)
+            | Self::DRepKey(hash) => StakeCredential::AddrKeyhash(*hash),
+            Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => {
+                StakeCredential::ScriptHash(*hash)
+            }
+        }
+    }
+}
+
 pub trait HasOwnership {
     /// Returns ownership credential of a given entity, if any.
     ///

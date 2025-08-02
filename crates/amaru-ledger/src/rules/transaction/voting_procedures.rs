@@ -14,33 +14,22 @@
 
 use crate::context::{ProposalsSlice, WitnessSlice};
 use amaru_kernel::{
-    MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript, ScriptPurpose,
-    StakeCredential, Voter, VotingProcedure,
+    HasStakeCredential, MemoizedDatum, NonEmptyKeyValuePairs, ProposalId, RequiredScript,
+    ScriptPurpose, StakeCredential, Voter, VotingProcedure,
 };
 
 pub(crate) fn execute<C>(
     context: &mut C,
-    voting_procedures: Option<&Vec<(Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>)>>,
+    voting_procedures: Option<Vec<(Voter, NonEmptyKeyValuePairs<ProposalId, VotingProcedure>)>>,
 ) where
     C: WitnessSlice + ProposalsSlice,
 {
     if let Some(voting_procedures) = voting_procedures {
         voting_procedures
-            .iter()
+            .into_iter()
             .enumerate()
             .for_each(|(index, (voter, votes))| {
-                // TODO: create an accessor on the credential for Voter, and move to amaru_kernel or pallas.
-                let credential = match voter {
-                    Voter::ConstitutionalCommitteeKey(hash)
-                    | Voter::StakePoolKey(hash)
-                    | Voter::DRepKey(hash) => StakeCredential::AddrKeyhash(*hash),
-
-                    Voter::ConstitutionalCommitteeScript(hash) | Voter::DRepScript(hash) => {
-                        StakeCredential::ScriptHash(*hash)
-                    }
-                };
-
-                match credential {
+                match voter.stake_credential() {
                     StakeCredential::ScriptHash(hash) => {
                         context.require_script_witness(RequiredScript {
                             hash,
@@ -52,15 +41,14 @@ pub(crate) fn execute<C>(
                     StakeCredential::AddrKeyhash(hash) => context.require_vkey_witness(hash),
                 }
 
-                // TODO: Avoid clones here.
-                votes.iter().for_each(|(proposal_id, ballot)| {
+                votes.into_iter().for_each(|(proposal_id, ballot)| {
                     context.vote(
-                        proposal_id.clone(),
+                        proposal_id,
                         voter.clone(),
-                        ballot.vote.clone(),
-                        Option::from(ballot.anchor.clone()),
+                        ballot.vote,
+                        Option::from(ballot.anchor),
                     );
-                });
+                })
             });
     }
 }
@@ -109,7 +97,10 @@ mod tests {
                     AssertValidationContext::from(AssertPreparationContext {
                         utxo: BTreeMap::new(),
                     });
-                super::execute(&mut validation_context, tx.voting_procedures.as_deref())
+                super::execute(
+                    &mut validation_context,
+                    tx.voting_procedures.as_deref().cloned(),
+                )
             },
             expected_traces,
         );
