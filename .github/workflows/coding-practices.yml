@@ -3,16 +3,30 @@ name: Coding Practices
 on:
   workflow_dispatch:
   push:
-    paths:
-      - 'Cargo.toml'
-      - 'Cargo.lock'
-      - "crates/**/Cargo.toml"
-      - "crates/**/Cargo.lock"
-      - "examples/**/Cargo.toml"
-      - "examples/**/Cargo.lock"
+    branches: ["main"]
+  pull_request:
+    types: [opened, synchronize, reopened, converted_to_draft, ready_for_review]
+    branches: ["*"]
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: dorny/paths-filter@v3
+        id: changes
+        with:
+          filters: |
+            dependencies:
+              - "Cargo.toml"
+              - "Cargo.lock"
+              - "crates/**/Cargo.toml"
+              - "crates/**/Cargo.lock"
+              - "examples/**/Cargo.toml"
+              - "examples/**/Cargo.lock"
+
   unused-dependencies:
+    needs: changes
+    if: ${{ steps.changes.outputs.dependencies == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -24,6 +38,8 @@ jobs:
       - run: cargo-machete
 
   licenses:
+    needs: changes
+    if: ${{ steps.changes.outputs.dependencies == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
