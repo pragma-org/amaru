@@ -20,6 +20,7 @@ use amaru_kernel::{
     AddrKeyhash, Anchor, CertificatePointer, DRep, DatumHash, Hash, Lovelace, MemoizedDatum,
     MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
     ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
+    Vote, Voter,
 };
 use slot_arithmetic::Epoch;
 use std::{
@@ -218,8 +219,6 @@ pub trait DRepsSlice {
     ) -> Result<(), UpdateError<StakeCredential>>;
 
     fn unregister(&mut self, drep: StakeCredential, refund: Lovelace, pointer: CertificatePointer);
-
-    fn vote(&mut self, drep: StakeCredential);
 }
 
 /// An interface to help constructing the concrete DRepsSlice ahead of time.
@@ -253,6 +252,8 @@ pub trait CommitteeSlice {
 
 pub trait ProposalsSlice {
     fn acknowledge(&mut self, id: ProposalId, pointer: ProposalPointer, proposal: Proposal);
+
+    fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>);
 }
 
 // Witnesses

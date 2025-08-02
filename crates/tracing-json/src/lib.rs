@@ -213,10 +213,18 @@ where
     let dispatch = Dispatch::new(subscriber);
     let _guard = tracing::dispatcher::set_default(&dispatch);
     let result = run();
-    assert_json_eq!(
-        json::Value::Array(collector.flush()),
-        json::Value::Array(expected)
+    let collected = collector.flush();
+    // NOTE: Print statement is only printed on test failures.
+    println!(
+        "collected traces:\n  - {}",
+        collected
+            .iter()
+            .map(serde_json::to_string)
+            .collect::<Result<Vec<_>, _>>()
+            .map(|vec| vec.join("\n  - "))
+            .unwrap_or_else(|e| format!("error: invalid JSON traces: {e}"))
     );
+    assert_json_eq!(json::Value::Array(collected), json::Value::Array(expected),);
     result
 }
 

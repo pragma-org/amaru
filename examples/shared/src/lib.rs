@@ -33,13 +33,15 @@ pub const RAW_BLOCK_CONWAY_3: &str = include_str!("../assets/conway3.block");
 pub fn forward_ledger(raw_block: &str) {
     let bytes = hex::decode(raw_block).unwrap();
 
-    let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
     let network = NetworkName::Preprod;
     let era_history: &EraHistory = network.into();
 
+    let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
+
     let global_parameters: &GlobalParameters = network.into();
     let store = MemoryStore::new(era_history.clone());
-    let historical_store = store.clone();
+    let historical_store = MemoryStore::new(era_history.clone());
+
     let mut state = State::new(
         store,
         historical_store,

@@ -44,18 +44,6 @@ pub struct Row {
     pub previous_deregistration: Option<CertificatePointer>,
 }
 
-impl Row {
-    #[allow(clippy::panic)]
-    pub fn unsafe_decode(bytes: Vec<u8>) -> Self {
-        cbor::decode(&bytes).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode account from CBOR ({}): {e:?}",
-                hex::encode(&bytes)
-            )
-        })
-    }
-}
-
 impl<C> cbor::encode::Encode<C> for Row {
     fn encode<W: cbor::encode::Write>(
         &self,
@@ -92,8 +80,8 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, Hash, Slot, TransactionPointer};
-    use proptest::{option, prelude::*, prop_compose, string};
+    use amaru_kernel::{prop_cbor_roundtrip, tests::any_anchor, Slot, TransactionPointer};
+    use proptest::{option, prelude::*, prop_compose};
 
     prop_compose! {
         pub fn any_transaction_pointer()(
@@ -115,23 +103,6 @@ pub mod tests {
             CertificatePointer {
                 transaction,
                 certificate_index,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_anchor()(
-            url in {
-                #[allow(clippy::unwrap_used)]
-                string::string_regex(
-                    r"(https:)?[a-zA-Z0-9]{2,}(\.[a-zA-Z0-9]{2,})(\.[a-zA-Z0-9]{2,})?"
-                ).unwrap()
-            },
-            content_hash in any::<[u8; 32]>(),
-        ) -> Anchor {
-            Anchor {
-                url,
-                content_hash: Hash::from(content_hash),
             }
         }
     }

@@ -15,7 +15,10 @@
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_kernel::{CertificatePointer, StakeCredential};
 use amaru_ledger::store::{
-    columns::dreps::{Key, Row, Value, EVENT_TARGET},
+    columns::{
+        dreps::{Key, Row, Value, EVENT_TARGET},
+        unsafe_decode,
+    },
     StoreError,
 };
 use rocksdb::Transaction;
@@ -46,7 +49,7 @@ pub fn add<DB>(
         let row = if let Some(mut row) = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(Row::unsafe_decode)
+            .map(unsafe_decode::<Row>)
         {
             // Re-registration
             if let Some((deposit, registered_at)) = register {
@@ -107,7 +110,7 @@ pub fn tick<DB>(
         if let Some(mut row) = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(Row::unsafe_decode)
+            .map(unsafe_decode::<Row>)
         {
             row.last_interaction = Some(epoch);
             db.put(key, as_value(row))
@@ -135,7 +138,7 @@ pub fn remove<DB>(
         if let Some(mut row) = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
-            .map(Row::unsafe_decode)
+            .map(unsafe_decode::<Row>)
         {
             row.previous_deregistration = Some(pointer);
             db.put(key, as_value(row))

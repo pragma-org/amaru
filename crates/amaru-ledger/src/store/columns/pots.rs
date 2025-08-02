@@ -30,16 +30,6 @@ impl Row {
             fees,
         }
     }
-
-    #[allow(clippy::panic)]
-    pub fn unsafe_decode(bytes: Vec<u8>) -> Self {
-        cbor::decode(&bytes).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode pots from CBOR ({}): {e:?}",
-                hex::encode(&bytes)
-            )
-        })
-    }
 }
 
 impl<C> cbor::encode::Encode<C> for Row {
@@ -52,7 +42,6 @@ impl<C> cbor::encode::Encode<C> for Row {
         e.encode_with(self.treasury, ctx)?;
         e.encode_with(self.reserves, ctx)?;
         e.encode_with(self.fees, ctx)?;
-        e.end()?;
         Ok(())
     }
 }

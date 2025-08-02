@@ -18,17 +18,12 @@ pub mod rocksdb;
 
 #[cfg(test)]
 pub mod tests {
-    use std::collections::BTreeSet;
-
     use amaru_kernel::{
-        network::NetworkName, Anchor, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId,
-        PoolParams, ProposalId, Slot, StakeCredential, TransactionInput,
+        network::NetworkName, tests::any_proposal_id, Anchor, EraHistory, Hash,
+        MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential,
+        TransactionInput,
     };
-
     use amaru_ledger::store::columns::cc_members;
-    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
-    use slot_arithmetic::Epoch;
-
     use amaru_ledger::{
         state::diff_bind,
         store::{
@@ -36,7 +31,7 @@ pub mod tests {
                 accounts::{self, tests::any_stake_credential},
                 dreps,
                 pools::tests::any_pool_id,
-                proposals::{self, tests::any_proposal_id},
+                proposals::{self},
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
                 //utxo::{any_pseudo_transaction_output, any_txin},
@@ -44,6 +39,8 @@ pub mod tests {
             Columns, ReadStore, Store, StoreError, TransactionalContext,
         },
     };
+    use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
+    use slot_arithmetic::Epoch;
 
     #[cfg(not(target_os = "windows"))]
     #[derive(Debug, Clone)]
@@ -184,6 +181,8 @@ pub mod tests {
         #[cfg(target_os = "windows")]
         let proposal_iter = std::iter::empty();
 
+        let votes_iter = std::iter::empty();
+
         // cc_members
         let cc_member_key = any_stake_credential().new_tree(runner).unwrap().current();
         let mut cc_member_row = amaru_ledger::store::columns::cc_members::tests::any_row()
@@ -220,10 +219,10 @@ pub mod tests {
                     dreps: drep_iter,
                     cc_members: cc_members_iter,
                     proposals: proposal_iter,
+                    votes: votes_iter,
                 },
                 Columns::empty(),
                 std::iter::empty(),
-                BTreeSet::new(),
                 &era_history,
             )?;
 
@@ -408,6 +407,7 @@ pub mod tests {
             dreps: std::iter::empty(),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
+            votes: std::iter::empty(),
         };
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let context = store.create_transaction();
@@ -417,7 +417,6 @@ pub mod tests {
             Columns::empty(),
             remove,
             std::iter::empty(),
-            BTreeSet::new(),
             &era_history,
         )?;
         context.commit()?;
@@ -441,6 +440,7 @@ pub mod tests {
             dreps: std::iter::empty(),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
+            votes: std::iter::empty(),
         };
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
@@ -451,7 +451,6 @@ pub mod tests {
             Columns::empty(),
             remove,
             std::iter::empty(),
-            BTreeSet::new(),
             &era_history,
         )?;
         context.commit()?;
@@ -471,6 +470,7 @@ pub mod tests {
             dreps: std::iter::empty(),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
+            votes: std::iter::empty(),
         };
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
         let context = store.create_transaction();
@@ -480,7 +480,6 @@ pub mod tests {
             Columns::empty(),
             remove,
             std::iter::empty(),
-            BTreeSet::new(),
             &era_history,
         )?;
         context.commit()?;
@@ -514,6 +513,7 @@ pub mod tests {
             dreps: std::iter::once((fixture.drep_key.clone(), drep_registered_at)),
             cc_members: std::iter::empty(),
             proposals: std::iter::empty(),
+            votes: std::iter::empty(),
         };
 
         assert!(
@@ -529,7 +529,6 @@ pub mod tests {
             Columns::empty(),
             remove,
             std::iter::empty(),
-            BTreeSet::new(),
             &era_history,
         )?;
         context.commit()?;
@@ -547,49 +546,6 @@ pub mod tests {
             drep_row.previous_deregistration,
             Some(drep_registered_at),
             "DRep was not marked as deregistered"
-        );
-
-        Ok(())
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    pub fn test_remove_proposal(store: &impl Store, fixture: &Fixture) -> Result<(), StoreError> {
-        let point = Point::Origin;
-
-        let proposal_id = fixture.proposal_key.clone();
-
-        assert!(
-            store.iter_proposals()?.any(|(key, _)| key == proposal_id),
-            "Proposal not present before removal"
-        );
-
-        let remove = Columns {
-            utxo: std::iter::empty(),
-            pools: std::iter::empty(),
-            accounts: std::iter::empty(),
-            dreps: std::iter::empty(),
-            cc_members: std::iter::empty(),
-            proposals: std::iter::once(proposal_id.clone()),
-        };
-
-        let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
-        let context = store.create_transaction();
-        context.save(
-            &point,
-            None,
-            Columns::empty(),
-            remove,
-            std::iter::empty(),
-            BTreeSet::new(),
-            &era_history,
-        )?;
-        context.commit()?;
-
-        let proposal_still_exists = store.iter_proposals()?.any(|(key, _)| key == proposal_id);
-
-        assert!(
-            !proposal_still_exists,
-            "Proposal was not deleted from store"
         );
 
         Ok(())

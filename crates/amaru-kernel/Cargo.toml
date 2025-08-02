@@ -12,10 +12,14 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+test-utils = ["proptest"]
+
 [dependencies]
+# External dependencies ───────────────────────────────────────────────────────┐
 bech32.workspace = true
 hex.workspace = true
-sha3.workspace = true
 pallas-addresses.workspace = true
 pallas-codec.workspace = true
 pallas-crypto.workspace = true
@@ -23,11 +27,18 @@ pallas-primitives.workspace = true
 pallas-traverse.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+sha3.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+proptest = { workspace = true, optional = true }
 
+# Internal dependencies ───────────────────────────────────────────────────────┐
 slot-arithmetic.workspace = true
 
 [dev-dependencies]
-proptest = { workspace = true, default-features = true }
+# External dependencies ───────────────────────────────────────────────────────┐
+proptest.workspace = true
 test-case.workspace = true
+
+# Internal dependencies ───────────────────────────────────────────────────────┐
+slot-arithmetic = { workspace = true, features = [ "test-utils" ] }

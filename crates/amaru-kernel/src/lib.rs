@@ -45,7 +45,6 @@ use std::{
     ops::Deref,
 };
 
-pub use memoized::*;
 pub use pallas_addresses::{
     byron::AddrType, Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
     StakeAddress, StakePayload,
@@ -61,17 +60,16 @@ pub use pallas_crypto::{
 pub use pallas_primitives::{
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
-        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
-        ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
-        ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        AddrKeyhash, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, Constitution,
+        CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices, ExUnits,
+        GovAction, HeaderBody, KeepRaw, MintedBlock, MintedDatumOption, MintedScriptRef,
+        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
+        NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
+        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
+        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
+        Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody,
+        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter,
+        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
     PlutusScript, PolicyId, Port, PositiveCoin,
@@ -81,30 +79,46 @@ pub use serde_json as json;
 pub use sha3;
 pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 
+pub use account::*;
+pub mod account;
+
+pub use anchor::Anchor;
+pub mod anchor;
+
+pub use ballot::Ballot;
+pub mod ballot;
+
 pub use drep_state::*;
 pub mod drep_state;
+
+pub use memoized::*;
+pub mod memoized;
+
+pub use proposal_id::*;
+pub mod proposal_id;
 
 pub use proposal_state::*;
 pub mod proposal_state;
 
-pub use account::*;
-pub mod account;
+pub use reward::*;
+pub mod reward;
 
 pub use reward_kind::*;
 pub mod reward_kind;
-
-pub use reward::*;
-pub mod reward;
 
 pub use strict_maybe::*;
 pub mod strict_maybe;
 
 pub mod block;
 pub mod macros;
-pub mod memoized;
 pub mod network;
 pub mod protocol_parameters;
 pub mod serde_utils;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    pub use crate::{anchor::tests::*, ballot::tests::*, proposal_id::tests::*};
+}
 
 // Constants
 // ----------------------------------------------------------------------------
@@ -392,6 +406,62 @@ pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
 
 pub fn from_cbor<T: for<'d> cbor::Decode<'d, ()>>(bytes: &[u8]) -> Option<T> {
     cbor::decode(bytes).ok()
+}
+
+// Decode a CBOR input, ensuring that there are no bytes leftovers once decoded. This is handy to
+// test standalone decoders and ensures that they entirely consume their inputs.
+pub fn from_cbor_no_leftovers<T: for<'d> cbor::Decode<'d, ()>>(
+    bytes: &[u8],
+) -> Result<T, cbor::decode::Error> {
+    cbor::decode(bytes).map(|NoLeftovers(inner)| inner)
+}
+
+#[repr(transparent)]
+pub struct NoLeftovers<A>(A);
+
+impl<'a, C, A: cbor::Decode<'a, C>> cbor::decode::Decode<'a, C> for NoLeftovers<A> {
+    fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let inner = d.decode_with(ctx)?;
+
+        if !d.datatype().is_err_and(|e| e.is_end_of_input()) {
+            return Err(cbor::decode::Error::message(format!(
+                "leftovers bytes after decoding after position {}",
+                d.position()
+            )));
+        }
+
+        Ok(NoLeftovers(inner))
+    }
+}
+
+/// Decode any CBOR array, irrespective of whether they're indefinite or definite.
+pub fn decode_array<'d, A>(
+    d: &mut cbor::Decoder<'d>,
+    expected_len: u64,
+    elems: impl FnOnce(&mut cbor::Decoder<'d>) -> Result<A, cbor::decode::Error>,
+) -> Result<A, cbor::decode::Error> {
+    let len = d.array()?;
+
+    let result = elems(d)?;
+
+    match len {
+        None => {
+            let is_break = d.datatype()? == cbor::data::Type::Break;
+            if !is_break {
+                return Err(cbor::decode::Error::type_mismatch(cbor::data::Type::Break));
+            }
+            d.skip()?;
+        }
+        Some(len) if len != expected_len => {
+            return Err(cbor::decode::Error::message(format!(
+                "array length mismatch: expected {} got {}",
+                expected_len, len
+            )));
+        }
+        Some(_len) => (),
+    }
+
+    Ok(result)
 }
 
 // PoolParams
@@ -774,43 +844,6 @@ pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddres
     .expect("has non-empty delegation part")
 }
 
-// ProposalId
-// ----------------------------------------------------------------------------
-
-#[derive(Debug, Eq, PartialEq, Clone)]
-// TODO: This type shouldn't exist, and `Ord` / `PartialOrd` should be derived in Pallas on
-// 'GovActionId' already.
-pub struct ComparableProposalId {
-    pub inner: ProposalId,
-}
-
-impl From<ProposalId> for ComparableProposalId {
-    fn from(inner: ProposalId) -> Self {
-        Self { inner }
-    }
-}
-
-impl From<ComparableProposalId> for ProposalId {
-    fn from(comparable: ComparableProposalId) -> ProposalId {
-        comparable.inner
-    }
-}
-
-impl PartialOrd for ComparableProposalId {
-    fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
-        Some(self.cmp(rhs))
-    }
-}
-
-impl Ord for ComparableProposalId {
-    fn cmp(&self, rhs: &Self) -> Ordering {
-        match self.inner.transaction_id.cmp(&rhs.inner.transaction_id) {
-            Ordering::Equal => self.inner.action_index.cmp(&rhs.inner.action_index),
-            ordering @ Ordering::Less | ordering @ Ordering::Greater => ordering,
-        }
-    }
-}
-
 // StakeCredential
 // ----------------------------------------------------------------------------
 
@@ -829,10 +862,23 @@ impl std::fmt::Display for StakeCredentialType {
     }
 }
 
-pub fn stake_credential_type(credential: &StakeCredential) -> StakeCredentialType {
-    match credential {
-        StakeCredential::AddrKeyhash(..) => StakeCredentialType::VerificationKey,
-        StakeCredential::ScriptHash(..) => StakeCredentialType::Script,
+impl From<&StakeCredential> for StakeCredentialType {
+    fn from(credential: &StakeCredential) -> Self {
+        match credential {
+            StakeCredential::AddrKeyhash(..) => Self::VerificationKey,
+            StakeCredential::ScriptHash(..) => Self::Script,
+        }
+    }
+}
+
+impl From<&Voter> for StakeCredentialType {
+    fn from(voter: &Voter) -> Self {
+        match voter {
+            Voter::DRepKey(..)
+            | Voter::ConstitutionalCommitteeKey(..)
+            | Voter::StakePoolKey(..) => Self::VerificationKey,
+            Voter::DRepScript(..) | Voter::ConstitutionalCommitteeScript(..) => Self::Script,
+        }
     }
 }
 
@@ -863,6 +909,51 @@ pub fn expect_stake_credential(account: &RewardAccount) -> StakeCredential {
     reward_account_to_stake_credential(account)
         .unwrap_or_else(|| panic!("unexpected malformed reward account: {:?}", account))
 }
+
+// Voter
+// ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub enum VoterType {
+    DRep,
+    ConstitutionalCommittee,
+    StakePool,
+}
+
+impl std::fmt::Display for VoterType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::DRep => "drep",
+            Self::ConstitutionalCommittee => "committee",
+            Self::StakePool => "stake_pool",
+        })
+    }
+}
+
+impl From<&Voter> for VoterType {
+    fn from(voter: &Voter) -> Self {
+        match voter {
+            Voter::DRepKey(..) | Voter::DRepScript(..) => Self::DRep,
+            Voter::ConstitutionalCommitteeKey(..) | Voter::ConstitutionalCommitteeScript(..) => {
+                Self::ConstitutionalCommittee
+            }
+            Voter::StakePoolKey(..) => Self::StakePool,
+        }
+    }
+}
+
+pub fn voter_credential_hash(credential: &Voter) -> Hash<28> {
+    match credential {
+        Voter::DRepKey(hash)
+        | Voter::DRepScript(hash)
+        | Voter::ConstitutionalCommitteeKey(hash)
+        | Voter::ConstitutionalCommitteeScript(hash)
+        | Voter::StakePoolKey(hash) => *hash,
+    }
+}
+
+// ExUnits
+// ----------------------------------------------------------------------------
 
 pub trait HasExUnits {
     fn ex_units(&self) -> Vec<ExUnits>;
@@ -1037,6 +1128,24 @@ impl HasNetwork for ByronAddress {
         Network::Mainnet
     }
 }
+
+pub trait HasStakeCredential {
+    fn stake_credential(&self) -> StakeCredential;
+}
+
+impl HasStakeCredential for Voter {
+    fn stake_credential(&self) -> StakeCredential {
+        match self {
+            Self::ConstitutionalCommitteeKey(hash)
+            | Self::StakePoolKey(hash)
+            | Self::DRepKey(hash) => StakeCredential::AddrKeyhash(*hash),
+            Self::ConstitutionalCommitteeScript(hash) | Self::DRepScript(hash) => {
+                StakeCredential::ScriptHash(*hash)
+            }
+        }
+    }
+}
+
 pub trait HasOwnership {
     /// Returns ownership credential of a given entity, if any.
     ///

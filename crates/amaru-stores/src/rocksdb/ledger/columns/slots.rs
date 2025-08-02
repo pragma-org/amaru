@@ -14,7 +14,10 @@
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
 use amaru_ledger::store::{
-    columns::slots::{Key, Value},
+    columns::{
+        slots::{Key, Value},
+        unsafe_decode,
+    },
     StoreError,
 };
 use rocksdb::{OptimisticTransactionDB, ThreadMode, Transaction};
@@ -29,7 +32,7 @@ pub fn get<T: ThreadMode>(
     Ok(db
         .get(as_key(&PREFIX, key))
         .map_err(|err| StoreError::Internal(err.into()))?
-        .map(Value::unsafe_decode))
+        .map(unsafe_decode::<Value>))
 }
 
 pub fn put<DB>(db: &Transaction<'_, DB>, key: &Key, value: Value) -> Result<(), StoreError> {

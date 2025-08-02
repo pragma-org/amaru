@@ -34,16 +34,6 @@ impl Row {
     pub fn new(slot_leader: PoolId) -> Self {
         Self { slot_leader }
     }
-
-    #[allow(clippy::panic)]
-    pub fn unsafe_decode(bytes: Vec<u8>) -> Self {
-        cbor::decode(&bytes).unwrap_or_else(|e| {
-            panic!(
-                "unable to decode slot leader from CBOR ({}): {e:?}",
-                hex::encode(&bytes)
-            )
-        })
-    }
 }
 
 impl<C> cbor::encode::Encode<C> for Row {
@@ -53,7 +43,6 @@ impl<C> cbor::encode::Encode<C> for Row {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.encode_with(self.slot_leader, ctx)?;
-        e.end()?;
         Ok(())
     }
 }

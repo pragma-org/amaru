@@ -14,7 +14,6 @@
 
 use amaru_kernel::{default_ledger_dir, network::NetworkName, parse_point, EraHistory};
 use amaru_ledger::{
-    self,
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };

@@ -32,9 +32,9 @@ use crate::{
 use amaru_kernel::{
     expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, stake_credential_type, EraHistory, Hash, Lovelace,
-    MemoizedTransactionOutput, MintedBlock, Point, PoolId, ProtocolVersion, Slot, StakeCredential,
-    TransactionInput, PROTOCOL_VERSION_9,
+    stake_credential_hash, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, MintedBlock,
+    Point, PoolId, ProtocolVersion, Slot, StakeCredential, StakeCredentialType, TransactionInput,
+    PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::{Epoch, EraHistoryError};
@@ -246,7 +246,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             add,
             remove,
             withdrawals,
-            voting_dreps,
         } = now_stable.into_store_update(current_epoch, &self.protocol_parameters);
 
         let batch = db.create_transaction();
@@ -258,7 +257,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 add,
                 remove,
                 withdrawals,
-                voting_dreps,
                 &self.era_history,
             )
             .and_then(|()| {
@@ -612,7 +610,7 @@ pub fn refund_many<'store>(
         refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
             debug!(
                 target: EVENT_TARGET,
-                type = %stake_credential_type(&account),
+                type = %StakeCredentialType::from(&account),
                 account = %stake_credential_hash(&account),
                 %deposit,
                 "refund"

@@ -30,7 +30,6 @@ use rocksdb::{
 };
 use slot_arithmetic::Epoch;
 use std::{
-    collections::BTreeSet,
     fmt, fs,
     path::{Path, PathBuf},
 };
@@ -379,6 +378,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Value)>,
             impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Value)>,
             impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Value)>,
+            impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Value)>,
         >,
         remove: Columns<
             impl Iterator<Item = scolumns::utxo::Key>,
@@ -386,10 +386,10 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             impl Iterator<Item = scolumns::accounts::Key>,
             impl Iterator<Item = (scolumns::dreps::Key, CertificatePointer)>,
             impl Iterator<Item = scolumns::cc_members::Key>,
-            impl Iterator<Item = scolumns::proposals::Key>,
+            impl Iterator<Item = ()>,
+            impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
-        voting_dreps: BTreeSet<StakeCredential>,
         era_history: &EraHistory,
     ) -> Result<(), StoreError> {
         match (point, self.db.tip().ok()) {
@@ -414,8 +414,10 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 accounts::add(&self.transaction, add.accounts)?;
                 cc_members::add(&self.transaction, add.cc_members)?;
                 proposals::add(&self.transaction, add.proposals)?;
+                let voting_dreps = votes::add(&self.transaction, add.votes)?;
 
                 accounts::reset_many(&self.transaction, withdrawals)?;
+
                 dreps::tick(&self.transaction, voting_dreps, {
                     era_history
                         .slot_to_epoch(tip, tip)
@@ -426,7 +428,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 pools::remove(&self.transaction, remove.pools)?;
                 accounts::remove(&self.transaction, remove.accounts)?;
                 dreps::remove(&self.transaction, remove.dreps)?;
-                proposals::remove(&self.transaction, remove.proposals)?;
             }
         }
         Ok(())
@@ -721,23 +722,22 @@ where
 
 #[cfg(test)]
 mod tests {
-    use amaru_kernel::network::NetworkName;
-    use amaru_kernel::EraHistory;
+    use amaru_kernel::{network::NetworkName, EraHistory};
     use proptest::test_runner::TestRunner;
     use tempfile::TempDir;
 
-    use crate::rocksdb::{
-        pretty_print_snapshot_ranges, split_continuous, ReadOnlyRocksDB, RocksDB,
-    };
-    use crate::tests::{
-        add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-        test_read_pool, test_read_utxo, test_refund_account, test_remove_account, test_remove_drep,
-        test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
+    use crate::{
+        rocksdb::{pretty_print_snapshot_ranges, split_continuous, ReadOnlyRocksDB, RocksDB},
+        tests::{
+            add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
+            test_read_pool, test_read_utxo, test_refund_account, test_remove_account,
+            test_remove_drep, test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
+        },
     };
     use amaru_ledger::store::StoreError;
 
     #[cfg(not(target_os = "windows"))]
-    use crate::tests::{test_read_proposal, test_remove_proposal};
+    use crate::tests::test_read_proposal;
 
     fn setup_rocksdb_store(runner: &mut TestRunner) -> Result<(RocksDB, Fixture), StoreError> {
         let era_history: EraHistory =
@@ -848,14 +848,6 @@ mod tests {
         let mut runner = TestRunner::default();
         let (store, fixture) = setup_rocksdb_store(&mut runner)?;
         test_remove_drep(&store, &fixture)
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    #[test]
-    fn test_rocksdb_remove_proposal() -> Result<(), StoreError> {
-        let mut runner = TestRunner::default();
-        let (store, fixture) = setup_rocksdb_store(&mut runner)?;
-        test_remove_proposal(&store, &fixture)
     }
 
     #[test]

@@ -13,6 +13,7 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+# External dependencies ───────────────────────────────────────────────────────┐
 hex.workspace = true
 kes-summed-ed25519.workspace = true
 pallas-codec.workspace = true
@@ -22,11 +23,13 @@ pallas-primitives.workspace = true
 thiserror.workspace = true
 vrf_dalek.workspace = true
 
+# Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 slot-arithmetic.workspace = true
 
 [dev-dependencies]
+# External dependencies ───────────────────────────────────────────────────────┐
 ctor.workspace = true
 insta = { workspace = true, features = ["yaml"] }
 pallas-traverse.workspace = true

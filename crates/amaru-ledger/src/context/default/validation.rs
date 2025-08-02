@@ -22,9 +22,9 @@ use crate::{
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, CertificatePointer, DRep, DatumHash, Hash, Lovelace, MemoizedPlutusData,
+    Anchor, Ballot, CertificatePointer, DRep, DatumHash, Hash, Lovelace, MemoizedPlutusData,
     MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput,
+    ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput, Vote, Voter,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -192,11 +192,6 @@ impl DRepsSlice for DefaultValidationContext {
             .insert(drep.clone(), pointer);
         self.state.dreps.unregister(drep)
     }
-
-    fn vote(&mut self, drep: StakeCredential) {
-        trace!(?drep, "drep.vote");
-        self.state.voting_dreps.insert(drep);
-    }
 }
 
 impl CommitteeSlice for DefaultValidationContext {
@@ -228,6 +223,17 @@ impl ProposalsSlice for DefaultValidationContext {
             .proposals
             .register(id.into(), (proposal, pointer), None, None)
             .unwrap_or_default(); // Can't happen as by construction key is unique
+    }
+
+    fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
+        self.state.votes.produce(
+            voter,
+            Ballot {
+                proposal,
+                vote,
+                anchor,
+            },
+        )
     }
 }
 

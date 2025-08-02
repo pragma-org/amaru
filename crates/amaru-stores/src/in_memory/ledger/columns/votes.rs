@@ -13,22 +13,34 @@
 // limitations under the License.
 
 use crate::in_memory::MemoryStore;
-use amaru_kernel::ComparableProposalId;
+use amaru_kernel::{StakeCredential, Voter};
 use amaru_ledger::store::{
-    columns::proposals::{Key, Value},
+    columns::votes::{Key, Value},
     StoreError,
 };
+use std::collections::BTreeSet;
 
 pub fn add(
     store: &MemoryStore,
     rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+) -> Result<BTreeSet<StakeCredential>, StoreError> {
+    let mut voting_dreps = BTreeSet::new();
+
     for (key, value) in rows {
-        store
-            .proposals
-            .borrow_mut()
-            .insert(ComparableProposalId::from(key), value);
+        match key {
+            Voter::DRepKey(hash) => {
+                voting_dreps.insert(StakeCredential::AddrKeyhash(hash));
+            }
+            Voter::DRepScript(hash) => {
+                voting_dreps.insert(StakeCredential::ScriptHash(hash));
+            }
+            Voter::ConstitutionalCommitteeKey(..)
+            | Voter::ConstitutionalCommitteeScript(..)
+            | Voter::StakePoolKey(..) => {}
+        }
+
+        store.votes.borrow_mut().insert(key, value);
     }
 
-    Ok(())
+    Ok(voting_dreps)
 }
