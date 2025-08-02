@@ -26,7 +26,7 @@ jobs:
 
   unused-dependencies:
     needs: changes
-    if: ${{ steps.changes.outputs.dependencies == 'true' }}
+    if: ${{ needs.changes.outputs.dependencies == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,7 +39,7 @@ jobs:
 
   licenses:
     needs: changes
-    if: ${{ steps.changes.outputs.dependencies == 'true' }}
+    if: ${{ needs.changes.outputs.dependencies == 'true' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
