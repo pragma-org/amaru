@@ -33,7 +33,8 @@ macro_rules! prop_cbor_roundtrip {
             #[test]
             fn $title(val in $strategy) {
                 let bytes = $crate::to_cbor(&val);
-                proptest::prop_assert_eq!(Some(val), $crate::from_cbor::<$ty>(&bytes));
+                let decoded = $crate::from_cbor_no_leftovers::<$ty>(&bytes).map_err(|e| e.to_string());
+                proptest::prop_assert_eq!(Ok(val), decoded, "bytes: {}", hex::encode(&bytes));
             }
         }
     };

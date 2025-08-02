@@ -42,7 +42,6 @@ impl<C> cbor::encode::Encode<C> for Row {
         e.encode_with(self.treasury, ctx)?;
         e.encode_with(self.reserves, ctx)?;
         e.encode_with(self.fees, ctx)?;
-        e.end()?;
         Ok(())
     }
 }

@@ -43,7 +43,6 @@ impl<C> cbor::encode::Encode<C> for Row {
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.encode_with(self.slot_leader, ctx)?;
-        e.end()?;
         Ok(())
     }
 }
