@@ -53,7 +53,7 @@ const dreps = drepsInfo
 
     const stakeInfo = drepsStake.find((future) => drep.id === future.id && drep.from === future.from);
 
-    if (drep.type === "registered") {
+    if (drep.type === "registered" && drep.mandate !== undefined) {
       accum.dreps[drepId] = {
         mandate: drep.mandate.epoch,
         metadata: drep.metadata ? ({ url: drep.metadata.url, content_hash: drep.metadata.hash }) : null,
@@ -91,7 +91,7 @@ if (!exists) {
 
 const poolIds = Object.keys(distr.stakePools).sort();
 
-withStream(`summary__stake_distribution_${network}_${epoch}.snap`, (stream) => {
+withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
   stream.write(`expression: "stake_distr.for_network(Network::Testnet)"\n`)
@@ -160,7 +160,7 @@ withStream(`summary__stake_distribution_${network}_${epoch}.snap`, (stream) => {
 
 // ---------- Rewards summary snapshots
 
-withStream(`summary__rewards_summary_${network}_${epoch}.snap`, (stream) => {
+withStream(`summary__rewards_summary_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
   stream.write(`expression: rewards_summary\n`)
@@ -196,7 +196,7 @@ function load(dataset, epoch) {
 }
 
 function withStream(filename, callback) {
-  const dir = path.join(import.meta.dirname, "..", "generated");
+  const dir = path.join(import.meta.dirname, "..", "..", "crates", "amaru", "tests", "snapshots", network);
   fs.mkdirSync(dir, { recursive: true });
   const stream = fs.createWriteStream(path.join(dir, filename));
   callback(stream);
