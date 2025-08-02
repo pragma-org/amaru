@@ -16,7 +16,7 @@
 #[test_case(178)]
 #[test_case(179)]
 #[ignore]
-pub fn compare_snapshot_test_case(epoch: u64) {
+pub fn compare_snapshot_preprod(epoch: u64) {
     let epoch = Epoch::from(epoch);
     compare_snapshot(epoch)
 }
