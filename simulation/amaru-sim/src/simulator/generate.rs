@@ -301,22 +301,22 @@ pub fn generate_inputs<R: Rng>(rng: &mut R, file_path: &PathBuf) -> Result<Vec<C
 }
 
 pub fn generate_arrival_times<R: Rng>(
-    rng: &mut R,
     start_time: Instant,
     mean_millis: f64,
-    length: usize,
-) -> Vec<Instant> {
-    let mut time: Instant = start_time;
-    let mut arrival_times = Vec::new();
+) -> impl Fn(usize, &mut R) -> Vec<Instant> {
+    move |size, rng| {
+        let mut time: Instant = start_time;
+        let mut arrival_times = Vec::new();
 
-    let exp = Exp::new(1.0 / mean_millis).unwrap_or_else(|err| panic!("{}", err));
-    for _ in 0..length {
-        arrival_times.push(time);
-        let delay = exp.sample(rng);
-        let delay_ms = delay.ceil().min(u64::MAX as f64) as u64;
-        time = time + Duration::from_millis(delay_ms);
+        let exp = Exp::new(1.0 / mean_millis).unwrap_or_else(|err| panic!("{}", err));
+        for _ in 0..size {
+            arrival_times.push(time);
+            let delay = exp.sample(rng);
+            let delay_ms = delay.ceil().min(u64::MAX as f64) as u64;
+            time = time + Duration::from_millis(delay_ms);
+        }
+        arrival_times
     }
-    arrival_times
 }
 
 pub fn generate_entries<R: Rng>(
@@ -331,7 +331,7 @@ pub fn generate_entries<R: Rng>(
             let messages =
                 generate_inputs(rng, file_path).expect("Failed to generate inputs from chain file");
             let arrival_times =
-                generate_arrival_times(rng, start_time, mean_millis, messages.len());
+                generate_arrival_times(start_time, mean_millis)(messages.len(), rng);
             entries.extend(
                 messages
                     .into_iter()
@@ -354,10 +354,9 @@ pub fn generate_entries<R: Rng>(
 }
 
 pub fn generate_vec<A>(
-    size: usize,
     generator: impl Fn(&mut StdRng) -> A,
-) -> impl Fn(&mut StdRng) -> Vec<A> {
-    move |rng| {
+) -> impl Fn(usize, &mut StdRng) -> Vec<A> {
+    move |size, rng| {
         let mut result = Vec::<A>::with_capacity(size);
         for _ in 0..size {
             result.push(generator(rng));
@@ -378,13 +377,14 @@ pub fn generate_u8(low: u8, high: u8) -> impl Fn(&mut StdRng) -> u8 {
 }
 
 pub fn generate_zip_with<A: Copy, B: Copy, C>(
-    generator1: impl Fn(&mut StdRng) -> Vec<A>,
-    generator2: impl Fn(&mut StdRng) -> Vec<B>,
+    size: usize,
+    generator1: impl Fn(usize, &mut StdRng) -> Vec<A>,
+    generator2: impl Fn(usize, &mut StdRng) -> Vec<B>,
     f: impl Fn(A, B) -> C,
 ) -> impl Fn(&mut StdRng) -> Vec<C> {
     move |rng| {
-        let xs = generator1(rng);
-        let ys = generator2(rng);
+        let xs = generator1(size, rng);
+        let ys = generator2(size, rng);
         assert_eq!(xs.len(), ys.len());
         xs.into_iter().zip(ys).map(|(x, y)| f(x, y)).collect()
     }
@@ -1100,7 +1100,7 @@ mod test {
         let seed = 1;
         let mut rng = StdRng::seed_from_u64(seed);
         let result =
-            generate_arrival_times(&mut rng, Instant::at_offset(Duration::new(0, 0)), 200.0, 5);
+            generate_arrival_times(Instant::at_offset(Duration::new(0, 0)), 200.0)(5, &mut rng);
         assert_eq!(
             result,
             vec![

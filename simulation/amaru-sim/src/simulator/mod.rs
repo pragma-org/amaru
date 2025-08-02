@@ -392,7 +392,7 @@ pub fn run(rt: tokio::runtime::Runtime, args: Args) {
 
 fn chain_property(
     chain_data_path: &PathBuf,
-) -> impl Fn(History<ChainSyncMessage>) -> Result<(), String> + use<'_> {
+) -> impl Fn(&History<ChainSyncMessage>) -> Result<(), String> + use<'_> {
     move |history| {
         match history.0.last() {
             None => Err("impossible, no last entry in history".to_string()),
