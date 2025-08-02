@@ -1,4 +1,4 @@
-name: Security audit
+name: Coding Practices
 
 on:
   workflow_dispatch:
@@ -12,7 +12,7 @@ on:
       - "examples/**/Cargo.lock"
 
 jobs:
-  check_unused_dependencies:
+  unused-dependencies:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,7 +23,7 @@ jobs:
           binaries-location: cargo-machete-v0.7.0-x86_64-unknown-linux-musl
       - run: cargo-machete
 
-  check_licenses:
+  licenses:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -33,3 +33,21 @@ jobs:
           tag: 0.16.4
           binaries-location: cargo-deny-0.16.4-x86_64-unknown-linux-musl
       - run: cargo deny-amaru
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.RUST_CACHE_PATH }}
+          key: cargo-x86_64-unknown-linux-gnu
+          restore-keys: |
+            cargo-x86_64-unknown-linux-gnu
+      - run: cargo clippy-amaru
+
+  formatting:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: cargo fmt-amaru
