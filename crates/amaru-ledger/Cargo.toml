@@ -17,24 +17,31 @@ default = []
 test-utils = ["proptest", "slot-arithmetic/test-utils"]
 
 [dependencies]
+# External dependencies ───────────────────────────────────────────────────────┐
+anyhow.workspace = true
 hex.workspace = true
 num.workspace = true
+proptest = { workspace = true, optional = true }
 serde.workspace = true
-tracing.workspace = true
 thiserror.workspace = true
-anyhow.workspace = true
+tracing.workspace = true
 
+# Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
 iter-borrow.workspace = true
 progress-bar.workspace = true
 slot-arithmetic.workspace = true
 tracing-json.workspace = true
-proptest = { workspace = true, features = ["std"], optional = true }
 
 [dev-dependencies]
-slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
+# External dependencies ───────────────────────────────────────────────────────┐
+proptest.workspace = true
 test-case.workspace = true
+
+# Internal dependencies ───────────────────────────────────────────────────────┐
+amaru-kernel = { workspace = true, features = [ "test-utils" ] }
+slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [

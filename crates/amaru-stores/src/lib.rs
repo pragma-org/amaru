@@ -19,8 +19,9 @@ pub mod rocksdb;
 #[cfg(test)]
 pub mod tests {
     use amaru_kernel::{
-        network::NetworkName, Anchor, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId,
-        PoolParams, ProposalId, Slot, StakeCredential, TransactionInput,
+        network::NetworkName, tests::any_proposal_id, Anchor, EraHistory, Hash,
+        MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential,
+        TransactionInput,
     };
     use amaru_ledger::store::columns::cc_members;
     use amaru_ledger::{
@@ -30,7 +31,7 @@ pub mod tests {
                 accounts::{self, tests::any_stake_credential},
                 dreps,
                 pools::tests::any_pool_id,
-                proposals::{self, tests::any_proposal_id},
+                proposals::{self},
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
                 //utxo::{any_pseudo_transaction_output, any_txin},

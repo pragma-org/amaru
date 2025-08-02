@@ -45,8 +45,6 @@ use std::{
     ops::Deref,
 };
 
-pub use ballot::*;
-pub use memoized::*;
 pub use pallas_addresses::{
     byron::AddrType, Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
     StakeAddress, StakePayload,
@@ -62,17 +60,16 @@ pub use pallas_crypto::{
 pub use pallas_primitives::{
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
-        MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
-        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
-        ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
-        ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        AddrKeyhash, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, Constitution,
+        CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices, ExUnits,
+        GovAction, HeaderBody, KeepRaw, MintedBlock, MintedDatumOption, MintedScriptRef,
+        MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
+        NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
+        ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
+        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
+        Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody,
+        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter,
+        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
     PlutusScript, PolicyId, Port, PositiveCoin,
@@ -82,31 +79,46 @@ pub use serde_json as json;
 pub use sha3;
 pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 
+pub use account::*;
+pub mod account;
+
+pub use anchor::Anchor;
+pub mod anchor;
+
+pub use ballot::Ballot;
+pub mod ballot;
+
 pub use drep_state::*;
 pub mod drep_state;
+
+pub use memoized::*;
+pub mod memoized;
+
+pub use proposal_id::*;
+pub mod proposal_id;
 
 pub use proposal_state::*;
 pub mod proposal_state;
 
-pub use account::*;
-pub mod account;
+pub use reward::*;
+pub mod reward;
 
 pub use reward_kind::*;
 pub mod reward_kind;
 
-pub use reward::*;
-pub mod reward;
-
 pub use strict_maybe::*;
 pub mod strict_maybe;
 
-pub mod ballot;
 pub mod block;
 pub mod macros;
-pub mod memoized;
 pub mod network;
 pub mod protocol_parameters;
 pub mod serde_utils;
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    pub use crate::{anchor::tests::*, ballot::tests::*, proposal_id::tests::*};
+}
 
 // Constants
 // ----------------------------------------------------------------------------
@@ -774,43 +786,6 @@ pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddres
         delegation_part,
     ))
     .expect("has non-empty delegation part")
-}
-
-// ProposalId
-// ----------------------------------------------------------------------------
-
-#[derive(Debug, Eq, PartialEq, Clone)]
-// TODO: This type shouldn't exist, and `Ord` / `PartialOrd` should be derived in Pallas on
-// 'GovActionId' already.
-pub struct ComparableProposalId {
-    pub inner: ProposalId,
-}
-
-impl From<ProposalId> for ComparableProposalId {
-    fn from(inner: ProposalId) -> Self {
-        Self { inner }
-    }
-}
-
-impl From<ComparableProposalId> for ProposalId {
-    fn from(comparable: ComparableProposalId) -> ProposalId {
-        comparable.inner
-    }
-}
-
-impl PartialOrd for ComparableProposalId {
-    fn partial_cmp(&self, rhs: &Self) -> Option<Ordering> {
-        Some(self.cmp(rhs))
-    }
-}
-
-impl Ord for ComparableProposalId {
-    fn cmp(&self, rhs: &Self) -> Ordering {
-        match self.inner.transaction_id.cmp(&rhs.inner.transaction_id) {
-            Ordering::Equal => self.inner.action_index.cmp(&rhs.inner.action_index),
-            ordering @ Ordering::Less | ordering @ Ordering::Greater => ordering,
-        }
-    }
 }
 
 // StakeCredential

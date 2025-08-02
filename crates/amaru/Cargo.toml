@@ -14,9 +14,11 @@ rust-version.workspace = true
 build = "build.rs"
 
 [dependencies]
+# External dependencies ───────────────────────────────────────────────────────┐
 acto.workspace = true
-async-trait.workspace = true
+anyhow.workspace = true
 async-compression.workspace = true
+async-trait.workspace = true
 clap.workspace = true
 futures-util.workspace = true
 gasket.workspace = true
@@ -40,23 +42,26 @@ tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
 tracing.workspace = true
-anyhow.workspace = true
-progress-bar = { workspace = true, features = ["terminal"] }
 
+# Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-stores.workspace = true
+progress-bar = { workspace = true, features = ["terminal"] }
 
 [dev-dependencies]
+# External dependencies ───────────────────────────────────────────────────────┐
 insta = { workspace = true, features = ["json"] }
 proptest.workspace = true
 rand.workspace = true
 tempfile.workspace = true
 test-case.workspace = true
-iter-borrow.workspace = true
 rocksdb.workspace = true
 once_cell.workspace = true
+
+# Internal dependencies ───────────────────────────────────────────────────────┐
+iter-borrow.workspace = true
 
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }

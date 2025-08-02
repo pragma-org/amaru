@@ -17,10 +17,10 @@ hex.workspace = true
 minicbor = { workspace = true, features = [ "alloc" ] }
 serde = { workspace = true, features = [ "std", "derive" ] }
 thiserror.workspace = true
-proptest = { workspace = true, optional = true, features = [ "std" ] }
+proptest = { workspace = true, optional = true }
 
 [dev-dependencies]
-proptest = { workspace = true, features = [ "std" ] }
+proptest.workspace = true
 test-case.workspace = true
 
 [features]

@@ -61,29 +61,17 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 pub mod tests {
     use super::*;
     use crate::store::columns::{
-        accounts::tests::any_stake_credential,
-        dreps::tests::{any_anchor, any_transaction_pointer},
+        accounts::tests::any_stake_credential, dreps::tests::any_transaction_pointer,
     };
     use amaru_kernel::{
-        new_stake_address, prop_cbor_roundtrip, Bytes, Constitution, CostModel, CostModels,
-        DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, Hash, KeyValuePairs, Lovelace,
-        Network, Nullable, PoolVotingThresholds, Proposal, ProposalId, ProposalPointer,
-        ProtocolParamUpdate, ProtocolVersion, RewardAccount, ScriptHash, Set, StakeCredential,
-        StakePayload, UnitInterval,
+        new_stake_address, prop_cbor_roundtrip,
+        tests::{any_anchor, any_proposal_id},
+        Bytes, Constitution, CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits,
+        GovAction, Hash, KeyValuePairs, Lovelace, Network, Nullable, PoolVotingThresholds,
+        Proposal, ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolVersion, RewardAccount,
+        ScriptHash, Set, StakeCredential, StakePayload, UnitInterval,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
-
-    prop_compose! {
-        pub fn any_proposal_id()(
-            transaction_id in any::<[u8; 32]>(),
-            action_index in any::<u32>(),
-        ) -> ProposalId {
-            ProposalId {
-                transaction_id: Hash::new(transaction_id),
-                action_index,
-            }
-        }
-    }
 
     prop_compose! {
         pub fn any_unit_interval()(
