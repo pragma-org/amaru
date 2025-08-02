@@ -27,12 +27,8 @@ use pallas_addresses::{
     Error, *,
 };
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
-use pallas_primitives::{
-    alonzo::Value as AlonzoValue,
-    conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
-        RedeemersValue,
-    },
+use pallas_primitives::conway::{
+    MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag, RedeemersValue,
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
@@ -59,22 +55,22 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
+    alonzo::Value as AlonzoValue,
     babbage::{Header, MintedHeader},
     conway::{
-        AddrKeyhash, Anchor, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin,
-        Constitution, CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices,
-        ExUnits, GovAction, GovActionId as ProposalId, HeaderBody, KeepRaw, MintedBlock,
+        AddrKeyhash, Anchor, AssetName, AuxiliaryData, BigInt, Block, BootstrapWitness,
+        Certificate, Coin, Constitution, Constr, CostModel, CostModels, DRep, DRepVotingThresholds,
+        DatumHash, DatumOption, DnsName, ExUnitPrices, ExUnits, GovAction,
+        GovActionId as ProposalId, HeaderBody, IPv4, IPv6, KeepRaw, MaybeIndefArray, MintedBlock,
         MintedDatumOption, MintedScriptRef, MintedTransactionBody, MintedTransactionOutput,
-        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PoolMetadata,
-        PoolVotingThresholds, PostAlonzoTransactionOutput, ProposalProcedure as Proposal,
-        ProtocolParamUpdate, ProtocolVersion, PseudoScript, PseudoTransactionOutput,
-        RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount,
-        ScriptHash, ScriptRef, StakeCredential, TransactionBody, TransactionInput,
-        TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Voter, VotingProcedure,
-        VotingProcedures, VrfKeyhash, WitnessSet,
+        MintedTx, MintedWitnessSet, Multiasset, NonEmptySet, NonZeroInt, PlutusData, PlutusScript,
+        PolicyId, PoolMetadata, PoolVotingThresholds, Port, PositiveCoin,
+        PostAlonzoTransactionOutput, ProposalProcedure as Proposal, ProtocolParamUpdate,
+        ProtocolVersion, PseudoScript, PseudoTransactionOutput, RationalNumber, Redeemer,
+        Redeemers, RedeemersKey as RedeemerKey, Relay, RewardAccount, ScriptHash, ScriptRef,
+        StakeCredential, TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval,
+        VKeyWitness, Value, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
-    AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
-    PlutusScript, PolicyId, Port, PositiveCoin,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
@@ -269,6 +265,35 @@ impl<'b> Decode<'b, ()> for Point {
                 "can't decode Point from array of size",
             )),
         }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TransactionInputAdapter(TransactionInput);
+
+impl Deref for TransactionInputAdapter {
+    type Target = TransactionInput;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for TransactionInputAdapter {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}#{}", self.0.transaction_id, self.0.index)
+    }
+}
+
+impl From<TransactionInput> for TransactionInputAdapter {
+    fn from(value: TransactionInput) -> Self {
+        Self(value)
+    }
+}
+
+impl From<&TransactionInput> for TransactionInputAdapter {
+    fn from(value: &TransactionInput) -> Self {
+        value.clone().into()
     }
 }
 

@@ -7,23 +7,23 @@
       },
       {
         "address": "82d818582483581c533bcb8dad5fc8049f5d43974bdc21d637f5b73d6120237303ca6843a1024101001a63bbc5a6",
-	"value": 0,
-	"datum": null,
-	"script": null
+        "value": { "Coin": 0 },
+        "datum": null,
+        "script": null
       }
     ],
     [
       {
         "transaction_id": "9157ee358b91c319a2e9dd087fe612d1c3d72d34fa4104bec13c8d37fd40b854",
         "index": 1,
-	"datum": null,
-	"script": null
+        "datum": null,
+        "script": null
       },
       {
         "address": "82d818582483581c533bcb8dad5fc8049f5d43974bdc21d637f5b73d6120237303ca6843a1024101001a63bbc5a6",
-	"value": 0,
-	"datum": null,
-	"script": null
+        "value": { "Coin": 0 },
+        "datum": null,
+        "script": null
       }
     ]
   ],
