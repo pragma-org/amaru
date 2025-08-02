@@ -1,0 +1,18 @@
+[
+    {
+        "include": [
+            "crates/**/*.rs",
+            "examples/**/*.rs",
+            "simulation/**/*.rs"
+        ],
+        "license": ".github/license-Apache-2.0.template.rs"
+    },
+    {
+        "include": [
+	    "conformance-tests/**/*.mjs",
+	    "data/**/*.mjs",
+	    "examples/**/*.mjs"
+        ],
+        "license": ".github/license-Apache-2.0.template.mjs"
+    }
+]

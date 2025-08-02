@@ -1,4 +1,4 @@
-// Copyright 2025 PRAGMA
+// Copyright %year% PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -11,12 +11,3 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-
-import fs from 'node:fs/promises';
-
-const wasmBuffer = await fs.readFile('assets/amaru_example_ledger_in_nodejs.wasm');
-const wasm = await WebAssembly.instantiate(wasmBuffer);
-
-wasm.instance.exports.ledger();
-
-console.log("Done");

@@ -46,7 +46,7 @@ jobs:
           binaries-location: cargo-machete-v0.7.0-x86_64-unknown-linux-musl
       - run: cargo-machete
 
-  licenses:
+  licenses-compatibility:
     needs: changes
     if: ${{ needs.changes.outputs.dependencies == 'true' }}
     runs-on: ubuntu-latest
@@ -58,6 +58,16 @@ jobs:
           tag: 0.16.4
           binaries-location: cargo-deny-0.16.4-x86_64-unknown-linux-musl
       - run: cargo deny-amaru
+
+  license-headers:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: viperproject/check-license-header@v2
+        with:
+          path: .
+          config: .github/check-license-header.config.json
+          strict: false
 
   clippy:
     runs-on: ubuntu-latest
