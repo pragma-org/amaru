@@ -125,7 +125,8 @@ impl RocksDB {
     }
 
     pub fn new(dir: &Path) -> Result<Self, StoreError> {
-        assert_sufficient_snapshots(dir)?;
+        // TODO There can be no snapshots
+        //assert_sufficient_snapshots(dir)?;
         let mut opts = default_opts_with_prefix();
         opts.create_if_missing(true);
         OptimisticTransactionDB::open(&opts, dir.join("live"))
@@ -187,7 +188,7 @@ macro_rules! impl_ReadStore {
                 epoch: &Epoch,
             ) -> Result<ProtocolParameters, StoreError> {
                 get(|key| self.db.get(key), &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))
-                    .map(|row| row.unwrap_or_default())
+                    .map(|row| row.unwrap_or_default()) // TODO there should be no default value
             }
 
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
@@ -660,7 +661,7 @@ fn assert_sufficient_snapshots(dir: &Path) -> Result<(), StoreError> {
     let snapshots = RocksDB::snapshots(dir)?;
     let snapshots_ranges = split_continuous(snapshots.iter().map(|e| u64::from(*e)).collect());
     info!(target: EVENT_TARGET, snapshots = pretty_print_snapshot_ranges(&snapshots_ranges), "new.known_snapshots");
-    if snapshots_ranges.len() != 1 && snapshots_ranges[0].len() < 2 {
+    if snapshots_ranges.len() != 1 || snapshots_ranges[0].len() < 2 {
         return Err(StoreError::Open(OpenErrorKind::NoStableSnapshot));
     }
     Ok(())

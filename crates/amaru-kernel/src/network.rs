@@ -306,6 +306,7 @@ impl From<NetworkName> for &EraHistory {
             NetworkName::Mainnet => todo!(),
             NetworkName::Preprod => &PREPROD_ERA_HISTORY,
             NetworkName::Preview => &PREVIEW_ERA_HISTORY,
+            // TODO: retrieve from DB
             NetworkName::Testnet(_) => &TESTNET_ERA_HISTORY,
         }
     }
@@ -385,6 +386,7 @@ impl From<NetworkName> for &GlobalParameters {
             NetworkName::Mainnet => todo!(),
             NetworkName::Preprod => &PREPROD_GLOBAL_PARAMETERS,
             NetworkName::Preview => &PREVIEW_GLOBAL_PARAMETERS,
+            // TODO: retrieve from DB
             NetworkName::Testnet(_) => &TESTNET_GLOBAL_PARAMETERS,
         }
     }
