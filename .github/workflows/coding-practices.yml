@@ -8,10 +8,19 @@ on:
     types: [opened, synchronize, reopened, converted_to_draft, ready_for_review]
     branches: ["*"]
 
+env:
+  RUST_CACHE_PATH: |
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+    target/
+
 jobs:
   changes:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: changes
         with:
