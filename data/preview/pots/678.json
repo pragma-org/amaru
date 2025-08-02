@@ -1,0 +1,12 @@
+{
+  "treasury": {
+    "ada": {
+      "lovelace": 4321016646899990
+    }
+  },
+  "reserves": {
+    "ada": {
+      "lovelace": 10600524516841770
+    }
+  }
+}
