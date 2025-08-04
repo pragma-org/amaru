@@ -49,7 +49,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
 
         if data_type == cbor::data::Type::MapIndef || data_type == cbor::data::Type::Map {
             decode_modern_output(d)
-        } else if data_type == cbor::data::Type::ArrayIndef {
+        } else if data_type == cbor::data::Type::ArrayIndef || data_type == cbor::data::Type::Array {
             decode_legacy_output(d)
         } else {
             Err(cbor::decode::Error::message(format!(
