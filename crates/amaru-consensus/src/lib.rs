@@ -45,6 +45,8 @@ pub enum ConsensusError {
     CannotDecodeHeader { point: Point, header: Vec<u8> },
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(peer::Peer),
+    #[error("Unknown point {0}, bailing out")]
+    UnknownPoint(Point),
     #[error(
         "Invalid rollback {} from peer {}, cannot go further than {}",
         rollback_point,
