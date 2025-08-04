@@ -57,10 +57,12 @@ impl SelectChain {
         SelectChain { chain_selector }
     }
 
+    /// TODO: remove self here which is unused
     fn forward_block(&self, peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
         ValidateHeaderEvent::Validated { peer, header, span }
     }
 
+    /// TODO: remove self here which is unused
     fn switch_to_fork(
         &self,
         peer: Peer,
