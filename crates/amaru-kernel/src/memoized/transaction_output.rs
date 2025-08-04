@@ -73,14 +73,7 @@ fn decode_legacy_output(
             datum: MemoizedDatum::None,
             script: None,
         }),
-        Some(3) => Ok(MemoizedTransactionOutput {
-            is_legacy: true,
-            address: decode_address(d.bytes()?)?,
-            value: d.decode()?,
-            datum: decode_datum(d)?,
-            script: None,
-        }),
-        None => Ok(MemoizedTransactionOutput {
+        Some(3) | None => Ok(MemoizedTransactionOutput {
             is_legacy: true,
             address: decode_address(d.bytes()?)?,
             value: d.decode()?,
