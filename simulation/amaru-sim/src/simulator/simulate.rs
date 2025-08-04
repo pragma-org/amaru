@@ -491,43 +491,39 @@ mod tests {
                 disable_shrinking: false,
             },
             spawn,
-            ECHO_GENERATOR,
-            ECHO_PROPERTY,
+            echo_generator,
+            echo_property,
             TraceBuffer::new_shared(0, 0),
             false,
         )
     }
 
-    const ECHO_GENERATOR: fn(&mut StdRng) -> Vec<Reverse<Entry<EchoMessage>>> = {
-        |rng| {
-            let now = Instant::at_offset(Duration::from_secs(0));
-            let size = 20;
-            let messages = generate_zip_with(
-                size,
-                generate_vec(generate_u8(0, 128)),
-                generate_arrival_times(now, 200.0),
-                |msg, arrival_time| {
-                    Reverse(Entry {
-                        arrival_time,
-                        envelope: Envelope {
-                            src: "c1".to_string(),
-                            dest: "n1".to_string(),
-                            body: EchoMessage::Echo {
-                                msg_id: 0,
-                                echo: format!("Please echo {}", msg),
-                            },
+    fn echo_generator(rng: &mut StdRng) -> Vec<Reverse<Entry<EchoMessage>>> {
+        let now = Instant::at_offset(Duration::from_secs(0));
+        let size = 20;
+        let messages = generate_zip_with(
+            size,
+            generate_vec(generate_u8(0, 128)),
+            generate_arrival_times(now, 200.0),
+            |msg, arrival_time| {
+                Reverse(Entry {
+                    arrival_time,
+                    envelope: Envelope {
+                        src: "c1".to_string(),
+                        dest: "n1".to_string(),
+                        body: EchoMessage::Echo {
+                            msg_id: 0,
+                            echo: format!("Please echo {}", msg),
                         },
-                    })
-                },
-            )(rng);
-            messages
-        }
-    };
+                    },
+                })
+            },
+        )(rng);
+        messages
+    }
 
     // TODO: Take response time into account.
-    const ECHO_PROPERTY: fn(&History<EchoMessage>) -> Result<(), String> = |history: &History<
-        EchoMessage,
-    >| {
+    fn echo_property(history: &History<EchoMessage>) -> Result<(), String> {
         for (index, msg) in history
             .0
             .iter()
@@ -549,7 +545,7 @@ mod tests {
             }
         }
         Ok(())
-    };
+    }
 
     // This shows how we can test external binaries. The test is disabled because building and
     // locating a binary on CI, across all platforms, is annoying.
@@ -571,8 +567,8 @@ mod tests {
                 disable_shrinking: false,
             },
             spawn,
-            ECHO_GENERATOR,
-            ECHO_PROPERTY,
+            echo_generator,
+            echo_property,
             TraceBuffer::new_shared(0, 0),
             false,
         )
