@@ -28,6 +28,7 @@ pub mod store;
 pub mod store_block;
 pub mod store_header;
 pub mod validate_header;
+mod headers_tree;
 
 pub const EVENT_TARGET: &str = "amaru::consensus";
 
