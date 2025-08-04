@@ -64,15 +64,33 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
 fn decode_legacy_output(
     d: &mut cbor::Decoder<'_>,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
-    d.array()?;
-
-    Ok(MemoizedTransactionOutput {
-        is_legacy: true,
-        address: decode_address(d.bytes()?)?,
-        value: d.decode()?,
-        datum: decode_datum(d)?,
-        script: None,
-    })
+    let len = d.array()?;
+    match len {
+        Some(2) => Ok(MemoizedTransactionOutput {
+            is_legacy: true,
+            address: decode_address(d.bytes()?)?,
+            value: d.decode()?,
+            datum: MemoizedDatum::None,
+            script: None,
+        }),
+        Some(3) => Ok(MemoizedTransactionOutput {
+            is_legacy: true,
+            address: decode_address(d.bytes()?)?,
+            value: d.decode()?,
+            datum: decode_datum(d)?,
+            script: None,
+        }),
+        None => Ok(MemoizedTransactionOutput {
+            is_legacy: true,
+            address: decode_address(d.bytes()?)?,
+            value: d.decode()?,
+            datum: decode_datum(d)?,
+            script: None,
+        }),
+        _ => Err(cbor::decode::Error::message(format!(
+            "expected legacy transaction output array length of 2 or 3, got {len:?}",
+        ))),
+    }
 }
 
 fn decode_modern_output(
@@ -83,25 +101,19 @@ fn decode_modern_output(
     let mut datum: MemoizedDatum = MemoizedDatum::None;
     let mut script: Option<MemoizedScript> = None;
 
-    let map_size = d.map()?.unwrap_or(4);
-    for _ in 0..map_size {
-        // Check for break condition first (for indefinite maps)
-        if d.datatype()? == cbor::data::Type::Break {
-            d.skip()?;
-            break;
-        }
-
-        match d.u8()? {
-            0 => address_bytes = d.bytes()?,
-            1 => value = d.decode()?,
-            2 => datum = decode_datum(d)?,
-            3 => script = decode_reference_script(d)?,
-            _ => {
-                return Err(cbor::decode::Error::message(
-                    "unexpected key in transaction output map",
-                ));
+    match d.map()? {
+        Some(size) => {
+            for _ in 0..size {
+                decode_map_value(d, &mut address_bytes, &mut value, &mut datum, &mut script)?;
             }
         }
+        None => loop {
+            if d.datatype()? == cbor::data::Type::Break {
+                d.skip()?;
+                break;
+            }
+            decode_map_value(d, &mut address_bytes, &mut value, &mut datum, &mut script)?;
+        },
     }
 
     Ok(MemoizedTransactionOutput {
@@ -111,6 +123,27 @@ fn decode_modern_output(
         datum,
         script,
     })
+}
+
+fn decode_map_value<'a>(
+    d: &mut cbor::Decoder<'a>,
+    address_bytes: &mut &'a [u8],
+    value: &mut Value,
+    datum: &mut MemoizedDatum,
+    script: &mut Option<PseudoScript<MemoizedNativeScript>>,
+) -> Result<(), cbor::decode::Error> {
+    match d.u8()? {
+        0 => *address_bytes = d.bytes()?,
+        1 => *value = d.decode()?,
+        2 => *datum = decode_datum(d)?,
+        3 => *script = decode_reference_script(d)?,
+        _ => {
+            return Err(cbor::decode::Error::message(
+                "unexpected key in transaction output map",
+            ));
+        }
+    }
+    Ok(())
 }
 
 fn decode_reference_script(
