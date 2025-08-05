@@ -13,8 +13,7 @@
 // limitations under the License.
 
 use crate::{peer::Peer, ConsensusError};
-use amaru_kernel::{cbor, Point};
-use amaru_ouroboros::HASH_SIZE;
+use amaru_kernel::{cbor, Point, HEADER_HASH_SIZE};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use std::{collections::BTreeMap, fmt::Debug};
@@ -156,9 +155,9 @@ impl<H: IsHeader> Tip<H> {
     }
 }
 impl<H: IsHeader> IsHeader for Tip<H> {
-    fn hash(&self) -> Hash<HASH_SIZE> {
+    fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
         match self {
-            Tip::Genesis => Hash::from([0; HASH_SIZE]),
+            Tip::Genesis => Hash::from([0; HEADER_HASH_SIZE]),
             Tip::Hdr(header) => header.hash(),
         }
     }
@@ -170,7 +169,7 @@ impl<H: IsHeader> IsHeader for Tip<H> {
         }
     }
 
-    fn parent(&self) -> Option<Hash<HASH_SIZE>> {
+    fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
         match self {
             Tip::Genesis => None,
             Tip::Hdr(header) => header.parent(),
@@ -464,9 +463,9 @@ pub(crate) mod tests {
     use rand_distr::{Distribution, Exp};
 
     /// Very simple function to generate random sequence of bytes of given length.
-    pub fn random_bytes(arg: u32) -> Vec<u8> {
+    pub fn random_bytes(arg: usize) -> Vec<u8> {
         let mut rng = StdRng::from_os_rng();
-        let mut buffer = vec![0; arg as usize];
+        let mut buffer = vec![0; arg];
         rng.fill_bytes(&mut buffer);
         buffer
     }

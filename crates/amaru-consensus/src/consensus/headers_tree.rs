@@ -1,7 +1,7 @@
 use crate::peer::Peer;
 use crate::ConsensusError;
 use amaru_kernel::Point;
-use amaru_ouroboros_traits::{IsHeader, HASH_SIZE};
+use amaru_ouroboros_traits::IsHeader;
 use indextree::{Arena, NodeId};
 use pallas_crypto::hash::Hash;
 use std::collections::BTreeMap;
@@ -59,7 +59,7 @@ impl<H: IsHeader> HeadersTree<H> {
 }
 
 /// Implementation functions
-impl<H : IsHeader> HeadersTree<H> {
+impl<H: IsHeader> HeadersTree<H> {
     /// Return the chain tip for a given Peer
     fn get_tip_for(&self, peer: &Peer) -> Result<Option<&H>, ConsensusError> {
         let node_id = self
@@ -89,7 +89,7 @@ mod tests {
     use super::*;
     use crate::consensus::chain_selection::tests::{generate_headers_anchored_at, random_bytes};
     use crate::peer::Peer;
-    use amaru_kernel::Point;
+    use amaru_kernel::{Point, HEADER_HASH_SIZE};
     use amaru_ouroboros_traits::fake::FakeHeader;
 
     #[test]
@@ -128,7 +128,7 @@ mod tests {
     fn test_intersect_peer_point_not_found() {
         let headers = generate_headers_anchored_at(None, 5);
         let peer = Peer::new("alice");
-        let peer_point = Point::Specific(10, random_bytes(HASH_SIZE as u32).into());
+        let peer_point = Point::Specific(10, random_bytes(HEADER_HASH_SIZE).into());
 
         let mut tree = HeadersTree::new(headers.clone());
         assert!(tree.intersect_peer(&peer, &peer_point).is_err());
