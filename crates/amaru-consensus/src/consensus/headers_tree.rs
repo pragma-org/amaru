@@ -79,23 +79,28 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     ) -> Result<ForwardChainSelection<H>, ConsensusError> {
         match self.peers.get(peer) {
             Some(node_id) => {
-                let header_node_id = self.arena.new_node(header.clone());
                 let current_node = self.arena.get(*node_id).expect(&format!(
                     "Node not found in the arena {}. The arena is {:?}",
                     node_id, self.arena
                 ));
                 let current_node_hash = current_node.get().hash();
-                if header.parent() == Some(current_node_hash) {
-                    node_id.append(header_node_id, &mut self.arena);
-                    self.best_chain = Some(header_node_id);
-                    Ok(ForwardChainSelection::NewTip(header))
+                if header.hash() == current_node_hash {
+                    Ok(ForwardChainSelection::NoChange)
                 } else {
-                    Err(ConsensusError::InvalidHeaderParent {
-                        peer: peer.clone(),
-                        forwarded: header.hash(),
-                        actual: header.parent().unwrap_or(ORIGIN_HASH),
-                        expected: current_node_hash,
-                    })
+                    if header.parent() == Some(current_node_hash) {
+                        let header_node_id = self.arena.new_node(header.clone());
+                        node_id.append(header_node_id, &mut self.arena);
+                        self.best_chain = Some(header_node_id);
+                        self.peers.insert(peer.clone(), header_node_id);
+                        Ok(ForwardChainSelection::NewTip(header))
+                    } else {
+                        Err(ConsensusError::InvalidHeaderParent {
+                            peer: peer.clone(),
+                            forwarded: header.hash(),
+                            actual: header.parent().unwrap_or(ORIGIN_HASH),
+                            expected: current_node_hash,
+                        })
+                    }
                 }
             }
             None => Err(ConsensusError::UnknownPeer(peer.clone())),
@@ -183,13 +188,8 @@ mod tests {
     #[test]
     fn test_roll_forward() {
         let (mut tree, mut headers) = create_headers_tree(5);
-        let tip = headers.last().unwrap().clone();
-        let new_tip = FakeHeader {
-            block_number: 1,
-            slot: 0,
-            parent: Some(tip.hash()),
-            body_hash: random_bytes(HEADER_HASH_SIZE).as_slice().into(),
-        };
+        let tip = headers.last().unwrap();
+        let new_tip = make_header_with_parent(&tip);
 
         // initialize alice as a peer with last known header = 5
         let peer = Peer::new("alice");
@@ -216,12 +216,7 @@ mod tests {
         let tip = headers.last().unwrap().clone();
 
         // create a new tip pointing to an incorrect parent (the first header of the chain in this example)
-        let new_tip = FakeHeader {
-            block_number: 1,
-            slot: 0,
-            parent: Some(headers.first().unwrap().hash()),
-            body_hash: random_bytes(HEADER_HASH_SIZE).as_slice().into(),
-        };
+        let new_tip = make_header_with_parent(headers.first().unwrap());
 
         // initialize alice as a peer with last known header = 5
         let peer = Peer::new("alice");
@@ -246,10 +241,51 @@ mod tests {
         assert!(tree.select_roll_forward(&peer, last.clone()).is_err());
     }
 
+    #[test]
+    fn test_roll_forward_is_idempotent() {
+        let peer = Peer::new("alice");
+        let (mut tree, mut headers) = initialize_with_peer(5, &peer);
+        let new_tip = make_header_with_parent(headers.last().unwrap());
+        // Roll forward twice with the same header
+        assert_eq!(
+            tree.select_roll_forward(&peer, new_tip).unwrap(),
+            ForwardChainSelection::NewTip(new_tip)
+        );
+        assert_eq!(
+            tree.select_roll_forward(&peer, new_tip).unwrap(),
+            ForwardChainSelection::NoChange
+        );
+
+        assert_eq!(tree.best_chain_tip(), Some(&new_tip));
+        headers.push(new_tip);
+        assert_eq!(
+            tree.best_chain_fragment(),
+            headers.iter().collect::<Vec<&FakeHeader>>()
+        );
+
+    }
+
     /// HELPERS
     fn create_headers_tree(size: u32) -> (HeadersTree<FakeHeader>, Vec<FakeHeader>) {
         let headers = generate_headers_anchored_at(None, size);
         let tree = HeadersTree::new(headers.clone());
         (tree, headers)
+    }
+
+    fn initialize_with_peer(size: u32, peer: &Peer) -> (HeadersTree<FakeHeader>, Vec<FakeHeader>) {
+        let (mut tree, headers) = create_headers_tree(size);
+        let tip = headers.last().unwrap().clone();
+        let peer_point = Point::Specific(10, tip.hash().to_vec());
+        tree.initialize_peer(&peer, &peer_point).unwrap();
+        (tree, headers)
+    }
+
+    fn make_header_with_parent(parent: &FakeHeader) -> FakeHeader {
+        FakeHeader {
+            block_number: 1,
+            slot: 0,
+            parent: Some(parent.hash()),
+            body_hash: random_bytes(HEADER_HASH_SIZE).as_slice().into(),
+        }
     }
 }
