@@ -3,7 +3,7 @@ use crate::peer::Peer;
 use crate::ConsensusError;
 use amaru_kernel::{Point, ORIGIN_HASH};
 use amaru_ouroboros_traits::IsHeader;
-use indextree::{Arena, NodeId};
+use indextree::{Arena, Node, NodeId};
 use pallas_crypto::hash::Hash;
 use std::collections::BTreeMap;
 use tracing::debug;
@@ -85,27 +85,22 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             Some(node_id) => *node_id,
             None => return Err(ConsensusError::UnknownPeer(peer.clone())),
         };
-        let peer_tip_node = self.arena.get(peer_tip).expect(&format!(
-            "Node not found in the arena {}. The arena is {:?}",
-            peer_tip, self.arena
-        ));
+        let peer_tip_node = self.unsafe_get_arena_node(peer_tip);
         let peer_tip_node_hash = peer_tip_node.get().hash();
         if header.hash() == peer_tip_node_hash {
             Ok(ForwardChainSelection::NoChange)
+        } else if header.parent() == Some(peer_tip_node_hash) {
+            let header_node_id = self.insert_header(peer, header.clone(), &peer_tip);
+            Ok(self.select_new_best_chain(peer, header, &header_node_id, &peer_tip))
         } else {
-            if header.parent() == Some(peer_tip_node_hash) {
-                let header_node_id = self.insert_header(peer, header.clone(), &peer_tip);
-                Ok(self.select_new_best_chain(peer, header, &header_node_id, &peer_tip))
-            } else {
-                let e = ConsensusError::InvalidHeaderParent {
-                    peer: peer.clone(),
-                    forwarded: header.hash(),
-                    actual: header.parent().unwrap_or(ORIGIN_HASH),
-                    expected: peer_tip_node_hash,
-                };
-                debug!("{e}. The current headers tree is {:?}", &self);
-                Err(e)
-            }
+            let e = ConsensusError::InvalidHeaderParent {
+                peer: peer.clone(),
+                forwarded: header.hash(),
+                actual: header.parent().unwrap_or(ORIGIN_HASH),
+                expected: peer_tip_node_hash,
+            };
+            debug!("{e}. The current headers tree is {:?}", &self);
+            Err(e)
         }
     }
 
@@ -117,6 +112,17 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             .collect();
         chain.reverse();
         chain
+    }
+
+    /// Return an arena node when it is expected to be found
+    #[allow(clippy::panic)]
+    fn unsafe_get_arena_node(&self, node_id: NodeId) -> &Node<H> {
+        self.arena.get(node_id).unwrap_or_else(|| {
+            panic!(
+                "Node not found in the arena {}. The arena is {:?}",
+                node_id, self.arena
+            )
+        })
     }
 
     /// Insert a new header in the arena and maintain the peer tip
@@ -140,13 +146,13 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             Some(current_tip) => {
                 // If we added the new node on top of the current best chain, we have a new tip
                 if *parent_node_id == current_tip {
-                    self.best_chain = Some(header_node_id.clone());
+                    self.best_chain = Some(*header_node_id);
                     ForwardChainSelection::NewTip {
                         peer: peer.clone(),
                         tip: header,
                     }
                 } else {
-                    let current_tip_header = self.arena.get(current_tip).expect("todo").get();
+                    let current_tip_header = self.unsafe_get_arena_node(current_tip).get();
                     // If the new header does not improve the current chain height we keep the same best chain
                     if header.block_height() <= current_tip_header.block_height() {
                         ForwardChainSelection::NoChange
@@ -154,7 +160,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                         // Otherwise, if the new header creates a longer chain, we have a fork
 
                         // We set the new best chain
-                        self.best_chain = Some(header_node_id.clone());
+                        self.best_chain = Some(*header_node_id);
 
                         // The rollback point is the intersection of the previous best chain and the new one.
                         // The fork_fragment is the list of header that must be recreated after the rollback point.
@@ -178,7 +184,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                 }
             }
             None => {
-                self.best_chain = Some(header_node_id.clone());
+                self.best_chain = Some(*header_node_id);
                 ForwardChainSelection::NewTip {
                     peer: peer.clone(),
                     tip: header,
@@ -205,7 +211,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
 
         ancestors1
             .into_iter()
-            .zip(ancestors2.into_iter())
+            .zip(ancestors2)
             .take_while(|(n1, n2)| n1 == n2)
             .last()
             .map(|ns| ns.0)
@@ -276,7 +282,7 @@ mod tests {
         let mut tree = create_headers_tree(5).0;
 
         let peer = Peer::new("alice");
-        let peer_point = Point::Specific(10, random_bytes(HEADER_HASH_SIZE).into());
+        let peer_point = Point::Specific(10, random_bytes(HEADER_HASH_SIZE));
         assert!(tree.initialize_peer(&peer, &peer_point).is_err());
     }
 
@@ -284,7 +290,7 @@ mod tests {
     fn test_roll_forward() {
         let (mut tree, mut headers) = create_headers_tree(5);
         let tip = headers.last().unwrap();
-        let new_tip = make_header_with_parent(&tip);
+        let new_tip = make_header_with_parent(tip);
 
         // initialize alice as a peer with last known header = 5
         let peer = Peer::new("alice");
@@ -308,7 +314,7 @@ mod tests {
     #[test]
     fn test_roll_forward_with_incorrect_parent() {
         let (mut tree, headers) = create_headers_tree(5);
-        let tip = headers.last().unwrap().clone();
+        let tip = headers.last().unwrap();
 
         // create a new tip pointing to an incorrect parent (the first header of the chain in this example)
         let new_tip = make_header_with_parent(headers.first().unwrap());
@@ -333,7 +339,7 @@ mod tests {
 
         // Now roll forward with an unknown peer
         let peer = Peer::new("bob");
-        assert!(tree.select_roll_forward(&peer, last.clone()).is_err());
+        assert!(tree.select_roll_forward(&peer, *last).is_err());
     }
 
     #[test]
@@ -465,8 +471,8 @@ mod tests {
         tree.initialize_peer(&bob, &bob_tip.point()).unwrap();
 
         // Adding a new header for bob must create a fork
-        let bob_new_tip = make_header_with_parent(&bob_tip);
-        bob_headers.push(bob_new_tip.clone());
+        let bob_new_tip = make_header_with_parent(bob_tip);
+        bob_headers.push(bob_new_tip);
         let fork = Fork {
             peer: bob.clone(),
             rollback_point: Point::Origin,
@@ -488,9 +494,9 @@ mod tests {
 
     fn initialize_with_peer(size: u32, peer: &Peer) -> (HeadersTree<FakeHeader>, Vec<FakeHeader>) {
         let (mut tree, headers) = create_headers_tree(size);
-        let tip = headers.last().unwrap().clone();
+        let tip = headers.last().unwrap();
         let peer_point = Point::Specific(10, tip.hash().to_vec());
-        tree.initialize_peer(&peer, &peer_point).unwrap();
+        tree.initialize_peer(peer, &peer_point).unwrap();
         (tree, headers)
     }
 
