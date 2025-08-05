@@ -56,6 +56,7 @@ pub fn add<DB>(
                 row.registered_at = registered_at;
                 row.deposit = deposit;
                 row.last_interaction = None;
+            // Only an anchor update; this counts as a last interaction, though.
             } else {
                 row.last_interaction = Some(epoch);
             }

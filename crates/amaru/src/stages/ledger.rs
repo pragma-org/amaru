@@ -17,7 +17,7 @@ use amaru_consensus::IsHeader;
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Hasher, MintedBlock, Point, RawBlock,
+    EraHistory, Hash, Hasher, MintedBlock, Point, RawBlock, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -145,7 +145,12 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     ) -> anyhow::Result<Result<u64, InvalidBlockDetails>> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
-        let protocol_version = block.header.header_body.protocol_version;
+
+        // FIXME: This needs to be determined through hard fork transitions. Note that there's a
+        // field 'protocol_version' in the block header body, which we cannot rely on because it
+        // refers to the protocol version known of the node that produced the block; and not
+        // necessarily the version of the latest protocol version.
+        let protocol_version = PROTOCOL_VERSION_9;
 
         let is_catching_up = self.is_catching_up.read().map(|b| *b).unwrap_or(true);
         if is_catching_up {
