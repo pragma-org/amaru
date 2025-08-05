@@ -94,7 +94,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                         node_id.append(header_node_id, &mut self.arena);
                         self.best_chain = Some(header_node_id);
                         self.peers.insert(peer.clone(), header_node_id);
-                        Ok(ForwardChainSelection::NewTip(header))
+                        Ok(ForwardChainSelection::NewTip { peer: peer.clone(), tip: header })
                     } else {
                         let e = ConsensusError::InvalidHeaderParent {
                             peer: peer.clone(),
@@ -203,7 +203,7 @@ mod tests {
         // Now roll forward with the 6th block
         assert_eq!(
             tree.select_roll_forward(&peer, new_tip).unwrap(),
-            ForwardChainSelection::NewTip(new_tip)
+            ForwardChainSelection::NewTip { peer, tip: new_tip }
         );
         assert_eq!(tree.best_chain_tip(), Some(&new_tip));
 
@@ -253,7 +253,7 @@ mod tests {
         // Roll forward twice with the same header
         assert_eq!(
             tree.select_roll_forward(&peer, new_tip).unwrap(),
-            ForwardChainSelection::NewTip(new_tip)
+            ForwardChainSelection::NewTip { peer: peer.clone(), tip: new_tip }
         );
         assert_eq!(
             tree.select_roll_forward(&peer, new_tip).unwrap(),
@@ -261,6 +261,31 @@ mod tests {
         );
 
         assert_eq!(tree.best_chain_tip(), Some(&new_tip));
+        headers.push(new_tip);
+        assert_eq!(
+            tree.best_chain_fragment(),
+            headers.iter().collect::<Vec<&FakeHeader>>()
+        );
+    }
+
+    #[test]
+    fn test_roll_forward_with_new_peer_but_same_best_chain() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let (mut tree, mut headers) = initialize_with_peer(5, &alice);
+        let tip = headers.last().unwrap();
+        let new_tip = make_header_with_parent(tip);
+
+        // Initialize bob with the same headers as alice
+        tree.initialize_peer(&bob, &tip.point()).unwrap();
+
+        // Roll forward with a new header from bob, on the same chain
+        assert_eq!(
+            tree.select_roll_forward(&bob, new_tip).unwrap(),
+            ForwardChainSelection::NewTip { peer: bob, tip: new_tip }
+        );
+        assert_eq!(tree.best_chain_tip(), Some(&new_tip));
+
         headers.push(new_tip);
         assert_eq!(
             tree.best_chain_fragment(),
