@@ -60,6 +60,19 @@ pub enum ConsensusError {
     },
     #[error("{0}")]
     NoncesError(#[from] consensus::store::NoncesError),
+    #[error(
+        "Invalid forwarded header {} from peer {}, actual parent {}, expected parent {}",
+        forwarded,
+        peer,
+        actual,
+        expected
+    )]
+    InvalidHeaderParent {
+        peer: Peer,
+        forwarded: Hash<32>,
+        actual: Hash<32>,
+        expected: Hash<32>
+    },
 }
 
 #[cfg(test)]
