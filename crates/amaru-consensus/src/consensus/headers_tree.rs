@@ -1,4 +1,4 @@
-use crate::consensus::chain_selection::{Fork, ForwardChainSelection, Tip};
+use crate::consensus::chain_selection::{Fork, ForwardChainSelection};
 use crate::peer::Peer;
 use crate::ConsensusError;
 use amaru_kernel::{Point, ORIGIN_HASH};
@@ -171,8 +171,6 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                             rollback_point: intersection_node_id
                                 .and_then(|n| self.arena.get(n).map(|n| n.get().point()))
                                 .unwrap_or(Point::Origin),
-                            // TODO: remove, this field is unused
-                            tip: Tip::Genesis,
                             fork: fork_fragment,
                         };
                         ForwardChainSelection::SwitchToFork(fork)
@@ -445,7 +443,6 @@ mod tests {
         let fork = Fork {
             peer: bob.clone(),
             rollback_point: middle.point(),
-            tip: Tip::Genesis,
             fork,
         };
 
@@ -473,7 +470,6 @@ mod tests {
         let fork = Fork {
             peer: bob.clone(),
             rollback_point: Point::Origin,
-            tip: Tip::Genesis,
             fork: bob_headers,
         };
 
