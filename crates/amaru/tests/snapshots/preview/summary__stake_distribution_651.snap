@@ -1,6 +1,6 @@
 ---
-source: crates/amaru-ledger/src/summary/rewards.rs
-expression: "stake_distr.for_network(Network::Testnet)"
+source: crates/amaru/tests/summary.rs
+expression: stake_distr.for_network(network.into())
 ---
 {
   "epoch": 651,
@@ -18465,7 +18465,7 @@ expression: "stake_distr.for_network(Network::Testnet)"
     "stake_test1uqc49jjkd7ndrfx78rdj4s55wevg2e8kg98xmlz80kskpyqfg72t5": {
       "lovelace": 2417910,
       "pool": "pool1ynfnjspgckgxjf2zeye8s33jz3e3ndk9pcwp0qzaupzvvd8ukwt",
-      "drep": null
+      "drep": "abstain"
     },
     "stake_test1uqc4ucyr4j5pm4f2pet690qakc3uqutlp70lzs4fse5wy8g99t5xn": {
       "lovelace": 13510838809,
@@ -33415,7 +33415,7 @@ expression: "stake_distr.for_network(Network::Testnet)"
     "stake_test1uz8s62w2wup7kv6vcuxes3f55wxnh5lggarzlr9mjfvpd4qeppqpg": {
       "lovelace": 1153650914,
       "pool": "pool1ynfnjspgckgxjf2zeye8s33jz3e3ndk9pcwp0qzaupzvvd8ukwt",
-      "drep": null
+      "drep": "abstain"
     },
     "stake_test1uz8sa6mjj4jn4vvvh877pgm6qsnx9gs48cd2fuycmyx0xtcqwnf3z": {
       "lovelace": 236391788,

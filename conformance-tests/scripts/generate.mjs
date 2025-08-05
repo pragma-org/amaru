@@ -80,7 +80,7 @@ const dreps = drepsInfo
   });
 
 // Relative source  of the snapshot test in the target crate.
-const source = "crates/amaru-ledger/src/summary/rewards.rs";
+const source = "crates/amaru/tests/summary.rs";
 const exists = fs.existsSync(`../${source}`);
 if (!exists) {
   console.error(`Source file ${source} does not exist.`);
@@ -94,7 +94,7 @@ const poolIds = Object.keys(distr.stakePools).sort();
 withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
   stream.write("---\n")
   stream.write(`source: ${source}\n`)
-  stream.write(`expression: "stake_distr.for_network(Network::Testnet)"\n`)
+  stream.write(`expression: "stake_distr.for_network(network.into())"\n`)
   stream.write("---\n")
   stream.write("{");
   stream.write(`\n  "epoch": ${epoch},`);
