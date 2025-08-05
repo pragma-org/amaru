@@ -12,11 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Hash, Hasher, Header, MintedHeader, Point};
+use amaru_kernel::{cbor, Hash, Hasher, Header, MintedHeader, Point, HEADER_HASH_SIZE};
 
 pub mod fake;
-
-pub const HASH_SIZE: usize = 32;
 
 /// Interface to a header for the purpose of chain selection.
 pub trait IsHeader: cbor::Encode<()> + Sized {
@@ -25,8 +23,8 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
     /// This is used to identify the header in the chain selection.
     /// Header hash is expected to be unique for each header, eg.
     /// $h \neq h' \logeq hhash() \new h'.hash()$.
-    fn hash(&self) -> Hash<HASH_SIZE> {
-        Hasher::<{ HASH_SIZE * 8 }>::hash_cbor(self)
+    fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        Hasher::<{ HEADER_HASH_SIZE * 8 }>::hash_cbor(self)
     }
 
     /// Point to this header
@@ -36,7 +34,7 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
 
     /// Parent hash of the header
     /// Not all headers have a parent, eg. genesis block.
-    fn parent(&self) -> Option<Hash<HASH_SIZE>>;
+    fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>>;
 
     /// Block height of the header w.r.t genesis block
     fn block_height(&self) -> u64;
@@ -58,7 +56,7 @@ pub trait IsHeader: cbor::Encode<()> + Sized {
 /// and Conway era. The idea is that we only keep concrete the header from
 /// the latest era, and convert other headers on the fly when needed.
 impl IsHeader for Header {
-    fn parent(&self) -> Option<Hash<HASH_SIZE>> {
+    fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
         self.header_body.prev_hash
     }
 
@@ -76,7 +74,7 @@ impl IsHeader for Header {
 }
 
 impl IsHeader for MintedHeader<'_> {
-    fn parent(&self) -> Option<Hash<HASH_SIZE>> {
+    fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
         self.header_body.prev_hash
     }
 

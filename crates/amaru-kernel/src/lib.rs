@@ -243,11 +243,13 @@ impl Display for Point {
     }
 }
 
-impl From<&Point> for Hash<32> {
+pub const HEADER_HASH_SIZE: usize = 32;
+
+impl From<&Point> for Hash<HEADER_HASH_SIZE> {
     fn from(point: &Point) -> Self {
         match point {
             // By convention, the hash of `Genesis` is all 0s.
-            Point::Origin => Hash::from([0; 32]),
+            Point::Origin => Hash::from([0; HEADER_HASH_SIZE]),
             Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
         }
     }
