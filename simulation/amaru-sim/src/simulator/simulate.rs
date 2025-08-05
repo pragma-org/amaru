@@ -254,7 +254,7 @@ impl<Msg> Drop for World<Msg> {
 fn run_test<Msg: Debug + PartialEq + Clone, F: Fn() -> NodeHandle<Msg>>(
     number_of_nodes: u8,
     spawn: F,
-    property: impl Fn(History<Msg>) -> Result<(), String>,
+    property: impl Fn(&History<Msg>) -> Result<(), String>,
 ) -> impl Fn(&[Reverse<Entry<Msg>>]) -> (History<Msg>, Result<(), String>) {
     move |entries| {
         let node_handles: Vec<_> = (1..=number_of_nodes)
@@ -266,7 +266,7 @@ fn run_test<Msg: Debug + PartialEq + Clone, F: Fn() -> NodeHandle<Msg>>(
         match world.run_world() {
             Ok(history) => {
                 let history = History(history.to_vec());
-                let result = property(history.clone());
+                let result = property(&history);
                 (history, result)
             }
             Err((reason, history)) => (History(history.to_vec()), Err(reason)),
@@ -278,7 +278,7 @@ pub fn simulate<Msg, F>(
     config: SimulateConfig,
     spawn: F,
     generator: impl Fn(&mut StdRng) -> Vec<Reverse<Entry<Msg>>>,
-    property: impl Fn(History<Msg>) -> Result<(), String>,
+    property: impl Fn(&History<Msg>) -> Result<(), String>,
     trace_buffer: Arc<parking_lot::Mutex<TraceBuffer>>,
     persist_on_success: bool,
 ) where
@@ -421,7 +421,7 @@ mod tests {
     use std::fs;
 
     use crate::simulator::generate::{
-        generate_arrival_times, generate_u8, generate_u8_then, generate_vec, generate_zip_with,
+        generate_arrival_times, generate_u8, generate_vec, generate_zip_with,
     };
 
     use super::*;
@@ -483,11 +483,28 @@ mod tests {
 
             pure_stage_node_handle(rx, stage.without_state(), running).unwrap()
         };
+        simulate(
+            SimulateConfig {
+                number_of_tests,
+                seed,
+                number_of_nodes,
+                disable_shrinking: false,
+            },
+            spawn,
+            echo_generator,
+            echo_property,
+            TraceBuffer::new_shared(0, 0),
+            false,
+        )
+    }
+
+    fn echo_generator(rng: &mut StdRng) -> Vec<Reverse<Entry<EchoMessage>>> {
         let now = Instant::at_offset(Duration::from_secs(0));
         let size = 20;
-        let generator = generate_zip_with(
-            generate_vec(size, generate_u8(0, 128)),
-            |rng| generate_arrival_times(rng, now, 200.0, size),
+        let messages = generate_zip_with(
+            size,
+            generate_vec(generate_u8(0, 128)),
+            generate_arrival_times(now, 200.0),
             |msg, arrival_time| {
                 Reverse(Entry {
                     arrival_time,
@@ -501,27 +518,12 @@ mod tests {
                     },
                 })
             },
-        );
-
-        simulate(
-            SimulateConfig {
-                number_of_tests,
-                seed,
-                number_of_nodes,
-                disable_shrinking: false,
-            },
-            spawn,
-            generator,
-            ECHO_PROPERTY,
-            TraceBuffer::new_shared(0, 0),
-            false,
-        )
+        )(rng);
+        messages
     }
 
     // TODO: Take response time into account.
-    const ECHO_PROPERTY: fn(History<EchoMessage>) -> Result<(), String> = |history: History<
-        EchoMessage,
-    >| {
+    fn echo_property(history: &History<EchoMessage>) -> Result<(), String> {
         for (index, msg) in history
             .0
             .iter()
@@ -543,7 +545,7 @@ mod tests {
             }
         }
         Ok(())
-    };
+    }
 
     // This shows how we can test external binaries. The test is disabled because building and
     // locating a binary on CI, across all platforms, is annoying.
@@ -557,23 +559,6 @@ mod tests {
         let spawn: fn() -> NodeHandle<EchoMessage> = || {
             pipe_node_handle(Path::new("../../target/debug/echo"), &[]).expect("node handle failed")
         };
-        let now = Instant::at_offset(Duration::from_secs(0));
-        let generate_messages = generate_vec(
-            10,
-            generate_u8_then(0, 128, |i| {
-                Reverse(Entry {
-                    arrival_time: now,
-                    envelope: Envelope {
-                        src: "c1".to_string(),
-                        dest: "n1".to_string(),
-                        body: EchoMessage::Echo {
-                            msg_id: 0,
-                            echo: format!("Please echo {}", i),
-                        },
-                    },
-                })
-            }),
-        );
         simulate(
             SimulateConfig {
                 number_of_tests,
@@ -582,8 +567,8 @@ mod tests {
                 disable_shrinking: false,
             },
             spawn,
-            generate_messages,
-            ECHO_PROPERTY,
+            echo_generator,
+            echo_property,
             TraceBuffer::new_shared(0, 0),
             false,
         )
