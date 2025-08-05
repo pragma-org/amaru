@@ -29,7 +29,22 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     pub fn new(headers: Vec<H>) -> HeadersTree<H> {
         // Create a new arena
         let mut arena: Arena<H> = Arena::new();
+        let best_chain = HeadersTree::insert_headers_into_arena(&mut arena, headers);
 
+        HeadersTree {
+            arena,
+            best_chain,
+            peers: BTreeMap::new(),
+        }
+    }
+
+    /// Insert headers into the tree structure to initialize the chain of a new peer
+    fn insert_headers(&mut self, headers: Vec<H>) {
+        _ = Self::insert_headers_into_arena(&mut self.arena, headers)
+    }
+
+    /// Insert headers into the arena and return the last created node id
+    fn insert_headers_into_arena(arena: &mut Arena<H>, headers: Vec<H>) -> Option<NodeId> {
         let mut iter = headers.into_iter();
         if let Some(first) = iter.next() {
             let rest: Vec<_> = iter.collect();
@@ -37,20 +52,12 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
 
             for header in rest {
                 let new_node_id = arena.new_node(header);
-                last_node_id.append(new_node_id, &mut arena);
+                last_node_id.append(new_node_id, arena);
                 last_node_id = new_node_id;
             }
-            HeadersTree {
-                arena,
-                best_chain: Some(last_node_id),
-                peers: BTreeMap::new(),
-            }
+            Some(last_node_id)
         } else {
-            HeadersTree {
-                arena,
-                best_chain: None,
-                peers: BTreeMap::new(),
-            }
+            None
         }
     }
 
@@ -444,6 +451,34 @@ mod tests {
 
         assert_eq!(
             tree.select_roll_forward(&bob, bob_new_header3).unwrap(),
+            ForwardChainSelection::SwitchToFork(fork)
+        );
+    }
+
+    #[test]
+    fn test_roll_forward_with_fork_to_a_disjoint_chain() {
+        let alice = Peer::new("alice");
+        let mut tree = initialize_with_peer(5, &alice).0;
+
+        // Initialize bob with a completely different chain of the same size
+        let bob = Peer::new("bob");
+        let mut bob_headers = generate_headers_anchored_at(None, 5);
+        let bob_tip = bob_headers.last().unwrap();
+        tree.insert_headers(bob_headers.clone());
+        tree.initialize_peer(&bob, &bob_tip.point()).unwrap();
+
+        // Adding a new header for bob must create a fork
+        let bob_new_tip = make_header_with_parent(&bob_tip);
+        bob_headers.push(bob_new_tip.clone());
+        let fork = Fork {
+            peer: bob.clone(),
+            rollback_point: Point::Origin,
+            tip: Tip::Genesis,
+            fork: bob_headers,
+        };
+
+        assert_eq!(
+            tree.select_roll_forward(&bob, bob_new_tip).unwrap(),
             ForwardChainSelection::SwitchToFork(fork)
         );
     }
