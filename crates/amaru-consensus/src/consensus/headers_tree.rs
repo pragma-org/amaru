@@ -6,6 +6,7 @@ use amaru_ouroboros_traits::IsHeader;
 use indextree::{Arena, NodeId};
 use pallas_crypto::hash::Hash;
 use std::collections::BTreeMap;
+use tracing::debug;
 
 /// This data type stores chains as a tree of headers.
 /// It also keeps track of what is the latest tip for each peer.
@@ -13,6 +14,7 @@ use std::collections::BTreeMap;
 /// The main function of this data type is to be able to always return the best chain for the current
 /// tree of headers.
 ///
+#[derive(Debug)]
 pub struct HeadersTree<H> {
     /// The arena maintains a list of headers and their parent/child relationship.
     arena: Arena<H>,
@@ -94,12 +96,14 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                         self.peers.insert(peer.clone(), header_node_id);
                         Ok(ForwardChainSelection::NewTip(header))
                     } else {
-                        Err(ConsensusError::InvalidHeaderParent {
+                        let e = ConsensusError::InvalidHeaderParent {
                             peer: peer.clone(),
                             forwarded: header.hash(),
                             actual: header.parent().unwrap_or(ORIGIN_HASH),
                             expected: current_node_hash,
-                        })
+                        };
+                        debug!("{e}. The current headers tree is {:?}", &self);
+                        Err(e)
                     }
                 }
             }
@@ -224,7 +228,7 @@ mod tests {
         tree.initialize_peer(&peer, &peer_point).unwrap();
 
         // Now roll forward with the 6th block
-        assert!(tree.select_roll_forward(&peer, new_tip).is_err(),);
+        assert!(tree.select_roll_forward(&peer, new_tip).is_err());
     }
 
     #[test]
@@ -262,7 +266,6 @@ mod tests {
             tree.best_chain_fragment(),
             headers.iter().collect::<Vec<&FakeHeader>>()
         );
-
     }
 
     /// HELPERS
