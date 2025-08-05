@@ -96,9 +96,9 @@ impl SelectChain {
             .select_roll_forward(&peer, header);
 
         let events = match result {
-            chain_selection::ForwardChainSelection::NewTip(hdr) => {
-                trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
-                vec![self.forward_block(peer, hdr, span)]
+            chain_selection::ForwardChainSelection::NewTip { peer, tip } => {
+                trace!(target: EVENT_TARGET, hash = %tip.hash(), "new_tip");
+                vec![self.forward_block(peer, tip, span)]
             }
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,

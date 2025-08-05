@@ -238,7 +238,10 @@ pub struct Fork<H: IsHeader> {
 #[derive(Debug, PartialEq)]
 pub enum ForwardChainSelection<H: IsHeader> {
     /// The current best chain has been extended with a (single) new header.
-    NewTip(H),
+    NewTip {
+        peer: Peer,
+        tip: H
+    },
 
     /// The current best chain is unchanged.
     NoChange,
@@ -344,7 +347,7 @@ where
                 let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
                 let result = if self.tip.is_parent_of(&best_tip) {
-                    NewTip(header.clone())
+                    NewTip { peer: peer.clone(), tip: header.clone() }
                 } else if best_tip.block_height() > self.tip.block_height() {
                     let fragment = self.peers_chains.get(&best_peer).unwrap();
                     SwitchToFork(Fork {
@@ -538,7 +541,7 @@ pub(crate) mod tests {
 
         let result = chain_selector.unwrap().select_roll_forward(&alice, header);
 
-        assert_eq!(ForwardChainSelection::NewTip(header), result);
+        assert_eq!(ForwardChainSelection::NewTip { peer: alice, tip: header }, result);
     }
 
     #[test]
@@ -680,7 +683,7 @@ pub(crate) mod tests {
         chain_selector.select_rollback(&alice, hash);
         let result = chain_selector.select_roll_forward(&alice, new_header);
 
-        assert_eq!(ForwardChainSelection::NewTip(new_header), result);
+        assert_eq!(ForwardChainSelection::NewTip { peer: alice, tip: new_header }, result);
     }
 
     #[test]
