@@ -52,7 +52,7 @@ mod tests {
         ($number:literal) => {
             (
                 include_cbor!(concat!("blocks/preprod/", $number, "/valid.cbor")),
-                ProtocolParameters::default(),
+                amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($number:literal, $pp:expr) => {
@@ -69,7 +69,7 @@ mod tests {
             mem: 0,
             steps: 0
         },
-        ..Default::default()
+        ..amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
     }) => matches Err(InvalidBlockDetails::TooManyExUnits{provided, max: _})
     if provided == ExUnits {mem: 1267029, steps: 289959162}; "invalid ex units")]
     fn test_ex_units(

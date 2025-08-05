@@ -134,7 +134,7 @@ pub(crate) mod tests {
         },
         tests::{fake_input, fake_output},
     };
-    use amaru_kernel::protocol_parameters::ProtocolParameters;
+    use amaru_kernel::{protocol_parameters, protocol_parameters::ProtocolParameters};
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
@@ -177,7 +177,7 @@ pub(crate) mod tests {
 
         let results = rules::block::execute(
             &mut AssertValidationContext::from(ctx),
-            &ProtocolParameters::default(),
+            &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &block,
         );
 
@@ -193,7 +193,7 @@ pub(crate) mod tests {
     fn validate_block_header_size_too_big() {
         let pp = ProtocolParameters {
             max_header_size: 1,
-            ..Default::default()
+            ..protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
         };
 
         let mut ctx = (*CONWAY_BLOCK_CONTEXT).clone();

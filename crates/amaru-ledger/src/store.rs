@@ -51,6 +51,13 @@ pub enum TipErrorKind {
     Missing,
 }
 
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub enum ProtocolParametersErrorKind {
+    #[error("no database protocol parameters. Did you forget to 'import' a snapshot first?")]
+    Missing,
+}
+
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
@@ -63,6 +70,8 @@ pub enum StoreError {
     Open(#[source] OpenErrorKind),
     #[error("error opening the tip: {0}")]
     Tip(#[source] TipErrorKind),
+    #[error("error retrieving protocol parameters: {0}")]
+    ProtocolParameters(#[source] ProtocolParametersErrorKind),
 }
 
 // Store

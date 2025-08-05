@@ -20,7 +20,8 @@ use amaru_kernel::{
 use amaru_ledger::{
     store::{
         columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
-        ReadStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
+        ProtocolParametersErrorKind, ReadStore, Snapshot, Store, StoreError, TipErrorKind,
+        TransactionalContext,
     },
     summary::Pots,
 };
@@ -185,8 +186,8 @@ macro_rules! impl_ReadStore {
                 &self,
                 epoch: &Epoch,
             ) -> Result<ProtocolParameters, StoreError> {
-                get(|key| self.db.get(key), &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))
-                    .map(|row| row.unwrap_or_default())
+                get(|key| self.db.get(key), &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))?
+                    .ok_or(StoreError::ProtocolParameters(ProtocolParametersErrorKind::Missing))
             }
 
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {

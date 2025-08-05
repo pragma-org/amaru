@@ -25,8 +25,8 @@ use amaru_ledger::store::{
         pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
         votes as votes_column,
     },
-    EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
-    TransactionalContext,
+    EpochTransitionProgress, HistoricalStores, ProtocolParametersErrorKind, ReadStore, Snapshot,
+    Store, StoreError, TransactionalContext,
 };
 use iter_borrow::IterBorrow;
 use slot_arithmetic::Epoch;
@@ -86,7 +86,12 @@ impl Snapshot for MemoryStore {
 impl ReadStore for MemoryStore {
     fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError> {
         let map = self.p_params.borrow();
-        let params = map.get(epoch).cloned().unwrap_or_default();
+        let params = map
+            .get(epoch)
+            .cloned()
+            .ok_or(StoreError::ProtocolParameters(
+                ProtocolParametersErrorKind::Missing,
+            ))?;
         Ok(params)
     }
 

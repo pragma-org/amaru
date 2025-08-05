@@ -14,10 +14,9 @@
 
 use amaru::snapshots_dir;
 use amaru_kernel::{
-    default_ledger_dir,
-    network::NetworkName,
-    protocol_parameters::{GlobalParameters, ProtocolParameters},
-    ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+    default_ledger_dir, network::NetworkName, protocol_parameters,
+    protocol_parameters::GlobalParameters, ProtocolVersion, PROTOCOL_VERSION_10,
+    PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     store::Snapshot,
@@ -87,14 +86,20 @@ fn compare_snapshot(epoch: Epoch) {
         .expect("$NETWORK must be set to a valid network name");
     let snapshot = db(network, epoch);
     let global_parameters: &GlobalParameters = network.into();
-    let protocol_parameters = ProtocolParameters::default();
+
+    // FIXME: Update protocol parameters according to the underlying epoch being tested for.
+    let protocol_parameters = match network {
+        NetworkName::Preprod => &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+        NetworkName::Preview => &protocol_parameters::PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
+        NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
+    };
 
     let protocol_version = protocol_version(epoch, network);
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         protocol_version,
         network.into(),
-        &protocol_parameters,
+        protocol_parameters,
     )
     .unwrap();
 
@@ -102,7 +107,7 @@ fn compare_snapshot(epoch: Epoch) {
         snapshot.as_ref(),
         protocol_version,
         dreps,
-        &protocol_parameters,
+        protocol_parameters,
     )
     .unwrap();
 
@@ -121,10 +126,10 @@ fn compare_snapshot(epoch: Epoch) {
         snapshot_from_the_future.as_ref(),
         stake_distr,
         global_parameters,
-        &protocol_parameters,
+        protocol_parameters,
     )
     .unwrap()
-    .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), &protocol_parameters)
+    .with_unclaimed_refunds(snapshot_from_the_future.as_ref(), protocol_parameters)
     .unwrap();
 
     insta::with_settings!({

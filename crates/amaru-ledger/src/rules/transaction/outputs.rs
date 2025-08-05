@@ -145,7 +145,7 @@ mod tests {
         ($hash:literal) => {
             (
                 include_cbor!(concat!("transactions/preprod/", $hash, "/tx.cbor")),
-                ProtocolParameters::default(),
+                amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $variant:literal) => {
@@ -157,7 +157,7 @@ mod tests {
                     $variant,
                     "/tx.cbor"
                 )),
-                ProtocolParameters::default(),
+                amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone(),
             )
         };
         ($hash:literal, $pp:expr) => {
@@ -170,15 +170,25 @@ mod tests {
 
     #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2"); "valid")]
     #[test_case(
-        fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", ProtocolParameters { coins_per_utxo_byte: 100_000_000_000, ..Default::default() }) =>
-        matches Err(InvalidOutputs{invalid_outputs})
+        fixture!(
+            "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
+            ProtocolParameters {
+                coins_per_utxo_byte: 100_000_000_000,
+                ..amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+            }
+        ) => matches Err(InvalidOutputs{invalid_outputs})
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::TooSmall { .. }
             });
         "output too small")]
-    #[test_case(fixture!("4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2", ProtocolParameters { max_val_size: 1, ..Default::default() }) =>
-        matches Err(InvalidOutputs{invalid_outputs})
+    #[test_case(fixture!(
+            "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
+            ProtocolParameters {
+                max_val_size: 1,
+                ..amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
+            }
+        ) => matches Err(InvalidOutputs{invalid_outputs})
             if matches!(invalid_outputs[0], WithPosition {
                 position: 0,
                 element: InvalidOutput::ValueTooLarge {..}
