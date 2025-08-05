@@ -67,5 +67,14 @@
     { "epoch": 709, "id": "15b51d2c9baed34d8ad3389668df840b6fd37624008bf347c607135750600251", "slot": 61343920 },
     { "epoch": 710, "id": "de38a673bb81d3f0e9d8d90011ef54a44d860f7d83a7703fb895505eb10d639c", "slot": 61430385 }
   ],
-  "additionalStakeAddresses": []
+  "additionalStakeAddresses": [
+    "stake_test1uqc49jjkd7ndrfx78rdj4s55wevg2e8kg98xmlz80kskpyqfg72t5",
+    "stake_test1uz8s62w2wup7kv6vcuxes3f55wxnh5lggarzlr9mjfvpd4qeppqpg",
+    "stake_test1upht5749lgcs0lvxxrf68hhlpj7mx9kqvt84g2qx3qspscqj37vrz",
+    "stake_test1urg3d0s94dxdfps94m67c4zpvjr64z32kteqqatvvcq06hcr59kcn",
+    "stake_test1uzdu8ryjs49cet2ufsjlfm94xyghekymw2wd5aratqr862s2pzmug",
+    "stake_test1upfutnjyztppv6cypwe0tvelpa0cqepv8f2mfa7dq94vz9ca6yqhn",
+    "stake_test1urgwr8hxv0jwasxusz2shqas8mwxpfc0p6uynxlp3hnmpdct64n5z",
+    "stake_test1urlcgva58npxl83g8l8gt8kduxjdvlpu8gv3cajtd9vetkg9fy8xp"
+  ]
 }
