@@ -160,9 +160,9 @@ mod tests {
 
     #[test]
     fn test_initialize_peer() {
-        let headers = generate_headers_anchored_at(None, 5);
+        let (mut tree, headers) = create_headers_tree(5);
+
         let peer = Peer::new("alice");
-        let mut tree = HeadersTree::new(headers.clone());
 
         let last = headers.last().unwrap();
         let peer_point = Point::Specific(10, last.hash().to_vec());
@@ -173,8 +173,7 @@ mod tests {
 
     #[test]
     fn test_initialize_peer_point_not_found() {
-        let headers = generate_headers_anchored_at(None, 5);
-        let mut tree = HeadersTree::new(headers.clone());
+        let mut tree = create_headers_tree(5).0;
 
         let peer = Peer::new("alice");
         let peer_point = Point::Specific(10, random_bytes(HEADER_HASH_SIZE).into());
@@ -183,17 +182,14 @@ mod tests {
 
     #[test]
     fn test_roll_forward() {
-        // create 6 chained headers, the first 5 are used to create the first best chain
-        let headers = generate_headers_anchored_at(None, 6);
-        let tip = headers.get(4).unwrap().clone();
-        let new_tip = headers.last().unwrap().clone();
-        let mut tree = HeadersTree::new(
-            headers
-                .clone()
-                .into_iter()
-                .take(5)
-                .collect::<Vec<FakeHeader>>(),
-        );
+        let (mut tree, mut headers) = create_headers_tree(5);
+        let tip = headers.last().unwrap().clone();
+        let new_tip = FakeHeader {
+            block_number: 1,
+            slot: 0,
+            parent: Some(tip.hash()),
+            body_hash: random_bytes(HEADER_HASH_SIZE).as_slice().into(),
+        };
 
         // initialize alice as a peer with last known header = 5
         let peer = Peer::new("alice");
@@ -206,6 +202,8 @@ mod tests {
             ForwardChainSelection::NewTip(new_tip)
         );
         assert_eq!(tree.best_chain_tip(), Some(&new_tip));
+
+        headers.push(new_tip);
         assert_eq!(
             tree.best_chain_fragment(),
             headers.iter().collect::<Vec<&FakeHeader>>()
@@ -214,8 +212,7 @@ mod tests {
 
     #[test]
     fn test_roll_forward_with_incorrect_parent() {
-        // create 6 chained headers, the first 5 are used to create the first best chain
-        let headers = generate_headers_anchored_at(None, 5);
+        let (mut tree, headers) = create_headers_tree(5);
         let tip = headers.last().unwrap().clone();
 
         // create a new tip pointing to an incorrect parent (the first header of the chain in this example)
@@ -225,7 +222,6 @@ mod tests {
             parent: Some(headers.first().unwrap().hash()),
             body_hash: random_bytes(HEADER_HASH_SIZE).as_slice().into(),
         };
-        let mut tree = HeadersTree::new(headers);
 
         // initialize alice as a peer with last known header = 5
         let peer = Peer::new("alice");
@@ -238,9 +234,8 @@ mod tests {
 
     #[test]
     fn test_roll_forward_with_unknown_peer() {
-        let headers = generate_headers_anchored_at(None, 5);
+        let (mut tree, headers) = create_headers_tree(5);
         let last = headers.last().unwrap();
-        let mut tree = HeadersTree::new(headers.clone());
 
         let peer = Peer::new("alice");
         let peer_point = Point::Specific(10, last.hash().to_vec());
@@ -249,5 +244,12 @@ mod tests {
         // Now roll forward with an unknown peer
         let peer = Peer::new("bob");
         assert!(tree.select_roll_forward(&peer, last.clone()).is_err());
+    }
+
+    /// HELPERS
+    fn create_headers_tree(size: u32) -> (HeadersTree<FakeHeader>, Vec<FakeHeader>) {
+        let headers = generate_headers_anchored_at(None, size);
+        let tree = HeadersTree::new(headers.clone());
+        (tree, headers)
     }
 }
