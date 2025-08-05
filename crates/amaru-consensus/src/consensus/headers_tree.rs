@@ -121,7 +121,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     }
 
     /// Given a new header insertion for a given peer, at parent_node_id,
-    /// determine if this is a NewTip or a SwitchToFork
+    /// determine if this is a NoChange, NewTip or a SwitchToFork
     fn select_new_best_chain(
         &mut self,
         peer: &Peer,
@@ -131,7 +131,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     ) -> ForwardChainSelection<H> {
         match self.best_chain {
             Some(current_tip) => {
-                // if we added the new node on top of the current best chain, we have a new tip
+                // If we added the new node on top of the current best chain, we have a new tip
                 if *parent_node_id == current_tip {
                     self.best_chain = Some(header_node_id.clone());
                     ForwardChainSelection::NewTip {
@@ -140,19 +140,33 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                     }
                 } else {
                     let current_tip_header = self.arena.get(current_tip).expect("todo").get();
-                    // if the new header does not improve the current height we keep the same best chain
+                    // If the new header does not improve the current chain height we keep the same best chain
                     if header.block_height() <= current_tip_header.block_height() {
                         ForwardChainSelection::NoChange
                     } else {
-                        // otherwise, if the new header creates a longer chain, we have a fork
-                        // The rollback point is the intersection of the previous best chain and the new one.
+                        // Otherwise, if the new header creates a longer chain, we have a fork
+
+                        // We set the new best chain
                         self.best_chain = Some(header_node_id.clone());
-                        let new_chain = self.get_chain_from(header_node_id);
+
+                        // The rollback point is the intersection of the previous best chain and the new one.
+                        // The fork_fragment is the list of header that must be recreated after the rollback point.
+                        let intersection_node_id: Option<NodeId> =
+                            self.find_intersection_node_id(header_node_id, &current_tip);
+                        let mut fork_fragment: Vec<H> = header_node_id
+                            .ancestors(&self.arena)
+                            .take_while(|n| Some(*n) != intersection_node_id)
+                            .filter_map(|n| self.arena.get(n).map(|n| n.get().clone()))
+                            .collect();
+                        fork_fragment.reverse();
                         let fork = Fork {
                             peer: peer.clone(),
-                            rollback_point: Point::Origin,
-                            tip: Tip::Hdr(header),
-                            fork: new_chain.into_iter().map(|h| h.clone()).collect::<Vec<H>>(),
+                            rollback_point: intersection_node_id
+                                .and_then(|n| self.arena.get(n).map(|n| n.get().point()))
+                                .unwrap_or(Point::Origin),
+                            // TODO: remove, this field is unused
+                            tip: Tip::Genesis,
+                            fork: fork_fragment,
                         };
                         ForwardChainSelection::SwitchToFork(fork)
                     }
@@ -175,6 +189,21 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             .get(peer)
             .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?;
         Ok(self.arena.get(*node_id).map(|node| node.get()))
+    }
+
+    /// Return the node id that is the least common parent between 2 node ids
+    fn find_intersection_node_id(&self, node_id1: &NodeId, node_id2: &NodeId) -> Option<NodeId> {
+        let mut ancestors1: Vec<NodeId> = node_id1.ancestors(&self.arena).collect();
+        let mut ancestors2: Vec<NodeId> = node_id2.ancestors(&self.arena).collect();
+        ancestors1.reverse();
+        ancestors2.reverse();
+
+        ancestors1
+            .into_iter()
+            .zip(ancestors2.into_iter())
+            .take_while(|(n1, n2)| n1 == n2)
+            .last()
+            .map(|ns| ns.0)
     }
 
     /// Add a peer and its current chain tip.
@@ -364,10 +393,10 @@ mod tests {
         // Initialize bob with the less headers than alice
         let bob = Peer::new("bob");
         let middle = headers.get(2).unwrap();
-        let new_tip_for_bob = make_header_with_parent(middle);
         tree.initialize_peer(&bob, &middle.point()).unwrap();
 
         // Roll forward with a new header from bob
+        let new_tip_for_bob = make_header_with_parent(middle);
         assert_eq!(
             tree.select_roll_forward(&bob, new_tip_for_bob).unwrap(),
             ForwardChainSelection::NoChange
@@ -383,6 +412,39 @@ mod tests {
             tree.best_chain_fragment(),
             headers.iter().collect::<Vec<&FakeHeader>>(),
             "the best chain hasn't changed"
+        );
+    }
+
+    #[test]
+    fn test_roll_forward_with_another_peer_on_a_longer_chain() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+
+        // Initialize bob with some headers common with alice + additional headers that are different
+        // so that their chains have the same length
+        let bob = Peer::new("bob");
+        let middle = headers.get(2).unwrap();
+        tree.initialize_peer(&bob, &middle.point()).unwrap();
+
+        // Roll forward with 2 new headers from bob
+        let bob_new_header1 = make_header_with_parent(middle);
+        let bob_new_header2 = make_header_with_parent(&bob_new_header1);
+        tree.select_roll_forward(&bob, bob_new_header1).unwrap();
+        tree.select_roll_forward(&bob, bob_new_header2).unwrap();
+
+        // Adding a new header must create a fork
+        let bob_new_header3 = make_header_with_parent(&bob_new_header2);
+        let fork: Vec<FakeHeader> = vec![bob_new_header1, bob_new_header2, bob_new_header3];
+        let fork = Fork {
+            peer: bob.clone(),
+            rollback_point: middle.point(),
+            tip: Tip::Genesis,
+            fork,
+        };
+
+        assert_eq!(
+            tree.select_roll_forward(&bob, bob_new_header3).unwrap(),
+            ForwardChainSelection::SwitchToFork(fork)
         );
     }
 
