@@ -22,11 +22,29 @@ use tracing::{instrument, Level};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
-/// A fragment of the chain, represented by a list of headers
-/// and an anchor.
-/// The list of headers /must/ be a sequence of headers such that
-/// each element has the next one as parent. The anchor is the
-/// parent of the last element of the sequence.
+/// A fragment of the chain, represented by a list of headers and an anchor.
+///
+/// The list of headers /must/ be a sequence of headers such that each element has the previous one
+/// as parent.
+///
+/// The anchor is the parent of the first element of the sequence. For example:
+///
+/// ```text
+/// headers = vec![Header(1, parent = 0), Header(2, parent = 1), Header(3, parent = 2)]
+/// anchor = Header(0, parent = Genesis)
+/// ```
+///
+/// In this case, the tip of the [[Fragment]] is the "youngest" header: `Header(3, parent = 2)`.
+///
+/// If the chain needs to be trimmed to a chain of maximum length = 2, the result is:
+///
+/// ```text
+///  headers = vec![Header(3, parent = 2)]
+///  anchor = Header(2, parent = 1)
+/// ```
+///
+/// So that the total number of headers tracked in the Fragment is <= 2.
+///
 #[derive(Debug, PartialEq)]
 pub struct Fragment<H: IsHeader> {
     headers: Vec<H>,
