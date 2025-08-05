@@ -103,7 +103,6 @@ impl SelectChain {
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
-                tip: _,
                 fork,
             }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
@@ -143,7 +142,6 @@ impl SelectChain {
                 peer,
                 rollback_point,
                 fork,
-                tip: _,
             }) => Ok(self.switch_to_fork(peer, rollback_point, fork, span)),
             RollbackChainSelection::NoChange => Ok(vec![]),
             RollbackChainSelection::RollbackBeyondLimit(peer, rollback_point, max_point) => {

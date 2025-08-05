@@ -229,7 +229,6 @@ pub struct ChainSelector<H: IsHeader> {
 pub struct Fork<H: IsHeader> {
     pub peer: Peer,
     pub rollback_point: Point,
-    pub tip: Tip<H>,
     pub fork: Vec<H>,
 }
 
@@ -353,7 +352,6 @@ where
                     SwitchToFork(Fork {
                         peer: best_peer,
                         rollback_point: fragment.anchor.point(),
-                        tip: best_tip,
                         fork: fragment.headers.clone(),
                     })
                 } else {
@@ -401,7 +399,6 @@ where
             SwitchToFork(Fork {
                 peer: best_peer,
                 rollback_point: fragment.anchor.point(),
-                tip: best_tip.clone(),
                 fork: fragment.headers.clone(),
             })
         };
@@ -601,7 +598,6 @@ pub(crate) mod tests {
             ForwardChainSelection::SwitchToFork(Fork {
                 peer: bob,
                 rollback_point: Point::Origin,
-                tip: Tip::Hdr(chain2[5]),
                 fork: chain2
             }),
             result.unwrap()
@@ -715,7 +711,6 @@ pub(crate) mod tests {
             RollbackChainSelection::SwitchToFork(Fork {
                 peer: bob,
                 rollback_point: Point::Origin,
-                tip: Tip::Hdr(chain2[5]),
                 fork: chain2
             }),
             result
