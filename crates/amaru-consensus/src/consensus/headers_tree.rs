@@ -34,7 +34,6 @@ pub struct HeadersTree<H> {
 ///  - The chain length
 #[derive(Debug, Clone)]
 struct PeerChain {
-    anchor: NodeId,
     tip: NodeId,
     length: usize,
 }
@@ -153,38 +152,27 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     /// Insert a new header in the arena and maintain:
     ///  - The peer tip
     ///  - The chain length
-    ///  - The chain anchor
     fn insert_header(&mut self, peer: &Peer, header: H, parent_node_id: &NodeId) -> NodeId {
         let header_node_id = self.arena.new_node(header.clone());
         parent_node_id.append(header_node_id, &mut self.arena);
         let mut peer_chain = self
             .peers
             .get(peer)
-            .unwrap_or_else(|| panic!("no chain information found for peer {peer}")).clone();
+            .unwrap_or_else(|| panic!("no chain information found for peer {peer}"))
+            .clone();
         peer_chain.tip = header_node_id;
         // If the current chain (before the new header) is already at the maximum length
         // we need to move the anchor point one header up in the chain
         if peer_chain.length == self.max_length {
-            // if no other peer is using the old anchor, the old anchor can be dropped
-            let other_anchors: Vec<NodeId> = self
-                .peers
-                .values()
-                .filter(|a| a.anchor != peer_chain.anchor)
-                .map(|pc| pc.anchor)
-                .collect();
-            let anchor_ancestors: Vec<NodeId> = peer_chain.anchor.ancestors(&self.arena).collect();
-            let can_be_dropped = other_anchors.is_empty()
-                || other_anchors.iter().any(|a| anchor_ancestors.contains(a));
-
-            if can_be_dropped {
-                peer_chain.anchor.remove(&mut self.arena);
-            }
-            let new_anchor = header_node_id
+            let ancestors = header_node_id
                 .ancestors(&self.arena)
-                .take_while(|a| *a != peer_chain.anchor)
-                .last()
-                .unwrap_or(header_node_id);
-            peer_chain.anchor = new_anchor;
+                .collect::<Vec<NodeId>>();
+            match ancestors[ancestors.len() - 2..ancestors.len()] {
+                [_new_root, root] => {
+                    root.remove(&mut self.arena);
+                }
+                _ => unimplemented!(),
+            }
         } else {
             peer_chain.length += 1;
         };
@@ -286,10 +274,6 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                     // The anchor of the peer chain is the root of the ancestors retrieved from the tip of the chain
                     let ancestors: Vec<NodeId> = node_id.ancestors(&self.arena).collect();
                     let peer_chain = PeerChain {
-                        // there should be at least one element in the ancestors list, which is the tip
-                        anchor: *ancestors
-                            .last()
-                            .expect("an ancestors list must contain at least one element"),
                         tip: node_id,
                         length: ancestors.len(),
                     };
