@@ -29,7 +29,6 @@ pub struct HeadersTree<H> {
 
 /// This data type tracks the chain of a peer inside the arena:
 ///
-///  - Where the chain starts: anchor
 ///  - Where it stops: tip
 ///  - The chain length
 #[derive(Debug, Clone)]
@@ -42,6 +41,11 @@ struct PeerChain {
 impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     /// Initialize a HeadersTree from a best chain (h[n - 1] is assumed to be the parent of h[n] in the vector).
     pub fn new(mut headers: Vec<H>, max_length: usize, capacity: usize) -> HeadersTree<H> {
+        assert!(
+            max_length >= 2,
+            "Cannot create a headers tree with maximum chain length lower than 2"
+        );
+
         // Create a new arena
         let mut arena: Arena<H> = Arena::with_capacity(capacity);
         headers.truncate(max_length);
@@ -62,13 +66,10 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     }
 
     fn pretty_print(&self) -> String {
-        let root = self
-            .best_chain
-            .unwrap()
-            .ancestors(&self.arena)
-            .last()
-            .unwrap();
-        format!("{:?}", root.debug_pretty_print(&self.arena))
+        self.best_chain
+            .and_then(|tip| tip.ancestors(&self.arena).last())
+            .map(|root| format!("{:?}", root.debug_pretty_print(&self.arena)))
+            .unwrap_or("".to_string())
     }
 
     /// Insert headers into the tree structure to initialize the chain of a new peer
@@ -143,7 +144,6 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             .ancestors(&self.arena)
             .filter_map(|n_id| self.arena.get(n_id).map(|n| n.get()))
             .collect();
-        chain.truncate(self.max_length);
         chain.reverse();
         chain
     }
@@ -162,6 +162,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     /// Insert a new header in the arena and maintain:
     ///  - The peer tip
     ///  - The chain length
+    #[allow(clippy::panic)]
     fn insert_header(&mut self, peer: &Peer, header: H, parent_node_id: &NodeId) -> NodeId {
         let mut peer_chain = self
             .peers
@@ -171,22 +172,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         // If the current chain (before the new header) is already at the maximum length
         // we need to move the anchor point one header up in the chain
         if peer_chain.length == self.max_length {
-            let ancestors = parent_node_id
-                .ancestors(&self.arena)
-                .collect::<Vec<NodeId>>();
-            match ancestors[ancestors.len() - 2..ancestors.len()] {
-                [new_root, root] => {
-                    let to_remove = root
-                        .children(&self.arena)
-                        .filter(|nid| *nid != new_root)
-                        .collect::<Vec<NodeId>>();
-                    for nid in to_remove {
-                        nid.remove_subtree(&mut self.arena);
-                    }
-                    root.remove(&mut self.arena);
-                }
-                _ => unimplemented!(),
-            }
+            self.prune_unreachable_nodes(parent_node_id);
         } else {
             peer_chain.length += 1;
         };
@@ -196,6 +182,26 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         peer_chain.tip = header_node_id;
         self.peers.insert(peer.clone(), peer_chain);
         header_node_id
+    }
+
+    fn prune_unreachable_nodes(&mut self, parent_node_id: &NodeId) {
+        let ancestors = parent_node_id
+            .ancestors(&self.arena)
+            .collect::<Vec<NodeId>>();
+
+        match ancestors[ancestors.len() - 2..ancestors.len()] {
+            [new_root, root] => {
+                let to_remove = root
+                    .children(&self.arena)
+                    .filter(|nid| *nid != new_root)
+                    .collect::<Vec<NodeId>>();
+                for nid in to_remove {
+                    nid.remove_subtree(&mut self.arena);
+                }
+                root.remove(&mut self.arena);
+            }
+            _ => panic!("This chain selection tree is configured with a maximum chain length lower than 2 ({}), which does not make sense", self.max_length),
+        }
     }
 
     /// Given a new header insertion for a given peer, at parent_node_id,
@@ -641,6 +647,12 @@ mod tests {
 
         _ = tree.select_roll_forward(&alice, alice_new_header2).unwrap();
         assert_eq!(tree.size(), 12);
+    }
+
+    #[test]
+    #[should_panic]
+    fn cannot_initialize_tree_with_k_lower_than_2() {
+        HeadersTree::new(generate_headers_anchored_at(None, 1), 1, 1000);
     }
 
     /// HELPERS
