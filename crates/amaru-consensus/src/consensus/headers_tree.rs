@@ -1,4 +1,5 @@
 use crate::consensus::chain_selection::{Fork, ForwardChainSelection};
+use crate::consensus::tip::Tip;
 use crate::peer::Peer;
 use crate::ConsensusError;
 use amaru_kernel::{Point, ORIGIN_HASH};
@@ -18,11 +19,11 @@ use tracing::debug;
 #[derive(Debug)]
 pub struct HeadersTree<H> {
     /// The arena maintains a list of headers and their parent/child relationship.
-    arena: Arena<H>,
+    arena: Arena<Tip<H>>,
     /// maximum size allowed for a given chain
     max_length: usize,
     /// This NodeId points to the header that is at the tip of the best chain.
-    best_chain: Option<NodeId>,
+    best_chain: NodeId,
     /// This map maintains the chain tracking data for each peer
     peers: BTreeMap<Peer, PeerChain>,
 }
@@ -47,7 +48,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         );
 
         // Create a new arena
-        let mut arena: Arena<H> = Arena::with_capacity(capacity);
+        let mut arena: Arena<Tip<H>> = Arena::with_capacity(capacity);
         headers.truncate(max_length);
         let best_chain = HeadersTree::insert_headers_into_arena(&mut arena, headers);
 
@@ -65,9 +66,11 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         self.arena.count()
     }
 
+    /// Pretty-print the headers present in the arena as a tree
     fn pretty_print(&self) -> String {
         self.best_chain
-            .and_then(|tip| tip.ancestors(&self.arena).last())
+            .ancestors(&self.arena)
+            .last()
             .map(|root| format!("{:?}", root.debug_pretty_print(&self.arena)))
             .unwrap_or("".to_string())
     }
@@ -78,36 +81,33 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     }
 
     /// Insert headers into the arena and return the last created node id
-    fn insert_headers_into_arena(arena: &mut Arena<H>, headers: Vec<H>) -> Option<NodeId> {
+    fn insert_headers_into_arena(arena: &mut Arena<Tip<H>>, headers: Vec<H>) -> NodeId {
         let mut iter = headers.into_iter();
         if let Some(first) = iter.next() {
             let rest: Vec<_> = iter.collect();
-            let mut last_node_id: NodeId = arena.new_node(first);
+            let mut last_node_id: NodeId = arena.new_node(Tip::Hdr(first));
 
             for header in rest {
-                let new_node_id = arena.new_node(header);
+                let new_node_id = arena.new_node(Tip::Hdr(header));
                 last_node_id.append(new_node_id, arena);
                 last_node_id = new_node_id;
             }
-            Some(last_node_id)
+            last_node_id
         } else {
-            None
+            arena.new_node(Tip::Genesis)
         }
     }
 
     /// Return the tip of the best chain that currently known
     pub fn best_chain_tip(&self) -> Option<&H> {
-        self.best_chain
-            .and_then(|node_id| self.arena.get(node_id).map(|n| n.get()))
+        self.arena
+            .get(self.best_chain)
+            .and_then(|n| n.get().to_header())
     }
 
     /// Return best chain fragment currently known
     pub fn best_chain_fragment(&self) -> Vec<&H> {
-        if let Some(node_id) = self.best_chain {
-            self.get_chain_from(&node_id)
-        } else {
-            vec![]
-        }
+        self.get_chain_from(&self.best_chain)
     }
 
     pub fn select_roll_forward(
@@ -142,7 +142,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     fn get_chain_from(&self, node_id: &NodeId) -> Vec<&H> {
         let mut chain: Vec<&H> = node_id
             .ancestors(&self.arena)
-            .filter_map(|n_id| self.arena.get(n_id).map(|n| n.get()))
+            .filter_map(|n_id| self.arena.get(n_id).and_then(|n| n.get().to_header()))
             .collect();
         chain.reverse();
         chain
@@ -150,7 +150,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
 
     /// Return an arena node when it is expected to be found
     #[allow(clippy::panic)]
-    fn unsafe_get_arena_node(&self, node_id: NodeId) -> &Node<H> {
+    fn unsafe_get_arena_node(&self, node_id: NodeId) -> &Node<Tip<H>> {
         self.arena.get(node_id).unwrap_or_else(|| {
             panic!(
                 "Node not found in the arena {}. The arena is {:?}",
@@ -177,7 +177,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             peer_chain.length += 1;
         };
 
-        let header_node_id = self.arena.new_node(header.clone());
+        let header_node_id = self.arena.new_node(Tip::Hdr(header.clone()));
         parent_node_id.append(header_node_id, &mut self.arena);
         peer_chain.tip = header_node_id;
         self.peers.insert(peer.clone(), peer_chain);
@@ -214,53 +214,47 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         header_node_id: &NodeId,
         parent_node_id: &NodeId,
     ) -> ForwardChainSelection<H> {
-        match self.best_chain {
-            Some(current_tip) => {
-                // If we added the new node on top of the current best chain, we have a new tip
-                if *parent_node_id == current_tip {
-                    self.best_chain = Some(*header_node_id);
-                    ForwardChainSelection::NewTip {
-                        peer: peer.clone(),
-                        tip: header,
-                    }
-                } else {
-                    let current_tip_header = self.unsafe_get_arena_node(current_tip).get();
-                    // If the new header does not improve the current chain height we keep the same best chain
-                    if header.block_height() <= current_tip_header.block_height() {
-                        ForwardChainSelection::NoChange
-                    } else {
-                        // Otherwise, if the new header creates a longer chain, we have a fork
-
-                        // We set the new best chain
-                        self.best_chain = Some(*header_node_id);
-
-                        // The rollback point is the intersection of the previous best chain and the new one.
-                        // The fork_fragment is the list of header that must be recreated after the rollback point.
-                        let intersection_node_id: Option<NodeId> =
-                            self.find_intersection_node_id(header_node_id, &current_tip);
-                        let mut fork_fragment: Vec<H> = header_node_id
-                            .ancestors(&self.arena)
-                            .take_while(|n| Some(*n) != intersection_node_id)
-                            .filter_map(|n| self.arena.get(n).map(|n| n.get().clone()))
-                            .collect();
-                        fork_fragment.reverse();
-                        let fork = Fork {
-                            peer: peer.clone(),
-                            rollback_point: intersection_node_id
-                                .and_then(|n| self.arena.get(n).map(|n| n.get().point()))
-                                .unwrap_or(Point::Origin),
-                            fork: fork_fragment,
-                        };
-                        ForwardChainSelection::SwitchToFork(fork)
-                    }
-                }
+        // If we added the new node on top of the current best chain, we have a new tip
+        if *parent_node_id == self.best_chain {
+            self.best_chain = *header_node_id;
+            ForwardChainSelection::NewTip {
+                peer: peer.clone(),
+                tip: header,
             }
-            None => {
-                self.best_chain = Some(*header_node_id);
-                ForwardChainSelection::NewTip {
+        } else {
+            let current_tip_header = self.unsafe_get_arena_node(self.best_chain).get();
+            // If the new header does not improve the current chain height we keep the same best chain
+            if header.block_height() <= current_tip_header.block_height() {
+                ForwardChainSelection::NoChange
+            } else {
+                // Otherwise, if the new header creates a longer chain, we have a fork
+
+                // The rollback point is the intersection of the previous best chain and the new one.
+                // The fork_fragment is the list of header that must be recreated after the rollback point.
+                let intersection_node_id: Option<NodeId> =
+                    self.find_intersection_node_id(header_node_id, &self.best_chain);
+
+                // We set the new best chain
+                self.best_chain = *header_node_id;
+
+                let mut fork_fragment: Vec<H> = header_node_id
+                    .ancestors(&self.arena)
+                    .take_while(|n| Some(*n) != intersection_node_id)
+                    .filter_map(|n| self.arena.get(n).and_then(|n| n.get().to_header().cloned()))
+                    .collect();
+                fork_fragment.reverse();
+                let fork = Fork {
                     peer: peer.clone(),
-                    tip: header,
-                }
+                    rollback_point: intersection_node_id
+                        .and_then(|n| {
+                            self.arena
+                                .get(n)
+                                .and_then(|n| n.get().to_header().map(|h| h.point()))
+                        })
+                        .unwrap_or(Point::Origin),
+                    fork: fork_fragment,
+                };
+                ForwardChainSelection::SwitchToFork(fork)
             }
         }
     }
@@ -272,7 +266,10 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             .get(peer)
             .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
             .tip;
-        Ok(self.arena.get(node_id).map(|node| node.get()))
+        Ok(self
+            .arena
+            .get(node_id)
+            .and_then(|node| node.get().to_header()))
     }
 
     /// Return the node id that is the least common parent between 2 node ids
@@ -651,7 +648,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[should_panic(
+        expected = "Cannot create a headers tree with maximum chain length lower than 2"
+    )]
     fn cannot_initialize_tree_with_k_lower_than_2() {
         HeadersTree::new(generate_headers_anchored_at(None, 1), 1, 1000);
     }
