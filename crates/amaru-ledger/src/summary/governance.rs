@@ -26,7 +26,7 @@ use std::collections::{BTreeMap, BTreeSet};
 #[derive(Debug)]
 pub struct GovernanceSummary {
     pub dreps: BTreeMap<DRep, DRepState>,
-    pub deposits: BTreeMap<StakeCredential, ProposalState>,
+    pub deposits: BTreeMap<StakeCredential, Vec<ProposalState>>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -80,13 +80,15 @@ impl GovernanceSummary {
                 // Proposals are ratified with an epoch of delay always, so deposits count towards
                 // the voting stake of DRep for an extra epoch following the proposal expiry.
                 if current_epoch <= row.valid_until + 1 {
-                    deposits.insert(
-                        expect_stake_credential(&row.proposal.reward_account),
-                        ProposalState {
-                            deposit: row.proposal.deposit,
-                            valid_until: row.valid_until,
-                        },
-                    );
+                    let proposal = || ProposalState {
+                        deposit: row.proposal.deposit,
+                        valid_until: row.valid_until,
+                    };
+
+                    deposits
+                        .entry(expect_stake_credential(&row.proposal.reward_account))
+                        .and_modify(|proposals: &mut Vec<ProposalState>| proposals.push(proposal()))
+                        .or_insert_with(|| vec![proposal()]);
                 }
 
                 Ok(())
@@ -227,7 +229,7 @@ impl GovernanceSummary {
 ///   ║ ━━━━┷━╋━━━━━━╋━┷━━━━╋━━━━━━╋━━━━━━╋━━━━━━╋━━━?
 ///   ║   10     11     12     13     14     15     16
 ///   ║
-///   ║ Dormant epochs: 10, 15, 16
+///   ║ Dormant epochs: 10, 14, 15, 16
 ///   ╚═════════════════════════════════════════════════
 ///
 ///   ╔══════ Scenario 3: two proposals in 10 and 13

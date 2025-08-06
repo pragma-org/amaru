@@ -1,6 +1,6 @@
 ---
-source: crates/amaru-ledger/src/summary/rewards.rs
-expression: "stake_distr.for_network(Network::Testnet)"
+source: crates/amaru/tests/summary.rs
+expression: stake_distr.for_network(network.into())
 ---
 {
   "epoch": 663,
@@ -11050,7 +11050,7 @@ expression: "stake_distr.for_network(Network::Testnet)"
     "stake_test1upe3tm6uvts9nvefgzhmsth2gr5u5qgldswafx2hqykmuhqgr3l0t": {
       "lovelace": 9911410711,
       "pool": "pool1y0uxkqyplyx6ld25e976t0s35va3ysqcscatwvy2sd2cwcareq7",
-      "drep": null
+      "drep": "abstain"
     },
     "stake_test1upe3uhkjl3zgs0tqvs54nxehg0jr7t8x88a34xc420rkjkgggj0s8": {
       "lovelace": 238495613,
@@ -19525,7 +19525,7 @@ expression: "stake_distr.for_network(Network::Testnet)"
     "stake_test1uqfxe6793fs6yj5evfju477lvurpqquhtpyku9mq0slgfyg3k8skz": {
       "lovelace": 10862734011,
       "pool": "pool1y0uxkqyplyx6ld25e976t0s35va3ysqcscatwvy2sd2cwcareq7",
-      "drep": null
+      "drep": "abstain"
     },
     "stake_test1uqfxvy6p9lg6wavpm5pwyzy4g6xx49dnsz0xk0tc73ccwdsya8xu8": {
       "lovelace": 240092943,
@@ -26080,7 +26080,7 @@ expression: "stake_distr.for_network(Network::Testnet)"
     "stake_test1ur9rq40fhphat2jqv46thwn8cy0r5erkwwh73cjcn5ytpwsyjd6jt": {
       "lovelace": 10000359401,
       "pool": "pool18pn6p9ef58u4ga3wagp44qhzm8f6zncl57g6qgh0pk3yytwz54h",
-      "drep": null
+      "drep": "abstain"
     },
     "stake_test1ur9ru9wl67na6mzge0jmu55k55n5ukzzksyey0gw7w3c4lq4uthxq": {
       "lovelace": 9832580122,
@@ -28295,7 +28295,7 @@ expression: "stake_distr.for_network(Network::Testnet)"
     "stake_test1urkvkat74y8s9y5feaeueezah86ph3755ze7z9z8597rv2cuq8kg7": {
       "lovelace": 7820947,
       "pool": "pool1ynfnjspgckgxjf2zeye8s33jz3e3ndk9pcwp0qzaupzvvd8ukwt",
-      "drep": null
+      "drep": "abstain"
     },
     "stake_test1urkvvej9teqvs9vg55r6yw398cg68eq3we89ame8nhvuwmgpa7ftq": {
       "lovelace": 241642790,

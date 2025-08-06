@@ -1,0 +1,1195 @@
+---
+source: crates/amaru-ledger/src/summary/rewards.rs
+expression: rewards_summary
+---
+{
+  "epoch": 670,
+  "efficiency": "3307/4320",
+  "incentives": 24401892777058,
+  "total_rewards": 24403091937167,
+  "treasury_tax": 4880618387433,
+  "available_rewards": 19522473549734,
+  "pots": {
+    "treasury": 4297040673700552,
+    "reserves": 10625559600533516,
+    "fees": 1199160109
+  },
+  "pools": {
+    "pool1057njzaaz280688ppewa3df4qshspvh98njh5n4lq4cg7ntcsyj": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool105wx68zqse6v4wyx09nkqhxhmf7e0zj349pclyqsjqch7953j0x": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool106rnmvjt0n27y34py0qytashgm04v4hlqurp3w28z789v8scxat": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool10c40pnzz3e00kuej05xfcs2ptkekhys48q7qc4jjcsysypj46qv": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool10cpz0zepq23hm6lrk8vgnsdwl772lasq9caaemvw9kh9ktxqygk": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool10d303wup90j39mmvysf0lhr2xmr3mf38y5vs577nmlq6yy8n666": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool10gqm62xy7caj6jhhefsl7h59kse3rv2esuh9rvx55eze2n8dlrj": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool10ha6s4vh4pnll7jeqd7l0a4de4gww3wue6kzkj8d499jqfnka0y": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool10sw35nk2mxdk35k64rdg5psutruaaqyhzhwzr77h5t58upuksmc": {
+      "pot": 5815623565,
+      "leader": 355553863
+    },
+    "pool10u9jtq8xewg3x80fulh7tuucktckfqzm9h38lz3ldp64y57fku0": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool123gjej7l8f53906d4xp6f2jxa8zxav8arx3t8af5r3fkvgxx2wx": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool12645cty3fsa7a79vx2nsd8yupl3quyhr6h3vqk6duqn0yy7vkv0": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool12l8602apyt7a52l0746te57y4wtl9rv0pxjvsg6w5p7vk2pcwk2": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool12q7fskmv767qv8yn7mvcxj5azam9cdg0lpm3cajjqr2rqxc7y6a": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool12rkpkqaf0w67v7uslg7x9esk8037yt8maawgj36du6kzqtw80ev": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool12w39xy6d6kzy7lrzl3y3n06h2fv4mjvpl7ruy6ckc35vgx8j2pm": {
+      "pot": 792781562,
+      "leader": 396304136
+    },
+    "pool12yqmdst9axjwgav7jgcu2umfa0vdm8cnh6rq9ctvaqhhvtuys5z": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool12yrhvezsrqxlafahf02ka28a4a3qxgcgkylku4vqjg385jh60wa": {
+      "pot": 595013353,
+      "leader": 595013353
+    },
+    "pool1323zqsqv3fdhrm8l76lme76s9scccvdqph2pzlcqnspejnlcu97": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool133qyxgzcvyzey8zz36axhj7muacq25xh0jestrp6a5fygafaccf": {
+      "pot": 1189493291,
+      "leader": 407758266
+    },
+    "pool1397kpa7ylzg4lqrmj3xr28xzq2548c8lafw90qyxvucsslap03v": {
+      "pot": 3633210154,
+      "leader": 538772007
+    },
+    "pool139mxqzdsxtww00d2rlpa0l27ysr64v5jwr8s2kjne06h64lsazj": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13gsw9kvuepwhm8dfw7g2a2fwthxrwa088yq5xjaf39hqsekhqsy": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13kpqqdw3ct5magnvwrsfapttyzqjqcfqgs86e2zeewt06ts7fhq": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13nax94w7d5wjamh6jvr5plsw5dyx9w2rrqaaelp26v0mukyxmmn": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13q0eh32ptwmns8wyket34dnzal6jwltc6audq4s5ehcdg9e7xvs": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13rh3005usjnr7ks76llpn07p0z4dxnxzp8aj33lnncaawfp9vn6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13tatzejw545kdkl0nrerhqeel6gqt8u59wywzqh6svtczfgd5dx": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13vuxg9gw3fftvfg56xwl5rq82nqtjhhkeacxtg0jgqlfup9qz66": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13ynukf8337wmj7z9x8jc9pkzrnaatnfsra2p5yqjqqu05mjh6pn": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool13zafxlpfgymf474uv52qt557z5k5frn9p83yr55zp267wj5mpu4": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1407hpuvtp9ww8s5mt53ear7062j463mvwhnypurlcask7djg3ae": {
+      "pot": 2510266065,
+      "leader": 221524924
+    },
+    "pool140axp85wjr7qhwtf5y9utlht6eq42n4sl8wjh6fmlu02gel0aqg": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool148wsj3l69pwkev4t7sa3n2zj6ur44z73hh6des7a69a6wv9872f": {
+      "pot": 66058357,
+      "leader": 66058357
+    },
+    "pool149mj888ws9f9wspeu5ezyuy2nlc8l2y4y0prwdurz6g92s74qks": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool14cwzrv0mtr68kp44t9fn5wplk9ku20g6rv98sxggd3azg60qukm": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool14fdr8cpz0qpgzkrucu2q7hst2pa3u5ssfej7kuepdq4v7lkyxg3": {
+      "pot": 4756802422,
+      "leader": 280928547
+    },
+    "pool14lfkzjvlp2prlwt0ykxceemhdd4ej9rc0em4xt4cnpvt2fmtg9v": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool14pz6gqphgstrr6uht2ssppxzu8zzusagdv0j0auvxdufgjp9mns": {
+      "pot": 594545848,
+      "leader": 360958202
+    },
+    "pool14rn9dq87dgj2z8g3lp4n0a78fewxff3gkgjkmz72ew44ym79xpp": {
+      "pot": 660580781,
+      "leader": 356029039
+    },
+    "pool14u22dyym8k2g2twvgct86njg3m9cc7j2fc74yamy6672s6up7a0": {
+      "pot": 4427803130,
+      "leader": 475756715
+    },
+    "pool153paag2an8vdzpm2f3kjcseujux9jzhzht5fdkv97xqaj0yat6g": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool154cusvl6mcgyf0xa494zlxx0y7yu60yd42ucryrkchfk6zcmwng": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1580a362kwnqt7v2lgun5t02u0r7dyl70x9nsy37zj46xkq8mp22": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool15e04rzx0lu7hryn68l5n8n6nd9yum4rn48j64kupadc4qalulgk": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool15ecfwjfqcc35gvpqrmut0g5hr7e0u794ywkxg5tk8rl2q4zqu9j": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool15ehjfcfc3790mnwd7ukkfu95dztp07ktr28adedtqqw6qxxdxdm": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool15j50kmtrmy3mxm0e5dej5vka9keapqtm3gv2zq96lqgjqc6sdh3": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool15jqsjphnxg7hcx2rvd0ryhg5xwshg7xktthj3zf70nmxx9ffjet": {
+      "pot": 925498983,
+      "leader": 897265630
+    },
+    "pool15qlyejqxu99n2p3980wtwmne4ykzd9vn4mz7ldtncepnuh6rqeh": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool15rneqfpzde87huszzstymzxu6f5u2jqelsaczr99e3z62dywau7": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool15zu40d05gy43gyyxy7svumkxyac9qy6shlpdrgyz5gh8g48qaaj": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool165jz2lwmum5w8jkgzak48z0hjvkjwetev3g93v2x90ucgtcncw6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool16dy6cwrdthfmhn85h56se7dmhp2m8vhg928lvg073r7dwkjvtpg": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool16e3m59evvjmxsnyu2xqf5ns4zgcdc9m4fpm29avrc5y6qdnhzs6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool16hphjcfga9jhk5j3rsgmys83kza983utn3zv9jwhjgpe2ah4j8x": {
+      "pot": 330290534,
+      "leader": 330290534
+    },
+    "pool16sjj3ykqznw2pd2m2ug00k0fujtqsmq4amfeeewqzvk7622xetd": {
+      "pot": 528487494,
+      "leader": 194473927
+    },
+    "pool16y556gh885fw5nky8f8qmfwjeer7l8d2wjr8cl7f5vd8x7zgh0d": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool16z5ej7zasdtuljm8r0s5k8pszdm8r7argy7aq0v4czv05kyez76": {
+      "pot": 2708387114,
+      "leader": 1160539302
+    },
+    "pool175vq9hqwm9c39uk085xefkr6frtejxcqsf6gh9kh2jaavttrv2p": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool17mjyyv0lwc4gzta38l7exhg0yc5fh6n94rfk89qt3wnp63n9a3w": {
+      "pot": 66066212,
+      "leader": 66066212
+    },
+    "pool17navl486tuwjg4t95vwtlqslx9225x5lguwuy6ahc58x5dnm9ma": {
+      "pot": 528464855,
+      "leader": 363891653
+    },
+    "pool17njlrn0jgdw626utskz0zmrnduz9ra8d3al6aw5hvszxkx88q2r": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool17wdfwsyksx7femcxzx7ycf84maqvdf3fmr7z92h2xguy7eanvdf": {
+      "pot": 3303176842,
+      "leader": 390980747
+    },
+    "pool183nyxe4nwwxs3rmnsxchhlep4guzm8ayhqwr3se0evz7v0jnnd0": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool186kkpzde9e5ns0sy0852k9nwfvs4sg6m7zgkd272sms6xxslzqv": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool18800lgwlelse96swl6e7n0xes7qeqcnlkkgweq0njrxk66zlj9a": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool188a03x468k4t908x265knzc29sz7v7wqlvmqaehrk34vkll3e2h": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool18ccrdt0hyj6vd9qwzfwttp2dsq0yqxk03h8nvswecr8yctuynt3": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool18cq0sr4ryw4t63hvgmdp00z7f8h3hgxef0gjldsgk6j75ajza6y": {
+      "pot": 3369108731,
+      "leader": 3369047147
+    },
+    "pool18cuytytnuv80xud9zp72xs6tq2u0deafuwzprshl6w6ykgp847w": {
+      "pot": 198182303,
+      "leader": 198182303
+    },
+    "pool18hwjam5x249ay9n0tzcxs3elwdr5xkrxplk64kfnwyhhz7a6u40": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool18pn6p9ef58u4ga3wagp44qhzm8f6zncl57g6qgh0pk3yytwz54h": {
+      "pot": 11457531569,
+      "leader": 2010698860
+    },
+    "pool18u47gq2ps4hqawl2sfr8uu8rn4yvkue7c68mw45v2ra4wj7pdx0": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool18x0rtv0vznym7cczsunqcfs5atrve4dfcavfmpe7wkg8ga4urve": {
+      "pot": 1191164218,
+      "leader": 1191162647
+    },
+    "pool18x5zg95n59xvysu3rq7ygqn6f842ud29dlcc5jmw97xkv2renhy": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool18xr0tmqrqffd7yu5jh4pq7hs4eezkremxmgzkq8ua4y82dmmrxp": {
+      "pot": 2710869883,
+      "leader": 551870029
+    },
+    "pool190ce9qhpzwzveasvngas7kmwqrn54mfvhk9unqmuesykvtadu8l": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool192nd68yy257yl9zdtghh800w7rqldmkczw0ad2xun675ct25yzz": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool198jfkrkjf5nk9jxs2nwqh0dpswnw7f8vgea7k07dup5wyr0dtwc": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool19cmwzwk4vetgtutrunar6vkv7z3n8ldq5e7f8javn8m6ynvhuzv": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool19gl4m5pd5ycsuzqlydn5ztszku4645lz55z97ckl93uv2z3zjrt": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool19ka2y93jg2ktfkfnhyyzut8l39ckz6eud5xjsa99h9v2jas3h74": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool19ndpnxtjey5wwrzpkc8qvy5ljqh79fcex0a7gz5chtmcznp23c3": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool19p0rndwuhsyzwjt3v3s946yrq3je8usgcqwn32xjfkd52f3znjf": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool19ta77tu28f3y7m6yjgnqlcs98ak6a0vvtlcn7mc52azpwr4l2xt": {
+      "pot": 859472883,
+      "leader": 859472883
+    },
+    "pool19wrj23gqupswxefaks40xncv69ca83mqck2e9gxwncza6vl8h47": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool19x5z6h63kq9tvwt9yz8emdf3fry06pnm6lu8lcuqpf9dunqwng8": {
+      "pot": 264238052,
+      "leader": 264238052
+    },
+    "pool19zfyfkrfueu8gtqm8mq72fts7z5pte54v0upej5kh905v7q3xya": {
+      "pot": 4095779345,
+      "leader": 226839528
+    },
+    "pool1a3pepkeacs59d3lqfmk6hks4qc7k84xqsc4q664lpxfvyq9lf5f": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1a5ztqh82xv8extrne9luj0jevdx9v7t0t4mruy5vm5mnjzkqt3k": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1a6ug5gelydu29djkuvxl869257e7v4d3zwqwt69ygu7dcfts59j": {
+      "pot": 2774451389,
+      "leader": 222757086
+    },
+    "pool1a7h89sr6ymj9g2a9tm6e6dddghl64tp39pj78f6cah5ewgd4px0": {
+      "pot": 2577358796,
+      "leader": 856910475
+    },
+    "pool1ad2pw6ch9rpktqt4yfr5qlgt4z87g4v2lky067khwfe9khq246w": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ag29qua3amyl7fszngeqxnrxpamu6rychrxjjuju5e0tskdpwka": {
+      "pot": 3963657368,
+      "leader": 449807122
+    },
+    "pool1agzq8htqr80dr0wu6ppvm4azkrmhelg4jy4x4qes9n5cuau7esc": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1alaz72lzlude9flwewegv530za5pl0uuakxa02kdyddv67wpkwj": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1atk32w5tq3nhpn7sjnh895yqaf5zrz8x8tq3jdlr7luzwrj90m9": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1aw4ylpwdt6dll08jzkqtpa00rvxpqj8k04g6kdyumwk9cyrqpk8": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ayc7a29ray6yv4hn7ge72hpjafg9vvpmtscnq9v8r0zh7azas9c": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ceact5c2pt4ynn5nwv2rqm04krzsm4jd26r468mdqannv5crxd6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1cf88r4wgq4m2pa7phq6hevg798n0gfkteeq52vcvum8hc5czxas": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1cuxthc4lyescly7lq4tgvf72td75l2hrm8zmks2qnmffkqvpsyn": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1cv9fr477zeznqrk8uxa5hh72tsjukkuqtnet7wgyxx3rq700kl5": {
+      "pot": 3765392555,
+      "leader": 554106758
+    },
+    "pool1cwqkfark9s4ymvz66sq2z3xww26lvmvhxzlufkracgl6gm0xqej": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1cwsvslzd5y2rp9qt6ne6hhrwdxuweupdfy243erke3euytp7j5m": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1cyqx4ecp36gkca407ml2hf9pqauz3d3qchkpxndlnvqp60j2339": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1cz6gp4nwqlplmvr8nkquqxm8suj8r4782499zaazdmseuk5lj7p": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1d4nsv4wa0h3cvdkzuj7trx9d3gz93cj4hkslhekhq0wmcdpwmps": {
+      "pot": 264232312,
+      "leader": 264232312
+    },
+    "pool1da3p2l74sr347ln6gpmmkkqnnupfxhfh2d7fuur2g7twvddm5ua": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1damnajda3jh3tch3zcpk9f5pajuyeud820n0q7qesxyyx62cel2": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1dhheyj4y7q8c8nj3z3lkuv9vqfjw75rnt48eet8efcnvczeznr7": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1drrylt73ln8jcv0sthcenlkhuan2lfyhthkrrv3vhs9vv4eywdy": {
+      "pot": 264340525,
+      "leader": 264340525
+    },
+    "pool1e0ekv0xwjskpllwhqawz7s4t4mnpkj9a26uxa0vsxnhezdy0tl2": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1e8sfzuvrpqm9t42e4tekfeygs9pk8uwja0qewxxpeyxwg5hvvcn": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ecc3gej4jsaskjfq6phxkcklx8l0qtvalyzeefp9shmvj86hchr": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1eh39zxmk8z4hxndc2dx6awu6yfpufmckjnyzlpdcsfd7jf2qxtm": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ekezegcepqmhwppzdj7mm5cm26uz6kzmf4l9r8s3lx4kw6y2veh": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1elet8uart9cuw3lmntqhfn2f44rf52dg6v5ppzkcysxx268s43n": {
+      "pot": 3038790795,
+      "leader": 382209240
+    },
+    "pool1epeq86e8vuuar86kk9hgtn6ty3yzcjun5nrm2xyysfl07fsrwc4": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1erajsxw8ejry8flz6gwsd885dmx9uv6k9wd8dl5vme7cxrzv9hl": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1erufgazt3scqvjvsqv7ehayfscj93llzu3e6lknh2m6d5xcfjdr": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1et694n52r9scvec3n32jej0juh4za6xucaj3zy822wajkegmdh3": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1eulsednqn560rfyqj8hvpgsnl467kj2praxwnj5kcqd2u9yktry": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ewed82f7tdluggkj2qsrajyjakzqewj3e37p25cddurtwejl6tz": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ewxvkzqnvfzaf48092n4t2crdventhxhtmpvydxnsnj322qc47c": {
+      "pot": 1585428400,
+      "leader": 1045232369
+    },
+    "pool1ez9khv2gx82mqrnj0qenr47dy8grecm8qkkrtnn69wzzwkvc9l6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1f7geezz3s4jlcej03v62wm75wvunu2dzwk4qa6fvkjl9j23yp03": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1fr8hdmcl5vadqdxrtdks6vzc44ddqmxpzfuxeuezjt965z8hr04": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1fsxwamyfh5aqwg707m69zpfvwyrj5fz5ep7a8yk92wnavck4pdf": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1fszljutkfl8kvvnm0l585tzqevuuvyxmp7rt6346q0nkxxg33mj": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1fv5dyzcaydlj3gvkxqdjsxvey29cvk5zz8jjxncqhch4xxj3lgr": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1fvmzpfjatfgg0jx5l56ttuprc8g9p42782rdg4e8a9cwvplk9th": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1fw7yf4mehfuszpdf2g0u72gu8d948qamwut5c6jm3d3lkj3e4an": {
+      "pot": 396357083,
+      "leader": 353045554
+    },
+    "pool1fw9mq9eyrp5yydl3njau2568jal62rx5f8anp2llt0e5s3pl3py": {
+      "pot": 726638859,
+      "leader": 359331942
+    },
+    "pool1ghxsz57l4rhsju328dk0t8j3ycmz80xtf8w8xzpkk7pfwtca9u9": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1gslhruyd8pk4f6am9zjjzgwuvetge6tztswwfrjqpnvdsex3455": {
+      "pot": 792700394,
+      "leader": 622851042
+    },
+    "pool1gxmk0avmgm3f692xhnlpv9g0ke5a54sz6pl4mr92ejacy9k8dn9": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1h2wx7wnf079jfz6vyzs9jnjczme2nlufryyw68e2fhe2x0swk3e": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1h6dxtdzec6tf24efsklpye0lkga4vwerx4kzj0jd4q7vygee85a": {
+      "pot": 925007223,
+      "leader": 303674358
+    },
+    "pool1h7c2jq3pmvn3f8jht4ulhgha3h60k6syu3rw6pmkfrhqs9j7m0l": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1h7quxt2t35z48pp3wsceqssmtc8uywzvvpwzmha74w7458y4hpy": {
+      "pot": 1125119189,
+      "leader": 941516623
+    },
+    "pool1hlgaznlja8jau6wg3u4curvs7ng6yhxaxa2urp7qylxkc2e4pjk": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1htdmnme5s6d824trqq33czlm82f473w04h4xghprzaj3cff53mp": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1hykgd0kw0n6vx08j8vcyu7q0q6rqkwxr7cql03vf2at9kdmlxpy": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1j3x329u0uxh9s9vjvsad9kx37tzal8gndz6ttxumcz4nw947djw": {
+      "pot": 7993201797,
+      "leader": 1127486797
+    },
+    "pool1jc5trlvx8rstzgzfunmxdqmfrnn93ksdfnea9037t0f0z878kz3": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1jd4j6fzflqlyvphmes79cfhlyxy2nszr05s7zq9d4hs0ynyjkne": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1jnakc0ghqgu0x3ayg3yyut7hmm3f46g8ssrh4hkeaqz7vtylv84": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1jsa3rv0dqtkv2dv2rcx349yfx6rxqyvrnvdye4ps3wxyws6q95m": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1julxm9dxqhehrce5pqxfhrx5slkzdq07d09wgdqz5yy75h8v6tl": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1jwkydny96m0huqg33h5nrs0gvydur3nc2k86ty4fp5zacm6hsa4": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1jx2uun9v45gtnlkq83xj6w4chy8rl5g78qqd026e0w89wt4vq9s": {
+      "pot": 264248188,
+      "leader": 264248188
+    },
+    "pool1k089yjuf99nr9gr4smq5xkxe3w8yh3c5sff6sa5qvdq5cndut3y": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1k4rdvvuhy7h927psyew9syupwddy77t4j8lc74hpgzpvv7yklwg": {
+      "pot": 330299004,
+      "leader": 330299004
+    },
+    "pool1kewhspt8fsxk9kx6pw2nukcrs940dkwcwh89llj233ahghexeum": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1kfzv75la3rfgrh3uly7dt5syqxf0r2n2khr7s6ylhjmnkkdfwye": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1knap9hldvhww0fjqew26sxkfjpj3c8tp8uuj7j3729lzqn9x70r": {
+      "pot": 5685873392,
+      "leader": 749868749
+    },
+    "pool1krjtqew2jg203nvnec39vt77leqyfsc8e42u4ywx534t62h9fth": {
+      "pot": 66058078,
+      "leader": 66058078
+    },
+    "pool1l0tns0dms3ehmf705qfa7hxlugjvnajw6rxlw50ra90lgvujgc9": {
+      "pot": 2179982731,
+      "leader": 728000443
+    },
+    "pool1l24t08epfysnvpeapyxd36qe7lxns7gny56f4xau4v3gc6cfhwd": {
+      "pot": 792724415,
+      "leader": 389089125
+    },
+    "pool1l6jpavzh9y7heaast2dhzx4uae4m4whjlf4fh8x8l6dfzuhuq9n": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1l8k45jgjd58jcg84pclvhzwqt2ql9xk65xc5svggdkslswwlh37": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1l9u9ss9xtww8qkt4zqda84z945f6tgq4753jqhtdr4r8yaw7d6g": {
+      "pot": 1056929250,
+      "leader": 1056929250
+    },
+    "pool1lcmxetcpu9j6uzpzxwn094349teufpedwk457js2d5w6k45hjc7": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1leml52hm4fcp3hhe4zye08qz27llhj7d339p3gs0tl85cstx59q": {
+      "pot": 1322337218,
+      "leader": 541947935
+    },
+    "pool1lleyxf5xxaxg633c2thh5ttjrf4qxrm3cqaw53kmp7e5q2nlg38": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1lqj075ak5u2j9wul3kccll7jg6we27jkeuqwpjctmj9qstcxz2l": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1m3d2flwq8kt6ys0e973xwawd042dnn6vfu82p8efyqsvu4wttaq": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1m4n62kp59efunmu49qfyu38y8g6t9t3mgv4229z0lmpy6fxzdsv": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1m80zlt567eqfessn6pvll5puhl049fkce0w55nmgx84mv74mrqa": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1mc6h7qusu3fj4dtxhfw6y4ztp7fje2xze0khkv6tz8zcs99wsne": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1mf60eqjk69w84vehpfk29qucnpktjlpja8hkvqn2cc0fj49806v": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1mfc42za8tj74zc66ez3slwtq4mumdl7yrylaxajd5xugujmhd0c": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1mfwwn7k6h4k0qnrn4q4ck0l6lunra8fyvawalt6cpjvp6a253da": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1mndner6ppa2ww3zuahk8zg7tv4m235qtrt8tfne4jfl9k7kt8fd": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1mrdm9p3w7zq3x487ukltwgywvt4v4nt0nql6j9282qn4x3rpmsx": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1mykwc7325c2wrur785z22wj6c0fust2ttf6pvt5rh6rtjf2pemg": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1n42yg74c8jvevqurqf992ae9sy0cgt0gxs43wwc0eq07yncuaak": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1n5aacu3chuvxkm7p2mwcpdvnmkkkvpsje6mclnwj59c6x3wpghh": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1n6tcrkjjn7dr70e4vjmtayswl2rne947fue7w2htthaq6men4yp": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1n935yzlmu7528fx4qjf2gak0cdv2nune9cku730zg7vh707rnnd": {
+      "pot": 726639176,
+      "leader": 389195971
+    },
+    "pool1ng0scejt56xv6afjdpecavmzx7rpef6hvz2nql9ggc7fsguf59s": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1njftkdt3vt7p0m62e42p2964fyuf53ctzhm069muf64rvsy9as3": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1nk3uj4fdd6d42tx26y537xaejd76u6xyrn0ql8sr4r9tullk84y": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ntts25w3wvt7gjrxs58esflkge8ssel9p0l44pa3l83uqvsp5h5": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1p0mrcmu9qn0x6nk4eunj0p8qy3tryv370a96u9su2l6jwkytnru": {
+      "pot": 2840621104,
+      "leader": 234883885
+    },
+    "pool1p4kh4yt0vwh6yexf9ae36qfwnch7vqa7l77akh94pv4u6rq7tuk": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1p79majfcn554nkl88auu5njmprfsx9jdkv29rtltkn44y2h04qy": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1p9xu88dzmpp5l8wmjd6f5xfs9z89mky6up86ty2wz4aavmm8f3m": {
+      "pot": 5879197462,
+      "leader": 319096628
+    },
+    "pool1perfzsuh2l59jd5jzqs0a2774uqmelymuflw9nm3q4lmslpmk92": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1pf95k36qu4u4c6psd8qwclnzj9cqmxd32q0305dz4fcxg3wyuu5": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1phj3kpraf3vgn0zzlugpts8k6eps8d3fgp9ddceu4s43cq00nzr": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1pn9sffcqqzkx70m0gujks4h3wf8p4y706t2f0cjcyreekg83wtf": {
+      "pot": 2778944836,
+      "leader": 868375554
+    },
+    "pool1pt39c4va0aljcgn4jqru0jhtws9q5wj8u0xnajtkgk9g7lxlk2t": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1pw345epmct6cuummleuu5hc7qq2h96zawvf0e9062uw7gnjz9ej": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1px2xtm4rhlm5nevdqr5mtks4nj637cmwn8reu64zjw4sgddaqsh": {
+      "pot": 792698515,
+      "leader": 350025003
+    },
+    "pool1q65ag8panwayzaqfs6je7jz2ywt8x2032yaunq5hf25t7t8c26e": {
+      "pot": 3567136877,
+      "leader": 544465106
+    },
+    "pool1q95luz38nhsw6h7mxud8tptc6mxvnsczhanw4j5htk8h2ltlf3k": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1q9d5hcn3fq28x09hmh58wvc6tvmhvt36vwnctuwnupqywrt2z8g": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1qal80uhlj949mgv0ecvdkmgqjdn5q27wmpaj4crnr5e9v6qmsv7": {
+      "pot": 3368968162,
+      "leader": 790259578
+    },
+    "pool1qkfc374x2x7nt9kg3y5pnjywq2n6stj8480es55xjqjkv7kyrjk": {
+      "pot": 990871176,
+      "leader": 990871176
+    },
+    "pool1qkp39wu8ncedqrenecl78399xl0s88sygn679dtcsgrdvpyekk7": {
+      "pot": 2320241570,
+      "leader": 2320241570
+    },
+    "pool1qm59qjmduffmqtnl7trvs60urzc7r6h7s0487087nkuagh4k9ss": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1qncwwllw9nwtu7sl7zqw3fpyh4t3q6nhludryfwv0jyqjygd46d": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1qqa8tkycj4zck4sy7n8mqr22x5g7tvm8hnp9st95wmuvvtw28th": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1qrjk9dqdaydy207lw4hf3zlxxg2qlxvxp9kvxx9fscccgwmgfv9": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1qxcz3zxnye8g9ejsqslhl0ljevdx895uc80lr89ulf92gcv40ng": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1qzamfq0qzpggch2rk9daqq8skky7rhvs5g38lchnhw67sve4d36": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1r0tln8nct3mpyvehgy6uu3cdlmjnmtr2fxjcqnfl6v0qg0we42e": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1r42627c9w3hpdcdkqpkpc9cf2fpt0euq3e7h7cqqk0zu2uldvvc": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1r5mj0h2e5s2kpe0pckesz0x4g8rhr9e5fzr6k598ckjjun5snvk": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1r7snhee0af6cykx7vt7ajkdn0cgym9pucpl94m3l9thnw74ggg6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1r8t2047f3hj4c070rjns323s5dgyzyrxd2a06v6hkuh7zx7cqp7": {
+      "pot": 858755390,
+      "leader": 405314399
+    },
+    "pool1regxnl97rlp8ssjm7dwzy204jsptdx9une4s5dympm9r7pf950f": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1rf0xxt0xpq0vwyq5jeqn8t9wags7k0mq8vlt0dygkc7rvc85uhn": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1rk2y9gx6vll8lawzdqlky5p2a3ypzsxg07arg8gmhkjj2905035": {
+      "pot": 5485193027,
+      "leader": 3192549485
+    },
+    "pool1rutq574pcq30mn9xuytgpqyvn69zq2dnycp2fhnw0hsuyqpnh99": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1rwwmnhgsnyzhzpg89lgq4k6uc38qadsdnet9l2xgv34hsjxzj2d": {
+      "pot": 264233461,
+      "leader": 264233461
+    },
+    "pool1rwzmpfca5tgrlm5y08fqcxaplq2rhrxxazm9kk38jc0x29w6jum": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1rzgvf9rytug9p3hz6a9q8zeu3mp6trl70qdyw0g9c7ywzy984yr": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1s337lucxxrhl8tz8c3r6c4crk784xtga225w3uh2tm0w2kqf0l9": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1s5c2wws3s0trn7agdrwfgz3knq37pule65knyxh0s0dhkdvhn3h": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1sj3gnahsms73uxxu43rgwczdw596en7dtsfcqf6297vzgcedquv": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1sk8n2v844jgpwzvpd4eze374pfvygzcrqlld2mfzx484yrtq74l": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1sn8tmdndldfqzazdc5y79vyumc99pn6sepjjmn6j7sk0ua5uzfp": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1srdhn8v6ly36vdvvzthjkv6jjp7wqnzated6unxujrmzkqn40hm": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1stkzkvxqcd0vx0trg34wjntvs94kykk3260p6lrqsp8fjn8zqf5": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1t0nvx5kzs5ers6tw3urtkzgtlqsspcgvh77pyqmx0zghwh4jmvg": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1t3pl903zsy3wqgl4392hmuwx8a3f259f3yzhl2ns4xlhskxkr43": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1t9uuagsat8hlr0n0ga4wzge0jxlyjuhl6mugrm8atc285vzkf2e": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1tfgdvuc8p8zrmyhxc2g82denxkrxuy9dx5qwzp9lx85xgjedvdg": {
+      "pot": 3501093421,
+      "leader": 475163300
+    },
+    "pool1tmhw3wga9qdvz5enyxkhm7h9j4u7lp60y9lvvsdv3323wa447y6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1tmvukz7usnx2n47v6eeke2lkm8vunyup406ks3m0gmzkzrzhmjv": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1tr86xlppas453cyyhxfr502dde69p9f63x6grc0f0vfess92rd3": {
+      "pot": 792700393,
+      "leader": 224581832
+    },
+    "pool1txg39f9mdatrvv3mp7nwfj07he3cqe0y4cach06e2z6ykmysytj": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1tycl9a9cqgffccgsh0867u65qpk0qlm43kjqggepmflajsmcds6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1u2pl6kx4yc77lnyapnveykkpnj07fmc7pd66fa40fvx3khw7cua": {
+      "pot": 661140570,
+      "leader": 661140570
+    },
+    "pool1u8c5whkqy7pyst69h9wela4wsutq99gdmd5u7234vwh92xawt4f": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ufzepz9ugl5f72d3d4lk29x43uxexmae79dxj766s6pgu9axvav": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1uh5sc3v77el8egy6rgz59mdgv0097j7nx3usrrkagvmsy6074k0": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1uh5xdjv70q5eyl5z644p23mvhd3dx0gwr8pjnlj9pwd3jgkvd0e": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1uk72vv6l3c4l83hw22crx9ytug7ud97grqg8am5p0qv45aa4ymr": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1uqmdrhc3sar3wtnca2r9qetvuntdfp4k7jm0wcr9m9uq6k2pqqt": {
+      "pot": 594522963,
+      "leader": 350415054
+    },
+    "pool1uuknk4htd29v9y5ym0r33d60ftdhktqnwrygtq4km9hqu8p2dph": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1uwg3umm0ywv369ykw663ll49gk7z2grnfnwvzlzh55ee53ggmmv": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1v4sf695rrtqmhgjx6z3498zxle5vhx3v0f0gz0k6nhtqs0e2tg3": {
+      "pot": 2774499759,
+      "leader": 404882858
+    },
+    "pool1vapqexnsx6hvc588yyysxpjecf3k43hcr5mvhmstutuvy085xpa": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1vc577hmjzpgz6mlccdv8ddwplfgvjtp639ykqd05anu6jcja69a": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ve7vhcyde2d342wmqcwcudd906jk749t37y7fmz5e6mvgghrwh3": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ve8rmf2cvr5qa5aaxk73c4tc72wvqmlnjf99yxrywug2gs5xx5a": {
+      "pot": 528466928,
+      "leader": 205206466
+    },
+    "pool1vevw38yxlyaxke29d40ace7jzz7d38qtcmd5kk36chf3shh02ek": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1vezalga3ge0mt0xf4txz66ctufk6nrmemhhpshwkhedk5jf0stw": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1vf88ms7kf9splc7cu7rwtcrnvt40llx8kld96tlxrnk05qqledk": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1vhclwkzyf6ahyt260sh5gsr2udz47074q0slxp20sqn75xjy2xx": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1vhdl0z496gxlkfpdzxhk80t4363puea6awp6hd0w0qwnw75auae": {
+      "pot": 5552674185,
+      "leader": 274940324
+    },
+    "pool1vurgy6s6u7yq36shf9yspesh3rrnd36km8xkghpcr4smgfz278m": {
+      "pot": 660609383,
+      "leader": 525028590
+    },
+    "pool1vw4h0p7cjnxfrtlcz6twv0fuclq88fp32a6ejy62jm3e67qly80": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1vyraaelp2qhk8sephrwxa7yqwrf0twusxr4jnkltfnh6cvumdl5": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1vzqtn3mtfvvuy8ghksy34gs9g97tszj5f8mr3sn7asy5vk577ec": {
+      "pot": 21293825326,
+      "leader": 2046266753
+    },
+    "pool1w757a30j8cd6nlf5dn9q52lm5ee0fn5permvtlr7mycucpkn6c5": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1w75ukvh77hhz8c2u6rhfjvqlxyptwg37yrkddzatu99qxwwlqhd": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1w83ux7vrwafrsuz044knxl9xxtr38q5jj2l3p28fl3g26faqqwg": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1wjz475nwhq3fnhfvrjesf4pw70k27fnc5mzvsrzqlxfhy60rmu3": {
+      "pot": 792696938,
+      "leader": 248507587
+    },
+    "pool1wwh3k3ldzujdvgxllfwlnnkxyheafkacqlufnvpr77n5q72f9hw": {
+      "pot": 132116213,
+      "leader": 132116213
+    },
+    "pool1wx2daxr2qgh4yhf9mn4se8kyadj4cnyad6zkt7eyufhwvz2ycyh": {
+      "pot": 3765637924,
+      "leader": 486041370
+    },
+    "pool1x2u60w0uupzv6qdn39pvzeapd54q0jqwd6vv4a7wfe76q8lgsth": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1x9xkvkrfw6htmnflpad0z2aqsxx50f5mwkyzpylw0tlsk9z5uff": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1xas798gr6u5kjy2y34ge0jhpp6fwlg88cycrg28swx50z83a9ye": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1xe7ey753aw0v79tysaumamkgcugpw9txahxwrrltqjpx25adrkr": {
+      "pot": 1850139392,
+      "leader": 514038258
+    },
+    "pool1xg80gqxp89sllgk6xs6ajwjxkjntwjc2wzc9mjsnzchkgm4z2se": {
+      "pot": 3435132328,
+      "leader": 443217090
+    },
+    "pool1xgmqwh23yc2jp52k7jn249x56v6nyhl9nhxaeg6hq8tmc5t78rq": {
+      "pot": 3636281880,
+      "leader": 769331733
+    },
+    "pool1xkfew9wzhefz2at44eqdu5d6hk6s6xjdjj8h54tgvmymwea4vk3": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1xqycqt2kz6ps4r2ggk0jqsln0st5xtw9xgep4xlg2uxgvq6w6h7": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1y0uxkqyplyx6ld25e976t0s35va3ysqcscatwvy2sd2cwcareq7": {
+      "pot": 12909029294,
+      "leader": 1600505340
+    },
+    "pool1y3tasgvlzwgnlm6chf7qszp9r7ea2ypr4apnhrem64dskf67frw": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1y3tf0ywhh9dwpp6mva8rgdgf7ttlcwfv8uejrapdcch96d4ulh2": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1y3z4fs4pfwef75tge7r22qd6wfxhrgngxxe6k4lvetnvqr09nfl": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1y629a45r9r484mquw4n6248ep2vhungh07pzha63pe3dclnhj6t": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ygcgyrs6su3nmkqsz4dup2q6atarhv889cx7fquh0zq9vqfmev6": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1yl62tumqyzsdpunh0kvaausvwufwcfl22f7xdnx6yma7sjuclts": {
+      "pot": 726638862,
+      "leader": 384268002
+    },
+    "pool1ynfnjspgckgxjf2zeye8s33jz3e3ndk9pcwp0qzaupzvvd8ukwt": {
+      "pot": 19195618295,
+      "leader": 4088164172
+    },
+    "pool1yphncqvpc4n49c4ya3mys7uwpwa25892r70gzkpqglenv093qge": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1yq5q3unkyr764243l4v3gca6m42jlg04df9k7f5hv00lsjhyj4d": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1yu60zjc6ykj22ns69e8w5me469r4k4805706vz2mvrnz5qvvfz7": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1ywazc6h66tamsfxpfncfhhj282y0j420sze45x3s5qdvkaxssse": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1yxajmr4a56896y3wrrqscg2hl5gqqhy0utejergl2j4m5srm28x": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1z2dpsu58adkxtet672s6c46szylvcxs7vk9evq6clj49jcm6s4f": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1z6cu2n426caecn3jn6zpdhj29w6wj6qgcnksctrt56n7zvrxgxm": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1z737pypn7xgvmnwazy6s7z2a8ts37xnpcetnzdn82qth5w6n8sf": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1zdw7urfhvj269ac0rfrd0dg2nzqw3q7t557a0yzvjya8vtqr79m": {
+      "pot": 792714186,
+      "leader": 253373866
+    },
+    "pool1zpsskvu5q00lpezkj53xm7a5y9wv0jqt5j0xsvn42jdx2gajwr6": {
+      "pot": 2972742991,
+      "leader": 210512378
+    },
+    "pool1zt3l0pv74ms3j0uspstj3k26ndq93ej37djcw86gkk487pgpthh": {
+      "pot": 0,
+      "leader": 0
+    },
+    "pool1zyvx690fps6a9m3m89q6fwcfgd8jyupzgv8wrfpvd0fm5cyzxd0": {
+      "pot": 0,
+      "leader": 0
+    }
+  }
+}

@@ -117,8 +117,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let stake_distributions =
             initial_stake_distributions(&stable, &snapshots, &era_history, PROTOCOL_VERSION_9)?; // FIXME ProtocolVersion should be retrieved from the store
 
-        let protocol_parameters =
-            stable.get_protocol_parameters_for(&snapshots.most_recent_snapshot())?;
+        let protocol_parameters = stable.get_protocol_parameters()?;
 
         Ok(Self::new_with(
             stable,
@@ -428,8 +427,10 @@ pub fn initial_stake_distributions(
 
     let mut stake_distributions = VecDeque::new();
     for epoch in latest_epoch - 2..=latest_epoch - 1 {
-        // Retrieve the protocol parameters for the considered epoch
-        let protocol_parameters = db.get_protocol_parameters_for(&epoch)?;
+        // FIXME: Retrieve the protocol parameters for the considered epoch; should come from the
+        // snapshot.
+        let protocol_parameters = db.get_protocol_parameters()?;
+
         let snapshot = snapshots.for_epoch(epoch)?;
         stake_distributions.push_front(
             recover_stake_distribution(

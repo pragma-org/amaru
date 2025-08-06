@@ -181,7 +181,7 @@ pub fn import_initial_snapshot(
     } else {
         d.decode()?
     };
-    let protocol_parameters = import_protocol_parameters(db, &epoch, pparams)?;
+    let protocol_parameters = import_protocol_parameters(db, pparams)?;
     import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
     import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
@@ -274,11 +274,10 @@ fn save_point(
 
 fn import_protocol_parameters(
     db: &impl Store,
-    epoch: &Epoch,
     protocol_parameters: ProtocolParameters,
 ) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-    transaction.set_protocol_parameters(epoch, &protocol_parameters)?;
+    transaction.set_protocol_parameters(&protocol_parameters)?;
     transaction.commit()?;
     Ok(protocol_parameters)
 }
@@ -320,7 +319,7 @@ fn import_block_issuers(
             fake_slot += 1;
         }
     }
-    info!(what = "block_issuers", count = fake_slot);
+    info!(count = fake_slot, "block_issuers");
     transaction.commit().map_err(Into::into)
 }
 
@@ -331,7 +330,7 @@ fn import_utxo(
     mut utxo: Vec<(TransactionInput, MemoizedTransactionOutput)>,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!(what = "utxo_entries", size = utxo.len());
+    info!(size = utxo.len(), "utxo");
 
     let transaction = db.create_transaction();
     transaction.with_utxo(|iterator| {
@@ -365,6 +364,7 @@ fn import_utxo(
 
         progress.tick(n);
     }
+
     transaction.commit()?;
     progress.clear();
 
@@ -386,6 +386,7 @@ fn import_dreps(
         .map_err(|e| StoreError::Internal(Box::new(e)))?;
 
     let transaction = db.create_transaction();
+
     transaction.with_dreps(|iterator| {
         for (drep, mut handle) in iterator {
             if epoch > era_first_epoch {
@@ -397,7 +398,9 @@ fn import_dreps(
         }
     })?;
 
-    info!(what = "dreps", size = dreps.len());
+    info!(size = dreps.len(), "dreps");
+
+    let mut active_dreps = BTreeMap::new();
 
     transaction.save(
         point,
@@ -464,6 +467,19 @@ fn import_dreps(
                             ..CertificatePointer::default()
                         });
 
+                #[allow(clippy::unwrap_used)]
+                #[allow(clippy::disallowed_methods)]
+                let registration_epoch = era_history
+                    .slot_to_epoch_unchecked_horizon(registration.slot())
+                    .unwrap();
+
+                // NOTE: The 'save' method will not consider the last interaction when registering
+                // or re-registering a DRep. So when needed, we must retain the 'last_interaction'
+                // and set it manually afterwards.
+                if last_interaction > registration_epoch {
+                    active_dreps.insert(credential.clone(), last_interaction);
+                }
+
                 (
                     credential,
                     (
@@ -481,6 +497,21 @@ fn import_dreps(
         iter::empty(),
         era_history,
     )?;
+
+    transaction.commit()?;
+
+    let transaction = db.create_transaction();
+
+    transaction.with_dreps(|iterator| {
+        for (credential, mut row) in iterator {
+            if let Some(last_interaction) = active_dreps.get(&credential) {
+                if let Some(drep) = row.borrow_mut() {
+                    drep.last_interaction = Some(*last_interaction);
+                }
+            }
+        }
+    })?;
+
     transaction.commit()
 }
 
@@ -498,7 +529,7 @@ fn import_proposals(
         }
     })?;
 
-    info!(what = "proposals", size = proposals.len());
+    info!(size = proposals.len(), "proposals");
 
     transaction.save(
         point,
@@ -565,9 +596,9 @@ fn import_stake_pools(
     }
 
     info!(
-        what = "stake_pools",
         registered = state.registered.len(),
         retiring = state.unregistered.len(),
+        "stake_pools",
     );
     let transaction = db.create_transaction();
     transaction.with_pools(|iterator| {
@@ -627,7 +658,7 @@ fn import_pots(
         pots.fees = fees;
     })?;
     transaction.commit()?;
-    info!(what = "pots", treasury, reserves, fees);
+    info!(treasury, reserves, fees, "pots");
     Ok(())
 }
 
@@ -684,7 +715,7 @@ fn import_accounts(
         )
         .collect::<Vec<_>>();
 
-    info!(what = "credentials", size = credentials.len());
+    info!(size = credentials.len(), "credentials");
 
     let progress = with_progress(credentials.len(), "  Accounts {bar:70} {pos:>7}/{len:7}");
 

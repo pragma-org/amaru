@@ -15,7 +15,7 @@
 use crate::{
     store::{columns::*, Snapshot, StoreError},
     summary::{
-        governance::{DRepState, GovernanceSummary, ProposalState},
+        governance::{DRepState, GovernanceSummary},
         safe_ratio,
         serde::{encode_drep, encode_pool_id, encode_stake_credential, serialize_map},
         AccountState, PoolState,
@@ -147,6 +147,10 @@ impl StakeDistribution {
                             retiring_pools.insert(pool);
                             // FIXME: Store the deposit with the pool, and ensures the same deposit
                             // it returned back.
+                            //
+                            // FIXME: Handle the case where there would be more than one refund (in
+                            // case where many pools with a same reward account retire all at
+                            // once).
                             refunds.insert(reward_account, protocol_parameters.stake_pool_deposit);
                         }
                     })),
@@ -176,21 +180,42 @@ impl StakeDistribution {
         let accounts = accounts
             .into_iter()
             .filter(|(credential, account)| {
-                let ProposalState {
-                    deposit,
-                    valid_until,
-                } = deposits
+                let (drep_deposits, pool_deposits) = deposits
                     .get(credential)
-                    .copied()
-                    .unwrap_or(ProposalState::default());
+                    .map(|proposals| {
+                        proposals
+                            .iter()
+                            .fold((0, 0), |(drep_deposits, pool_deposits), proposal| {
+                                (
+                                    drep_deposits + proposal.deposit,
+                                    // NOTE: This is subtle, but the pool distribution used for
+                                    // computing voting power is determined BEFORE refunds or
+                                    // withdrawal are processed.
+                                    //
+                                    // So unlike the DRep voting stake, which already includes those,
+                                    // we mustn't include the deposit as part of the pool voting stake
+                                    // for the epoch that immediately follows the expiry.
+                                    //
+                                    // Note that the refund is eventually credited in the following
+                                    // epoch so the deposit is effectively missing from the pools'
+                                    // voting stake for an entire epoch.
+                                    if epoch <= proposal.valid_until {
+                                        pool_deposits + proposal.deposit
+                                    } else {
+                                        pool_deposits
+                                    },
+                                )
+                            })
+                    })
+                    .unwrap_or((0, 0));
 
                 let refund = refunds.get(credential).copied().unwrap_or_default();
 
                 // NOTE: Only accounts delegated to active dreps counts towards the voting stake.
                 if let Some(drep) = &account.drep {
                     if let Some(st) = dreps.get_mut(drep) {
-                        voting_stake += account.lovelace + deposit + refund;
-                        st.stake += account.lovelace + deposit + refund;
+                        voting_stake += account.lovelace + drep_deposits + refund;
+                        st.stake += account.lovelace + drep_deposits + refund;
                     }
                 }
 
@@ -210,21 +235,7 @@ impl StakeDistribution {
                             // voting power whatsoever.
                             if !retiring_pools.contains(&pool_id) {
                                 pool.voting_stake += account.lovelace;
-
-                                // NOTE: This is subtle, but the pool distribution used for
-                                // computing voting power is determined BEFORE refunds or
-                                // withdrawal are processed.
-                                //
-                                // So unlike the DRep voting stake, which already includes those,
-                                // we mustn't include the deposit as part of the pool voting stake
-                                // for the epoch that immediately follows the expiry.
-                                //
-                                // Note that the refund is eventually credited in the following
-                                // epoch so the deposit is effectively missing from the pools'
-                                // voting stake for an entire epoch.
-                                if epoch <= valid_until {
-                                    pool.voting_stake += deposit;
-                                }
+                                pool.voting_stake += pool_deposits;
                             }
                             true
                         }

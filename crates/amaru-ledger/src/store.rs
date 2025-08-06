@@ -51,6 +51,13 @@ pub enum TipErrorKind {
     Missing,
 }
 
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub enum ProtocolParametersErrorKind {
+    #[error("no database protocol parameters. Did you forget to 'import' a snapshot first?")]
+    Missing,
+}
+
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
@@ -63,6 +70,8 @@ pub enum StoreError {
     Open(#[source] OpenErrorKind),
     #[error("error opening the tip: {0}")]
     Tip(#[source] TipErrorKind),
+    #[error("error retrieving protocol parameters: {0}")]
+    ProtocolParameters(#[source] ProtocolParametersErrorKind),
 }
 
 // Store
@@ -70,7 +79,7 @@ pub enum StoreError {
 
 pub trait ReadStore {
     /// Get the current protocol parameters for a given epoch, or most recent one
-    fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError>;
+    fn get_protocol_parameters(&self) -> Result<ProtocolParameters, StoreError>;
 
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
@@ -229,7 +238,6 @@ pub trait TransactionalContext<'a> {
     /// Persist ProtocolParameters for a given epoch.
     fn set_protocol_parameters(
         &self,
-        epoch: &Epoch,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StoreError>;
 

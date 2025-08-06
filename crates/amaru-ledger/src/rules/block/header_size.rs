@@ -53,10 +53,11 @@ mod tests {
         let (_, block): (u16, MintedBlock<'_>) =
             cbor::decode(bytes.as_slice()).expect("Failed to parse Conway3.block bytes");
 
-        let pp = ProtocolParameters::default();
-
         assert!(matches!(
-            block_header_size_valid(block.header.raw_cbor(), &pp),
+            block_header_size_valid(
+                block.header.raw_cbor(),
+                &amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS
+            ),
             Ok(())
         ))
     }

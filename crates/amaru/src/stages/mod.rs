@@ -66,24 +66,24 @@ pub mod pull;
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
 
 /// Whether or not data is stored on disk or in memory.
-#[derive(Clone, Debug)]
-pub enum StorePath {
-    InMem,
+#[derive(Clone)]
+pub enum StorePath<S> {
+    InMem(S),
     OnDisk(PathBuf),
 }
 
-impl Display for StorePath {
+impl<S> Display for StorePath<S> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StorePath::InMem => write!(f, "<mem>"),
+            StorePath::InMem(..) => write!(f, "<mem>"),
             StorePath::OnDisk(path) => write!(f, "{}", path.display()),
         }
     }
 }
 
 pub struct Config {
-    pub ledger_store: StorePath,
-    pub chain_store: StorePath,
+    pub ledger_store: StorePath<MemoryStore>,
+    pub chain_store: StorePath<()>,
     pub upstream_peers: Vec<String>,
     pub network: NetworkName,
     pub network_magic: u32,
@@ -261,7 +261,7 @@ fn make_chain_store(
     tip: amaru_kernel::Point,
 ) -> Result<ChainStoreResult, Box<dyn Error>> {
     let chain_store: Box<dyn ChainStore<Header>> = match config.chain_store {
-        StorePath::InMem => Box::new(InMemConsensusStore::new()),
+        StorePath::InMem(()) => Box::new(InMemConsensusStore::new()),
         StorePath::OnDisk(ref chain_dir) => Box::new(RocksDBStore::new(chain_dir, era_history)?),
     };
 
@@ -327,11 +327,11 @@ fn make_ledger(
     global_parameters: GlobalParameters,
     is_catching_up: Arc<RwLock<bool>>,
 ) -> Result<(LedgerStage, amaru_kernel::Point), Box<dyn std::error::Error>> {
-    match config.ledger_store {
-        StorePath::InMem => {
+    match &config.ledger_store {
+        StorePath::InMem(store) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
-                MemoryStore::new(era_history.clone()),
-                MemoryStore::new(era_history.clone()),
+                store.clone(),
+                store.clone(),
                 era_history,
                 global_parameters,
                 is_catching_up,
@@ -409,15 +409,32 @@ impl AsTip for Header {
 
 #[cfg(test)]
 mod tests {
+    use amaru_kernel::{
+        network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS, EraHistory,
+    };
+    use amaru_ledger::store::{Store, TransactionalContext};
+    use amaru_stores::in_memory::MemoryStore;
     use std::path::PathBuf;
 
     use super::{bootstrap, Config, StorePath, StorePath::*};
 
     #[test]
     fn bootstrap_all_stages() {
+        let network = NetworkName::Preprod;
+        let era_history: &EraHistory = network.into();
+        let ledger_store = MemoryStore::new(era_history.clone());
+
+        // Add initial protocol parameters to the database; needed by the ledger.
+        let transaction = ledger_store.create_transaction();
+        transaction
+            .set_protocol_parameters(&PREPROD_INITIAL_PROTOCOL_PARAMETERS)
+            .unwrap();
+        transaction.commit().unwrap();
+
         let config = Config {
-            ledger_store: InMem,
-            chain_store: InMem,
+            ledger_store: InMem(ledger_store),
+            chain_store: InMem(()),
+            network,
             ..Config::default()
         };
 
@@ -428,15 +445,24 @@ mod tests {
 
     #[test]
     fn test_store_path_display() {
-        assert_eq!(format!("{}", StorePath::InMem), "<mem>");
+        assert_eq!(format!("{}", StorePath::InMem(())), "<mem>");
         assert_eq!(
-            format!("{}", StorePath::OnDisk(PathBuf::from("/path/to/store"))),
+            format!(
+                "{}",
+                StorePath::<()>::OnDisk(PathBuf::from("/path/to/store"))
+            ),
             "/path/to/store"
         );
         assert_eq!(
-            format!("{}", StorePath::OnDisk(PathBuf::from("./relative/path"))),
+            format!(
+                "{}",
+                StorePath::<()>::OnDisk(PathBuf::from("./relative/path"))
+            ),
             "./relative/path"
         );
-        assert_eq!(format!("{}", StorePath::OnDisk(PathBuf::from(""))), "");
+        assert_eq!(
+            format!("{}", StorePath::<()>::OnDisk(PathBuf::from(""))),
+            ""
+        );
     }
 }

@@ -1,0 +1,6726 @@
+[
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "03bd45bd0395838a40edd1da735e826bb82c6b1314be90121ff0cb7d",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "03bd45bd0395838a40edd1da735e826bb82c6b1314be90121ff0cb7d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "03cc06b1c487f069d50f781b8c53ac57c0336f8ec436da504c238889",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 41895780157
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Kayli",
+      "hash": "e083c9d73f3f7a6e6a6007f7b39c06cf85ad3bcaeba03d5f91678d050e6da3a8"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "61c13972cee793809d672c0eac191533c1251d04780557da9118aec3"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e1d3db284a94ec4800fe1ea8bc6bfe778b53f70130d8f0ffead60bab"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "05cd770627e78114a56b7031c65ec6e4d5f75e92936ed8002b84d753",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 10017639694
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Albina.jsonld",
+      "hash": "710c5cfba3ad8b6d4556bc9631296e9b73c6ff6d3a9a23e86904b685372440cf"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "05cd770627e78114a56b7031c65ec6e4d5f75e92936ed8002b84d753"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5e333337800955b287b8313c4f2651bbeef668c95d3f37190fe3e80e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "07d4dad61479f758584513d6c349a1ca31102d2139cebd8ffafbaa38",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 31494312049
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Elfrieda",
+      "hash": "00e7815b04c50b13354f4767f7dbc610e3e335a5d72df883f66d7267d6f677a9"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1cf186c852a7e3644d84fdbe03ef221bd7647470c341bd11e9c90057"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "07e1f83d1d70ed75cf1bc0441d2f5c8dc7f51452cc1f54d906b79387",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Norbert",
+      "hash": "daaf5600928e5477f1ea5b444c8f84cb9137090cdf4c9e90357cd5be6a8be109"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "081e7fc19b6b4a1ff5a11620e5b639d38b9fd482cf7c81b35b8c2e86",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Beatrice",
+      "hash": "053b51d8854e7e4d33b8a5fbad0c946663a307d079a8c5a03000685e02b1ffa7"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "08fde926d2472a154107561c5f5af85358e1a16eb874993e62c74e0a",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Torrey",
+      "hash": "b5c37ca7d3f9f9c3c2497c39a9d48047f3d4497d3d805316ff468b86d8cf3df6"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "09b66905b18789070cfdba6ce4159bf30913071b7a3ac7e287a93c0c",
+    "mandate": {
+      "epoch": 697
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://info.hazelpool.com/drep.jsonld",
+      "hash": "aaf20698b4bdfc529a9ee9607bf9d457ff32502e2add831310e05ffa13f55c79"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "09e18e9f9cf176fdf88763df14e2aef2ecf2dab077f5ba15674cc333",
+    "mandate": {
+      "epoch": 692
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497811795
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/cardanoesq/test/main/Test123.jsonld",
+      "hash": "2c8c14b460c042fd1337268234bf2fa3d46fb9dcf666d3e43b31115c385e713f"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "0b0428e17c92e401be9bb1dc36892430e2dfa8771638eedfcfb9948a"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "0d1bd99d0c75390ae301c0258be7c346e4cb4e32e6acd1f72181bf55",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817119
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Quinn.jsonld",
+      "hash": "ce9e5fefd93d452504f26e5d7d5716188eff69e91abbb3d5d74613dc40a4461a"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "0d1bd99d0c75390ae301c0258be7c346e4cb4e32e6acd1f72181bf55"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "0d8a140c0ce515706e4dc0afa9f69060e1b6311069f345e5a742a180",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817163
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Russ.jsonld",
+      "hash": "6202de0a92e7d38871a4a770212402ea30819b7b23791b4e33941fc2a3b5a622"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "0d8a140c0ce515706e4dc0afa9f69060e1b6311069f345e5a742a180"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "0dc25f5fa7f79dea9139f1ea06dd3006a5b3c0fe8018af059cb31b09",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Hellen",
+      "hash": "6dc018b291f5e8bac75b81ad245930e4a299936e0a7397a6b44d92175f0df508"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "0eb9a5119fbcd441dd00bc749bc2b2aa988366d96001f7f32aa4a46a",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9997478857
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Clint",
+      "hash": "34382f7357de01c4dc5da09bced72a58601c3f3c0045d7b18ccf9e3b53e98944"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "57edeb709b93599d917f711109cde32b21728b3d94e501af6b608431"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "0f41d91e9c924763e84d0afbc1a97814aa51f3c7724b4f845878011b",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Stone",
+      "hash": "3936594195885e24a27d15368af21668e4843db6da3f8ec6076c9e7b31999a89"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "0f74d18a892f4f1b7db626393a88d96892b7ef687a58c50b8c32cf5f",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Jaylin",
+      "hash": "3d04a9029811779e19da709cafbf27ced763f33a5c348227222a397958b7c484"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1076966ff1d3ccf032aa4520081cc608ed33b9a7007036651a021175",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://www.the-drep.com",
+      "hash": "0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "120851e97a3ced335aba3427892243c518e2a7db777a36d52a921dd3",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Carolyne",
+      "hash": "5905c02a1dd3934639a3774bda6c3e2675000a7ff354ba51c9929e1d6f51c713"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "12c7c1432d53454fd88d418c9748a7d129665128fe95ab8e099acc63",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519642378
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Sabina",
+      "hash": "65b22459f6a847724333f17d30f73db0c9d9a62b8339f27fc31b5a1435ba28fe"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "bb531e708ea08affe8d7986eb47f570b9974df1eb920b3de1e926d2b"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "134e3de94767e799c044ff382f73f8219455ce472e347cc8874d8253",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Adela",
+      "hash": "ba896a37298c506282ede773950c6f85fe2d3e6e928c958035fd35908bf8d456"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "13dd0000113410a4479e798b5255be069ea8327a276046a397a573b0",
+    "mandate": {
+      "epoch": 698
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497810739
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Thorrad/Thorrad-s-save-spot/main/Thor%20Radford_DREP.jsonld",
+      "hash": "9573acd9dc19e96eccc850e603dd96fcb69e4b3d29891ee44c9b6330794b2e8a"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "b491c6e74f3f6a9261e0c592b93e70c959b6bbaf5f276b2d67e546a7"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1531cc6af410932e33ca34f47d89f2c67627908204f78372a9fd0155",
+    "mandate": {
+      "epoch": 681
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19497814171
+      }
+    },
+    "metadata": {
+      "url": "https://drep.bio/test",
+      "hash": "661be8ff2b2212645c781561dba79301419623adc1e5fbec69442d14e1b50269"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "ce578f4130b4c1bb707cbf1f12decd306a89e89247978d704fb0c645"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1699d88971264f632f96d575f84016e4aa285f6e9dd2637167359ffb",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Melissa",
+      "hash": "4596135a07e3bf7adaebf373903dad824b4fb80ecb2539aeeff99381499db7ac"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "16da896166878fa61d167908a9f384ed790bbfda9e2fad55e6fe2381",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Robbie",
+      "hash": "d3e497ce8affc03a2eb7d1caafca74db06008279d165910f4e762ea9d6a6c49a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "181702c8d58bbf9820ab0389908ffa02c23e6ae607c272e2d2a6cabc",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817515
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Test.jsonId",
+      "hash": "31518e524509ed61b64ac3a42f66fc009edd354c4608d0371f4254b9cb7c5d80"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "181702c8d58bbf9820ab0389908ffa02c23e6ae607c272e2d2a6cabc"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "197f347c3d80a3149b2868033b835811539a01b52050ec82b61f34de",
+    "mandate": {
+      "epoch": 712
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19809667947
+      }
+    },
+    "metadata": {
+      "url": "ipfs://QmentJWVKLE3v7mxuxh9bYwroxpApzXSScvitvxYYwVLoT",
+      "hash": "22436f7b5d8f607f0a6acedb57b43d6ec5557ed259c2c043efa5e656c5f8687a"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "a8c10089b52be75a396f7a919d170a8c10b9ef3143a83c5989e09a84"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "198fd35906dc1690f9de004038a833a35380e716cd7b7ca03a08ab16",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Kevon",
+      "hash": "c29c3ebdd194f220c108fd024bd51f72195749226b7a1ed3c9741ee257475483"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1cae2830d95326a82c1aa1fb97931afeaf34c575c5871685c403e130",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19816943
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Nathaniel.jsonld",
+      "hash": "16d3068d1e5b2141b74f02647bc7bc4fd054a6f002daa29e95b0b8f50a6c2901"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1cae2830d95326a82c1aa1fb97931afeaf34c575c5871685c403e130"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1d621131ee91cc33f68f877c717f1afb7cf028c3683624182f99a5ee",
+    "mandate": {
+      "epoch": 677
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 10733553709
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "7edf4ea14371c0cee7342069cf0b2fe891aa5ad792d01c724d75d16a"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1d68965457ee5b36d655cc422e3c0f6833e695ce98296ae24cb9689d",
+    "mandate": {
+      "epoch": 699
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9574677451
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "eaeded04e47a226126b7ac393dde37f2650134d4c25d001358ff56ea"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1e5073e3f51d37e25e41004347c40e899632d1ef482f22b176c58617",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817515
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Test.jsonId",
+      "hash": "8251e302f9a3ca19e2946f0594b42d83f665387ec28e94e4d7db387084dc044c"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1e5073e3f51d37e25e41004347c40e899632d1ef482f22b176c58617"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "1e95cf15f971c9307ea55d6c9360d4c1333a700077c21ae0ddff2033",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Clementina",
+      "hash": "be6c55bc8a03450d5b0140e6800709c882581b22ddbc86511f531fadd3b192b8"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "2175d557c82938d05606d26009866fd0ddf888ef6895fbbe84369a2c",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Elissa",
+      "hash": "e27f4e4c7d49d83de7b4e78a0f8e23a23bcbe06dc8826f466f36bbb2b8ae278b"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "2577011a0e6a9055645a11c7a7b8b608accace48f838d4a56485f05c",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Jeanette",
+      "hash": "bc1cbcae513071f2b57a1a5c5ecd8a732125d41093d45d88f7ecf0cff487281a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "27aa842ff29ded2fd5a1c5232b2a645d75229216a88bf7a5907f2c3d",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 8997623414
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "22995a2a9e47159ea018b2e1553191501c4c398494e5148da37201a2"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "288a9e634671ffac93e3b6c49b3a8dca6e5a31281051e2ad4d02d7e5",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Easter",
+      "hash": "5d7558647a5b44b596ce0a5b2e6dac24a17dd0a3ce4dd5545a2284725d966870"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "2b057dc0b4780b4439e8d1b50f4c9f14b4501702ec76876a77ef2707",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Fabiola",
+      "hash": "86e55e3b699335761e21642f0189200c87798c33531de123fb092df3458db008"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "2ce0c4d8a1e5f42cd58f99b995818a58adc795cb9d12c49736c3cde0",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 4492838868
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/m-i-k-e/meta_test/main/I-am-not-Igor_%20(1).jsonld",
+      "hash": "35ffc76ba025432a56427adaab6467345a49be715ea0829c8b722abb83a00d4b"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "2adb069594b805d5d26d8e2f9a95558bb1c20d701a22b2f1fcf7c928"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "2eed24ec0f9cb10dbd3e888f14cce9d7dee2b4fd82397893e468bcbe",
+    "mandate": {
+      "epoch": 715
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 172591441512
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "2f27ea59d2b003e6205e37d59ff62e517f01871d94757ee9d5caa08e",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Elnora",
+      "hash": "2cd705c10ce756a156e639959592a16b6fc44131871a3c9a7890450624309407"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "2fab49dba6142a0754f7baa55cd9596d3ca3b641f300c5e5768f99ee",
+    "mandate": {
+      "epoch": 686
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 12153112245
+      }
+    },
+    "metadata": {
+      "url": "https://preview.1694.io/api/dreps/6/metadata/0b8b092fe37ef00aec08ef5abc34d8aa0e82a580b8e3365e5469f8d98997a9a5",
+      "hash": "0b8b092fe37ef00aec08ef5abc34d8aa0e82a580b8e3365e5469f8d98997a9a5"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "eab404b991e5f9fac1d2af367c6cf56b2a0d236b383928c0f7f6daca"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3061ee0e723a6fbbc7090666817641efe0447650ff3d8dad72fa968a",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Coleman",
+      "hash": "9995426e912ae5758eb6fdf1c37d6f9f8fd6306507cc31655c9a1def34f7576e"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3181d4107fa90f7652332b3c6ba655b658bf8fdcfba308cedfc4ee4b",
+    "mandate": {
+      "epoch": 677
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 7806991382
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/thuchintran/DRep-1/main/ThuChin%20(2).jsonld",
+      "hash": "4322f90d27868c441435ae85c0c6a993b235a5750ff5b993cb399f4787f13107"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "968678a0e75271d3488019c5d033b6cfb91169f15e0956864aa25090"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3398a69daa2bed690430255dedc420c3ea9c758f5db04a9b79305022",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Sadye",
+      "hash": "9718b2fc18b9d93efb2dda0d73e2b57647b3d289942ae8e6dce0abb9569e4445"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "341f0c2be3b264d08e7cb56f8fa4144cad380b6de585461e4dd8ef8a",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19636640680
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/WillNorrisDRep/CaradanoDRepWillNorris/main/Preview2Will_Norris%20(3).jsonld.txt",
+      "hash": "5ce5bdd781966e19f32f9848b33e4c96bf84d7beaad1e79ff54301cfe2ce114b"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c153bc023e51b4e0c926cead634d4a5855e59f7615a95284d129c151"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3713dfd6df63c9d1e91394c7ae9b3bb636ad350addf8331cc47e6167",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Felipe",
+      "hash": "4126a05f2f67bd5b495fc56765b6010bae7f49d257ef80510986711aba30ccc7"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "383d5a81e171f652ac7f617652f9587f6c0a6424cb172eff39dc3bb5",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Otilia",
+      "hash": "da148e1c926a762436687499fdd26adee878254ad2ae5e4aac1b6694071ba836"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "38efbe90bd1f6d8993c281b8b30029c544daf08e7e0d442039a5b3e0",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Josue",
+      "hash": "1864db2ec3513d1f39bc2c84457a4569c016eb2ea9ac23fcc1225ca69e35982a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3a063bc1a3e294344e8f1e8b2a5d4bfe91aad363049d0532ebd3962e",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Melany",
+      "hash": "0406d0b14bf7660754c54c8f2dbc568d01e88fcd0e4b4f74d5f0c7c5f48cf90c"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3baa06cc31a849b5d51a5e6e2bdde4d6964761b7fa342ef6e14f7907",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817031
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Nikolas.jsonld",
+      "hash": "e948d7bb4e959b9e627f349432ace4c65f6b46989ce7f4d09cbd23d86be22506"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3baa06cc31a849b5d51a5e6e2bdde4d6964761b7fa342ef6e14f7907"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3be20c6a1d1d89025172cf37c3000d805c98ef4eff63ec027fc4eddf",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3be20c6a1d1d89025172cf37c3000d805c98ef4eff63ec027fc4eddf"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3bfc2d1fc47df1588db25070b96fe565bb2d792441f942824950ef6a",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817075
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Kallie.jsonld",
+      "hash": "74e3940124b32bdeeb6a18daa238fb5619411c6526885bf959709b3c0112c495"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3bfc2d1fc47df1588db25070b96fe565bb2d792441f942824950ef6a"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3d28108a870cffda1ff58ffe1a448c0cc34278d01fa807ded90cbca9",
+    "mandate": {
+      "epoch": 703
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 2378771101624
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "0c90492bbe7eb33f38173255e547dc3194abcec5cd29cdf504bb4f03"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3c5d4cc3c733e7a671f57965b5780e127f0e5a0a9c11e7c9092fe50f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "43a48cb96301808d03a79807f0bb6b8d8b29d76fc92bb33ea3cdf515"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3d83134f1b32af6c06b91396241ff4b6ac49c7064c1514962273eb86",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817691
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Tanaiya",
+      "hash": "c59bedd3a045ea51c26bcdea485118f7a78caf835173826b892074cb3f80f04f"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3d83134f1b32af6c06b91396241ff4b6ac49c7064c1514962273eb86"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3dbe5204dec7d71a1b7d91306ba31c0b5bbf7c6c843d2ba58dc3ad9d",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817119
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Brant.jsonld",
+      "hash": "a0194f542edec4fb581ac7cce818bb7a45ad139ed11fba950455eedf93bac98f"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3dbe5204dec7d71a1b7d91306ba31c0b5bbf7c6c843d2ba58dc3ad9d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3e6065769265b9afacc9cccb63912ee1e0e047b5239c51f0e6375e87",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Lula",
+      "hash": "dc7e3316e91811cd5832a6a6942e90eb453eea3abc459edf37a8471d1d21eecd"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3e831562e3760f6fa2628154d1c7dc21798edb210152bd52659e201f",
+    "mandate": {
+      "epoch": 681
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 619352923899
+      }
+    },
+    "metadata": {
+      "url": "https://bit.ly/3yJ7Mc8",
+      "hash": "a089568272fd28f105d1711ea3a2ea9957afc67afeef7902cb2ef60d58bf713f"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1873d57f26092d5f3af614023670f128a42b8ef136aaed60d8d0aa7e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "1b515807ebb8a99331ddeb20395267e83f29b80716ada5ea37c0a062"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "671e2e2e9882de046e8f76160a2d22ff7761712386f459c2b018c78f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6f02334c59b3cb7afcfea6e97857b66f6d0333e36872b5b17f228760"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a9dbfbc43999334358204be2dd1e4dcd9149d12c9230f46d0137317a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b8905d8340cc02d4d3140244a396c5ee19a82808ef61a336c8efceab"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e4cada283819f8fbc4775957a2f3a5db0d257422aada04d8800c71b6"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e5314caf3464286ada3e02ba1845b1f3648981ee54d8c7437a0d0de6"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f3a1bf0dfbf1f6d4245393ca2769ef9409cfbc7e84aeb55362aa0a10"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fed344853eed50431139140dbea54a756db2ca11d409b91a5d77a34f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "3fd04ebebf25245cfdf71c479997df3afce76da9e12591f6b0539717",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Damien",
+      "hash": "d48ba427856a3cc77766a21071fd5253f498a2f70d7b76c22a67c964a6a197db"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "41755b53af273dc25225c8b81d111a1c68a20874e1e4b6c7a109b33f",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Eunice",
+      "hash": "59ab50070cbad30accf4a488569280f947dacd0d1a523b7e2fde663cce84564c"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "43abcc0d36345cd5f5a51eb590ae9cd7a3d8bd74fa01d46fcc5a3cd8",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Leone",
+      "hash": "2f689113bf3ca127147b94be6b03858c9826732ac137b4c33ff312c7d49ef0a8"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "44ebe9adf05a955ee195d3250b7fa2a6e9f699d691f0594e803281ca",
+    "mandate": {
+      "epoch": 698
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 23681451905
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "a3030f28de601b60f96a9ca26f64ec7e1089e8dff41c6d0f8b46be2d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "44ed8a145b27adc0212d42dd257c2f25d7fb6636499064b18bb913ca",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519643962
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Georgianna.jsonld",
+      "hash": "69e51c9d7089249af2e29ea36229ec8a036f0911e2d2d1e3752469554be888a3"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "a0acf8ee0068474bd51a30031e6078fc64a338b1eeb13d334f6779c9"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4519f294d80b0fcc6697bde8f36629be8ebf9527be023fe73673f1a9",
+    "mandate": {
+      "epoch": 682
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 120653038151
+      }
+    },
+    "metadata": {
+      "url": "https://cdn.ryp.io/NilsCodes.jsonld",
+      "hash": "a548202ffd8cc917c7365600c149b11e9e898f5ecd4c418ea8669c7e653f1212"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "0a39108a9feee974914f698531779a8afe02a348d550428607f97c97"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "27d5a9acaa1c6f44b6911ec37124f0f5115af6bf05c1a6137bcfbbd7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9a06d9d8c599351cc84817dbc49403e1d48122bb4348fbec31b5fcad"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4589ce916b6aba99aa5531364aa2623d7e0a9e3c35fffe6700bb0e86",
+    "mandate": {
+      "epoch": 706
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 4494212374
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/m-i-k-e/meta_test/main/New_kid_on_the_DRep_Block_Once_Again_For_Reasons_I_Can't_Recall.jsonld",
+      "hash": "15d790938377b298c269393a4e839c53c41d24d81f917c06742f3b7ec68a5261"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "bf1e812e07d90c191e95d2dbea9a57c760412eee80833165287f3214"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4673965122b3e7c3b985562018349dd0bbdaa2eca628727fbe497375",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Shanon",
+      "hash": "c47eda6e15f4a408437861302171975e1f1a5b21206e80f15929fcbca28b5821"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "46efcc1fa0a1e8e82ec09a555a998814c3f1a081bd8b124bcebc3315",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Lucius",
+      "hash": "74bfa54ccfbf38cfd891bdd0cca5371a9df8cb546a19ea41b61e7d5dc2dfef2d"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "47c6d376abd6b65454fd7eb6610982f721388cf46f816f61e66ad63d",
+    "mandate": {
+      "epoch": 698
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 8997079127
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/sudip",
+      "hash": "a5d88eb62ffb19e55ea8abb23014f5475395254332db2f4bbd65cbbb509182f1"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c2f45a16a6685616e566c00fc081fe59f8bd7ab679ee15e9ce203446"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "49da478a3debbfec63a391964e27e3d215482c740058167ffb670d55",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Baby",
+      "hash": "2238f7118745e1ddc6ea9467d1a3a6ab68e78f8b3b805e547ba26a42a1ba82d6"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4a5645742341c4405dcab7028831b2cb4ef38977e9a45f15a4d5ae8f",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Federico",
+      "hash": "c9708ae0114c2a72224f353ae87964af40541fdc91cf1d530b4f8157137203bb"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4db795ec5e8dac58a1c2e51c5c81704624da9dbaabbeca8c4c2a40c7",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 12175863892
+      }
+    },
+    "metadata": {
+      "url": "ipfs://QmPCmeG8RUULztzc3fDr7JY9MziYq3LdNkxY5gSTBBSmcs",
+      "hash": "a142f2e5f9edf21b950bf4f72c4b014f3c576549969ea8bee17d9cf948a43e5a"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "5a2513e3f68e13bded84f588818bfcabf0d0e646eb9f2672f2653de7"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4e297ec6c509c9eb67d5517dce3cddd099c69ba4db5393f70d6ff1dd",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Geraldine",
+      "hash": "31dc7cd2f64a20d5eb65c92749eac6cab4fe3b28788aa27aaf3a69c0414cc58e"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4e6cccebea1e712ab9d99970d10caba286e8b880823b0d10d1c2d8bd",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Quinn",
+      "hash": "ff9a55700e09d4270bac074fa3609ddbdf704327efeb059b275e0a43c79eab75"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4e8709c24e84a2e05345c9ef420b9cdb23d72cb36c8cec05d9cac521",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817075
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Ernest.jsonld",
+      "hash": "5dc9c3da05d455639fc7afa76e1bdfb91f56531746ba52b24ae5d0efab6b49dd"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "4e8709c24e84a2e05345c9ef420b9cdb23d72cb36c8cec05d9cac521"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4ea52cb03d62cefc1fc18e76d77c51c2cd4af510239b90b2d2a9b4e5",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Deon",
+      "hash": "034938fec08579fc453ab5870a1c5a07c28e18338dc7175d7582d826ae6172d0"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "4f6ab6005c956130d0c5ecd24df9c8a1e705e418a5f5752de03314f1",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Daniela",
+      "hash": "720b7ad17082862659e1c5bab816fc7358472e7c8c46d937f364808c97550cdb"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "50e049ca396c7366482cd89e22d44f2ac9ca4b4aac3115ce1e307ab5",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Cloyd",
+      "hash": "0b77f40f747137cb01e380f3fd66e26469b007d2305d37bcb916b3de02b56e6f"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5176e207a6ee3a40b9e835bfa102660a5a4574f5ac69df62693ec504",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817163
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Viva.jsonld",
+      "hash": "3ee1cca3cece875a6d0c52273e19c393711c8131d18619e995f4bf16ca473689"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "5176e207a6ee3a40b9e835bfa102660a5a4574f5ac69df62693ec504"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "525e43053c0a3330771c975a9251885ae6ea70cf95e9eaa0b52d81ea",
+    "mandate": {
+      "epoch": 691
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "53aa30154565819de352c1d76db91106cd54cff28e24e12facd9f843",
+    "mandate": {
+      "epoch": 699
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 371908409
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Tastenkunst/eternl-drep/main/eternl-drep-preview.jsonld",
+      "hash": "625ba33a4b430055c0381630fde5d6e47d9d3d39fd5ed98a224f288288da9e8d"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "59725f52ca144d6ad5efac538dbf632391915ea6c0d54ae66fae748f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "53d61e7c95b48979de18f5437dfc9fdc1441fea7eb5eb11b0b32156d",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Kris",
+      "hash": "ab08e6bde3e874c0157ed0e64d9717f9bf1d9263f5fd4d358017d5ac17ce8048"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "540004c517013ac8a31f0979b7b2e30d28a3b761d1975ad3af01816f",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Jeffrey",
+      "hash": "52bd6a1f2daaa9b52a87b16ac16f45cb1541ac1653457d49875ce55fab922090"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "55fcc640f5656aa3aeaf695262820fef73309f62b0208308deb0ecdc",
+    "mandate": {
+      "epoch": 699
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9565212936
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "db365e7b696cf816fca0aac5f992cb8c0a490c9471109a79548988ed"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "57fc10e31debbe3b4535d6853dba70c2a64f68170c235418409f560b",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Nicholaus",
+      "hash": "de4cc91193d9cd7eb5187935da9171ecd35296e931777a77b9aedbf0bf2ca995"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5816cc9930591854211641ae3f732936780acf2e3754b0a760ce0b1b",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Test",
+      "hash": "ac6fd242e06bcc247fe1ac5610e7dbffe77c6822efcd03736da0ed0dc9797375"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "593bd2a705d4d1dc57c5da80ad1bd74903ac49dde84df71f7447a455",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Jaclyn",
+      "hash": "3a3ddf6b6ba4941c92e9087d9637c20db37a8750049070d185d4ddd746a4ed4a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "59f8cb3a4dca2cb9212417c17cc96a36c2d5a1ead8cd5ec91f1cbaa2",
+    "mandate": {
+      "epoch": 671
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 90318622793
+      }
+    },
+    "metadata": {
+      "url": "https://gregdevbucket.s3.ap-southeast-2.amazonaws.com/62.json",
+      "hash": "145fc2f2624fda99f0d98aeb952a1a3f7567295666660065c38dd1ae0468744c"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "b16c6d85dc4b033e4d64a7484da70daeb13a596d1eb197a49624d627"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b31188318635b2e1718c34c12313c6e2f446278379faae7d2ad5e7e2"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fd35a8892a256ca3af89856083c2ff9ff757c1a25eeaa72222ef4c66"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5a62152ebc049460f9e12120a73aa92cab1db17bf1076f013fad5a2b",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Loyce",
+      "hash": "6527ddbeac2ab5dbcb5ebfe82ddc630bc5a122f1ae09c9d4ce5ab47cc8e2d4e2"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5b6fa1b3b98d264ff946e90c84ec5faf46374e7f3c5040bfc7b8fbc7",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Jamir",
+      "hash": "267997f11cc61072f35fe178a48b7d8a4584579c31acffce2072459527478712"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5d4ea127185dd3d2d1a6c66969fa6f345e49b6305d04718237099de8",
+    "mandate": {
+      "epoch": 671
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 10285189748
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1969bb944f35521743f67afdbbf236b17337d90ef753a8858a6fdb64"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5e009f74c976d4fce3b15ec79a2340d84717d9cd65fc2a477fe3f393",
+    "mandate": {
+      "epoch": 679
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 620998322
+      }
+    },
+    "metadata": {
+      "url": "teko.vn",
+      "hash": "a44b9e1a7633a4d8c4ea633e381c91ea5f7d325158ea8feb357c09925bd2b7f0"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "505410178f25f2cf8e81a461b8c73ba20f56b857ab0301206f8a37d5"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5e242c880a1bffe4ef5dcdce2f74ac6cb7fff6ee62f6635659377053",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Delmer",
+      "hash": "2b9fe9b31c9fc6b6b39549f94f988eb3bedc6dcbec962e715fa39d830a5b7ba1"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5e900641dd0478ef49790b1801a4bbf0b99e5a7460effce229e7d5e5",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Verna",
+      "hash": "031117ee00bed74d04d44b7c7dfb0a88da81e7e2eab147a8003036268ab7bc2d"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "5ef5d829279a9eadfdac9e72745d377068ed33bd5ae956284b08bd1f",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Noemy",
+      "hash": "1faef6b2e1b13dde270da9173bcd22f1d8bc90a041b0615e3239922b2c4f11eb"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "60b6c069f1284b85442340bac14d6259d7f068de07df3100747e80f6",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Ludwig",
+      "hash": "54ecb48cf776d23fbe1de4b326548dc39bbf56c343863bb377853b123ed57d7a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "62466c89a8f1ad68921431e3ea9b196b524d1763a6d822e361f761bd",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Litzy",
+      "hash": "f4719abc354e74df97032c91947c4375c9f53b9ade94efb36b8356d47526acb5"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "62ea38c80ea1f6038818cc0b3f15b2d1a16be41ca8c671f90ef0fe14",
+    "mandate": {
+      "epoch": 674
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 114974342198
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "4566506d723dadff77d5d2f15f60b2ddc806ee67449279900d83c8ae"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "64a5af4499bce0f26e473bdda72e06805ea1b2c73236c7f7cb692d21",
+    "mandate": {
+      "epoch": 672
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19495276088
+      }
+    },
+    "metadata": {
+      "url": "https://thenic95.github.io/docs/NicolasCerny.jsonld",
+      "hash": "b937fb595c514970b22a90af1d7765499ba46245a8afd996c5bacad856562262"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "48501e26635175ade0a228b4d565ba2ee326c0b29ea06b23c3f3453f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f262394bfc6c0636479dd9a4e92009e5515a9fd70637cd436fd4c060"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "6671e0297cb3bafdf6feecf3541435edd0f45942e08ff36d79f4e8ef",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Henry",
+      "hash": "dbfae4ab2fd94a6c97f8a7c77acbfd49efe5b4c3a5413f5c7ceacaf9f879936e"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "67e570621772f0e8a47c829e676c879788d59b28f5aa96841cfd0abb",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Jensen",
+      "hash": "818c5e7d5837e314f518428289bc5b998e5bc4f6ab6f38e7e23eccfaaabf9f2a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "68a5f1348300ada6dcec67f9421bdac62ba621006408ece8c8e551d6",
+    "mandate": {
+      "epoch": 712
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 10351732534
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/hodlonaut/a/master/max.json",
+      "hash": "0f55c56725f0ceeb8cc1a6b68b74d523815258d822982cbaa89f939beef742e0"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c29d5c628ca1cf08fc71d5bffc42695f41bbbeffc4aa2289d86fce1e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "6b705826b183f38814ec46fc7bf76e601f68026de28edbb0fc07e67e",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817075
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Nathen.jsonld",
+      "hash": "50fd5b8181f0e72d268cc1866fdb7a0820a984baef1f391546c07d9a6934e87f"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "6b705826b183f38814ec46fc7bf76e601f68026de28edbb0fc07e67e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "6c8a0c80777f9e4dc043dabc48e8391c7821a5b42c850be268cf1a51",
+    "mandate": {
+      "epoch": 697
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497619014
+      }
+    },
+    "metadata": {
+      "url": "https://c-ipfs-gw.nmkr.io/ipfs/QmT2qDzhtW2mQy3JXG9yY1cVhdaPC22Nm71fSwjkz3i57D",
+      "hash": "22edda47d350f557d3513bc13aa22e85cd7a11ab235aedc7ae751394692ccfff"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "759077966225f21836cdf733f74527aeae00bb08727fb43bbc63349b"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "6e4069625cad00002da7d1fc444352e67613e895ca610bd3506bfafd",
+    "mandate": {
+      "epoch": 683
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497816635
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "5df29dd971dc3cf5b3a85f820158c8ace408659680bc2cd0b7d92058"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "71303264e751c49c624a7d4fb3b6c5e2eca6e7e9c65d054407ce2f47",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817075
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Brenna.jsonld",
+      "hash": "60fc48c7427a3d003513dfb706a97a637550a59f70ae220edb83f31898a28a68"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "71303264e751c49c624a7d4fb3b6c5e2eca6e7e9c65d054407ce2f47"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "71e13d91f3b756ed9c0abf18b8e81df2d4423748230e968dbd2f194b",
+    "mandate": {
+      "epoch": 678
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "72f23ab6db42414b70e240c26f5e8876c72b9fd8d16392d434514873",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Nakia",
+      "hash": "9c02d70aba59834e1bf1a5980d40de0933645738c77e59f1e07f77b8fd9ceeb4"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "734083fb077befe41327e28232284c9d49c748a6d7bf401b579b625b",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "734083fb077befe41327e28232284c9d49c748a6d7bf401b579b625b"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "739701e411d342e6a385dcbec1f78edc31434ad1ad166d20954912d7",
+    "mandate": {
+      "epoch": 672
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 161144504397
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/mirceahasegan/drep-registry/main/Mircea.jsonld",
+      "hash": "603f3202d8d1c15f54adfd944a437e7c0b6183a4ec3c04c0dec3faadb7825ccb"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "21dcb03574152623414ed354d2d8f50e310f3f2e7d167cb20e575427"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6d005211cf84c95e714e923b6ea38c7a066476d7365fa3f6fd822555"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "709533d498f62784f7fcde1aa6e077d4915d7c634dcf9669dd4df68d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "7e35ec3770c7ca2708c850b17b24a1264b8570c4698b4e69ea42c299"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "94917a8771d16a6f0ecfdc53882dbd69710105e0709387fa9358bc99"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a68bdcb07a6465a008ad29b146557667d10942f04bbad169a4f24978"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ef6190d08b511075fa44ead25ea85427beb91d21d5883c8978495841"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f3f30bc747f11395284c6a71b42beca3a9bdc1eebe5e9a19771bad6e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fa92ffeacc189efaf4c24c792b7b89cc31802adc027834e24b1177e4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "fdb8cb46ce8271b09f777605a33134c11e90d6c8f3f5de406f068421"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "743c3613290bb0087b87bbcc9a8da6023241dd2609e84635557f2245",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Yazmin",
+      "hash": "03c24d5f5832f96fef15bd838d322b1b75b2c7ec84190dd0c8a143d94a94e523"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "750c4f34469d1b4eb220bf1b1b0c73e454640502205f6c3756ea6f04",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Grover",
+      "hash": "60b4e53ca03280493f27503509b81383176d4539f35f5b956eb55420fdcb6ad0"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "780e242bc8c7630f230257cb84a823459c48b88192f398e996b38ea0",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 10014034773
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Hettie.jsonld",
+      "hash": "a8efc2c6408a3942d419bec82527d32bdd1ff98a3caa411b9d2957093ecf54a2"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "2a93511739d9a21bd33b9d2c7c38d425e88924b7bf4cfdc810dd4d88"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "780e242bc8c7630f230257cb84a823459c48b88192f398e996b38ea0"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7833944ab9d5ab11b67c76b2bf897170b0ab52651bccee864c4cdddc",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "7833944ab9d5ab11b67c76b2bf897170b0ab52651bccee864c4cdddc"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "78b958669e734b6f197e36428743b16104502cbb4bf0445e1618880d",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Edmund",
+      "hash": "486b880795549ffe66418d278bb60ae1e3867baeb22d8af5a87ff28db9d08bf1"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7908e51158e27aa4dafaf2e53e6591437f75bcb7ab126bbef7d1823f",
+    "mandate": {
+      "epoch": 670
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497296504
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "eb3093cfd9718c10b3a5df8f0ec8fdbae3644317e5e6b9a6bb4c67a7"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "793898c10bacfd5281bcf675fc4058bae1447ec5ddcf3c8981fd27ce",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Samantha",
+      "hash": "07ee5ba7f67a305cb9e69292921867474d693d4050f8c676494ae23f251d6f3a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "798fbba25f3d52bda98fd81021d3998ff14c19b3db21fed1e30c613c",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519643962
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Daryl.jsonld",
+      "hash": "d4ad30a6fd52ef92533e1d77c61f52b8fac16db92ad10833ed9d14118f336026"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "6f174a7cea0adf5cb5ecba97603698ca27db1b60e93e1b72fa519e99"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7adf68d0343561f14fd2a837d4e2819e0258d7eba1081cf61547d9e1",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "7adf68d0343561f14fd2a837d4e2819e0258d7eba1081cf61547d9e1"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7bd3edce6b712ae6bf5e6125e7bc69947f84fb74ac3194a9119ede1b",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "7bd3edce6b712ae6bf5e6125e7bc69947f84fb74ac3194a9119ede1b"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7c2f121c9b82e354ead33993814f71c2bdc2f771cba37d3494242eda",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "7c2f121c9b82e354ead33993814f71c2bdc2f771cba37d3494242eda"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7c3b8f563a139c3667150713f004ef53848fc7a7e0814198f1331d95",
+    "mandate": {
+      "epoch": 698
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19654407735
+      }
+    },
+    "metadata": {
+      "url": "https://shorturl.at/vQLWc",
+      "hash": "c02e80186375af5c0a88374aecdc47522ea87cfd235f492182922898cc70c799"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "911887dea38c6e815fd0a0e62bcbbba4b474c427f255d6277d690227"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7d40aea36e05a63505e87f8b746344e6b7f31b5450efd3a102aaf14f",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Carmella",
+      "hash": "1b6441d90c695198fc05f8a5785f48fad3480a2a2ecc8550a1cb896e2c84bb4f"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "7ee1ab8c1df0ae9c9ebc78a0cb2d6d641a29a017a5e6471333bca9e3",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Penelope",
+      "hash": "d5ccee8f1ae13e093d0dc73d7f0f90e9ba9954c73fbae8d384899a98f8d7b36a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8002ad7e01433f21081d5f8cfe78e09756f6bf44612c67b32f6973e5",
+    "mandate": {
+      "epoch": 704
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 52307064
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/stakelovelace/pub/main/a.json",
+      "hash": "2efdb3f2f46d103865ee3a1a37adcfc916b81d5c14669b6ab71344b439b4a475"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "21cfaa1d75efc62e002a699298c6f70cf7fda46f985cedf7c6307620"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "80aa2910de871294e4768315207564692ddf1ba15c6de1c1b5a24c68",
+    "mandate": {
+      "epoch": 715
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 10495478329
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Ryun1/metadata/refs/heads/main/ryan!!!!.jsonld",
+      "hash": "4481c2fbd116579bfc02212ffbe4e61f8babaff7d9d461c35ca83f52da72ef66"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "d8b236dea92210535b743efa9ddff3a58ba59ef7e571a35c69b74794"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "81378d3ea89b68f0fc09944b1f93f2feb851318f196f98ba4029d8a8",
+    "mandate": {
+      "epoch": 682
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 5951414994850
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/JoseDeGamboa/Beta-dRep/main/Bitcow.jsonld",
+      "hash": "2adf95296b93872be15dca4fc54f3ea09b5a8cc21ca45fa13f369160c2ec7c15"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "e6cd48c60e2c7b844255c4b778c9952b7f04d0c8d22f0dd6652ac14e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8168377c6efa93747b2ef118dffe68be27fe417746a470fc2aada8e4",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 42707451067
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "f99d15ce16d3a0778814bac86d9a4b08dc5f8db184096ed07bc9d02d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "81a083751c32efd67e70b68c78ac680fb955ff828eddb13572eba27f",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817031
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Savanna.jsonld",
+      "hash": "65cb01571e803588964f422e9d126a90636e66473c5bb4aeac0b50ce30caf731"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "81a083751c32efd67e70b68c78ac680fb955ff828eddb13572eba27f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "826fa76ecfe7d4496cca317bbd73835afac5e5b282c55f0f72f1c95f",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Chasity",
+      "hash": "3cc4b9ca7e270e67238d80926775f4d897a7f4d2539c967bdaf404e68057bf01"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "841efb254aa28f427cba41087a3c4e617802ed5d4004f3d509495b24",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519643962
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Arjun",
+      "hash": "1a87b53696d62a501cf599d46db7ef540875b92a9b78bb8d298d9ab6f005c4eb"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "94ccdfca0196b4e8870353aa0815cafb07bc741e7bf21522678e2035"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "858de63e08cf83be53302f880aff4625e817c7e4f302505fcf8d8ec2",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Noemi",
+      "hash": "67339f0bb79808c03a8888ca139a61c40fdbb4edc6300bbed502768e26f20f2d"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "86509b0598653c8353bedefd11494e2be9df46bd87166ae54bdc71c8",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Morris",
+      "hash": "197035ceb044d002a140a21e326baea45d58a053e37ed05215b58afb51a0234a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "87b3ac65d01478e89180ee9fc668b1e0017625c178fc163d9eedf9ff",
+    "mandate": {
+      "epoch": 674
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 125526740553
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "938188718d93d5c58d94cbc0839daf32837e4b88c0aed00efafdc193"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "87b5a562dcda02e70a0782541514632c009c46b9cec848ebb09dec2a",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Bridgette",
+      "hash": "af77570fc8c6e3f64f9e678d4b9306445d0a45a56ee8f4c9b0a2198522d10707"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8827337e4d049d5278273821434d7b6b4af7230806d8e90887b917b4",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Percival",
+      "hash": "11ac753adf59700413cb987bf6be2d8993edf32621544fdce0ab6007ffdb5260"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8b6782fe654fbf3562b49818d25f33e1f288edb9eb750b254ff473b5",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Cruz",
+      "hash": "1eb8e42479fe88752e69aa2507f12d69a4e543713e8c650e7892fb5f4c52e91c"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "8f4fefcf28017a57b41517a67d56ef4c0dc04181a11d35178dd53f4c",
+    "mandate": {
+      "epoch": 681
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 252070212781
+      }
+    },
+    "metadata": {
+      "url": "https://my-ip.at/test/CIP119-example.json",
+      "hash": "1e083e61018af95b487eb2f189aa97334e2ea43936c0bc06b4425561fa23e8da"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c13582aec9a44fcc6d984be003c5058c660e1d2ff1370fd8b49ba73f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "906c243ea7b10f322604f2422ee17664e36cfea6c5aba35f1f5d3506",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Randall",
+      "hash": "d9936cb9766569cc0e5a0a48c2a0aea24af5393199869f681bd374c1cfb73830"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "90ecdc2e54cec3b694680355acb64794cd82b117bf5b63b7b4b41cfc",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817075
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Edward.jsonld",
+      "hash": "75c01aa1c2843159cd0d0473b1ab107eafbaed9611f19229ed955358d0ca6704"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "90ecdc2e54cec3b694680355acb64794cd82b117bf5b63b7b4b41cfc"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "92e04daa5e69070892e50416a6b2a9fa5c84631c4b2a87a53427cc48",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Lula",
+      "hash": "f0ec662a033f0318bb0c0c55399dfbabf6e60a40c74c1d53e51eac9122af629d"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "94cdffa73a18fe3edf2d58aaf3479c45bcaf0bfd096460a887af280b",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817031
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Laurine.jsonld",
+      "hash": "24a3817d13d571882c89f2e1ca3b45fa6c45ab0a0ac3b551fb67430a8c45cfe7"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "94cdffa73a18fe3edf2d58aaf3479c45bcaf0bfd096460a887af280b"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "950777703998e8be4c6d55e2bcd7b01b062819bde81a6937c0ec22a0",
+    "mandate": {
+      "epoch": 688
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 5594568571
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "9ef254a1c8579d15c5c8690330b3563f7b2e515970a0a6188301f6ee"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9511522d3225accabef97d3909d69af306f6235541bc480c0b0788b1",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Kaycee",
+      "hash": "ff7b1cc245a18bfd04da070fdb2f5346ed2df3f843eb6b1aca2f5defb7254de2"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "956ad9e3beefefecad441a74b0e9523c209ba6516bb68ec5d9795ba8",
+    "mandate": {
+      "epoch": 683
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 365277836207
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/andreassosilo/drep-profile/main/AndreasSosilo.jsonld",
+      "hash": "195ef44f9ee99ad78983f0ad04ea2d020b5cfd7624e9739fc526ebb8aeb8c426"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "4136cff0be6cbc060faeb4571bb4c9348245cc78d4746b317670dc34"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "538285dc48e75db395474808040c893c169f2b0cc33fea6695483440"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "63296af67173c6a60c07caebb0d1e086f60c944ccb9dfebbeb58f923"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d0e19ee663e4eec0dc80950b83b03edc60a70f0eb8499be18de7b0b7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d3e11178e7dfef4d8f0cd44b9f3978ec236163063dcf93e9d31c3b56"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ee9b712d6b991cd4924f95b93dc87ed81fea943c95d96a3497d1434e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ff8433b43cc26f9e283fce859ecde1a4d67c3c3a191c764b695995d9"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9763d2bc6113f8f45ead58f1a13f9d0a6f809e99e8dc22f0a10db3f9",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "9763d2bc6113f8f45ead58f1a13f9d0a6f809e99e8dc22f0a10db3f9"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "986780f2d6063855c8c8ef60f625efb3d2673a559d940a6105b99111",
+    "mandate": {
+      "epoch": 714
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 381602004
+      }
+    },
+    "metadata": {
+      "url": "https://most-brass-sun.quicknode-ipfs.com/ipfs/QmRpq3xKSPyT4WWjCt4UfQC6gVCJjjJy2fmsykPYx5tfTs",
+      "hash": "d9eef2b6f1403ddae8d7bbc555fc996c09ea7700c2bddb67925e5d7e44fe6610"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "abc89b04700c15319a5ba3a7d3e7a565ceee61761ab751c179c4274d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "986f05f7f6556be8f4156553ee5dfa6cc6497e904118a2dfe68f2681",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Melyna",
+      "hash": "1cfca6c388b523fd39f3b1c9a8eba1f263be72853dbcc742dc255cdc985b13f8"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "98c722efae131c44e60f1f6534414f0d20166e5ffc015fbf6f566aad",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Ben",
+      "hash": "297dd9e08006de1d35eab614099bf78ad769e99fa8435553b8403654a148c246"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9a1d689bcd029f596c37503c3beb0a46a1b9c4de0808d3f8acf84929",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Derick",
+      "hash": "4f66d36f5dfd620b410b41be6bffd582bbd4e159c80ccf2f73af31468b709e4c"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9bb7d91693ca6ca2c358a20cbc5682862f2cd5e4068d7f3bec91225d",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Olin",
+      "hash": "60653d967c6bb70261b5107876d7dd0e01940ad8340785a5143ac2e86a03b6bd"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9d008f8b0fe50ab413f3ba9bbaf0cd6efc0dbe5c26acdbc2b1ef520e",
+    "mandate": {
+      "epoch": 680
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 159497617562
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Thomas-Upfield/test-metadata/main/FINAL_PRES_PROFILE.jsonld",
+      "hash": "487faceec70a3d886eb8dcdb393903fa28877321b94d8ea7bf9d5673b601f24e"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "9ba78e913ed182809bf09ec61aced53b9f6393afb93b5458d4df2f90"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9d34d12d2288b2b3771a0575df262ba0f10ccb3538f2d95833e88084",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817075
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Tyrese.jsonld",
+      "hash": "b0386c1b199fd9311bee213b51957096177564dbf301341367a082f05c3d0a0f"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "9d34d12d2288b2b3771a0575df262ba0f10ccb3538f2d95833e88084"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9e12a61bb5169f2cdf646c20f31ce36e7a9ae2e29b88bd77bfb33097",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817075
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Declan.jsonld",
+      "hash": "32a362a09d0493313bf1b0a974a38c140e79c2e699ca6c275674df2e6e42fcba"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "9e12a61bb5169f2cdf646c20f31ce36e7a9ae2e29b88bd77bfb33097"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9e5b718e9e8c7369a151c0960cba39a3bdd1eaefbaf44676bbd2d53f",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519643962
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Maybell",
+      "hash": "4188a5fbfe481188f9d2c442317d60cdc08afc8da1f907ab7b88de7fc44bf4b3"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "af783096101ef30eb7ab63f7deed0bddeb6e72c5e10c8f4ce2ca513e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "9f55422c5982d0fb3a7b1f58b0600d128585579bad2e6aa6f630950d",
+    "mandate": {
+      "epoch": 697
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 279823253633
+      }
+    },
+    "metadata": {
+      "url": "https://c-ipfs-gw.nmkr.io/ipfs/QmUHwWTuPfEWZVbbfL5GZUpBYidGtv7n1YVCPpZ7Y9UW5g",
+      "hash": "7e3191f2494e92e09da3b960df09146ad4e6bd347f8a09c5f1af512fd72587e2"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "be593a69c2e5661c101e6c991f4f7d24c8a761c1812d38e44b379ba7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c3257cdbf9f7fd340ca1ff14fa16756272e5ec07a0a543e712336def"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a09e9848fe8de9fa43914c439bb7378bf196dd92ba0b8b8b9a38b8cd",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Mabel",
+      "hash": "848c24ed63073d4d8fbe2a6b9544aaa3fad0a2fd945ea6367f6c5771312ab47f"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a1ff2e22ae0df86f64f18ee61a2c85b19885668dbc450e0ad37f789b",
+    "mandate": {
+      "epoch": 698
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9491412868
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/testDRep",
+      "hash": "e9ba15fd8b2e6e21e16cea81b29c6689fca7db3b5100451e1697d0229c3f731d"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "21ddee16ddbb2300487e9104627f0f9c6d756ff2152b21eee0cd0f27"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a248a9c053ebe250b47940464b8bb79bb0350c796d666503b9c7acff",
+    "mandate": {
+      "epoch": 706
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 896633639507
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/spannercode",
+      "hash": "ecea057e315b6202b67b2f42587f4a061c6a4d28daa0f3456e108b2c65063db9"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c058490baccaac4d837aab478b4905a1c378d8a5aa25165ef732ea20"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e356224fb5a313bbe98353e4ccd02f396baaafafbf85393bdbf680ad"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a2e4fd39b88f9b522592e186f229f73b141fa6b1755c6a865554cf74",
+    "mandate": {
+      "epoch": 697
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 1484192284
+      }
+    },
+    "metadata": {
+      "url": "https://info.hazelpool.com/drep.jsonld",
+      "hash": "aaf20698b4bdfc529a9ee9607bf9d457ff32502e2add831310e05ffa13f55c79"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "35d93438c119b3c53f94b0a5409cf6aabce275707ae8c97f39bc0e1f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a30f61dfcae1f22c7faf9dee0fc664297b3c14fda63630a690aaae29",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Krystel",
+      "hash": "f9012f4ce7ffaafdb740325e2347712a99413e76b0dfa827a4e437d616dfe516"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a5352348820b097be1d9bf133f31bed7f0151bbf3f327994dbbc00e9",
+    "mandate": {
+      "epoch": 715
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 639983413019
+      }
+    },
+    "metadata": {
+      "url": "https://ipfs.io/ipfs/QmVHEWBoMsVrNTReWdvVxoQkL2kHdcxz5H3Sx4imB9pz2b",
+      "hash": "8551237a5f1e36c3fbeeb0d15b16b8f90f4710a7815127479cb3a6084a895a01"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "9071fb29fc3f6023bf4637790ef40973ac3ad9cac337b680434bc344"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "aff954526173dccf48d6765b477033dfe108aeb1817294507ba6a9d9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "f6a9fd84387b725c0303129216c00521507724a5d7e62cb694a61318"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a5f4618b27d680747cdc7f661654dbf7ffe0959c84412b629f6b55f8",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Ole",
+      "hash": "2ecefd91b0a3bac4bf675a634263787c14c1cb40def55ad82f3a5d3b27679220"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a897274bd4da12cb3d8406eb27b9b4100c598c153a7c9a7b2dcb7d9c",
+    "mandate": {
+      "epoch": 699
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 3497811399
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/AnsonSIDAN/DRep---Preview/main/AnsonSIDAN.jsonld",
+      "hash": "970731942515e7319de02800e8e11b3d34ecd5f1ac786f489ec2438a33d6b2f3"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "78dbd26975bc0bc2c2bda92889b97907c5370788c988e3d8f5147976"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "a9fc5b5809dcaa7ea0b441370337e4d66a12ac99a6b4922b69e88831",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "a9fc5b5809dcaa7ea0b441370337e4d66a12ac99a6b4922b69e88831"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "abf7c7c1a30536522929eac160c048304d28b96265a36b1ad85943a5",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817031
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Maximus.jsonld",
+      "hash": "47072e80d1b4b9fe27c9610f0ffc46e1ae31e79aec60d07c0f25cdf0e2bee042"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "abf7c7c1a30536522929eac160c048304d28b96265a36b1ad85943a5"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "af7bf616be0ce7f20e4154b0277791e4e9a7f2c338ce2b70d71c28d0",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Amari",
+      "hash": "f29313f2f5e8fe9874ebda5cadfbd273a0318784ac11ff2196169310bcf924d3"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b04e9fe7c8e189a13f11f339bdaf0d55f4f815f86486760bae3d13d9",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817163
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Shea.jsonld",
+      "hash": "26174f3146808c5e267f611acc9a9ba856648b0c05c3924eee566e3fc0c00ec5"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "b04e9fe7c8e189a13f11f339bdaf0d55f4f815f86486760bae3d13d9"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b1119abe965077298fafbd7e517f0d35bf8071a169f81760892c23ff",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Madalyn",
+      "hash": "79e8308cac521adbb5fddf98be67511aaa26305ef003b950d1e96596c2b85f9e"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b25d720495ef76f4ba9b71025844d08b24d5034964c5c59e49eb082c",
+    "mandate": {
+      "epoch": 670
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 20000832391
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "77e1b450e41d22306db9006a8f8aae60aef256641f6304f879b5508f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b279915ee0a23574d14f7723e239b6c2b85931d7cf2d087decfee8ff",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Taryn",
+      "hash": "e5ef3239ffcae48046d32414ca36d6ae1e1891ce4b6e80dd387d3d278e13dfe0"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b2ac7f6b65b27e488c287f850f6576bc97289eeb8426b7bcb845c43c",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Roosevelt",
+      "hash": "6037d97935fca581d1090ca7af1190dc5e353c7fa08997fd51f0cae0a012fd24"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b2f629dcf719ae88a30bf8d8275e849d504d80e29f31d723bf0f2d49",
+    "mandate": {
+      "epoch": 672
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 4748861242
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "9a8236abaa63ce24c7694665302af52017c0aa51ead85ff329e45d6f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b309ae99d3c5f0f8e977cab85b42290ac9a4db281d1458cf3d154469",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Tobin",
+      "hash": "cb5ace51797e31436f1df7dc42568732e81ff7b6b06241ce016617936650d3e5"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b48faad80aea1817f88e5307fdffb9b7eeaf77c3ed29f103538af218",
+    "mandate": {
+      "epoch": 677
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 273716772471
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "5b4320b84b1b7a9525d3e316295099a44a83025db88027d0bcbd88a9"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b4fb7756dac5a7ad364ea1e3bdd2accde009be33051e49df8afd3700",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19821167
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "b4fb7756dac5a7ad364ea1e3bdd2accde009be33051e49df8afd3700"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b8aad0dd5a56bfb99b4cca694e3aa6b0e415b144cbdcecdcd2b61291",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Lisa",
+      "hash": "0bb80de3188e95b3eeae81774854aa0fece1c9c1305a664505aa936ec8df8fe9"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b913465c2ccc598d00fd188a242971a9be9331b23583b619a9d0d1d1",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Gilda",
+      "hash": "8708592561e41a8cb034d3c16137dfb8ff185e72b8ed56f253dab11a011230ee"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "b927a49dc8f1fe38094164143c9fb2b84538fd43e02bbe06718d79e8",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Lloyd",
+      "hash": "cd3798eed595ac089862e8591661ee7b2d4df034ce2b0950b43c2507e4b7a792"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "bb31ee0f88713eac45896305a0085e7ab73e4f825de2d7f31a0856ad",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Jacques",
+      "hash": "c48b56182cbea7a4b9b84fd485fb5f0a993744d3eb3ed4af8c3ad59bac0a4f51"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "bb830f1df2da8d436780e90a9949a8305df7ba67053e1e4d8ef6fcc9",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497292016
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "bd1a191dc14729b1c8a8a2946991f52a800eafa492c45bdbe02bde1c",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Zakary",
+      "hash": "1b551b557167c1c39b1ec2429e9ef78d926e808bbafbf78d16d8a207efd17a9b"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "bd4b14194f6bc4403cc20e363bbaf0d142ce99781b89b06a19cea0d7",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519642378
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Elise.jsonld",
+      "hash": "c0b51dda1d0ef477ef29db0c91239475a9065b2c536fe442b73bbe76569a7fac"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "93b382d5f725c2cf2fc0ec8c8f1b857c48a7c70c0c02263f0bf65633"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "bed9febc46ee63fa370bbc65446c067d61adcc46d8094e372694666b",
+    "mandate": {
+      "epoch": 682
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 498130651
+      }
+    },
+    "metadata": {
+      "url": "https://gregdevbucket.s3.ap-southeast-2.amazonaws.com/max.json",
+      "hash": "05b6983a665c53d729413128e0a9f0199cf3f6fb666e8fc0a1bb3b6ca73676e9"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "7b1bc30526b85950996308658f44dd6ea85f3a5e8be6cdc216ad95a9"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c123c2801caaf4da1ee6bb4c1c662458afb7535181c434dad07c2c0f",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Emil",
+      "hash": "379eaffb5d9eae5b06c9600e44ddfc7218b4438e0d2cc1c117ca661f8e28746e"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c244433162bd3745bb2f88a374819a250b1caa61daef67213db7b788",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Leatha",
+      "hash": "cfbfb2065515545b156fbfce5b75f693e519a45e2b94b06ea2577f535038c53b"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c2800fa9394e2db685066cf620c01c06bfd7d1cc854de788f06baad5",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Rogelio",
+      "hash": "cd767631a17c58ac6fde9ca9c55614bd274faa6b489a25033cea7fe100bdc106"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c2f45a16a6685616e566c00fc081fe59f8bd7ab679ee15e9ce203446",
+    "mandate": {
+      "epoch": 667
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c2f8e349e0c3e93dc060709c5617a29e5ff01ef70bbf80092a247485",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497456549
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/thuchintran/DRep-1/main/Cindy.jsonld",
+      "hash": "88d10e830c3c2b9a1faa297ba9f1fde98c6b18063d44ae1b774640c79cfda300"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "403418bff45fbe57305587fb932fd5d7be9dc796ab5d925eef833865"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c45f1d5c7cfc0cd0e67aa6e56ce5ed7281bec595a8f12a36f689fefc",
+    "mandate": {
+      "epoch": 689
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c484e61e5fd79939d0eef2234d66f571538d84868a4d10b090610182",
+    "mandate": {
+      "epoch": 703
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 89497462973
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "6cb423f21976d643e12fec2dd3472b1082582b07f1b66b3c747e518a"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c59883a5ed18888828ddd036e5ee7904475fcbc88c02abe1c944bd0d",
+    "mandate": {
+      "epoch": 671
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c83d1614824bc385f391672f5b444cbf42c5d7bc49f3ffc9133eb815",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Wilhelmine",
+      "hash": "13ec2171238f6e1ecd0b851039da4c52716e62bed7c3484668495d0bf6e05ec7"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c8d2887cc517bc602ec785a06fbe1fd6de015eb19134881946a77e95",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817119
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Elian.jsonld",
+      "hash": "ed7c1ae4f7a23e13ecacb3acbbdf0203aefcbbcf17e09387ab21500f583d5e72"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c8d2887cc517bc602ec785a06fbe1fd6de015eb19134881946a77e95"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "c9157c39d3afc978124c35049aa9c64cdec0ef1e38c463ffcb5d68fc",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Haley",
+      "hash": "72f4233304a46d9e099c2f4029d698a0432954d289c878fb37225311a2c2b36f"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "cb67f35db3fd82cba09f3d02d3c02f1b4dbfba48841fe6806806a32a",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519642378
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Cristal.jsonld",
+      "hash": "225613ff1443afdcd385844508d03ad88e66ffa039a71628b5e14ef0d7303956"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "38ba21e9878694d917c1b342972604439f5646387a9f48f368a59838"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "cc795ccf5d331d2d4514a5f2ec0302d8f4a471a7368a93cf17ed5d9d",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519642378
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Aida.jsonld",
+      "hash": "60f85c883150ba90a65bdd6e1f9c922d3d15aa0c2c4acd307d00033ce2e532f9"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "98fa17b149d96f9e30c293d883865ccf616ca9fbee9f126b077a1e80"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "cd6369f941b6c174c627be91c2dc6c06acb291f9a3bd4a480d097320",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817031
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Sincere.jsonld",
+      "hash": "6c573156389322bab847bdf2b942d35be8272073af5fd0791f500c69b80ac818"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "cd6369f941b6c174c627be91c2dc6c06acb291f9a3bd4a480d097320"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "cd726d895c6df1c90b59f65d9d0ca425763f8b7c45549affd767bd96",
+    "mandate": {
+      "epoch": 695
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "cf2c58aabff8994a7f4c4bf4134979fefbe25515e87f7743500e669a",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 14497458089
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/bosko-m/test/main/BoskoPreviewTest.jsonld",
+      "hash": "c3a4d5b5cd8d77526f507b5c69c40538db75e2d92358054fe78da937d1f56dd9"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "2dc5c13fc0d978cc770a34cf170428a7ca3234f883a56e647e61d03b"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d00e2cf47548d5394698474c7966514dab404b0bca7dfe068b95e020",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 8497631598
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/Ibeam01/CArdano-Drep/main/Rbaker2024.jsonld",
+      "hash": "2217b04bc031974e993eaf5702e6450bd88bf964d6bc53790cf17381d4ae802a"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "f093de7dbc937ddc49871376ad015f2bdb72bf43b357f7fa5b954ced"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d05d7d5de724f3d835f6bbc06c57680af059b6eb5960ce322aadcabc",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Stacy",
+      "hash": "8650d73b4ddbba938a7e23022ad7d953539f4ab1417ce25e4befc9e2d868efb5"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d10e4a3ec0edcceedda624a94c65d9620eb93e7adab6eaab78b53091",
+    "mandate": {
+      "epoch": 712
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 106099221329
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1f940973eb259556c148cc34c63f42cb8888ee276fead7936f5689af"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "88de394492de64770d7ab4d0642bc45718de8497d31f484b8faabe0e"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d1a7a60b275f6ba66dc7bea2a3926f2576f5c8b5b3dd56f9bff3eeda",
+    "mandate": {
+      "epoch": 678
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 18372015945
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "afbc7366dc089c6c88e176e4b7cd5561f4c9af44079a62132bd401e2"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d1aff5e09afdfea22c2058e646b2a095f1e78b83aabcd1de57fcee36",
+    "mandate": {
+      "epoch": 674
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d2a37b2eedd3f2c2bd7baf73ab0e13cf4e89c72948330a2dc12c94cd",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Russel",
+      "hash": "d0c8c6b994a9bd6fa1c698f127ca40dd3be73f4d33a8ce6d7777ad30a5816034"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d3b9335975bdc4d34ef1dba7e6176a3a6db64c6efa0a3074154e55ec",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Heaven",
+      "hash": "f9b9c36f0740efee3c19df90df468f362e0ecd1aa1867003c20cbd674deff173"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d4571ca74fa7d964de44042ac585cb5efbc35571f9d365289653b61c",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Jerald",
+      "hash": "2612852c8c677ef7907fc413d877208abb7804d156c093c99b235faa8efdcd60"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d46c8c3ce60d99a2c9d1e718465978a9e6665528f2328265b7587b43",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Citlalli",
+      "hash": "23e6fe6049fd48a88669704f5fcc72c494fa1cb5499371b0cc9bfaa37ba7d4ca"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d4c798a525df68119e1854695ec201340bcde9dc288da419921ac98b",
+    "mandate": {
+      "epoch": 676
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9682933071
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "5167e7a0e2cd33ac3d2cecdba6107ae984f060f3c5fca3e03cda004c"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d5a9008d81ca1261b53b28767a4f310fe6ee21eb08e6c5b24247be09",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Berenice",
+      "hash": "5ca6fc741d352784b22cdc3b4061b40070c39bfff69219d29b629a475d71bcaf"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d5a937d7cc61f032253d3e9fff00498aa3d6b59d149a00f016e23e95",
+    "mandate": {
+      "epoch": 680
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497811355
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/carloslodelar/proposals/main/CardanoCowboys.jsonld",
+      "hash": "1a3025ae7cc64215b1c1256e8e878d1f155b55dad416e22aafefeed4b80baa2a"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "f91ee65ca9dede4b5013a4f108da41d11106f0b9dc3a83092210488d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d5e4354c347dae16337bbcf72c70b95e24e232fc90606a499b04b05b",
+    "mandate": {
+      "epoch": 699
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 497811487
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/sidan-lab/DRep-Preview/main/SIDAN%20Lab.jsonld",
+      "hash": "711ce36dd26e6a455647b51e5b89c83f40fcd15e1e6d71e553fc28701fec97db"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "2cbaca0cd1b17235bd497c97dd72404b8553e48651f3a4de5f0296a7"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d6b41b789c1855de3c8425fc25d1afb2138e5fbdd1551a1cc32af00b",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Emilio",
+      "hash": "d1eecd689738b942f37d1b54bb742f135fd32b777fff44d7f3e41bb44381cb6c"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d7f7f8c9cfb3d0a871a9c9270d9be1620ebe571715a3656558daa56d",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Adeline",
+      "hash": "a80301364b8a1010e302e10d96ad35fbccff9acd9e09993cc3a385ffb5102c3a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d92a0416f2e6d3568d165193b91115c38920984123af0f5e52cf1c5a",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Shea",
+      "hash": "0d659868b713631fde03e5418f9c4ad1b2f34b4c760dd9d9277b25154a0652ab"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "d96f121f416a7fda95366f3ae16595d5949e156211fbdf81b949bca5",
+    "mandate": {
+      "epoch": 671
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 172189382
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "7f88f6553df05c02b31f1072a3452129a16093ea21f0d2281b3fffd4"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "da4b317215ed9e91cdaeb0a79ba4d97c566fce7d5950a8e8522f9f8c",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Cornelius",
+      "hash": "c1bf26224ca0b2a996dd5512e31e6b8edafae8b2bc933c8401f42ca3a33a14d0"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "daa747203db8044a26a9383a7451b096ff5ecce8c467bf12bb654a65",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Mollie",
+      "hash": "ef5541eb6f3a736ef09219eda9c8108d6e198adace2c47f93ea81bc8c34d5d70"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "db1bc3c3f99ce68977ceaf27ab4dd917123ef9e73f85c304236eab23",
+    "mandate": {
+      "epoch": 695
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://anchormetadata.s3.eu-north-1.amazonaws.com/1GiB_drep.json",
+      "hash": "e08945eee0d52191ec981b1cd029515097c39c5da4d63fb4dc4c87bba5bb6d32"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "db6d5871b22a3634815127ef260f6327dd4e64389eec5a197adf22ce",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Connie",
+      "hash": "f4e42ffa319d4e50ae1186f7a5ea7b74d7b49f39823c963346f6fd43901e2192"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "dc250c82d36ba8e973f462eff486f42bdccf3ac96e59bcc6db950514",
+    "mandate": {
+      "epoch": 698
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19490452372
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "87e9389d4561ea98bbcddbdd8dcd48e01e52ec5cbfdfb369d45af0b4"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "dc63f76a6cc13a737d2128143f0e3bc62cee8c8d02698a2fe1ac01e8",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Roosevelt",
+      "hash": "27dced8550546d03a7daf0ca294ba45c3dc8edc64d86b9a789fc5bd7b9e772eb"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "dd0133fed4d8eeae7019049bf80f46516905a17f02dd2473eead8124",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Chadd",
+      "hash": "a1d8d5d2b21b56af72933067a574bcf2933e50ef5764f729bcf2dbfce9f5f5f0"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "dd9c02f0c6e0be1ecece94c224c7be4d351e3834a29beb474c98d8cd",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 257237359408
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "033cc93080f72da00c9c158e94b39b84151a3243c688225d50286f78"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3dc8218f0ec2208ade05394398e66808d41c16cc8be0fe981119d0fd"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "49fbcb05d40d7df5c878aace2df854edcacefd273ea3f5ee56e134b7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c3861ad130573dac984a41c5de9d5b7944dfdc80d1f436bcc21a7d90"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "ddb7316d7f4ff1d69084f2352e4613284381f17474fd133dfb4bb6ed",
+    "mandate": {
+      "epoch": 697
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/gitmachtl/cardano-related-stuff/master/MartinLang_DRep.json",
+      "hash": "0d7b90948320a9d5bfebc158bc674996df8dd65daab27a0c373b6750d1aa7246"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "df37d0eaa27d0aba8b612c8db4119e9d47ba98e777ea9a33b84ca483",
+    "mandate": {
+      "epoch": 699
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 5213856206
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "5bf608c86525c9e9220f5c38f87af101328877dabb2fc550277c7f49"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "dfdfca55ece00a97292848d8b7299ac16a71ef51081b7e5068f2d5ab",
+    "mandate": {
+      "epoch": 673
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 8982661160
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/CardanoProphet/DRep-Metadata-Storage/main/CardanoProphet.jsonld",
+      "hash": "59dfdeb77a4a6c2beb7826c8fb4a086328ac01580c1bf1411fe6536b2d78b9c2"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "8dc6894c71cffad508266f8170faa690610455bd12797aa4c9d22ecd"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "e15a2aa9ec044d1e218509acedc19c4bfafe885c53275111ac42195f",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Lysanne",
+      "hash": "48453afd7d3886d1619a870577b57fce58aab67f95e4b1e6f5c53a36b9d552ad"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "e7560f9d652bff46cc1897ba57dce186f504d239a423d4d1b6f1fe5f",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 893569939678
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "7c1795f2565735a1a09a0c939220e66745a2b4f1430d33e614fada1c"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "e801fb7cfa410c7ee3565b062f4223320c321981fafae44efcbf5a34",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519642378
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Miles",
+      "hash": "5f9919ae9c2aa882cfe1e721a389c6c5181fa9a52e962521de45690fd76dd358"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c852a1442e217945187431f7e593c96ccc51500a32d4a5d85b7180cf"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "e8d1e8fd1086bb91a565c0ba1be9e8b95635b13dc4d57cdcde01bff2",
+    "mandate": {
+      "epoch": 671
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 446406371497
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "be107c4959eae926b8d95a87c61454599a03423087a88028c5e1ef4d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "e976464361e1fa8dad8603065891817a26f55c2acdd4c718237ed768",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Joaquin",
+      "hash": "5145ce92aba077058b32684550394d39d7ad91de990c17dd11fbca9f235943d2"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "eb4f3a3ef1eaef4c258af4cb55c348563dce7045713667b58ab1b725",
+    "mandate": {
+      "epoch": 678
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 722187439
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "5e1c143837a2b52ff418a7e0b346074fc0381ed61c6692a4f5f2762d"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "eba32838c7f50375e7afbd8c25d3a7bf2109ea48b0cd6ccd96d049fa",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Lindsay",
+      "hash": "71df0893decfe420f883e9d877a2cadf3d1b465f650a0bbc738f120133e9b180"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "ebb8b63208002615410aa80240c0e3d2845caeb5c3dc92b0134d2882",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Breanna",
+      "hash": "6c3b073692c27a1834c24cbdf615774e11021d26676340743a8eac10e7851213"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "ebcef3acc5103f88bc793de54c47cf3af1091cac6ace63ecc40a25c2",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19816943
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Frederick.jsonld",
+      "hash": "3b5c9dfdcac4dfceba2e3af2cda34b2d410f578db5a462afbcd31a53a3ae5391"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "ebcef3acc5103f88bc793de54c47cf3af1091cac6ace63ecc40a25c2"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "ecdb7a5a456419f3bb665fc216cc5248cf846def18f26d6d0b2c35a9",
+    "mandate": {
+      "epoch": 707
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9910691840
+      }
+    },
+    "metadata": {
+      "url": "https://ipfs.io/ipfs/QmTKGGXJSbD9ydKZzgHLJkpTqbcpHqCanJSdz7AA5vTL64",
+      "hash": "75608997cfd761efd24ec0fcebd28153dfc54a988051fcfe6ecc04bdf9d17432"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "9448dbd85831eb183cc373d27ec4707f7197e6ddd8d9c25721e8be1f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "ed26f7c8b95c179bddc128d19ac54bba2fb40c90f4d338cb4c6bd953",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Alan",
+      "hash": "ca018a253c58da1017204e1f7532fd62c184e2824b1fdbab18b5742c6f8afdae"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "ee9776e9ec3d6c98bb5372669aafd72f408e8ade341f300db804496b",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Alek",
+      "hash": "c360bf1061675ec8c4823e130cc16f609609432fbbe7328aec72988bf1ab61bd"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f0ed00410031f3288d7889aa896cfdad79a7441885d3bae8982ac151",
+    "mandate": {
+      "epoch": 703
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 4561575764
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/BWtake/TakeFujimoto/main/TakeshiFujimoto.jsonld",
+      "hash": "c99a3897f4f1b5aedff109de201e41c9223bf0787bb17766f79cccce5eb6a20d"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "3dd92899f772d4616a1a7fcbf1c4b161deb8f7eecc77d6bbecee62ac"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f11aa3c0027b56142749817037c643b1258391e46dc23e266b24c41f",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/Anastacio",
+      "hash": "4ce80d76ca7737769bcebe42bb34dafbdeb89ac017166ddbb7ce7f875e2028f5"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f393f33ad01a0b241c05305bfdbe58ee6601a3ed03f4dc9c1f5184c1",
+    "mandate": {
+      "epoch": 696
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9497816415
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1b4e0f1851e5f1fc944e8f5fb9f908b5c7114d95d04662ea3261fece"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f3e85a38bf784864eba45506b9eaa7b8e6d06c3205c1a157597dde75",
+    "mandate": {
+      "epoch": 697
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 80169713615
+      }
+    },
+    "metadata": {
+      "url": "https://ipfs.io/ipfs/QmWccRpfYscUfuLSsKqJGGp7KXGwQjUV35FRFpXcREMWJn",
+      "hash": "02423ab7bfba31fb0ae8a28d9f85ee8341a3df71db1623d40260e7403755569f"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "032b162540b9077f8c44d6b6fa3abba018341db0ee6e08c80397138a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "2553a330faa232403df466d163df0982e0569ba0925e05a519d43af7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "42ca96ea69dcfbf19dbc03795a2f4fba624b23bc81d07169e532c0b9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "4eff0ec983105b966ed7f127316d9d0b5b3bad42cc4887b1f33d6bc9"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "618e4d9e6d7f2864049daf7c1ea0c4caab007877bca58dffdb5421ca"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "802c07dc45554ec84c78ff2aa6523ca9b7a453057851e045821689c3"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a61e583dade5e82bc38bdf17396f58665999fb27fc3ccf122b8f797c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e89883b8a6c4e494b67aaf0abb7ba58ed00adad49a2121c2c0eb2a54"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f4ae83af062b55eec7fc598998f84b4ea9d8b8324863a9a519b55823",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Fredy",
+      "hash": "c0d6c68cba7913277e63cf199ea24a207768806ab69628b7bac9ed5156256194"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f5b8792896e1475966d51c8937f6e3b26b7a327e8488cc5f07c267ca",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "ipfs://QmV96pZ3ELRxJo1GXEYUekJHnTjq3eZp2D59NwnM3zzPxJ",
+      "hash": "6799c7d54b57ba2a0477e8d6d0a8140616ba4c4e6c870562beda30f3e7e2170a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "f68e155fdf717800529cf7ba9c1a0b6f714a34261dea878fa8905098",
+    "mandate": {
+      "epoch": 682
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://gregdevbucket.s3.ap-southeast-2.amazonaws.com/max.json",
+      "hash": "05b6983a665c53d729413128e0a9f0199cf3f6fb666e8fc0a1bb3b6ca73676e9"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "fa6a8dc2635dddcf9af495cb144f7eb4ff845866fe48695ad7cb65d3",
+    "mandate": {
+      "epoch": 704
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 1542202556
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "72f24bb2b19cf62248ae76d320f71c58a5a88afda41cd56d632f55c9"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "fa83d459ed3671a215e4ed6a1fac253a6e12de5333de6ce8d3b8a40b",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Marjorie",
+      "hash": "7f0b142f4427c54dca4d272a8ff7beba3b9bcf4e1ab029353636cdc42c10831a"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "faba25b859fbd3dda15103c4df7c615e8c7419e8b941a26ecc1c0efb",
+    "mandate": {
+      "epoch": 702
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/Patience",
+      "hash": "86e1298e47df108271d889c4bf476109f2a2432814d1d769bece61cdbd4058e2"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "fd160e2bc2c49423f164c4d2d65693ac0607932685dd6384797f2a98",
+    "mandate": {
+      "epoch": 714
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 9495797363
+      }
+    },
+    "metadata": {
+      "url": "https://most-brass-sun.quicknode-ipfs.com/ipfs/QmQSrmCBMNtL4NWUp6ZgdGu3FsMKme9CyPsgAJCxR3drF5",
+      "hash": "eac9dc115b6f7be8e791686b3a08075b5c5dd90e1d115767b67581ac4463da25"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "975afdd8c37e06f08b7cf1e211fd692e47489498b71bc8eac27fcb5c"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "fd1e9fb13ef9a4bdd0c7e47aef0bfc065eca6c4ac9b613861ccf20cb",
+    "mandate": {
+      "epoch": 693
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "metadata": {
+      "url": "https://my-ip.at/test/CIP119-example.json",
+      "hash": "1e083e61018af95b487eb2f189aa97334e2ea43936c0bc06b4425561fa23e8da"
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "fd6dfc550878ac96bf8ce4bb7a3522b009b3eaa24046ce2fcd790c3a",
+    "mandate": {
+      "epoch": 700
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 519643962
+      }
+    },
+    "metadata": {
+      "url": "https://metadata.cardanoapi.io/data/santa",
+      "hash": "d183464d8ba87c7540b152072716c3654bd82aeb73237423bdce6350b27013fa"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "0e8d0a381c33832e339cd0fb6b7296806d19334cc9c37644ad07fa5f"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "fdabe5ea6847b5753a32b4c47b5bbc14cecbe8ac7032cae568229502",
+    "mandate": {
+      "epoch": 713
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19497270500
+      }
+    },
+    "metadata": {
+      "url": "https://raw.githubusercontent.com/theeurbanlegend/sample-jsonRed/main/metadata%20(33).jsonld",
+      "hash": "b1606444c078f2bdafa0876ae1a276777478fdef386a5765b04f173b1ae44cde"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "c1619aae505bb479b001e1b7ecfb012f4b83bc53734bdea3f6a0cfde"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "verificationKey",
+    "id": "fe31b9a930602f0c57eb0ffcf16845b5d91680cef2521fbbaaa2cbfd",
+    "mandate": {
+      "epoch": 701
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 19817163
+      }
+    },
+    "metadata": {
+      "url": "https://metadata-govtool.cardanoapi.io/data/June.jsonld",
+      "hash": "f28af2f9d71f5c6c346516562e2a6f363243607eed1d895563890898f805d91e"
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "fe31b9a930602f0c57eb0ffcf16845b5d91680cef2521fbbaaa2cbfd"
+      }
+    ]
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "186e32faa80a26810392fda6d559c7ed4721a65ce1c9d4ef3e1c87b4",
+    "mandate": {
+      "epoch": 666
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "4f86739152ae34ab0cfc4cb7d861a96ccbdbbeb99c03c427327cf4d2",
+    "mandate": {
+      "epoch": 704
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "8a2fe171cf98b97d36fb2ea7d1ff1f8eba531d6265dbcaf3bd191cfa",
+    "mandate": {
+      "epoch": 697
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "registered",
+    "from": "script",
+    "id": "c8b464c948db9ead94b821d7251cda490818371c4f9dcc75b85fbfb9",
+    "mandate": {
+      "epoch": 710
+    },
+    "deposit": {
+      "ada": {
+        "lovelace": 500000000
+      }
+    },
+    "stake": {
+      "ada": {
+        "lovelace": 0
+      }
+    },
+    "delegators": []
+  },
+  {
+    "type": "abstain",
+    "stake": {
+      "ada": {
+        "lovelace": 1871635404321
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "0f21f5f05a919ca4e3b672685bef2557ff51372010b2aa5a4655c7b5"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "126cebc58a61a24a996265cafbdf670610039758496e17607c3e8491"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "1c29146d370dc973583088ee2a3bfff4034e89dcf2f1afdf09941566"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "25529c66d463ebeda3aec70790b361c71e2d1d52a3bc1769b09d8e86"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3152ca566fa6d1a4de38db2ac29476588564f6414e6dfc477da16090"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "35dc99e83f6489634b1b2ab07573279ebdc1cbac09fdf344e4e11444"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "36eb82881b56185a96e4f7cfc8d1994f95eef429f6e617cf3fe8ba97"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "390a1264de6c6c6aae25f1122e8d61129c5560c75af58ce61b1a68e5"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "3a2df191bded7d286161c8f4d3cfc3b626a93de453d506bca343d059"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "43182c08ac06e217da9bbc4eb66649b86496a2233a71b926fd2f93fe"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "46ac1435109d1287d381ec939c25b2f92a17961076e940f24cd4fb5e"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "53c5ce4412c2166b040bb2f5b33f0f5f80642c3a55b4f7cd016ac117"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5a92f2324f9b9f32b9289cc3553c4ff8cf14fd5f72185b4b3f8f616c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "5fd53543a6298830de0a416e03146fcfc5350871f37e7f2152c964e8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "65436a0b2da137c95e9447150eaeca36485bc434323c595055cb898a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "688475be6352b0aa9c7d50d1197d8615702d868ce8d140101501a547"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "6eba7aa5fa3107fd8630d3a3deff0cbdb316c062cf54280688201860"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "7315ef5c62e059b32940afb82eea40e9ca011f6c1dd49957012dbe5c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "77d0d90442ee95cdef1113e0c438affd4bbab7f01b7989d9f57204f7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "79010426e814e5e619123f1b7e1656c9479a1eb7797b3c7db02cdff6"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8385ac85a1269057fa2c717fb2b9ac7be0d97c544b0eec56408b010f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8d66f073e01813a3dc07e0fa36c244cd0d051dd0adbe6dbda80113b8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8d904c78f881182dfbe720149771d3085424aa3fedb21c6583cb08d5"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8f0d29ca7703eb334cc70d984534a38d3bd3e847462f8cbb925816d4"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "8f4ce0f82778410347e74ca9b63aaa798ef3b578526e37c68db71e8c"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "90686fc6e80411be9f1c0cfea1a9846aecac3353f07ee8701665bf6d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "91ad1094fddbedff2c9f3484be45195a898468d46b3aa469b0851f42"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9aefec13f2dd82c819d1c16a63acde41f5f8e40aa5af3c3c283306ca"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9af4f9ae0e84eccad42fabbb350151bf14b2c34644bf4fb71aef3207"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9bc38c92854b8cad5c4c25f4ecb531117cd89b729cda747d58067d2a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9e3f6c4b5a50df4e735d264b3f71d88b95d210edc978c02f13bdf39f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "9f4233897976e029694b4cac0d5e6c5fef79246c62033840529425c1"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a02a988a7117a2c8f18aa13677cc17c02ad5dab7921d1ba09bae7322"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a0f2a2871f1e7f9fb5c1b2afb6a7824f7f4c9d885acc24834251ec60"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a1a917ae2b441be3bcf6ced0e04510c09703b19652a31e9e0205bd3a"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "a497d1c3694f1e420fcc438d50656e1808202fbd6e9d358fd94a49e8"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "aa67e7eb4fd8287720b85cf740fbac2b2b386921bb6177716100eba1"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b7c93bfd5535c404382e00541ea7ead4137786d7dcdd1f980ab34fcb"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b9135dcb9ba8f4253ef3bde946908395dac311b36940961af1ba3b2d"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "b9328582de176a13a6d04b0866fba649e8db084d155b90503a95f3ae"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "bc636ae451a731ec4feb1e6ff8132b1b6bf519f6c897cdb52e7db661"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "c68932e44b282fdff01245c010845deadc96f18773030ba43b614348"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "ca3055e9b86fd5aa406574bbba67c11e3a647673afe8e2589d08b0ba"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "cfd93f82b6f2cfc0c29de8d1e9ffabff952de854692b2f115efc7078"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d116be05ab4cd48605aef5ec54416487aa8a2ab2f200756c6600fd5f"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "d200d594add6ea07920a30abab160eb6f1052b7fb170d1f3925284a7"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "dad68901410b7cb6d19f8981a819d0692862ac6f2b4f0fa9dd6f80d3"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "def8ca0c8a9d8ba3e921faa143b64e7de70c208d10a87bb06da55154"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "e8545b382e953fd4b02f635c3435341ca98fd2ba7d7dff48825ca8d0"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "eccb757ea90f029289cf73cce45db9f41bc7d4a0b3e11447a17c362b"
+      },
+      {
+        "from": "verificationKey",
+        "credential": "eee790c7bb9c497f716fcec7d92a4d68c27b48c9e301b7c547c653cd"
+      }
+    ]
+  },
+  {
+    "type": "noConfidence",
+    "stake": {
+      "ada": {
+        "lovelace": 251495913553
+      }
+    },
+    "delegators": [
+      {
+        "from": "verificationKey",
+        "credential": "1c66afb2b2fff29fe041f9a870ea617d926d1f6c558da5941819fbdd"
+      }
+    ]
+  }
+]
