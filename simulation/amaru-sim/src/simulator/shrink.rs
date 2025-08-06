@@ -74,7 +74,7 @@ pub fn shrink<A: Debug + Clone, B: Debug>(
 
 #[cfg(test)]
 mod test {
-
+    use test_macros::must_panic;
     use super::*;
 
     #[test]
@@ -139,7 +139,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(
+    #[must_panic(
         expected = "shrink, error predicate doesn't hold for initial input: '[1, 2, 3]'"
     )]
     fn test_shrink_passing() {

@@ -229,6 +229,7 @@ dependencies = [
  "slot-arithmetic",
  "tempfile",
  "test-case",
+ "test-macros",
  "tokio",
  "tokio-stream",
  "tokio-util",
