@@ -15,7 +15,7 @@ LEDGER_DIR ?= ./ledger.$(NETWORK).db
 CHAIN_DIR ?= ./chain.$(NETWORK).db
 BUILD_PROFILE ?= release
 
-.PHONY: help bootstrap start import-ledger-state import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov
+.PHONY: help bootstrap start import-ledger-state import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov fetch-chain-headers
 
 help:
 	@echo "\033[1;4mTargets:\033[00m"
@@ -81,6 +81,12 @@ download-haskell-config: ## Download Cardano Haskell configuration for $NETWORK
 
 clear-dbs: ## Clear the databases
 	@rm -rf $(LEDGER_DIR) $(CHAIN_DIR)
+
+fetch-chain-headers: $(CONFIG_FOLDER)/$(NETWORK)/ ## Fetch chain headers from the network
+	cargo run --profile $(BUILD_PROFILE) -- fetch-chain-headers \
+		--peer-address $(PEER_ADDRESS) \
+		--config-dir $(CONFIG_FOLDER) \
+		--network $(NETWORK)
 
 bootstrap: clear-dbs ## Bootstrap the node from scratch
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \

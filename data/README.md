@@ -17,7 +17,6 @@ Snapshots are named after the point on chain they've been taken from. More speci
 
 designates the ledger state dump of the last block of the Conway era (including the processing of that block) on the PreProd network.
 
-
 ### Available snapshots
 
 See [$NETWORK/snapshots.json](.). To download all available snapshots, uncompressed, in format suitable for `import`ing in Amaru, one can do:
@@ -84,3 +83,13 @@ For example, for PreProd, that means removing all immutable chunks after `03149`
 3. Start your node.
 
 Both Ogmios and the fetch script will automatically connect to the node once ready and capture data from it when it becomes available. This should terminate once all the points have been processed.
+
+4. Dump chain headers as CBOR
+
+From the repository root, run:
+
+```bash
+make fetch-chain-headers
+```
+
+This will add `header.<slot>.<hash>.cbor` files to `data/<network>/headers`, which the bootstrap command consumes to initialize the Amaru node.
