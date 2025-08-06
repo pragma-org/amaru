@@ -316,6 +316,7 @@ mod tests {
     use crate::peer::Peer;
     use amaru_kernel::{Point, HEADER_HASH_SIZE};
     use amaru_ouroboros_traits::fake::FakeHeader;
+    use test_macros::must_panic;
 
     #[test]
     fn empty() {
@@ -648,7 +649,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
+    #[must_panic(
         expected = "Cannot create a headers tree with maximum chain length lower than 2"
     )]
     fn cannot_initialize_tree_with_k_lower_than_2() {

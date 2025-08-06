@@ -111,6 +111,7 @@ dependencies = [
  "serde_json",
  "slot-arithmetic",
  "tempfile",
+ "test-macros",
  "thiserror 2.0.12",
  "tokio",
  "tracing",
@@ -3025,6 +3026,14 @@ dependencies = [
  "quote",
  "syn",
  "test-case-core",
+]
+
+[[package]]
+name = "test-macros"
+version = "0.1.0"
+dependencies = [
+ "quote",
+ "syn",
 ]
 
 [[package]]
