@@ -14,6 +14,7 @@ use tracing::debug;
 /// The main function of this data type is to be able to always return the best chain for the current
 /// tree of headers.
 ///
+#[allow(dead_code)]
 #[derive(Debug)]
 pub struct HeadersTree<H> {
     /// The arena maintains a list of headers and their parent/child relationship.
@@ -24,6 +25,7 @@ pub struct HeadersTree<H> {
     peers: BTreeMap<Peer, NodeId>,
 }
 
+#[allow(dead_code)]
 impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     /// Initialize a HeadersTree from a best chain (h[n - 1] is assumed to be the parent of h[n] in the vector).
     pub fn new(headers: Vec<H>) -> HeadersTree<H> {
@@ -242,7 +244,7 @@ mod tests {
     use amaru_ouroboros_traits::fake::FakeHeader;
 
     #[test]
-    fn test_empty() {
+    fn empty() {
         let tree: HeadersTree<FakeHeader> = HeadersTree::new(vec![]);
         assert_eq!(
             tree.best_chain_tip(),
@@ -252,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn test_single_chain_is_best_chain() {
+    fn single_chain_is_best_chain() {
         let headers = generate_headers_anchored_at(None, 5);
         let last = headers.last().unwrap();
         let tree = HeadersTree::new(headers.clone());
@@ -265,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn test_initialize_peer() {
+    fn initialize_peer_on_known_point() {
         let (mut tree, headers) = create_headers_tree(5);
 
         let peer = Peer::new("alice");
@@ -278,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn test_initialize_peer_point_not_found() {
+    fn initialize_peer_on_unknown_point_fails() {
         let mut tree = create_headers_tree(5).0;
 
         let peer = Peer::new("alice");
@@ -287,17 +289,17 @@ mod tests {
     }
 
     #[test]
-    fn test_roll_forward() {
+    fn roll_forward_extends_best_chain() {
         let (mut tree, mut headers) = create_headers_tree(5);
         let tip = headers.last().unwrap();
-        let new_tip = make_header_with_parent(tip);
 
         // initialize alice as a peer with last known header = 5
         let peer = Peer::new("alice");
         let peer_point = Point::Specific(10, tip.hash().to_vec());
         tree.initialize_peer(&peer, &peer_point).unwrap();
 
-        // Now roll forward with the 6th block
+        // Now roll forward extending tip
+        let new_tip = make_header_with_parent(tip);
         assert_eq!(
             tree.select_roll_forward(&peer, new_tip).unwrap(),
             ForwardChainSelection::NewTip { peer, tip: new_tip }
@@ -312,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn test_roll_forward_with_incorrect_parent() {
+    fn roll_forward_with_incorrect_parent_fails() {
         let (mut tree, headers) = create_headers_tree(5);
         let tip = headers.last().unwrap();
 
@@ -329,7 +331,7 @@ mod tests {
     }
 
     #[test]
-    fn test_roll_forward_with_unknown_peer() {
+    fn roll_forward_from_unknown_peer_fails() {
         let (mut tree, headers) = create_headers_tree(5);
         let last = headers.last().unwrap();
 
@@ -342,8 +344,10 @@ mod tests {
         assert!(tree.select_roll_forward(&peer, *last).is_err());
     }
 
+    // FIXME: a peer should not stutter when rolling forward, unless we
+    // reconnect.
     #[test]
-    fn test_roll_forward_is_idempotent() {
+    fn roll_forward_is_idempotent() {
         let peer = Peer::new("alice");
         let (mut tree, mut headers) = initialize_with_peer(5, &peer);
         let new_tip = make_header_with_parent(headers.last().unwrap());
@@ -369,7 +373,7 @@ mod tests {
     }
 
     #[test]
-    fn test_roll_forward_with_new_peer_but_same_best_chain() {
+    fn roll_forward_from_another_peer_at_tip_extends_best_chain() {
         let alice = Peer::new("alice");
         let (mut tree, mut headers) = initialize_with_peer(5, &alice);
 
@@ -397,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn test_roll_forward_with_another_peer_on_a_smaller_chain() {
+    fn roll_forward_from_another_peer_on_a_smaller_chain_is_noop() {
         let alice = Peer::new("alice");
         let (mut tree, headers) = initialize_with_peer(5, &alice);
 
@@ -427,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn test_roll_forward_with_another_peer_on_a_longer_chain() {
+    fn roll_forward_from_another_peer_on_a_fork() {
         let alice = Peer::new("alice");
         let (mut tree, headers) = initialize_with_peer(5, &alice);
 
@@ -458,8 +462,10 @@ mod tests {
         );
     }
 
+    // TODO: that's where things become insteresting: the fork should still
+    // be anchored on a known header and shorter than k
     #[test]
-    fn test_roll_forward_with_fork_to_a_disjoint_chain() {
+    fn roll_forward_with_fork_to_a_disjoint_chain() {
         let alice = Peer::new("alice");
         let mut tree = initialize_with_peer(5, &alice).0;
 

@@ -22,13 +22,13 @@ use tracing::Span;
 use crate::peer::Peer;
 
 pub mod chain_selection;
+mod headers_tree;
 pub mod receive_header;
 pub mod select_chain;
 pub mod store;
 pub mod store_block;
 pub mod store_header;
 pub mod validate_header;
-mod headers_tree;
 
 pub const EVENT_TARGET: &str = "amaru::consensus";
 

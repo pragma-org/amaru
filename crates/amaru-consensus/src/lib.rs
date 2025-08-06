@@ -71,7 +71,7 @@ pub enum ConsensusError {
         peer: Peer,
         forwarded: Hash<32>,
         actual: Hash<32>,
-        expected: Hash<32>
+        expected: Hash<32>,
     },
 }
 
