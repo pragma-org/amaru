@@ -23,13 +23,20 @@ pub struct HeadersTree<H> {
     max_length: usize,
     /// This NodeId points to the header that is at the tip of the best chain.
     best_chain: Option<NodeId>,
-    /// This map maintains a node id pointing to the anchor of each peer's chain.
-    peer_anchors: BTreeMap<Peer, NodeId>,
-    /// This map maintains the length of the chain for each peer
-    /// to avoid recomputing the ancestors of the peer chain tip all the time to check the chain length
-    peer_chain_length: BTreeMap<Peer, usize>,
-    /// This map maintains a node id pointing to the tip of each peer's chain.
-    peer_tips: BTreeMap<Peer, NodeId>,
+    /// This map maintains the chain tracking data for each peer
+    peers: BTreeMap<Peer, PeerChain>,
+}
+
+/// This data type tracks the chain of a peer inside the arena:
+///
+///  - Where the chain starts: anchor
+///  - Where it stops: tip
+///  - The chain length
+#[derive(Debug, Clone)]
+struct PeerChain {
+    anchor: NodeId,
+    tip: NodeId,
+    length: usize,
 }
 
 #[allow(dead_code)]
@@ -45,9 +52,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             arena,
             max_length,
             best_chain,
-            peer_anchors: BTreeMap::new(),
-            peer_chain_length: BTreeMap::new(),
-            peer_tips: BTreeMap::new(),
+            peers: BTreeMap::new(),
         }
     }
 
@@ -100,8 +105,8 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         peer: &Peer,
         header: H,
     ) -> Result<ForwardChainSelection<H>, ConsensusError> {
-        let peer_tip = match self.peer_tips.get(peer) {
-            Some(node_id) => *node_id,
+        let peer_tip = match self.peers.get(peer) {
+            Some(peer_chain) => peer_chain.tip,
             None => return Err(ConsensusError::UnknownPeer(peer.clone())),
         };
         let peer_tip_node = self.unsafe_get_arena_node(peer_tip);
@@ -152,37 +157,38 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     fn insert_header(&mut self, peer: &Peer, header: H, parent_node_id: &NodeId) -> NodeId {
         let header_node_id = self.arena.new_node(header.clone());
         parent_node_id.append(header_node_id, &mut self.arena);
-        self.peer_tips.insert(peer.clone(), header_node_id);
-
-        let chain_length = self.peer_chain_length.get(peer).copied().unwrap_or(0);
-
+        let mut peer_chain = self
+            .peers
+            .get(peer)
+            .unwrap_or_else(|| panic!("no chain information found for peer {peer}")).clone();
+        peer_chain.tip = header_node_id;
         // If the current chain (before the new header) is already at the maximum length
         // we need to move the anchor point one header up in the chain
-        if chain_length == self.max_length {
-            if let Some(anchor) = self.peer_anchors.get(peer) {
-                // if no other peer is using the old anchor, the old anchor can be dropped
-                let other_anchors: Vec<&NodeId> = self.peer_anchors.values().filter(|a| *a != anchor).collect();
-                let anchor_ancestors: Vec<NodeId> = anchor.ancestors(&self.arena).collect();
-                let can_be_dropped = other_anchors.is_empty() || other_anchors.iter().any(|a| anchor_ancestors.contains(a));
+        if peer_chain.length == self.max_length {
+            // if no other peer is using the old anchor, the old anchor can be dropped
+            let other_anchors: Vec<NodeId> = self
+                .peers
+                .values()
+                .filter(|a| a.anchor != peer_chain.anchor)
+                .map(|pc| pc.anchor)
+                .collect();
+            let anchor_ancestors: Vec<NodeId> = peer_chain.anchor.ancestors(&self.arena).collect();
+            let can_be_dropped = other_anchors.is_empty()
+                || other_anchors.iter().any(|a| anchor_ancestors.contains(a));
 
-                if can_be_dropped {
-                    anchor.remove(&mut self.arena);
-                }
-                let new_anchor = header_node_id
-                    .ancestors(&self.arena)
-                    .take_while(|a| *a != *anchor)
-                    .last()
-                    .unwrap_or(header_node_id);
-                self.peer_anchors.insert(peer.clone(), new_anchor);
-            } else {
-                // TODO remove the dummy case here and use an expect instead
-                self.peer_anchors.insert(peer.clone(), header_node_id);
+            if can_be_dropped {
+                peer_chain.anchor.remove(&mut self.arena);
             }
+            let new_anchor = header_node_id
+                .ancestors(&self.arena)
+                .take_while(|a| *a != peer_chain.anchor)
+                .last()
+                .unwrap_or(header_node_id);
+            peer_chain.anchor = new_anchor;
         } else {
-            self.peer_chain_length
-                .insert(peer.clone(), chain_length + 1);
-        }
-
+            peer_chain.length += 1;
+        };
+        self.peers.insert(peer.clone(), peer_chain);
         header_node_id
     }
 
@@ -249,10 +255,11 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     /// Return the chain tip for a given Peer
     fn get_tip_for(&self, peer: &Peer) -> Result<Option<&H>, ConsensusError> {
         let node_id = self
-            .peer_tips
+            .peers
             .get(peer)
-            .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?;
-        Ok(self.arena.get(*node_id).map(|node| node.get()))
+            .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
+            .tip;
+        Ok(self.arena.get(node_id).map(|node| node.get()))
     }
 
     /// Return the node id that is the least common parent between 2 node ids
@@ -276,13 +283,17 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         for node in self.arena.iter() {
             if node.get().hash() == Hash::from(point) {
                 if let Some(node_id) = self.arena.get_node_id(node) {
-                    self.peer_tips.insert(peer.clone(), node_id);
                     // The anchor of the peer chain is the root of the ancestors retrieved from the tip of the chain
                     let ancestors: Vec<NodeId> = node_id.ancestors(&self.arena).collect();
-                    if let Some(anchor) = ancestors.last() {
-                        self.peer_anchors.insert(peer.clone(), *anchor);
-                        self.peer_chain_length.insert(peer.clone(), ancestors.len());
-                    }
+                    let peer_chain = PeerChain {
+                        // there should be at least one element in the ancestors list, which is the tip
+                        anchor: *ancestors
+                            .last()
+                            .expect("an ancestors list must contain at least one element"),
+                        tip: node_id,
+                        length: ancestors.len(),
+                    };
+                    self.peers.insert(peer.clone(), peer_chain);
                     return Ok(());
                 }
             }
