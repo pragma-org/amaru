@@ -17,12 +17,22 @@ use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 
 #[derive(Debug, PartialEq, Clone)]
-pub enum Tip<H: IsHeader> {
+pub enum Tip<H> {
     Genesis,
     Hdr(H),
 }
 
-impl<H, C> cbor::encode::Encode<C> for Tip<H>
+impl<H> Tip<H> {
+    /// Return the header for this Tip if the Tip doesn't represent the Genesis header.
+    pub fn to_header(&self) -> Option<&H> {
+        match self {
+            Tip::Genesis => None,
+            Tip::Hdr(h) => Some(h),
+        }
+    }
+}
+
+impl<H: IsHeader, C> cbor::encode::Encode<C> for Tip<H>
 where
     H: cbor::encode::Encode<C> + IsHeader,
 {
