@@ -426,6 +426,7 @@ mod tests {
 
     use super::*;
     use pure_stage::{simulation::SimulationBuilder, StageGraph, Void};
+    use test_macros::must_panic;
 
     #[test]
     fn run_stops_when_no_message_to_process_is_left() {
@@ -437,7 +438,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
+    #[must_panic]
     fn simulate_pure_stage_echo() {
         #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
         struct State(u64, StageRef<Envelope<EchoMessage>, Void>);
