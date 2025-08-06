@@ -61,6 +61,16 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         self.arena.count()
     }
 
+    fn pretty_print(&self) -> String {
+        let root = self
+            .best_chain
+            .unwrap()
+            .ancestors(&self.arena)
+            .last()
+            .unwrap();
+        format!("{:?}", root.debug_pretty_print(&self.arena))
+    }
+
     /// Insert headers into the tree structure to initialize the chain of a new peer
     fn insert_headers(&mut self, headers: Vec<H>) {
         _ = Self::insert_headers_into_arena(&mut self.arena, headers)
@@ -153,22 +163,26 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     ///  - The peer tip
     ///  - The chain length
     fn insert_header(&mut self, peer: &Peer, header: H, parent_node_id: &NodeId) -> NodeId {
-        let header_node_id = self.arena.new_node(header.clone());
-        parent_node_id.append(header_node_id, &mut self.arena);
         let mut peer_chain = self
             .peers
             .get(peer)
             .unwrap_or_else(|| panic!("no chain information found for peer {peer}"))
             .clone();
-        peer_chain.tip = header_node_id;
         // If the current chain (before the new header) is already at the maximum length
         // we need to move the anchor point one header up in the chain
         if peer_chain.length == self.max_length {
-            let ancestors = header_node_id
+            let ancestors = parent_node_id
                 .ancestors(&self.arena)
                 .collect::<Vec<NodeId>>();
             match ancestors[ancestors.len() - 2..ancestors.len()] {
-                [_new_root, root] => {
+                [new_root, root] => {
+                    let to_remove = root
+                        .children(&self.arena)
+                        .filter(|nid| *nid != new_root)
+                        .collect::<Vec<NodeId>>();
+                    for nid in to_remove {
+                        nid.remove_subtree(&mut self.arena);
+                    }
                     root.remove(&mut self.arena);
                 }
                 _ => unimplemented!(),
@@ -176,6 +190,10 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         } else {
             peer_chain.length += 1;
         };
+
+        let header_node_id = self.arena.new_node(header.clone());
+        parent_node_id.append(header_node_id, &mut self.arena);
+        peer_chain.tip = header_node_id;
         self.peers.insert(peer.clone(), peer_chain);
         header_node_id
     }
@@ -587,13 +605,42 @@ mod tests {
         _ = tree.select_roll_forward(&alice, new_tip).unwrap();
 
         // The original chain anchor is still present in the arena but marked as removed (its data is dropped)
-        assert_eq!(tree.size(), 11);
+        assert_eq!(tree.size(), 10);
 
         // If we add a new header to the current chain, the arena reuses the removed node to store
         // the new header
         let new_tip = make_header_with_parent(&new_tip.clone());
         _ = tree.select_roll_forward(&alice, new_tip).unwrap();
-        assert_eq!(tree.size(), 11);
+        assert_eq!(tree.size(), 10);
+    }
+
+    #[test]
+    fn roll_forward_beyond_limit_drops_unreachable_chain() {
+        // create a chain at max length
+        let (mut tree, headers) = create_headers_tree(10);
+        let tip = headers.last().unwrap();
+
+        let alice = Peer::new("alice");
+        let peer_point = Point::Specific(10, tip.hash().to_vec());
+        tree.initialize_peer(&alice, &peer_point).unwrap();
+
+        let bob = Peer::new("bob");
+        let first = headers.first().unwrap();
+        tree.initialize_peer(&bob, &first.point()).unwrap();
+        // Roll forward with 2 new headers from bob
+        let bob_new_header1 = make_header_with_parent(first);
+        let bob_new_header2 = make_header_with_parent(&bob_new_header1);
+        tree.select_roll_forward(&bob, bob_new_header1).unwrap();
+        tree.select_roll_forward(&bob, bob_new_header2).unwrap();
+
+        // Now roll forward extending tip
+        let new_tip = make_header_with_parent(tip);
+        let alice_new_header2 = make_header_with_parent(&new_tip);
+        _ = tree.select_roll_forward(&alice, new_tip).unwrap();
+        assert_eq!(tree.size(), 12);
+
+        _ = tree.select_roll_forward(&alice, alice_new_header2).unwrap();
+        assert_eq!(tree.size(), 12);
     }
 
     /// HELPERS
