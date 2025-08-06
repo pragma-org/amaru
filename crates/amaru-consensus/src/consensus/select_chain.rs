@@ -18,7 +18,8 @@ use super::{
 };
 use crate::{
     consensus::{
-        chain_selection::{self, ChainSelector, Fork, Tip},
+        chain_selection::{self, ChainSelector, Fork},
+        tip::Tip,
         EVENT_TARGET,
     },
     peer::Peer,

@@ -184,6 +184,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         header_node_id
     }
 
+    #[allow(clippy::panic)]
     fn prune_unreachable_nodes(&mut self, parent_node_id: &NodeId) {
         let ancestors = parent_node_id
             .ancestors(&self.arena)
