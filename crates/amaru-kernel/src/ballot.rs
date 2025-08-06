@@ -14,7 +14,7 @@
 
 use crate::{cbor, decode_array, Anchor, ProposalId, Vote};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Ballot {
     pub proposal: ProposalId,
     pub vote: Vote,

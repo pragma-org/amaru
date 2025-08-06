@@ -181,7 +181,7 @@ pub fn import_initial_snapshot(
     } else {
         d.decode()?
     };
-    let protocol_parameters = import_protocol_parameters(db, &epoch, pparams)?;
+    let protocol_parameters = import_protocol_parameters(db, pparams)?;
     import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
     import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
@@ -274,11 +274,10 @@ fn save_point(
 
 fn import_protocol_parameters(
     db: &impl Store,
-    epoch: &Epoch,
     protocol_parameters: ProtocolParameters,
 ) -> Result<ProtocolParameters, Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
-    transaction.set_protocol_parameters(epoch, &protocol_parameters)?;
+    transaction.set_protocol_parameters(&protocol_parameters)?;
     transaction.commit()?;
     Ok(protocol_parameters)
 }

@@ -55,8 +55,8 @@ const KEY_TIP: &str = "tip";
 /// Special key where we store the progress of the database
 const KEY_PROGRESS: &str = "progress";
 
-// Special key where we store the protocol parameters
-const PROTOCOL_PARAMETERS_PREFIX: &str = "ppar";
+// Special key where we store the current protocol parameters
+const KEY_PROTOCOL_PARAMETERS: &str = "protocol-parameters";
 
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
@@ -182,11 +182,10 @@ impl ReadOnlyRocksDB {
 macro_rules! impl_ReadStore {
     (for $($s:ty),+) => {
         $(impl ReadStore for $s {
-            fn get_protocol_parameters_for(
+            fn get_protocol_parameters(
                 &self,
-                epoch: &Epoch,
             ) -> Result<ProtocolParameters, StoreError> {
-                get(|key| self.db.get(key), &format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"))?
+                get(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)?
                     .ok_or(StoreError::ProtocolParameters(ProtocolParametersErrorKind::Missing))
             }
 
@@ -355,14 +354,10 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn set_protocol_parameters(
         &self,
-        epoch: &Epoch,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StoreError> {
         self.transaction
-            .put(
-                format!("{PROTOCOL_PARAMETERS_PREFIX}:{epoch}"),
-                as_value(protocol_parameters),
-            )
+            .put(KEY_PROTOCOL_PARAMETERS, as_value(protocol_parameters))
             .map_err(|err| StoreError::Internal(err.into()))?;
 
         Ok(())

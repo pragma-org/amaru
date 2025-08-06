@@ -13,14 +13,17 @@
 // limitations under the License.
 
 use amaru_kernel::{
-    cbor, from_cbor, network::NetworkName, protocol_parameters::GlobalParameters, to_cbor, Bytes,
-    EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Point,
+    cbor, from_cbor,
+    network::NetworkName,
+    protocol_parameters::{self, GlobalParameters},
+    to_cbor, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Point,
     PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     context,
     rules::{self, block::BlockValidation},
     state::{State, VolatileState},
+    store::{Store, TransactionalContext},
 };
 use amaru_stores::in_memory::MemoryStore;
 use std::collections::BTreeMap;
@@ -41,6 +44,8 @@ pub fn forward_ledger(raw_block: &str) {
     let global_parameters: &GlobalParameters = network.into();
     let store = MemoryStore::new(era_history.clone());
     let historical_store = MemoryStore::new(era_history.clone());
+
+    hydrate_initial_protocol_parameters(&store, &network);
 
     let mut state = State::new(
         store,
@@ -104,4 +109,22 @@ pub fn forward_ledger(raw_block: &str) {
     state
         .forward(PROTOCOL_VERSION_9, volatile_state.anchor(&point, issuer))
         .unwrap()
+}
+
+pub fn hydrate_initial_protocol_parameters(store: &impl Store, network: &NetworkName) {
+    let transaction = store.create_transaction();
+
+    let params = match network {
+        NetworkName::Preprod => &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+        NetworkName::Preview => &protocol_parameters::PREVIEW_INITIAL_PROTOCOL_PARAMETERS,
+        NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
+    };
+
+    transaction
+        .set_protocol_parameters(params)
+        .unwrap_or_else(|e| panic!("unable to set initial protocol parameters ?! {e}"));
+
+    transaction
+        .commit()
+        .unwrap_or_else(|e| panic!("unable to set initial protocol parameters ?! {e}"));
 }

@@ -40,6 +40,7 @@ use std::{
 pub mod ledger;
 
 // TODO: Add a field to MemoryStore for storing per-epoch snapshots as nested MemoryStores
+#[derive(Clone)]
 pub struct MemoryStore {
     tip: RefCell<Option<Point>>,
     epoch_progress: RefCell<Option<EpochTransitionProgress>>,
@@ -52,7 +53,7 @@ pub struct MemoryStore {
     proposals: RefCell<BTreeMap<ComparableProposalId, proposals_column::Row>>,
     cc_members: RefCell<BTreeMap<StakeCredential, cc_members_column::Row>>,
     votes: RefCell<BTreeMap<votes_column::Key, votes_column::Value>>,
-    p_params: RefCell<BTreeMap<Epoch, ProtocolParameters>>,
+    p_params: RefCell<Option<ProtocolParameters>>,
     era_history: EraHistory,
 }
 
@@ -70,7 +71,7 @@ impl MemoryStore {
             proposals: RefCell::new(BTreeMap::new()),
             cc_members: RefCell::new(BTreeMap::new()),
             votes: RefCell::new(BTreeMap::new()),
-            p_params: RefCell::new(BTreeMap::new()),
+            p_params: RefCell::new(None),
             era_history,
         }
     }
@@ -84,15 +85,13 @@ impl Snapshot for MemoryStore {
 }
 
 impl ReadStore for MemoryStore {
-    fn get_protocol_parameters_for(&self, epoch: &Epoch) -> Result<ProtocolParameters, StoreError> {
-        let map = self.p_params.borrow();
-        let params = map
-            .get(epoch)
-            .cloned()
+    fn get_protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
+        self.p_params
+            .borrow()
+            .clone()
             .ok_or(StoreError::ProtocolParameters(
                 ProtocolParametersErrorKind::Missing,
-            ))?;
-        Ok(params)
+            ))
     }
 
     fn account(
@@ -338,13 +337,9 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
 
     fn set_protocol_parameters(
         &self,
-        epoch: &Epoch,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StoreError> {
-        self.store
-            .p_params
-            .borrow_mut()
-            .insert(*epoch, protocol_parameters.clone());
+        *self.store.p_params.borrow_mut() = Some(protocol_parameters.clone());
         Ok(())
     }
 
