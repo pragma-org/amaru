@@ -15,7 +15,7 @@
 use crate::{
     store::{columns::*, Snapshot, StoreError},
     summary::{
-        governance::{DRepState, GovernanceSummary, ProposalState},
+        governance::{DRepState, GovernanceSummary},
         safe_ratio,
         serde::{encode_drep, encode_pool_id, encode_stake_credential, serialize_map},
         AccountState, PoolState,
