@@ -216,7 +216,7 @@ impl From<&RequiredScript> for RedeemerKey {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Point {
     Origin,
     Specific(u64, Vec<u8>),
@@ -248,6 +248,12 @@ impl Display for Point {
             ),
             Point::Specific(slot, vec) => write!(f, "{}.{}", slot, hex::encode(vec)),
         }
+    }
+}
+
+impl fmt::Debug for Point {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        Display::fmt(self, f)
     }
 }
 
