@@ -3,13 +3,15 @@ use crate::consensus::headers_tree::ChainTracker::{Me, Other};
 use crate::consensus::tip::Tip;
 use crate::peer::Peer;
 use crate::ConsensusError;
-use amaru_kernel::{Point, ORIGIN_HASH};
+use amaru_kernel::{Point, HEADER_HASH_SIZE};
 use amaru_ouroboros_traits::IsHeader;
 use indextree::{Arena, Node, NodeId};
 use pallas_crypto::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Display, Formatter};
 use tracing::debug;
+
+const ORIGIN_HASH : Hash<HEADER_HASH_SIZE> = Hash::new([0; HEADER_HASH_SIZE]);
 
 /// This data type stores chains as a tree of headers.
 /// It also keeps track of what is the latest tip for each peer.

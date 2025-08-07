@@ -189,7 +189,7 @@ pub fn into_sized_array<const SIZE: usize, E, T>(
     into_error: impl Fn(TryFromSliceError, usize) -> E,
 ) -> Result<[u8; SIZE], E>
 where
-    T: Deref<Target = Bytes>,
+    T: Deref<Target=Bytes>,
 {
     bytes
         .deref()
@@ -300,7 +300,7 @@ pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddres
         fake_payment_part,
         delegation_part,
     ))
-    .expect("has non-empty delegation part")
+        .expect("has non-empty delegation part")
 }
 
 // StakeCredential
@@ -463,7 +463,7 @@ pub fn get_provided_scripts(
     provided_scripts
 }
 
-pub fn display_collection<T>(collection: impl IntoIterator<Item = T>) -> String
+pub fn display_collection<T>(collection: impl IntoIterator<Item=T>) -> String
 where
     T: std::fmt::Display,
 {
