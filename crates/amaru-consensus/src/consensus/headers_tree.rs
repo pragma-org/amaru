@@ -475,34 +475,6 @@ mod tests {
         assert!(tree.select_roll_forward(&peer, *last).is_err());
     }
 
-    // FIXME: a peer should not stutter when rolling forward, unless we
-    // reconnect. -> ET: I don't think it does, the second we roll forward with the same header we get NoChange
-    #[test]
-    fn roll_forward_is_idempotent() {
-        let peer = Peer::new("alice");
-        let (mut tree, mut headers) = initialize_with_peer(5, &peer);
-        let new_tip = make_header_with_parent(headers.last().unwrap());
-        // Roll forward twice with the same header
-        assert_eq!(
-            tree.select_roll_forward(&peer, new_tip).unwrap(),
-            ForwardChainSelection::NewTip {
-                peer: peer.clone(),
-                tip: new_tip
-            }
-        );
-        assert_eq!(
-            tree.select_roll_forward(&peer, new_tip).unwrap(),
-            ForwardChainSelection::NoChange
-        );
-
-        assert_eq!(tree.best_chain_tip(), Some(&new_tip));
-        headers.push(new_tip);
-        assert_eq!(
-            tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&FakeHeader>>()
-        );
-    }
-
     #[test]
     fn roll_forward_from_another_peer_at_tip_extends_best_chain() {
         let alice = Peer::new("alice");
@@ -543,6 +515,36 @@ mod tests {
 
         // Roll forward with a new header from bob
         let new_tip_for_bob = make_header_with_parent(middle);
+        assert_eq!(
+            tree.select_roll_forward(&bob, new_tip_for_bob).unwrap(),
+            ForwardChainSelection::NoChange
+        );
+        let tip = headers.last().unwrap();
+        assert_eq!(
+            tree.best_chain_tip(),
+            Some(tip),
+            "the current tip must not change"
+        );
+
+        assert_eq!(
+            tree.best_chain_fragment(),
+            headers.iter().collect::<Vec<&FakeHeader>>(),
+            "the best chain hasn't changed"
+        );
+    }
+
+    #[test]
+    fn roll_forward_from_another_peer_on_the_best_chain_is_noop() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+
+        // Initialize bob with same chain than alice minus the last header
+        let bob = Peer::new("bob");
+        let bob_tip = headers.get(3).unwrap();
+        tree.initialize_peer(&bob, &bob_tip.point()).unwrap();
+
+        // Roll forward with a new header from bob
+        let new_tip_for_bob = make_header_with_parent(bob_tip);
         assert_eq!(
             tree.select_roll_forward(&bob, new_tip_for_bob).unwrap(),
             ForwardChainSelection::NoChange
