@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use crate::{cbor, Hash, Slot};
-use std::fmt::{self, Display};
+use std::fmt::{self, Debug, Display};
 
-#[derive(Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Point {
     Origin,
     Specific(u64, Vec<u8>),
@@ -26,6 +26,15 @@ impl Point {
         match self {
             Point::Origin => Slot::from(0),
             Point::Specific(slot, _) => Slot::from(*slot),
+        }
+    }
+}
+
+impl Debug for Point {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Point::Origin => write!(f, "Origin"),
+            Point::Specific(slot, hash) => write!(f, "Specific({slot}, {})", hex::encode(hash)),
         }
     }
 }
@@ -119,33 +128,66 @@ impl<'b> cbor::decode::Decode<'b, ()> for Point {
     }
 }
 
-#[cfg(test)]
-mod tests {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
     use super::Point;
+    use proptest::prelude::*;
 
-    #[test]
-    fn test_parse_point() {
-        let point = Point::try_from("42.0123456789abcdef").unwrap();
-        match point {
-            Point::Specific(slot, hash) => {
-                assert_eq!(42, slot);
-                assert_eq!(vec![1, 35, 69, 103, 137, 171, 205, 239], hash);
-            }
-            _ => panic!("expected a specific point"),
+    prop_compose! {
+        pub fn any_point()(
+            slot in any::<u64>(),
+            bytes in proptest::array::uniform32(any::<u8>()),
+        ) -> Point {
+            Point::Specific(slot, bytes.to_vec())
         }
     }
 
-    #[test]
-    fn test_parse_real_point() {
-        let point = Point::try_from(
-            "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
-        )
-        .unwrap();
-        match point {
-            Point::Specific(slot, _hash) => {
-                assert_eq!(70070379, slot);
+    #[cfg(test)]
+    mod internal {
+        use super::*;
+        use test_case::test_case;
+
+        #[test_case(Point::Origin => "Origin")]
+        #[test_case(
+            Point::Specific(
+                42,
+                vec![
+                  254, 252, 156,   3, 124,  63, 156, 139,
+                   79, 183, 138, 155,  15,  19, 123,  94,
+                  208, 128,  60,  61,  70, 189,  45,  14,
+                   64, 197, 159, 169,  12, 160,   2, 193
+                ]
+            ) => "Specific(42, fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1)";
+            "specific"
+        )]
+        fn better_debug_point(point: Point) -> String {
+            format!("{point:?}")
+        }
+
+        #[test]
+        fn test_parse_point() {
+            let point = Point::try_from("42.0123456789abcdef").unwrap();
+            match point {
+                Point::Specific(slot, hash) => {
+                    assert_eq!(42, slot);
+                    assert_eq!(vec![1, 35, 69, 103, 137, 171, 205, 239], hash);
+                }
+                _ => panic!("expected a specific point"),
             }
-            _ => panic!("expected a specific point"),
+        }
+
+        #[test]
+        fn test_parse_real_point() {
+            let point = Point::try_from(
+                "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
+            )
+            .unwrap();
+            match point {
+                Point::Specific(slot, _hash) => {
+                    assert_eq!(70070379, slot);
+                }
+                _ => panic!("expected a specific point"),
+            }
         }
     }
 }
