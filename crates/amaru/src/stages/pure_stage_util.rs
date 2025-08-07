@@ -18,8 +18,8 @@ use gasket::{
     messaging,
 };
 use pure_stage::{tokio::TokioRunning, Receiver, SendData, Sender};
-use std::future::pending;
-use tokio::runtime::Runtime;
+use std::time::Duration;
+use tokio::{runtime::Runtime, time::sleep};
 
 #[derive(Stage)]
 #[stage(name = "pure_stage", unit = "()", worker = "Worker")]
@@ -52,8 +52,11 @@ impl gasket::framework::Worker<PureStageSim> for Worker {
         _stage: &mut PureStageSim,
     ) -> Result<WorkSchedule<()>, WorkerError> {
         // never any work to do here, PureStageSim only needs to keep the
-        // tokio runtime and the pure_stage tasks running
-        pending().await
+        // tokio runtime and the pure_stage tasks running;
+        // we cannot use pending(), though, because that prevents gasket from
+        // shutting down the stage.
+        sleep(Duration::from_secs(1)).await;
+        Ok(WorkSchedule::Unit(()))
     }
 
     async fn execute(&mut self, _unit: &(), _stage: &mut PureStageSim) -> Result<(), WorkerError> {
