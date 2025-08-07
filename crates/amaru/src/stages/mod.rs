@@ -39,6 +39,7 @@ use amaru_stores::{
         RocksDB, RocksDBHistoricalStores,
     },
 };
+use anyhow::Context;
 use consensus::{
     fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
     receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
@@ -210,7 +211,7 @@ pub fn bootstrap(
 
     let validate_header_input = SendAdapter(network.input(&validate_header_stage));
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
     let pure_stages = PureStageSim::new(network, rt);
 
