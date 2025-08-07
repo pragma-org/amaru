@@ -90,7 +90,6 @@ fetch-chain-headers: $(CONFIG_FOLDER)/$(NETWORK)/ ## Fetch chain headers from th
 
 bootstrap: clear-dbs ## Bootstrap the node from scratch
 	cargo run --profile $(BUILD_PROFILE) -- bootstrap \
-		--peer-address $(PEER_ADDRESS) \
 		--config-dir $(CONFIG_FOLDER) \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \

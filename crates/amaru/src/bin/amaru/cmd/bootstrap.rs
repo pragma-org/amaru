@@ -13,26 +13,31 @@
 // limitations under the License.
 
 use super::{
-    import_headers::import_headers,
     import_ledger_state::import_all_from_directory,
     import_nonces::{InitialNonces, import_nonces},
 };
 use crate::cmd::DEFAULT_NETWORK;
 use amaru::snapshots_dir;
-use amaru_kernel::{Point, default_chain_dir, default_ledger_dir, network::NetworkName};
+use amaru_consensus::IsHeader;
+use amaru_consensus::consensus::store::ChainStore;
+use amaru_kernel::{
+    Header, default_chain_dir, default_ledger_dir, from_cbor, network::NetworkName,
+};
+use amaru_stores::rocksdb::consensus::RocksDBStore;
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{Parser, arg};
 use futures_util::TryStreamExt;
+use gasket::framework::WorkerError;
 use serde::Deserialize;
 use std::{
     error::Error,
-    io,
+    io::{self},
     path::{Path, PathBuf},
 };
 use thiserror::Error;
 use tokio::{
     fs::{self, File},
-    io::BufReader,
+    io::{AsyncReadExt, BufReader},
 };
 use tokio_util::io::StreamReader;
 use tracing::info;
@@ -74,24 +79,10 @@ pub struct Args {
         verbatim_doc_comment
     )]
     config_dir: PathBuf,
-
-    /// Address of the node to connect to for retrieving chain data.
-    /// The node should be accessible via the node-2-node protocol, which
-    /// means the remote node should be running as a validator and not
-    /// as a client node.
-    ///
-    /// Address is given in the usual `host:port` format, for example: "1.2.3.4:3000".
-    #[arg(
-        long,
-        value_name = "NETWORK_ADDRESS",
-        default_value = "127.0.0.1:3001",
-        verbatim_doc_comment
-    )]
-    peer_address: String,
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
-    info!(config=?args.config_dir, ledger_dir=?args.ledger_dir, chain_dir=?args.chain_dir, peer=%args.peer_address, network=%args.network,
+    info!(config=?args.config_dir, ledger_dir=?args.ledger_dir, chain_dir=?args.chain_dir, network=%args.network,
           "bootstrapping",
     );
 
@@ -116,33 +107,40 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     import_nonces_for_network(network, &network_dir, &chain_dir).await?;
 
-    import_headers_for_network(network, &args.peer_address, &network_dir, &chain_dir).await?;
+    import_headers_for_network(network, &network_dir, &chain_dir).await?;
 
     Ok(())
 }
 
+#[allow(clippy::unwrap_used)]
 async fn import_headers_for_network(
     network: NetworkName,
-    peer_address: &str,
     config_dir: &Path,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
-    let headers_file: PathBuf = config_dir.join("headers.json");
-    let content = tokio::fs::read_to_string(headers_file).await?;
-    let points: Vec<String> = serde_json::from_str(&content)?;
-    let mut initial_headers = Vec::new();
-    for point in points {
-        match Point::try_from(point.as_str()) {
-            Ok(point) => initial_headers.push(point),
-            Err(e) => tracing::warn!("Ignoring malformed header point '{}': {}", point, e),
+    let era_history = network.into();
+    let mut db = RocksDBStore::new(chain_dir, era_history)?;
+
+    for entry in std::fs::read_dir(config_dir.join("headers"))? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file()
+            && let Some(filename) = path.file_name().and_then(|f| f.to_str())
+            && filename.starts_with("header.")
+            && filename.ends_with(".cbor")
+        {
+            let mut file = File::open(&path).await
+                    .inspect_err(|reason| tracing::error!(file = %path.display(), reason = %reason, "Failed to open header file"))
+                    .map_err(|_| WorkerError::Panic)?;
+            let mut cbor_data = Vec::new();
+            file.read_to_end(&mut cbor_data).await
+                    .inspect_err(|reason| tracing::error!(file = %path.display(), reason = %reason, "Failed to read header file"))
+                    .map_err(|_| WorkerError::Panic)?;
+            let header_from_file: Header = from_cbor(&cbor_data).unwrap();
+            let hash = header_from_file.hash();
+            db.store_header(&hash, &header_from_file)
+                .map_err(|_| WorkerError::Panic)?;
         }
-    }
-    for hdr in initial_headers {
-        // FIXME: why do we only import 2 headers for each header listed in the
-        // config file? The 2 headers make sense, but why starting from more than
-        // one header?
-        const NUM_HEADERS_TO_IMPORT: usize = 2;
-        import_headers(peer_address, network, chain_dir, hdr, NUM_HEADERS_TO_IMPORT).await?;
     }
 
     Ok(())
