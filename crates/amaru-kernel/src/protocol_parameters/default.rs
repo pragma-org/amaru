@@ -324,7 +324,7 @@ pub static PREVIEW_INITIAL_PROTOCOL_PARAMETERS: LazyLock<ProtocolParameters> =
                 numerator: 3,
                 denominator: 10,
             },
-            optimal_stake_pools_count: 150,
+            optimal_stake_pools_count: 500,
             treasury_expansion_rate: RationalNumber {
                 numerator: 2,
                 denominator: 10,
