@@ -102,12 +102,6 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             .unwrap_or("".to_string())
     }
 
-    /// Insert headers into the tree structure to initialize the chain of a new peer
-    /// FIXME: what's the point of this indirection?
-    fn insert_headers(&mut self, headers: Vec<H>) {
-        _ = Self::insert_headers_into_arena(&mut self.arena, headers)
-    }
-
     /// Insert headers into the arena and return the last created node id
     fn insert_headers_into_arena(arena: &mut Arena<Tip<H>>, headers: Vec<H>) -> NodeId {
         let mut iter = headers.into_iter();
@@ -567,21 +561,21 @@ mod tests {
     #[test]
     fn roll_forward_with_fork_to_a_disjoint_chain() {
         let alice = Peer::new("alice");
-        let mut tree = initialize_with_peer(5, &alice).0;
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let anchor = headers.first().unwrap();
 
         // Initialize bob with a completely different chain of the same size
         let bob = Peer::new("bob");
-        let mut bob_headers = generate_headers_anchored_at(None, 5);
+        tree.initialize_peer(&bob, &anchor.point()).unwrap();
+        let mut bob_headers = rollforward_from(&mut tree, anchor, &bob, 4);
         let bob_tip = bob_headers.last().unwrap();
-        tree.insert_headers(bob_headers.clone());
-        tree.initialize_peer(&bob, &bob_tip.point()).unwrap();
 
         // Adding a new header for bob must create a fork
         let bob_new_tip = make_header_with_parent(bob_tip);
         bob_headers.push(bob_new_tip);
         let fork = Fork {
             peer: bob.clone(),
-            rollback_point: Point::Origin,
+            rollback_point: anchor.point(),
             fork: bob_headers,
         };
 
