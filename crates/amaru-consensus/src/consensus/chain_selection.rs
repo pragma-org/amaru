@@ -155,6 +155,7 @@ pub enum RollbackChainSelection<H: IsHeader> {
     SwitchToFork(Fork<H>),
 
     /// The peer tried to rollback beyond the limit
+    /// FIXME: use fields for the 2 hashes
     RollbackBeyondLimit(Peer, Hash<32>, Hash<32>),
 
     /// The current best chain as not changed

@@ -1,4 +1,4 @@
-use crate::consensus::chain_selection::{Fork, ForwardChainSelection};
+use crate::consensus::chain_selection::{Fork, ForwardChainSelection, RollbackChainSelection};
 use crate::consensus::headers_tree::ChainTracker::{Me, Other};
 use crate::consensus::tip::Tip;
 use crate::peer::Peer;
@@ -185,6 +185,31 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             debug!("{e}. The current headers tree is {:?}", &self);
             Err(e)
         }
+    }
+
+    pub fn select_rollback(
+        &mut self,
+        peer: &Peer,
+        rollback_point: &Point,
+    ) -> Result<RollbackChainSelection<H>, ConsensusError> {
+        let tip = self.best_chain();
+        for node_id in tip.ancestors(&self.arena) {
+            let node = self.unsafe_get_arena_node(node_id);
+
+            if node.get().hash() == rollback_point.hash() {
+                self.set_best_chain(node_id);
+                return Ok(RollbackChainSelection::RollbackTo(rollback_point.into()));
+            }
+        }
+        // for node in ancestors {
+        //     node.remove(&mut self.arena)
+        // }
+        Err(ConsensusError::InvalidRollback {
+            // TODO use a better max point
+            peer: peer.clone(),
+            rollback_point: rollback_point.hash(),
+            max_point: Point::Origin.hash(),
+        })
     }
 
     /// Return the chain ending with the header at node_id (sorted from older to younger).
@@ -695,6 +720,32 @@ mod tests {
         _ = rollforward_from(&mut tree, tip, &alice, 2);
         assert_eq!(tree.size(), 13);
     }
+
+    #[test]
+    fn rollback_on_the_best_chain() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let middle = headers.get(3).unwrap();
+        let result = RollbackChainSelection::RollbackTo(middle.hash());
+        assert_eq!(
+            tree.select_rollback(&alice, &middle.point()).unwrap(),
+            result
+        );
+
+        assert_eq!(tree.best_chain_tip(), Some(middle))
+
+        // Now doing a roll forward on the old tip should fail
+    }
+
+    // #[test]
+    // #[ignore]
+    // fn rollback_at_the_tip_of_the_same_chain() {
+    //     let alice = Peer::new("alice");
+    //     let (mut tree, headers) = initialize_with_peer(5, &alice);
+    //     assert!(tree
+    //         .select_rollback(&alice, &headers.last().unwrap().point())
+    //         .is_err())
+    // }
 
     #[test]
     #[must_panic(expected = "Cannot create a headers tree with maximum chain length lower than 2")]
