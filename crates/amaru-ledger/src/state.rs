@@ -684,10 +684,14 @@ pub fn tick_proposals<'store>(
                 //
                 // Hence: epoch == valid_until + 2
                 if epoch == row.valid_until + 2 {
-                    refunds.insert(
-                        expect_stake_credential(&row.proposal.reward_account),
-                        row.proposal.deposit,
-                    );
+                    let key = expect_stake_credential(&row.proposal.reward_account);
+                    refunds
+                        .entry(key)
+                        // NOTE: There may be *multiple* refunds for the same credential.
+                        // So it's important not to simply override the refund value with a
+                        // blind 'insert'.
+                        .and_modify(|entry| *entry += row.proposal.deposit)
+                        .or_insert_with(|| row.proposal.deposit);
                 }
             }
         }
