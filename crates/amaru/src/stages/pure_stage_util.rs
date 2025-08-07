@@ -1,3 +1,17 @@
+// Copyright 2024 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 use futures_util::StreamExt;
 use gasket::{
     framework::{Stage, WorkSchedule, WorkerError},
@@ -23,6 +37,8 @@ impl PureStageSim {
     }
 }
 
+// Worker acts as a placeholder - the actual work is handled by the pure-stage runtime
+// so this just needs to satisfy gasket's Worker trait requirements.
 pub struct Worker;
 
 #[async_trait::async_trait(?Send)]
@@ -35,6 +51,8 @@ impl gasket::framework::Worker<PureStageSim> for Worker {
         &mut self,
         _stage: &mut PureStageSim,
     ) -> Result<WorkSchedule<()>, WorkerError> {
+        // never any work to do here, PureStageSim only needs to keep the
+        // tokio runtime and the pure_stage tasks running
         pending().await
     }
 
