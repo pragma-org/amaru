@@ -15,7 +15,6 @@
 pub mod columns;
 
 use crate::summary::Pots;
-use amaru_kernel::MemoizedTransactionOutput;
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
@@ -30,6 +29,7 @@ use amaru_kernel::{
     StakeCredential,
     TransactionInput,
 };
+use amaru_kernel::{MemoizedTransactionOutput, ProtocolVersion};
 use columns::*;
 use slot_arithmetic::Epoch;
 use std::{borrow::BorrowMut, io, iter};
@@ -58,6 +58,13 @@ pub enum ProtocolParametersErrorKind {
     Missing,
 }
 
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub enum ProtocolVersionErrorKind {
+    #[error("no database protocol version. Did you forget to 'import' a snapshot first?")]
+    Missing,
+}
+
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
@@ -72,14 +79,19 @@ pub enum StoreError {
     Tip(#[source] TipErrorKind),
     #[error("error retrieving protocol parameters: {0}")]
     ProtocolParameters(#[source] ProtocolParametersErrorKind),
+    #[error("error retrieving protocol version: {0}")]
+    ProtocolVersion(#[source] ProtocolVersionErrorKind),
 }
 
 // Store
 // ----------------------------------------------------------------------------
 
 pub trait ReadStore {
-    /// Get the current protocol parameters for a given epoch, or most recent one
-    fn get_protocol_parameters(&self) -> Result<ProtocolParameters, StoreError>;
+    /// Get the current protocol version, which only changes through forks.
+    fn protocol_version(&self) -> Result<ProtocolVersion, StoreError>;
+
+    /// Get the current protocol parameters
+    fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError>;
 
     /// Get details about a specific Pool
     fn pool(&self, pool: &PoolId) -> Result<Option<pools::Row>, StoreError>;
@@ -235,11 +247,14 @@ pub trait TransactionalContext<'a> {
     fn refund(&self, credential: &accounts::Key, deposit: Lovelace)
         -> Result<Lovelace, StoreError>;
 
-    /// Persist ProtocolParameters for a given epoch.
+    /// Persist ProtocolParameters in the current epoch.
     fn set_protocol_parameters(
         &self,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StoreError>;
+
+    /// Persist ProtocolParameters for a given epoch.
+    fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError>;
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.
     fn with_pots(

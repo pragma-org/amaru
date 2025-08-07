@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{default_ledger_dir, network::NetworkName, parse_point, EraHistory};
+use amaru_kernel::{default_ledger_dir, network::NetworkName, parse_point};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -68,23 +68,21 @@ enum Error {
 }
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
-    let network = args.network;
-    let era_history = network.into();
     let ledger_dir = args
         .ledger_dir
         .unwrap_or_else(|| default_ledger_dir(args.network).into());
     if !args.snapshot.is_empty() {
-        import_all(&args.snapshot, &ledger_dir, era_history).await
+        import_all(args.network, &args.snapshot, &ledger_dir).await
     } else if let Some(snapshot_dir) = args.snapshot_dir {
-        import_all_from_directory(&ledger_dir, era_history, &snapshot_dir).await
+        import_all_from_directory(args.network, &ledger_dir, &snapshot_dir).await
     } else {
         Err(Error::IncorrectUsage.into())
     }
 }
 
 pub(crate) async fn import_all_from_directory(
+    network: NetworkName,
     ledger_dir: &PathBuf,
-    era_history: &EraHistory,
     snapshot_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut snapshots = fs::read_dir(snapshot_dir)?
@@ -94,7 +92,7 @@ pub(crate) async fn import_all_from_directory(
 
     sort_snapshots_by_slot(&mut snapshots);
 
-    import_all(&snapshots, ledger_dir, era_history).await
+    import_all(network, &snapshots, ledger_dir).await
 }
 
 fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
@@ -111,22 +109,22 @@ fn sort_snapshots_by_slot(snapshots: &mut [PathBuf]) {
 }
 
 async fn import_all(
+    network: NetworkName,
     snapshots: &Vec<PathBuf>,
     ledger_dir: &PathBuf,
-    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing {} snapshots", snapshots.len());
     for snapshot in snapshots {
-        import_one(snapshot, ledger_dir, era_history).await?;
+        import_one(network, snapshot, ledger_dir).await?;
     }
     Ok(())
 }
 
 #[allow(clippy::unwrap_used)]
 async fn import_one(
+    network: NetworkName,
     snapshot: &PathBuf,
     ledger_dir: &PathBuf,
-    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing snapshot {}", snapshot.display());
     let point = parse_point(
@@ -146,7 +144,7 @@ async fn import_one(
         &db,
         &bytes,
         &point,
-        era_history,
+        network,
         new_terminal_progress_bar,
         None,
         true,

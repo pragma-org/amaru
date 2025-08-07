@@ -31,10 +31,10 @@ use crate::{
 };
 use amaru_kernel::{
     expect_stake_credential,
+    network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, MintedBlock,
     Point, PoolId, ProtocolVersion, Slot, StakeCredential, StakeCredentialType, TransactionInput,
-    PROTOCOL_VERSION_9,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::{Epoch, EraHistoryError};
@@ -44,7 +44,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
-use tracing::{debug, instrument, trace, Level};
+use tracing::{debug, info, instrument, trace, Level};
 use volatile_db::AnchoredVolatileState;
 
 pub use volatile_db::VolatileState;
@@ -102,39 +102,58 @@ where
     /// The era history for the network this store is related to.
     era_history: Arc<EraHistory>,
 
+    /// Global (i.e. non-updatable) parameters of the network. This includes things like
+    /// slot length, epoch length, security parameter and other pieces that cannot generally
+    /// be updated but grouped here to avoid dealing with magic values everywhere.
     global_parameters: Arc<GlobalParameters>,
 
+    /// Updatable protocol parameters.
     protocol_parameters: Arc<ProtocolParameters>,
+
+    /// Current protocol version.
+    protocol_version: ProtocolVersion,
+
+    /// Which network are we connected to. This is mostly helpful for distinguishing between
+    /// behavious that are network specifics (e.g. address discriminant).
+    network: NetworkName,
 }
 
 impl<S: Store, HS: HistoricalStores> State<S, HS> {
     pub fn new(
         stable: S,
         snapshots: HS,
+        network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
     ) -> Result<Self, StoreError> {
-        let stake_distributions =
-            initial_stake_distributions(&stable, &snapshots, &era_history, PROTOCOL_VERSION_9)?; // FIXME ProtocolVersion should be retrieved from the store
+        let protocol_version = stable.protocol_version()?;
 
-        let protocol_parameters = stable.get_protocol_parameters()?;
+        let stake_distributions =
+            initial_stake_distributions(&stable, &snapshots, &era_history, protocol_version)?;
+
+        let protocol_parameters = stable.protocol_parameters()?;
 
         Ok(Self::new_with(
             stable,
             snapshots,
+            network,
             era_history,
             global_parameters,
             protocol_parameters,
+            protocol_version,
             stake_distributions,
         ))
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn new_with(
         stable: S,
         snapshots: HS,
+        network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
         protocol_parameters: ProtocolParameters,
+        protocol_version: ProtocolVersion,
         stake_distributions: VecDeque<StakeDistribution>,
     ) -> Self {
         Self {
@@ -163,6 +182,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             global_parameters: Arc::new(global_parameters),
 
             protocol_parameters: Arc::new(protocol_parameters),
+
+            protocol_version,
+
+            network,
         }
     }
 
@@ -229,12 +252,21 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
         // epoch than the previously applied block (i.e. the tip of the stable storage).
         if epoch_transitioning {
-            epoch_transition(
+            let old_protocol_version = self.protocol_version;
+            self.protocol_version = epoch_transition(
                 &mut *db,
+                self.network,
                 current_epoch,
                 self.rewards_summary.take(),
                 &self.protocol_parameters,
-            )?
+            )?;
+            if old_protocol_version != self.protocol_version {
+                info!(
+                    from = old_protocol_version.0,
+                    to = self.protocol_version.0,
+                    "protocol.upgrade"
+                )
+            }
         }
 
         // Persist changes for this block
@@ -282,10 +314,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
-    fn compute_rewards(
-        &mut self,
-        protocol_version: ProtocolVersion,
-    ) -> Result<RewardsSummary, StateError> {
+    fn compute_rewards(&mut self) -> Result<RewardsSummary, StateError> {
         let mut stake_distributions = self.stake_distributions.lock().unwrap();
         let stake_distribution = stake_distributions
             .pop_back()
@@ -305,7 +334,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         stake_distributions.push_front(recover_stake_distribution(
             &snapshot,
             &self.era_history,
-            protocol_version,
+            self.protocol_version,
             &self.protocol_parameters,
         )?);
 
@@ -317,11 +346,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// the internal state of the ledger.
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all)]
-    pub fn forward(
-        &mut self,
-        protocol_version: ProtocolVersion,
-        next_state: AnchoredVolatileState,
-    ) -> Result<(), StateError> {
+    pub fn forward(&mut self, next_state: AnchoredVolatileState) -> Result<(), StateError> {
         // Persist the next now-immutable block, which may not quite exist when we just
         // bootstrapped the system
         if self.volatile.len() >= self.global_parameters.consensus_security_param {
@@ -341,9 +366,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .map_err(|e| StateError::ErrorComputingEpoch(tip, e))?;
 
         // Once we reach the stability window, compute rewards unless we've already done so.
+        //
+        // FIXME: compute rewards in a thread, or in a non-blocking manner to carry on with other
+        // tasks while rewards are being computed; they only need to be available at the epoch
+        // boundary.
         let stability_window = self.global_parameters.stability_window;
         if self.rewards_summary.is_none() && relative_slot >= stability_window {
-            self.rewards_summary = Some(self.compute_rewards(protocol_version)?);
+            self.rewards_summary = Some(self.compute_rewards()?);
         }
 
         self.volatile.push_back(next_state);
@@ -429,7 +458,7 @@ pub fn initial_stake_distributions(
     for epoch in latest_epoch - 2..=latest_epoch - 1 {
         // FIXME: Retrieve the protocol parameters for the considered epoch; should come from the
         // snapshot.
-        let protocol_parameters = db.get_protocol_parameters()?;
+        let protocol_parameters = db.protocol_parameters()?;
 
         let snapshot = snapshots.for_epoch(epoch)?;
         stake_distributions.push_front(
@@ -467,10 +496,11 @@ pub fn recover_stake_distribution(
 #[instrument(level = Level::INFO, skip_all, fields(from = %next_epoch - 1, into = %next_epoch))]
 fn epoch_transition(
     db: &mut impl Store,
+    network: NetworkName,
     next_epoch: Epoch,
     rewards_summary: Option<RewardsSummary>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), StateError> {
+) -> Result<ProtocolVersion, StateError> {
     // End of epoch
     let batch = db.create_transaction();
     let should_end_epoch =
@@ -504,12 +534,14 @@ fn epoch_transition(
         Some(EpochTransitionProgress::SnapshotTaken),
         Some(EpochTransitionProgress::EpochStarted),
     )?;
+    let protocol_version = network.protocol_version(next_epoch);
     if should_begin_epoch {
         begin_epoch(&batch, next_epoch, protocol_parameters)?;
+        batch.set_protocol_version(protocol_version)?;
     }
     batch.commit()?;
 
-    Ok(())
+    Ok(*protocol_version)
 }
 
 #[instrument(level = Level::INFO, skip_all)]
@@ -545,7 +577,7 @@ fn end_epoch<'store>(
 #[instrument(level = Level::INFO, skip_all)]
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
-    current_epoch: Epoch,
+    epoch: Epoch,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StoreError> {
     // Reset counters before the epoch begins.
@@ -560,10 +592,10 @@ fn begin_epoch<'store>(
     // step. The accounts are already filtered out when computing rewards, but if any retired pool
     // were to re-register, they would automatically be granted the stake associated to their past
     // delegates.
-    tick_pools(db, current_epoch, protocol_parameters)?;
+    tick_pools(db, epoch, protocol_parameters)?;
 
     // Refund deposit for any proposal that has expired.
-    tick_proposals(db, current_epoch)?;
+    tick_proposals(db, epoch)?;
 
     Ok(())
 }
@@ -684,10 +716,14 @@ pub fn tick_proposals<'store>(
                 //
                 // Hence: epoch == valid_until + 2
                 if epoch == row.valid_until + 2 {
-                    refunds.insert(
-                        expect_stake_credential(&row.proposal.reward_account),
-                        row.proposal.deposit,
-                    );
+                    let key = expect_stake_credential(&row.proposal.reward_account);
+                    refunds
+                        .entry(key)
+                        // NOTE: There may be *multiple* refunds for the same credential.
+                        // So it's important not to simply override the refund value with a
+                        // blind 'insert'.
+                        .and_modify(|entry| *entry += row.proposal.deposit)
+                        .or_insert_with(|| row.proposal.deposit);
                 }
             }
         }

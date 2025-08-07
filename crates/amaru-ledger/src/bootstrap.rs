@@ -17,10 +17,10 @@ use crate::{
     store::{self, columns::proposals, Store, StoreError, TransactionalContext},
 };
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, Account, CertificatePointer, DRep, DRepState,
-    Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams,
-    ProposalPointer, ProposalState, Reward, Set, Slot, StakeCredential, TransactionInput,
-    TransactionPointer,
+    cbor, network::NetworkName, protocol_parameters::ProtocolParameters, Account,
+    CertificatePointer, DRep, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
+    Point, PoolId, PoolParams, ProposalPointer, ProposalState, ProtocolVersion, Reward, Set, Slot,
+    StakeCredential, TransactionInput, TransactionPointer,
 };
 use progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, sync::LazyLock};
@@ -52,7 +52,7 @@ pub fn import_initial_snapshot(
     db: &(impl Store + 'static),
     bytes: &[u8],
     point: &Point,
-    era_history: &EraHistory,
+    network: NetworkName,
     // A way to notify progress while importing. The second argument is a template argument, which
     // follows the format described in:
     //
@@ -63,6 +63,8 @@ pub fn import_initial_snapshot(
     // Assumes the presence of fully computed rewards when set.
     has_rewards: bool,
 ) -> Result<Epoch, Box<dyn std::error::Error>> {
+    let era_history = <&EraHistory>::from(network);
+
     let mut d = cbor::Decoder::new(bytes);
 
     d.array()?;
@@ -246,7 +248,7 @@ pub fn import_initial_snapshot(
         d.skip()?;
     }
 
-    save_point(db, point, era_history)?;
+    save_point(db, point, network.protocol_version(epoch), era_history)?;
 
     Ok(epoch)
 }
@@ -254,6 +256,7 @@ pub fn import_initial_snapshot(
 fn save_point(
     db: &impl Store,
     point: &Point,
+    protocol_version: &ProtocolVersion,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
@@ -266,6 +269,8 @@ fn save_point(
         iter::empty(),
         era_history,
     )?;
+
+    transaction.set_protocol_version(protocol_version)?;
 
     transaction.commit()?;
 

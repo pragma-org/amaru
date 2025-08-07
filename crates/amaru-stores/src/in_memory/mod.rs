@@ -17,7 +17,8 @@ use crate::in_memory::ledger::columns::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, ComparableProposalId, EraHistory, Lovelace, Point,
-    PoolId, ProposalId, Slot, StakeCredential, TransactionInput,
+    PoolId, ProposalId, ProtocolVersion, Slot, StakeCredential, TransactionInput,
+    PROTOCOL_VERSION_9,
 };
 use amaru_ledger::store::{
     columns::{
@@ -53,12 +54,13 @@ pub struct MemoryStore {
     proposals: RefCell<BTreeMap<ComparableProposalId, proposals_column::Row>>,
     cc_members: RefCell<BTreeMap<StakeCredential, cc_members_column::Row>>,
     votes: RefCell<BTreeMap<votes_column::Key, votes_column::Value>>,
-    p_params: RefCell<Option<ProtocolParameters>>,
+    protocol_parameters: RefCell<Option<ProtocolParameters>>,
+    protocol_version: RefCell<ProtocolVersion>,
     era_history: EraHistory,
 }
 
 impl MemoryStore {
-    pub fn new(era_history: EraHistory) -> Self {
+    pub fn new(era_history: EraHistory, protocol_version: ProtocolVersion) -> Self {
         MemoryStore {
             tip: RefCell::new(Some(Point::Origin)),
             epoch_progress: RefCell::new(None),
@@ -71,8 +73,9 @@ impl MemoryStore {
             proposals: RefCell::new(BTreeMap::new()),
             cc_members: RefCell::new(BTreeMap::new()),
             votes: RefCell::new(BTreeMap::new()),
-            p_params: RefCell::new(None),
+            protocol_parameters: RefCell::new(None),
             era_history,
+            protocol_version: RefCell::new(protocol_version),
         }
     }
 }
@@ -85,8 +88,12 @@ impl Snapshot for MemoryStore {
 }
 
 impl ReadStore for MemoryStore {
-    fn get_protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
-        self.p_params
+    fn protocol_version(&self) -> Result<ProtocolVersion, StoreError> {
+        Ok(*self.protocol_version.borrow())
+    }
+
+    fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
+        self.protocol_parameters
             .borrow()
             .clone()
             .ok_or(StoreError::ProtocolParameters(
@@ -339,7 +346,12 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         &self,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StoreError> {
-        *self.store.p_params.borrow_mut() = Some(protocol_parameters.clone());
+        *self.store.protocol_parameters.borrow_mut() = Some(protocol_parameters.clone());
+        Ok(())
+    }
+
+    fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError> {
+        *self.store.protocol_version.borrow_mut() = *protocol_version;
         Ok(())
     }
 
@@ -527,7 +539,10 @@ impl HistoricalStores for MemoryStore {
     }
 
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore::new(self.era_history.clone()))
+        Ok(MemoryStore::new(
+            self.era_history.clone(),
+            PROTOCOL_VERSION_9,
+        ))
     }
 }
 
@@ -585,7 +600,7 @@ mod tests {
             test_remove_drep, test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
         },
     };
-    use amaru_kernel::{network::NetworkName, EraHistory};
+    use amaru_kernel::{network::NetworkName, EraHistory, PROTOCOL_VERSION_9};
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
 
@@ -596,7 +611,7 @@ mod tests {
         runner: &mut TestRunner,
     ) -> Result<(MemoryStore, Fixture), StoreError> {
         let era_history: &EraHistory = NetworkName::Preprod.into();
-        let store = MemoryStore::new(era_history.clone());
+        let store = MemoryStore::new(era_history.clone(), PROTOCOL_VERSION_9);
         let fixture = add_test_data_to_store(&store, era_history, runner)?;
         Ok((store, fixture))
     }
