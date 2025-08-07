@@ -174,7 +174,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             Ok(ForwardChainSelection::NoChange)
         } else if header.parent() == Some(peer_tip_node_hash) {
             let header_node_id = self.insert_header(&tracker, header.clone(), &peer_tip);
-            Ok(self.select_new_best_chain(peer, header, &header_node_id, &peer_tip))
+            Ok(self.select_best_chain_after_forward(peer, header, &header_node_id, &peer_tip))
         } else {
             let e = ConsensusError::InvalidHeaderParent {
                 peer: peer.clone(),
@@ -192,18 +192,19 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         peer: &Peer,
         rollback_point: &Point,
     ) -> Result<RollbackChainSelection<H>, ConsensusError> {
-        let tip = self.best_chain();
-        for node_id in tip.ancestors(&self.arena) {
+        let peer_tip = self.get_node_id_tip_for(peer)?;
+        let mut count = 0;
+        for node_id in peer_tip.ancestors(&self.arena) {
             let node = self.unsafe_get_arena_node(node_id);
-
+            count += 1;
             if node.get().hash() == rollback_point.hash() {
-                self.set_best_chain(node_id);
-                return Ok(RollbackChainSelection::RollbackTo(rollback_point.into()));
+                if let Some(tracking_data) = self.trackers.get_mut(&Other(peer.clone())) {
+                    tracking_data.length -= count;
+                    tracking_data.tip = node_id;
+                }
+                return Ok(self.select_best_chain_after_rollback(peer, &node_id));
             }
         }
-        // for node in ancestors {
-        //     node.remove(&mut self.arena)
-        // }
         Err(ConsensusError::InvalidRollback {
             // TODO use a better max point
             peer: peer.clone(),
@@ -285,9 +286,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         }
     }
 
-    /// Given a new header insertion for a given peer, at parent_node_id,
-    /// determine if this is a NoChange, NewTip or a SwitchToFork
-    fn select_new_best_chain(
+    fn select_best_chain_after_forward(
         &mut self,
         peer: &Peer,
         header: H,
@@ -339,17 +338,71 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         }
     }
 
+    fn select_best_chain_after_rollback(
+        &mut self,
+        peer: &Peer,
+        rollback_node_id: &NodeId,
+    ) -> RollbackChainSelection<H> {
+        let max_tip = self
+            .trackers
+            .values()
+            .max_by_key(|t| t.length)
+            .map(|t| t.tip)
+            .unwrap_or(self.best_chain());
+        if max_tip == *rollback_node_id {
+            self.set_best_chain(*rollback_node_id);
+            let node = self.unsafe_get_arena_node(*rollback_node_id).get();
+            RollbackChainSelection::RollbackTo(node.hash())
+        } else {
+            // The rollback point is the intersection of the previous best chain and the rollback point.
+            // The fork_fragment is the list of headers that must be recreated after the rollback point.
+            let intersection_node_id: Option<NodeId> =
+                self.find_intersection_node_id(&max_tip, &self.best_chain());
+
+            let forked_node_ids: Vec<NodeId> = max_tip
+                .ancestors(&self.arena)
+                .take_while(|n| Some(*n) != intersection_node_id)
+                .collect();
+            let mut fork_fragment: Vec<H> = forked_node_ids
+                .iter()
+                .filter_map(|n| {
+                    self.arena
+                        .get(*n)
+                        .and_then(|n| n.get().to_header().cloned())
+                })
+                .collect();
+            fork_fragment.reverse();
+            let fork = Fork {
+                peer: peer.clone(),
+                rollback_point: intersection_node_id
+                    .and_then(|n| {
+                        self.arena
+                            .get(n)
+                            .and_then(|n| n.get().to_header().map(|h| h.point()))
+                    })
+                    .unwrap_or(Point::Origin),
+                fork: fork_fragment,
+            };
+            RollbackChainSelection::SwitchToFork(fork)
+        }
+    }
+
     /// Return the chain tip for a given Peer
     fn get_tip_for(&self, peer: &Peer) -> Result<Option<&H>, ConsensusError> {
-        let node_id = self
-            .trackers
-            .get(&Other(peer.clone()))
-            .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
-            .tip;
+        let node_id = self.get_node_id_tip_for(peer)?;
         Ok(self
             .arena
             .get(node_id)
             .and_then(|node| node.get().to_header()))
+    }
+
+    /// Return the chain tip for a given Peer
+    fn get_node_id_tip_for(&self, peer: &Peer) -> Result<NodeId, ConsensusError> {
+        Ok(self
+            .trackers
+            .get(&Other(peer.clone()))
+            .ok_or_else(|| ConsensusError::UnknownPeer(peer.clone()))?
+            .tip)
     }
 
     /// Return the node id that is the least common parent between 2 node ids
@@ -731,10 +784,54 @@ mod tests {
             tree.select_rollback(&alice, &middle.point()).unwrap(),
             result
         );
-
         assert_eq!(tree.best_chain_tip(), Some(middle))
+    }
 
-        // Now doing a roll forward on the old tip should fail
+    #[test]
+    fn rollback_then_roll_forward_on_the_best_chain() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let middle = headers.get(3).unwrap();
+        _ = tree.select_rollback(&alice, &middle.point()).unwrap();
+        let new_tip = make_header_with_parent(&middle);
+        assert_eq!(
+            tree.select_roll_forward(&alice, new_tip).unwrap(),
+            ForwardChainSelection::NewTip {
+                peer: alice,
+                tip: new_tip,
+            }
+        );
+    }
+
+    #[test]
+    fn rollback_can_switch_chain_given_other_chain_is_longer() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+
+        // alice has the best chain with 5 headers
+        let (mut tree, mut headers) = initialize_with_peer(5, &alice);
+
+        // bob branches off on header-2 and has now the best chain with 6 headers
+        let middle = headers[1].clone();
+        tree.initialize_peer(&bob, &middle.point()).unwrap();
+        let added_headers = rollforward_from(&mut tree, &middle, &bob, 4); // 4 added headers
+
+        // sanity check: bob chain is the longest
+        assert_eq!(tree.best_chain_tip().unwrap(), added_headers.last().unwrap());
+
+        // Now bob is rolled back 2 headers
+        let result = tree
+            .select_rollback(&bob, &added_headers[1].point())
+            .unwrap();
+
+        // This switches the fork back to alice at the intersection point of their chains
+        let forked_headers = headers.split_off(2);
+        let fork = Fork {
+            peer: bob,
+            rollback_point: middle.point(),
+            fork: forked_headers,
+        };
+        assert_eq!(result, RollbackChainSelection::SwitchToFork(fork));
     }
 
     // #[test]
