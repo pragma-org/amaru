@@ -547,14 +547,12 @@ mod tests {
         tree.initialize_peer(&bob, &middle.point()).unwrap();
 
         // Roll forward with 2 new headers from bob
-        let bob_new_header1 = make_header_with_parent(middle);
-        let bob_new_header2 = make_header_with_parent(&bob_new_header1);
-        tree.select_roll_forward(&bob, bob_new_header1).unwrap();
-        tree.select_roll_forward(&bob, bob_new_header2).unwrap();
+        let mut new_bob_headers = rollforward_from(&mut tree, middle, &bob, 2);
 
         // Adding a new header must create a fork
-        let bob_new_header3 = make_header_with_parent(&bob_new_header2);
-        let fork: Vec<FakeHeader> = vec![bob_new_header1, bob_new_header2, bob_new_header3];
+        let bob_new_header3 = make_header_with_parent(&new_bob_headers.last().unwrap());
+        new_bob_headers.push(bob_new_header3);
+        let fork: Vec<FakeHeader> = new_bob_headers;
         let fork = Fork {
             peer: bob.clone(),
             rollback_point: middle.point(),
@@ -662,21 +660,13 @@ mod tests {
         let bob = Peer::new("bob");
         let first = headers.first().unwrap();
         tree.initialize_peer(&bob, &first.point()).unwrap();
+
         // Roll forward with 2 new headers from bob
-        let bob_new_header1 = make_header_with_parent(first);
-        let bob_new_header2 = make_header_with_parent(&bob_new_header1);
-        tree.select_roll_forward(&bob, bob_new_header1).unwrap();
-        tree.select_roll_forward(&bob, bob_new_header2).unwrap();
+        _ = rollforward_from(&mut tree, first, &bob, 2);
 
-        println!("{}", tree.pretty_print());
-
-        // Now roll forward extending tip
-        let new_tip = make_header_with_parent(tip);
-        let alice_new_header2 = make_header_with_parent(&new_tip);
-        _ = tree.select_roll_forward(&alice, new_tip).unwrap();
-        assert_eq!(tree.size(), 12);
-
-        _ = tree.select_roll_forward(&alice, alice_new_header2).unwrap();
+        // Now roll forward alice's tip twice
+        // The tree must not grow in size because bob's arena nodes have been reused
+        _ = rollforward_from(&mut tree, tip, &alice, 2);
         assert_eq!(tree.size(), 12);
     }
 
@@ -708,5 +698,23 @@ mod tests {
             parent: Some(parent.hash()),
             body_hash: random_bytes(HEADER_HASH_SIZE).as_slice().into(),
         }
+    }
+
+    /// Roll forward the tree:
+    ///  - Starting from a given header,
+    ///  - For a given peer
+    ///  - A number of times
+    ///
+    /// And return the last created header
+    fn rollforward_from(tree: &mut HeadersTree<FakeHeader>, header: &FakeHeader, peer: &Peer, times: u32) -> Vec<FakeHeader> {
+        let mut result = vec![];
+        let mut parent = header.clone();
+        for _ in 0..times {
+            let next_header = make_header_with_parent(&parent);
+            tree.select_roll_forward(peer, next_header).unwrap();
+            result.push(next_header);
+            parent = next_header.clone();
+        };
+        result
     }
 }
