@@ -250,7 +250,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                     .children(&self.arena)
                     .filter(|nid| *nid != new_root)
                     .collect::<Vec<NodeId>>();
-                // FIXME: shouldn't we update peers map accordingly?
+                // FIXME: drop any peer using that node id
                 for nid in to_remove {
                     nid.remove_subtree(&mut self.arena);
                 }
