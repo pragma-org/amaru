@@ -174,7 +174,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             Ok(ForwardChainSelection::NoChange)
         } else if header.parent() == Some(peer_tip_node_hash) {
             let header_node_id = self.insert_header(&tracker, header.clone(), &peer_tip);
-            Ok(self.select_best_chain_after_forward(peer, header, &header_node_id, &peer_tip))
+            Ok(self.select_best_chain_after_forward(peer, header, &header_node_id))
         } else {
             let e = ConsensusError::InvalidHeaderParent {
                 peer: peer.clone(),
@@ -286,24 +286,31 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         }
     }
 
+    /// Return the parent of a given node in the arena
+    /// When the arena is empty this returns the genesis node id
+    fn get_parent(&mut self, node_id: &NodeId) -> NodeId {
+        let mut ancestors = node_id.ancestors(&self.arena);
+        _ = ancestors.next();
+        ancestors.next().unwrap_or(self.best_chain())
+    }
+
     fn select_best_chain_after_forward(
         &mut self,
         peer: &Peer,
-        header: H,
-        header_node_id: &NodeId,
-        parent_node_id: &NodeId,
+        new_header: H,
+        new_header_node_id: &NodeId,
     ) -> ForwardChainSelection<H> {
         // If we added the new node on top of the current best chain, we have a new tip
-        if *parent_node_id == self.best_chain() {
-            self.set_best_chain(*header_node_id);
+        if self.get_parent(new_header_node_id) == self.best_chain() {
+            self.set_best_chain(*new_header_node_id);
             ForwardChainSelection::NewTip {
                 peer: peer.clone(),
-                tip: header,
+                tip: new_header,
             }
         } else {
             let current_tip_header = self.unsafe_get_arena_node(self.best_chain()).get();
             // If the new header does not improve the current chain height we keep the same best chain
-            if header.block_height() <= current_tip_header.block_height() {
+            if new_header.block_height() <= current_tip_header.block_height() {
                 ForwardChainSelection::NoChange
             } else {
                 // Otherwise, if the new header creates a longer chain, we have a fork
@@ -311,12 +318,12 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                 // The rollback point is the intersection of the previous best chain and the new one.
                 // The fork_fragment is the list of header that must be recreated after the rollback point.
                 let intersection_node_id: Option<NodeId> =
-                    self.find_intersection_node_id(header_node_id, &self.best_chain());
+                    self.find_intersection_node_id(new_header_node_id, &self.best_chain());
 
                 // We set the new best chain
-                self.set_best_chain(*header_node_id);
+                self.set_best_chain(*new_header_node_id);
 
-                let mut fork_fragment: Vec<H> = header_node_id
+                let mut fork_fragment: Vec<H> = new_header_node_id
                     .ancestors(&self.arena)
                     .take_while(|n| Some(*n) != intersection_node_id)
                     .filter_map(|n| self.arena.get(n).and_then(|n| n.get().to_header().cloned()))
