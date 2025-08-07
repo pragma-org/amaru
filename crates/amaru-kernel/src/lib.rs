@@ -229,6 +229,14 @@ impl Point {
             Point::Specific(slot, _) => Slot::from(*slot),
         }
     }
+
+    pub fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        match self {
+            // By convention, the hash of `Genesis` is all 0s.
+            Point::Origin => ORIGIN_HASH,
+            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
+        }
+    }
 }
 
 impl Display for Point {
@@ -248,11 +256,7 @@ pub const ORIGIN_HASH: Hash<HEADER_HASH_SIZE> = Hash::new([0; HEADER_HASH_SIZE])
 
 impl From<&Point> for Hash<HEADER_HASH_SIZE> {
     fn from(point: &Point) -> Self {
-        match point {
-            // By convention, the hash of `Genesis` is all 0s.
-            Point::Origin => ORIGIN_HASH,
-            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
-        }
+        point.hash()
     }
 }
 
@@ -736,7 +740,7 @@ pub fn into_sized_array<const SIZE: usize, E, T>(
     into_error: impl Fn(TryFromSliceError, usize) -> E,
 ) -> Result<[u8; SIZE], E>
 where
-    T: Deref<Target = Bytes>,
+    T: Deref<Target=Bytes>,
 {
     bytes
         .deref()
@@ -844,7 +848,7 @@ pub fn new_stake_address(network: Network, payload: StakePayload) -> StakeAddres
         fake_payment_part,
         delegation_part,
     ))
-    .expect("has non-empty delegation part")
+        .expect("has non-empty delegation part")
 }
 
 // StakeCredential
@@ -1021,7 +1025,7 @@ pub fn get_provided_scripts(
     provided_scripts
 }
 
-pub fn display_collection<T>(collection: impl IntoIterator<Item = T>) -> String
+pub fn display_collection<T>(collection: impl IntoIterator<Item=T>) -> String
 where
     T: std::fmt::Display,
 {
@@ -1376,11 +1380,16 @@ mod test {
     use super::*;
     use test_case::test_case;
 
-    #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
-    #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
-    #[test_case((42, 0, 0), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
-    #[test_case((42, 0, 0), (42, 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
-    #[test_case((42, 0, 5), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
+    #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity"
+    )]
+    #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots"
+    )]
+    #[test_case((42, 0, 0), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions"
+    )]
+    #[test_case((42, 0, 0), (42, 0, 1) => with |(left, right)| assert!(left < right); "across certificates"
+    )]
+    #[test_case((42, 0, 5), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs"
+    )]
     fn test_pointers(
         left: (u64, usize, usize),
         right: (u64, usize, usize),
@@ -1434,7 +1443,7 @@ mod test {
         let point = parse_point(
             "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
         )
-        .unwrap();
+            .unwrap();
         match point {
             Point::Specific(slot, _hash) => {
                 assert_eq!(70070379, slot);
