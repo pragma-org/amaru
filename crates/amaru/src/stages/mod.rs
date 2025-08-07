@@ -131,6 +131,7 @@ pub fn bootstrap(
 
     let (mut ledger_stage, tip) = make_ledger(
         &config,
+        config.network,
         era_history.clone(),
         global_parameters.clone(),
         is_catching_up.clone(),
@@ -323,6 +324,7 @@ impl LedgerStage {
 
 fn make_ledger(
     config: &Config,
+    network: NetworkName,
     era_history: EraHistory,
     global_parameters: GlobalParameters,
     is_catching_up: Arc<RwLock<bool>>,
@@ -332,6 +334,7 @@ fn make_ledger(
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 store.clone(),
                 store.clone(),
+                network,
                 era_history,
                 global_parameters,
                 is_catching_up,
@@ -342,6 +345,7 @@ fn make_ledger(
             let (ledger, tip) = ledger::ValidateBlockStage::new(
                 RocksDB::new(ledger_dir)?,
                 RocksDBHistoricalStores::new(ledger_dir),
+                network,
                 era_history,
                 global_parameters,
                 is_catching_up,
@@ -411,6 +415,7 @@ impl AsTip for Header {
 mod tests {
     use amaru_kernel::{
         network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS, EraHistory,
+        PROTOCOL_VERSION_9,
     };
     use amaru_ledger::store::{Store, TransactionalContext};
     use amaru_stores::in_memory::MemoryStore;
@@ -422,7 +427,7 @@ mod tests {
     fn bootstrap_all_stages() {
         let network = NetworkName::Preprod;
         let era_history: &EraHistory = network.into();
-        let ledger_store = MemoryStore::new(era_history.clone());
+        let ledger_store = MemoryStore::new(era_history.clone(), PROTOCOL_VERSION_9);
 
         // Add initial protocol parameters to the database; needed by the ledger.
         let transaction = ledger_store.create_transaction();

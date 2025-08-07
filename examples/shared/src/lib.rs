@@ -17,7 +17,8 @@ use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::{self, GlobalParameters},
     to_cbor, Bytes, EraHistory, Hash, Hasher, MemoizedTransactionOutput, MintedBlock, Point,
-    PostAlonzoTransactionOutput, TransactionInput, TransactionOutput, Value, PROTOCOL_VERSION_9,
+    PostAlonzoTransactionOutput, ProtocolVersion, TransactionInput, TransactionOutput, Value,
+    PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     context,
@@ -42,14 +43,17 @@ pub fn forward_ledger(raw_block: &str) {
     let (_hash, block): BlockWrapper = cbor::decode(&bytes).unwrap();
 
     let global_parameters: &GlobalParameters = network.into();
-    let store = MemoryStore::new(era_history.clone());
-    let historical_store = MemoryStore::new(era_history.clone());
+    let protocol_version = &PROTOCOL_VERSION_9;
 
-    hydrate_initial_protocol_parameters(&store, &network);
+    let store = MemoryStore::new(era_history.clone(), *protocol_version);
+    let historical_store = MemoryStore::new(era_history.clone(), *protocol_version);
+
+    hydrate_initial_protocol_parameters(&store, &network, protocol_version);
 
     let mut state = State::new(
         store,
         historical_store,
+        network,
         era_history.clone(),
         global_parameters.clone(),
     )
@@ -107,11 +111,15 @@ pub fn forward_ledger(raw_block: &str) {
     let volatile_state: VolatileState = context.into();
 
     state
-        .forward(PROTOCOL_VERSION_9, volatile_state.anchor(&point, issuer))
+        .forward(volatile_state.anchor(&point, issuer))
         .unwrap()
 }
 
-pub fn hydrate_initial_protocol_parameters(store: &impl Store, network: &NetworkName) {
+pub fn hydrate_initial_protocol_parameters(
+    store: &impl Store,
+    network: &NetworkName,
+    protocol_version: &ProtocolVersion,
+) {
     let transaction = store.create_transaction();
 
     let params = match network {
@@ -122,9 +130,13 @@ pub fn hydrate_initial_protocol_parameters(store: &impl Store, network: &Network
 
     transaction
         .set_protocol_parameters(params)
-        .unwrap_or_else(|e| panic!("unable to set initial protocol parameters ?! {e}"));
+        .unwrap_or_else(|e| panic!("unable to set initial protocol parameters: {e}"));
+
+    transaction
+        .set_protocol_version(protocol_version)
+        .unwrap_or_else(|e| panic!("unable to set initial protocol version: {e}"));
 
     transaction
         .commit()
-        .unwrap_or_else(|e| panic!("unable to set initial protocol parameters ?! {e}"));
+        .unwrap_or_else(|e| panic!("unable to set initial ledger state: {e}"));
 }

@@ -16,8 +16,9 @@ use crate::{schedule, send, stages::common::adopt_current_span};
 use amaru_consensus::IsHeader;
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
+    network::NetworkName,
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Hasher, MintedBlock, Point, RawBlock, PROTOCOL_VERSION_9,
+    EraHistory, Hash, Hasher, MintedBlock, Point, RawBlock,
 };
 use amaru_ledger::{
     context::{self, DefaultValidationContext},
@@ -67,11 +68,12 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
     pub fn new(
         store: S,
         snapshots: HS,
+        network: NetworkName,
         era_history: EraHistory,
         global_parameters: GlobalParameters,
         is_catching_up: Arc<RwLock<bool>>,
     ) -> Result<(Self, Point), StoreError> {
-        let state = state::State::new(store, snapshots, era_history, global_parameters)?;
+        let state = state::State::new(store, snapshots, network, era_history, global_parameters)?;
 
         let tip = state.tip().into_owned();
 
@@ -146,12 +148,6 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
         let block = parse_block(&raw_block[..]).context("Failed to parse block")?;
         let mut context = self.create_validation_context(&block)?;
 
-        // FIXME: This needs to be determined through hard fork transitions. Note that there's a
-        // field 'protocol_version' in the block header body, which we cannot rely on because it
-        // refers to the protocol version known of the node that produced the block; and not
-        // necessarily the version of the latest protocol version.
-        let protocol_version = PROTOCOL_VERSION_9;
-
         let is_catching_up = self.is_catching_up.read().map(|b| *b).unwrap_or(true);
         if is_catching_up {
             trace!(point.slot = %point.slot_or_default(), point.hash = %Hash::<32>::from(&point), "chain.extended");
@@ -169,8 +165,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
                 let state: VolatileState = context.into();
                 let block_height = &block.header.block_height();
                 let issuer = Hasher::<224>::hash(&block.header.header_body.issuer_vkey[..]);
-                self.state
-                    .forward(protocol_version, state.anchor(&point, issuer))?;
+                self.state.forward(state.anchor(&point, issuer))?;
                 Ok(Ok(*block_height))
             }
         }

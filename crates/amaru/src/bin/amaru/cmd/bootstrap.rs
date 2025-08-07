@@ -96,7 +96,6 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
     );
 
     let network = args.network;
-    let era_history = network.into();
 
     let ledger_dir = args
         .ledger_dir
@@ -113,9 +112,9 @@ pub async fn run(args: Args) -> Result<(), Box<dyn Error>> {
 
     download_snapshots(&snapshots_file, &snapshots_dir).await?;
 
-    import_all_from_directory(&ledger_dir, era_history, &snapshots_dir).await?;
+    import_all_from_directory(network, &ledger_dir, &snapshots_dir).await?;
 
-    import_nonces_for_network(era_history, &network_dir, &chain_dir).await?;
+    import_nonces_for_network(network, &network_dir, &chain_dir).await?;
 
     import_headers_for_network(network, &args.peer_address, &network_dir, &chain_dir).await?;
 
@@ -150,14 +149,14 @@ async fn import_headers_for_network(
 }
 
 async fn import_nonces_for_network(
-    era_history: &amaru_kernel::EraHistory,
+    network: NetworkName,
     config_dir: &Path,
     chain_dir: &PathBuf,
 ) -> Result<(), Box<dyn Error>> {
     let nonces_file: PathBuf = config_dir.join("nonces.json");
     let content = tokio::fs::read_to_string(nonces_file).await?;
     let initial_nonces: InitialNonces = serde_json::from_str(&content)?;
-    import_nonces(era_history, chain_dir, initial_nonces).await?;
+    import_nonces(network.into(), chain_dir, initial_nonces).await?;
     Ok(())
 }
 

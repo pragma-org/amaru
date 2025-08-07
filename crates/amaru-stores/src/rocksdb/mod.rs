@@ -15,13 +15,13 @@
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
     cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, StakeCredential, TransactionInput,
+    MemoizedTransactionOutput, Point, PoolId, ProtocolVersion, StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     store::{
         columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
-        ProtocolParametersErrorKind, ReadStore, Snapshot, Store, StoreError, TipErrorKind,
-        TransactionalContext,
+        ProtocolParametersErrorKind, ProtocolVersionErrorKind, ReadStore, Snapshot, Store,
+        StoreError, TipErrorKind, TransactionalContext,
     },
     summary::Pots,
 };
@@ -57,6 +57,9 @@ const KEY_PROGRESS: &str = "progress";
 
 // Special key where we store the current protocol parameters
 const KEY_PROTOCOL_PARAMETERS: &str = "protocol-parameters";
+
+// Special key where we store the current protocol version
+const KEY_PROTOCOL_VERSION: &str = "protocol-version";
 
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
@@ -182,7 +185,14 @@ impl ReadOnlyRocksDB {
 macro_rules! impl_ReadStore {
     (for $($s:ty),+) => {
         $(impl ReadStore for $s {
-            fn get_protocol_parameters(
+            fn protocol_version(
+                &self,
+            ) -> Result<ProtocolVersion, StoreError> {
+                get(|key| self.db.get(key), &KEY_PROTOCOL_VERSION)?
+                    .ok_or(StoreError::ProtocolVersion(ProtocolVersionErrorKind::Missing))
+            }
+
+            fn protocol_parameters(
                 &self,
             ) -> Result<ProtocolParameters, StoreError> {
                 get(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)?
@@ -359,7 +369,13 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         self.transaction
             .put(KEY_PROTOCOL_PARAMETERS, as_value(protocol_parameters))
             .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
 
+    fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError> {
+        self.transaction
+            .put(KEY_PROTOCOL_VERSION, as_value(protocol_version))
+            .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }
 

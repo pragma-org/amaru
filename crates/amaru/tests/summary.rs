@@ -15,8 +15,7 @@
 use amaru::snapshots_dir;
 use amaru_kernel::{
     default_ledger_dir, network::NetworkName, protocol_parameters,
-    protocol_parameters::GlobalParameters, ProtocolVersion, PROTOCOL_VERSION_10,
-    PROTOCOL_VERSION_9,
+    protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::{
     store::Snapshot,
@@ -94,7 +93,8 @@ fn compare_snapshot(epoch: Epoch) {
         NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
     };
 
-    let protocol_version = protocol_version(epoch, network);
+    let protocol_version = *network.protocol_version(epoch);
+
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),
         protocol_version,
@@ -140,25 +140,4 @@ fn compare_snapshot(epoch: Epoch) {
         rewards_summary
         );
     });
-}
-
-fn protocol_version(epoch: Epoch, network: NetworkName) -> ProtocolVersion {
-    match network {
-        NetworkName::Preprod => {
-            if epoch <= Epoch::from(180) {
-                PROTOCOL_VERSION_9
-            } else {
-                PROTOCOL_VERSION_10
-            }
-        }
-        NetworkName::Preview => {
-            if epoch <= Epoch::from(741) {
-                PROTOCOL_VERSION_9
-            } else {
-                PROTOCOL_VERSION_10
-            }
-        }
-        NetworkName::Mainnet => unimplemented!(),
-        NetworkName::Testnet(..) => unimplemented!(),
-    }
 }
