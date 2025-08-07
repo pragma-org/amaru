@@ -23,6 +23,12 @@ pub struct HeadersTree<H> {
     /// maximum size allowed for a given chain
     max_length: usize,
     /// This NodeId points to the header that is at the tip of the best chain.
+    /// Given we store `Tip<H>` nodes, there's always a best chain which is
+    /// either a header `H` or `Origin`.
+    ///
+    /// NOTE: A possible alternative design would be to _not_ store the best chain
+    /// directly but to consider ourselves as a `Peer` and update `peers` to
+    /// designate our best chain.
     best_chain: NodeId,
     /// This map maintains the chain tracking data for each peer
     peers: BTreeMap<Peer, PeerChain>,
@@ -49,6 +55,9 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
 
         // Create a new arena
         let mut arena: Arena<Tip<H>> = Arena::with_capacity(capacity);
+        // FIXME: looking at this line, I wonder if we really want to create a HeadersTree with a list
+        // of headers 🤔 The ChainSelector is always initialised "empty" and we add headers exclusively
+        // throug the roll_forward/roll_back methods, guaranteeing its well formedness
         headers.truncate(max_length);
         let best_chain = HeadersTree::insert_headers_into_arena(&mut arena, headers);
 
@@ -62,11 +71,30 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
 
     /// Return the headers tree size in terms of how many headers are being tracked.
     /// This is used to check the garbage collection aspect of this data structure.
+    /// FIXME: shouldn't this be `pub(crate)` at least to denote the fact this method
+    /// is somewhat internal?
     pub fn size(&self) -> usize {
         self.arena.count()
     }
 
     /// Pretty-print the headers present in the arena as a tree
+    ///
+    /// Shows a graphical representation of the internal structure of
+    /// the tree.
+    /// ```
+    /// Hdr(FakeHeader { block_number: 1, slot: 7, parent: None, body_hash: Hash<32>("2cabe6ea") })
+    /// |-- Hdr(FakeHeader { block_number: 2, slot: 22, parent: Some(Hash<32>("d4f3cf2e")), body_hash: Hash<32>("cd932b1e") })
+    /// |   `-- Hdr(FakeHeader { block_number: 3, slot: 23, parent: Some(Hash<32>("f72dbcd2")), body_hash: Hash<32>("5b466114") })
+    /// |       `-- Hdr(FakeHeader { block_number: 4, slot: 26, parent: Some(Hash<32>("a0326a71")), body_hash: Hash<32>("993e8517") })
+    /// |           `-- Hdr(FakeHeader { block_number: 5, slot: 28, parent: Some(Hash<32>("b452d00f")), body_hash: Hash<32>("9d341c29") })
+    /// |               `-- Hdr(FakeHeader { block_number: 6, slot: 93, parent: Some(Hash<32>("143b3c68")), body_hash: Hash<32>("35894500") })
+    /// |                   `-- Hdr(FakeHeader { block_number: 7, slot: 111, parent: Some(Hash<32>("448fa5c3")), body_hash: Hash<32>("b18964dc") })
+    /// |                       `-- Hdr(FakeHeader { block_number: 8, slot: 115, parent: Some(Hash<32>("c3f7d827")), body_hash: Hash<32>("db0a9b64") })
+    /// |                           `-- Hdr(FakeHeader { block_number: 9, slot: 124, parent: Some(Hash<32>("f1a8d8ce")), body_hash: Hash<32>("25a75c75") })
+    /// |                               `-- Hdr(FakeHeader { block_number: 10, slot: 151, parent: Some(Hash<32>("17254ace")), body_hash: Hash<32>("9f3acd52") })
+    /// `-- Hdr(FakeHeader { block_number: 2, slot: 0, parent: Some(Hash<32>("d4f3cf2e")), body_hash: Hash<32>("24115f11") })
+    ///     `-- Hdr(FakeHeader { block_number: 3, slot: 0, parent: Some(Hash<32>("83ee63d6")), body_hash: Hash<32>("7950c684") })
+    ///```
     fn pretty_print(&self) -> String {
         self.best_chain
             .ancestors(&self.arena)
@@ -76,6 +104,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     }
 
     /// Insert headers into the tree structure to initialize the chain of a new peer
+    /// FIXME: what's the point of this indirection?
     fn insert_headers(&mut self, headers: Vec<H>) {
         _ = Self::insert_headers_into_arena(&mut self.arena, headers)
     }
@@ -196,6 +225,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                     .children(&self.arena)
                     .filter(|nid| *nid != new_root)
                     .collect::<Vec<NodeId>>();
+                // FIXME: shouldn't we update peers map accordingly?
                 for nid in to_remove {
                     nid.remove_subtree(&mut self.arena);
                 }
@@ -638,6 +668,8 @@ mod tests {
         tree.select_roll_forward(&bob, bob_new_header1).unwrap();
         tree.select_roll_forward(&bob, bob_new_header2).unwrap();
 
+        println!("{}", tree.pretty_print());
+
         // Now roll forward extending tip
         let new_tip = make_header_with_parent(tip);
         let alice_new_header2 = make_header_with_parent(&new_tip);
@@ -649,9 +681,7 @@ mod tests {
     }
 
     #[test]
-    #[must_panic(
-        expected = "Cannot create a headers tree with maximum chain length lower than 2"
-    )]
+    #[must_panic(expected = "Cannot create a headers tree with maximum chain length lower than 2")]
     fn cannot_initialize_tree_with_k_lower_than_2() {
         HeadersTree::new(generate_headers_anchored_at(None, 1), 1, 1000);
     }
