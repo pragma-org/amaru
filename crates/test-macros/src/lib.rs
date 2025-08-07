@@ -1,13 +1,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    parse_macro_input,
     parse::{Parse, ParseStream},
-    Ident,
-    ItemFn,
-    LitStr,
-    Result,
-    Token,
+    parse_macro_input, Ident, ItemFn, LitStr, Result, Token,
 };
 
 /// Parsed arguments for `#[must_panic(expected = "...")]`
@@ -28,7 +23,10 @@ impl Parse for MustPanicArgs {
             if ident == "expected" {
                 expected = Some(lit.value());
             } else {
-                return Err(syn::Error::new(ident.span(), format!("unknown argument `{}`", ident)));
+                return Err(syn::Error::new(
+                    ident.span(),
+                    format!("unknown argument `{}`", ident),
+                ));
             }
             // Consume optional trailing comma
             let _ = input.parse::<Token![,]>();
