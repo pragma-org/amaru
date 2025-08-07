@@ -71,9 +71,8 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
 
     /// Return the headers tree size in terms of how many headers are being tracked.
     /// This is used to check the garbage collection aspect of this data structure.
-    /// FIXME: shouldn't this be `pub(crate)` at least to denote the fact this method
-    /// is somewhat internal?
-    pub fn size(&self) -> usize {
+    #[cfg(test)]
+    fn size(&self) -> usize {
         self.arena.count()
     }
 
@@ -81,7 +80,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
     ///
     /// Shows a graphical representation of the internal structure of
     /// the tree.
-    /// ```
+    /// ```text
     /// Hdr(FakeHeader { block_number: 1, slot: 7, parent: None, body_hash: Hash<32>("2cabe6ea") })
     /// |-- Hdr(FakeHeader { block_number: 2, slot: 22, parent: Some(Hash<32>("d4f3cf2e")), body_hash: Hash<32>("cd932b1e") })
     /// |   `-- Hdr(FakeHeader { block_number: 3, slot: 23, parent: Some(Hash<32>("f72dbcd2")), body_hash: Hash<32>("5b466114") })
@@ -565,8 +564,6 @@ mod tests {
         );
     }
 
-    // TODO: that's where things become interesting: the fork should still
-    // be anchored on a known header and shorter than k
     #[test]
     fn roll_forward_with_fork_to_a_disjoint_chain() {
         let alice = Peer::new("alice");
