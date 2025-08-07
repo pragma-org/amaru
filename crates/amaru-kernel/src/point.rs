@@ -30,6 +30,14 @@ impl Point {
             Point::Specific(slot, _) => Slot::from(*slot),
         }
     }
+
+    pub fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        match self {
+            // By convention, the hash of `Genesis` is all 0s.
+            Point::Origin => Hash::from([0; HEADER_HASH_SIZE]),
+            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
+        }
+    }
 }
 
 impl Debug for Point {
@@ -55,11 +63,7 @@ impl Display for Point {
 
 impl From<&Point> for Hash<HEADER_HASH_SIZE> {
     fn from(point: &Point) -> Self {
-        match point {
-            // By convention, the hash of `Genesis` is all 0s.
-            Point::Origin => Hash::from([0; HEADER_HASH_SIZE]),
-            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
-        }
+        point.hash()
     }
 }
 
