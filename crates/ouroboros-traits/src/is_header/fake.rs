@@ -32,7 +32,8 @@ pub struct FakeHeader {
 impl Debug for FakeHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         f.debug_struct("FakeHeader")
-            .field("position", &format!("{}.{}", self.block_number, self.slot))
+            .field("block_number", &format!("{}", self.block_number))
+            .field("slot", &format!("{}", self.slot))
             .field("hash", &self.body_hash.to_string())
             .finish()
     }
