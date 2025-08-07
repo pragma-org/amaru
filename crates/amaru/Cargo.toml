@@ -37,7 +37,12 @@ serde_json.workspace = true
 slot-arithmetic.workspace = true
 sysinfo.workspace = true
 thiserror.workspace = true
-tokio = { workspace = true, features = ["fs", "rt", "rt-multi-thread", "signal"] }
+tokio = { workspace = true, features = [
+    "fs",
+    "rt",
+    "rt-multi-thread",
+    "signal",
+] }
 tokio-util.workspace = true
 tracing-opentelemetry.workspace = true
 tracing-subscriber.workspace = true
@@ -49,6 +54,7 @@ amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-stores.workspace = true
 progress-bar = { workspace = true, features = ["terminal"] }
+pure-stage.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

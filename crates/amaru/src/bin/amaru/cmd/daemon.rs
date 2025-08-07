@@ -78,7 +78,7 @@ pub async fn run(
 
     let exit = amaru::exit::hook_exit_token();
 
-    run_pipeline(gasket::daemon::Daemon::new(sync), exit.clone()).await;
+    run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
 
     if let Some(handle) = metrics {
         handle.abort();

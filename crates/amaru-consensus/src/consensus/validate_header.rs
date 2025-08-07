@@ -303,3 +303,20 @@ impl ValidateHeader {
         }
     }
 }
+
+type State = (
+    ValidateHeader,
+    GlobalParameters,
+    StageRef<DecodedChainSyncEvent, Void>,
+);
+
+pub async fn stage(
+    state: State,
+    msg: DecodedChainSyncEvent,
+    eff: Effects<DecodedChainSyncEvent, State>,
+) -> Result<State, anyhow::Error> {
+    let (mut state, global, downstream) = state;
+    let result = state.validate_header(&eff, msg, &global).await?;
+    eff.send(&downstream, result).await;
+    Ok((state, global, downstream))
+}

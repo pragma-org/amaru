@@ -13,6 +13,7 @@ documentation.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+anyhow.workspace = true
 hex.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true

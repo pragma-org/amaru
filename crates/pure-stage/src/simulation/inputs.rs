@@ -54,7 +54,7 @@ impl Inputs {
             Box::pin(async move {
                 let (tx, rx) = oneshot::channel();
                 tx_main
-                    .send(Envelope::new(stage_name.clone(), Box::new(msg), tx))
+                    .send(Envelope::new(stage_name, Box::new(msg), tx))
                     .await
                     .map_err(|e| {
                         #[allow(clippy::expect_used)]

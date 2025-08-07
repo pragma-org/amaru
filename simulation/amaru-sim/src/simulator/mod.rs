@@ -48,6 +48,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{info, Span};
 
+use amaru_consensus::consensus::validate_header;
 pub use sync::*;
 
 mod bytes;
@@ -212,24 +213,7 @@ fn spawn_node(
         },
     );
 
-    let validate_header_stage = network.stage(
-        "validate_header",
-        async |(mut state, global, downstream),
-               msg: DecodedChainSyncEvent,
-               eff|
-               -> Result<
-            (
-                ValidateHeader,
-                GlobalParameters,
-                StageRef<DecodedChainSyncEvent, Void>,
-            ),
-            Error,
-        > {
-            let result = state.validate_header(&eff, msg, &global).await?;
-            eff.send(&downstream, result).await;
-            Ok((state, global, downstream))
-        },
-    );
+    let validate_header_stage = network.stage("validate_header", validate_header::stage);
 
     let store_header_stage = network.stage(
         "store_header",

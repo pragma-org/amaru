@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     consensus::{
         chain_selection::{ChainSelector, ChainSelectorBuilder},
@@ -19,7 +20,7 @@ use amaru_consensus::{
         store::ChainStore,
         store_block::StoreBlock,
         store_header::StoreHeader,
-        validate_header::ValidateHeader,
+        validate_header::{self, ValidateHeader},
         ChainSyncEvent,
     },
     peer::Peer,
@@ -42,7 +43,6 @@ use consensus::{
     fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
     receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
     store_block::StoreBlockStage, store_header::StoreHeaderStage,
-    validate_header::ValidateHeaderStage,
 };
 use gasket::{
     messaging::{tokio::funnel_ports, OutputPort},
@@ -50,6 +50,7 @@ use gasket::{
 };
 use ledger::ValidateBlockStage;
 use pallas_network::{facades::PeerClient, miniprotocols::chainsync::Tip};
+use pure_stage::{tokio::TokioBuilder, StageGraph};
 use std::{
     error::Error,
     fmt::Display,
@@ -62,6 +63,7 @@ pub mod common;
 pub mod consensus;
 pub mod ledger;
 pub mod pull;
+mod pure_stage_util;
 
 pub type BlockHash = pallas_crypto::hash::Hash<32>;
 
@@ -175,8 +177,6 @@ pub fn bootstrap(
 
     let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
 
-    let mut validate_header_stage = ValidateHeaderStage::new(consensus, global_parameters);
-
     let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
 
     let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
@@ -191,12 +191,28 @@ pub fn bootstrap(
     );
 
     let (to_store_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_validate_header, from_store_header) = gasket::messaging::tokio::mpsc_channel(50);
-    let (to_select_chain, from_validate_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_fetch_block, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
+
+    // start pure-stage parts, whose lifecycle is managed by a single gasket stage
+    let mut network = TokioBuilder::default();
+
+    let validate_header_stage = network.stage("validate_header", validate_header::stage);
+
+    let (network_output_ref, network_output) = network.output("network_output", 50);
+
+    let validate_header_stage = network.wire_up(
+        validate_header_stage,
+        (consensus, global_parameters.clone(), network_output_ref),
+    );
+
+    let validate_header_input = SendAdapter(network.input(&validate_header_stage));
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let network = network.run(rt.handle().clone());
+    let pure_stages = PureStageSim::new(network, rt);
 
     let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = stages
         .iter_mut()
@@ -206,12 +222,11 @@ pub fn bootstrap(
     receive_header_stage.downstream.connect(to_store_header);
 
     store_header_stage.upstream.connect(from_receive_header);
-    store_header_stage.downstream.connect(to_validate_header);
+    store_header_stage.downstream.connect(validate_header_input);
 
-    validate_header_stage.upstream.connect(from_store_header);
-    validate_header_stage.downstream.connect(to_select_chain);
-
-    select_chain_stage.upstream.connect(from_validate_header);
+    select_chain_stage
+        .upstream
+        .connect(RecvAdapter(network_output));
     select_chain_stage.downstream.connect(to_fetch_block);
 
     fetch_block_stage.upstream.connect(from_select_chain);
@@ -232,7 +247,8 @@ pub fn bootstrap(
         .map(|p| spawn_stage(p, policy.clone()))
         .collect::<Vec<_>>();
 
-    let validate_header = gasket::runtime::spawn_stage(validate_header_stage, policy.clone());
+    let pure_stages = gasket::runtime::spawn_stage(pure_stages, policy.clone());
+
     let receive_header = gasket::runtime::spawn_stage(receive_header_stage, policy.clone());
     let store_header = gasket::runtime::spawn_stage(store_header_stage, policy.clone());
     let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
@@ -241,10 +257,11 @@ pub fn bootstrap(
     let ledger = ledger_stage.spawn(policy.clone());
     let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
 
+    stages.push(pure_stages);
+
     stages.push(store_header);
     stages.push(receive_header);
     stages.push(select_chain);
-    stages.push(validate_header);
     stages.push(store_block);
     stages.push(fetch);
     stages.push(ledger);
