@@ -29,7 +29,7 @@ gasket = { version = "0.8.0", features = ["derive"] } # More recent versions hav
 hex = "0.4.3"
 indicatif = "0.17.9"
 indoc = "2.0"
-minicbor = "0.25.1" # Must match the version used by pallas
+minicbor = { version = "0.25.1", features = ["std", "half", "derive"] } # Must match the version used by pallas
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.30.0"
 reqwest = { version = "0.12.20", default-features = false, features = ["json", "stream", "rustls-tls"] }
@@ -39,13 +39,13 @@ opentelemetry-otlp = { version = "0.30.0", features = [
     "reqwest-blocking-client",
 ] }
 opentelemetry_sdk = "0.30.0"
-pallas-addresses = "0.32.1"
-pallas-codec = "0.32.1" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v0.32.0/pallas-codec/Cargo.toml#L22)
-pallas-crypto = "0.32.1"
-pallas-math = "0.32.1"
-pallas-network = "0.32.1"
-pallas-primitives = "0.32.1"
-pallas-traverse = "0.32.1"
+pallas-addresses = "0.33.0"
+pallas-codec = "0.33.0" # When updating, double check that minicbor doesn't need to be updated too (see https://github.com/txpipe/pallas/blob/v0.32.0/pallas-codec/Cargo.toml#L22)
+pallas-crypto = "0.33.0"
+pallas-math = "0.33.0"
+pallas-network = "0.33.0"
+pallas-primitives = "0.33.0"
+pallas-traverse = "0.33.0"
 parking_lot = "0.12.3"
 rayon = "1.10"
 rocksdb = { version = "0.23.0", default-features = false, features = [
@@ -81,6 +81,7 @@ amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
 amaru-sim = { path = "crates/amaru-sim" }
 amaru-stores = { path = "crates/amaru-stores" }
 iter-borrow = { path = "crates/iter-borrow" }
+minicbor-extra = { path = "crates/minicbor-extra" }
 progress-bar = { path = "crates/progress-bar" }
 pure-stage = { path = "crates/pure-stage" }
 slot-arithmetic = { path = "crates/slot-arithmetic" }

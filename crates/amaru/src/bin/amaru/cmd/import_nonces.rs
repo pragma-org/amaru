@@ -14,8 +14,7 @@
 
 use amaru_consensus::{consensus::store::ChainStore, Nonces};
 use amaru_kernel::{
-    default_chain_dir, network::NetworkName, parse_nonce, parse_point, EraHistory, Hash, Header,
-    Nonce, Point,
+    default_chain_dir, network::NetworkName, parse_nonce, EraHistory, Hash, Header, Nonce, Point,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
@@ -30,7 +29,7 @@ pub struct Args {
     chain_dir: Option<PathBuf>,
 
     /// Point for which nonces data is imported.
-    #[arg(long, value_name = "POINT", value_parser = parse_point)]
+    #[arg(long, value_name = "POINT", value_parser = |s: &str| Point::try_from(s))]
     at: Point,
 
     /// Epoch active nonce at the specified point.
@@ -76,7 +75,7 @@ where
     D: Deserializer<'de>,
 {
     let buf = <&str>::deserialize(deserializer)?;
-    parse_point(buf)
+    Point::try_from(buf)
         .map_err(|e| serde::de::Error::custom(format!("cannot convert vector to nonce: {:?}", e)))
 }
 

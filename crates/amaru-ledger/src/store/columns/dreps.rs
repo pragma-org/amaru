@@ -80,32 +80,11 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use amaru_kernel::{prop_cbor_roundtrip, tests::any_anchor, Slot, TransactionPointer};
+    use amaru_kernel::{
+        prop_cbor_roundtrip,
+        tests::{any_anchor, any_certificate_pointer},
+    };
     use proptest::{option, prelude::*, prop_compose};
-
-    prop_compose! {
-        pub fn any_transaction_pointer()(
-            slot in 0..10_000_000u64,
-            transaction_index in any::<usize>(),
-        ) -> TransactionPointer {
-            TransactionPointer {
-                slot: Slot::from(slot),
-                transaction_index,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_certificate_pointer()(
-            transaction in any_transaction_pointer(),
-            certificate_index in any::<usize>(),
-        ) -> CertificatePointer {
-            CertificatePointer {
-                transaction,
-                certificate_index,
-            }
-        }
-    }
 
     prop_compose! {
         pub fn any_row()(

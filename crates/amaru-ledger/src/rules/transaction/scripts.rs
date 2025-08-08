@@ -14,7 +14,7 @@
 
 use crate::context::{UtxoSlice, WitnessSlice};
 use amaru_kernel::{
-    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, HasRedeemerKeys,
+    display_collection, get_provided_scripts, script_purpose_to_string, DatumHash, HasRedeemers,
     MemoizedDatum, MintedWitnessSet, OriginalHash, RedeemerKey, RequiredScript, ScriptHash,
     ScriptKind, ScriptPurpose,
 };
@@ -87,12 +87,8 @@ where
 
     let mut extra_redeemers = Vec::new();
 
-    if let Some(provided_redemeers) = witness_set
-        .redeemer
-        .as_deref()
-        .map(HasRedeemerKeys::redeemer_keys)
-    {
-        provided_redemeers.iter().for_each(|provided| {
+    if let Some(provided_redemeers) = witness_set.redeemer.as_deref().map(HasRedeemers::redeemers) {
+        provided_redemeers.keys().for_each(|provided| {
             if let Some(index) = required_redeemers
                 .iter()
                 .position(|required| required == provided.deref())

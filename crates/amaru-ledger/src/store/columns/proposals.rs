@@ -60,16 +60,14 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use crate::store::columns::{
-        accounts::tests::any_stake_credential, dreps::tests::any_transaction_pointer,
-    };
+    use crate::store::columns::accounts::tests::any_stake_credential;
     use amaru_kernel::{
         new_stake_address, prop_cbor_roundtrip,
-        tests::{any_anchor, any_proposal_id},
+        tests::{any_anchor, any_proposal_id, any_proposal_pointer},
         Bytes, Constitution, CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits,
         GovAction, Hash, KeyValuePairs, Lovelace, Network, Nullable, PoolVotingThresholds,
-        Proposal, ProposalId, ProposalPointer, ProtocolParamUpdate, ProtocolVersion, RewardAccount,
-        ScriptHash, Set, StakeCredential, StakePayload, UnitInterval,
+        Proposal, ProposalId, ProtocolParamUpdate, ProtocolVersion, RewardAccount, ScriptHash, Set,
+        StakeCredential, StakePayload, UnitInterval,
     };
     use proptest::{collection, option, prelude::*, prop_compose};
 
@@ -439,18 +437,6 @@ pub mod tests {
                 reward_account,
                 gov_action,
                 anchor,
-            }
-        }
-    }
-
-    prop_compose! {
-        pub fn any_proposal_pointer()(
-            transaction in any_transaction_pointer(),
-            proposal_index in any::<usize>(),
-        ) -> ProposalPointer {
-            ProposalPointer {
-                transaction,
-                proposal_index,
             }
         }
     }
