@@ -26,20 +26,14 @@ use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
     *,
 };
-use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::{
     alonzo::Value as AlonzoValue,
     conway::{MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption},
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
-    array::TryFromSliceError,
-    borrow::Cow,
-    cmp::Ordering,
-    collections::BTreeMap,
-    convert::Infallible,
-    fmt::{self, Debug, Display, Formatter},
-    ops::Deref,
+    array::TryFromSliceError, borrow::Cow, cmp::Ordering, collections::BTreeMap,
+    convert::Infallible, fmt::Debug, ops::Deref,
 };
 
 pub use pallas_addresses::{
@@ -93,6 +87,9 @@ pub mod drep_state;
 
 pub use memoized::*;
 pub mod memoized;
+
+pub use point::*;
+pub mod point;
 
 pub use pool_params::*;
 pub mod pool_params;
@@ -187,76 +184,6 @@ impl From<&RequiredScript> for RedeemerKey {
         RedeemerKey {
             tag: value.purpose,
             index: value.index,
-        }
-    }
-}
-
-#[derive(Clone, Eq, PartialEq, Hash, Debug, serde::Serialize, serde::Deserialize)]
-pub enum Point {
-    Origin,
-    Specific(u64, Vec<u8>),
-}
-
-impl Point {
-    pub fn slot_or_default(&self) -> Slot {
-        match self {
-            Point::Origin => Slot::from(0),
-            Point::Specific(slot, _) => Slot::from(*slot),
-        }
-    }
-}
-
-impl Display for Point {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Point::Origin => write!(
-                f,
-                "0.0000000000000000000000000000000000000000000000000000000000000000"
-            ),
-            Point::Specific(slot, vec) => write!(f, "{}.{}", slot, hex::encode(vec)),
-        }
-    }
-}
-
-impl From<&Point> for Hash<32> {
-    fn from(point: &Point) -> Self {
-        match point {
-            // By convention, the hash of `Genesis` is all 0s.
-            Point::Origin => Hash::from([0; 32]),
-            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
-        }
-    }
-}
-
-impl Encode<()> for Point {
-    fn encode<W: encode::Write>(
-        &self,
-        e: &mut Encoder<W>,
-        _ctx: &mut (),
-    ) -> Result<(), encode::Error<W::Error>> {
-        match self {
-            Point::Origin => e.array(0)?,
-            Point::Specific(slot, hash) => e.array(2)?.u64(*slot)?.bytes(hash)?,
-        };
-
-        Ok(())
-    }
-}
-
-impl<'b> Decode<'b, ()> for Point {
-    fn decode(d: &mut Decoder<'b>, _ctx: &mut ()) -> Result<Self, decode::Error> {
-        let size = d.array()?;
-
-        match size {
-            Some(0) => Ok(Point::Origin),
-            Some(2) => {
-                let slot = d.u64()?;
-                let hash = d.bytes()?;
-                Ok(Point::Specific(slot, Vec::from(hash)))
-            }
-            _ => Err(decode::Error::message(
-                "can't decode Point from array of size",
-            )),
         }
     }
 }
@@ -963,31 +890,6 @@ pub fn default_chain_dir(network: NetworkName) -> String {
     format!("./chain.{}.db", network.to_string().to_lowercase())
 }
 
-/// Utility function to parse a point from a string.
-///
-/// Expects the input to be of the form '<point>.<hash>', where `<point>` is a number and `<hash>`
-/// is a hex-encoded 32 bytes hash.
-/// The first argument is the string to parse, the `bail` function is user to
-/// produce the error type `E` in case of failure to parse.
-pub fn parse_point(raw_str: &str) -> Result<Point, String> {
-    let mut split = raw_str.split('.');
-
-    let slot = split
-        .next()
-        .ok_or("missing slot number before '.'")
-        .and_then(|s| {
-            s.parse::<u64>()
-                .map_err(|_| "failed to parse point's slot as a non-negative integer")
-        })?;
-
-    let block_header_hash = split
-        .next()
-        .ok_or("missing block header hash after '.'")
-        .and_then(|s| hex::decode(s).map_err(|_| "unable to decode block header hash from hex"))?;
-
-    Ok(Point::Specific(slot, block_header_hash))
-}
-
 /// Utility function to parse a nonce (i.e. a blake2b-256 hash digest) from an hex-encoded string.
 pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
     hex::decode(hex_str)
@@ -1081,32 +983,6 @@ mod test {
     #[test_case(fixture!("a5a8b29a838ce9525ce6c329c99dc89a31a7d8ae36a844eef55d7eb9"))]
     fn to_root_key_hash((bootstrap_witness, root): (BootstrapWitness, Hash<28>)) {
         assert_eq!(to_root(&bootstrap_witness).as_slice(), root.as_slice())
-    }
-
-    #[test]
-    fn test_parse_point() {
-        let point = parse_point("42.0123456789abcdef").unwrap();
-        match point {
-            Point::Specific(slot, hash) => {
-                assert_eq!(42, slot);
-                assert_eq!(vec![1, 35, 69, 103, 137, 171, 205, 239], hash);
-            }
-            _ => panic!("expected a specific point"),
-        }
-    }
-
-    #[test]
-    fn test_parse_real_point() {
-        let point = parse_point(
-            "70070379.d6fe6439aed8bddc10eec22c1575bf0648e4a76125387d9e985e9a3f8342870d",
-        )
-        .unwrap();
-        match point {
-            Point::Specific(slot, _hash) => {
-                assert_eq!(70070379, slot);
-            }
-            _ => panic!("expected a specific point"),
-        }
     }
 
     #[test]

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{default_ledger_dir, network::NetworkName, parse_point};
+use amaru_kernel::{default_ledger_dir, network::NetworkName, Point};
 use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
@@ -127,7 +127,7 @@ async fn import_one(
     ledger_dir: &PathBuf,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("Importing snapshot {}", snapshot.display());
-    let point = parse_point(
+    let point = Point::try_from(
         snapshot
             .as_path()
             .file_stem()

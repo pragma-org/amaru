@@ -19,7 +19,7 @@ use super::{
 };
 use crate::cmd::DEFAULT_NETWORK;
 use amaru::snapshots_dir;
-use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName, parse_point};
+use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName, Point};
 use async_compression::tokio::bufread::GzipDecoder;
 use clap::{arg, Parser};
 use futures_util::TryStreamExt;
@@ -131,10 +131,10 @@ async fn import_headers_for_network(
     let content = tokio::fs::read_to_string(headers_file).await?;
     let points: Vec<String> = serde_json::from_str(&content)?;
     let mut initial_headers = Vec::new();
-    for point_string in points {
-        match parse_point(&point_string) {
+    for point in points {
+        match Point::try_from(point.as_str()) {
             Ok(point) => initial_headers.push(point),
-            Err(e) => tracing::warn!("Ignoring malformed header point '{}': {}", point_string, e),
+            Err(e) => tracing::warn!("Ignoring malformed header point '{}': {}", point, e),
         }
     }
     for hdr in initial_headers {
