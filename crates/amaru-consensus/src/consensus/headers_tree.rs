@@ -22,6 +22,7 @@ const ORIGIN_HASH : Hash<HEADER_HASH_SIZE> = Hash::new([0; HEADER_HASH_SIZE]);
 #[allow(dead_code)]
 pub struct HeadersTree<H> {
     /// The arena maintains a list of headers and their parent/child relationship.
+    /// TODO: rename to `tree`, `arena` is very technical
     arena: Arena<Tip<H>>,
     /// Maximum size allowed for a given chain
     max_length: usize,
