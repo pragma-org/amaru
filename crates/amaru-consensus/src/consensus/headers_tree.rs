@@ -142,7 +142,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     ///   - A Fork if the chain that ends with this new header becomes the longest one.
     ///
     /// There will be errors if:
-    ///
     ///   - The peer is unknown
     ///   - The header's parent is unknown
     ///
@@ -151,40 +150,57 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         peer: &Peer,
         header: H,
     ) -> Result<ForwardChainSelection<H>, ConsensusError> {
+        // The peer must be known
         if !self.peers.contains_key(peer) {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
         }
 
+        // The header must be a child of the peer's tip
+        if !self.is_tip_child(peer, &header)? {
+            let e = ConsensusError::InvalidHeaderParent {
+                peer: peer.clone(),
+                forwarded: header.hash(),
+                actual: header.parent().unwrap_or(ORIGIN_HASH),
+                expected: self.get_hash(peer)?,
+            };
+            debug!("{e}. The current headers tree is {:?}", &self);
+            return Err(e);
+        };
+
+        // Theres is nothing to do if the header has already been added
         if self.header_exists(&header) {
-            Ok(ForwardChainSelection::NoChange)
-        } else {
-            if self.parent_exists(peer, &header)? {
-                let peer_tip = self.get_tip(peer)?;
-                let new_header_node_id = self.insert_header(header.clone(), &peer_tip);
-                Ok(self.select_best_chain_after_forward(peer, header, &new_header_node_id))
-            } else {
-                let e = ConsensusError::InvalidHeaderParent {
-                    peer: peer.clone(),
-                    forwarded: header.hash(),
-                    actual: header.parent().unwrap_or(ORIGIN_HASH),
-                    expected: self.get_hash(peer)?,
-                };
-                debug!("{e}. The current headers tree is {:?}", &self);
-                Err(e)
-            }
-        }
+            return Ok(ForwardChainSelection::NoChange);
+        };
+
+        // Otherwise we can add the new header
+        let peer_tip = self.get_tip(peer)?;
+        let new_header_node_id = self.insert_header(header.clone(), &peer_tip);
+        Ok(self.select_best_chain_after_forward(peer, header, &new_header_node_id))
     }
 
+    /// Rollback to an existing header for an upstream peer.
+    ///
+    /// The result will be an event describing:
+    ///   - No change if the rollback occurred on the best chain but the best chain is still tracked by another peer
+    ///   - A successful rollback where the best chain stays the best even after rollback.
+    ///   - A Fork if there is now another better chain
+    ///   - The fact that the rollback point is too far in the past.
+    ///
+    /// There will be errors if:
+    ///   - The peer is unknown
+    ///
     pub fn select_rollback(
         &mut self,
         peer: &Peer,
         rollback_point: &Point,
     ) -> Result<RollbackChainSelection<H>, ConsensusError> {
+        // The peer must be known
         if !self.peers.contains_key(peer) {
             return Err(ConsensusError::UnknownPeer(peer.clone()));
         }
 
         let rollback_point_hash = rollback_point.hash();
+
         if let Some(rollback_node_id) = self.get_rollback_node_id(peer, &rollback_point_hash)? {
             Ok(self.select_best_chain_after_rollback(peer, &rollback_node_id))
         } else {
@@ -354,8 +370,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         if node_id.ancestors(&self.arena).count() > self.best_length() {
             ChainActionFork {
                 peer: peer.clone(),
-                intersection_node_id: self
-                    .find_intersection_node_id(node_id, &self.best_chain()),
+                intersection_node_id: self.find_intersection_node_id(node_id, &self.best_chain()),
                 best_tip: *node_id,
             }
         } else {
@@ -390,8 +405,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
                 if node_id.ancestors(&self.arena).count() < max_length {
                     ChainActionFork {
                         peer: max_peer.clone(),
-                        intersection_node_id: self
-                            .find_intersection_node_id(node_id, max_node_id),
+                        intersection_node_id: self.find_intersection_node_id(node_id, max_node_id),
                         best_tip: *max_node_id,
                     }
                 } else {
@@ -411,7 +425,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 /// Helper functions on existing chains + nodes arena
 impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     /// Return true if the parent of the header is the tip of the peer chain
-    fn parent_exists(&self, peer: &Peer, header: &H) -> Result<bool, ConsensusError> {
+    fn is_tip_child(&self, peer: &Peer, header: &H) -> Result<bool, ConsensusError> {
         let peer_current_hash = self.get_hash(peer)?;
         Ok(header.parent() == Some(peer_current_hash))
     }
