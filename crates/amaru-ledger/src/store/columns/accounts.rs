@@ -72,9 +72,10 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::Row;
-    use crate::store::columns::dreps::tests::any_certificate_pointer;
     use amaru_kernel::{
-        prop_cbor_roundtrip, tests::any_pool_id, DRep, Hash, Lovelace, StakeCredential,
+        prop_cbor_roundtrip,
+        tests::{any_certificate_pointer, any_pool_id},
+        DRep, Hash, Lovelace, StakeCredential,
     };
     use proptest::{option, prelude::*, prop_compose};
 

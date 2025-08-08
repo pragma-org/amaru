@@ -85,6 +85,9 @@ pub mod anchor;
 pub use ballot::Ballot;
 pub mod ballot;
 
+pub use certificate_pointer::*;
+pub mod certificate_pointer;
+
 pub use drep_state::*;
 pub mod drep_state;
 
@@ -96,6 +99,9 @@ pub mod pool_params;
 
 pub use proposal_id::*;
 pub mod proposal_id;
+
+pub use proposal_pointer::*;
+pub mod proposal_pointer;
 
 pub use proposal_state::*;
 pub mod proposal_state;
@@ -109,6 +115,9 @@ pub mod reward_kind;
 pub use strict_maybe::*;
 pub mod strict_maybe;
 
+pub use transaction_pointer::*;
+pub mod transaction_pointer;
+
 pub mod block;
 pub mod macros;
 pub mod network;
@@ -118,7 +127,8 @@ pub mod serde_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     pub use crate::{
-        anchor::tests::*, ballot::tests::*, pool_params::tests::*, proposal_id::tests::*,
+        anchor::tests::*, ballot::tests::*, certificate_pointer::tests::*, pool_params::tests::*,
+        proposal_id::tests::*, proposal_pointer::tests::*, transaction_pointer::tests::*,
     };
 }
 
@@ -385,105 +395,6 @@ pub fn decode_array<'d, A>(
     }
 
     Ok(result)
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]
-pub struct TransactionPointer {
-    pub slot: Slot,
-    pub transaction_index: usize,
-}
-
-impl<C> cbor::encode::Encode<C> for TransactionPointer {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(2)?;
-        e.encode_with(self.slot, ctx)?;
-        e.encode_with(self.transaction_index, ctx)?;
-        Ok(())
-    }
-}
-
-impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _len = d.array()?;
-        Ok(TransactionPointer {
-            slot: d.decode_with(ctx)?,
-            transaction_index: d.decode_with(ctx)?,
-        })
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd)]
-pub struct CertificatePointer {
-    pub transaction: TransactionPointer,
-    pub certificate_index: usize,
-}
-
-impl CertificatePointer {
-    pub fn slot(&self) -> Slot {
-        self.transaction.slot
-    }
-}
-
-impl<C> cbor::encode::Encode<C> for CertificatePointer {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(2)?;
-        e.encode_with(self.transaction, ctx)?;
-        e.encode_with(self.certificate_index, ctx)?;
-        Ok(())
-    }
-}
-
-impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _len = d.array()?;
-        Ok(CertificatePointer {
-            transaction: d.decode_with(ctx)?,
-            certificate_index: d.decode_with(ctx)?,
-        })
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct ProposalPointer {
-    pub transaction: TransactionPointer,
-    pub proposal_index: usize,
-}
-
-impl ProposalPointer {
-    pub fn slot(&self) -> Slot {
-        self.transaction.slot
-    }
-}
-
-impl<C> cbor::encode::Encode<C> for ProposalPointer {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(2)?;
-        e.encode_with(self.transaction, ctx)?;
-        e.encode_with(self.proposal_index, ctx)?;
-        Ok(())
-    }
-}
-
-impl<'b, C> cbor::decode::Decode<'b, C> for ProposalPointer {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _len = d.array()?;
-        Ok(ProposalPointer {
-            transaction: d.decode_with(ctx)?,
-            proposal_index: d.decode_with(ctx)?,
-        })
-    }
 }
 
 // Helpers
@@ -1153,29 +1064,6 @@ impl HasRedeemers for Redeemers {
 mod test {
     use super::*;
     use test_case::test_case;
-
-    #[test_case((42, 0, 0), (42, 0, 0) => with |(left, right)| assert_eq!(left, right); "reflexivity")]
-    #[test_case((42, 0, 0), (43, 0, 0) => with |(left, right)| assert!(left < right); "across slots")]
-    #[test_case((42, 0, 0), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions")]
-    #[test_case((42, 0, 0), (42, 0, 1) => with |(left, right)| assert!(left < right); "across certificates")]
-    #[test_case((42, 0, 5), (42, 1, 0) => with |(left, right)| assert!(left < right); "across transactions and certs")]
-    fn test_pointers(
-        left: (u64, usize, usize),
-        right: (u64, usize, usize),
-    ) -> (CertificatePointer, CertificatePointer) {
-        let new_pointer = |args: (Slot, usize, usize)| CertificatePointer {
-            transaction: TransactionPointer {
-                slot: args.0,
-                transaction_index: args.1,
-            },
-            certificate_index: args.2,
-        };
-
-        (
-            new_pointer((Slot::from(left.0), left.1, left.2)),
-            new_pointer((Slot::from(right.0), right.1, right.2)),
-        )
-    }
 
     macro_rules! fixture {
         ($hash:literal) => {
