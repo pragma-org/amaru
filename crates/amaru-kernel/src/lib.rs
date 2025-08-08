@@ -31,10 +31,7 @@ use pallas_primitives::{
     conway::{MintedPostAlonzoTransactionOutput, NativeScript},
 };
 use sha3::{Digest as _, Sha3_256};
-use std::{
-    array::TryFromSliceError, borrow::Cow, collections::BTreeMap, convert::Infallible, fmt::Debug,
-    ops::Deref,
-};
+use std::{array::TryFromSliceError, borrow::Cow, collections::BTreeMap, fmt::Debug, ops::Deref};
 
 pub use pallas_addresses::{
     byron::AddrType, Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
@@ -69,6 +66,8 @@ pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;
 pub use sha3;
 pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+
+pub use minicbor_extra::*;
 
 pub use account::*;
 pub mod account;
@@ -169,77 +168,6 @@ pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
 
-// CBOR conversions
-// ----------------------------------------------------------------------------
-
-#[allow(clippy::unwrap_used)]
-pub fn to_cbor<T: cbor::Encode<()>>(value: &T) -> Vec<u8> {
-    let mut buffer = Vec::new();
-    let result: Result<(), cbor::encode::Error<Infallible>> = cbor::encode(value, &mut buffer);
-    result.unwrap(); // Infallible
-    buffer
-}
-
-pub fn from_cbor<T: for<'d> cbor::Decode<'d, ()>>(bytes: &[u8]) -> Option<T> {
-    cbor::decode(bytes).ok()
-}
-
-// Decode a CBOR input, ensuring that there are no bytes leftovers once decoded. This is handy to
-// test standalone decoders and ensures that they entirely consume their inputs.
-pub fn from_cbor_no_leftovers<T: for<'d> cbor::Decode<'d, ()>>(
-    bytes: &[u8],
-) -> Result<T, cbor::decode::Error> {
-    cbor::decode(bytes).map(|NoLeftovers(inner)| inner)
-}
-
-#[repr(transparent)]
-pub struct NoLeftovers<A>(A);
-
-impl<'a, C, A: cbor::Decode<'a, C>> cbor::decode::Decode<'a, C> for NoLeftovers<A> {
-    fn decode(d: &mut cbor::Decoder<'a>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let inner = d.decode_with(ctx)?;
-
-        if !d.datatype().is_err_and(|e| e.is_end_of_input()) {
-            return Err(cbor::decode::Error::message(format!(
-                "leftovers bytes after decoding after position {}",
-                d.position()
-            )));
-        }
-
-        Ok(NoLeftovers(inner))
-    }
-}
-
-/// Decode any CBOR array, irrespective of whether they're indefinite or definite.
-pub fn decode_array<'d, A>(
-    d: &mut cbor::Decoder<'d>,
-    expected_len: u64,
-    elems: impl FnOnce(&mut cbor::Decoder<'d>) -> Result<A, cbor::decode::Error>,
-) -> Result<A, cbor::decode::Error> {
-    let len = d.array()?;
-
-    let result = elems(d)?;
-
-    match len {
-        None => {
-            let is_break = d.datatype()? == cbor::data::Type::Break;
-            if !is_break {
-                return Err(cbor::decode::Error::type_mismatch(cbor::data::Type::Break));
-            }
-            d.skip()?;
-        }
-        Some(len) if len != expected_len => {
-            return Err(cbor::decode::Error::message(format!(
-                "array length mismatch: expected {} got {}",
-                expected_len, len
-            )));
-        }
-        Some(_len) => (),
-    }
-
-    Ok(result)
-}
-
 // Helpers
 // ----------------------------------------------------------------------------
 
@@ -269,6 +197,9 @@ pub fn encode_bech32(hrp: &str, payload: &[u8]) -> Result<String, Box<dyn std::e
     let hrp = bech32::Hrp::parse(hrp)?;
     Ok(bech32::encode::<bech32::Bech32>(hrp, payload)?)
 }
+
+// CBOR conversions
+// ----------------------------------------------------------------------------
 
 /// TODO: Ideally, we should either:
 ///

@@ -120,6 +120,7 @@ version = "0.1.0"
 dependencies = [
  "bech32 0.11.0",
  "hex",
+ "minicbor-extra",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
@@ -1710,6 +1711,13 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "minicbor-extra"
+version = "0.1.0"
+dependencies = [
+ "minicbor",
 ]
 
 [[package]]

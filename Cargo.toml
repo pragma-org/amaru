@@ -81,6 +81,7 @@ amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
 amaru-sim = { path = "crates/amaru-sim" }
 amaru-stores = { path = "crates/amaru-stores" }
 iter-borrow = { path = "crates/iter-borrow" }
+minicbor-extra = { path = "crates/minicbor-extra" }
 progress-bar = { path = "crates/progress-bar" }
 pure-stage = { path = "crates/pure-stage" }
 slot-arithmetic = { path = "crates/slot-arithmetic" }

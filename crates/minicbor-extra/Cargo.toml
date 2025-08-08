@@ -1,0 +1,16 @@
+lints.workspace = true
+
+[package]
+name = "minicbor-extra"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+minicbor.workspace = true
