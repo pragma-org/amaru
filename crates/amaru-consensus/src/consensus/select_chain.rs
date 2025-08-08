@@ -102,10 +102,10 @@ impl SelectChain {
                 vec![self.forward_block(peer, tip, span)]
             }
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
-                                                                     peer,
-                                                                     rollback_point,
-                                                                     fork,
-                                                                 }) => {
+                peer,
+                rollback_point,
+                fork,
+            }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 self.switch_to_fork(peer, rollback_point, fork, span)
             }
@@ -140,18 +140,20 @@ impl SelectChain {
                 }])
             }
             RollbackChainSelection::SwitchToFork(Fork {
-                                                     peer,
-                                                     rollback_point,
-                                                     fork,
-                                                 }) => Ok(self.switch_to_fork(peer, rollback_point, fork, span)),
+                peer,
+                rollback_point,
+                fork,
+            }) => Ok(self.switch_to_fork(peer, rollback_point, fork, span)),
             RollbackChainSelection::NoChange => Ok(vec![]),
-            RollbackChainSelection::RollbackBeyondLimit { peer, rollback_point, max_point } => {
-                Err(ConsensusError::InvalidRollback {
-                    peer,
-                    rollback_point,
-                    max_point,
-                })
-            }
+            RollbackChainSelection::RollbackBeyondLimit {
+                peer,
+                rollback_point,
+                max_point,
+            } => Err(ConsensusError::InvalidRollback {
+                peer,
+                rollback_point,
+                max_point,
+            }),
         }
     }
 
