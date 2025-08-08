@@ -36,7 +36,7 @@ use std::{
     array::TryFromSliceError,
     borrow::Cow,
     cmp::Ordering,
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeMap,
     convert::Infallible,
     fmt::{self, Debug, Display, Formatter},
     ops::Deref,
@@ -139,43 +139,6 @@ pub type EpochInterval = u32;
 pub type ScriptPurpose = RedeemerTag;
 
 pub type AuxiliaryDataHash = Hash<32>;
-
-// TODO: rework once https://github.com/txpipe/pallas/pull/676 is merged and released.
-#[derive(Debug, Eq, PartialEq)]
-pub struct ComparableRedeemerKey<'a>(Cow<'a, RedeemerKey>);
-
-impl Ord for ComparableRedeemerKey<'_> {
-    fn cmp(&self, other: &Self) -> Ordering {
-        self.tag()
-            .cmp(&other.tag())
-            .then_with(|| self.0.index.cmp(&other.0.index))
-    }
-}
-
-impl PartialOrd for ComparableRedeemerKey<'_> {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl ComparableRedeemerKey<'_> {
-    fn tag(&self) -> u8 {
-        match &self.0.tag {
-            RedeemerTag::Spend => 0,
-            RedeemerTag::Mint => 1,
-            RedeemerTag::Cert => 2,
-            RedeemerTag::Reward => 3,
-            RedeemerTag::Vote => 4,
-            RedeemerTag::Propose => 5,
-        }
-    }
-}
-impl Deref for ComparableRedeemerKey<'_> {
-    type Target = RedeemerKey;
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
 
 #[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
 pub struct RequiredScript {
@@ -1136,8 +1099,8 @@ impl HasExUnits for MintedBlock<'_> {
         self.transaction_witness_sets.iter().fold(
             Vec::new(),
             |mut acc: Vec<&ExUnits>, witness_set| {
-                if let Some(redeemers) = witness_set.redeemer.as_deref().map(redeemers_as_map) {
-                    acc.extend(redeemers.values().map(|(ex_units, _)| ex_units));
+                if let Some(witnesses) = witness_set.redeemer.as_deref() {
+                    acc.extend(witnesses.redeemers().values().map(|(ex_units, _)| ex_units));
                 }
                 acc
             },
@@ -1145,65 +1108,42 @@ impl HasExUnits for MintedBlock<'_> {
     }
 }
 
-// Flatten all redeemers kind into a map; This mimicks the Haskell's implementation and
-// automatically perform de-duplication of redeemers.
-fn redeemers_as_map(
-    redeemers: &Redeemers,
-) -> BTreeMap<ComparableRedeemerKey<'_>, (&ExUnits, &PlutusData)> {
-    match redeemers {
-        Redeemers::List(list) => list
-            .iter()
-            .map(|redeemer| {
-                (
-                    ComparableRedeemerKey(Cow::Owned(RedeemerKey {
-                        tag: redeemer.tag,
-                        index: redeemer.index,
-                    })),
-                    (&redeemer.ex_units, &redeemer.data),
-                )
-            })
-            .collect(),
-        Redeemers::Map(map) => map
-            .iter()
-            .map(|(key, redeemer)| {
-                (
-                    ComparableRedeemerKey(Cow::Borrowed(key)),
-                    (&redeemer.ex_units, &redeemer.data),
-                )
-            })
-            .collect(),
-    }
+pub trait HasRedeemers {
+    fn redeemers(&self) -> BTreeMap<Cow<'_, RedeemerKey>, (&ExUnits, &PlutusData)>;
 }
 
-pub trait HasRedeemerKeys {
-    fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>>;
-}
-
-impl HasRedeemerKeys for Redeemers {
-    fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>> {
+impl HasRedeemers for Redeemers {
+    /// Flatten all redeemers kind into a map; This mimicks the Haskell's implementation and
+    /// automatically perform de-duplication of redeemers.
+    ///
+    /// Indeed, it's possible that a list could have a (tag, index) tuple present more than once, with different data.
+    /// The haskell node removes duplicates, keeping the last value present.
+    ///
+    /// See also <https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626>:
+    ///
+    /// - The Map.fromList behavior is documented here: <https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList>
+    ///
+    /// In this case, we don't care about the data provided in the redeemer (we're returning just the keys), so it doesn't matter.
+    /// But this will come up during Phase 2 validation, so keep in mind that BTreeSet always keeps the first occurance based on the `PartialEq` result:
+    ///
+    /// <https://doc.rust-lang.org/std/collections/btree_set/struct.BTreeSet.html#method.insert>
+    fn redeemers(&self) -> BTreeMap<Cow<'_, RedeemerKey>, (&ExUnits, &PlutusData)> {
         match self {
-            /* It's possible that a list could have a (tag, index) tuple present more than once, with different data.
-              The haskell node removes duplicates, keeping the last value present
-              See (https://github.com/IntersectMBO/cardano-ledger/blob/607a7fdad352eb72041bb79f37bc1cf389432b1d/eras/alonzo/impl/src/Cardano/Ledger/Alonzo/TxWits.hs#L626):
-                  - The Map.fromList behavior is documented here: https://hackage.haskell.org/package/containers-0.6.6/docs/Data-Map-Strict.html#v:fromList
-
-               In this case, we don't care about the data provided in the redeemer (we're returning just the keys), so it doesn't matter.
-               But this will come up during Phase 2 validation, so keep in mind that BTreeSet always keeps the first occurance based on the `PartialEq` result
-                   https://doc.rust-lang.org/std/collections/btree_set/struct.BTreeSet.html#method.insert
-            */
-            Redeemers::List(redeemers) => redeemers
+            Redeemers::List(list) => list
                 .iter()
                 .map(|redeemer| {
-                    ComparableRedeemerKey(Cow::Owned(RedeemerKey {
-                        tag: redeemer.tag,
-                        index: redeemer.index,
-                    }))
+                    (
+                        Cow::Owned(RedeemerKey {
+                            tag: redeemer.tag,
+                            index: redeemer.index,
+                        }),
+                        (&redeemer.ex_units, &redeemer.data),
+                    )
                 })
                 .collect(),
-            Redeemers::Map(redeemers) => redeemers
+            Redeemers::Map(map) => map
                 .iter()
-                // TODO: can we avoid a clone here?
-                .map(|(key, _)| ComparableRedeemerKey(Cow::Borrowed(key)))
+                .map(|(key, redeemer)| (Cow::Borrowed(key), (&redeemer.ex_units, &redeemer.data)))
                 .collect(),
         }
     }
