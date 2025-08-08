@@ -118,6 +118,37 @@ Here is a graphical representation of a `HeadersTree` with a couple of peers and
 
 ![A live `HeadersTree` with some state](basic-headers-tree.jpg)
 
+Finally, the `Result` of the chain selection algorithm defines what needs to be communicated to downstream `Peer`s:
+
+```
+data Result =
+```
+
+* The simplest case is that our best chain did not change:
+
+  ```
+  NoChange
+  ```
+* The chain could have been extended with a new header:
+
+  ```
+  NewTip(Peer, Header)
+  ```
+* The chain has been rolled back to some point:
+  ```
+  RollbackTo(Peer, Point)
+  ```
+* The chain has switched to a fork:
+  ```
+  SwitchedToFork {
+     peer: Peer,
+     rollback_point : Point,
+     fork: [Header]
+  }
+  ```
+
+There are also a number of error conditions which are not formally specified bu explained in the [Handling errors](#handling-errors) section.
+
 ### Rolling forward
 
 When a `RollForward peer header` message arrives, the peer tells us they are extending their chain by _one_ header. We first check the given `header`'s parent: if it's not pointing at the header corresponding to what the `peers` map point to, this is an error. If the header is well-formed, we need to identify several cases:
@@ -131,11 +162,13 @@ When a `RollForward peer header` message arrives, the peer tells us they are ext
     ![Pruning the tree when extending the chain](pruning-headers-tree.jpg)
 
     In particular as shown here, it's possible for a `Peer` to point to a chain which is smaller than our `best_chain` and anchored at the parent of our current _tip_ (the root of the tree). In this case, there's no way this peer's chain can ever become our best chain and we can as well drop this `Peer` altogether as it's obviously on a "dead" fork.
+   * the result of the selection is a `NewTip(peer, header)`,
 2. The message comes from another `Peer`, which has several interesting subcases:
-   a. The given `header` extends the `peer`'s chain but it's still shorter or of equal length than our `best_chain`: We simply add the new `header` to the tree, update the `peers` map but do not change our `best_chain`
-   b. The given `header` extends the `peer`'s chain in such a way it becomes (stricly) _longer_ than our current `best_chain`. Here, we can again split in 2 cases:
-       i. The new `header` extends `best_chain`. This is simple as it just entails, on top of updating the other fields, changing the `best_peer`
-       ii. The new `header` is on a different chain than `best_chain`. This is a _fork_ and it [requires special care](#handling-forks).
+   1. The given `header` extends the `peer`'s chain but it's still shorter or of equal length than our `best_chain`: We simply add the new `header` to the tree, update the `peers` map but do not change our `best_chain`. The result is `NoChange`,
+   2. The given `header` extends the `peer`'s chain in such a way it becomes (stricly) _longer_ than our current `best_chain`. Here, we can again split in 2 cases:
+
+       1. The new `header` extends `best_chain`. This is simple as it just entails, on top of updating the other fields, changing the `best_peer`. The result is `NewTip(header)`,
+       2. The new `header` is on a different chain than `best_chain`. This is a _fork_ and it [requires special care](#handling-forks).
 
 ### Rolling Backward
 
@@ -149,14 +182,37 @@ The first step is to check whether or not the given `point` exists in our `tree`
   * the `peers` map should point to the node corresponding to the `point`ed-at header,
   * the tree should be pruned of nodes between the new peer's node id and the previous one. In so doing we should take care of _not pruning_ nodes which are still pointed at by other `peers`
   * In addition, if the `peer` is our current `best_peer`, this necessarily changes our `best_chain` with  2 different cases:
-    * The `peer`'s chain is still the longest: We update our `best_chain` accordingly and keep our `best_peer` as is,
-    * There's another peer pointing to our current `best_chain`: We update our `best_peer` but keep our `best_chain` as is,
+    * The `peer`'s chain is still the longest: We update our `best_chain` accordingly and keep our `best_peer` as is. The result of `chain_selection` should be `RollbackTo(peer, point)`
+    * There's another peer pointing to our current `best_chain`: We update our `best_peer` but keep our `best_chain` as is. The result is `NoChange`,
     * finally, there's the case where another peer is pointing at a better (longer) chain: this is a [fork](#handling-forks).
 
 ### Handling forks
 
-> TODO: show what happens when forking
+When we need to switch to another peer's chain that's not on our `best_chain`, this is a fork. The following picture represents a typical fork situation from a `Rollback "Alice" 4` message:
 
+![Fork after a rollback](fork-after-rollback.jpg)
 
+When a fork should happen:
+1. We need to find the `rollback_point`, eg. the most recent intersection `Point` of the old and new `best_chain`s (node 3 in the picture),
+2. We update the `HeadersTree` so that:
+   * `best_peer` points to the peer we forked to,
+   * `best_chain` points to this peer's chain,
+   * `peers` map for `peer` is updated to point to rollback `point` (4 in the example),
+3. We emit a `SwitchToFork` `Result`:
+   ```
+   SwitchToFork {
+      rollback_point,
+      peer,
+      fork = [7, 8]
+   }
+   ```
+
+> [!WARNING]
+>
+> What if there are multiple peers pointing to the same new `best_chain`? Which one should become our `best_peer`? Shouldn't `best_peer` be a list, or a priority queue?
+
+> [!WARNING]
+>
+> What if the new best chain is shorter than $k$, which is the case in the picture? This is very unlikely if the node is following a significant number of peers but not impossible in other cases. However, this means there's another chain which is longer than our previous one, hence longer than $k$
 
 ### Handling errors
