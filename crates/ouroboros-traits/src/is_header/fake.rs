@@ -34,7 +34,8 @@ impl Debug for FakeHeader {
         f.debug_struct("FakeHeader")
             .field("block_number", &format!("{}", self.block_number))
             .field("slot", &format!("{}", self.slot))
-            .field("hash", &self.body_hash.to_string())
+            .field("hash", &self.hash().to_string())
+            .field("body", &self.body_hash.to_string())
             .finish()
     }
 }
