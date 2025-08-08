@@ -16,11 +16,11 @@ Amaru is a [Cardano](https://cardano.org) node client written in Rust. It is an 
 cargo build --release
 ```
 
-### Running (demo)
+### Running
 
 > [!IMPORTANT]
-> These instructions assume one starts from scratch, and has access to a running [cardano-node](https://github.com/IntersectMBO/cardano-node/)
-on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network.
+> These instructions assume one starts from scratch, and has access to a synced [cardano-node](https://github.com/IntersectMBO/cardano-node/)
+on the selected network (e.g. [preprod](https://book.world.dev.cardano.org/env-preprod.html)).
 >
 > To run a local peer, refer to [Cardano's developers portal](https://developers.cardano.org/docs/get-started/cardano-node/running-cardano).
 > Make sure your peer listens to port `3001` or adapt the `PEER_ADDRESS` environment variable (e.g. `export PEER_ADDRESS=127.0.0.1:3002`)
@@ -28,7 +28,7 @@ on the [preprod](https://book.world.dev.cardano.org/env-preprod.html) network.
 1. Bootstrap the node:
 
 ```bash
-make bootstrap
+make NETWORK=preprod bootstrap
 ```
 
 2. _(Optional)_ Setup observability backends:

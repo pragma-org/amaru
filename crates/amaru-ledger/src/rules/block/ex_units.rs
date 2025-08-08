@@ -17,7 +17,7 @@ use amaru_kernel::{protocol_parameters::ProtocolParameters, sum_ex_units, ExUnit
 use super::InvalidBlockDetails;
 
 pub fn block_ex_units_valid(
-    ex_units: Vec<ExUnits>,
+    ex_units: Vec<&ExUnits>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), InvalidBlockDetails> {
     // TODO: rewrite this to use iterators defined on `Redeemers` and `MaybeIndefArray`, ideally

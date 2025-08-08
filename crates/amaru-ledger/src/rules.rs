@@ -134,7 +134,7 @@ pub(crate) mod tests {
         },
         tests::{fake_input, fake_output},
     };
-    use amaru_kernel::{protocol_parameters, protocol_parameters::ProtocolParameters};
+    use amaru_kernel::{protocol_parameters, protocol_parameters::ProtocolParameters, Network};
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
@@ -177,6 +177,7 @@ pub(crate) mod tests {
 
         let results = rules::block::execute(
             &mut AssertValidationContext::from(ctx),
+            &Network::Testnet,
             &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
             &block,
         );
@@ -202,7 +203,12 @@ pub(crate) mod tests {
 
         prepare_block(&mut ctx, &block);
 
-        let results = rules::block::execute(&mut AssertValidationContext::from(ctx), &pp, &block);
+        let results = rules::block::execute(
+            &mut AssertValidationContext::from(ctx),
+            &Network::Testnet,
+            &pp,
+            &block,
+        );
 
         assert!(matches!(
             results,

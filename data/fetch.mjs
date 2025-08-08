@@ -27,9 +27,9 @@ Usage:
     ./fetch.mjs <NETWORK> [<INCL_SNAPSHOT_FLAG>]
 
 Arguments:
-    NETWORK:  		  One of 'preview', 'preprod' or 'mainnet'
+    NETWORK:              One of 'preview', 'preprod' or 'mainnet'
     INCL_SNAPSHOT_FLAG:   A an optional flag (true/false) to also dump fully snapshots listed in configuration.
-    			  [default: false]`);
+                          [default: false]`);
   process.exit(1);
 }
 
@@ -41,7 +41,29 @@ if (includeSnapshots) {
 }
 
 // Each point corresponds to the last point of the associated epoch.
-const { points, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
+const { points: configPoints, snapshots, additionalStakeAddresses } = JSON.parse(fs.readFileSync(configFile));
+if (!snapshots || !Array.isArray(snapshots)) {
+  console.error(`Invalid or missing snapshots in ${configFile}`);
+  process.exit(1);
+}
+
+function filterExistingPoints() {
+  const folderPath = path.join(import.meta.dirname, "mainnet", "dreps");
+  if (!fs.existsSync(folderPath)) {
+    return new Set();
+  }
+
+  const files = fs.readdirSync(folderPath);
+  return new Set(
+    files
+      .filter(file => file.endsWith('.json'))
+      .map(file => parseInt(path.basename(file, '.json')))
+      .filter(num => !isNaN(num))
+  );
+}
+
+const existingPoints = filterExistingPoints();
+const points = configPoints.filter(point => !existingPoints.has(point.epoch));
 
 const additionalStakeKeys = additionalStakeAddresses.reduce(collectAddressType(14), []);
 
@@ -84,7 +106,7 @@ process.stderr.cursorTo(0, 0);
 process.stderr.clearScreenDown();
 
 let frame = 0;
-const spinner = ["⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"];
+const spinner = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 const spinnerId = setInterval(() => {
   process.stderr.cursorTo(0, Math.min(10, points.length));
   process.stderr.clearLine(0);
@@ -154,9 +176,9 @@ function step(ws, i, point, done) {
 
     if (error) {
       if (error.code !== 2000 || !/doesn't or no longer exist/.test(error.data)) {
-    	process.stderr.clearLine(0);
+        process.stderr.clearLine(0);
         process.stderr.write(`${point.slot} => [error ${error.code}] ${error.message} (${error.data})`);
-	return done(false, i);
+        return done(false, i);
       }
 
       process.stderr.write(`${point.slot} => not available yet...`);
@@ -248,19 +270,19 @@ async function fetchDReps(ws, { stakePools }) {
   // protocol at the node's level -- or, by resorting to using a debug
   // new epoch state snapshot.
   let { verificationKey: keys, script: scripts } = Object.keys(stakePools).reduce((accum, pool) => {
-    (stakePools[pool].delegators ?? []).forEach((delegator) => {
-       accum[delegator.from].add(delegator.credential);
+    stakePools[pool].delegators?.forEach((delegator) => {
+      accum[delegator.from].add(delegator.credential);
     });
 
     return accum;
   }, { verificationKey: new Set(), script: new Set() });
 
   const drepsMap = dreps.reduce((accum, drep) => {
-    (drep.delegators ?? []).forEach((delegator) => {
+    drep.delegators?.forEach((delegator) => {
       if (delegator.from === "verificationKey") {
-	keys.add(delegator.credential);
+        keys.add(delegator.credential);
       } else {
-	scripts.add(delegator.credential);
+        scripts.add(delegator.credential);
       }
     });
 

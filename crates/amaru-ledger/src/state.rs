@@ -199,6 +199,10 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         }
     }
 
+    pub fn network(&self) -> &NetworkName {
+        &self.network
+    }
+
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         &self.protocol_parameters
     }

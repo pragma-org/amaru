@@ -29,10 +29,7 @@ use pallas_addresses::{
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::{
     alonzo::Value as AlonzoValue,
-    conway::{
-        MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption, RedeemerTag,
-        RedeemersValue,
-    },
+    conway::{MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption},
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
@@ -41,7 +38,7 @@ use std::{
     cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     convert::Infallible,
-    fmt::{self, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     ops::Deref,
 };
 
@@ -66,10 +63,10 @@ pub use pallas_primitives::{
         MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
         NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
         ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
-        PseudoTransactionOutput, RationalNumber, Redeemer, Redeemers, RedeemersKey as RedeemerKey,
-        Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential, TransactionBody,
-        TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value, Vote, Voter,
-        VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
+        PseudoTransactionOutput, RationalNumber, Redeemer, RedeemerTag, Redeemers,
+        RedeemersKey as RedeemerKey, Relay, RewardAccount, ScriptHash, ScriptRef, StakeCredential,
+        TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
+        Vote, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
     AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
     PlutusScript, PolicyId, Port, PositiveCoin,
@@ -298,48 +295,6 @@ pub type PoolId = Hash<28>;
 pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
-
-pub struct ExUnitsIter<'a> {
-    source: ExUnitsIterSource<'a>,
-}
-
-type ExUnitsMapIter<'a> = std::iter::Map<
-    std::slice::Iter<'a, (RedeemerKey, RedeemersValue)>,
-    fn(&(RedeemerKey, RedeemersValue)) -> ExUnits,
->;
-
-enum ExUnitsIterSource<'a> {
-    List(std::iter::Map<std::slice::Iter<'a, Redeemer>, fn(&Redeemer) -> ExUnits>),
-    Map(ExUnitsMapIter<'a>),
-}
-
-impl Iterator for ExUnitsIter<'_> {
-    type Item = ExUnits;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.source {
-            ExUnitsIterSource::List(iter) => iter.next(),
-            ExUnitsIterSource::Map(iter) => iter.next(),
-        }
-    }
-}
-
-pub trait RedeemersExt {
-    fn ex_units_iter(&self) -> ExUnitsIter<'_>;
-}
-
-impl RedeemersExt for Redeemers {
-    fn ex_units_iter(&self) -> ExUnitsIter<'_> {
-        match self {
-            Redeemers::List(list) => ExUnitsIter {
-                source: ExUnitsIterSource::List(list.iter().map(|r| r.ex_units)),
-            },
-            Redeemers::Map(map) => ExUnitsIter {
-                source: ExUnitsIterSource::Map(map.iter().map(|(_, r)| r.ex_units)),
-            },
-        }
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum ScriptKind {
@@ -952,22 +907,8 @@ pub fn voter_credential_hash(credential: &Voter) -> Hash<28> {
     }
 }
 
-// ExUnits
+// Scripts
 // ----------------------------------------------------------------------------
-
-pub trait HasExUnits {
-    fn ex_units(&self) -> Vec<ExUnits>;
-}
-
-impl HasExUnits for MintedBlock<'_> {
-    fn ex_units(&self) -> Vec<ExUnits> {
-        self.transaction_witness_sets
-            .iter()
-            .flat_map(|witness_set| &witness_set.redeemer)
-            .flat_map(|redeemers| redeemers.ex_units_iter())
-            .collect()
-    }
-}
 
 /// Collect provided scripts and compute each ScriptHash in a witness set
 pub fn get_provided_scripts(
@@ -1282,7 +1223,7 @@ pub fn script_purpose_to_string(purpose: ScriptPurpose) -> String {
 }
 
 /// Create a new `ExUnits` that is the sum of two `ExUnits`
-pub fn sum_ex_units(left: ExUnits, right: ExUnits) -> ExUnits {
+pub fn sum_ex_units(left: ExUnits, right: &ExUnits) -> ExUnits {
     ExUnits {
         mem: left.mem + right.mem,
         steps: left.steps + right.steps,
@@ -1334,6 +1275,55 @@ pub fn parse_nonce(hex_str: &str) -> Result<Nonce, String> {
 
 // Redeemers
 // ----------------------------------------------------------------------------
+
+pub trait HasExUnits {
+    fn ex_units(&self) -> Vec<&ExUnits>;
+}
+
+impl HasExUnits for MintedBlock<'_> {
+    fn ex_units(&self) -> Vec<&ExUnits> {
+        self.transaction_witness_sets.iter().fold(
+            Vec::new(),
+            |mut acc: Vec<&ExUnits>, witness_set| {
+                if let Some(redeemers) = witness_set.redeemer.as_deref().map(redeemers_as_map) {
+                    acc.extend(redeemers.values().map(|(ex_units, _)| ex_units));
+                }
+                acc
+            },
+        )
+    }
+}
+
+// Flatten all redeemers kind into a map; This mimicks the Haskell's implementation and
+// automatically perform de-duplication of redeemers.
+fn redeemers_as_map(
+    redeemers: &Redeemers,
+) -> BTreeMap<ComparableRedeemerKey<'_>, (&ExUnits, &PlutusData)> {
+    match redeemers {
+        Redeemers::List(list) => list
+            .iter()
+            .map(|redeemer| {
+                (
+                    ComparableRedeemerKey(Cow::Owned(RedeemerKey {
+                        tag: redeemer.tag,
+                        index: redeemer.index,
+                    })),
+                    (&redeemer.ex_units, &redeemer.data),
+                )
+            })
+            .collect(),
+        Redeemers::Map(map) => map
+            .iter()
+            .map(|(key, redeemer)| {
+                (
+                    ComparableRedeemerKey(Cow::Borrowed(key)),
+                    (&redeemer.ex_units, &redeemer.data),
+                )
+            })
+            .collect(),
+    }
+}
+
 pub trait HasRedeemerKeys {
     fn redeemer_keys(&self) -> BTreeSet<ComparableRedeemerKey<'_>>;
 }

@@ -21,7 +21,7 @@ const network = (process.argv[2] ?? "").toLowerCase();
 
 const epoch = Number.parseInt(process.argv[3], 10);
 
-if (Number.isNaN(epoch) ||!["preview", "preprod", "mainnet"].includes(network)) {
+if (Number.isNaN(epoch) || !["preview", "preprod", "mainnet"].includes(network)) {
   console.log(`Invalid or missing epoch number.
 
 Usage:
@@ -67,14 +67,14 @@ const dreps = drepsInfo
     script: {},
     dreps: {
       abstain: {
-	mandate: null,
-	metadata: null,
-	stake: drepsStake.find((future) => future.type === "abstain")?.stake.ada.lovelace ?? 0,
+        mandate: null,
+        metadata: null,
+        stake: drepsStake.find((future) => future.type === "abstain")?.stake.ada.lovelace ?? 0,
       },
       no_confidence: {
-	mandate: null,
-	metadata: null,
-	stake: drepsStake.find((future) => future.type === "noConfidence")?.stake.ada.lovelace ?? 0,
+        mandate: null,
+        metadata: null,
+        stake: drepsStake.find((future) => future.type === "noConfidence")?.stake.ada.lovelace ?? 0,
       },
     },
   });
@@ -86,7 +86,6 @@ if (!exists) {
   console.error(`Source file ${source} does not exist.`);
   process.exit(1);
 }
-
 // ---------- Rewards summary snapshot
 
 const poolIds = Object.keys(distr.stakePools).sort();
@@ -110,7 +109,7 @@ withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
 
       accum[stakeAddress] = {
         lovelace: delegator.stake.ada.lovelace,
-	pool: poolId,
+        pool: poolId,
         drep: dreps[delegator.from][delegator.credential] ?? null,
       };
 
@@ -139,15 +138,15 @@ withStream(`summary__stake_distribution_${epoch}.snap`, (stream) => {
       stake,
       voting_stake,
       parameters: {
-	id: Buffer.from(bech32.fromWords(bech32.decode(k).words)).toString('hex'),
-	vrfVerificationKeyHash: pools[k].vrfVerificationKeyHash,
-	pledge: pools[k].pledge,
-	cost: pools[k].cost,
-	margin: pools[k].margin,
-	rewardAccount: pools[k].rewardAccount,
-	owners: pools[k].owners,
-	relays: pools[k].relays,
-	metadata: pools[k].metadata,
+        id: Buffer.from(bech32.fromWords(bech32.decode(k).words)).toString('hex'),
+        vrfVerificationKeyHash: pools[k].vrfVerificationKeyHash,
+        pledge: pools[k].pledge,
+        cost: pools[k].cost,
+        margin: pools[k].margin,
+        rewardAccount: pools[k].rewardAccount,
+        owners: pools[k].owners,
+        relays: pools[k].relays,
+        metadata: pools[k].metadata,
       },
     };
 
@@ -200,7 +199,6 @@ function withStream(filename, callback) {
   fs.mkdirSync(dir, { recursive: true });
   const stream = fs.createWriteStream(path.join(dir, filename));
   callback(stream);
-  console.log(`✓ ${path.relative(path.join(import.meta.dirname, ".."), stream.path)}`);
 }
 
 // As per CIP-0129

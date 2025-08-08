@@ -89,13 +89,21 @@ bootstrap: clear-dbs ## Bootstrap the node from scratch
 		--chain-dir $(CHAIN_DIR) \
 		--network $(NETWORK)
 
-dev: ## Compile and run for development with default options
+dev: start # 'backward-compatibility'; might remove after a while.
+start: ## Compile and run for development with default options
 	cargo run --profile $(BUILD_PROFILE) -- daemon \
 		--ledger-dir $(LEDGER_DIR) \
 		--chain-dir $(CHAIN_DIR) \
 		--peer-address $(PEER_ADDRESS) \
 		--network=$(NETWORK) \
 		--listen-address $(LISTEN_ADDRESS)
+
+fetch-data: ## Fetch data from the node
+	@npm --prefix data run fetch -- "$(NETWORK)"
+
+generate-test-snapshots: ## Generate test snapshots for test-e2e
+	@npm --prefix conformance-tests run generate-all -- "$(NETWORK)"
+	@./scripts/generate-snapshot-test-cases
 
 test-e2e: ## Run snapshot tests, assuming snapshots are available.
 	NETWORK=$(NETWORK) cargo test --profile $(BUILD_PROFILE) -p amaru -- --ignored

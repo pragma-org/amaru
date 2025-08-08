@@ -23,7 +23,7 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryDataHash, ExUnits, HasExUnits, Hash, Hasher,
-    MintedBlock, OriginalHash, TransactionId, TransactionPointer,
+    MintedBlock, Network, OriginalHash, TransactionId, TransactionPointer,
 };
 use slot_arithmetic::Slot;
 use std::{
@@ -163,6 +163,7 @@ impl<A, E> FromResidual for BlockValidation<A, E> {
 #[instrument(level = Level::TRACE, skip_all, name="ledger.validate_block")]
 pub fn execute<C, S: From<C>>(
     context: &mut C,
+    network: &Network,
     protocol_params: &ProtocolParameters,
     block: &MintedBlock<'_>,
 ) -> BlockValidation<(), anyhow::Error>
@@ -192,8 +193,6 @@ where
 
     let failed_transactions = FailedTransactions::from_block(block);
 
-    let witness_sets = block.transaction_witness_sets.deref().to_vec();
-
     let transactions = block.transaction_bodies.deref().to_vec();
 
     // using `zip` here instead of enumerate as it is safer to cast from u32 to usize than usize to u32
@@ -201,7 +200,7 @@ where
     for (i, transaction) in (0u32..).zip(transactions.into_iter()) {
         let transaction_hash = transaction.original_hash();
 
-        let witness_set = match witness_sets.get(i as usize) {
+        let witness_set = match block.transaction_witness_sets.get(i as usize) {
             Some(witness_set) => witness_set,
             None => {
                 // TODO: Define a proper error for this.
@@ -235,6 +234,7 @@ where
 
         if let Err(err) = transaction::execute(
             context,
+            network,
             protocol_params,
             pointer,
             !failed_transactions.has(i),
