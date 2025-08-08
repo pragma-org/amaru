@@ -81,7 +81,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                                     raw.len()
                                 )));
                             }
-                            MemoizedDatum::Hash(Hash::<>::from(raw))
+                            MemoizedDatum::Hash(Hash::from(raw))
                         }
                         1 => {
                             match d.tag()? == IanaTag::Cbor.tag() {
