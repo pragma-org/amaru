@@ -172,10 +172,10 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
             return Ok(ForwardChainSelection::NoChange);
         };
 
-        // Otherwise we can add the new header
+        // Otherwise we can add the new header to the arena
         let peer_tip = self.get_tip(peer)?;
-        let new_header_node_id = self.insert_header(header.clone(), &peer_tip);
-        self.select_best_chain_after_forward(peer, header, &new_header_node_id)
+        let new_node_id = self.insert_header(header.clone(), &peer_tip);
+        self.select_best_chain_after_forward(peer, header, &new_node_id)
     }
 
     /// Rollback to an existing header for an upstream peer.
@@ -225,25 +225,18 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         tip: H,
         node_id: &NodeId,
     ) -> Result<ForwardChainSelection<H>, ConsensusError> {
-        // If the current chain (before the new header) is already at the maximum length
-        // we need to move the anchor point one header up in the chain
-        if self
-            .get_node_id_tip_for(peer)?
-            .ancestors(&self.arena)
-            .count()
-            == self.max_length
-        {
-            if let Some(parent) = self.get_parent(&node_id) {
-                self.prune_unreachable_nodes(&parent);
-            }
-        };
-        self.peers.insert(peer.clone(), *node_id);
-        let previous_best_tip = self.best_chain();
-        let previous_best_length = self.best_length();
 
+        // Get the best chain data before the peer change
+        let (previous_best_tip, previous_best_length) = (self.best_chain(), self.best_length());
+
+        // Update the peer node id
+        self.peers.insert(peer.clone(), *node_id);
+
+        // Compute the new best chain
         self.update_best_chain(peer)?;
-        let new_best_tip = self.best_chain();
-        let new_best_length = self.best_length();
+
+        // Trim the best chain if too long
+        self.prune_unreachable_nodes(&node_id);
 
         // 3 options:
         //
@@ -251,6 +244,8 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         // - Another shorter chain was extended but still shorter -> no change
         // - Another shorter chain was extended and now longer -> fork
         //
+        let (new_best_tip, new_best_length) = (self.best_chain(), self.best_length());
+
         if self.get_parent(&new_best_tip) == Some(previous_best_tip) {
             Ok(ForwardChainSelection::NewTip {
                 peer: peer.clone(),
@@ -596,27 +591,33 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     }
 
     #[allow(clippy::panic)]
-    fn prune_unreachable_nodes(&mut self, parent_node_id: &NodeId) {
-        let ancestors = parent_node_id
-            .ancestors(&self.arena)
-            .collect::<Vec<NodeId>>();
+    fn prune_unreachable_nodes(&mut self, node_id: &NodeId) {
+        if self.best_length() <= self.max_length {
+            return;
+        }
 
-        match ancestors[ancestors.len() - 2..ancestors.len()] {
-            [new_root, root] => {
-                let to_remove = root
-                    .children(&self.arena)
-                    .filter(|nid| *nid != new_root)
-                    .collect::<Vec<NodeId>>();
-                for nid in to_remove {
-                    nid.remove_subtree(&mut self.arena);
+        if let Some(parent_node_id) = self.get_parent(&node_id) {
+            let ancestors = parent_node_id
+                .ancestors(&self.arena)
+                .collect::<Vec<NodeId>>();
+
+            match ancestors[ancestors.len() - 2..ancestors.len()] {
+                [new_root, root] => {
+                    let to_remove = root
+                        .children(&self.arena)
+                        .filter(|nid| *nid != new_root)
+                        .collect::<Vec<NodeId>>();
+                    for nid in to_remove {
+                        nid.remove_subtree(&mut self.arena);
+                    }
+                    root.remove(&mut self.arena);
+
+                    // Make sure that no peer points to a removed node
+                    let new_peers = self.peers.clone().into_iter().filter(|kv| !kv.1.is_removed(&self.arena)).collect::<Vec<_>>();
+                    self.peers = BTreeMap::from_iter(new_peers);
                 }
-                root.remove(&mut self.arena);
-
-                // Make sure that no peer points to a removed node
-                let new_peers = self.peers.clone().into_iter().filter(|kv| !kv.1.is_removed(&self.arena)).collect::<Vec<_>>();
-                self.peers = BTreeMap::from_iter(new_peers);
+                _ => panic!("This chain selection tree is configured with a maximum chain length lower than 2 ({}), which does not make sense", self.max_length),
             }
-            _ => panic!("This chain selection tree is configured with a maximum chain length lower than 2 ({}), which does not make sense", self.max_length),
         }
     }
 
