@@ -257,19 +257,32 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         peer: &Peer,
         rollback_point: &Point,
     ) -> Result<RollbackChainSelection<H>, ConsensusError> {
+        let rollback_point_hash = rollback_point.hash();
+        if let Some(rollback_node_id) = self.get_rollback_node_id(peer, &rollback_point_hash)? {
+            Ok(self.select_best_chain_after_rollback(peer, &rollback_node_id))
+        } else {
+            Err(ConsensusError::InvalidRollback {
+                // TODO use a better max point (ie. tree root)
+                peer: peer.clone(),
+                rollback_point: rollback_point_hash,
+                max_point: Point::Origin.hash(),
+            })
+        }
+    }
+
+    fn get_rollback_node_id(
+        &mut self,
+        peer: &Peer,
+        rollback_point_hash: &Hash<HEADER_HASH_SIZE>,
+    ) -> Result<Option<NodeId>, ConsensusError> {
         let peer_tip = self.get_node_id_tip_for(peer)?;
         for node_id in peer_tip.ancestors(&self.arena) {
             let node = self.unsafe_get_arena_node(node_id);
-            if node.get().hash() == rollback_point.hash() {
-                return Ok(self.select_best_chain_after_rollback(peer, &node_id));
+            if node.get().hash() == *rollback_point_hash {
+                return Ok(Some(node_id));
             }
         }
-        Err(ConsensusError::InvalidRollback {
-            // TODO use a better max point
-            peer: peer.clone(),
-            rollback_point: rollback_point.hash(),
-            max_point: Point::Origin.hash(),
-        })
+        Ok(None)
     }
 
     /// Return the chain ending with the header at node_id (sorted from older to younger).
@@ -935,6 +948,29 @@ mod tests {
             result
         );
         assert_eq!(tree.best_chain_tip(), Some(&middle))
+    }
+
+    #[test]
+    // TODO: this is a case of a peer "stuttering" which can be considered adversarial?
+    fn rollback_then_roll_forward_with_same_header_on_single_chain() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let rollback_to = headers[3];
+        print!("before rollback {:?}", tree);
+        tree.select_rollback(&alice, &rollback_to.point()).unwrap();
+        print!("after rollback {:?}", tree);
+
+        let result = tree.select_roll_forward(&alice, headers[4]).unwrap();
+        print!("after roll forward {:?}", tree);
+
+        assert_eq!(
+            result,
+            ForwardChainSelection::NewTip {
+                peer: alice,
+                tip: headers[4]
+            }
+        );
+        assert_eq!(tree.best_chain_tip(), Some(&headers[4]))
     }
 
     #[test]
