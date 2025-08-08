@@ -28,7 +28,7 @@ use pallas_addresses::{
 };
 use pallas_primitives::{
     alonzo::Value as AlonzoValue,
-    conway::{MintedPostAlonzoTransactionOutput, NativeScript, PseudoDatumOption},
+    conway::{MintedPostAlonzoTransactionOutput, NativeScript},
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
@@ -75,6 +75,9 @@ pub mod account;
 
 pub use anchor::Anchor;
 pub mod anchor;
+
+pub use borrowed_datum::*;
+pub mod borrowed_datum;
 
 pub use ballot::Ballot;
 pub mod ballot;
@@ -165,33 +168,6 @@ pub type PoolId = Hash<28>;
 pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
-
-#[derive(Debug, PartialEq, Eq, Clone)]
-pub enum BorrowedDatumOption<'a> {
-    Hash(&'a DatumHash),
-    Data(&'a CborWrap<PlutusData>),
-}
-
-impl<'a> From<&'a DatumOption> for BorrowedDatumOption<'a> {
-    fn from(value: &'a DatumOption) -> Self {
-        match value {
-            PseudoDatumOption::Hash(hash) => Self::Hash(hash),
-            PseudoDatumOption::Data(cbor_wrap) => Self::Data(cbor_wrap),
-        }
-    }
-}
-
-// FIXME: we are cloning here. Can we avoid that?
-impl From<BorrowedDatumOption<'_>> for DatumOption {
-    fn from(value: BorrowedDatumOption<'_>) -> Self {
-        match value {
-            BorrowedDatumOption::Hash(hash) => Self::Hash(*hash),
-            BorrowedDatumOption::Data(cbor_wrap) => {
-                Self::Data(CborWrap(cbor_wrap.to_owned().unwrap()))
-            }
-        }
-    }
-}
 
 // CBOR conversions
 // ----------------------------------------------------------------------------
