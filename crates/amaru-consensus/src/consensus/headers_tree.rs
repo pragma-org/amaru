@@ -175,7 +175,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         // Otherwise we can add the new header
         let peer_tip = self.get_tip(peer)?;
         let new_header_node_id = self.insert_header(header.clone(), &peer_tip);
-        Ok(self.select_best_chain_after_forward(peer, header, &new_header_node_id))
+        self.select_best_chain_after_forward(peer, header, &new_header_node_id)
     }
 
     /// Rollback to an existing header for an upstream peer.
@@ -224,25 +224,24 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         peer: &Peer,
         new_header: H,
         new_tip: &NodeId,
-    ) -> ForwardChainSelection<H> {
+    ) -> Result<ForwardChainSelection<H>, ConsensusError> {
         let chain_action = self.select_chain_action(peer, new_tip);
-
-        let peer_chain = self
-            .peers
-            .get(peer)
-            .unwrap_or_else(|| panic!("no chain information found for peer {peer}"))
-            .clone();
 
         // If the current chain (before the new header) is already at the maximum length
         // we need to move the anchor point one header up in the chain
-        if peer_chain.ancestors(&self.arena).count() == self.max_length {
+        if self
+            .get_node_id_tip_for(peer)?
+            .ancestors(&self.arena)
+            .count()
+            == self.max_length
+        {
             if let Some(parent) = self.get_parent(&new_tip) {
                 self.prune_unreachable_nodes(&parent);
             }
         };
         self.peers.insert(peer.clone(), *new_tip);
 
-        match chain_action {
+        let result = match chain_action {
             ChainActionNewTip { tip } => {
                 self.set_best_chain(peer, tip);
                 ForwardChainSelection::NewTip {
@@ -282,7 +281,8 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
                 };
                 ForwardChainSelection::SwitchToFork(fork)
             }
-        }
+        };
+        Ok(result)
     }
 
     fn select_best_chain_after_rollback(
@@ -292,6 +292,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     ) -> RollbackChainSelection<H> {
         let chain_action = self.select_chain_action(peer, rollback_node_id);
         self.peers.insert(peer.clone(), *rollback_node_id);
+        self.trim_unused_nodes();
 
         match chain_action {
             ChainActionNewTip { tip } => {
@@ -303,7 +304,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
             ChainActionRollback { rollback_node_id } => {
                 self.set_best_chain(peer, rollback_node_id);
                 let hash = self.get_header(rollback_node_id).hash();
-                self.trim_unused_nodes();
                 RollbackChainSelection::RollbackTo(hash)
             }
             ChainActionFork {
