@@ -1,8 +1,5 @@
 use crate::consensus::chain_selection::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::chain_selection::{Fork, ForwardChainSelection, RollbackChainSelection};
-use crate::consensus::headers_tree::ChainAction::{
-    ChainActionFork, ChainActionNewTip, ChainActionNoChange, ChainActionRollback,
-};
 use crate::consensus::tip::Tip;
 use crate::peer::Peer;
 use crate::ConsensusError;
@@ -61,6 +58,7 @@ impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
         f.debug_struct("HeadersTree")
             .field("\n   peers", &debug_peers)
             .field("\n   best_chain", &debug_best_chain)
+            .field("\n   best_node_id", &self.best_chain.to_string())
             .field(
                 "\n   best_peer",
                 &self.best_peer.as_ref().map(|p| p.to_string()),
@@ -69,22 +67,6 @@ impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
             .finish()?;
         f.write_str("\n")
     }
-}
-
-#[derive(Clone, Debug, PartialOrd, PartialEq, Eq)]
-enum ChainAction {
-    ChainActionNewTip {
-        tip: NodeId,
-    },
-    ChainActionNoChange,
-    ChainActionRollback {
-        rollback_node_id: NodeId,
-    },
-    ChainActionFork {
-        peer: Peer,
-        intersection_node_id: NodeId,
-        best_tip: NodeId,
-    },
 }
 
 #[allow(dead_code)]
@@ -200,7 +182,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         let rollback_point_hash = rollback_point.hash();
 
         if let Some(rollback_node_id) = self.get_rollback_node_id(peer, &rollback_point_hash)? {
-            self.select_best_chain_after_rollback(peer, &rollback_node_id)
+            self.select_best_chain_after_rollback(peer, rollback_point_hash, &rollback_node_id)
         } else {
             let root = self
                 .get_root_for(peer)?
@@ -223,7 +205,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         tip: H,
         node_id: &NodeId,
     ) -> Result<ForwardChainSelection<H>, ConsensusError> {
-
         // Get the best chain data before the peer change
         let (previous_best_tip, previous_best_length) = (self.best_chain(), self.best_length());
 
@@ -233,9 +214,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         // Compute the new best chain
         self.update_best_chain(peer)?;
 
-        // Trim the best chain if too long
-        self.prune_unreachable_nodes(&node_id);
-
         // 3 options:
         //
         // - The best chain was extended -> new tip
@@ -244,7 +222,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         //
         let (new_best_tip, new_best_length) = (self.best_chain(), self.best_length());
 
-        if self.get_parent(&new_best_tip) == Some(previous_best_tip) {
+        let result = if self.get_parent(&new_best_tip) == Some(previous_best_tip) {
             Ok(ForwardChainSelection::NewTip {
                 peer: peer.clone(),
                 tip,
@@ -254,39 +232,54 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
             Ok(ForwardChainSelection::SwitchToFork(fork))
         } else {
             Ok(ForwardChainSelection::NoChange)
-        }
+        };
+
+        // Trim the best chain if too long
+        self.prune_unreachable_nodes(&node_id);
+        result
     }
 
     fn select_best_chain_after_rollback(
         &mut self,
         peer: &Peer,
+        rollback_hash: Hash<HEADER_HASH_SIZE>,
         rollback_node_id: &NodeId,
     ) -> Result<RollbackChainSelection<H>, ConsensusError> {
-        let chain_action = self.select_chain_action(peer, rollback_node_id);
+        // Get the best chain data before the peer change
+        let (previous_best_tip, previous_best_length, previous_best_peer) = (
+            self.best_chain(),
+            self.best_length(),
+            self.best_peer().cloned(),
+        );
+
+        // Update the peer node id
         self.peers.insert(peer.clone(), *rollback_node_id);
-        self.trim_unused_nodes();
+
+        // Compute the new best chain
         self.update_best_chain(peer)?;
 
-        let result = match chain_action {
-            ChainActionNewTip { .. } => {
-                // TODO return an error?
-                RollbackChainSelection::NoChange
-            }
-            ChainActionNoChange => RollbackChainSelection::NoChange,
-            ChainActionRollback { rollback_node_id } => {
-                let hash = self.get_header(rollback_node_id).hash();
-                RollbackChainSelection::RollbackTo(hash)
-            }
-            ChainActionFork {
-                peer: best_peer,
-                intersection_node_id,
-                best_tip,
-            } => {
-                let fork = self.make_fork(&best_peer, intersection_node_id, best_tip);
-                RollbackChainSelection::SwitchToFork(fork)
-            }
+        // 3 options:
+        //
+        // - The best chain is still the exact same -> no change
+        // - Another chain becomes the best chain -> fork
+        // - The previous best chain is smaller but still the best -> rollback
+        let result = if self.best_length() == previous_best_length {
+            Ok(RollbackChainSelection::NoChange)
+        } else if previous_best_peer.as_ref() != self.best_peer() {
+            let fork = self.make_fork(
+                &self.best_peer().cloned().unwrap(),
+                previous_best_tip,
+                self.best_chain,
+            );
+            Ok(RollbackChainSelection::SwitchToFork(fork))
+        } else {
+            Ok(RollbackChainSelection::RollbackTo(rollback_hash))
         };
-        Ok(result)
+
+        // Remove unused nodes in the arena
+        self.trim_unused_nodes();
+
+        result
     }
 
     fn make_fork(&mut self, best_peer: &Peer, old_tip: NodeId, new_tip: NodeId) -> Fork<H> {
@@ -315,84 +308,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
             fork: fork_fragment,
         };
         fork
-    }
-
-    fn select_chain_action(&mut self, peer: &Peer, node_id: &NodeId) -> ChainAction {
-        // If the current peer is the same as the previous best peer
-        if Some(peer) == self.best_peer() || self.best_peer().is_none() {
-            return self.select_own_chain_action(peer, &node_id);
-        }
-
-        // Otherwise, we are dealing with a different peer
-
-        // If that user is contributing to the current best chain
-        if let Some(parent) = self.get_parent(node_id) {
-            if self
-                .best_chain
-                .ancestors(&self.arena)
-                .collect::<Vec<_>>()
-                .contains(&parent)
-            {
-                // If the peer new tip was added on top of the previous best tip
-                // This is a new tip on the current best chain
-                return if parent == self.best_chain() {
-                    ChainActionNewTip { tip: *node_id }
-                } else {
-                    ChainActionNoChange
-                };
-            }
-        }
-
-        // Otherwise peer is contributing to its own chain
-        // If the new chain becomes the best one it's a fork
-        if node_id.ancestors(&self.arena).count() > self.best_length() {
-            ChainActionFork {
-                peer: peer.clone(),
-                intersection_node_id: self.find_intersection_node_id(node_id, &self.best_chain()),
-                best_tip: *node_id,
-            }
-        } else {
-            ChainActionNoChange
-        }
-    }
-
-    fn select_own_chain_action(&self, peer: &Peer, node_id: &NodeId) -> ChainAction {
-        let current_node_id = *self
-            .peers
-            .get(peer)
-            .unwrap_or_else(|| panic!("expected a peer {peer}"));
-
-        // If the new tip was added on top of the previous chain tip
-        if let Some(parent) = self.get_parent(node_id) {
-            if parent == current_node_id {
-                return ChainActionNewTip { tip: *node_id };
-            }
-        }
-
-        let best_peer_so_far = self
-            .peers
-            .iter()
-            .filter(|kv| kv.0 != peer)
-            .map(|kv| (kv.0, kv.1, kv.1.ancestors(&self.arena).count()))
-            .max_by_key(|kv| kv.1);
-
-        if let Some((max_peer, max_node_id, max_length)) = best_peer_so_far {
-            if node_id.ancestors(&self.arena).count() < max_length {
-                ChainActionFork {
-                    peer: max_peer.clone(),
-                    intersection_node_id: self.find_intersection_node_id(node_id, max_node_id),
-                    best_tip: *max_node_id,
-                }
-            } else {
-                ChainActionRollback {
-                    rollback_node_id: *node_id,
-                }
-            }
-        } else {
-            ChainActionRollback {
-                rollback_node_id: *node_id,
-            }
-        }
     }
 }
 
@@ -466,23 +381,43 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 
     /// Update the best chain after a peer has done a roll forward or rollback
     fn update_best_chain(&mut self, peer: &Peer) -> Result<(), ConsensusError> {
-        // If we try to set the best chain with a peer that is different from the previous one,
-        // we only update the "best" data if the new peer chain is strictly longer than the previous one.
-        if let Some(best_peer) = &self.best_peer {
-            if best_peer == peer {
-                self.best_chain = self.get_node_id_tip_for(best_peer)?;
-            } else {
-                let current_best_peer_chain_length = self.get_length(best_peer);
-                let peer_chain_length = self.get_length(peer);
-                if peer_chain_length > current_best_peer_chain_length {
-                    self.best_chain = self.get_node_id_tip_for(peer)?;
-                    self.best_peer = Some(peer.clone());
-                }
+        if self.best_peer.as_ref().is_some() {
+            let previous_best_tip = self.best_chain;
+            let previous_best_length = previous_best_tip.ancestors(&self.arena).count();
+
+            let (next_best_peer, new_best_node_id, new_best_length) = self
+                .peers
+                .iter()
+                .map(|(peer, node_id)| (peer, node_id, node_id.ancestors(&self.arena).count()))
+                .max_by_key(|(_, _, l)| *l)
+                .unwrap();
+
+            if previous_best_length != new_best_length {
+                self.best_chain = *new_best_node_id;
+                self.best_peer = Some(next_best_peer.clone())
             }
         } else {
             self.best_chain = self.get_node_id_tip_for(peer)?;
             self.best_peer = Some(peer.clone())
-        };
+        }
+
+        // // If we try to set the best chain with a peer that is different from the previous one,
+        // // we only update the "best" data if the new peer chain is strictly longer than the previous one.
+        // if let Some(best_peer) = &self.best_peer {
+        //     if best_peer == peer {
+        //         self.best_chain = self.get_node_id_tip_for(best_peer)?;
+        //     } else {
+        //         let current_best_peer_chain_length = self.get_length(best_peer);
+        //         let peer_chain_length = self.get_length(peer);
+        //         if peer_chain_length > current_best_peer_chain_length {
+        //             self.best_chain = self.get_node_id_tip_for(peer)?;
+        //             self.best_peer = Some(peer.clone());
+        //         }
+        //     }
+        // } else {
+        //     self.best_chain = self.get_node_id_tip_for(peer)?;
+        //     self.best_peer = Some(peer.clone())
+        // };
 
         Ok(())
     }
