@@ -75,13 +75,13 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                     Ok(match datum_option {
                         0 => {
                             let raw = d.bytes()?;
-                            if raw.len() != 28 {
+                            if raw.len() != 32 {
                                 return Err(cbor::decode::Error::message(format!(
-                                    "expected datum hash of length 28, got {}",
+                                    "expected datum hash of length 32, got {}",
                                     raw.len()
                                 )));
                             }
-                            MemoizedDatum::Hash(Hash::<32>::from(raw))
+                            MemoizedDatum::Hash(Hash::<>::from(raw))
                         }
                         1 => {
                             match d.tag()? == IanaTag::Cbor.tag() {
