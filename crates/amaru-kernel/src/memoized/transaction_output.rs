@@ -20,11 +20,12 @@ use crate::{
     PseudoScript, ScriptHash, Value,
 };
 
+use minicbor_extra::{
+    decode_chunk, heterogeneous_map, missing_field, unexpected_field, with_default_value,
+};
 use pallas_codec::minicbor::data::{IanaTag, Type};
 
 use pallas_primitives::conway::PseudoScript;
-
-type PartialDecoder<A> = Box<dyn FnOnce() -> Result<A, cbor::decode::Error>>;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
 pub struct MemoizedTransactionOutput {
@@ -91,11 +92,11 @@ fn decode_legacy_output(
 fn decode_modern_output(
     d: &mut cbor::Decoder<'_>,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
-    let (address, value, datum, script) = decode_map(
+    let (address, value, datum, script) = heterogeneous_map(
         d,
         (
-            missing_field(0, "address", "output"),
-            missing_field(1, "value", "output"),
+            missing_field::<MemoizedTransactionOutput, _>(0),
+            missing_field::<MemoizedTransactionOutput, _>(1),
             with_default_value(MemoizedDatum::None),
             with_default_value(None),
         ),
@@ -106,11 +107,7 @@ fn decode_modern_output(
                 1 => state.1 = decode_chunk(d, |d| d.decode()),
                 2 => state.2 = decode_chunk(d, |d| d.decode()),
                 3 => state.3 = decode_chunk(d, decode_reference_script),
-                _ => {
-                    return Err(cbor::decode::Error::message(
-                        "unexpected key in transaction output map",
-                    ))
-                }
+                _ => return unexpected_field::<MemoizedTransactionOutput, _>(field),
             }
             Ok(())
         },
@@ -123,53 +120,6 @@ fn decode_modern_output(
         datum: datum()?,
         script: script()?,
     })
-}
-
-fn decode_map<K, S>(
-    d: &mut cbor::Decoder<'_>,
-    mut state: S,
-    decode_key: impl Fn(&mut cbor::Decoder<'_>) -> Result<K, cbor::decode::Error>,
-    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut S, K) -> Result<(), cbor::decode::Error>,
-) -> Result<S, cbor::decode::Error> {
-    let len = d.map()?;
-
-    let mut n = 0;
-    while len.is_none() || Some(n) < len {
-        if d.datatype()? == Type::Break {
-            // NOTE: If we encounter a rogue Break while decoding a definite map, that's an error.
-            if len.is_some() {
-                return Err(cbor::decode::Error::type_mismatch(Type::Break));
-            }
-            d.skip()?;
-            break;
-        }
-
-        let k = decode_key(d)?;
-        decode_value(d, &mut state, k)?;
-
-        n += 1;
-    }
-
-    Ok(state)
-}
-
-fn decode_chunk<A: 'static>(
-    d: &mut cbor::Decoder<'_>,
-    decode: impl FnOnce(&mut cbor::Decoder<'_>) -> Result<A, cbor::decode::Error>,
-) -> PartialDecoder<A> {
-    // NOTE: It is crucial that this happens *outside* of the boxed closure, to ensure bytes are consumed
-    // when the closure is created; not when it is invoked!
-    let a = decode(d);
-    Box::new(|| a)
-}
-
-fn missing_field<A>(field_tag: u8, field_title: &str, container: &str) -> PartialDecoder<A> {
-    let msg = format!("missing {field_title} (field tag {field_tag}) in {container} map");
-    Box::new(move || Err(cbor::decode::Error::message(msg)))
-}
-
-fn with_default_value<A: 'static>(default: A) -> PartialDecoder<A> {
-    Box::new(move || Ok(default))
 }
 
 fn decode_reference_script(
@@ -193,9 +143,8 @@ fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> 
 }
 
 fn decode_break(d: &mut cbor::Decoder<'_>) -> Result<(), cbor::decode::Error> {
-    let is_break = d.datatype()? == cbor::data::Type::Break;
-    if !is_break {
-        return Err(cbor::decode::Error::type_mismatch(cbor::data::Type::Break));
+    if d.datatype()? != Type::Break {
+        return Err(cbor::decode::Error::type_mismatch(Type::Break));
     }
     d.skip()
 }
