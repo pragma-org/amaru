@@ -70,6 +70,7 @@ impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
     }
 }
 
+#[derive(Clone, Debug, PartialOrd, PartialEq, Eq)]
 enum ChainAction {
     ChainActionNewTip {
         tip: NodeId,
@@ -350,10 +351,10 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
 
     /// Return the parent of a given node in the arena
     /// When the arena is empty this returns the genesis node id
-    fn get_parent(&self, node_id: &NodeId) -> NodeId {
+    fn get_parent(&self, node_id: &NodeId) -> Option<NodeId> {
         let mut ancestors = node_id.ancestors(&self.arena);
         _ = ancestors.next();
-        ancestors.next().unwrap_or(self.best_chain())
+        ancestors.next()
     }
 
     fn select_best_chain_after_forward(
@@ -373,7 +374,9 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         // If the current chain (before the new header) is already at the maximum length
         // we need to move the anchor point one header up in the chain
         if peer_chain.ancestors(&self.arena).count() == self.max_length {
-            self.prune_unreachable_nodes(&self.get_parent(&new_tip));
+            if let Some(parent) = self.get_parent(&new_tip) {
+                self.prune_unreachable_nodes(&parent);
+            }
         };
         self.peers.insert(peer.clone(), *new_tip);
 
@@ -483,20 +486,21 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         // Otherwise, we are dealing with a different peer
 
         // If that user is contributing to the current best chain
-        if self
-            .best_chain
-            .ancestors(&self.arena)
-            .collect::<Vec<_>>()
-            .contains(&self.get_parent(node_id))
-        {
-            // If the peer new tip was added on top of the previous best tip
-            // This is a new tip on the current best chain
-            let new_tip_parent = self.get_parent(node_id);
-            return if new_tip_parent == self.best_chain() {
-                ChainActionNewTip { tip: *node_id }
-            } else {
-                ChainActionNoChange
-            };
+        if let Some(parent) = self.get_parent(node_id) {
+            if self
+                .best_chain
+                .ancestors(&self.arena)
+                .collect::<Vec<_>>()
+                .contains(&parent)
+            {
+                // If the peer new tip was added on top of the previous best tip
+                // This is a new tip on the current best chain
+                return if parent == self.best_chain() {
+                    ChainActionNewTip { tip: *node_id }
+                } else {
+                    ChainActionNoChange
+                };
+            }
         }
 
         // Otherwise peer is contributing to its own chain
@@ -521,11 +525,13 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             .unwrap_or_else(|| panic!("expected a peer {peer}"));
 
         // If the new tip was added on top of the previous chain tip
-        let node_id_parent = self.get_parent(node_id);
+        if let Some(parent) = self.get_parent(node_id) {
+            if parent == current_node_id {
+                return ChainActionNewTip { tip: *node_id };
+            }
+        }
 
-        if node_id_parent == current_node_id {
-            ChainActionNewTip { tip: *node_id }
-        } else if *node_id == current_node_id {
+        if *node_id == current_node_id {
             ChainActionNoChange
         } else {
             let best_peer_so_far = self
@@ -668,7 +674,6 @@ mod tests {
     use amaru_kernel::{Point, HEADER_HASH_SIZE};
     use amaru_ouroboros_traits::fake::FakeHeader;
     use test_macros::must_panic;
-    use crate::peer;
 
     #[test]
     fn empty() {
@@ -1055,6 +1060,20 @@ mod tests {
                 panic!("Unexpected error {e:?}")
             }
         }
+    }
+
+    #[test]
+    fn rollback_to_root() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+
+        let rollback_point = headers[0];
+        assert_eq!(
+            tree.select_rollback(&alice, &rollback_point.point())
+                .unwrap(),
+            RollbackTo(rollback_point.hash())
+        );
+        assert_eq!(tree.best_chain_tip(), Some(&rollback_point))
     }
 
     #[test]
