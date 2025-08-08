@@ -199,6 +199,10 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 
 /// Main logic for determining the chain selection
 impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
+    /// Determine what is the best chain after a forward, update the tracking data
+    /// and return a forward chain selection result
+    ///
+    /// Make sure that arena nodes which are not part of any chain are removed from the arena.
     fn select_best_chain_after_forward(
         &mut self,
         peer: &Peer,
@@ -239,6 +243,10 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         result
     }
 
+    /// Determine what is the best chain after a rollback, update the tracking data
+    /// and return a rollback chain selection result
+    ///
+    /// Make sure that arena nodes which are not part of any chain are removed from the arena.
     #[allow(clippy::expect_used)]
     fn select_best_chain_after_rollback(
         &mut self,
@@ -286,32 +294,34 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         result
     }
 
+    /// Create a fork for a given peer:
+    ///  - the old tip is the tip of the previous best chain
+    ///  - the new tip is the tip of the new best chain
     fn make_fork(&mut self, best_peer: &Peer, old_tip: NodeId, new_tip: NodeId) -> Fork<H> {
         let intersection_node_id = self.find_intersection_node_id(&old_tip, &new_tip);
 
+        // get all the nodes between the new tip and the forking node
         let forked_node_ids: Vec<NodeId> = new_tip
             .ancestors(&self.arena)
             .take_while(|n| *n != intersection_node_id)
             .collect();
+
+        // get the headers for each node and reverse their order to get them from older to younger
         let mut fork_fragment: Vec<H> = forked_node_ids
-            .iter()
-            .filter_map(|n| {
-                self.arena
-                    .get(*n)
-                    .and_then(|n| n.get().to_header().cloned())
-            })
+            .into_iter()
+            .filter_map(|n| self.get_header(n).cloned())
             .collect();
         fork_fragment.reverse();
-        let fork = Fork {
+
+        // return the fork
+        Fork {
             peer: best_peer.clone(),
             rollback_point: self
-                .arena
-                .get(intersection_node_id)
-                .and_then(|n| n.get().to_header().map(|h| h.point()))
+                .get_header(intersection_node_id)
+                .map(|h| h.point())
                 .unwrap_or(Point::Origin),
             fork: fork_fragment,
-        };
-        fork
+        }
     }
 }
 
