@@ -155,8 +155,11 @@ pub enum RollbackChainSelection<H: IsHeader> {
     SwitchToFork(Fork<H>),
 
     /// The peer tried to rollback beyond the limit
-    /// FIXME: use fields for the 2 hashes
-    RollbackBeyondLimit(Peer, Hash<32>, Hash<32>),
+    RollbackBeyondLimit {
+        peer: Peer,
+        rollback_point: Hash<32>,
+        max_point: Hash<32>,
+    },
 
     /// The current best chain as not changed
     NoChange,
@@ -338,11 +341,11 @@ where
                     fragment.headers.clear();
                     Ok(())
                 } else {
-                    Err(RollbackChainSelection::RollbackBeyondLimit(
-                        peer.clone(),
-                        point,
-                        fragment.anchor.hash(),
-                    ))
+                    Err(RollbackChainSelection::RollbackBeyondLimit {
+                        peer: peer.clone(),
+                        rollback_point: point,
+                        max_point: fragment.anchor.hash(),
+                    })
                 }
             }
             Some(index) => {
@@ -673,11 +676,11 @@ pub(crate) mod tests {
         let rollback_point = &chain1[1];
         let result = chain_selector.select_rollback(&alice, rollback_point.hash());
         assert_eq!(
-            RollbackChainSelection::RollbackBeyondLimit(
-                alice,
-                rollback_point.hash(),
-                chain1[2].hash()
-            ),
+            RollbackChainSelection::RollbackBeyondLimit {
+                peer: alice,
+                rollback_point: rollback_point.hash(),
+                max_point: chain1[2].hash()
+            },
             result,
             "chain selector: {:?}",
             chain_selector

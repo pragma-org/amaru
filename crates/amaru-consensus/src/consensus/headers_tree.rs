@@ -12,6 +12,7 @@ use pallas_crypto::hash::Hash;
 use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use tracing::debug;
+use crate::consensus::chain_selection::RollbackChainSelection::RollbackBeyondLimit;
 
 /// This data type stores chains as a tree of headers.
 /// It also keeps track of what is the latest tip for each peer.
@@ -264,8 +265,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
                 .get_root_for(peer)?
                 .map(|h| h.hash())
                 .unwrap_or(Point::Origin.hash());
-            Err(ConsensusError::InvalidRollback {
-                // TODO use a better max point (ie. tree root)
+            Ok(RollbackBeyondLimit {
                 peer: peer.clone(),
                 rollback_point: rollback_point_hash,
                 max_point: root,
@@ -1033,50 +1033,6 @@ mod tests {
     }
 
     #[test]
-    fn invalid_rollback() {
-        let alice = Peer::new("alice");
-        let bob = Peer::new("box");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
-
-        tree.initialize_peer(&bob, &headers[1].point()).unwrap();
-
-        // Bob tries to rollback on a header that's not part of its chain
-        let result = tree.select_rollback(&bob, &headers[3].point());
-
-        match result.err() {
-            Some(ConsensusError::InvalidRollback {
-                     peer,
-                     rollback_point,
-                     max_point,
-                 }) => {
-                assert_eq!(peer, bob);
-                assert_eq!(rollback_point, headers[3].hash());
-                assert_eq!(max_point, headers[0].hash());
-            }
-            None => {
-                panic!("Expected a failure")
-            }
-            Some(e) => {
-                panic!("Unexpected error {e:?}")
-            }
-        }
-    }
-
-    #[test]
-    fn rollback_to_root() {
-        let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
-
-        let rollback_point = headers[0];
-        assert_eq!(
-            tree.select_rollback(&alice, &rollback_point.point())
-                .unwrap(),
-            RollbackTo(rollback_point.hash())
-        );
-        assert_eq!(tree.best_chain_tip(), Some(&rollback_point))
-    }
-
-    #[test]
     fn rollback_then_roll_forward_on_the_best_chain() {
         let alice = Peer::new("alice");
         let (mut tree, headers) = initialize_with_peer(5, &alice);
@@ -1097,6 +1053,51 @@ mod tests {
             }
         );
     }
+
+    #[test]
+    fn rollback_beyond_limit() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        tree.initialize_peer(&bob, &headers[1].point()).unwrap();
+
+        // Bob tries to rollback on a header that's not part of its chain
+        let result = tree.select_rollback(&bob, &headers[3].point()).unwrap();
+        assert_eq!(result, RollbackChainSelection::RollbackBeyondLimit {
+            peer: bob,
+            rollback_point: headers[3].hash(),
+            max_point: headers[0].hash(),
+        });
+    }
+
+    #[test]
+    fn rollback_to_root() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+
+        let rollback_point = headers[0];
+        assert_eq!(
+            tree.select_rollback(&alice, &rollback_point.point())
+                .unwrap(),
+            RollbackTo(rollback_point.hash())
+        );
+        assert_eq!(tree.best_chain_tip(), Some(&rollback_point))
+    }
+
+    #[test]
+    fn rollback_to_the_root() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+
+        let rollback_point = headers[0];
+        assert_eq!(
+            tree.select_rollback(&alice, &rollback_point.point())
+                .unwrap(),
+            RollbackTo(rollback_point.hash())
+        );
+        assert_eq!(tree.best_chain_tip(), Some(&rollback_point))
+    }
+
 
     #[test]
     fn rollback_can_switch_chain_given_other_chain_is_longer() {
