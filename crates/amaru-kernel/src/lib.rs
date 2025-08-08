@@ -32,8 +32,8 @@ use pallas_primitives::{
 };
 use sha3::{Digest as _, Sha3_256};
 use std::{
-    array::TryFromSliceError, borrow::Cow, cmp::Ordering, collections::BTreeMap,
-    convert::Infallible, fmt::Debug, ops::Deref,
+    array::TryFromSliceError, borrow::Cow, collections::BTreeMap, convert::Infallible, fmt::Debug,
+    ops::Deref,
 };
 
 pub use pallas_addresses::{
@@ -103,6 +103,9 @@ pub mod proposal_pointer;
 pub use proposal_state::*;
 pub mod proposal_state;
 
+pub use required_script::*;
+pub mod required_script;
+
 pub use reward::*;
 pub mod reward;
 
@@ -136,6 +139,8 @@ pub const PROTOCOL_VERSION_9: ProtocolVersion = (9, 0);
 
 pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 
+pub const EMPTY_BLOCK: Vec<u8> = vec![];
+
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
 
@@ -147,51 +152,8 @@ pub type ScriptPurpose = RedeemerTag;
 
 pub type AuxiliaryDataHash = Hash<32>;
 
-#[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize)]
-pub struct RequiredScript {
-    pub hash: ScriptHash,
-    pub index: u32,
-    pub purpose: ScriptPurpose,
-    pub datum: MemoizedDatum,
-}
-
-impl PartialOrd for RequiredScript {
-    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-        Some(self.cmp(other))
-    }
-}
-
-impl From<&RequiredScript> for ScriptHash {
-    fn from(value: &RequiredScript) -> Self {
-        value.hash
-    }
-}
-
-impl Ord for RequiredScript {
-    fn cmp(&self, other: &Self) -> Ordering {
-        match self.hash.cmp(&other.hash) {
-            Ordering::Equal => match self.purpose.as_index().cmp(&other.purpose.as_index()) {
-                Ordering::Equal => self.index.cmp(&other.index),
-                by_purpose @ Ordering::Less | by_purpose @ Ordering::Greater => by_purpose,
-            },
-            by_hash @ Ordering::Less | by_hash @ Ordering::Greater => by_hash,
-        }
-    }
-}
-
-impl From<&RequiredScript> for RedeemerKey {
-    fn from(value: &RequiredScript) -> Self {
-        RedeemerKey {
-            tag: value.purpose,
-            index: value.index,
-        }
-    }
-}
-
 /// Convenient type alias to any kind of block
 pub type RawBlock = Vec<u8>;
-
-pub const EMPTY_BLOCK: Vec<u8> = vec![];
 
 pub type TransactionId = Hash<32>;
 
