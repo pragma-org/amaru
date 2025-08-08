@@ -24,7 +24,7 @@ While elements are being contributed upstream, they might transiently live in th
 use crate::network::NetworkName;
 use pallas_addresses::{
     byron::{AddrAttrProperty, AddressPayload},
-    Error, *,
+    *,
 };
 use pallas_codec::minicbor::{decode, encode, Decode, Decoder, Encode, Encoder};
 use pallas_primitives::{
@@ -91,6 +91,9 @@ pub mod drep_state;
 pub use memoized::*;
 pub mod memoized;
 
+pub use pool_params::*;
+pub mod pool_params;
+
 pub use proposal_id::*;
 pub mod proposal_id;
 
@@ -114,7 +117,9 @@ pub mod serde_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    pub use crate::{anchor::tests::*, ballot::tests::*, proposal_id::tests::*};
+    pub use crate::{
+        anchor::tests::*, ballot::tests::*, pool_params::tests::*, proposal_id::tests::*,
+    };
 }
 
 // Constants
@@ -417,160 +422,6 @@ pub fn decode_array<'d, A>(
     }
 
     Ok(result)
-}
-
-// PoolParams
-// ----------------------------------------------------------------------------
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PoolParams {
-    pub id: PoolId,
-    pub vrf: VrfKeyhash,
-    pub pledge: Coin,
-    pub cost: Coin,
-    pub margin: UnitInterval,
-    pub reward_account: RewardAccount,
-    pub owners: Set<AddrKeyhash>,
-    pub relays: Vec<Relay>,
-    pub metadata: Nullable<PoolMetadata>,
-}
-
-impl<C> cbor::encode::Encode<C> for PoolParams {
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(9)?;
-        e.encode_with(self.id, ctx)?;
-        e.encode_with(self.vrf, ctx)?;
-        e.encode_with(self.pledge, ctx)?;
-        e.encode_with(self.cost, ctx)?;
-        e.encode_with(&self.margin, ctx)?;
-        e.encode_with(&self.reward_account, ctx)?;
-        e.encode_with(&self.owners, ctx)?;
-        e.encode_with(&self.relays, ctx)?;
-        e.encode_with(&self.metadata, ctx)?;
-        Ok(())
-    }
-}
-
-impl<'b, C> cbor::decode::Decode<'b, C> for PoolParams {
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _len = d.array()?;
-        Ok(PoolParams {
-            id: d.decode_with(ctx)?,
-            vrf: d.decode_with(ctx)?,
-            pledge: d.decode_with(ctx)?,
-            cost: d.decode_with(ctx)?,
-            margin: d.decode_with(ctx)?,
-            reward_account: d.decode_with(ctx)?,
-            owners: d.decode_with(ctx)?,
-            relays: d.decode_with(ctx)?,
-            metadata: d.decode_with(ctx)?,
-        })
-    }
-}
-
-impl serde::Serialize for PoolParams {
-    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        use pallas_addresses::Address;
-        use serde::ser::SerializeStruct;
-        use std::collections::BTreeMap;
-
-        fn as_lovelace_map(n: u64) -> BTreeMap<String, BTreeMap<String, u64>> {
-            let mut lovelace = BTreeMap::new();
-            lovelace.insert("lovelace".to_string(), n);
-            let mut ada = BTreeMap::new();
-            ada.insert("ada".to_string(), lovelace);
-            ada
-        }
-
-        fn as_string_ratio(r: &UnitInterval) -> String {
-            format!("{}/{}", r.numerator, r.denominator)
-        }
-
-        fn as_bech32_addr(bytes: &[u8]) -> Result<String, Error> {
-            Address::from_bytes(bytes).and_then(|addr| addr.to_bech32())
-        }
-
-        struct WrapRelay<'a>(&'a Relay);
-
-        impl serde::Serialize for WrapRelay<'_> {
-            fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-                match self.0 {
-                    Relay::SingleHostAddr(port, ipv4, ipv6) => {
-                        let mut s = serializer.serialize_struct("Relay::SingleHostAddr", 4)?;
-                        s.serialize_field("type", "ipAddress")?;
-                        if let Nullable::Some(ipv4) = ipv4 {
-                            s.serialize_field(
-                                "ipv4",
-                                &format!("{}.{}.{}.{}", ipv4[0], ipv4[1], ipv4[2], ipv4[3]),
-                            )?;
-                        }
-                        if let Nullable::Some(ipv6) = ipv6 {
-                            let bytes: [u8; 16] = [
-                                ipv6[3], ipv6[2], ipv6[1], ipv6[0], // 1st fragment
-                                ipv6[7], ipv6[6], ipv6[5], ipv6[4], // 2nd fragment
-                                ipv6[11], ipv6[10], ipv6[9], ipv6[8], // 3rd fragment
-                                ipv6[15], ipv6[14], ipv6[13], ipv6[12], // 4th fragment
-                            ];
-                            s.serialize_field(
-                                "ipv6",
-                                &format!("{}", std::net::Ipv6Addr::from(bytes)),
-                            )?;
-                        }
-                        if let Nullable::Some(port) = port {
-                            s.serialize_field("port", port)?;
-                        }
-                        s.end()
-                    }
-                    Relay::SingleHostName(port, hostname) => {
-                        let mut s = serializer.serialize_struct("Relay::SingleHostName", 3)?;
-                        s.serialize_field("type", "hostname")?;
-                        s.serialize_field("hostname", hostname)?;
-                        if let Nullable::Some(port) = port {
-                            s.serialize_field("port", port)?;
-                        }
-                        s.end()
-                    }
-                    Relay::MultiHostName(hostname) => {
-                        let mut s = serializer.serialize_struct("Relay::MultiHostName", 2)?;
-                        s.serialize_field("type", "hostname")?;
-                        s.serialize_field("hostname", hostname)?;
-                        s.end()
-                    }
-                }
-            }
-        }
-
-        let mut s = serializer.serialize_struct("PoolParams", 9)?;
-        s.serialize_field("id", &hex::encode(self.id))?;
-        s.serialize_field("vrfVerificationKeyHash", &hex::encode(self.vrf))?;
-        s.serialize_field("pledge", &as_lovelace_map(self.pledge))?;
-        s.serialize_field("cost", &as_lovelace_map(self.cost))?;
-        s.serialize_field("margin", &as_string_ratio(&self.margin))?;
-        s.serialize_field(
-            "rewardAccount",
-            &as_bech32_addr(&self.reward_account).map_err(serde::ser::Error::custom)?,
-        )?;
-        s.serialize_field(
-            "owners",
-            &self.owners.iter().map(hex::encode).collect::<Vec<String>>(),
-        )?;
-        s.serialize_field(
-            "relays",
-            &self
-                .relays
-                .iter()
-                .map(WrapRelay)
-                .collect::<Vec<WrapRelay<'_>>>(),
-        )?;
-        if let Nullable::Some(metadata) = &self.metadata {
-            s.serialize_field("metadata", metadata)?;
-        }
-        s.end()
-    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Default, PartialOrd, Ord)]

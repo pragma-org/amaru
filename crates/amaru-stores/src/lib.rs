@@ -19,22 +19,20 @@ pub mod rocksdb;
 #[cfg(test)]
 pub mod tests {
     use amaru_kernel::{
-        network::NetworkName, tests::any_proposal_id, Anchor, EraHistory, Hash,
-        MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId, Slot, StakeCredential,
-        TransactionInput,
+        network::NetworkName,
+        tests::{any_pool_id, any_pool_params, any_proposal_id},
+        Anchor, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId,
+        Slot, StakeCredential, TransactionInput,
     };
-    use amaru_ledger::store::columns::cc_members;
     use amaru_ledger::{
         state::diff_bind,
         store::{
             columns::{
                 accounts::{self, tests::any_stake_credential},
-                dreps,
-                pools::tests::any_pool_id,
+                cc_members, dreps,
                 proposals::{self},
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
-                //utxo::{any_pseudo_transaction_output, any_txin},
             },
             Columns, ReadStore, Store, StoreError, TransactionalContext,
         },
@@ -119,10 +117,7 @@ pub mod tests {
             std::iter::once((account_key_clone, (delegatee, drep, rewards, deposit)));
 
         // pools
-        let pool_params = amaru_ledger::store::columns::pools::tests::any_pool_params()
-            .new_tree(runner)
-            .unwrap()
-            .current();
+        let pool_params = any_pool_params().new_tree(runner).unwrap().current();
         let pool_epoch = Epoch::from(0u64);
 
         let pools_iter = std::iter::once((pool_params.clone(), pool_epoch));
