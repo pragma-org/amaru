@@ -17,6 +17,8 @@ use pallas_crypto::hash::Hash;
 use pallas_primitives::{KeepRaw, PlutusData};
 use serde::ser::SerializeStruct;
 
+use minicbor_extra::heterogeneous_array;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoizedDatum {
     None,
@@ -68,52 +70,32 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         // Process modern datum
         if d.datatype()? == cbor::data::Type::Array {
-            let len = d.array()?;
-            match len {
-                Some(2) => {
-                    let datum_option = d.u8()?;
-                    Ok(match datum_option {
-                        0 => {
-                            let raw = d.bytes()?;
-                            if raw.len() != 32 {
-                                return Err(cbor::decode::Error::message(format!(
-                                    "expected datum hash of length 32, got {}",
-                                    raw.len()
-                                )));
-                            }
-                            MemoizedDatum::Hash(Hash::from(raw))
-                        }
-                        1 => {
-                            match d.tag()? == IanaTag::Cbor.tag() {
-                                true => {
-                                    let plutus_data: KeepRaw<'_, PlutusData> =
-                                        cbor::decode(d.bytes()?)?;
-                                    return Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(
-                                        plutus_data,
-                                    )));
-                                }
-                                false => {
-                                    return Err(cbor::decode::Error::message(
-                                        "unknown tag for datum tag",
-                                    ));
-                                }
-                            };
-                        }
-                        _ => {
+            heterogeneous_array(d, 2, |d| {
+                let datum_option = d.u8()?;
+                match datum_option {
+                    0 => {
+                        let raw = d.bytes()?;
+                        if raw.len() != 32 {
                             return Err(cbor::decode::Error::message(format!(
-                                "unknown datum option: {}",
-                                datum_option
+                                "expected datum hash of length 32, got {}",
+                                raw.len()
                             )));
                         }
-                    })
+                        Ok(MemoizedDatum::Hash(Hash::<32>::from(raw)))
+                    }
+                    1 => {
+                        if d.tag()? != IanaTag::Cbor.tag() {
+                            return Err(cbor::decode::Error::message("unknown tag for datum tag"));
+                        }
+                        let plutus_data: KeepRaw<'_, PlutusData> = cbor::decode(d.bytes()?)?;
+                        Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(plutus_data)))
+                    }
+                    _ => Err(cbor::decode::Error::message(format!(
+                        "unknown datum option: {}",
+                        datum_option
+                    ))),
                 }
-                Some(_) => Err(cbor::decode::Error::message(format!(
-                    "expected datum array length of 2, got {len:?}",
-                ))),
-                None => Err(cbor::decode::Error::message(
-                    "expected datum array length of 2, got indefinite array",
-                )),
-            }
+            })
         // Process legacy datum
         } else if d.datatype()? == cbor::data::Type::Break {
             Ok(MemoizedDatum::None)
