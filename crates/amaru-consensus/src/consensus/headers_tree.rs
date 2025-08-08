@@ -9,7 +9,7 @@ use amaru_kernel::{Point, HEADER_HASH_SIZE};
 use amaru_ouroboros_traits::IsHeader;
 use indextree::{Arena, Node, NodeId};
 use pallas_crypto::hash::Hash;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fmt::{Debug, Formatter};
 use tracing::debug;
 
@@ -436,7 +436,7 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             ChainActionRollback { rollback_node_id } => {
                 self.set_best_chain(peer, rollback_node_id);
                 let hash = self.unsafe_get_header(rollback_node_id).hash();
-                // TODO remove rolledback nodes from the arena
+                self.trim_unused_nodes();
                 RollbackChainSelection::RollbackTo(hash)
             }
             ChainActionFork {
@@ -603,7 +603,50 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         }
         Err(ConsensusError::UnknownPoint(point.clone()))
     }
+
+    /// Walk through the list of all each peer tip
+    /// and delete its descendants if they are not used in another chain
+    fn trim_unused_nodes(&mut self) {
+        let all_tips: HashSet<NodeId> = HashSet::from_iter(self.peers.values().map(|n| *n));
+        trim_arena_unused_nodes(&mut self.arena, all_tips);
+    }
 }
+
+/// Walk through the list of all nodes that are younger than each tip
+/// and delete them from the arena.
+///
+/// For example:
+///
+///  0 +- 1
+///    +- 2 - 3 - 4
+///    +- 5 - 6
+///
+///  peers = alice 2, bob 3, eve 5
+///
+/// Then, after trimming we get:
+///
+///  0 +- 1
+///    +- 2 - 3
+///
+fn trim_arena_unused_nodes<T>(arena: &mut Arena<T>, all_tips: HashSet<NodeId>) {
+    // list of nodes to remove with their descendants
+    let mut to_remove: HashSet<NodeId> = HashSet::new();
+
+    // find any tip that is not included in another chain
+    // i.e has the tip of another chain as a descendant of its children
+    for node in all_tips.iter() {
+        for children in node.children(&arena) {
+            let mut children_descendants = children.descendants(&arena);
+            if !children_descendants.any(|n| all_tips.contains(&n)) {
+                to_remove.insert(children);
+            }
+        }
+    }
+    for n in to_remove {
+        n.remove_subtree(arena);
+    }
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -955,13 +998,13 @@ mod tests {
     fn rollback_then_roll_forward_with_same_header_on_single_chain() {
         let alice = Peer::new("alice");
         let (mut tree, headers) = initialize_with_peer(5, &alice);
-        let rollback_to = headers[3];
-        print!("before rollback {:?}", tree);
-        tree.select_rollback(&alice, &rollback_to.point()).unwrap();
-        print!("after rollback {:?}", tree);
 
+        // rollback
+        let rollback_to = headers[3];
+        tree.select_rollback(&alice, &rollback_to.point()).unwrap();
+
+        // roll forward again
         let result = tree.select_roll_forward(&alice, headers[4]).unwrap();
-        print!("after roll forward {:?}", tree);
 
         assert_eq!(
             result,
@@ -1033,6 +1076,31 @@ mod tests {
     #[must_panic(expected = "Cannot create a headers tree with maximum chain length lower than 2")]
     fn cannot_initialize_tree_with_k_lower_than_2() {
         HeadersTree::<FakeHeader>::new(1, 1000);
+    }
+
+    #[test]
+    fn trim_unused_nodes_on_simple_tree() {
+        let mut arena: Arena<&str> = Arena::new();
+        let n_0 = arena.new_node("0");
+        let n_1 = arena.new_node("1");
+        let n_2 = arena.new_node("2");
+        let n_2_1 = arena.new_node("2_1");
+        let n_2_1_1 = arena.new_node("2_1_1");
+        let n_2_2 = arena.new_node("2_2");
+        let n_3 = arena.new_node("3");
+
+        n_0.append(n_1, &mut arena);
+        n_0.append(n_2, &mut arena);
+        n_2.append(n_2_1, &mut arena);
+        n_2_1.append(n_2_1_1, &mut arena);
+        n_2.append(n_2_2, &mut arena);
+        n_0.append(n_3, &mut arena);
+
+        let peer_tips = HashSet::from_iter(vec![n_0, n_1, n_2, n_2_1, n_2_2]);
+        trim_arena_unused_nodes(&mut arena, peer_tips);
+
+        let active_nodes: HashSet<&str> = arena.iter().filter(|n| !n.is_removed()).map(|n| *n.get()).collect();
+        assert_eq!(active_nodes, HashSet::from_iter(vec!["0", "1", "2", "2_1", "2_2"]))
     }
 
     /// HELPERS
