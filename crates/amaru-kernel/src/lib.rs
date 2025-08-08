@@ -112,6 +112,9 @@ pub mod reward;
 pub use reward_kind::*;
 pub mod reward_kind;
 
+pub use script_kind::*;
+pub mod script_kind;
+
 pub use strict_maybe::*;
 pub mod strict_maybe;
 
@@ -162,31 +165,6 @@ pub type PoolId = Hash<28>;
 pub type Nonce = Hash<32>;
 
 pub type Withdrawal = (StakeAddress, Lovelace);
-
-#[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum ScriptKind {
-    Native,
-    PlutusV1,
-    PlutusV2,
-    PlutusV3,
-}
-
-impl ScriptKind {
-    pub fn is_native_script(&self) -> bool {
-        matches!(self, Self::Native)
-    }
-}
-
-impl<'a, T> From<&'a PseudoScript<T>> for ScriptKind {
-    fn from(value: &'a PseudoScript<T>) -> Self {
-        match value {
-            PseudoScript::NativeScript(..) => ScriptKind::Native,
-            PseudoScript::PlutusV1Script(..) => ScriptKind::PlutusV1,
-            PseudoScript::PlutusV2Script(..) => ScriptKind::PlutusV2,
-            PseudoScript::PlutusV3Script(..) => ScriptKind::PlutusV3,
-        }
-    }
-}
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum BorrowedDatumOption<'a> {
