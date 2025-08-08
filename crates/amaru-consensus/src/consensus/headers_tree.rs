@@ -487,21 +487,26 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         } else if *node_id == current_node_id {
             ChainActionNoChange
         } else {
-            let (max_peer, max_node_id, max_length) = self
+            let best_peer_so_far = self
                 .peers
                 .iter()
                 .filter(|kv| kv.0 != peer)
                 .map(|kv| (kv.0, kv.1, kv.1.ancestors(&self.arena).count()))
-                .max_by_key(|kv| kv.1)
-                .unwrap();
+                .max_by_key(|kv| kv.1);
 
-            if node_id.ancestors(&self.arena).count() < max_length {
-                ChainActionFork {
-                    peer: max_peer.clone(),
-                    intersection_node_id: self
-                        .find_intersection_node_id(node_id, max_node_id)
-                        .unwrap_or(*max_node_id),
-                    best_tip: *max_node_id,
+            if let Some((max_peer, max_node_id, max_length)) = best_peer_so_far {
+                if node_id.ancestors(&self.arena).count() < max_length {
+                    ChainActionFork {
+                        peer: max_peer.clone(),
+                        intersection_node_id: self
+                            .find_intersection_node_id(node_id, max_node_id)
+                            .unwrap_or(*max_node_id),
+                        best_tip: *max_node_id,
+                    }
+                } else {
+                    ChainActionRollback {
+                        rollback_node_id: *node_id,
+                    }
                 }
             } else {
                 ChainActionRollback {
