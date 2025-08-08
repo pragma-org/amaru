@@ -73,7 +73,16 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                 Some(2) => {
                     let datum_option = d.u8()?;
                     Ok(match datum_option {
-                        0 => MemoizedDatum::from(Some(Hash::<32>::from(d.bytes()?))),
+                        0 => {
+                            let raw = d.bytes()?;
+                            if raw.len() != 28 {
+                                return Err(cbor::decode::Error::message(format!(
+                                    "expected datum hash of length 28, got {}",
+                                    raw.len()
+                                )));
+                            }
+                            MemoizedDatum::Hash(Hash::<32>::from(raw))
+                        }
                         1 => {
                             match d.tag()? == IanaTag::Cbor.tag() {
                                 true => {
