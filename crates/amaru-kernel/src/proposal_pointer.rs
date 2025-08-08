@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, Slot, TransactionPointer};
+use crate::{cbor, heterogeneous_array, Slot, TransactionPointer};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ProposalPointer {
@@ -41,10 +41,11 @@ impl<C> cbor::encode::Encode<C> for ProposalPointer {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for ProposalPointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        let _len = d.array()?;
-        Ok(ProposalPointer {
-            transaction: d.decode_with(ctx)?,
-            proposal_index: d.decode_with(ctx)?,
+        heterogeneous_array(d, 2, |d| {
+            Ok(ProposalPointer {
+                transaction: d.decode_with(ctx)?,
+                proposal_index: d.decode_with(ctx)?,
+            })
         })
     }
 }

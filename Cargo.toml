@@ -29,7 +29,7 @@ gasket = { version = "0.8.0", features = ["derive"] } # More recent versions hav
 hex = "0.4.3"
 indicatif = "0.17.9"
 indoc = "2.0"
-minicbor = "0.25.1" # Must match the version used by pallas
+minicbor = { version = "0.25.1", features = ["std", "half", "derive"] } # Must match the version used by pallas
 num = { version = "0.4.3", default-features = false, features = ["alloc"] }
 opentelemetry = "0.30.0"
 reqwest = { version = "0.12.20", default-features = false, features = ["json", "stream", "rustls-tls"] }
@@ -81,6 +81,7 @@ amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
 amaru-sim = { path = "crates/amaru-sim" }
 amaru-stores = { path = "crates/amaru-stores" }
 iter-borrow = { path = "crates/iter-borrow" }
+minicbor-extra = { path = "crates/minicbor-extra" }
 progress-bar = { path = "crates/progress-bar" }
 pure-stage = { path = "crates/pure-stage" }
 slot-arithmetic = { path = "crates/slot-arithmetic" }

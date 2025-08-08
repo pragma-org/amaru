@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, decode_array, Anchor, ProposalId, Vote};
+use crate::{cbor, heterogeneous_array, Anchor, ProposalId, Vote};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ballot {
@@ -37,7 +37,7 @@ impl<C> cbor::encode::Encode<C> for Ballot {
 
 impl<'d, C> cbor::decode::Decode<'d, C> for Ballot {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        decode_array(d, 3, |d| {
+        heterogeneous_array(d, 3, |d| {
             Ok(Ballot {
                 proposal: d.decode_with(ctx)?,
                 vote: d.decode_with(ctx)?,
