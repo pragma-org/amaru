@@ -12,7 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{DatumHash, MemoizedPlutusData, MintedDatumOption, cbor, cbor::data::IanaTag};
+use crate::{cbor, cbor::data::IanaTag, DatumHash, MemoizedPlutusData, MintedDatumOption};
+use pallas_crypto::hash::Hash;
+use pallas_primitives::{KeepRaw, PlutusData};
 use serde::ser::SerializeStruct;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,6 +59,56 @@ impl<'de> serde::Deserialize<'de> for MemoizedDatum {
             PlaceholderDatum::Unit(()) => Ok(MemoizedDatum::None),
             PlaceholderDatum::Hash(bytes) => Ok(MemoizedDatum::Hash(bytes)),
             PlaceholderDatum::Data(data) => Ok(MemoizedDatum::Inline(data)),
+        }
+    }
+}
+
+impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
+    #[allow(unused_variables)] // ctx will be used in the future
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        // Process modern datum
+        if d.datatype()? == cbor::data::Type::Array {
+            let len = d.array()?;
+            match len {
+                Some(2) => {
+                    let datum_option = d.u8()?;
+                    Ok(match datum_option {
+                        0 => MemoizedDatum::from(Some(Hash::<32>::from(d.bytes()?))),
+                        1 => {
+                            match d.tag()? == IanaTag::Cbor.tag() {
+                                true => {
+                                    let plutus_data: KeepRaw<'_, PlutusData> =
+                                        cbor::decode(d.bytes()?)?;
+                                    let memoized_data = MemoizedPlutusData::from(plutus_data);
+                                    return Ok(MemoizedDatum::Inline(memoized_data));
+                                }
+                                false => {
+                                    return Err(cbor::decode::Error::message(
+                                        "unknown tag for datum tag",
+                                    ));
+                                }
+                            };
+                        }
+                        _ => {
+                            return Err(cbor::decode::Error::message(format!(
+                                "unknown datum option: {}",
+                                datum_option
+                            )));
+                        }
+                    })
+                }
+                Some(_) => Err(cbor::decode::Error::message(format!(
+                    "expected datum array length of 2, got {len:?}",
+                ))),
+                None => Err(cbor::decode::Error::message(
+                    "expected datum array length of 2, got indefinite array",
+                )),
+            }
+        // Process legacy datum
+        } else if d.datatype()? == cbor::data::Type::Break {
+            Ok(MemoizedDatum::None)
+        } else {
+            Ok(MemoizedDatum::from(Some(Hash::<32>::from(d.bytes()?))))
         }
     }
 }

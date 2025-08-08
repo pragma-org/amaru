@@ -16,6 +16,7 @@ use crate::{
     Bytes, MemoizedNativeScript, PlutusScript, PseudoScript, cbor,
     cbor::{bytes::ByteSlice, data::IanaTag},
 };
+use pallas_primitives::{conway::NativeScript, KeepRaw};
 use serde::ser::SerializeStruct;
 
 pub type MemoizedScript = PseudoScript<MemoizedNativeScript>;
@@ -108,6 +109,28 @@ impl TryFrom<PlaceholderScript> for MemoizedScript {
                 MemoizedScript::PlutusV3Script(PlutusScript(bytes))
             }
         })
+    }
+}
+
+pub struct LocalPseudoScript<T>(pub PseudoScript<T>);
+
+impl<'a> From<LocalPseudoScript<KeepRaw<'a, NativeScript>>> for MemoizedScript {
+    fn from(wrapper: LocalPseudoScript<KeepRaw<'a, NativeScript>>) -> Self {
+        let pseudo_script = wrapper.0;
+        match pseudo_script {
+            PseudoScript::NativeScript(script_bytes) => {
+                MemoizedScript::NativeScript(MemoizedNativeScript::from(script_bytes))
+            }
+            PseudoScript::PlutusV1Script(script_bytes) => {
+                MemoizedScript::PlutusV1Script(script_bytes)
+            }
+            PseudoScript::PlutusV2Script(script_bytes) => {
+                MemoizedScript::PlutusV2Script(script_bytes)
+            }
+            PseudoScript::PlutusV3Script(script_bytes) => {
+                MemoizedScript::PlutusV3Script(script_bytes)
+            }
+        }
     }
 }
 

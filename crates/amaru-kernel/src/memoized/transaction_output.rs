@@ -13,15 +13,18 @@
 // limitations under the License.
 
 use crate::{
-    Address, AlonzoValue, AssetName, KeyValuePairs, Lovelace, MemoizedDatum, MemoizedNativeScript,
+    cbor,
+    script::{encode_script, serialize_memoized_script, PlaceholderScript},
+    Address, AlonzoValue, AssetName, KeyValuePairs, LocalPseudoScript, Lovelace, MemoizedDatum, MemoizedNativeScript,
     MemoizedPlutusData, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
-    PseudoScript, ScriptHash, Value, cbor, native_script,
-    script::{PlaceholderScript, encode_script, serialize_memoized_script},
+    PseudoScript, ScriptHash, Value,
 };
 
-use pallas_codec::minicbor::data::IanaTag;
-use pallas_crypto::hash::Hash;
-use pallas_primitives::{KeepRaw, PlutusData, conway::NativeScript};
+use pallas_codec::minicbor::data::{IanaTag, Type};
+
+use pallas_primitives::conway::PseudoScript;
+
+type PartialDecoder<A> = Box<dyn FnOnce() -> Result<A, cbor::decode::Error>>;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
 pub struct MemoizedTransactionOutput {
@@ -44,19 +47,16 @@ pub struct MemoizedTransactionOutput {
 }
 
 impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
-    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+    #[allow(unused_variables)] // ctx will be used in the future
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let data_type = d.datatype()?;
 
-        if data_type == cbor::data::Type::MapIndef || data_type == cbor::data::Type::Map {
+        if data_type == Type::MapIndef || data_type == Type::Map {
             decode_modern_output(d)
-        } else if data_type == cbor::data::Type::ArrayIndef || data_type == cbor::data::Type::Array
-        {
+        } else if data_type == Type::ArrayIndef || data_type == Type::Array {
             decode_legacy_output(d)
         } else {
-            Err(cbor::decode::Error::message(format!(
-                "unexpected CBOR type for output: {:?}",
-                data_type
-            )))
+            Err(cbor::decode::Error::type_mismatch(data_type))
         }
     }
 }
@@ -65,157 +65,139 @@ fn decode_legacy_output(
     d: &mut cbor::Decoder<'_>,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
     let len = d.array()?;
-    match len {
-        Some(2) => Ok(MemoizedTransactionOutput {
-            is_legacy: true,
-            address: decode_address(d.bytes()?)?,
-            value: d.decode()?,
-            datum: MemoizedDatum::None,
-            script: None,
-        }),
-        Some(3) | None => Ok(MemoizedTransactionOutput {
-            is_legacy: true,
-            address: decode_address(d.bytes()?)?,
-            value: d.decode()?,
-            datum: decode_datum(d)?,
-            script: None,
-        }),
-        _ => Err(cbor::decode::Error::message(format!(
-            "expected legacy transaction output array length of 2 or 3, got {len:?}",
-        ))),
-    }
+
+    Ok(MemoizedTransactionOutput {
+        is_legacy: true,
+        address: decode_address(d.bytes()?)?,
+        value: d.decode()?,
+        datum: match len {
+            Some(2) => MemoizedDatum::None,
+            Some(3) => d.decode()?,
+            Some(_) => {
+                return Err(cbor::decode::Error::message(format!(
+                    "expected legacy transaction output array length of 2 or 3, got {len:?}",
+                )))
+            }
+            None => {
+                let datum = d.decode()?;
+                decode_break(d)?;
+                datum
+            }
+        },
+        script: None,
+    })
 }
 
 fn decode_modern_output(
     d: &mut cbor::Decoder<'_>,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
-    let mut address_bytes: &[u8] = &[];
-    let mut value: Value = Value::Coin(0);
-    let mut datum: MemoizedDatum = MemoizedDatum::None;
-    let mut script: Option<MemoizedScript> = None;
-
-    match d.map()? {
-        Some(size) => {
-            for _ in 0..size {
-                decode_map_value(d, &mut address_bytes, &mut value, &mut datum, &mut script)?;
+    let (address, value, datum, script) = decode_map(
+        d,
+        (
+            missing_field(0, "address", "output"),
+            missing_field(1, "value", "output"),
+            with_default_value(MemoizedDatum::None),
+            with_default_value(None),
+        ),
+        |d| d.u8(),
+        |d, state, field| {
+            match field {
+                0 => state.0 = decode_chunk(d, |d| decode_address(d.bytes()?)),
+                1 => state.1 = decode_chunk(d, |d| d.decode()),
+                2 => state.2 = decode_chunk(d, |d| d.decode()),
+                3 => state.3 = decode_chunk(d, decode_reference_script),
+                _ => {
+                    return Err(cbor::decode::Error::message(
+                        "unexpected key in transaction output map",
+                    ))
+                }
             }
-        }
-        None => loop {
-            if d.datatype()? == cbor::data::Type::Break {
-                d.skip()?;
-                break;
-            }
-            decode_map_value(d, &mut address_bytes, &mut value, &mut datum, &mut script)?;
+            Ok(())
         },
-    }
+    )?;
 
     Ok(MemoizedTransactionOutput {
         is_legacy: false,
-        address: decode_address(address_bytes)?,
-        value,
-        datum,
-        script,
+        address: address()?,
+        value: value()?,
+        datum: datum()?,
+        script: script()?,
     })
 }
 
-fn decode_map_value<'a>(
-    d: &mut cbor::Decoder<'a>,
-    address_bytes: &mut &'a [u8],
-    value: &mut Value,
-    datum: &mut MemoizedDatum,
-    script: &mut Option<PseudoScript<MemoizedNativeScript>>,
-) -> Result<(), cbor::decode::Error> {
-    match d.u8()? {
-        0 => *address_bytes = d.bytes()?,
-        1 => *value = d.decode()?,
-        2 => *datum = decode_datum(d)?,
-        3 => *script = decode_reference_script(d)?,
-        _ => {
-            return Err(cbor::decode::Error::message(
-                "unexpected key in transaction output map",
-            ));
+fn decode_map<K, S>(
+    d: &mut cbor::Decoder<'_>,
+    mut state: S,
+    decode_key: impl Fn(&mut cbor::Decoder<'_>) -> Result<K, cbor::decode::Error>,
+    mut decode_value: impl FnMut(&mut cbor::Decoder<'_>, &mut S, K) -> Result<(), cbor::decode::Error>,
+) -> Result<S, cbor::decode::Error> {
+    let len = d.map()?;
+
+    let mut n = 0;
+    while len.is_none() || Some(n) < len {
+        if d.datatype()? == Type::Break {
+            // NOTE: If we encounter a rogue Break while decoding a definite map, that's an error.
+            if len.is_some() {
+                return Err(cbor::decode::Error::type_mismatch(Type::Break));
+            }
+            d.skip()?;
+            break;
         }
+
+        let k = decode_key(d)?;
+        decode_value(d, &mut state, k)?;
+
+        n += 1;
     }
-    Ok(())
+
+    Ok(state)
+}
+
+fn decode_chunk<A: 'static>(
+    d: &mut cbor::Decoder<'_>,
+    decode: impl FnOnce(&mut cbor::Decoder<'_>) -> Result<A, cbor::decode::Error>,
+) -> PartialDecoder<A> {
+    // NOTE: It is crucial that this happens *outside* of the boxed closure, to ensure bytes are consumed
+    // when the closure is created; not when it is invoked!
+    let a = decode(d);
+    Box::new(|| a)
+}
+
+fn missing_field<A>(field_tag: u8, field_title: &str, container: &str) -> PartialDecoder<A> {
+    let msg = format!("missing {field_title} (field tag {field_tag}) in {container} map");
+    Box::new(move || Err(cbor::decode::Error::message(msg)))
+}
+
+fn with_default_value<A: 'static>(default: A) -> PartialDecoder<A> {
+    Box::new(move || Ok(default))
 }
 
 fn decode_reference_script(
     d: &mut cbor::Decoder<'_>,
-) -> Result<
-    Option<pallas_primitives::conway::PseudoScript<native_script::MemoizedNativeScript>>,
-    cbor::decode::Error,
-> {
-    Ok(match d.tag()? == IanaTag::Cbor.tag() {
-        true => {
-            let mut script_decoder: cbor::Decoder<'_> = cbor::Decoder::new(d.bytes()?);
-            let pseudo_script: Result<PseudoScript<KeepRaw<'_, NativeScript>>, _> =
-                script_decoder.decode();
-
-            match pseudo_script {
-                Ok(script) => Some(from_memoized_script(script)),
-                Err(e) => {
-                    return Err(cbor::decode::Error::message(format!(
-                        "failed to decode script: {e}"
-                    )));
-                }
-            }
-        }
-        false => {
-            return Err(cbor::decode::Error::message("unknown tag for script tag"));
-        }
-    })
-}
-
-fn decode_datum(d: &mut cbor::Decoder<'_>) -> Result<MemoizedDatum, cbor::decode::Error> {
-    // Process modern datum
-    if d.datatype()? == cbor::data::Type::Array {
-        let len = d.array()?;
-        match len {
-            Some(2) => {
-                let datum_option = d.u8()?;
-                Ok(match datum_option {
-                    0 => MemoizedDatum::from(Some(Hash::<32>::from(d.bytes()?))),
-                    1 => {
-                        match d.tag()? == IanaTag::Cbor.tag() {
-                            true => {
-                                let plutus_data: KeepRaw<'_, PlutusData> =
-                                    cbor::decode(d.bytes()?)?;
-                                let memoized_data = MemoizedPlutusData::from(plutus_data);
-                                return Ok(MemoizedDatum::Inline(memoized_data));
-                            }
-                            false => {
-                                return Err(cbor::decode::Error::message(
-                                    "unknown tag for datum tag",
-                                ));
-                            }
-                        };
-                    }
-                    _ => {
-                        return Err(cbor::decode::Error::message(format!(
-                            "unknown datum option: {}",
-                            datum_option
-                        )));
-                    }
-                })
-            }
-            Some(_) => Err(cbor::decode::Error::message(format!(
-                "expected datum array length of 2, got {len:?}",
-            ))),
-            None => Err(cbor::decode::Error::message(
-                "expected datum array length of 2, got indefinite array",
-            )),
-        }
-    // Process legacy datum
-    } else if d.datatype()? == cbor::data::Type::Break {
-        Ok(MemoizedDatum::None)
-    } else {
-        Ok(MemoizedDatum::from(Some(Hash::<32>::from(d.bytes()?))))
+) -> Result<Option<PseudoScript<MemoizedNativeScript>>, cbor::decode::Error> {
+    if d.tag()? != IanaTag::Cbor.tag() {
+        return Err(cbor::decode::Error::message("unexpected tag as script tag"));
     }
+    let mut script_decoder: cbor::Decoder<'_> = cbor::Decoder::new(d.bytes()?);
+    let failed_to_decode =
+        |e| cbor::decode::Error::message(format!("failed to decode script: {e}"));
+
+    Ok(Some(MemoizedScript::from(LocalPseudoScript(
+        script_decoder.decode().map_err(failed_to_decode)?,
+    ))))
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
     Address::from_bytes(address_bytes)
         .map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
+}
+
+fn decode_break(d: &mut cbor::Decoder<'_>) -> Result<(), cbor::decode::Error> {
+    let is_break = d.datatype()? == cbor::data::Type::Break;
+    if !is_break {
+        return Err(cbor::decode::Error::type_mismatch(cbor::data::Type::Break));
+    }
+    d.skip()
 }
 
 impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
@@ -288,7 +270,7 @@ impl<'a> TryFrom<MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
                 datum: MemoizedDatum::from(output.datum_option),
                 script: output
                     .script_ref
-                    .map(|script| from_memoized_script(script.unwrap())),
+                    .map(|script| MemoizedScript::from(LocalPseudoScript(script.unwrap()))),
             }),
         }
     }
@@ -386,17 +368,6 @@ pub fn deserialize_script<'de, D: serde::de::Deserializer<'de>>(
         Some(placeholder) => Ok(Some(
             MemoizedScript::try_from(placeholder).map_err(serde::de::Error::custom)?,
         )),
-    }
-}
-
-fn from_memoized_script(pseudo_script: PseudoScript<KeepRaw<'_, NativeScript>>) -> MemoizedScript {
-    match pseudo_script {
-        PseudoScript::NativeScript(script_bytes) => {
-            PseudoScript::NativeScript(MemoizedNativeScript::from(script_bytes))
-        }
-        PseudoScript::PlutusV1Script(script_bytes) => PseudoScript::PlutusV1Script(script_bytes),
-        PseudoScript::PlutusV2Script(script_bytes) => PseudoScript::PlutusV2Script(script_bytes),
-        PseudoScript::PlutusV3Script(script_bytes) => PseudoScript::PlutusV3Script(script_bytes),
     }
 }
 
