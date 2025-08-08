@@ -88,8 +88,9 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                                 true => {
                                     let plutus_data: KeepRaw<'_, PlutusData> =
                                         cbor::decode(d.bytes()?)?;
-                                    let memoized_data = MemoizedPlutusData::from(plutus_data);
-                                    return Ok(MemoizedDatum::Inline(memoized_data));
+                                    return Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(
+                                        plutus_data,
+                                    )));
                                 }
                                 false => {
                                     return Err(cbor::decode::Error::message(
