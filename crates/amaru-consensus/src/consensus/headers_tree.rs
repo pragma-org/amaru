@@ -35,14 +35,38 @@ pub struct HeadersTree<H> {
 
 impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let debug_peers: Vec<String> = self
+            .peers
+            .iter()
+            .map(|(peer, node_id)| {
+                format!(
+                    "{} -> {}",
+                    peer,
+                    self.arena
+                        .get(*node_id)
+                        .filter(|n| !n.is_removed())
+                        .map(|n| n.get().hash().to_string())
+                        .unwrap_or("<REMOVED>".to_string()),
+                )
+            })
+            .collect();
+        let debug_best_chain = self
+            .best_chain_tip()
+            .map(|n| n.hash().to_string())
+            .unwrap_or("<UNKNOWN (WUT???)>".to_string());
+
         f.write_str(&self.pretty_print())?;
         f.write_str("\n")?;
         f.debug_struct("HeadersTree")
-            .field("peers", &self.peers)
-            .field("best_chain", &self.best_chain)
-            .field("best_peer", &self.best_peer)
-            .field("max_length", &self.max_length)
-            .finish()
+            .field("\n   peers", &debug_peers)
+            .field("\n   best_chain", &debug_best_chain)
+            .field(
+                "\n   best_peer",
+                &self.best_peer.as_ref().map(|p| p.to_string()),
+            )
+            .field("\n   max_length", &self.max_length)
+            .finish()?;
+        f.write_str("\n")
     }
 }
 
