@@ -259,11 +259,15 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
         if let Some(rollback_node_id) = self.get_rollback_node_id(peer, &rollback_point_hash)? {
             Ok(self.select_best_chain_after_rollback(peer, &rollback_node_id))
         } else {
+            let root = self
+                .get_root_for(peer)?
+                .map(|h| h.hash())
+                .unwrap_or(Point::Origin.hash());
             Err(ConsensusError::InvalidRollback {
                 // TODO use a better max point (ie. tree root)
                 peer: peer.clone(),
                 rollback_point: rollback_point_hash,
-                max_point: Point::Origin.hash(),
+                max_point: root,
             })
         }
     }
@@ -562,6 +566,15 @@ impl<H: IsHeader + Clone + std::fmt::Debug> HeadersTree<H> {
             .and_then(|node| node.get().to_header()))
     }
 
+    /// Return the chain root for a given Peer
+    fn get_root_for(&self, peer: &Peer) -> Result<Option<&H>, ConsensusError> {
+        let node_id = self.get_node_id_tip_for(peer)?;
+        Ok(node_id
+            .ancestors(&self.arena)
+            .last()
+            .and_then(|n| self.unsafe_get_arena_node(n).get().to_header()))
+    }
+
     /// Return the chain tip for a given Peer
     fn get_node_id_tip_for(&self, peer: &Peer) -> Result<NodeId, ConsensusError> {
         Ok(*self
@@ -645,7 +658,6 @@ fn trim_arena_unused_nodes<T>(arena: &mut Arena<T>, all_tips: HashSet<NodeId>) {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -656,6 +668,7 @@ mod tests {
     use amaru_kernel::{Point, HEADER_HASH_SIZE};
     use amaru_ouroboros_traits::fake::FakeHeader;
     use test_macros::must_panic;
+    use crate::peer;
 
     #[test]
     fn empty() {
@@ -983,7 +996,7 @@ mod tests {
         let alice = Peer::new("alice");
         let (mut tree, headers) = initialize_with_peer(5, &alice);
         let middle = headers[3];
-        let result = RollbackChainSelection::RollbackTo(middle.hash());
+        let result = RollbackTo(middle.hash());
         assert_eq!(
             tree.select_rollback(&alice, &middle.point()).unwrap(),
             result
@@ -1012,6 +1025,36 @@ mod tests {
             }
         );
         assert_eq!(tree.best_chain_tip(), Some(&headers[4]))
+    }
+
+    #[test]
+    fn invalid_rollback() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("box");
+        let (mut tree, headers) = initialize_with_peer(5, &alice);
+
+        tree.initialize_peer(&bob, &headers[1].point()).unwrap();
+
+        // Bob tries to rollback on a header that's not part of its chain
+        let result = tree.select_rollback(&bob, &headers[3].point());
+
+        match result.err() {
+            Some(ConsensusError::InvalidRollback {
+                     peer,
+                     rollback_point,
+                     max_point,
+                 }) => {
+                assert_eq!(peer, bob);
+                assert_eq!(rollback_point, headers[3].hash());
+                assert_eq!(max_point, headers[0].hash());
+            }
+            None => {
+                panic!("Expected a failure")
+            }
+            Some(e) => {
+                panic!("Unexpected error {e:?}")
+            }
+        }
     }
 
     #[test]
@@ -1097,8 +1140,15 @@ mod tests {
         let peer_tips = HashSet::from_iter(vec![n_0, n_1, n_2, n_2_1, n_2_2]);
         trim_arena_unused_nodes(&mut arena, peer_tips);
 
-        let active_nodes: HashSet<&str> = arena.iter().filter(|n| !n.is_removed()).map(|n| *n.get()).collect();
-        assert_eq!(active_nodes, HashSet::from_iter(vec!["0", "1", "2", "2_1", "2_2"]))
+        let active_nodes: HashSet<&str> = arena
+            .iter()
+            .filter(|n| !n.is_removed())
+            .map(|n| *n.get())
+            .collect();
+        assert_eq!(
+            active_nodes,
+            HashSet::from_iter(vec!["0", "1", "2", "2_1", "2_2"])
+        )
     }
 
     /// HELPERS
