@@ -19,7 +19,7 @@ use amaru_kernel::{
     ProtocolVersion, ScriptHash, StakeCredential, UnitInterval,
 };
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     rc::Rc,
 };
@@ -27,10 +27,26 @@ use std::{
 // Top-level logic
 // ----------------------------------------------------------------------------
 
-pub fn ratify_proposals(mut proposals: Vec<(ProposalId, proposals::Row)>, _epoch: Epoch) {
+/// All informations needed to ratify votes.
+pub struct RatificationContext {
+    /// The epoch that just ended.
+    pub epoch: Epoch,
+
+    /// The protocol version at the moment the epoch ended.
+    pub protocol_version: ProtocolVersion,
+
+    /// The current roots (i.e. latest enacted proposal ids) for each of the
+    /// relevant proposal categories.
+    pub roots: ProposalRoots,
+}
+
+pub fn ratify_proposals(
+    ctx: RatificationContext,
+    mut proposals: Vec<(ProposalId, proposals::Row)>,
+) {
     proposals.sort_by(|a, b| a.1.proposed_in.cmp(&b.1.proposed_in));
 
-    let forest = proposals
+    let mut forest = proposals
         .drain(..)
         .fold(ProposalsForest::empty(), |mut forest, (id, row)| {
             forest
@@ -42,7 +58,102 @@ pub fn ratify_proposals(mut proposals: Vec<(ProposalId, proposals::Row)>, _epoch
             forest
         });
 
-    println!("==================== RATIFYING PROPOSALS ====================\n\n{forest}\n\n");
+    // The ratification of some proposals causes all other subsequent proposals' ratification to be
+    // delayed to the next epoch boundary. Initially, there's none and we'll switch the flag if any
+    // of the following proposal kind gets ratified:
+    //
+    // - a motion of no confidence; or
+    // - a hard fork; or
+    // - a constitutional committee update; or
+    // - a constitution update.
+    //
+    // Said differently, there can be many treasury withdrawals, protocol parameters changes or
+    // nice polls; but as soon as one of the other is encountered; EVERYTHING (including treasury
+    // withdrawals and parameters changes) is postponed until the next epoch.
+    let mut delayed = false;
+
+    while let Some((id, proposal)) = guard(!delayed, || forest.peek()) {
+        // TODO: There are additional checks we should perform at the moment of ratification
+        //
+        // - On constitutional committee updates, we should ensure that any term limit is still
+        //   valid. This can happen if a protocol parameter change that changes the max term limit
+        //   is ratified *before* a committee update, possibly rendering it invalid.
+        //
+        // - On treasury withdrawals, we must ensure there's still enough money in the treasury.
+        //   This is necessary since there can be an arbitrary number of withdrawals that have been
+        //   ratified and enacted just before; possibly depleting the treasury.
+        //
+        // Note that either way, it doesn't _invalidate_ proposals, since time and subsequent
+        // proposals may turn the tide again. They should simply be skipped, and revisited at the
+        // next epoch boundary.
+
+        // Ensures that the next proposal points to an active root. Not being the case isn't
+        // necessarily an issue or a sign that something went wrong.
+        //
+        // In fact, since proposals can form arbitrarily long chain, it is very plausible that a
+        // proposal points to another that isn't ratified just yet.
+        //
+        // Encountering a non-matching root also doesn't mean we shouldn't process other proposals.
+        // The order is given by their point of submission; and thus, proposals submitted later may
+        // points to totally different (and active) roots.
+        if roots.matching(&proposal) && is_accepted_by_everyone(&ctx, &proposal) {
+            todo!("a proposal has been ratified, it must now be enacted!")
+        }
+    }
+}
+
+fn is_accepted_by_everyone(ctx: &RatificationContext, proposal: &ProposalEnum) -> bool {
+    is_accepted_by_constitutional_committee(ctx, proposal)
+        && is_accepted_by_stake_pool_operators(ctx, proposal)
+        && is_accepted_by_delegate_representatives(ctx, proposal)
+}
+
+fn is_accepted_by_constitutional_committee(
+    ctx: &RatificationContext,
+    proposal: &ProposalEnum,
+) -> bool {
+    todo!()
+}
+
+fn is_accepted_by_stake_pool_operators(ctx: &RatificationContext, proposal: &ProposalEnum) -> bool {
+    todo!()
+}
+
+fn is_accepted_by_delegate_representatives(
+    ctx: &RatificationContext,
+    proposal: &ProposalEnum,
+) -> bool {
+    todo!()
+}
+
+// ProposalRoots
+// ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct ProposalRoots {
+    pub protocol_parameters: Option<ComparableProposalId>,
+    pub hard_fork: Option<ComparableProposalId>,
+    pub constitutional_committee: Option<ComparableProposalId>,
+    pub constitution: Option<ComparableProposalId>,
+}
+
+impl ProposalRoots {
+    pub fn matching(&self, proposal: &ProposalEnum) -> bool {
+        match proposal {
+            // Orphans have no parents, so no roots. Hence it always _matches_.
+            ProposalEnum::Orphan(..) => true,
+            ProposalEnum::ProtocolParameters(_, parent) => {
+                parent.as_deref() == self.protocol_parameters.as_ref()
+            }
+            ProposalEnum::HardFork(_, parent) => parent.as_deref() == self.hard_fork.as_ref(),
+            ProposalEnum::ConstitutionalCommittee(_, parent) => {
+                parent.as_deref() == self.constitutional_committee.as_ref()
+            }
+            ProposalEnum::Constitution(_, parent) => {
+                parent.as_deref() == self.constitution.as_ref()
+            }
+        }
+    }
 }
 
 // CommitteeUpdate
@@ -243,10 +354,10 @@ pub enum ProposalsInsertError {
 ///   `OrphanProposal`)
 #[derive(Debug)]
 pub enum ProposalEnum {
-    ProtocolParametersUpdate(ProtocolParamUpdate),
-    HardFork(ProtocolVersion),
-    CommitteeUpdate(CommitteeUpdate),
-    Constitution(Constitution),
+    ProtocolParameters(ProtocolParamUpdate, Option<Rc<ComparableProposalId>>),
+    HardFork(ProtocolVersion, Option<Rc<ComparableProposalId>>),
+    ConstitutionalCommittee(CommitteeUpdate, Option<Rc<ComparableProposalId>>),
+    Constitution(Constitution, Option<Rc<ComparableProposalId>>),
     Orphan(OrphanProposal),
 }
 
@@ -263,28 +374,47 @@ pub struct ProposalsForest {
     /// The order in which proposals are inserted matters. The forest is an insertion-preserving
     /// structure. Iterating on the forest will yield the proposals in the order they were
     /// inserted.
-    sequence: Vec<Rc<ComparableProposalId>>,
+    sequence: VecDeque<Rc<ComparableProposalId>>,
 
     // Finally, the relation between proposals is preserved through multiple tree-like structures.
     // This is what gives this data-structure its name.
-    protocol_parameters_updates: ProposalsTree,
-    hard_forks: ProposalsTree,
-    constitutional_committee_updates: ProposalsTree,
-    constitution_updates: ProposalsTree,
+    protocol_parameters: ProposalsTree,
+    hard_fork: ProposalsTree,
+    constitutional_committee: ProposalsTree,
+    constitution: ProposalsTree,
 }
 
 impl ProposalsForest {
     pub fn empty() -> Self {
         ProposalsForest {
             proposals: BTreeMap::new(),
-            sequence: vec![],
-            protocol_parameters_updates: ProposalsTree::Empty,
-            hard_forks: ProposalsTree::Empty,
-            constitutional_committee_updates: ProposalsTree::Empty,
-            constitution_updates: ProposalsTree::Empty,
+            sequence: VecDeque::new(),
+            protocol_parameters: ProposalsTree::Empty,
+            hard_fork: ProposalsTree::Empty,
+            constitutional_committee: ProposalsTree::Empty,
+            constitution: ProposalsTree::Empty,
         }
     }
 
+    /// Returns the proposal that should be handled next, if any. The order is given by the
+    /// insertion order of proposals. Although, other operations on the forest may results in
+    /// pruning the forest by removing intermediate proposals.
+    pub fn peek(&self) -> Option<(&ComparableProposalId, &ProposalEnum)> {
+        let k = self.sequence.front()?;
+        self.proposals.get(k).map(|v| (k.as_ref(), v))
+    }
+
+    /// Insert a proposal in the forest. This retains the order of insertion, so it is assumed
+    /// that:
+    ///
+    /// 1. The caller has taken care of ordering proposals so that when a proposal has a parent
+    ///    relationship with another, that other has been inserted before.
+    ///
+    /// 2. Except from the first proposal at the root of the tree, there's no proposal referring to
+    ///    a non-existing parent (which is vaguely similar to the first point).
+    ///
+    /// If these two conditions are respected, then `insert` cannot fail and will always yield
+    /// `Ok`.
     pub fn insert(
         &mut self,
         id: ComparableProposalId,
@@ -294,24 +424,28 @@ impl ProposalsForest {
 
         let id = Rc::new(id);
 
-        self.sequence.push(id.clone());
+        self.sequence.push_back(id.clone());
 
         match proposal {
             ParameterChange(parent, update, _guardrails_script) => {
-                self.protocol_parameters_updates
-                    .insert(id.clone(), into_parent_id(parent))?;
+                let parent = into_parent_id(parent);
+
+                self.protocol_parameters
+                    .insert(id.clone(), parent.clone())?;
 
                 self.proposals
-                    .insert(id, ProposalEnum::ProtocolParametersUpdate(*update));
+                    .insert(id, ProposalEnum::ProtocolParameters(*update, parent));
 
                 Ok(())
             }
 
             HardForkInitiation(parent, protocol_version) => {
-                self.hard_forks.insert(id.clone(), into_parent_id(parent))?;
+                let parent = into_parent_id(parent);
+
+                self.hard_fork.insert(id.clone(), parent.clone())?;
 
                 self.proposals
-                    .insert(id, ProposalEnum::HardFork(protocol_version));
+                    .insert(id, ProposalEnum::HardFork(protocol_version, parent));
 
                 Ok(())
             }
@@ -337,43 +471,51 @@ impl ProposalsForest {
             }
 
             UpdateCommittee(parent, removed, added, threshold) => {
-                self.constitutional_committee_updates
-                    .insert(id.clone(), into_parent_id(parent))?;
+                let parent = into_parent_id(parent);
+
+                self.constitutional_committee
+                    .insert(id.clone(), parent.clone())?;
 
                 self.proposals.insert(
                     id.clone(),
-                    ProposalEnum::CommitteeUpdate(CommitteeUpdate::ChangeMembers {
-                        removed: removed.to_vec().into_iter().collect(),
-                        added: added
-                            .to_vec()
-                            .into_iter()
-                            .map(|(k, v)| (k, Epoch::from(v)))
-                            .collect(),
-                        threshold,
-                    }),
+                    ProposalEnum::ConstitutionalCommittee(
+                        CommitteeUpdate::ChangeMembers {
+                            removed: removed.to_vec().into_iter().collect(),
+                            added: added
+                                .to_vec()
+                                .into_iter()
+                                .map(|(k, v)| (k, Epoch::from(v)))
+                                .collect(),
+                            threshold,
+                        },
+                        parent,
+                    ),
                 );
 
                 Ok(())
             }
 
             NoConfidence(parent) => {
-                self.constitutional_committee_updates
-                    .insert(id.clone(), into_parent_id(parent))?;
+                let parent = into_parent_id(parent);
+
+                self.constitutional_committee
+                    .insert(id.clone(), parent.clone())?;
 
                 self.proposals.insert(
                     id.clone(),
-                    ProposalEnum::CommitteeUpdate(CommitteeUpdate::NoConfidence),
+                    ProposalEnum::CommitteeUpdate(CommitteeUpdate::NoConfidence, parent),
                 );
 
                 Ok(())
             }
 
             NewConstitution(parent, constitution) => {
-                self.constitution_updates
-                    .insert(id.clone(), into_parent_id(parent))?;
+                let parent = into_parent_id(parent);
+
+                self.constitution.insert(id.clone(), parent.clone())?;
 
                 self.proposals
-                    .insert(id.clone(), ProposalEnum::Constitution(constitution));
+                    .insert(id.clone(), ProposalEnum::Constitution(constitution, parent));
 
                 Ok(())
             }
@@ -525,7 +667,7 @@ impl fmt::Display for ProposalsForest {
             f,
             "Protocol Parameter Updates",
             Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::ProtocolParametersUpdate(a)) => Some(a),
+                Some(ProposalEnum::ProtocolParametersUpdate(a, _)) => Some(a),
                 _ => None,
             }),
             Rc::new(|pp, prefix| {
@@ -534,14 +676,14 @@ impl fmt::Display for ProposalsForest {
                     display_protocol_parameters_update(pp, &format!("{prefix}· "))?
                 ))
             }),
-            &self.protocol_parameters_updates,
+            &self.protocol_parameters,
         )?;
 
         section::<ProtocolVersion>(
             f,
             "Hard forks",
             Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::HardFork(a)) => Some(a),
+                Some(ProposalEnum::HardFork(a, _)) => Some(a),
                 _ => None,
             }),
             Rc::new(|protocol_version, _| {
@@ -550,25 +692,25 @@ impl fmt::Display for ProposalsForest {
                     protocol_version.0, protocol_version.1
                 ))
             }),
-            &self.hard_forks,
+            &self.hard_fork,
         )?;
 
         section::<CommitteeUpdate>(
             f,
             "Constitutional Committee Updates",
             Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::CommitteeUpdate(a)) => Some(a),
+                Some(ProposalEnum::CommitteeUpdate(a, _)) => Some(a),
                 _ => None,
             }),
             Rc::new(|committee_update, _| Ok(committee_update.to_string())),
-            &self.constitutional_committee_updates,
+            &self.constitutional_committee,
         )?;
 
         section::<Constitution>(
             f,
             "Constitution updates",
             Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::Constitution(a)) => Some(a),
+                Some(ProposalEnum::Constitution(a, _)) => Some(a),
                 _ => None,
             }),
             Rc::new(|constitution, _| {
@@ -584,7 +726,7 @@ impl fmt::Display for ProposalsForest {
                     },
                 ))
             }),
-            &self.constitution_updates,
+            &self.constitution,
         )?;
 
         let others = self
@@ -617,5 +759,14 @@ fn into_parent_id(nullable: Nullable<ProposalId>) -> Option<Rc<ComparableProposa
     match nullable {
         Nullable::Undefined | Nullable::Null => None,
         Nullable::Some(id) => Some(Rc::new(ComparableProposalId::from(id))),
+    }
+}
+
+/// Execute the guarded action if the predicate is `true`; returns `None` otherwise.
+fn guard<A>(predicate: bool, action: impl Fn() -> Option<A>) -> Option<A> {
+    if predicate {
+        action()
+    } else {
+        None
     }
 }
