@@ -164,15 +164,13 @@ pub fn bootstrap(
     )?;
 
     let consensus = match ledger_stage {
-        LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
-            Arc::new(validate_block_stage.state.view_stake_distribution()),
-            chain_store_ref.clone(),
-        ),
+        LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(Arc::new(
+            validate_block_stage.state.view_stake_distribution(),
+        )),
 
-        LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(
-            Arc::new(validate_block_stage.state.view_stake_distribution()),
-            chain_store_ref.clone(),
-        ),
+        LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(Arc::new(
+            validate_block_stage.state.view_stake_distribution(),
+        )),
     };
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
@@ -203,6 +201,9 @@ pub fn bootstrap(
 
     let (network_output, validate_header_input) =
         build_stage_graph(global_parameters, consensus, &mut network);
+
+    network.resources().put(chain_store_ref);
+    network.resources().put(global_parameters);
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());

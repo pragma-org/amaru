@@ -331,4 +331,8 @@ impl super::StageGraph for SimulationBuilder {
             trace_buffer,
         )
     }
+
+    fn resources(&self) -> &Resources {
+        &self.resources
+    }
 }

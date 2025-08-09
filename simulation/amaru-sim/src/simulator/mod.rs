@@ -108,7 +108,14 @@ pub struct Args {
     pub persist_on_success: bool,
 }
 
-fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
+fn init_node(
+    args: &Args,
+) -> (
+    GlobalParameters,
+    SelectChain,
+    ValidateHeader,
+    Arc<Mutex<dyn ChainStore<Header>>>,
+) {
     let network_name = NetworkName::Testnet(42);
     let global_parameters: &GlobalParameters = network_name.into();
     let stake_distribution: FakeStakeDistribution =
@@ -131,9 +138,14 @@ fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
             .collect::<Vec<_>>(),
     ));
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
+    let validate_header = ValidateHeader::new(Arc::new(stake_distribution));
 
-    (global_parameters.clone(), select_chain, validate_header)
+    (
+        global_parameters.clone(),
+        select_chain,
+        validate_header,
+        chain_ref,
+    )
 }
 
 fn spawn_node(
@@ -152,15 +164,14 @@ fn spawn_node(
 ) {
     info!("Spawning node!");
 
-    let (global_parameters, select_chain, validate_header) = init_node(&args);
+    let (global_parameters, select_chain, validate_header, chain_ref) = init_node(&args);
 
     let init_st = ValidateHeader {
         ledger: validate_header.ledger.clone(),
-        store: validate_header.store.clone(),
     };
 
     let init_store = StoreHeader {
-        store: validate_header.store.clone(),
+        store: chain_ref.clone(),
     };
 
     let receive_stage = network.stage(
@@ -332,6 +343,10 @@ fn spawn_node(
         (select_chain.clone(), propagate_header_stage.sender()),
     );
     network.wire_up(propagate_header_stage, (0, output.without_state()));
+
+    network.resources().put(chain_ref);
+    network.resources().put(global_parameters);
+
     (rx, receive)
 }
 

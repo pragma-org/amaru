@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, is_header::IsHeader, peer::Peer, ConsensusError};
+use crate::{consensus::store::ChainStore, peer::Peer, ConsensusError};
 use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point};
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
@@ -60,8 +60,6 @@ pub fn header_is_valid(
 pub struct ValidateHeader {
     #[serde(skip, default = "default_ledger")]
     pub ledger: Arc<dyn HasStakeDistribution>,
-    #[serde(skip, default = "default_store")]
-    pub store: Arc<Mutex<dyn ChainStore<Header>>>,
 }
 
 impl PartialEq for ValidateHeader {
@@ -117,6 +115,7 @@ impl EvolveNonceEffect {
 }
 
 impl ExternalEffect for EvolveNonceEffect {
+    #[allow(clippy::expect_used)]
     fn run(
         self: Box<Self>,
         resources: Resources,
@@ -124,10 +123,12 @@ impl ExternalEffect for EvolveNonceEffect {
         Box::pin(async move {
             let store = resources
                 .get::<Arc<Mutex<dyn ChainStore<Header>>>>()
-                .unwrap()
+                .expect("EvolveNonceEffect requires a chain store")
                 .clone();
             let mut store = store.lock().await;
-            let global_parameters = resources.get::<GlobalParameters>().unwrap();
+            let global_parameters = resources
+                .get::<GlobalParameters>()
+                .expect("EvolveNonceEffect requires global parameters");
             let result = store.evolve_nonce(&self.header, &global_parameters);
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
@@ -139,11 +140,8 @@ impl ExternalEffectAPI for EvolveNonceEffect {
 }
 
 impl ValidateHeader {
-    pub fn new(
-        ledger: Arc<dyn HasStakeDistribution>,
-        store: Arc<Mutex<dyn ChainStore<Header>>>,
-    ) -> Self {
-        Self { ledger, store }
+    pub fn new(ledger: Arc<dyn HasStakeDistribution>) -> Self {
+        Self { ledger }
     }
 
     #[instrument(

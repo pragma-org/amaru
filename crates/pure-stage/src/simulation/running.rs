@@ -71,6 +71,7 @@ pub struct SimulationRunning {
 }
 
 impl SimulationRunning {
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn new(
         stages: BTreeMap<Name, StageData>,
         inputs: Inputs,
@@ -96,6 +97,13 @@ impl SimulationRunning {
             breakpoints: Vec::new(),
             trace_buffer,
         }
+    }
+
+    /// Get the resources collection for the network.
+    ///
+    /// This can be used during tests to modify the available resources at specific points in time.
+    pub fn resources(&self) -> &Resources {
+        &self.resources
     }
 
     /// Install a breakpoint that will be hit when an effect matching the given predicate is encountered.

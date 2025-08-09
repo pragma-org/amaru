@@ -177,6 +177,10 @@ impl StageGraph for TokioBuilder {
             .collect();
         TokioRunning { handles }
     }
+
+    fn resources(&self) -> &Resources {
+        &self.inner.resources
+    }
 }
 
 #[allow(clippy::expect_used)]

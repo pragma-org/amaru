@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    types::MpscSender, Effects, Instant, Name, OutputEffect, Receiver, SendData, Sender,
+    types::MpscSender, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
     StageBuildRef, StageRef, Void,
 };
 use std::{
@@ -210,4 +210,9 @@ pub trait StageGraph {
 
         (output.without_state(), Receiver::new(rx))
     }
+
+    /// Get the resources collection for the network.
+    ///
+    /// It is prudent to populate this collection before running the network.
+    fn resources(&self) -> &Resources;
 }
