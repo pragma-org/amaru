@@ -26,6 +26,16 @@ We will use the following approach:
 * developers will need to define and maintain error enums for each crate
 * anyhow is used in `amaru` crate to avoid boilerplate while retaining detailed context
 
+## Pitfalls
+
+* no `unwrap`, `expect`, `panic` usage or related unless they deal with impossibilities
+* do not use generic `Error`s like `String` or `Box<dyn Error>` in low level code
+* do not swallow stack details when chaining errors
+* when chaining errors, do not omit context (e.g. use anyhow `context`)
+* do not create too many `Error` hierarchy (start with one per `crate`)
+
+Given that `amaru` is expected to run in adversarial conditions it is especially important not to crash unless a programming mistake has been identified. Particularly, error during block validation should be reported higher in the stack as soon as possible and not prevent further blocks processing. Similarly, network related errors should be handled and not let the node crash.
+
 ## Example
 
 
