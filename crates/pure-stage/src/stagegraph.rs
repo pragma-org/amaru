@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    types::MpscSender, Effects, Instant, Name, OutputEffect, Receiver, SendData, Sender,
+    types::MpscSender, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
     StageBuildRef, StageRef, Void,
 };
 use std::{
@@ -100,6 +100,7 @@ impl<Resp: SendData> CallRef<Resp> {
 /// Network construction proceeds in two phases:
 /// 1. create stages, providing their transition functions
 /// 2. wire up the stages by providing their initial state (which usually includes [`StageRef`]s for sending to other stages)
+/// 3. populate the resources collection with the necessary resources
 ///
 /// If you forget to call [`wire_up`](StageGraph::wire_up) on a stage, the simulation will panic.
 ///
@@ -120,6 +121,9 @@ impl<Resp: SendData> CallRef<Resp> {
 ///
 /// // phase 2: wire up stages by injecting targets into their state
 /// let stage = network.wire_up(stage, (1u32, output.without_state()));
+///
+/// // phase 3: populate the resources collection with the necessary resources (if used by external effects)
+/// network.resources().put(42u8);
 ///
 /// // finalize the network and run it (or make it controllable, in case of SimulationBuilder)
 /// // (this needs a Tokio runtime for executing external effects)
@@ -210,4 +214,9 @@ pub trait StageGraph {
 
         (output.without_state(), Receiver::new(rx))
     }
+
+    /// Get the resources collection for the network.
+    ///
+    /// It is prudent to populate this collection before running the network.
+    fn resources(&self) -> &Resources;
 }

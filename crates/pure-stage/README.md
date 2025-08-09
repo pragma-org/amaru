@@ -40,14 +40,27 @@ The wiring function ensures that message types do match, but it won't prevent co
 
 ## Future Work
 
-- add `Call` effect to allow internal asynchronous collaboration before accepting the next input (to keep back pressure intact in this case)
-- pass effect factory object into the transition function instead of requiring it in closures or states
-- factor out effect handler so that it can then also be used to run things in the Tokio StageGraph implementation
-- keep ring buffer to effects and (infrequent) state snapshots to enable later replay of system behaviour in a deterministic fashion
-- add virtual time tracking (i.e. implement `Clock` and `Wait` effects)
 - add deterministic shuffling of effect scheduling in the Simulation StageGraph implementation
-- output an execution log for debugging that notes all effects and state changes
+- output an execution log for debugging that notes all effects and state changes (not yet done for Tokio)
 - add stage error handling (currently a stage just stops working)
+
+## Thoughts on World State
+
+A stage's state may well refer to some external real world resource like a database or a network connection; these cannot be serialized nor deserialized.
+Leaving these resources outside of the stage means manipulating them only via ExternalEffects, which keeps the code and the responsibilities cleanly separated:
+when starting the simulation, effect handlers for these external effects need to be installed that match the world state needed for the current simulation run.
+During a replay this means recreating the state of databases or (simulated) network connections such as to match the application state when the trace was recorded.
+When starting a StageGraph not at the beginning of time, it means opening latest stored databases and re-establishing persistent network connections.
+The ability to do this depends on recording the expected world state in snapshots (where snapshots are taken at some defined schedule or cadence).
+
+The alternative is to move the resources into the stage state, which means that serialization records a brief declaration and deserialization recreates the resource based on that declaration (e.g. a database path and snapshot name).
+One important caveat is that stage states are deserialized independently for each stage, meaning that for example a database connection is maintained once per process in shared global mutable state or that each stage has a separate database connection.
+While the latter may work for some database drivers, it is not an option for resources that are intended to be shared between stages.
+A possible solution to this problem would be to add a per-StageGraph resource registry that deserialization code accesses using some kind of typed key objects.
+This means that deserialization needs to be parameterized, which is not foreseen in serde and thus implies using ThreadLocal or similar hacks.
+
+This reasoning leads me to the conclusion that moving resources out of the stages and manipulating them through external effects only is the more robust and more flexible approach:
+we control the API for evaluating external effects and can thus include access to a resource registry, which can then contain values that are either per-StageGraph or even shared between a selection of StageGraphs.
 
 ## Notes on TraceBuffer and Serialization
 
@@ -56,5 +69,5 @@ While [`typetag`](docs.rs/typetag) can solve the serialization issue (via `erase
 The solution `typetag` provides therefore cannot support generic types, which closes the door on any kind of type parameter occurring within messages, states, and effects in the system.
 This is clearly a restriction that weighs too heavily, thus a different solution is required.
 
-The current design shifts all deserialization to places where the concrete target type can be named and where thus the compiler can instantiate a `Deserialize` instance.
+The current design shifts all deserialization to places where the concrete target type can be named and where thus the compiler can summon a `Deserialize` instance.
 This unfortunately requires some trace entries to be deserialized multiple times, with information for the simulation machinery being done in the generic parts and then the specific application data type (for messages or effect responses) to be deserialized from the generic `cbor4ii::core::Value` on the application side of the airlock; let us give thanks to the universe for schemaless deserialization in this context.

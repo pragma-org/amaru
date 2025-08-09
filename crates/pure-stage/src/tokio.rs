@@ -19,6 +19,7 @@
 
 use crate::{
     effect::{StageEffect, StageResponse},
+    resources::Resources,
     simulation::EffectBox,
     time::Clock,
     BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
@@ -47,6 +48,7 @@ pub struct SendError {
 struct TokioInner {
     senders: BTreeMap<Name, mpsc::Sender<Box<dyn SendData>>>,
     clock: Arc<dyn Clock + Send + Sync>,
+    resources: Resources,
     mailbox_size: usize,
 }
 
@@ -55,6 +57,7 @@ impl Default for TokioInner {
         Self {
             senders: Default::default(),
             clock: Arc::new(TokioClock),
+            resources: Resources::default(),
             mailbox_size: 10,
         }
     }
@@ -174,6 +177,10 @@ impl StageGraph for TokioBuilder {
             .collect();
         TokioRunning { handles }
     }
+
+    fn resources(&self) -> &Resources {
+        &self.inner.resources
+    }
 }
 
 #[allow(clippy::expect_used)]
@@ -260,7 +267,7 @@ async fn interpreter<St>(
             }
             StageEffect::External(effect) => {
                 tracing::debug!("stage `{name}` external effect: {:?}", effect);
-                StageResponse::ExternalResponse(effect.run().await)
+                StageResponse::ExternalResponse(effect.run(inner.resources.clone()).await)
             }
         };
         *effect.lock() = Some(Right(resp));

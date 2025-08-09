@@ -16,8 +16,8 @@
 use pure_stage::{
     simulation::{OverrideResult, SimulationBuilder},
     trace_buffer::TraceBuffer,
-    CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, SendData, StageGraph,
-    StageRef, Void,
+    CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, Resources, SendData,
+    StageGraph, StageRef, Void,
 };
 use std::{
     sync::{
@@ -58,7 +58,7 @@ fn basic() {
     let ext = running
         .effect()
         .extract_external(&output, &OutputEffect::fake(output.name(), 2u32).0);
-    let result = rt.block_on(ext.run());
+    let result = rt.block_on(ext.run(Resources::default()));
     // this check is also done when resuming, just want to show how to do it here
     assert_eq!(&*result, &() as &dyn SendData);
     running.resume_external(&output, result).unwrap();
