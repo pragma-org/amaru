@@ -27,7 +27,7 @@ use crate::{
     stagegraph::CallRef,
     time::Clock,
     trace_buffer::TraceBuffer,
-    CallId, Effect, ExternalEffect, Name, SendData, StageRef,
+    CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
 };
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
@@ -59,6 +59,7 @@ pub struct SimulationRunning {
     inputs: Inputs,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
+    resources: Resources,
     runnable: VecDeque<(Name, StageResponse)>,
     sleeping: BinaryHeap<Sleeping>,
     responded: Vec<(Name, CallId)>,
@@ -75,6 +76,7 @@ impl SimulationRunning {
         inputs: Inputs,
         effect: EffectBox,
         clock: Arc<dyn Clock + Send + Sync>,
+        resources: Resources,
         mailbox_size: usize,
         rt: Handle,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -84,6 +86,7 @@ impl SimulationRunning {
             inputs,
             effect,
             clock,
+            resources,
             runnable: VecDeque::new(),
             sleeping: BinaryHeap::new(),
             responded: Vec::new(),
@@ -511,7 +514,8 @@ impl SimulationRunning {
                         }
                     }
                 }
-                let result = result.unwrap_or_else(|| self.rt.block_on(effect.run()));
+                let result =
+                    result.unwrap_or_else(|| self.rt.block_on(effect.run(self.resources.clone())));
                 let data = self.stages.get_mut(&at_stage).unwrap();
                 resume_external_internal(data, result, run)
                     .expect("external effect is always runnable");

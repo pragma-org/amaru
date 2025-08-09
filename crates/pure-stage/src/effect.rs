@@ -17,7 +17,7 @@ use crate::{
     serde::{to_cbor, SendDataValue},
     simulation::{airlock_effect, EffectBox},
     time::Clock,
-    BoxFuture, CallId, CallRef, Instant, Name, SendData, Sender, StageRef,
+    BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, Sender, StageRef,
 };
 use cbor4ii::{core::Value, serde::from_slice};
 use serde::de::DeserializeOwned;
@@ -208,7 +208,7 @@ pub trait ExternalEffect: SendData {
     /// Run the effect in production mode.
     ///
     /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::simulation::SimulationRunning::handle_effect).
-    fn run(self: Box<Self>) -> BoxFuture<'static, Box<dyn SendData>>;
+    fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
 }
 
 /// Separate trait for fixing the response type of an external effect.
@@ -256,7 +256,7 @@ impl serde::Serialize for dyn ExternalEffect {
 }
 
 impl ExternalEffect for () {
-    fn run(self: Box<Self>) -> BoxFuture<'static, Box<dyn SendData>> {
+    fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async { Box::new(()) as Box<dyn SendData> })
     }
 }
@@ -295,7 +295,7 @@ impl UnknownExternalEffect {
 }
 
 impl ExternalEffect for UnknownExternalEffect {
-    fn run(self: Box<Self>) -> BoxFuture<'static, Box<dyn SendData>> {
+    fn run(self: Box<Self>, _resources: Resources) -> BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async { Box::new(()) as Box<dyn SendData> })
     }
 }

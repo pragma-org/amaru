@@ -17,7 +17,7 @@ use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header,
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
-use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, StageRef, Void};
+use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, StageRef, Void};
 use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{instrument, Level, Span};
@@ -105,55 +105,30 @@ impl fmt::Debug for ValidateHeader {
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct EvolveNonceEffect {
-    #[serde(skip, default = "default_store")]
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
     header: Header,
-    global_parameters: GlobalParameters,
-}
-
-impl PartialEq for EvolveNonceEffect {
-    fn eq(&self, other: &Self) -> bool {
-        self.header == other.header && self.global_parameters == other.global_parameters
-    }
-}
-
-fn default_store() -> Arc<Mutex<dyn ChainStore<Header>>> {
-    Arc::new(Mutex::new(super::store::FakeStore::default()))
 }
 
 impl EvolveNonceEffect {
-    fn new(
-        store: Arc<Mutex<dyn ChainStore<Header>>>,
-        header: Header,
-        global_parameters: GlobalParameters,
-    ) -> Self {
-        Self {
-            store,
-            header,
-            global_parameters,
-        }
-    }
-}
-
-impl fmt::Debug for EvolveNonceEffect {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EvolveNonceEffect")
-            .field("header", &self.header.hash().to_string())
-            .field("global_parameters", &self.global_parameters)
-            .finish()
+    fn new(header: Header) -> Self {
+        Self { header }
     }
 }
 
 impl ExternalEffect for EvolveNonceEffect {
-    fn run(self: Box<Self>) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
+    fn run(
+        self: Box<Self>,
+        resources: Resources,
+    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
         Box::pin(async move {
-            let result = self
-                .store
-                .lock()
-                .await
-                .evolve_nonce(&self.header, &self.global_parameters);
+            let store = resources
+                .get::<Arc<Mutex<dyn ChainStore<Header>>>>()
+                .unwrap()
+                .clone();
+            let mut store = store.lock().await;
+            let global_parameters = resources.get::<GlobalParameters>().unwrap();
+            let result = store.evolve_nonce(&self.header, &global_parameters);
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }
@@ -198,13 +173,7 @@ impl ValidateHeader {
         let Nonces {
             active: ref epoch_nonce,
             ..
-        } = eff
-            .external(EvolveNonceEffect::new(
-                self.store.clone(),
-                header.clone(),
-                global_parameters.clone(),
-            ))
-            .await?;
+        } = eff.external(EvolveNonceEffect::new(header.clone())).await?;
 
         header_is_valid(
             &point,

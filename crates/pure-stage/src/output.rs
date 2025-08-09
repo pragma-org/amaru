@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{types::MpscSender, ExternalEffect, ExternalEffectAPI, Name, SendData};
+use crate::{types::MpscSender, ExternalEffect, ExternalEffectAPI, Name, Resources, SendData};
 use std::fmt;
 use tokio::sync::mpsc;
 
@@ -71,7 +71,7 @@ impl<Msg> ExternalEffect for OutputEffect<Msg>
 where
     Msg: SendData + PartialEq + serde::Serialize + serde::de::DeserializeOwned,
 {
-    fn run(self: Box<Self>) -> crate::BoxFuture<'static, Box<dyn SendData>> {
+    fn run(self: Box<Self>, _resources: Resources) -> crate::BoxFuture<'static, Box<dyn SendData>> {
         Box::pin(async move {
             if let Err(e) = self.sender.send(self.msg).await {
                 tracing::debug!("output `{}` failed to send message: {:?}", self.name, e.0);
