@@ -13,13 +13,24 @@
 // limitations under the License.
 
 pub use pallas_primitives::conway::GovActionId as ProposalId;
-use std::cmp::Ordering;
+use std::{cmp::Ordering, fmt};
 
-#[derive(Debug, Eq, PartialEq, Clone)]
 // TODO: This type shouldn't exist, and `Ord` / `PartialOrd` should be derived in Pallas on
 // 'GovActionId' already.
+#[derive(Debug, Eq, PartialEq, Clone)]
+#[repr(transparent)]
 pub struct ComparableProposalId {
     pub inner: ProposalId,
+}
+
+impl fmt::Display for ComparableProposalId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{}.{}",
+            self.inner.action_index, self.inner.transaction_id
+        )
+    }
 }
 
 impl From<ProposalId> for ComparableProposalId {

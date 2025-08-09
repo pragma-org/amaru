@@ -105,6 +105,11 @@ pub mod proposal_pointer;
 pub use proposal_state::*;
 pub mod proposal_state;
 
+pub mod protocol_parameters;
+
+pub use protocol_parameters_update::*;
+pub mod protocol_parameters_update;
+
 pub use required_script::*;
 pub mod required_script;
 
@@ -126,7 +131,6 @@ pub mod transaction_pointer;
 pub mod block;
 pub mod macros;
 pub mod network;
-pub mod protocol_parameters;
 pub mod serde_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
