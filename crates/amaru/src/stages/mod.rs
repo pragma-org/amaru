@@ -200,16 +200,8 @@ pub fn bootstrap(
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
 
-    let validate_header_stage = network.stage("validate_header", validate_header::stage);
-
-    let (network_output_ref, network_output) = network.output("network_output", 50);
-
-    let validate_header_stage = network.wire_up(
-        validate_header_stage,
-        (consensus, global_parameters.clone(), network_output_ref),
-    );
-
-    let validate_header_input = SendAdapter(network.input(&validate_header_stage));
+    let (network_output, validate_header_input) =
+        build_stage_graph(global_parameters, consensus, &mut network);
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -223,7 +215,9 @@ pub fn bootstrap(
     receive_header_stage.downstream.connect(to_store_header);
 
     store_header_stage.upstream.connect(from_receive_header);
-    store_header_stage.downstream.connect(validate_header_input);
+    store_header_stage
+        .downstream
+        .connect(SendAdapter(validate_header_input));
 
     select_chain_stage
         .upstream
@@ -268,6 +262,27 @@ pub fn bootstrap(
     stages.push(ledger);
     stages.push(block_forward);
     Ok(stages)
+}
+
+fn build_stage_graph(
+    global_parameters: &GlobalParameters,
+    consensus: ValidateHeader,
+    network: &mut impl StageGraph,
+) -> (
+    pure_stage::Receiver<amaru_consensus::consensus::DecodedChainSyncEvent>,
+    pure_stage::Sender<amaru_consensus::consensus::DecodedChainSyncEvent>,
+) {
+    let validate_header_stage = network.stage("validate_header", validate_header::stage);
+
+    let (network_output_ref, network_output) = network.output("network_output", 50);
+
+    let validate_header_stage = network.wire_up(
+        validate_header_stage,
+        (consensus, global_parameters.clone(), network_output_ref),
+    );
+
+    let validate_header_input = network.input(&validate_header_stage);
+    (network_output, validate_header_input)
 }
 
 type ChainStoreResult = (Tip, Option<Header>, Arc<Mutex<dyn ChainStore<Header>>>);
