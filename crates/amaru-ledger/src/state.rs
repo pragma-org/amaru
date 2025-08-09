@@ -18,9 +18,11 @@ pub mod diff_set;
 pub mod volatile_db;
 
 use crate::{
+    governance::ratification::ratify_proposals,
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{
-        columns::pools, EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
+        columns::{pools, proposals},
+        EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
         TransactionalContext,
     },
     summary::{
@@ -34,7 +36,8 @@ use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, MintedBlock,
-    Point, PoolId, ProtocolVersion, Slot, StakeCredential, StakeCredentialType, TransactionInput,
+    Point, PoolId, ProposalId, ProtocolVersion, Slot, StakeCredential, StakeCredentialType,
+    TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::{Epoch, EraHistoryError};
@@ -533,6 +536,7 @@ fn epoch_transition(
     batch.commit()?;
 
     // Start of epoch
+    let proposals = db.iter_proposals()?.collect::<Vec<_>>();
     let batch = db.create_transaction();
     let should_begin_epoch = batch.try_epoch_transition(
         Some(EpochTransitionProgress::SnapshotTaken),
@@ -540,7 +544,7 @@ fn epoch_transition(
     )?;
     let protocol_version = network.protocol_version(next_epoch);
     if should_begin_epoch {
-        begin_epoch(&batch, next_epoch, protocol_parameters)?;
+        begin_epoch(&batch, next_epoch, proposals, protocol_parameters)?;
         batch.set_protocol_version(protocol_version)?;
     }
     batch.commit()?;
@@ -582,6 +586,7 @@ fn end_epoch<'store>(
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    proposals: Vec<(ProposalId, proposals::Row)>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StoreError> {
     // Reset counters before the epoch begins.
@@ -598,13 +603,15 @@ fn begin_epoch<'store>(
     // delegates.
     tick_pools(db, epoch, protocol_parameters)?;
 
+    ratify_proposals(proposals, epoch);
+
     // Refund deposit for any proposal that has expired.
     tick_proposals(db, epoch)?;
 
     Ok(())
 }
 
-// Operation on the state
+// Operations on the state
 // ----------------------------------------------------------------------------
 
 #[instrument(
