@@ -3,14 +3,14 @@ type: architecture
 status: accepted
 ---
 
-# Interaction betweeen Consensus and Ledger
+# Interaction between Consensus and Ledger
 
-The work progressing on deterministic simulation testing has raised questions about where to draw the line: which parts of the codebase shall be executed using `pure_stage` and which parts are outside of its scope?
+The work progressing on deterministic simulation testing has raised questions about where to draw the line: which parts of the codebase shall be executed using `pure_stage` and which parts are outside its scope?
 In a meeting on Aug 8, 2025 between @KtorZ, @stevana, @rkuhn the following response was developed.
 
 ## Context
 
-The main complexity of the consensus part of Amaru stems from the concurrent and distributed nature of peer to peer information flow while respecting resource bounds and rejecting adversarial behaviour.
+The main complexity of the consensus part of Amaru stems from the concurrent and distributed nature of peer-to-peer information flow while respecting resource bounds and rejecting adversarial behaviour.
 This complexity is tackled by dividing responsibilities among processing stages within the Amaru node that are connected to form a data processing network.
 Testing such a network as well as debugging it requires dedicated tooling and a suitable approach as described in [EDR011](./011-deterministic-simulation-testing.md).
 
@@ -29,12 +29,43 @@ We represent the interactions listed above using `pure_stage` facilities as foll
 
 - longest chain validation is an `ExternalEffect` emitted by consensus that receives a detailed validation result as its asynchronous response; handling that effect will send the new chain to a different thread using a channel and receive the response using a oneshot channel
 - epoch updates from the ledger are sent to interested consensus stages via the [`StageGraph::input`](https://docs.rs/pure-stage/latest/pure_stage/trait.StageGraph.html#tymethod.input) facility
+- a dedicated `LedgerUpdates` stage fans out updates to dependent consensus stages and allows waiting for updates while maintaining back pressure with upstream data sources
+
+```mermaid
+flowchart TB
+    subgraph "`**ledger** (direct style)`"
+        ls@{ shape: das, label: sender }
+        ll[["**ledger thread**
+        *(using in-memory data structures and interacting with the database)*"]]
+        lr(validation<br>manager)
+        ls ~~~ ll ~~~ lr
+        lr -- block --> ll -- result --> lr
+        ll -- "epoch update" --> ls
+    end
+
+    subgraph "`**consensus** (pure_stage)`"
+        epoch(LedgerUpdates)
+        upstream(upstream<br>network)
+        --> pull
+        --> val(validate<br>header)
+        --> block(get block)
+        --> chain(select<br>chain)
+        --> downstream(downstream<br>network)
+    end
+
+    %% this is needed to improve the resulting layout as well
+    X@{ shape: braces, label: "the interface between the ledger and consensus parts of Amaru is quite small"} ~~~ upstream
+
+    chain <-->|external effect<br>to get validation result| lr
+    ls -->|input| epoch <-->|call| pull
+    epoch <-->|call| val
+```
 
 ## Consequences
 
 The consensus stage `SelectChain` will wait for the ledger validation result before proceding to process further inputs.
 This implies that a new and better longest chain received from upstreams while ledger validation is ongoing will not interrupt that validation, it will be handled after the validation is complete.
-When switching between chains, this may incur significant latency in case of deep rollback.
+When switching between chains, this may incur significant latency in case of deep rollback, in which case we may want to revisit the ability to preempt ledger validation.
 
 Ledger updates from epoch boundary processing will arrive asynchronously within the consensus part.
 This implies that e.g. updated stake distributions need to be actively awaited by the `ValidateHeader` stage when it detects an epoch change.
