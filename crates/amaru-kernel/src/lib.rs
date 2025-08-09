@@ -132,8 +132,9 @@ pub mod serde_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     pub use crate::{
-        anchor::tests::*, ballot::tests::*, certificate_pointer::tests::*, pool_params::tests::*,
-        proposal_id::tests::*, proposal_pointer::tests::*, transaction_pointer::tests::*,
+        anchor::tests::*, ballot::tests::*, certificate_pointer::tests::*, point::tests::*,
+        pool_params::tests::*, proposal_id::tests::*, proposal_pointer::tests::*,
+        transaction_pointer::tests::*,
     };
 }
 
@@ -145,6 +146,10 @@ pub const PROTOCOL_VERSION_9: ProtocolVersion = (9, 0);
 pub const PROTOCOL_VERSION_10: ProtocolVersion = (10, 0);
 
 pub const EMPTY_BLOCK: Vec<u8> = vec![];
+
+pub const HEADER_HASH_SIZE: usize = 32;
+
+pub const ORIGIN_HASH: Hash<HEADER_HASH_SIZE> = Hash::new([0; HEADER_HASH_SIZE]);
 
 // Re-exports & extra aliases
 // ----------------------------------------------------------------------------
