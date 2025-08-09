@@ -207,6 +207,9 @@ impl<M: SendData, S> Effects<M, S> {
 pub trait ExternalEffect: SendData {
     /// Run the effect in production mode.
     ///
+    /// Implementations typically retrieve shared services via typed lookups
+    /// (e.g., `resources.get::<Arc<MyStore>>()?`).
+    ///
     /// This can be overridden in simulation using [`SimulationRunning::handle_effect`](crate::simulation::SimulationRunning::handle_effect).
     fn run(self: Box<Self>, resources: Resources) -> BoxFuture<'static, Box<dyn SendData>>;
 }

@@ -63,7 +63,7 @@ impl Resources {
     /// operations to proceed concurrently. [`get_mut`](Self::get_mut) will be blocked while
     /// the returned guard is held, so [`drop`](std::mem::drop) it as soon as you don't need it
     /// any more.
-    pub fn get<T: Any + Send>(&self) -> anyhow::Result<MappedRwLockReadGuard<'_, T>> {
+    pub fn get<T: Any + Send + Sync>(&self) -> anyhow::Result<MappedRwLockReadGuard<'_, T>> {
         RwLockReadGuard::try_map(self.0.read(), |res| {
             res.get(&TypeId::of::<T>())?.downcast_ref::<T>()
         })
@@ -79,7 +79,7 @@ impl Resources {
     ///
     /// If you need exclusive access to a single resource without blocking the rest of the
     /// resource collection, consider putting an `Arc<Mutex<T>>` in the resources collection.
-    pub fn get_mut<T: Any + Send>(&mut self) -> anyhow::Result<MappedRwLockWriteGuard<'_, T>> {
+    pub fn get_mut<T: Any + Send + Sync>(&self) -> anyhow::Result<MappedRwLockWriteGuard<'_, T>> {
         RwLockWriteGuard::try_map(self.0.write(), |res| {
             res.get_mut(&TypeId::of::<T>())?.downcast_mut::<T>()
         })
@@ -89,7 +89,7 @@ impl Resources {
     /// Take a resource from the resources collection.
     ///
     /// This variant uses locking to ensure that the resource is not accessed concurrently.
-    pub fn take<T: Any + Send>(&self) -> anyhow::Result<T> {
+    pub fn take<T: Any + Send + Sync>(&self) -> anyhow::Result<T> {
         self.0
             .write()
             .remove(&TypeId::of::<T>())
@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn test_resources() {
-        let mut resources = Resources::default();
+        let resources = Resources::default();
 
         assert_eq!(
             resources.get::<u32>().unwrap_err().to_string(),

@@ -116,7 +116,7 @@ fn init_node(
     GlobalParameters,
     SelectChain,
     ValidateHeader,
-    Arc<Mutex<dyn ChainStore<Header>>>,
+    ValidateHeaderResourceStore,
 ) {
     let network_name = NetworkName::Testnet(42);
     let global_parameters: &GlobalParameters = network_name.into();

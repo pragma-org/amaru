@@ -98,7 +98,6 @@ impl fmt::Debug for ValidateHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ValidateHeader")
             .field("ledger", &"<dyn HasStakeDistribution>")
-            .field("store", &"<dyn ChainStore>")
             .finish()
     }
 }
@@ -171,10 +170,8 @@ impl ValidateHeader {
         header: Header,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        let Nonces {
-            active: ref epoch_nonce,
-            ..
-        } = eff.external(EvolveNonceEffect::new(header.clone())).await?;
+        let nonces = eff.external(EvolveNonceEffect::new(header.clone())).await?;
+        let epoch_nonce = &nonces.active;
 
         header_is_valid(
             &point,
