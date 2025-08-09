@@ -45,6 +45,8 @@ pub enum ConsensusError {
     CannotDecodeHeader { point: Point, header: Vec<u8> },
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(peer::Peer),
+    #[error("Unknown point {0}, bailing out")]
+    UnknownPoint(Point),
     #[error(
         "Invalid rollback {} from peer {}, cannot go further than {}",
         rollback_point,
@@ -58,6 +60,19 @@ pub enum ConsensusError {
     },
     #[error("{0}")]
     NoncesError(#[from] consensus::store::NoncesError),
+    #[error(
+        "Invalid forwarded header {} from peer {}, actual parent {}, expected parent {}",
+        forwarded,
+        peer,
+        actual,
+        expected
+    )]
+    InvalidHeaderParent {
+        peer: Peer,
+        forwarded: Hash<32>,
+        actual: Hash<32>,
+        expected: Hash<32>,
+    },
 }
 
 #[cfg(test)]

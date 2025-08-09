@@ -74,8 +74,8 @@ pub fn shrink<A: Debug + Clone, B: Debug>(
 
 #[cfg(test)]
 mod test {
-
     use super::*;
+    use test_macros::must_panic;
 
     #[test]
     fn test_shrink_failing() {
@@ -139,9 +139,7 @@ mod test {
     }
 
     #[test]
-    #[should_panic(
-        expected = "shrink, error predicate doesn't hold for initial input: '[1, 2, 3]'"
-    )]
+    #[must_panic(expected = "shrink, error predicate doesn't hold for initial input: '[1, 2, 3]'")]
     fn test_shrink_passing() {
         let failing_input = vec![1, 2, 3];
 

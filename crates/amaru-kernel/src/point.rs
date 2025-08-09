@@ -15,6 +15,8 @@
 use crate::{cbor, Hash, Slot};
 use std::fmt::{self, Debug, Display};
 
+pub const HEADER_HASH_SIZE: usize = 32;
+
 #[derive(Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Point {
     Origin,
@@ -26,6 +28,14 @@ impl Point {
         match self {
             Point::Origin => Slot::from(0),
             Point::Specific(slot, _) => Slot::from(*slot),
+        }
+    }
+
+    pub fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        match self {
+            // By convention, the hash of `Genesis` is all 0s.
+            Point::Origin => Hash::from([0; HEADER_HASH_SIZE]),
+            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
         }
     }
 }
@@ -51,13 +61,9 @@ impl Display for Point {
     }
 }
 
-impl From<&Point> for Hash<32> {
+impl From<&Point> for Hash<HEADER_HASH_SIZE> {
     fn from(point: &Point) -> Self {
-        match point {
-            // By convention, the hash of `Genesis` is all 0s.
-            Point::Origin => Hash::from([0; 32]),
-            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
-        }
+        point.hash()
     }
 }
 

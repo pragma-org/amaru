@@ -18,7 +18,8 @@ use super::{
 };
 use crate::{
     consensus::{
-        chain_selection::{self, ChainSelector, Fork, Tip},
+        chain_selection::{self, ChainSelector, Fork},
+        tip::Tip,
         EVENT_TARGET,
     },
     peer::Peer,
@@ -57,10 +58,12 @@ impl SelectChain {
         SelectChain { chain_selector }
     }
 
+    /// TODO: remove self here which is unused
     fn forward_block(&self, peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
         ValidateHeaderEvent::Validated { peer, header, span }
     }
 
+    /// TODO: remove self here which is unused
     fn switch_to_fork(
         &self,
         peer: Peer,
@@ -94,14 +97,13 @@ impl SelectChain {
             .select_roll_forward(&peer, header);
 
         let events = match result {
-            chain_selection::ForwardChainSelection::NewTip(hdr) => {
-                trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
-                vec![self.forward_block(peer, hdr, span)]
+            chain_selection::ForwardChainSelection::NewTip { peer, tip } => {
+                trace!(target: EVENT_TARGET, hash = %tip.hash(), "new_tip");
+                vec![self.forward_block(peer, tip, span)]
             }
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
-                tip: _,
                 fork,
             }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
@@ -141,16 +143,17 @@ impl SelectChain {
                 peer,
                 rollback_point,
                 fork,
-                tip: _,
             }) => Ok(self.switch_to_fork(peer, rollback_point, fork, span)),
             RollbackChainSelection::NoChange => Ok(vec![]),
-            RollbackChainSelection::RollbackBeyondLimit(peer, rollback_point, max_point) => {
-                Err(ConsensusError::InvalidRollback {
-                    peer,
-                    rollback_point,
-                    max_point,
-                })
-            }
+            RollbackChainSelection::RollbackBeyondLimit {
+                peer,
+                rollback_point,
+                max_point,
+            } => Err(ConsensusError::InvalidRollback {
+                peer,
+                rollback_point,
+                max_point,
+            }),
         }
     }
 

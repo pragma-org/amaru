@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use super::tip::Tip;
 use crate::{peer::Peer, ConsensusError};
-use amaru_kernel::{cbor, Point};
-use amaru_ouroboros::HASH_SIZE;
+use amaru_kernel::Point;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use std::{collections::BTreeMap, fmt::Debug};
@@ -124,90 +124,6 @@ impl<H: IsHeader + Clone> Fragment<H> {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
-pub enum Tip<H: IsHeader> {
-    Genesis,
-    Hdr(H),
-}
-
-impl<H, C> cbor::encode::Encode<C> for Tip<H>
-where
-    H: cbor::encode::Encode<C> + IsHeader,
-{
-    fn encode<W: cbor::encode::Write>(
-        &self,
-        e: &mut cbor::Encoder<W>,
-        ctx: &mut C,
-    ) -> Result<(), cbor::encode::Error<W::Error>> {
-        match self {
-            Tip::Genesis => e.encode(0).map(|_| ()),
-            Tip::Hdr(header) => header.encode(e, ctx),
-        }
-    }
-}
-
-impl<H: IsHeader> Tip<H> {
-    fn is_parent_of(&self, header: &Tip<H>) -> bool {
-        match (header.parent(), self) {
-            (None, Tip::Genesis) => true,
-            (Some(p), Tip::Hdr(hdr)) => p == hdr.hash(),
-            _ => false,
-        }
-    }
-}
-impl<H: IsHeader> IsHeader for Tip<H> {
-    fn hash(&self) -> Hash<HASH_SIZE> {
-        match self {
-            Tip::Genesis => Hash::from([0; HASH_SIZE]),
-            Tip::Hdr(header) => header.hash(),
-        }
-    }
-
-    fn point(&self) -> Point {
-        match self {
-            Tip::Genesis => Point::Origin,
-            Tip::Hdr(header) => header.point(),
-        }
-    }
-
-    fn parent(&self) -> Option<Hash<HASH_SIZE>> {
-        match self {
-            Tip::Genesis => None,
-            Tip::Hdr(header) => header.parent(),
-        }
-    }
-
-    fn block_height(&self) -> u64 {
-        match self {
-            Tip::Genesis => 0,
-            Tip::Hdr(header) => header.block_height(),
-        }
-    }
-
-    fn slot(&self) -> u64 {
-        match self {
-            Tip::Genesis => 0,
-            Tip::Hdr(header) => header.slot(),
-        }
-    }
-
-    fn extended_vrf_nonce_output(&self) -> Vec<u8> {
-        match self {
-            Tip::Genesis => vec![],
-            Tip::Hdr(header) => header.extended_vrf_nonce_output(),
-        }
-    }
-}
-
-impl<H: IsHeader> From<Option<H>> for Tip<H> {
-    fn from(tip: Option<H>) -> Tip<H> {
-        match tip {
-            Some(header) => Tip::Hdr(header),
-            None => Tip::Genesis,
-        }
-    }
-}
-
 /// Current state of chain selection process
 ///
 /// Chain selection is parameterised by the header type `H`, in
@@ -230,7 +146,6 @@ pub struct ChainSelector<H: IsHeader> {
 pub struct Fork<H: IsHeader> {
     pub peer: Peer,
     pub rollback_point: Point,
-    pub tip: Tip<H>,
     pub fork: Vec<H>,
 }
 
@@ -239,7 +154,7 @@ pub struct Fork<H: IsHeader> {
 #[derive(Debug, PartialEq)]
 pub enum ForwardChainSelection<H: IsHeader> {
     /// The current best chain has been extended with a (single) new header.
-    NewTip(H),
+    NewTip { peer: Peer, tip: H },
 
     /// The current best chain is unchanged.
     NoChange,
@@ -258,7 +173,11 @@ pub enum RollbackChainSelection<H: IsHeader> {
     SwitchToFork(Fork<H>),
 
     /// The peer tried to rollback beyond the limit
-    RollbackBeyondLimit(Peer, Hash<32>, Hash<32>),
+    RollbackBeyondLimit {
+        peer: Peer,
+        rollback_point: Hash<32>,
+        max_point: Hash<32>,
+    },
 
     /// The current best chain as not changed
     NoChange,
@@ -345,13 +264,15 @@ where
                 let (best_peer, best_tip) = self.find_best_chain().unwrap();
 
                 let result = if self.tip.is_parent_of(&best_tip) {
-                    NewTip(header.clone())
+                    NewTip {
+                        peer: peer.clone(),
+                        tip: header.clone(),
+                    }
                 } else if best_tip.block_height() > self.tip.block_height() {
                     let fragment = self.peers_chains.get(&best_peer).unwrap();
                     SwitchToFork(Fork {
                         peer: best_peer,
                         rollback_point: fragment.anchor.point(),
-                        tip: best_tip,
                         fork: fragment.headers.clone(),
                     })
                 } else {
@@ -399,7 +320,6 @@ where
             SwitchToFork(Fork {
                 peer: best_peer,
                 rollback_point: fragment.anchor.point(),
-                tip: best_tip.clone(),
                 fork: fragment.headers.clone(),
             })
         };
@@ -439,11 +359,11 @@ where
                     fragment.headers.clear();
                     Ok(())
                 } else {
-                    Err(RollbackChainSelection::RollbackBeyondLimit(
-                        peer.clone(),
-                        point,
-                        fragment.anchor.hash(),
-                    ))
+                    Err(RollbackChainSelection::RollbackBeyondLimit {
+                        peer: peer.clone(),
+                        rollback_point: point,
+                        max_point: fragment.anchor.hash(),
+                    })
                 }
             }
             Some(index) => {
@@ -464,9 +384,9 @@ pub(crate) mod tests {
     use rand_distr::{Distribution, Exp};
 
     /// Very simple function to generate random sequence of bytes of given length.
-    pub fn random_bytes(arg: u32) -> Vec<u8> {
+    pub fn random_bytes(arg: usize) -> Vec<u8> {
         let mut rng = StdRng::from_os_rng();
-        let mut buffer = vec![0; arg as usize];
+        let mut buffer = vec![0; arg];
         rng.fill_bytes(&mut buffer);
         buffer
     }
@@ -539,7 +459,13 @@ pub(crate) mod tests {
 
         let result = chain_selector.unwrap().select_roll_forward(&alice, header);
 
-        assert_eq!(ForwardChainSelection::NewTip(header), result);
+        assert_eq!(
+            ForwardChainSelection::NewTip {
+                peer: alice,
+                tip: header
+            },
+            result
+        );
     }
 
     #[test]
@@ -599,7 +525,6 @@ pub(crate) mod tests {
             ForwardChainSelection::SwitchToFork(Fork {
                 peer: bob,
                 rollback_point: Point::Origin,
-                tip: Tip::Hdr(chain2[5]),
                 fork: chain2
             }),
             result.unwrap()
@@ -681,7 +606,13 @@ pub(crate) mod tests {
         chain_selector.select_rollback(&alice, hash);
         let result = chain_selector.select_roll_forward(&alice, new_header);
 
-        assert_eq!(ForwardChainSelection::NewTip(new_header), result);
+        assert_eq!(
+            ForwardChainSelection::NewTip {
+                peer: alice,
+                tip: new_header
+            },
+            result
+        );
     }
 
     #[test]
@@ -713,7 +644,6 @@ pub(crate) mod tests {
             RollbackChainSelection::SwitchToFork(Fork {
                 peer: bob,
                 rollback_point: Point::Origin,
-                tip: Tip::Hdr(chain2[5]),
                 fork: chain2
             }),
             result
@@ -764,11 +694,11 @@ pub(crate) mod tests {
         let rollback_point = &chain1[1];
         let result = chain_selector.select_rollback(&alice, rollback_point.hash());
         assert_eq!(
-            RollbackChainSelection::RollbackBeyondLimit(
-                alice,
-                rollback_point.hash(),
-                chain1[2].hash()
-            ),
+            RollbackChainSelection::RollbackBeyondLimit {
+                peer: alice,
+                rollback_point: rollback_point.hash(),
+                max_point: chain1[2].hash()
+            },
             result,
             "chain selector: {:?}",
             chain_selector
