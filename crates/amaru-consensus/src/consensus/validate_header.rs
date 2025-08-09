@@ -108,6 +108,9 @@ struct EvolveNonceEffect {
     header: Header,
 }
 
+pub type ValidateHeaderResourceStore = Arc<Mutex<dyn ChainStore<Header>>>;
+pub type ValidateHeaderResourceParameters = GlobalParameters;
+
 impl EvolveNonceEffect {
     fn new(header: Header) -> Self {
         Self { header }
@@ -122,12 +125,12 @@ impl ExternalEffect for EvolveNonceEffect {
     ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
         Box::pin(async move {
             let store = resources
-                .get::<Arc<Mutex<dyn ChainStore<Header>>>>()
+                .get::<ValidateHeaderResourceStore>()
                 .expect("EvolveNonceEffect requires a chain store")
                 .clone();
             let mut store = store.lock().await;
             let global_parameters = resources
-                .get::<GlobalParameters>()
+                .get::<ValidateHeaderResourceParameters>()
                 .expect("EvolveNonceEffect requires global parameters");
             let result = store.evolve_nonce(&self.header, &global_parameters);
             Box::new(result) as Box<dyn pure_stage::SendData>

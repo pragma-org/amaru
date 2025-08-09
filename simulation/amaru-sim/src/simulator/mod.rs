@@ -48,7 +48,9 @@ use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{info, Span};
 
-use amaru_consensus::consensus::validate_header;
+use amaru_consensus::consensus::validate_header::{
+    self, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
+};
 pub use sync::*;
 
 mod bytes;
@@ -344,8 +346,12 @@ fn spawn_node(
     );
     network.wire_up(propagate_header_stage, (0, output.without_state()));
 
-    network.resources().put(chain_ref);
-    network.resources().put(global_parameters);
+    network
+        .resources()
+        .put::<ValidateHeaderResourceStore>(chain_ref);
+    network
+        .resources()
+        .put::<ValidateHeaderResourceParameters>(global_parameters);
 
     (rx, receive)
 }

@@ -20,7 +20,9 @@ use amaru_consensus::{
         store::ChainStore,
         store_block::StoreBlock,
         store_header::StoreHeader,
-        validate_header::{self, ValidateHeader},
+        validate_header::{
+            self, ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
+        },
         ChainSyncEvent,
     },
     peer::Peer,
@@ -202,8 +204,12 @@ pub fn bootstrap(
     let (network_output, validate_header_input) =
         build_stage_graph(global_parameters, consensus, &mut network);
 
-    network.resources().put(chain_store_ref);
-    network.resources().put(global_parameters);
+    network
+        .resources()
+        .put::<ValidateHeaderResourceStore>(chain_store_ref);
+    network
+        .resources()
+        .put::<ValidateHeaderResourceParameters>(global_parameters.clone());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
