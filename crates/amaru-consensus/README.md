@@ -118,6 +118,15 @@ Here is a graphical representation of a `HeadersTree` with a couple of peers and
 
 ![A live `HeadersTree` with some state](basic-headers-tree.jpg)
 
+> [!IMPORTANT]
+>
+> Invariants for `HeadersTree` structure
+>
+> * `best_chain`'s length is:
+>   * either exactly equal to `max_length`
+>   * or shorter than `max_length` and the root of the `tree` is `Genesis`
+>
+
 Finally, the `Result` of the chain selection algorithm defines what needs to be communicated to downstream `Peer`s:
 
 ```
@@ -188,7 +197,7 @@ The first step is to check whether or not the given `point` exists in our `tree`
 
 ### Handling forks
 
-When we need to switch to another peer's chain that's not on our `best_chain`, this is a fork. The following picture represents a typical fork situation from a `Rollback "Alice" 4` message:
+When we need to switch to another peer's chain that's not on our current `best_chain`, this is a fork. The following picture represents a typical fork situation from a `Rollback "Alice" 4` message:
 
 ![Fork after a rollback](fork-after-rollback.jpg)
 
@@ -203,7 +212,7 @@ When a fork should happen:
    SwitchToFork {
       rollback_point,
       peer,
-      fork = [7, 8]
+      fork = [7, 8, 10]
    }
    ```
 
@@ -213,6 +222,12 @@ When a fork should happen:
 
 > [!WARNING]
 >
-> What if the new best chain is shorter than $k$, which is the case in the picture? This is very unlikely if the node is following a significant number of peers but not impossible in other cases. However, this means there's another chain which is longer than our previous one, hence longer than $k$
+> What if the new best chain is shorter than $k$, which is the case in the picture? This is very unlikely if the node is following a significant number of peers but not impossible in other cases. However, this means the peer supposedly knows another chain which is longer than our previous best chain, but they could be lying to us!
+>
+>
+> Possible solution:
+>   * We do not immediately switch to the (shorter) fork, which means we need to possibly track 2 nodes for each peer: the current best chain from this node, and the latest best chain before rollback if this chain was our best chain of length $k$
+>   * The latter is updated once the node's current best chain catches up
+>   * We use the the longest known chain from a peer to select out best chain
 
 ### Handling errors
