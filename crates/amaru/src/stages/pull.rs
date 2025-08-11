@@ -134,11 +134,11 @@ impl ChainSyncClient {
         })
     }
 
-    pub async fn request_next(&self) -> Result<NextResponse, WorkerError> {
+    pub async fn request_next(&self) -> Result<NextResponse<HeaderContent>, WorkerError> {
         Self::catching_up(&self.is_catching_up);
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
-        
+
         client
             .request_next()
             .await
@@ -148,11 +148,11 @@ impl ChainSyncClient {
             .or_restart()
     }
 
-    pub async fn await_next(&self) -> Result<NextResponse, WorkerError> {
+    pub async fn await_next(&self) -> Result<NextResponse<HeaderContent>, WorkerError> {
         Self::no_longer_catching_up(&self.is_catching_up);
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
-        
+
         match client.recv_while_must_reply().await {
             Ok(result) => Ok(result),
             Err(err) => {
@@ -163,7 +163,7 @@ impl ChainSyncClient {
     }
 
     pub async fn has_agency(&self) -> bool {
-        let mut peer_client = self.peer_session.lock().await;
+        let mut peer_client = self.peer_session.peer_client.lock().await;
         let client = (*peer_client).chainsync();
         client.has_agency()
     }
