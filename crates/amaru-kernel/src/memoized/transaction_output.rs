@@ -13,18 +13,21 @@
 // limitations under the License.
 
 use crate::{
-    cbor,
+    cbor, from_minted_script,
     script::{encode_script, serialize_memoized_script, PlaceholderScript},
-    Address, AlonzoValue, AssetName, KeyValuePairs, LocalPseudoScript, Lovelace, MemoizedDatum, MemoizedNativeScript,
-    MemoizedPlutusData, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
+    Address, AlonzoValue, AssetName, KeyValuePairs, Legacy, LocalPseudoScript, Lovelace, MemoizedDatum,
+    MemoizedNativeScript, MemoizedPlutusData, MemoizedScript, MintedTransactionOutput, NonEmptyKeyValuePairs,
     PseudoScript, ScriptHash, Value,
 };
 
 use minicbor_extra::{
-    decode_chunk, heterogeneous_map, missing_field, unexpected_field, with_default_value,
+    decode_break, decode_chunk, heterogeneous_map, missing_field, unexpected_field,
+    with_default_value,
 };
-use pallas_codec::minicbor::data::{IanaTag, Type};
-
+use pallas_codec::{
+    minicbor::data::{IanaTag, Type},
+    utils::CborWrap,
+};
 use pallas_primitives::conway::PseudoScript;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
@@ -73,16 +76,19 @@ fn decode_legacy_output(
         value: d.decode()?,
         datum: match len {
             Some(2) => MemoizedDatum::None,
-            Some(3) => d.decode()?,
+            Some(3) => {
+                let datum: Legacy<MemoizedDatum> = d.decode()?;
+                datum.0
+            }
             Some(_) => {
                 return Err(cbor::decode::Error::message(format!(
                     "expected legacy transaction output array length of 2 or 3, got {len:?}",
                 )))
             }
             None => {
-                let datum = d.decode()?;
-                decode_break(d)?;
-                datum
+                let datum: Legacy<MemoizedDatum> = d.decode()?;
+                decode_break(d, len)?;
+                datum.0
             }
         },
         script: None,
@@ -128,25 +134,17 @@ fn decode_reference_script(
     if d.tag()? != IanaTag::Cbor.tag() {
         return Err(cbor::decode::Error::message("unexpected tag as script tag"));
     }
-    let mut script_decoder: cbor::Decoder<'_> = cbor::Decoder::new(d.bytes()?);
-    let failed_to_decode =
-        |e| cbor::decode::Error::message(format!("failed to decode script: {e}"));
 
-    Ok(Some(MemoizedScript::from(LocalPseudoScript(
-        script_decoder.decode().map_err(failed_to_decode)?,
-    ))))
+    let mut script_decoder: cbor::Decoder<'_> = cbor::Decoder::new(d.bytes()?);
+    let script: PseudoScript<
+        pallas_primitives::KeepRaw<'_, pallas_primitives::conway::NativeScript>,
+    > = script_decoder.decode()?;
+    Ok(Some(from_minted_script(CborWrap(script))))
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
     Address::from_bytes(address_bytes)
         .map_err(|e| cbor::decode::Error::message(format!("invalid address: {e:?}")))
-}
-
-fn decode_break(d: &mut cbor::Decoder<'_>) -> Result<(), cbor::decode::Error> {
-    if d.datatype()? != Type::Break {
-        return Err(cbor::decode::Error::type_mismatch(Type::Break));
-    }
-    d.skip()
 }
 
 impl<C> cbor::Encode<C> for MemoizedTransactionOutput {
@@ -217,9 +215,7 @@ impl<'a> TryFrom<MintedTransactionOutput<'a>> for MemoizedTransactionOutput {
                     .map_err(|e| format!("invalid address: {e:?}"))?,
                 value: output.value,
                 datum: MemoizedDatum::from(output.datum_option),
-                script: output
-                    .script_ref
-                    .map(|script| MemoizedScript::from(LocalPseudoScript(script.unwrap()))),
+                script: output.script_ref.map(|script| from_minted_script(script)),
             }),
         }
     }

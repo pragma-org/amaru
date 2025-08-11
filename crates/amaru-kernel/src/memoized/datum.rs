@@ -12,9 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, cbor::data::IanaTag, DatumHash, MemoizedPlutusData, MintedDatumOption};
-use pallas_crypto::hash::Hash;
-use pallas_primitives::{KeepRaw, PlutusData};
+use crate::{
+    cbor::{self, data::IanaTag},
+    memoized, DatumHash, Legacy, MemoizedPlutusData, MintedDatumOption,
+};
 use serde::ser::SerializeStruct;
 
 use minicbor_extra::heterogeneous_array;
@@ -68,39 +69,54 @@ impl<'de> serde::Deserialize<'de> for MemoizedDatum {
 impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
     #[allow(unused_variables)] // ctx will be used in the future
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        // Process modern datum
-        if d.datatype()? == cbor::data::Type::Array {
-            heterogeneous_array(d, 2, |d| {
-                let datum_option = d.u8()?;
-                match datum_option {
-                    0 => {
-                        let raw = d.bytes()?;
-                        if raw.len() != 32 {
-                            return Err(cbor::decode::Error::message(format!(
-                                "expected datum hash of length 32, got {}",
-                                raw.len()
-                            )));
-                        }
-                        Ok(MemoizedDatum::Hash(Hash::<32>::from(raw)))
+        heterogeneous_array(d, 2, |d| {
+            let datum_option = d.u8()?;
+            match datum_option {
+                0 => {
+                    let raw = d.bytes()?;
+                    if raw.len() != 32 {
+                        return Err(cbor::decode::Error::message(format!(
+                            "expected datum hash of length 32, got {}",
+                            raw.len()
+                        )));
                     }
-                    1 => {
-                        if d.tag()? != IanaTag::Cbor.tag() {
-                            return Err(cbor::decode::Error::message("unknown tag for datum tag"));
-                        }
-                        let plutus_data: KeepRaw<'_, PlutusData> = cbor::decode(d.bytes()?)?;
-                        Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(plutus_data)))
-                    }
-                    _ => Err(cbor::decode::Error::message(format!(
-                        "unknown datum option: {}",
-                        datum_option
-                    ))),
+                    Ok(MemoizedDatum::Hash(pallas_primitives::Hash::<32>::from(
+                        raw,
+                    )))
                 }
-            })
-        // Process legacy datum
-        } else if d.datatype()? == cbor::data::Type::Break {
-            Ok(MemoizedDatum::None)
+                1 => {
+                    if d.tag()? != IanaTag::Cbor.tag() {
+                        return Err(cbor::decode::Error::message("unknown tag for datum tag"));
+                    }
+                    let plutus_data: pallas_primitives::KeepRaw<'_, pallas_primitives::PlutusData> =
+                        cbor::decode(d.bytes()?)?;
+                    Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(plutus_data)))
+                }
+                _ => Err(cbor::decode::Error::message(format!(
+                    "unknown datum option: {}",
+                    datum_option
+                ))),
+            }
+        })
+    }
+}
+
+impl<'b, C> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
+    #[allow(unused_variables)] // ctx will be used in the future
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        if d.datatype()? == cbor::data::Type::Break {
+            Ok(memoized::Legacy(MemoizedDatum::None))
         } else {
-            Ok(MemoizedDatum::from(Some(Hash::<32>::from(d.bytes()?))))
+            let raw = d.bytes()?;
+            if raw.len() != 32 {
+                return Err(cbor::decode::Error::message(format!(
+                    "expected legacy datum hash of length 32, got {}",
+                    raw.len()
+                )));
+            }
+            Ok(memoized::Legacy(MemoizedDatum::Hash(
+                pallas_primitives::Hash::<32>::from(raw),
+            )))
         }
     }
 }
