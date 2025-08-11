@@ -166,6 +166,34 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-network"
+version = "0.1.0"
+dependencies = [
+ "amaru-kernel",
+ "amaru-ouroboros",
+ "amaru-ouroboros-traits",
+ "anyhow",
+ "hex",
+ "insta",
+ "minicbor",
+ "pallas-crypto",
+ "pallas-math",
+ "proptest",
+ "pure-stage",
+ "rand 0.9.1",
+ "rand_distr",
+ "rayon",
+ "serde",
+ "serde_json",
+ "slot-arithmetic",
+ "tempfile",
+ "thiserror 2.0.12",
+ "tokio",
+ "tracing",
+ "tracing-subscriber",
+]
+
+[[package]]
 name = "amaru-ouroboros"
 version = "0.1.0"
 dependencies = [
