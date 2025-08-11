@@ -109,12 +109,12 @@ pub(crate) async fn import_headers(
         connect_to_peer(peer_address, &network_name).await?,
     ));
 
-    let peer_session = PeerSession {
+    let mut peer_session = PeerSession {
         peer: Peer::new(peer_address),
         peer_client,
     };
 
-    let mut pull = pull::Stage::new(
+    let pull = pull::Stage::new(
         peer_session.clone(),
         vec![point.clone()],
         Arc::new(RwLock::new(true)),
@@ -122,7 +122,7 @@ pub(crate) async fn import_headers(
 
     pull.find_intersection().await?;
 
-    let mut peer_client = pull.peer_session.lock().await;
+    let mut peer_client = peer_session.lock().await;
     let mut count = 0;
 
     let client = (*peer_client).chainsync();

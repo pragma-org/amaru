@@ -108,7 +108,7 @@ impl ChainSyncClient {
         Ok(())
     }
 
-    pub async fn roll_forward(&self, header: &HeaderContent) -> Result<ChainSyncEvent, WorkerError> {
+    pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<ChainSyncEvent, WorkerError> {
         let peer = &self.peer_session.peer;
         let header = to_traverse(header).or_panic()?;
         let point = Point::Specific(header.slot(), header.hash().to_vec());
@@ -134,7 +134,7 @@ impl ChainSyncClient {
         })
     }
 
-    pub async fn request_next(&self) -> Result<NextResponse<HeaderContent>, WorkerError> {
+    pub async fn request_next(&mut self) -> Result<NextResponse<HeaderContent>, WorkerError> {
         Self::catching_up(&self.is_catching_up);
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
@@ -148,7 +148,7 @@ impl ChainSyncClient {
             .or_restart()
     }
 
-    pub async fn await_next(&self) -> Result<NextResponse<HeaderContent>, WorkerError> {
+    pub async fn await_next(&mut self) -> Result<NextResponse<HeaderContent>, WorkerError> {
         Self::no_longer_catching_up(&self.is_catching_up);
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
@@ -179,7 +179,7 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
-    client: ChainSyncClient,
+    pub client: ChainSyncClient,
     pub downstream: DownstreamPort,
 }
 
