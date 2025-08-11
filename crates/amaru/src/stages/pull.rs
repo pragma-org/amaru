@@ -35,26 +35,14 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerE
     out.or_panic()
 }
 
-pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
-
-pub enum WorkUnit {
-    Pull,
-    Await,
-}
-
-#[derive(Stage)]
-#[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
-pub struct Stage {
-    pub peer_session: PeerSession,
+/// Handles chain synchronization network operations
+pub struct ChainSyncClient {
+    peer_session: PeerSession,
     intersection: Vec<Point>,
-    pub downstream: DownstreamPort,
-
-    /// A shared variable which indicates whether the node is catching up. Useful to change logging
-    /// behaviour across a variety of components.
-    pub is_catching_up: Arc<RwLock<bool>>,
+    is_catching_up: Arc<RwLock<bool>>,
 }
 
-impl Stage {
+impl ChainSyncClient {
     pub fn new(
         peer_session: PeerSession,
         intersection: Vec<Point>,
@@ -63,7 +51,6 @@ impl Stage {
         Self {
             peer_session,
             intersection,
-            downstream: Default::default(),
             is_catching_up,
         }
     }
@@ -88,7 +75,7 @@ impl Stage {
     #[instrument(
         level = Level::TRACE,
         skip_all,
-        name = "stage.pull.find_intersection",
+        name = "chainsync_client.find_intersection",
         fields(
             peer = self.peer_session.peer.name,
             intersection.slot = %self.intersection.last().unwrap().slot_or_default(),
@@ -121,7 +108,7 @@ impl Stage {
         Ok(())
     }
 
-    pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
+    pub async fn roll_forward(&self, header: &HeaderContent) -> Result<ChainSyncEvent, WorkerError> {
         let peer = &self.peer_session.peer;
         let header = to_traverse(header).or_panic()?;
         let point = Point::Specific(header.slot(), header.hash().to_vec());
@@ -135,20 +122,92 @@ impl Stage {
             span: Span::current(),
         };
 
+        Ok(event)
+    }
+
+    pub async fn roll_back(&self, rollback_point: Point, _tip: Tip) -> Result<ChainSyncEvent, WorkerError> {
+        let peer = &self.peer_session.peer;
+        Ok(ChainSyncEvent::Rollback {
+            peer: peer.clone(),
+            rollback_point,
+            span: Span::current(),
+        })
+    }
+
+    pub async fn request_next(&self) -> Result<NextResponse, WorkerError> {
+        Self::catching_up(&self.is_catching_up);
+        let mut peer_client = self.peer_session.lock().await;
+        let client = (*peer_client).chainsync();
+        
+        client
+            .request_next()
+            .await
+            .inspect_err(
+                |err| tracing::error!(reason = %err, "request next failed; retrying"),
+            )
+            .or_restart()
+    }
+
+    pub async fn await_next(&self) -> Result<NextResponse, WorkerError> {
+        Self::no_longer_catching_up(&self.is_catching_up);
+        let mut peer_client = self.peer_session.lock().await;
+        let client = (*peer_client).chainsync();
+        
+        match client.recv_while_must_reply().await {
+            Ok(result) => Ok(result),
+            Err(err) => {
+                tracing::error!(reason = %err, "failed while awaiting for next block");
+                Err(WorkerError::Retry)
+            }
+        }
+    }
+
+    pub async fn has_agency(&self) -> bool {
+        let mut peer_client = self.peer_session.lock().await;
+        let client = (*peer_client).chainsync();
+        client.has_agency()
+    }
+}
+
+pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
+
+pub enum WorkUnit {
+    Pull,
+    Await,
+}
+
+#[derive(Stage)]
+#[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
+pub struct Stage {
+    client: ChainSyncClient,
+    pub downstream: DownstreamPort,
+}
+
+impl Stage {
+    pub fn new(
+        peer_session: PeerSession,
+        intersection: Vec<Point>,
+        is_catching_up: Arc<RwLock<bool>>,
+    ) -> Self {
+        Self {
+            client: ChainSyncClient::new(peer_session, intersection, is_catching_up),
+            downstream: Default::default(),
+        }
+    }
+
+    pub async fn find_intersection(&self) -> Result<(), WorkerError> {
+        self.client.find_intersection().await
+    }
+
+    pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
+        let event = self.client.roll_forward(header).await?;
         send!(&mut self.downstream, event)
     }
 
-    pub async fn roll_back(&mut self, rollback_point: Point, _tip: Tip) -> Result<(), WorkerError> {
-        let peer = &self.peer_session.peer;
+    pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
+        let event = self.client.roll_back(rollback_point, tip).await?;
         self.downstream
-            .send(
-                ChainSyncEvent::Rollback {
-                    peer: peer.clone(),
-                    rollback_point,
-                    span: Span::current(),
-                }
-                .into(),
-            )
+            .send(event.into())
             .await
             .or_panic()
     }
@@ -167,10 +226,7 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        let mut peer_client = stage.peer_session.lock().await;
-        let client = (*peer_client).chainsync();
-
-        if client.has_agency() {
+        if stage.client.has_agency().await {
             // should request next block
             Ok(WorkSchedule::Unit(WorkUnit::Pull))
         } else {
@@ -185,32 +241,9 @@ impl gasket::framework::Worker<Stage> for Worker {
         skip_all,
     )]
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
-        let next = {
-            let mut peer_client = stage.peer_session.lock().await;
-            let client = (*peer_client).chainsync();
-
-            match unit {
-                WorkUnit::Pull => {
-                    Stage::catching_up(&stage.is_catching_up);
-                    client
-                        .request_next()
-                        .await
-                        .inspect_err(
-                            |err| tracing::error!(reason = %err, "request next failed; retrying"),
-                        )
-                        .or_restart()?
-                }
-                WorkUnit::Await => {
-                    Stage::no_longer_catching_up(&stage.is_catching_up);
-                    match client.recv_while_must_reply().await {
-                        Ok(result) => result,
-                        Err(err) => {
-                            tracing::error!(reason = %err, "failed while awaiting for next block");
-                            Err(WorkerError::Retry)?
-                        }
-                    }
-                }
-            }
+        let next = match unit {
+            WorkUnit::Pull => stage.client.request_next().await?,
+            WorkUnit::Await => stage.client.await_next().await?,
         };
 
         match next {
