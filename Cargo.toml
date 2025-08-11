@@ -76,6 +76,7 @@ amaru-consensus = { path = "crates/amaru-consensus" }
 amaru-kernel = { path = "crates/amaru-kernel" }
 amaru-ledger = { path = "crates/amaru-ledger" }
 amaru-mempool = { path = "crates/amaru-mempool" }
+amaru-network = { path = "crates/amaru-network" }
 amaru-ouroboros = { path = "crates/ouroboros" }
 amaru-ouroboros-traits = { path = "crates/ouroboros-traits" }
 amaru-sim = { path = "crates/amaru-sim" }

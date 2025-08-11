@@ -23,15 +23,16 @@ use amaru_consensus::{
         validate_header::{self, ValidateHeader},
         ChainSyncEvent,
     },
-    peer::Peer,
     ConsensusError, IsHeader,
 };
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     network::NetworkName,
+    peer::Peer,
     protocol_parameters::GlobalParameters,
     EraHistory, Hash, Header,
 };
+use amaru_network::session::PeerSession;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
@@ -105,19 +106,6 @@ impl Default for Config {
             listen_address: "0.0.0.0:3000".to_string(),
             max_downstream_peers: 10,
         }
-    }
-}
-
-/// A session with a peer, including the peer itself and a client to communicate with it.
-#[derive(Clone)]
-pub struct PeerSession {
-    pub peer: Peer,
-    pub peer_client: Arc<Mutex<PeerClient>>,
-}
-
-impl PeerSession {
-    pub async fn lock(&mut self) -> tokio::sync::MutexGuard<'_, PeerClient> {
-        self.peer_client.lock().await
     }
 }
 

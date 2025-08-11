@@ -52,6 +52,7 @@ tracing.workspace = true
 amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
+amaru-network.workspace = true
 amaru-stores.workspace = true
 progress-bar = { workspace = true, features = ["terminal"] }
 pure-stage.workspace = true

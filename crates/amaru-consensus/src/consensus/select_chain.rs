@@ -21,10 +21,9 @@ use crate::{
         chain_selection::{self, ChainSelector, Fork, Tip},
         EVENT_TARGET,
     },
-    peer::Peer,
     ConsensusError,
 };
-use amaru_kernel::{Hash, Header, Point};
+use amaru_kernel::{peer::Peer, Hash, Header, Point};
 use amaru_ouroboros::IsHeader;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;

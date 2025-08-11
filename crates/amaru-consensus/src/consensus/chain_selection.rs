@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{peer::Peer, ConsensusError};
-use amaru_kernel::{cbor, Point};
+use crate::ConsensusError;
+use amaru_kernel::{cbor, peer::Peer, Point};
 use amaru_ouroboros::HASH_SIZE;
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;

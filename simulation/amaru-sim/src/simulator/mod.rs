@@ -13,21 +13,19 @@
 // limitations under the License.
 
 use super::echo::Envelope;
-use amaru_consensus::IsHeader;
-use amaru_consensus::{
-    consensus::{
-        chain_selection::{ChainSelector, ChainSelectorBuilder},
-        receive_header::handle_chain_sync,
-        select_chain::SelectChain,
-        store::ChainStore,
-        store_header::StoreHeader,
-        validate_header::ValidateHeader,
-        ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
-    },
-    peer::Peer,
+use amaru_consensus::consensus::{
+    chain_selection::{ChainSelector, ChainSelectorBuilder},
+    receive_header::handle_chain_sync,
+    select_chain::SelectChain,
+    store::ChainStore,
+    store_header::StoreHeader,
+    validate_header::ValidateHeader,
+    ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
 };
+use amaru_consensus::IsHeader;
 use amaru_kernel::{
     network::NetworkName,
+    peer::Peer,
     protocol_parameters::GlobalParameters,
     to_cbor, Hash, Header,
     Point::{self, *},

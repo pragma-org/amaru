@@ -12,4 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod session;
+use std::sync::Arc;
+
+use amaru_kernel::peer::Peer;
+use pallas_network::facades::PeerClient;
+use tokio::sync::Mutex;
+
+
+/// A session with a peer, including the peer itself and a client to communicate with it.
+#[derive(Clone)]
+pub struct PeerSession {
+    pub peer: Peer,
+    pub peer_client: Arc<Mutex<PeerClient>>,
+}
+
+impl PeerSession {
+    pub async fn lock(&mut self) -> tokio::sync::MutexGuard<'_, PeerClient> {
+        self.peer_client.lock().await
+    }
+}

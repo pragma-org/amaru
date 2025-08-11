@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use crate::cmd::connect_to_peer;
-use amaru::stages::{pull, PeerSession};
-use amaru_consensus::{consensus::store::ChainStore, peer::Peer, IsHeader};
-use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point};
+use amaru::stages::pull;
+use amaru_consensus::{consensus::store::ChainStore, IsHeader};
+use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, peer::Peer, Header, Point};
+use amaru_network::session::PeerSession;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;

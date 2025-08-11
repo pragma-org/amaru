@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::Point;
+use amaru_kernel::{peer::Peer, Point};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use pallas_crypto::hash::Hash;
-use peer::Peer;
 use thiserror::Error;
 
 pub use amaru_ouroboros_traits::*;
@@ -24,8 +23,6 @@ pub use amaru_ouroboros_traits::*;
 ///
 /// The consensus interface is responsible for validating block headers.
 pub mod consensus;
-
-pub mod peer;
 
 pub type RawHeader = Vec<u8>;
 
@@ -44,7 +41,7 @@ pub enum ConsensusError {
     #[error("Failed to decode header at {}: {}", point, hex::encode(header))]
     CannotDecodeHeader { point: Point, header: Vec<u8> },
     #[error("Unknown peer {0}, bailing out")]
-    UnknownPeer(peer::Peer),
+    UnknownPeer(Peer),
     #[error(
         "Invalid rollback {} from peer {}, cannot go further than {}",
         rollback_point,
