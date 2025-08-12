@@ -146,8 +146,7 @@ Here is a graphical representation of a `HeadersTree` with a couple of peers and
 
 > [!IMPORTANT]
 >
-> Invariants for `HeadersTree` structure
->
+> Invariants for `HeadersTree` structure:
 > * `best_chain`'s length is:
     >
 
@@ -277,8 +276,7 @@ When a fork should happen:
 >
 > What if the new best chain is shorter than $k$, which is the case in the picture? This is very unlikely if the node is
 > following a significant number of peers but not impossible in other cases. However, this means the peer supposedly
-> knows
-> another chain which is longer than our previous best chain, but they could be lying to us!
+> knows another chain which is longer than our previous best chain, but they could be lying to us!
 >
 >
 > Possible solution:

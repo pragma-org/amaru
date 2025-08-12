@@ -44,20 +44,14 @@ impl Debug for Point {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Point::Origin => write!(f, "Origin"),
-            Point::Specific(slot, hash) => write!(f, "Specific({slot}, {})", hex::encode(hash)),
+            Point::Specific(slot, _hash) => write!(f, "Specific({slot}, {})", self.hash()),
         }
     }
 }
 
 impl Display for Point {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Point::Origin => write!(
-                f,
-                "0.0000000000000000000000000000000000000000000000000000000000000000"
-            ),
-            Point::Specific(slot, vec) => write!(f, "{}.{}", slot, hex::encode(vec)),
-        }
+        write!(f, "{}.{}", self.slot_or_default(), self.hash())
     }
 }
 
@@ -168,6 +162,26 @@ pub mod tests {
         )]
         fn better_debug_point(point: Point) -> String {
             format!("{point:?}")
+        }
+
+        #[test_case(
+            Point::Origin => "0.0000000000000000000000000000000000000000000000000000000000000000";
+           "origin"
+        )]
+        #[test_case(
+            Point::Specific(
+                42,
+                vec![
+                  254, 252, 156,   3, 124,  63, 156, 139,
+                   79, 183, 138, 155,  15,  19, 123,  94,
+                  208, 128,  60,  61,  70, 189,  45,  14,
+                   64, 197, 159, 169,  12, 160,   2, 193
+                ]
+            ) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
+            "specific"
+        )]
+        fn better_display_point(point: Point) -> String {
+            format!("{point}")
         }
 
         #[test]

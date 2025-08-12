@@ -25,7 +25,7 @@ pub enum Tip<H> {
 
 impl<H: IsHeader> Debug for Tip<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("H")
+        f.debug_struct("Tip")
             .field("slot", &self.slot())
             .field("hash", &self.hash())
             .finish()
