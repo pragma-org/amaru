@@ -18,7 +18,7 @@ use super::{
     diff_set::DiffSet,
 };
 use crate::{
-    state::diff_epoch_reg::Registrations,
+    state::{diff_bind::Resettable, diff_epoch_reg::Registrations},
     store::{self, columns::*},
 };
 use amaru_kernel::{
@@ -344,7 +344,7 @@ fn add_committee(
                 right: _,
                 value: _,
             },
-        )| { (credential, hot_credential) },
+        )| { (credential, (hot_credential, Resettable::Unchanged)) },
     )
 }
 

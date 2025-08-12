@@ -13,9 +13,12 @@
 // limitations under the License.
 
 use crate::in_memory::MemoryStore;
-use amaru_ledger::store::{
-    columns::cc_members::{Key, Value},
-    StoreError,
+use amaru_ledger::{
+    state::diff_bind::Resettable,
+    store::{
+        columns::cc_members::{Key, Row, Value},
+        StoreError,
+    },
 };
 
 pub fn add(
@@ -24,11 +27,19 @@ pub fn add(
 ) -> Result<(), StoreError> {
     let mut cc_members = store.cc_members.borrow_mut();
 
-    for (key, hot_credential) in rows {
-        let mut row = cc_members.get(&key).cloned().unwrap_or_default();
+    for (key, (hot_credential, valid_until)) in rows {
+        let row = cc_members.get(&key).cloned().or_else(|| match valid_until {
+            Resettable::Set(valid_until) => Some(Row {
+                hot_credential: None,
+                valid_until,
+            }),
+            Resettable::Unchanged | Resettable::Reset => None,
+        });
 
-        hot_credential.set_or_reset(&mut row.hot_credential);
-        cc_members.insert(key, row);
+        if let Some(mut row) = row {
+            hot_credential.set_or_reset(&mut row.hot_credential);
+            cc_members.insert(key, row);
+        }
     }
 
     Ok(())
