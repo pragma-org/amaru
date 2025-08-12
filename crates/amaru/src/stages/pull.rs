@@ -19,7 +19,6 @@ use crate::{
 };
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
-use anyhow::anyhow;
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
@@ -33,7 +32,7 @@ pub enum ChainSyncClientError {
     #[error("Network error: {0}")]
     NetworkError(String),
     #[error("No intersection found for points: {points:?}")]
-    NoIntersectionFound { points: Vec<u64> },
+    NoIntersectionFound { points: Vec<Point> },
     #[error("Peer client lock error")]
     PeerClientLockError,
 }
@@ -108,16 +107,15 @@ impl ChainSyncClient {
             .map_err(|e| ChainSyncClientError::NetworkError(e.to_string()))?;
 
         let _intersection = point.ok_or(ChainSyncClientError::NoIntersectionFound {
-            points: self
-                .intersection
-                .iter()
-                .map(|p| p.slot_or_default())
-                .collect(),
+            points: self.intersection.clone(),
         })?;
         Ok(())
     }
 
-    pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<ChainSyncEvent, ChainSyncClientError> {
+    pub async fn roll_forward(
+        &mut self,
+        header: &HeaderContent,
+    ) -> Result<ChainSyncEvent, ChainSyncClientError> {
         let peer = &self.peer_session.peer;
         let header = to_traverse(header)?;
         let point = Point::Specific(header.slot(), header.hash().to_vec());
@@ -134,7 +132,11 @@ impl ChainSyncClient {
         Ok(event)
     }
 
-    pub async fn roll_back(&self, rollback_point: Point, _tip: Tip) -> Result<ChainSyncEvent, ChainSyncClientError> {
+    pub async fn roll_back(
+        &self,
+        rollback_point: Point,
+        _tip: Tip,
+    ) -> Result<ChainSyncEvent, ChainSyncClientError> {
         let peer = &self.peer_session.peer;
         Ok(ChainSyncEvent::Rollback {
             peer: peer.clone(),
@@ -143,7 +145,9 @@ impl ChainSyncClient {
         })
     }
 
-    pub async fn request_next(&mut self) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
+    pub async fn request_next(
+        &mut self,
+    ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
         Self::catching_up(&self.is_catching_up);
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
@@ -151,13 +155,13 @@ impl ChainSyncClient {
         client
             .request_next()
             .await
-            .inspect_err(
-                |err| tracing::error!(reason = %err, "request next failed; retrying"),
-            )
+            .inspect_err(|err| tracing::error!(reason = %err, "request next failed; retrying"))
             .map_err(|e| ChainSyncClientError::NetworkError(e.to_string()))
     }
 
-    pub async fn await_next(&mut self) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
+    pub async fn await_next(
+        &mut self,
+    ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
         Self::no_longer_catching_up(&self.is_catching_up);
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
@@ -205,23 +209,28 @@ impl Stage {
     }
 
     pub async fn find_intersection(&self) -> Result<(), WorkerError> {
-        self.client.find_intersection().await
-            .map_err(|e| WorkerError::Panic(e.to_string().into()))
+        self.client
+            .find_intersection()
+            .await
+            .map_err(|e| WorkerError::Panic)
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let event = self.client.roll_forward(header).await
-            .map_err(|e| WorkerError::Panic(e.to_string().into()))?;
+        let event = self
+            .client
+            .roll_forward(header)
+            .await
+            .map_err(|_| WorkerError::Panic)?;
         send!(&mut self.downstream, event)
     }
 
     pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
-        let event = self.client.roll_back(rollback_point, tip).await
-            .map_err(|e| WorkerError::Panic(e.to_string().into()))?;
-        self.downstream
-            .send(event.into())
+        let event = self
+            .client
+            .roll_back(rollback_point, tip)
             .await
-            .or_panic()
+            .map_err(|_| WorkerError::Panic)?;
+        self.downstream.send(event.into()).await.or_panic()
     }
 }
 
@@ -254,10 +263,16 @@ impl gasket::framework::Worker<Stage> for Worker {
     )]
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
         let next = match unit {
-            WorkUnit::Pull => stage.client.request_next().await
-                .map_err(|e| WorkerError::Panic(e.to_string().into()))?,
-            WorkUnit::Await => stage.client.await_next().await
-                .map_err(|e| WorkerError::Panic(e.to_string().into()))?,
+            WorkUnit::Pull => stage
+                .client
+                .request_next()
+                .await
+                .map_err(|_| WorkerError::Panic)?,
+            WorkUnit::Await => stage
+                .client
+                .await_next()
+                .await
+                .map_err(|_| WorkerError::Panic)?,
         };
 
         match next {
