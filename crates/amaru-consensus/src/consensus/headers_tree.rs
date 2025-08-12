@@ -732,6 +732,7 @@ mod tests {
     use amaru_kernel::{from_cbor, to_cbor, HEADER_HASH_SIZE};
     use amaru_ouroboros_traits::fake::FakeHeader;
     use proptest::arbitrary::any;
+    use proptest::prelude::Strategy;
     use proptest::{prop_compose, proptest};
     use rand::prelude::{RngCore, SeedableRng, StdRng};
     use rand::Rng;
@@ -1266,12 +1267,11 @@ mod tests {
         )
     }
 
-    #[test]
-    fn generate_tree() {
-        let depth = 10;
-        let peers_nb = 5;
-        let tree = generate_headers_tree(depth, peers_nb);
-        assert_eq!(tree.best_length(), depth);
+    proptest! {
+        #[test]
+        fn generate_tree(tree in any_headers_tree(10, 2)) {
+            assert_eq!(tree.best_length(), 10);
+        }
     }
 
     proptest! {
@@ -1366,10 +1366,17 @@ mod tests {
         headers
     }
 
+    fn any_headers_tree(
+        depth: usize,
+        peers_nb: usize,
+    ) -> impl Strategy<Value=HeadersTree<FakeHeader>> {
+        (0..u64::MAX).prop_map(move |seed| generate_headers_tree(depth, peers_nb, seed))
+    }
+
     /// Generate a headers tree of max depth 'depth' (also the size of the longest chain)
     /// and random peers (named "1", "2", "3",...) pointing on some nodes of the tree
-    fn generate_headers_tree(depth: usize, peers_nb: usize) -> HeadersTree<FakeHeader> {
-        let mut rng = StdRng::seed_from_u64(42);
+    fn generate_headers_tree(depth: usize, peers_nb: usize, seed: u64) -> HeadersTree<FakeHeader> {
+        let mut rng = StdRng::seed_from_u64(seed);
         let mut arena = generate_arena(depth, &mut rng);
         renumber_headers(&mut arena);
 

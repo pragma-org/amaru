@@ -230,6 +230,7 @@ name = "amaru-ouroboros-traits"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "proptest",
  "serde",
  "slot-arithmetic",
 ]
