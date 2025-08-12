@@ -12,28 +12,16 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    point::{from_network_point, to_network_point},
-    send,
-    stages::PeerSession,
-};
-use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
+use crate::send;
+use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::Point;
-use anyhow::anyhow;
+use amaru_network::{
+    chain_sync_client::ChainSyncClient, point::from_network_point, session::PeerSession,
+};
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
-use pallas_traverse::MultiEraHeader;
 use std::sync::{Arc, RwLock};
-use tracing::{instrument, Level, Span};
-
-pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, WorkerError> {
-    let out = match header.byron_prefix {
-        Some((subtag, _)) => MultiEraHeader::decode(header.variant, Some(subtag), &header.cbor),
-        None => MultiEraHeader::decode(header.variant, None, &header.cbor),
-    };
-
-    out.or_panic()
-}
+use tracing::{instrument, Level};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
@@ -43,15 +31,10 @@ pub enum WorkUnit {
 }
 
 #[derive(Stage)]
-#[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
+#[stage(name = "stage.chain_sync_client", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
-    pub peer_session: PeerSession,
-    intersection: Vec<Point>,
+    pub client: ChainSyncClient,
     pub downstream: DownstreamPort,
-
-    /// A shared variable which indicates whether the node is catching up. Useful to change logging
-    /// behaviour across a variety of components.
-    pub is_catching_up: Arc<RwLock<bool>>,
 }
 
 impl Stage {
@@ -61,96 +44,27 @@ impl Stage {
         is_catching_up: Arc<RwLock<bool>>,
     ) -> Self {
         Self {
-            peer_session,
-            intersection,
+            client: ChainSyncClient::new(peer_session, intersection, is_catching_up),
             downstream: Default::default(),
-            is_catching_up,
         }
     }
 
-    #[allow(clippy::unwrap_used)]
-    fn no_longer_catching_up(is_catching_up: &RwLock<bool>) {
-        // Do not acquire the lock unless necessary.
-        if is_catching_up.read().map(|lock| *lock).unwrap_or(true) {
-            tracing::info!("chain tip reached; awaiting next block");
-            *is_catching_up.write().unwrap() = false;
-        }
-    }
-
-    #[allow(clippy::unwrap_used)]
-    fn catching_up(is_catching_up: &RwLock<bool>) {
-        // Do not acquire the lock unless necessary.
-        if !is_catching_up.read().map(|lock| *lock).unwrap_or(false) {
-            *is_catching_up.write().unwrap() = true;
-        }
-    }
-
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "stage.pull.find_intersection",
-        fields(
-            peer = self.peer_session.peer.name,
-            intersection.slot = %self.intersection.last().unwrap().slot_or_default(),
-        ),
-    )]
-    #[allow(clippy::unwrap_used)]
     pub async fn find_intersection(&self) -> Result<(), WorkerError> {
-        let mut peer_client = self.peer_session.peer_client.lock().await;
-        let client = (*peer_client).chainsync();
-        let (point, _) = client
-            .find_intersect(
-                self.intersection
-                    .iter()
-                    .cloned()
-                    .map(to_network_point)
-                    .collect(),
-            )
-            .await
-            .or_restart()?;
-
-        let _intersection = point
-            .ok_or(anyhow!(
-                "couldn't find intersect for points: {:?}",
-                self.intersection
-                    .iter()
-                    .map(|p| p.slot_or_default())
-                    .collect::<Vec<_>>()
-            ))
-            .or_panic()?;
-        Ok(())
+        self.client.find_intersection().await.or_panic()
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let peer = &self.peer_session.peer;
-        let header = to_traverse(header).or_panic()?;
-        let point = Point::Specific(header.slot(), header.hash().to_vec());
-
-        let raw_header: RawHeader = header.cbor().to_vec();
-
-        let event = ChainSyncEvent::RollForward {
-            peer: peer.clone(),
-            point,
-            raw_header,
-            span: Span::current(),
-        };
-
+        let event = self.client.roll_forward(header).await.or_panic()?;
         send!(&mut self.downstream, event)
     }
 
-    pub async fn roll_back(&mut self, rollback_point: Point, _tip: Tip) -> Result<(), WorkerError> {
-        let peer = &self.peer_session.peer;
-        self.downstream
-            .send(
-                ChainSyncEvent::Rollback {
-                    peer: peer.clone(),
-                    rollback_point,
-                    span: Span::current(),
-                }
-                .into(),
-            )
+    pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
+        let event = self
+            .client
+            .roll_back(rollback_point, tip)
             .await
-            .or_panic()
+            .or_panic()?;
+        self.downstream.send(event.into()).await.or_panic()
     }
 }
 
@@ -167,10 +81,7 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        let mut peer_client = stage.peer_session.lock().await;
-        let client = (*peer_client).chainsync();
-
-        if client.has_agency() {
+        if stage.client.has_agency().await {
             // should request next block
             Ok(WorkSchedule::Unit(WorkUnit::Pull))
         } else {
@@ -185,32 +96,9 @@ impl gasket::framework::Worker<Stage> for Worker {
         skip_all,
     )]
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
-        let next = {
-            let mut peer_client = stage.peer_session.lock().await;
-            let client = (*peer_client).chainsync();
-
-            match unit {
-                WorkUnit::Pull => {
-                    Stage::catching_up(&stage.is_catching_up);
-                    client
-                        .request_next()
-                        .await
-                        .inspect_err(
-                            |err| tracing::error!(reason = %err, "request next failed; retrying"),
-                        )
-                        .or_restart()?
-                }
-                WorkUnit::Await => {
-                    Stage::no_longer_catching_up(&stage.is_catching_up);
-                    match client.recv_while_must_reply().await {
-                        Ok(result) => result,
-                        Err(err) => {
-                            tracing::error!(reason = %err, "failed while awaiting for next block");
-                            Err(WorkerError::Retry)?
-                        }
-                    }
-                }
-            }
+        let next = match unit {
+            WorkUnit::Pull => stage.client.request_next().await.or_panic()?,
+            WorkUnit::Await => stage.client.await_next().await.or_panic()?,
         };
 
         match next {

@@ -15,11 +15,9 @@
 use std::fmt;
 
 use crate::is_header::IsHeader;
-use amaru_kernel::{Header, Point};
+use amaru_kernel::{peer::Peer, Header, Point};
 use serde::{Deserialize, Serialize};
 use tracing::Span;
-
-use crate::peer::Peer;
 
 pub mod chain_selection;
 pub mod receive_header;

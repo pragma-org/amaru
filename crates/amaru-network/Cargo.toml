@@ -1,0 +1,46 @@
+lints.workspace = true
+
+[package]
+name = "amaru-network"
+version.workspace = true
+edition.workspace = true
+description.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+documentation.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+hex.workspace = true
+pallas-crypto.workspace = true
+pallas-math.workspace = true
+pallas-network.workspace = true
+pallas-traverse.workspace = true
+rayon.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+
+amaru-consensus.workspace = true
+amaru-kernel.workspace = true
+amaru-ouroboros.workspace = true
+amaru-ouroboros-traits.workspace = true
+pure-stage.workspace = true
+slot-arithmetic.workspace = true
+
+[dev-dependencies]
+hex.workspace = true
+insta.workspace = true
+minicbor.workspace = true
+proptest.workspace = true
+rand.workspace = true
+rand_distr.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
+tokio = { workspace = true, features = ["rt", "macros"] }
+tracing-subscriber.workspace = true
+slot-arithmetic = { workspace = true, features = ["test-utils"] }

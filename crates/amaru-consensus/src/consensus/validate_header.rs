@@ -12,8 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, is_header::IsHeader, peer::Peer, ConsensusError};
-use amaru_kernel::{protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point};
+use crate::{consensus::store::ChainStore, is_header::IsHeader, ConsensusError};
+use amaru_kernel::{
+    peer::Peer, protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point,
+};
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
