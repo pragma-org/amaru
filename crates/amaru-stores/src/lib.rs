@@ -192,8 +192,10 @@ pub mod tests {
 
         let hot_credential = cc_member_row.hot_credential.clone().unwrap();
 
-        let cc_members_iter =
-            std::iter::once((cc_member_key.clone(), Resettable::Set(hot_credential)));
+        let cc_members_iter = std::iter::once((
+            cc_member_key.clone(),
+            (Resettable::Set(hot_credential), Resettable::Unchanged),
+        ));
 
         let slot = any_slot().new_tree(runner).unwrap().current();
         let point = Point::Specific(slot.into(), Hash::from([0u8; 32]).to_vec());
