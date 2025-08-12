@@ -20,3 +20,6 @@ pub use praos::*;
 
 pub mod is_header;
 pub use is_header::*;
+
+#[cfg(test)]
+pub use is_header::fake::tests::*;
