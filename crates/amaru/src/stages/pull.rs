@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{send, stages::PeerSession};
+use crate::send;
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::Point;
-use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
+use amaru_network::{
+    chain_sync_client::ChainSyncClient, point::from_network_point, session::PeerSession,
+};
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
 use std::sync::{Arc, RwLock};

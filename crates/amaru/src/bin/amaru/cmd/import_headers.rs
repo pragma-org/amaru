@@ -109,7 +109,7 @@ pub(crate) async fn import_headers(
         connect_to_peer(peer_address, &network_name).await?,
     ));
 
-    let mut peer_session = PeerSession {
+    let peer_session = PeerSession {
         peer: Peer::new(peer_address),
         peer_client,
     };
