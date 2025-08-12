@@ -48,33 +48,33 @@ pub struct MemoizedTransactionOutput {
 }
 
 impl<'b, C> cbor::Decode<'b, C> for MemoizedTransactionOutput {
-    #[allow(unused_variables)] // ctx will be used in the future
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let data_type = d.datatype()?;
 
         if data_type == Type::MapIndef || data_type == Type::Map {
-            decode_modern_output(d)
+            decode_modern_output(d, ctx)
         } else if data_type == Type::ArrayIndef || data_type == Type::Array {
-            decode_legacy_output(d)
+            decode_legacy_output(d, ctx)
         } else {
             Err(cbor::decode::Error::type_mismatch(data_type))
         }
     }
 }
 
-fn decode_legacy_output(
+fn decode_legacy_output<C>(
     d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
     let len = d.array()?;
 
     Ok(MemoizedTransactionOutput {
         is_legacy: true,
         address: decode_address(d.bytes()?)?,
-        value: d.decode()?,
+        value: d.decode_with(ctx)?,
         datum: match len {
             Some(2) => MemoizedDatum::None,
             Some(3) => {
-                let datum: Legacy<MemoizedDatum> = d.decode()?;
+                let datum: Legacy<MemoizedDatum> = d.decode_with(ctx)?;
                 datum.0
             }
             Some(_) => {
@@ -83,7 +83,7 @@ fn decode_legacy_output(
                 )))
             }
             None => {
-                let datum: Legacy<MemoizedDatum> = d.decode()?;
+                let datum: Legacy<MemoizedDatum> = d.decode_with(ctx)?;
                 decode_break(d, len)?;
                 datum.0
             }
@@ -92,8 +92,9 @@ fn decode_legacy_output(
     })
 }
 
-fn decode_modern_output(
+fn decode_modern_output<C>(
     d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
 ) -> Result<MemoizedTransactionOutput, cbor::decode::Error> {
     let (address, value, datum, script) = heterogeneous_map(
         d,
@@ -107,9 +108,9 @@ fn decode_modern_output(
         |d, state, field| {
             match field {
                 0 => state.0 = decode_chunk(d, |d| decode_address(d.bytes()?)),
-                1 => state.1 = decode_chunk(d, |d| d.decode()),
-                2 => state.2 = decode_chunk(d, |d| d.decode()),
-                3 => state.3 = decode_chunk(d, decode_reference_script),
+                1 => state.1 = decode_chunk(d, |d| d.decode_with(ctx)),
+                2 => state.2 = decode_chunk(d, |d| d.decode_with(ctx)),
+                3 => state.3 = decode_chunk(d, |d| decode_reference_script(d, ctx)),
                 _ => return unexpected_field::<MemoizedTransactionOutput, _>(field),
             }
             Ok(())
@@ -125,8 +126,9 @@ fn decode_modern_output(
     })
 }
 
-fn decode_reference_script(
+fn decode_reference_script<C>(
     d: &mut cbor::Decoder<'_>,
+    ctx: &mut C,
 ) -> Result<Option<PseudoScript<MemoizedNativeScript>>, cbor::decode::Error> {
     if d.tag()? != IanaTag::Cbor.tag() {
         return Err(cbor::decode::Error::message("unexpected tag as script tag"));
@@ -136,7 +138,9 @@ fn decode_reference_script(
     let failed_to_decode =
         |e| cbor::decode::Error::message(format!("failed to decode script: {e}"));
 
-    Ok(Some(script_decoder.decode().map_err(failed_to_decode)?))
+    Ok(Some(
+        script_decoder.decode_with(ctx).map_err(failed_to_decode)?,
+    ))
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {

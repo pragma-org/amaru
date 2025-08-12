@@ -83,7 +83,7 @@ impl TryFrom<String> for MemoizedNativeScript {
 impl<'b, C> cbor::Decode<'b, C> for MemoizedNativeScript {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         let start_pos = d.position();
-        let expr: NativeScript = cbor::Decode::decode(d, ctx)?;
+        let expr: NativeScript = d.decode_with(ctx)?;
         let end_pos = d.position();
         let original_bytes = Bytes::from(d.input()[start_pos..end_pos].to_vec());
 

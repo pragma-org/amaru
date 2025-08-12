@@ -67,7 +67,6 @@ impl<'de> serde::Deserialize<'de> for MemoizedDatum {
 }
 
 impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
-    #[allow(unused_variables)] // ctx will be used in the future
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         heterogeneous_array(d, 2, |d| {
             let datum_option = d.u8()?;
@@ -89,7 +88,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
                         return Err(cbor::decode::Error::message("unknown tag for datum tag"));
                     }
                     let plutus_data: pallas_primitives::KeepRaw<'_, pallas_primitives::PlutusData> =
-                        cbor::decode(d.bytes()?)?;
+                        cbor::decode_with(d.bytes()?, ctx)?;
                     Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(plutus_data)))
                 }
                 _ => Err(cbor::decode::Error::message(format!(
@@ -102,8 +101,7 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
 }
 
 impl<'b, C> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
-    #[allow(unused_variables)] // ctx will be used in the future
-    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         if d.datatype()? == cbor::data::Type::Break {
             Ok(memoized::Legacy(MemoizedDatum::None))
         } else {
