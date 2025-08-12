@@ -17,11 +17,13 @@ use crate::consensus::ValidationFailed;
 use crate::consensus::headers_tree::HeadersTree;
 use crate::span::adopt_current_span;
 use crate::{ConsensusError, consensus::EVENT_TARGET};
-use amaru_kernel::{Header, Point, peer::Peer};
+use amaru_kernel::string_utils::ListToString;
+use amaru_kernel::{HEADER_HASH_SIZE, Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
 use pure_stage::{Effects, StageRef, Void};
 use serde::{Deserialize, Serialize};
+use std::fmt::{Debug, Display, Formatter};
 use tracing::{Level, Span, instrument, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
@@ -104,14 +106,6 @@ impl SelectChain {
             .select_rollback(&peer, &rollback_point.hash())?;
 
         match result {
-            RollbackChainSelection::RollbackTo(hash) => {
-                trace!(target: EVENT_TARGET, %hash, "rollback");
-                Ok(vec![ValidateHeaderEvent::Rollback {
-                    rollback_point,
-                    peer,
-                    span,
-                }])
-            }
             RollbackChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
@@ -157,7 +151,7 @@ impl SelectChain {
 /// FIXME: The peer should not be needed here, as the fork should be
 /// comprised of known blocks. It is only needed to download the blocks
 /// we don't currently store.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Fork<H: IsHeader> {
     pub peer: Peer,
     pub rollback_point: Point,
@@ -166,7 +160,7 @@ pub struct Fork<H: IsHeader> {
 
 /// The outcome of the chain selection process in  case of
 /// roll forward.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ForwardChainSelection<H: IsHeader> {
     /// The current best chain has been extended with a (single) new header.
     NewTip { peer: Peer, tip: H },
@@ -178,24 +172,68 @@ pub enum ForwardChainSelection<H: IsHeader> {
     SwitchToFork(Fork<H>),
 }
 
-/// The outcome of the chain selection process in case of rollback
-#[derive(Debug, PartialEq)]
-pub enum RollbackChainSelection<H: IsHeader> {
-    /// The current best chain has been rolled back to the given hash.
-    RollbackTo(Hash<32>),
+impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForwardChainSelection::NewTip { peer, tip } => {
+                f.write_str(&format!("NewTip[{}, {}]", peer, tip))
+            }
+            ForwardChainSelection::NoChange => f.write_str("NoChange"),
+            ForwardChainSelection::SwitchToFork(Fork {
+                peer,
+                rollback_point,
+                fork,
+            }) => f.write_str(&format!(
+                "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
+                peer,
+                rollback_point,
+                fork.list_to_string(",\n        ")
+            )),
+        }
+    }
+}
 
+/// The outcome of the chain selection process in case of rollback
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum RollbackChainSelection<H: IsHeader> {
     /// The current best chain has switched to given fork.
     SwitchToFork(Fork<H>),
 
     /// The peer tried to rollback beyond the limit
     RollbackBeyondLimit {
         peer: Peer,
-        rollback_point: Hash<32>,
-        max_point: Hash<32>,
+        rollback_point: Hash<HEADER_HASH_SIZE>,
+        max_point: Hash<HEADER_HASH_SIZE>,
     },
 
     /// The current best chain as not changed
     NoChange,
+}
+
+impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RollbackChainSelection::NoChange => f.write_str("NoChange"),
+            RollbackChainSelection::SwitchToFork(Fork {
+                peer,
+                rollback_point,
+                fork,
+            }) => f.write_str(&format!(
+                "SwitchToFork[\n    peer: {},\n    rollback_point: {},\n    fork:\n        {}]",
+                peer,
+                rollback_point,
+                fork.list_to_string(",\n        ")
+            )),
+            RollbackChainSelection::RollbackBeyondLimit {
+                peer,
+                rollback_point,
+                max_point,
+            } => f.write_str(&format!(
+                "RollbackBeyondLimit[{}, {}, {}]",
+                peer, rollback_point, max_point
+            )),
+        }
+    }
 }
 
 type State = (

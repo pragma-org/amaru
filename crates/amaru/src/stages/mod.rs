@@ -395,25 +395,16 @@ fn make_ledger(
 
 fn make_chain_selector(
     header: Option<Header>,
-    peers: &Vec<PeerSession>,
-    _consensus_security_parameter: usize,
+    peers: &[PeerSession],
+    consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
-    // TODO: initialize the headers tree from the ChainDB store
-    //
-    // FIXME: Use the actual *consensus_security_param*; for now, this is artifically disabled
-    // because the introduction of the new chain selection algorithm makes synchronizing unbearably
-    // slow. The culprit seems to be around the `header_exists` function, which gets worse with the
-    // capacity of the tree.
-    //
-    // In *practice* (and good network conditions), that tree can actually be pretty small.
-    // Although in reality and to be "immune" to deep forks, it must be set to `k` (a.k.a the
-    // consensus security param).
     let root_hash = match &header {
         Some(h) => h.hash(),
         None => Point::Origin.hash(),
     };
 
-    let mut tree = HeadersTree::new(100, header);
+    // TODO: initialize the headers tree from the ChainDB store
+    let mut tree = HeadersTree::new(consensus_security_parameter, &header);
 
     for peer in peers {
         tree.initialize_peer(&peer.peer, &root_hash)?;

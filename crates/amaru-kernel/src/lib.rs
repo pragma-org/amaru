@@ -150,13 +150,16 @@ pub mod stake_credential;
 pub use strict_maybe::*;
 pub mod strict_maybe;
 
+use crate::string_utils::ListToString;
 pub use transaction_pointer::*;
+
 pub mod transaction_pointer;
 
 pub mod vote;
 
 pub mod macros;
 pub mod serde_utils;
+pub mod string_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
@@ -544,9 +547,8 @@ where
 {
     collection
         .into_iter()
-        .map(|item| item.to_string())
         .collect::<Vec<_>>()
-        .join(", ")
+        .list_to_string(", ")
 }
 
 pub trait HasAddress {

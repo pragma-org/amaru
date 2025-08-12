@@ -8,30 +8,30 @@ between the various steps.
 graph TD
     disc[disconnect peer]
     net@{ shape: delay, label: "Upstream peers" }
-    upstream([upstream]) -.-> net
-    upstream -- chain sync --> pull
-    pull -- ChainSyncEvent --> rcv[receive header]
-    rcv -- malformed header --> disc
-    val_hdr[validate header]
-    rcv -- DecodedChainSyncEvent --> sto_hdr
-    sto_hdr -.-> store@{ shape: cyl, label: "Chain store" }
-    sto_hdr -- storage failure --> crash?
-    sto_hdr -- DecodedChainSyncEvent --> val_hdr[validate header]
-    val_hdr -- invalid header --> disc
-    val_hdr -- DecodedChainSyncEvent --> select[select chain]
-    select -- invalid chain --> disc
-    select -- ValidateHeaderEvent --> fetch[fetch block]
-    fetch -.-> net
-    fetch -- fetch error --> disc
-    fetch -- ValidateBlockEvent --> sto_block[store block]
-    sto_block -.-> store
-    sto_block -- storage failure --> crash?
-    sto_block -- ValidateBlockEvent --> val_block[validate block]
-    val_block -.-> store
-    val_block -- invalid block --> disc
-    val_block -- BlockValidationResult --> fwd[forward chain]
-    fwd --> down([downstream])
-    down -.-> net
+upstream([upstream]) -.-> net
+upstream -- chain sync --> pull
+pull -- ChainSyncEvent --> rcv[receive header]
+rcv -- malformed header --> disc
+val_hdr[validate header]
+rcv -- DecodedChainSyncEvent --> sto_hdr
+sto_hdr -.-> store@{ shape: cyl, label: "Chain store" }
+sto_hdr -- storage failure --> crash?
+sto_hdr -- DecodedChainSyncEvent --> val_hdr[validate header]
+val_hdr -- invalid header --> disc
+val_hdr -- DecodedChainSyncEvent --> select[select chain]
+select -- invalid chain --> disc
+select -- ValidateHeaderEvent --> fetch[fetch block]
+fetch -.-> net
+fetch -- fetch error --> disc
+fetch -- ValidateBlockEvent --> sto_block[store block]
+sto_block -.-> store
+sto_block -- storage failure --> crash?
+sto_block -- ValidateBlockEvent --> val_block[validate block]
+val_block -.-> store
+val_block -- invalid block --> disc
+val_block -- BlockValidationResult --> fwd[forward chain]
+fwd --> down([downstream])
+down -.-> net
 ```
 
 Stages:
@@ -57,7 +57,7 @@ Stages:
 ## Chain Selection
 
 The main job of the _consensus_ component is to participate in the _Ouroboros consensus_ process, contributing to the
-validation (and as a block producer to the extension) of _the_ chain with _peers_ in an strongly connected network.
+validation (and as a block producer to the extension) of _the_ chain with _peers_ in a strongly connected network.
 Being a _decentralized_ and _distributed_ system, there's no global information a peer can rely on, and therefore each
 has to decide on their own which chain to follow based on information provided by other peers. This is the _Chain
 Selection_ process:
@@ -125,18 +125,21 @@ headers as the blocks are always stored on disk and referenced by their header h
 
 This `HeadersTree` structure is:
 
-* a `tree` of _headers_ where the root is equal to the _tip_ of the `immutable` chain, with the property that a `Header`
-  as a unique `NodeId` associated to it (e.g no two headers with the same `Hash` can ever be 2 nodes in the tree),
-* a map from `Peer`s to `NodeId` which tracks where (upstream) peers told us they are in the chain(s),
-* a singled out `best_chain` which points at _the_ node which is our current best chain, along with the `best_peer`,
-* a `max_length` parameter which is fixed at creation and is a bound on the maximum length of a branch of the `tree`.
+* A `headers` map storing volatile headers by their hash. Since `Header`s specify a parent-child relationship, this is
+  sufficient to reconstruct a tree of headers where the root of the tree is the tip of the `immutable` chain.
+* A `peers` map associating each `Peer` to the list of hashes forming the chain they are currently following.
+* A singled out `best_chain` which points at _the_ header hash which is our current best chain.
+* A `tree` of headers hashes: a tree representation of the headers to be able to traverse from root to leaves (for
+  performance reasons).
+* A `max_length` parameter, fixed at creation time, that bounds the maximum length of any branch of the `tree`.
 
 ```.idris
 data HeadersTree = HeadersTree {
-    tree :: Tree,
-    peers: Map Peer NodeId,
-    best_chain: NodeId,
-    best_peer: Peer
+    headers :: Map HeaderHash Header,
+    peers: Map Peer [HeaderHash],
+    best_chain: HeaderHash,
+    tree: Tree HeaderHash,
+    max_length: Nat,
  }
 ```
 
@@ -171,10 +174,6 @@ data Result =
   ```haskell
   NewTip(Peer, Header)
   ```
-* The chain has been rolled back to some point:
-  ```haskell
-  RollbackTo(Peer, Point)
-  ```
 * The chain has switched to a fork:
   ```haskell
   SwitchedToFork {
@@ -184,7 +183,7 @@ data Result =
   }
   ```
 
-There are also a number of error conditions which are not formally specified bu explained in
+There are also a number of error conditions which are not formally specified but explained in
 the [Handling errors](#handling-errors) section.
 
 ### Rolling forward
@@ -193,31 +192,32 @@ When a `RollForward peer header` message arrives, the peer tells us they are ext
 first check the given `header`'s parent: if it's not pointing at the header corresponding to what the `peers` map point
 to, this is an error. If the header is well-formed, we need to identify several cases:
 
-1. The message comes from our current `best_peer` and therefore extends our current `best_chain`:
-    * We insert the `header` into the `tree`,
-    * We update `best_chain` to point to the corresponding node,
-    * We update `peers` map to ensur `best_peer` points to the new node,
-    * We must ensure the length of our `best_chain` is always lower than equal to `max_length`, so in "steady state" we
-      must to _prune_ the `tree`. The following diagram illustrates what can happen when pruning the tree.
-
-   ![Pruning the tree when extending the chain](pruning-headers-tree.jpg)
-
-   In particular as shown here, it's possible for a `Peer` to point to a chain which is smaller than our `best_chain`
-   and anchored at the parent of our current _tip_ (the root of the tree). In this case, there's no way this peer's
-   chain can ever become our best chain and we can as well drop this `Peer` altogether as it's obviously on a "dead"
-   fork.
+1. The message extends our current `best_chain`:
+    * we insert the `header` into the map of `headers`,
+    * we update the `peers` map to add a header hash to the `peer` current chain
     * the result of the selection is a `NewTip(peer, header)`,
 2. The message comes from another `Peer`, which has several interesting subcases:
     1. The given `header` extends the `peer`'s chain but it's still shorter or of equal length than our `best_chain`: We
-       simply add the new `header` to the tree, update the `peers` map but do not change our `best_chain`. The result is
-       `NoChange`,
+       simply add the new `header` to the `headers` map, update the `peers` map but do not change our `best_chain`. The
+       result is `NoChange`,
     2. The given `header` extends the `peer`'s chain in such a way it becomes (strictly) _longer_ than our current
-       `best_chain`. Here, we can again split in 2 cases:
-
-        1. The new `header` extends `best_chain`. This is simple as it just entails, on top of updating the other
-           fields, changing the `best_peer`. The result is `NewTip(header)`,
-        2. The new `header` is on a different chain than `best_chain`. This is a _fork_ and
+       `best_chain`:
+        1. we update the map of `headers` to add the new `header`,
+        2. we update the `peers` map to add the new header hash to the `peer`'s current chain,
+        3. since the new `header` is now a different chain than the previous `best_chain`, we have a _fork_ and
            it [requires special care](#handling-forks).
+
+If the `best_chain` has been extended or switched to, we must ensure that its length is always less than or equal to
+`max_length`, so in "steady state" we must _prune_ the `headers` map (and corresponding `tree`).
+
+The following diagram illustrates what can happen when pruning the map of headers.
+
+![Pruning the tree when extending the chain](pruning-headers-tree.jpg)
+
+In particular as shown here, it's possible for a `Peer` to point to a chain which is smaller than our `best_chain`
+and anchored at the parent of our current tip (the root of the tree). In this case, there's no way this peer's
+chain can ever become our best chain and we can as well drop this `Peer` altogether as it's obviously on a "dead"
+fork.
 
 ### Rolling Backward
 
@@ -231,17 +231,17 @@ The first step is to check whether or not the given `point` exists in our `tree`
     * either the pointed-at header is in the `immutable` part of the chain, and this is illegal,
     * or it's completely made up,
 * If it does, then we need to update the content of the `HeadersTree`:
-    * the `peers` map should point to the node corresponding to the `point`ed-at header,
-    * the tree should be pruned of nodes between the new peer's node id and the previous one. In so doing we should take
-      care of _not pruning_ nodes which are still pointed at by other `peers`
-    * In addition, if the `peer` is our current `best_peer`, this necessarily changes our `best_chain` with 2 different
+    * we update the `peers` map to truncate the list of header hashes for the `peer` which sent us the rollback message.
+    * In addition, if the `peer` pointed to our current `best_chain`, this necessarily changes it with 2 different
       cases:
-        * The `peer`'s chain is still the longest: We update our `best_chain` accordingly and keep our `best_peer` as
-          is. The result of `chain_selection` should be `RollbackTo(peer, point)`
-        * There's another peer pointing to our current `best_chain`: We update our `best_peer` but keep our `best_chain`
-          as is. The result is `NoChange`,
-        * finally, there's the case where another peer is pointing at a better (longer) chain: this is
-          a [fork](#handling-forks).
+        * There's another peer pointing at a chain with the same length as the best chain before rollback: this is
+          a [fork](#handling-forks), and we update our `best_chain` accordingly. The result of `chain_selection` is
+          `SwitchToFork(peer, point, fork)`
+          (the fork can possibly be empty if "another peer" actually the same peer because there is only one chain being
+          tracked).
+        * The rollback we received was in done in a context of a "switch to fork", with several `RollForward` coming-up
+          that should end-up in a longer chain to switch to. We keep tracking the longest chain we know of with a
+          pseudo-peer called `Me` and the result is `NoChange`,
 
 ### Handling forks
 
@@ -255,35 +255,24 @@ When a fork should happen:
 1. We need to find the `rollback_point`, eg. the most recent intersection `Point` of the old and new `best_chain`s (node
    3 in the picture),
 2. We update the `HeadersTree` so that:
-    * `best_peer` points to the peer we forked to,
+    * The `peers` map for `peer` is so that its chain is truncated up to the rollback `point` hash (4 in the example),
+    * Among the remaining peers having the longest chains, we pick the one where the tip has the smallest slot (let's
+      call it `best_peer`).
     * `best_chain` points to this peer's chain,
-    * `peers` map for `peer` is updated to point to rollback `point` (4 in the example),
 3. We emit a `SwitchToFork` `Result`:
    ```haskell
    SwitchToFork {
       rollback_point,
-      peer,
+      peer = best_peer,
       fork = [7, 8, 10]
    }
    ```
 
 > [!WARNING]
 >
-> What if there are multiple peers pointing to the same new `best_chain`? Which one should become our `best_peer`?
-> Shouldn't `best_peer` be a list, or a priority queue?
-
-> [!WARNING]
->
-> What if the new best chain is shorter than $k$, which is the case in the picture? This is very unlikely if the node is
-> following a significant number of peers but not impossible in other cases. However, this means the peer supposedly
-> knows another chain which is longer than our previous best chain, but they could be lying to us!
+> Currently, during a "switch to fork" we select the chain of the peer with the smallest tip slot among those with
+> the longest chains, which is not fully deterministic if several peers tie.
 >
 >
-> Possible solution:
->   * We do not immediately switch to the (shorter) fork, which means we need to possibly track 2 nodes for each peer:
-      the current best chain from this node, and the latest best chain before rollback if this chain was our best chain
-      of length $k$
->   * The latter is updated once the node's current best chain catches up
->   * We use the the longest known chain from a peer to select out best chain
 
 ### Handling errors
