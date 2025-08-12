@@ -63,7 +63,7 @@ impl Stage {
             .client
             .roll_forward(header)
             .await
-            .or_panic();
+            .or_panic()?;
         send!(&mut self.downstream, event)
     }
 
@@ -72,7 +72,7 @@ impl Stage {
             .client
             .roll_back(rollback_point, tip)
             .await
-            .or_panic();
+            .or_panic()?;
         self.downstream.send(event.into()).await.or_panic()
     }
 }

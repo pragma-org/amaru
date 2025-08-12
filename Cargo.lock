@@ -170,6 +170,7 @@ dependencies = [
 name = "amaru-network"
 version = "0.1.0"
 dependencies = [
+ "amaru-consensus",
  "amaru-kernel",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
