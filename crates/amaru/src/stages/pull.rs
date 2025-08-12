@@ -15,10 +15,7 @@
 use crate::{send, stages::PeerSession};
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::Point;
-use amaru_network::{
-    chain_sync_client::ChainSyncClient,
-    point::from_network_point,
-};
+use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
 use std::sync::{Arc, RwLock};
@@ -51,18 +48,11 @@ impl Stage {
     }
 
     pub async fn find_intersection(&self) -> Result<(), WorkerError> {
-        self.client
-            .find_intersection()
-            .await
-            .or_panic()
+        self.client.find_intersection().await.or_panic()
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let event = self
-            .client
-            .roll_forward(header)
-            .await
-            .or_panic()?;
+        let event = self.client.roll_forward(header).await.or_panic()?;
         send!(&mut self.downstream, event)
     }
 
@@ -105,16 +95,8 @@ impl gasket::framework::Worker<Stage> for Worker {
     )]
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
         let next = match unit {
-            WorkUnit::Pull => stage
-                .client
-                .request_next()
-                .await
-                .or_panic()?,
-            WorkUnit::Await => stage
-                .client
-                .await_next()
-                .await
-                .or_panic()?,
+            WorkUnit::Pull => stage.client.request_next().await.or_panic()?,
+            WorkUnit::Await => stage.client.await_next().await.or_panic()?,
         };
 
         match next {

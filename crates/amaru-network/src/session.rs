@@ -18,7 +18,6 @@ use amaru_kernel::peer::Peer;
 use pallas_network::facades::PeerClient;
 use tokio::sync::Mutex;
 
-
 /// A session with a peer, including the peer itself and a client to communicate with it.
 #[derive(Clone)]
 pub struct PeerSession {

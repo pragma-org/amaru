@@ -176,4 +176,3 @@ impl ChainSyncClient {
         client.has_agency()
     }
 }
-
