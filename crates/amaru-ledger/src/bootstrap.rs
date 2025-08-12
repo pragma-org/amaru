@@ -17,10 +17,11 @@ use crate::{
     store::{self, columns::proposals, Store, StoreError, TransactionalContext},
 };
 use amaru_kernel::{
-    cbor, network::NetworkName, protocol_parameters::ProtocolParameters, Account,
-    CertificatePointer, DRep, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
-    Point, PoolId, PoolParams, ProposalPointer, ProposalState, ProtocolVersion, Reward, Set, Slot,
-    StakeCredential, TransactionInput, TransactionPointer,
+    cbor, heterogeneous_array, network::NetworkName, protocol_parameters::ProtocolParameters,
+    Account, Anchor, CertificatePointer, DRep, DRepState, Epoch, EraHistory, Lovelace,
+    MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalPointer, ProposalState,
+    ProtocolVersion, Reward, Set, Slot, StakeCredential, StrictMaybe, TransactionInput,
+    TransactionPointer, UnitInterval,
 };
 use progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, sync::LazyLock};
@@ -103,8 +104,8 @@ pub fn import_initial_snapshot(
 
     let dreps = d.decode()?;
 
-    // Committee
-    d.skip()?;
+    // Committee cold -> hot delegations
+    let cc_members = d.decode()?;
 
     // Dormant Epoch
     d.skip()?;
@@ -169,14 +170,17 @@ pub fn import_initial_snapshot(
 
     // Proposals
     d.array()?;
+
     // Proposals roots
     d.skip()?;
     let proposals: Vec<ProposalState> = d.decode()?;
 
     // Constitutional committee
-    d.skip()?;
+    import_constitutional_committee(db, point, era_history, d.decode()?, cc_members)?;
+
     // Constitution
     d.skip()?;
+
     // Current Protocol Params
     let pparams = if let Some(dir) = protocol_parameters_dir {
         decode_seggregated_parameters(dir, d.decode()?)?
@@ -184,7 +188,7 @@ pub fn import_initial_snapshot(
         d.decode()?
     };
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
-    import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
+    import_dreps(db, point, era_history, epoch, dreps, &protocol_parameters)?;
     import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
     // Previous Protocol Params
@@ -378,8 +382,8 @@ fn import_utxo(
 
 fn import_dreps(
     db: &impl Store,
-    era_history: &EraHistory,
     point: &Point,
+    era_history: &EraHistory,
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
     protocol_parameters: &ProtocolParameters,
@@ -754,6 +758,70 @@ fn import_accounts(
     Ok(())
 }
 
+fn import_constitutional_committee(
+    db: &impl Store,
+    point: &Point,
+    era_history: &EraHistory,
+    cc: StrictMaybe<ConstitutionalCommittee>,
+    mut cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    transaction.with_cc_members(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })?;
+
+    let cc = match cc {
+        StrictMaybe::Nothing => amaru_kernel::ConstitutionalCommittee::NoConfidence,
+        StrictMaybe::Just(ConstitutionalCommittee { threshold, members }) => {
+            // FIXME: also retain cc members expiry deadline 'valid_until'
+            members.into_iter().for_each(|(cold_cred, _valid_until)| {
+                cc_members.entry(cold_cred).or_insert(
+                    ConstitutionalCommitteeAuthorization::Resigned(StrictMaybe::Nothing),
+                );
+            });
+            amaru_kernel::ConstitutionalCommittee::Trusted { threshold }
+        }
+    };
+
+    transaction.set_constitutional_committee(&cc)?;
+
+    transaction.save(
+        point,
+        None,
+        store::Columns {
+            utxo: iter::empty(),
+            pools: iter::empty(),
+            accounts: iter::empty(),
+            dreps: iter::empty(),
+            proposals: iter::empty(),
+            votes: iter::empty(),
+            cc_members: cc_members.into_iter().map(|(cold_cred, state)| {
+                (
+                    cold_cred,
+                    match state {
+                        ConstitutionalCommitteeAuthorization::Resigned(..) => {
+                            (Resettable::Reset, Resettable::Unchanged)
+                        }
+                        ConstitutionalCommitteeAuthorization::DelegatedToHotCredential(
+                            hot_cred,
+                        ) => (Resettable::Set(hot_cred), Resettable::Unchanged),
+                    },
+                )
+            }),
+        },
+        Default::default(),
+        iter::empty(),
+        era_history,
+    )?;
+
+    transaction.commit()?;
+
+    Ok(())
+}
+
 fn decode_seggregated_parameters(
     dir: &PathBuf,
     hash: &cbor::bytes::ByteSlice,
@@ -772,4 +840,48 @@ fn decode_seggregated_parameters(
     let pparams = cbor::Decoder::new(&pparams_file).decode()?;
 
     Ok(pparams)
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+enum ConstitutionalCommitteeAuthorization {
+    DelegatedToHotCredential(StakeCredential),
+    Resigned(#[allow(dead_code)] StrictMaybe<Anchor>),
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| match d.u8()? {
+            0 => {
+                assert_len(1)?;
+                Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))
+            }
+            1 => {
+                assert_len(1)?;
+                Ok(Self::Resigned(d.decode_with(ctx)?))
+            }
+            t => Err(cbor::decode::Error::message(format!(
+                "unexpected ConstitutionalCommitteeAuthorization kind: {t}; expected 0 or 1."
+            ))),
+        })
+    }
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+struct ConstitutionalCommittee {
+    members: BTreeMap<StakeCredential, Epoch>,
+    threshold: UnitInterval,
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(ConstitutionalCommittee {
+                members: d.decode_with(ctx)?,
+                threshold: d.decode_with(ctx)?,
+            })
+        })
+    }
 }
