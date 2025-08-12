@@ -26,7 +26,7 @@ pub struct PeerSession {
 }
 
 impl PeerSession {
-    pub async fn lock(&mut self) -> tokio::sync::MutexGuard<'_, PeerClient> {
+    pub async fn lock(&self) -> tokio::sync::MutexGuard<'_, PeerClient> {
         self.peer_client.lock().await
     }
 }
