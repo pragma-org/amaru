@@ -24,10 +24,7 @@ use minicbor_extra::{
     decode_break, decode_chunk, heterogeneous_map, missing_field, unexpected_field,
     with_default_value,
 };
-use pallas_codec::{
-    minicbor::data::{IanaTag, Type},
-    utils::CborWrap,
-};
+use pallas_codec::minicbor::data::{IanaTag, Type};
 use pallas_primitives::conway::PseudoScript;
 
 #[derive(Debug, Clone, serde::Deserialize, serde::Serialize, PartialEq)]
@@ -136,10 +133,10 @@ fn decode_reference_script(
     }
 
     let mut script_decoder: cbor::Decoder<'_> = cbor::Decoder::new(d.bytes()?);
-    let script: PseudoScript<
-        pallas_primitives::KeepRaw<'_, pallas_primitives::conway::NativeScript>,
-    > = script_decoder.decode()?;
-    Ok(Some(from_minted_script(CborWrap(script))))
+    let failed_to_decode =
+        |e| cbor::decode::Error::message(format!("failed to decode script: {e}"));
+
+    Ok(Some(script_decoder.decode().map_err(failed_to_decode)?))
 }
 
 fn decode_address(address_bytes: &[u8]) -> Result<Address, cbor::decode::Error> {
