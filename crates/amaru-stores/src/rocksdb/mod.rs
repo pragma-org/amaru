@@ -14,14 +14,15 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, ProtocolVersion, StakeCredential, TransactionInput,
+    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, ConstitutionalCommittee,
+    EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId, ProtocolVersion,
+    StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     store::{
-        columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
-        ProtocolParametersErrorKind, ProtocolVersionErrorKind, ReadStore, Snapshot, Store,
-        StoreError, TipErrorKind, TransactionalContext,
+        columns as scolumns, Columns, ConstitutionalCommitteeErrorKind, EpochTransitionProgress,
+        HistoricalStores, OpenErrorKind, ProtocolParametersErrorKind, ProtocolVersionErrorKind,
+        ReadStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
     },
     summary::Pots,
 };
@@ -49,17 +50,20 @@ use transaction::OngoingTransaction;
 
 const EVENT_TARGET: &str = "amaru::ledger::store";
 
-/// Special key where we store the tip of the database (most recently applied delta)
+/// Key where is stored the tip of the database (most recently applied delta)
 const KEY_TIP: &str = "tip";
 
-/// Special key where we store the progress of the database
+/// key where is stored the progress of the database
 const KEY_PROGRESS: &str = "progress";
 
-// Special key where we store the current protocol parameters
+/// Key where is stored the current protocol parameters
 const KEY_PROTOCOL_PARAMETERS: &str = "protocol-parameters";
 
-// Special key where we store the current protocol version
+/// key where is stored the current protocol version
 const KEY_PROTOCOL_VERSION: &str = "protocol-version";
+
+/// key where is stored the constitutional committee information;
+const KEY_CONSTITUTIONAL_COMMITTEE: &str = "constitutional-committee";
 
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
@@ -70,17 +74,30 @@ const DIR_LIVE_DB: &str = "live";
 /// An opaque handle for a store implementation of top of RocksDB. The database has the
 /// following structure:
 ///
-/// * ========================*=============================================== *
-/// * key                     * value                                          *
-/// * ========================*=============================================== *
-/// * 'tip'                   * Point                                          *
-/// * 'progress'              * EpochTransitionProgress                        *
-/// * 'pots'                  * (Lovelace, Lovelace, Lovelace)                 *
-/// * 'utxo:'TransactionInput * TransactionOutput                              *
-/// * 'pool:'PoolId           * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
-/// * 'acct:'StakeCredential  * (Option<PoolId>, Lovelace, Lovelace)           *
-/// * 'slot':slot             * PoolId                                         *
-/// * ========================*=============================================== *
+/// * ===========================*=============================================== *
+/// * key                        * value                                          *
+/// * ===========================*=============================================== *
+/// * 'tip'                      * Point                                          *
+/// * 'progress'                 * EpochTransitionProgress                        *
+/// * 'pots'                     * (Lovelace, Lovelace, Lovelace)                 *
+/// * 'protocol-version'         * ProtocolVersion                                *
+/// * 'protocol-parameters'      * ProtocolParameters                             *
+/// * 'constitutional-committee' * ConstitutionalCommittee                        *
+/// * 'utxo:'TransactionInput    * TransactionOutput                              *
+/// * 'pool:'PoolId              * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
+/// * 'acct:'StakeCredential     * (Option<PoolId>, Lovelace, Lovelace)           *
+/// * 'drep:'StakeCredential     * (                                              *
+/// *                            *   Lovelace,                                    *
+/// *                            *   Option<Anchor>,                              *
+/// *                            *   CertificatePointer,                          *
+/// *                            *   Option<Epoch>,                               *
+/// *                            *   Option<CertificatePointer>,                  *
+/// *                            * )                                              *
+/// * 'comm:'StakeCredential     * (Option<StakeCredential>)                      *
+/// * 'prop:'ProposalId          * (ProposalPointer, Epoch, Proposal)             *
+/// * 'vote:'Voter               * Ballot                                         *
+/// * 'slot':slot                * PoolId                                         *
+/// * ===========================*=============================================== *
 ///
 /// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
 pub struct RocksDB {
@@ -199,6 +216,13 @@ macro_rules! impl_ReadStore {
                     .ok_or(StoreError::ProtocolParameters(ProtocolParametersErrorKind::Missing))
             }
 
+            fn constitutional_committee(
+                &self,
+            ) -> Result<ConstitutionalCommittee, StoreError> {
+                get(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)?
+                    .ok_or(StoreError::ConstitutionalCommittee(ConstitutionalCommitteeErrorKind::Missing))
+            }
+
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
                 pools::get(|key| self.db.get(key), pool)
             }
@@ -260,6 +284,15 @@ macro_rules! impl_ReadStore {
                 StoreError,
             > {
                 iter(|mode, opts| self.db.iterator_opt(mode, opts), proposals::PREFIX, Direction::Forward)
+            }
+
+            fn iter_cc_members(
+                &self,
+            ) -> Result<
+                impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Row)>,
+                StoreError,
+            > {
+                iter(|mode, opts| self.db.iterator_opt(mode, opts), cc_members::PREFIX, Direction::Forward)
             }
         })*
     }
@@ -375,6 +408,19 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError> {
         self.transaction
             .put(KEY_PROTOCOL_VERSION, as_value(protocol_version))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
+    fn set_constitutional_committee(
+        &self,
+        constitutional_committee: &ConstitutionalCommittee,
+    ) -> Result<(), StoreError> {
+        self.transaction
+            .put(
+                KEY_CONSTITUTIONAL_COMMITTEE,
+                as_value(constitutional_committee),
+            )
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }
@@ -505,6 +551,13 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
         with_prefix_iterator(&self.transaction, proposals::PREFIX, with)
+    }
+
+    fn with_cc_members(
+        &self,
+        with: impl FnMut(scolumns::cc_members::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        with_prefix_iterator(&self.transaction, cc_members::PREFIX, with)
     }
 }
 
