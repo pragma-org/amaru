@@ -16,7 +16,9 @@ use crate::send;
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::Point;
 use amaru_network::{
-    chain_sync_client::ChainSyncClient, point::from_network_point, session::PeerSession,
+    chain_sync_client::{ChainSyncClient, PullResult},
+    point::from_network_point,
+    session::PeerSession,
 };
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
@@ -54,16 +56,12 @@ impl Stage {
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let event = self.client.roll_forward(header).await.or_panic()?;
+        let event = self.client.roll_forward(header).or_panic()?;
         send!(&mut self.downstream, event)
     }
 
     pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
-        let event = self
-            .client
-            .roll_back(rollback_point, tip)
-            .await
-            .or_panic()?;
+        let event = self.client.roll_back(rollback_point, tip).or_panic()?;
         self.downstream.send(event.into()).await.or_panic()
     }
 }
@@ -97,7 +95,14 @@ impl gasket::framework::Worker<Stage> for Worker {
     )]
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
         let next = match unit {
-            WorkUnit::Pull => stage.client.request_next().await.or_panic()?,
+            WorkUnit::Pull => {
+                let result = stage.client.pull_batch().await.or_panic()?;
+                match result {
+                    PullResult::ForwardBatch(_) => todo!(),
+                    PullResult::RollBack(_) => todo!(),
+                    PullResult::Nothing => todo!(),
+                }
+            }
             WorkUnit::Await => stage.client.await_next().await.or_panic()?,
         };
 
