@@ -15,13 +15,16 @@
 use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::Point;
+use amaru_kernel::peer::Peer;
+use pallas_network::miniprotocols::Point as NetworkPoint;
 use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
+use std::future::Future;
 use std::sync::{Arc, RwLock};
-use tracing::{instrument, Level, Span};
-use pallas_network::miniprotocols::Point as NetworkPoint;
+use tokio::sync::Mutex;
+use tracing::{Level, Span, instrument};
 
-const MAX_BATCH_SIZE : usize = 10;
+const MAX_BATCH_SIZE: usize = 10;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChainSyncClientError {
@@ -42,15 +45,24 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSy
     out.map_err(|e| ChainSyncClientError::HeaderDecodeError(e.to_string()))
 }
 
+pub trait ChainSync<C> {
+    // NOTE: from https://smallcultfollowing.com/babysteps/blog/2025/03/24/box-box-box/
+    // traits with async fn cannot be dyn
+    fn recv_while_can_await(
+        &mut self,
+    ) -> Box<dyn Future<Output = Result<NextResponse<C>, ClientError>>>;
+}
+
 /// Handles chain synchronization network operations
-pub struct ChainSyncClient {
-    peer_session: PeerSession,
+pub struct ChainSyncClient<C> {
+    peer: Peer,
+    client: Arc<Mutex<dyn ChainSync<C>>>,
     intersection: Vec<Point>,
     is_catching_up: Arc<RwLock<bool>>,
 }
 
 struct PullBuffer {
-    buffer: Vec<HeaderContent>
+    buffer: Vec<HeaderContent>,
 }
 
 impl PullBuffer {
@@ -73,26 +85,26 @@ impl PullBuffer {
 
 enum RollbackHandling {
     Handled,
-    BeforeBatch
+    BeforeBatch,
 }
 
 pub enum PullResult {
     ForwardBatch(Vec<HeaderContent>),
     RollBack(Point),
-    Nothing
+    Nothing,
 }
 
-impl ChainSyncClient {
+trait NetworkHeader {}
+
+impl NetworkHeader for HeaderContent {}
+
+impl<C: NetworkHeader> ChainSyncClient<C> {
     pub fn new(
-        peer_session: PeerSession,
-        intersection: Vec<Point>,
-        is_catching_up: Arc<RwLock<bool>>,
+        _peer_session: PeerSession,
+        _intersection: Vec<Point>,
+        _catching_up: Arc<RwLock<bool>>,
     ) -> Self {
-        Self {
-            peer_session,
-            intersection,
-            is_catching_up,
-        }
+        unimplemented!()
     }
 
     #[allow(clippy::unwrap_used)]
@@ -117,47 +129,37 @@ impl ChainSyncClient {
         }
     }
 
-    #[instrument(
-        level = Level::TRACE,
-        skip_all,
-        name = "chainsync_client.find_intersection",
-        fields(
-            peer = self.peer_session.peer.name,
-            intersection.slot = %self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default(),
-        ),
-    )]
-    pub async fn find_intersection(&self) -> Result<(), ChainSyncClientError> {
-        let mut peer_client = self.peer_session.peer_client.lock().await;
-        let client = (*peer_client).chainsync();
-        let (point, _) = client
-            .find_intersect(
-                self.intersection
-                    .iter()
-                    .cloned()
-                    .map(to_network_point)
-                    .collect(),
-            )
-            .await
-            .map_err(ChainSyncClientError::NetworkError)?;
+    // pub async fn find_intersection(&self) -> Result<(), ChainSyncClientError> {
+    //     let mut peer_client = self.peer_session.lock().await;
+    //     let client = (*peer_client).chainsync();
+    //     let (point, _) = client
+    //         .find_intersect(
+    //             self.intersection
+    //                 .iter()
+    //                 .cloned()
+    //                 .map(to_network_point)
+    //                 .collect(),
+    //         )
+    //         .await
+    //         .map_err(ChainSyncClientError::NetworkError)?;
 
-        point.ok_or(ChainSyncClientError::NoIntersectionFound {
-            points: self.intersection.clone(),
-        })?;
-        Ok(())
-    }
+    //     point.ok_or(ChainSyncClientError::NoIntersectionFound {
+    //         points: self.intersection.clone(),
+    //     })?;
+    //     Ok(())
+    // }
 
     pub fn roll_forward(
         &mut self,
         header: &HeaderContent,
     ) -> Result<ChainSyncEvent, ChainSyncClientError> {
-        let peer = &self.peer_session.peer;
         let header = to_traverse(header)?;
         let point = Point::Specific(header.slot(), header.hash().to_vec());
 
         let raw_header: RawHeader = header.cbor().to_vec();
 
         let event = ChainSyncEvent::RollForward {
-            peer: peer.clone(),
+            peer: self.peer.clone(),
             point,
             raw_header,
             span: Span::current(),
@@ -171,7 +173,7 @@ impl ChainSyncClient {
         rollback_point: Point,
         _tip: Tip,
     ) -> Result<ChainSyncEvent, ChainSyncClientError> {
-        let peer = &self.peer_session.peer;
+        let peer = &self.peer;
         Ok(ChainSyncEvent::Rollback {
             peer: peer.clone(),
             rollback_point,
@@ -179,26 +181,31 @@ impl ChainSyncClient {
         })
     }
 
-    pub async fn pull_batch(
-        &mut self,
-    ) -> Result<PullResult, ChainSyncClientError> {
-        self.catching_up();
-        let mut peer_client = self.peer_session.lock().await;
-        let client = (*peer_client).chainsync();
+    pub async fn pull_batch(&mut self) -> Result<PullResult, ChainSyncClientError> {
         let mut batch = PullBuffer::new();
 
         while batch.len() < MAX_BATCH_SIZE {
-            let response = client.recv_while_can_await().await.map_err(|_| unimplemented!())?;
+            let response = self
+                .client
+                .lock()
+                .await
+                .recv_while_can_await()
+                .await
+                .map_err(|_| unimplemented!())?;
 
             match response {
                 NextResponse::RollForward(content, _tip) => batch.forward(content),
                 NextResponse::RollBackward(point, _tip) => match batch.rollback(&point) {
                     RollbackHandling::Handled => (),
-                    RollbackHandling::BeforeBatch => return Ok(PullResult::RollBack(crate::point::from_network_point(&point)))
-                }
+                    RollbackHandling::BeforeBatch => {
+                        return Ok(PullResult::RollBack(crate::point::from_network_point(
+                            &point,
+                        )));
+                    }
+                },
                 NextResponse::Await => break,
             }
-        };
+        }
 
         Ok(PullResult::Nothing)
     }
@@ -223,5 +230,43 @@ impl ChainSyncClient {
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
         client.has_agency()
+    }
+
+    fn new1(mock_client: impl ChainSync<H>, intersection: _) -> Self {
+        todo!()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use amaru_consensus::consensus::chain_selection::tests::generate_headers_anchored_at;
+    use amaru_kernel::Point;
+    use amaru_ouroboros::fake::FakeHeader;
+    use pallas_network::miniprotocols::chainsync::NextResponse;
+
+    use crate::{chain_sync_client::ChainSyncClient, session::PeerSession};
+
+    struct FakeContent(FakeHeader);
+
+    struct MockNetworkClient {
+        responses: Vec<NextResponse<FakeContent>>,
+    }
+
+    impl MockNetworkClient {
+        fn new(responses: Vec<NextResponse<FakeContent>>) -> Self {
+            Self { responses }
+        }
+    }
+
+    #[tokio::test]
+    async fn batch_all_headers_from_forward() {
+        let headers = generate_headers_anchored_at(None, 3);
+        let tip = headers[2].point();
+        let mock_client = MockNetworkClient::new(
+            headers
+                .iter()
+                .map(|hdr| NextResponse::RollForward(FakeContent(hdr), tip)),
+        );
+        let session = ChainSyncClient::new1(mock_client, vec![Point::Origin]);
     }
 }
