@@ -139,7 +139,7 @@ pub mod tests {
     pub use crate::{
         anchor::tests::*, ballot::tests::*, certificate_pointer::tests::*, point::tests::*,
         pool_params::tests::*, proposal_id::tests::*, proposal_pointer::tests::*,
-        transaction_pointer::tests::*,
+        protocol_parameters::tests::*, transaction_pointer::tests::*,
     };
 }
 
