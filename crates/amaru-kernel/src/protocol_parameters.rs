@@ -437,8 +437,8 @@ pub struct ProtocolParametersThresholds {
     pub governance_group: RationalNumber,
 }
 
-#[cfg(test)]
-pub(crate) mod test {
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
     use super::PREPROD_INITIAL_PROTOCOL_PARAMETERS;
     use crate::{
         prop_cbor_roundtrip,
@@ -453,7 +453,7 @@ pub(crate) mod test {
     prop_cbor_roundtrip!(ProtocolParameters, any_protocol_paramater());
 
     prop_compose! {
-        fn any_rational_number()(numerator in any::<u64>(), denominator in any::<u64>()) -> RationalNumber {
+        pub fn any_rational_number()(numerator in any::<u64>(), denominator in any::<u64>()) -> RationalNumber {
             RationalNumber {
                 numerator,
                 denominator,
@@ -462,7 +462,7 @@ pub(crate) mod test {
     }
 
     prop_compose! {
-        fn any_ex_units()(
+        pub fn any_ex_units()(
             mem in any::<u32>(),
             steps in any::<u64>(),
         ) -> ExUnits {
@@ -474,7 +474,7 @@ pub(crate) mod test {
     }
 
     prop_compose! {
-        fn any_cost_models()(
+        pub fn any_cost_models()(
             plutus_v1 in any::<Vec<i64>>(),
             plutus_v2 in any::<Vec<i64>>(),
             plutus_v3 in any::<Vec<i64>>(),
@@ -488,7 +488,7 @@ pub(crate) mod test {
     }
 
     prop_compose! {
-        fn any_pool_thresholds()(
+        pub fn any_pool_thresholds()(
             no_confidence in any_rational_number(),
             committee in any_rational_number(),
             committee_under_no_confidence in any_rational_number(),
@@ -506,7 +506,7 @@ pub(crate) mod test {
     }
 
     prop_compose! {
-        fn any_drep_thresholds()(
+        pub fn any_drep_thresholds()(
             no_confidence in any_rational_number(),
             committee in any_rational_number(),
             committee_under_no_confidence in any_rational_number(),
@@ -536,7 +536,7 @@ pub(crate) mod test {
     }
 
     prop_compose! {
-        fn any_prices()(
+        pub fn any_prices()(
             mem in any_rational_number(),
             step in any_rational_number(),
         ) -> Prices {
@@ -548,7 +548,7 @@ pub(crate) mod test {
     }
 
     prop_compose! {
-        fn any_protocol_paramater()(
+        pub fn any_protocol_paramater()(
             max_block_body_size in any::<u32>(),
             max_tx_size in any::<u32>(),
             max_header_size in any::<u16>(),
