@@ -37,7 +37,8 @@ impl<C> cbor::encode::Encode<C> for Ballot {
 
 impl<'d, C> cbor::decode::Decode<'d, C> for Ballot {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        heterogeneous_array(d, 3, |d| {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(3)?;
             Ok(Ballot {
                 proposal: d.decode_with(ctx)?,
                 vote: d.decode_with(ctx)?,

@@ -35,7 +35,8 @@ impl<C> cbor::encode::Encode<C> for TransactionPointer {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        heterogeneous_array(d, 2, |d| {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
             Ok(TransactionPointer {
                 slot: d.decode_with(ctx)?,
                 transaction_index: d.decode_with(ctx)?,
