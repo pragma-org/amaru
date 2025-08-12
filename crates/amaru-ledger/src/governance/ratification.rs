@@ -14,15 +14,17 @@
 
 use crate::store::columns::proposals;
 use amaru_kernel::{
-    display_protocol_parameters_update, expect_stake_credential, ComparableProposalId,
-    Constitution, Epoch, GovAction, Lovelace, Nullable, ProposalId, ProtocolParamUpdate,
-    ProtocolVersion, ScriptHash, StakeCredential, UnitInterval,
+    display_protocol_parameters_update, expect_stake_credential, Ballot, ComparableProposalId,
+    Constitution, Epoch, GovAction, Lovelace, Nullable, PoolId, ProposalId, ProtocolParamUpdate,
+    ProtocolVersion, ScriptHash, StakeCredential, UnitInterval, Vote, Voter, PROTOCOL_VERSION_9,
 };
+use num::Rational64;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     rc::Rc,
 };
+use tracing::info;
 
 // Top-level logic
 // ----------------------------------------------------------------------------
@@ -34,6 +36,16 @@ pub struct RatificationContext {
 
     /// The protocol version at the moment the epoch ended.
     pub protocol_version: ProtocolVersion,
+
+    /// The minimum constitutional committee's size, as per latest enacted protocol parameters.
+    pub min_committee_size: usize,
+
+    /// The current constitutional committee, if any. No committee signals a state of
+    /// no-confidence.
+    pub constitutional_committee: Option<ConstitutionalCommittee>,
+
+    /// All latest votes indexed by proposals and voters.
+    pub votes: BTreeMap<ComparableProposalId, BTreeMap<Voter, Ballot>>,
 
     /// The current roots (i.e. latest enacted proposal ids) for each of the
     /// relevant proposal categories.
@@ -58,6 +70,8 @@ pub fn ratify_proposals(
             forest
         });
 
+    println!("{forest}");
+
     // The ratification of some proposals causes all other subsequent proposals' ratification to be
     // delayed to the next epoch boundary. Initially, there's none and we'll switch the flag if any
     // of the following proposal kind gets ratified:
@@ -71,8 +85,11 @@ pub fn ratify_proposals(
     // nice polls; but as soon as one of the other is encountered; EVERYTHING (including treasury
     // withdrawals and parameters changes) is postponed until the next epoch.
     let mut delayed = false;
+    let mut iterator = forest.iter();
 
-    while let Some((id, proposal)) = guard(!delayed, || forest.peek()) {
+    while let Some((id, proposal)) = guard(!delayed, || iterator.next()) {
+        info!("proposal.id" = %id, "ratifying");
+
         // TODO: There are additional checks we should perform at the moment of ratification
         //
         // - On constitutional committee updates, we should ensure that any term limit is still
@@ -96,14 +113,22 @@ pub fn ratify_proposals(
         // Encountering a non-matching root also doesn't mean we shouldn't process other proposals.
         // The order is given by their point of submission; and thus, proposals submitted later may
         // points to totally different (and active) roots.
-        if roots.matching(&proposal) && is_accepted_by_everyone(&ctx, &proposal) {
+        if ctx.roots.matching(proposal) && is_accepted_by_everyone(&ctx, (id, proposal)) {
             todo!("a proposal has been ratified, it must now be enacted!")
         }
     }
 }
 
-fn is_accepted_by_everyone(ctx: &RatificationContext, proposal: &ProposalEnum) -> bool {
-    is_accepted_by_constitutional_committee(ctx, proposal)
+fn is_accepted_by_everyone(
+    ctx: &RatificationContext,
+    (id, proposal): (&ComparableProposalId, &ProposalEnum),
+) -> bool {
+    let empty = BTreeMap::new();
+
+    let (_dreps_votes, cc_votes, _pool_votes) =
+        partition_votes(ctx.votes.get(id).unwrap_or(&empty));
+
+    is_accepted_by_constitutional_committee(ctx, proposal, cc_votes)
         && is_accepted_by_stake_pool_operators(ctx, proposal)
         && is_accepted_by_delegate_representatives(ctx, proposal)
 }
@@ -111,19 +136,72 @@ fn is_accepted_by_everyone(ctx: &RatificationContext, proposal: &ProposalEnum) -
 fn is_accepted_by_constitutional_committee(
     ctx: &RatificationContext,
     proposal: &ProposalEnum,
+    votes: BTreeMap<StakeCredential, &Vote>,
 ) -> bool {
-    todo!()
+    ctx.constitutional_committee
+        .as_ref()
+        .and_then(|committee| {
+            let threshold = committee.voting_threshold(
+                ctx.epoch,
+                ctx.protocol_version,
+                ctx.min_committee_size,
+                proposal,
+            )?;
+
+            let tally = || committee.tally(ctx.epoch, votes);
+
+            Some(threshold == &Rational64::ZERO || &tally() >= threshold)
+        })
+        .unwrap_or(false)
 }
 
-fn is_accepted_by_stake_pool_operators(ctx: &RatificationContext, proposal: &ProposalEnum) -> bool {
-    todo!()
+fn is_accepted_by_stake_pool_operators(
+    _ctx: &RatificationContext,
+    _proposal: &ProposalEnum,
+) -> bool {
+    false // FIXME
 }
 
 fn is_accepted_by_delegate_representatives(
-    ctx: &RatificationContext,
-    proposal: &ProposalEnum,
+    _ctx: &RatificationContext,
+    _proposal: &ProposalEnum,
 ) -> bool {
-    todo!()
+    false // FIXME
+}
+
+/// Split all the ballots into sub-maps that are specific to each voter types; so that we ease the
+/// processing of each category down the line.
+fn partition_votes(
+    votes: &BTreeMap<Voter, Ballot>,
+) -> (
+    BTreeMap<StakeCredential, &Vote>,
+    BTreeMap<StakeCredential, &Vote>,
+    BTreeMap<PoolId, &Vote>,
+) {
+    votes.iter().fold(
+        (BTreeMap::new(), BTreeMap::new(), BTreeMap::new()),
+        |(mut dreps, mut committee, mut pools), (voter, ballot)| {
+            match voter {
+                Voter::ConstitutionalCommitteeKey(hash) => {
+                    committee.insert(StakeCredential::AddrKeyhash(*hash), &ballot.vote);
+                }
+                Voter::ConstitutionalCommitteeScript(hash) => {
+                    committee.insert(StakeCredential::ScriptHash(*hash), &ballot.vote);
+                }
+                Voter::DRepKey(hash) => {
+                    dreps.insert(StakeCredential::AddrKeyhash(*hash), &ballot.vote);
+                }
+                Voter::DRepScript(hash) => {
+                    dreps.insert(StakeCredential::ScriptHash(*hash), &ballot.vote);
+                }
+                Voter::StakePoolKey(pool_id) => {
+                    pools.insert(*pool_id, &ballot.vote);
+                }
+            };
+
+            (dreps, committee, pools)
+        },
+    )
 }
 
 // ProposalRoots
@@ -152,6 +230,104 @@ impl ProposalRoots {
             ProposalEnum::Constitution(_, parent) => {
                 parent.as_deref() == self.constitution.as_ref()
             }
+        }
+    }
+}
+
+// ConstitutionalCommittee
+// ----------------------------------------------------------------------------
+#[derive(Debug)]
+pub struct ConstitutionalCommittee {
+    /// Threshold (i.e. ratio of yes over no votes) necessary to reach agreement.
+    pub threshold: Rational64,
+    /// Members cold key hashes mapped to their hot key credential, if any and their expiry epoch.
+    pub members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
+}
+
+impl ConstitutionalCommittee {
+    /// Get the subset of cc member that is current active, as per the current epoch. A member is active iif:
+    ///
+    /// - it exists
+    /// - its cold key is delegated to a hot key
+    /// - it hasn't expired yet
+    pub fn active_members<'a>(
+        &'a self,
+        // The epoch that just ended.
+        current_epoch: Epoch,
+        // A selector for accessing either the cold or hot credential.
+        select: impl Fn(&'a StakeCredential, &'a StakeCredential) -> &'a StakeCredential,
+    ) -> BTreeSet<&'a StakeCredential> {
+        self.members
+            .iter()
+            .filter_map(|(cold_cred, (hot_cred, valid_until))| {
+                if valid_until >= &current_epoch {
+                    Some(select(cold_cred, hot_cred.as_ref()?))
+                } else {
+                    None
+                }
+            })
+            .collect()
+    }
+
+    pub fn voting_threshold(
+        &self,
+        current_epoch: Epoch,
+        protocol_version: ProtocolVersion,
+        min_committee_size: usize,
+        proposal: &ProposalEnum,
+    ) -> Option<&Rational64> {
+        match proposal {
+            ProposalEnum::ConstitutionalCommittee(..)
+            | ProposalEnum::Orphan(OrphanProposal::NicePoll) => Some(&Rational64::ZERO),
+
+            ProposalEnum::ProtocolParameters(..)
+            | ProposalEnum::HardFork(..)
+            | ProposalEnum::Constitution(..)
+            | ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
+                let active_members = self.active_members(current_epoch, |cold_cred, _| cold_cred);
+
+                // The minimum committee size has no effect during the bootstrap phase (i.e. v9). The
+                // committee is always allowed to vote during v9.
+                if active_members.len() < min_committee_size
+                    && protocol_version > PROTOCOL_VERSION_9
+                {
+                    return None;
+                }
+
+                Some(&self.threshold)
+            }
+        }
+    }
+
+    /// Count the ratio of yes votes amongst the active cc members.
+    ///
+    /// - Members that do not vote will count as a default "no" (i.e. increases the denominator);
+    /// - Members that expired are excluded entirely (also from the denominator);
+    /// - Members that have resigned (i.e. no hot keys) are also excluded;
+    pub fn tally(&self, epoch: Epoch, votes: BTreeMap<StakeCredential, &Vote>) -> Rational64 {
+        let active_members = self.active_members(epoch, |_, hot_cred| hot_cred);
+
+        let (numerator, denominator) = votes.iter().fold(
+            (0, active_members.len() as i64),
+            |(numerator, denominator), (hot_cred, vote)| {
+                if active_members.contains(hot_cred) {
+                    match vote {
+                        Vote::Yes => (numerator + 1, denominator),
+                        Vote::No => (numerator, denominator),
+                        Vote::Abstain => (numerator, denominator - 1),
+                    }
+                } else {
+                    (numerator, denominator)
+                }
+            },
+        );
+
+        if denominator == 0 {
+            Rational64::ZERO
+        } else {
+            let r = Rational64::new(numerator, denominator);
+            info!("constitutional_committee.tally" = %r);
+            r
         }
     }
 }
@@ -396,12 +572,9 @@ impl ProposalsForest {
         }
     }
 
-    /// Returns the proposal that should be handled next, if any. The order is given by the
-    /// insertion order of proposals. Although, other operations on the forest may results in
-    /// pruning the forest by removing intermediate proposals.
-    pub fn peek(&self) -> Option<(&ComparableProposalId, &ProposalEnum)> {
-        let k = self.sequence.front()?;
-        self.proposals.get(k).map(|v| (k.as_ref(), v))
+    /// Returns an iterator over the forest's proposal.
+    pub fn iter(&self) -> impl Iterator<Item = (&ComparableProposalId, &ProposalEnum)> {
+        ProposalsForestIterator::new(self)
     }
 
     /// Insert a proposal in the forest. This retains the order of insertion, so it is assumed
@@ -503,7 +676,7 @@ impl ProposalsForest {
 
                 self.proposals.insert(
                     id.clone(),
-                    ProposalEnum::CommitteeUpdate(CommitteeUpdate::NoConfidence, parent),
+                    ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, parent),
                 );
 
                 Ok(())
@@ -527,6 +700,34 @@ impl ProposalsForest {
                 Ok(())
             }
         }
+    }
+}
+
+/// An iterator to conveniently navigate a forest in proposals' order.
+#[derive(Debug)]
+pub struct ProposalsForestIterator<'a> {
+    cursor: usize,
+    forest: &'a ProposalsForest,
+}
+
+impl<'a> ProposalsForestIterator<'a> {
+    pub fn new(forest: &'a ProposalsForest) -> Self {
+        Self { cursor: 0, forest }
+    }
+}
+
+impl<'a> Iterator for ProposalsForestIterator<'a> {
+    type Item = (&'a ComparableProposalId, &'a ProposalEnum);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.cursor >= self.forest.sequence.len() {
+            return None;
+        }
+
+        let id = self.forest.sequence.get(self.cursor)?;
+        let proposal = self.forest.proposals.get(id)?;
+
+        Some((id, proposal))
     }
 }
 
@@ -667,7 +868,7 @@ impl fmt::Display for ProposalsForest {
             f,
             "Protocol Parameter Updates",
             Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::ProtocolParametersUpdate(a, _)) => Some(a),
+                Some(ProposalEnum::ProtocolParameters(a, _)) => Some(a),
                 _ => None,
             }),
             Rc::new(|pp, prefix| {
@@ -699,7 +900,7 @@ impl fmt::Display for ProposalsForest {
             f,
             "Constitutional Committee Updates",
             Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::CommitteeUpdate(a, _)) => Some(a),
+                Some(ProposalEnum::ConstitutionalCommittee(a, _)) => Some(a),
                 _ => None,
             }),
             Rc::new(|committee_update, _| Ok(committee_update.to_string())),
@@ -763,7 +964,7 @@ fn into_parent_id(nullable: Nullable<ProposalId>) -> Option<Rc<ComparableProposa
 }
 
 /// Execute the guarded action if the predicate is `true`; returns `None` otherwise.
-fn guard<A>(predicate: bool, action: impl Fn() -> Option<A>) -> Option<A> {
+fn guard<A>(predicate: bool, mut action: impl FnMut() -> Option<A>) -> Option<A> {
     if predicate {
         action()
     } else {
