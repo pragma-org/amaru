@@ -29,7 +29,7 @@ use amaru_kernel::{
     StakeCredential,
     TransactionInput,
 };
-use amaru_kernel::{MemoizedTransactionOutput, ProtocolVersion};
+use amaru_kernel::{ConstitutionalCommittee, MemoizedTransactionOutput, ProtocolVersion};
 use columns::*;
 use slot_arithmetic::Epoch;
 use std::{borrow::BorrowMut, io, iter};
@@ -65,6 +65,13 @@ pub enum ProtocolVersionErrorKind {
     Missing,
 }
 
+#[derive(Debug, Error)]
+#[error(transparent)]
+pub enum ConstitutionalCommitteeErrorKind {
+    #[error("no database constitutional committee. Did you forget to 'import' a snapshot first?")]
+    Missing,
+}
+
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
@@ -81,6 +88,8 @@ pub enum StoreError {
     ProtocolParameters(#[source] ProtocolParametersErrorKind),
     #[error("error retrieving protocol version: {0}")]
     ProtocolVersion(#[source] ProtocolVersionErrorKind),
+    #[error("error retrieving constitutional committee: {0}")]
+    ConstitutionalCommittee(#[source] ConstitutionalCommitteeErrorKind),
 }
 
 // Store
@@ -108,6 +117,9 @@ pub trait ReadStore {
     /// Get current values of the treasury and reserves accounts.
     fn pots(&self) -> Result<Pots, StoreError>;
 
+    /// Retrieve the state of the constitutional committee.
+    fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError>;
+
     /// Get details about all utxos
     fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value)>, StoreError>;
 
@@ -131,6 +143,11 @@ pub trait ReadStore {
     fn iter_proposals(
         &self,
     ) -> Result<impl Iterator<Item = (proposals::Key, proposals::Row)>, StoreError>;
+
+    /// Iterate over constitutional committee members.
+    fn iter_cc_members(
+        &self,
+    ) -> Result<impl Iterator<Item = (cc_members::Key, cc_members::Row)>, StoreError>;
 }
 
 pub trait Snapshot: ReadStore {
@@ -186,7 +203,7 @@ pub trait HistoricalStores {
             .unwrap_or_else(|| panic!("called 'epoch' on empty database?!"))
     }
 
-    ///Access a `Snapshot` for a specific `Epoch`
+    /// Access a `Snapshot` for a specific `Epoch`
     fn for_epoch(&self, epoch: Epoch) -> Result<impl Snapshot, StoreError>;
 }
 
@@ -247,14 +264,20 @@ pub trait TransactionalContext<'a> {
     fn refund(&self, credential: &accounts::Key, deposit: Lovelace)
         -> Result<Lovelace, StoreError>;
 
-    /// Persist ProtocolParameters in the current epoch.
+    /// Persist ProtocolParameters for the ongoing epoch.
     fn set_protocol_parameters(
         &self,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StoreError>;
 
-    /// Persist ProtocolParameters for a given epoch.
+    /// Persist the protocol version for the ongoing epoch.
     fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError>;
+
+    /// Persist the constitutional committee state for the ongoing epoch.
+    fn set_constitutional_committee(
+        &self,
+        constitutional_committee: &ConstitutionalCommittee,
+    ) -> Result<(), StoreError>;
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.
     fn with_pots(
@@ -286,6 +309,10 @@ pub trait TransactionalContext<'a> {
 
     /// Provide an access to iterate over dreps, similar to 'with_pools'.
     fn with_proposals(&self, with: impl FnMut(proposals::Iter<'_, '_>)) -> Result<(), StoreError>;
+
+    /// Provide an access to iterate over cc members, similar to 'with_pools'.
+    fn with_cc_members(&self, with: impl FnMut(cc_members::Iter<'_, '_>))
+        -> Result<(), StoreError>;
 
     /// Commit the transaction. This will persist all changes to the store.
     fn commit(self) -> Result<(), StoreError>;
