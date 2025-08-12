@@ -15,7 +15,7 @@
 use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
-use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
+use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
 use std::sync::{Arc, RwLock};
 use tracing::{instrument, Level, Span};
@@ -25,7 +25,7 @@ pub enum ChainSyncClientError {
     #[error("Failed to decode header: {0}")]
     HeaderDecodeError(String),
     #[error("Network error: {0}")]
-    NetworkError(String),
+    NetworkError(ClientError),
     #[error("No intersection found for points: {points:?}")]
     NoIntersectionFound { points: Vec<Point> },
 }
@@ -60,19 +60,24 @@ impl ChainSyncClient {
     }
 
     #[allow(clippy::unwrap_used)]
-    fn no_longer_catching_up(is_catching_up: &RwLock<bool>) {
+    fn no_longer_catching_up(&self) {
         // Do not acquire the lock unless necessary.
-        if is_catching_up.read().map(|lock| *lock).unwrap_or(true) {
+        if self.is_catching_up.read().map(|lock| *lock).unwrap_or(true) {
             tracing::info!("chain tip reached; awaiting next block");
-            *is_catching_up.write().unwrap() = false;
+            *self.is_catching_up.write().unwrap() = false;
         }
     }
 
     #[allow(clippy::unwrap_used)]
-    fn catching_up(is_catching_up: &RwLock<bool>) {
+    fn catching_up(&self) {
         // Do not acquire the lock unless necessary.
-        if !is_catching_up.read().map(|lock| *lock).unwrap_or(false) {
-            *is_catching_up.write().unwrap() = true;
+        if !self
+            .is_catching_up
+            .read()
+            .map(|lock| *lock)
+            .unwrap_or(false)
+        {
+            *self.is_catching_up.write().unwrap() = true;
         }
     }
 
@@ -97,9 +102,9 @@ impl ChainSyncClient {
                     .collect(),
             )
             .await
-            .map_err(|e| ChainSyncClientError::NetworkError(e.to_string()))?;
+            .map_err(ChainSyncClientError::NetworkError)?;
 
-        let _intersection = point.ok_or(ChainSyncClientError::NoIntersectionFound {
+        point.ok_or(ChainSyncClientError::NoIntersectionFound {
             points: self.intersection.clone(),
         })?;
         Ok(())
@@ -141,7 +146,7 @@ impl ChainSyncClient {
     pub async fn request_next(
         &mut self,
     ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
-        Self::catching_up(&self.is_catching_up);
+        self.catching_up();
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
 
@@ -149,27 +154,27 @@ impl ChainSyncClient {
             .request_next()
             .await
             .inspect_err(|err| tracing::error!(reason = %err, "request next failed; retrying"))
-            .map_err(|e| ChainSyncClientError::NetworkError(e.to_string()))
+            .map_err(ChainSyncClientError::NetworkError)
     }
 
     pub async fn await_next(
         &mut self,
     ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
-        Self::no_longer_catching_up(&self.is_catching_up);
+        self.no_longer_catching_up();
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
 
         match client.recv_while_must_reply().await {
             Ok(result) => Ok(result),
-            Err(err) => {
-                tracing::error!(reason = %err, "failed while awaiting for next block");
-                Err(ChainSyncClientError::NetworkError(err.to_string()))
+            Err(e) => {
+                tracing::error!(reason = %e, "failed while awaiting for next block");
+                Err(ChainSyncClientError::NetworkError(e))
             }
         }
     }
 
     pub async fn has_agency(&self) -> bool {
-        let mut peer_client = self.peer_session.peer_client.lock().await;
+        let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
         client.has_agency()
     }
