@@ -41,7 +41,8 @@ impl<C> cbor::encode::Encode<C> for CertificatePointer {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for CertificatePointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        heterogeneous_array(d, 2, |d| {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
             Ok(CertificatePointer {
                 transaction: d.decode_with(ctx)?,
                 certificate_index: d.decode_with(ctx)?,
