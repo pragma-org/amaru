@@ -16,17 +16,17 @@ use super::{
     chain_selection::{RollbackChainSelection, DEFAULT_MAXIMUM_FRAGMENT_LENGTH},
     DecodedChainSyncEvent, ValidateHeaderEvent,
 };
+use crate::consensus::headers_tree::HeadersTree;
 use crate::{
     consensus::{
-        chain_selection::{self, ChainSelector, Fork, Tip},
+        chain_selection::{self, Fork},
         EVENT_TARGET,
     },
     ConsensusError,
 };
-use amaru_kernel::{peer::Peer, Hash, Header, Point};
+use amaru_kernel::{peer::Peer, Header, Point};
 use amaru_ouroboros::IsHeader;
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{trace, Span};
@@ -34,15 +34,16 @@ use tracing::{trace, Span};
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SelectChain {
     #[serde(skip, default = "default_chain_selector")]
-    chain_selector: Arc<Mutex<ChainSelector<Header>>>,
+    chain_selector: Arc<Mutex<HeadersTree<Header>>>,
 }
 
-fn default_chain_selector() -> Arc<Mutex<ChainSelector<Header>>> {
-    Arc::new(Mutex::new(ChainSelector {
-        tip: Tip::Genesis,
-        peers_chains: BTreeMap::new(),
-        max_fragment_length: DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
-    }))
+/// FIXME: a default chain selector will not work as it is since a headers tree needs to be
+/// initialized before being used.
+fn default_chain_selector() -> Arc<Mutex<HeadersTree<Header>>> {
+    Arc::new(Mutex::new(HeadersTree::new(
+        DEFAULT_MAXIMUM_FRAGMENT_LENGTH,
+        &None,
+    )))
 }
 
 impl PartialEq for SelectChain {
@@ -52,16 +53,15 @@ impl PartialEq for SelectChain {
 }
 
 impl SelectChain {
-    pub fn new(chain_selector: Arc<Mutex<ChainSelector<Header>>>) -> Self {
+    pub fn new(chain_selector: Arc<Mutex<HeadersTree<Header>>>) -> Self {
         SelectChain { chain_selector }
     }
 
-    fn forward_block(&self, peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
+    fn forward_block(peer: Peer, header: Header, span: Span) -> ValidateHeaderEvent {
         ValidateHeaderEvent::Validated { peer, header, span }
     }
 
     fn switch_to_fork(
-        &self,
         peer: Peer,
         rollback_point: Point,
         fork: Vec<Header>,
@@ -74,7 +74,11 @@ impl SelectChain {
         }];
 
         for header in fork {
-            result.push(self.forward_block(peer.clone(), header, span.clone()));
+            result.push(SelectChain::forward_block(
+                peer.clone(),
+                header,
+                span.clone(),
+            ));
         }
 
         result
@@ -90,21 +94,20 @@ impl SelectChain {
             .chain_selector
             .lock()
             .await
-            .select_roll_forward(&peer, header);
+            .select_roll_forward(&peer, header)?;
 
         let events = match result {
-            chain_selection::ForwardChainSelection::NewTip(hdr) => {
-                trace!(target: EVENT_TARGET, hash = %hdr.hash(), "new_tip");
-                vec![self.forward_block(peer, hdr, span)]
+            chain_selection::ForwardChainSelection::NewTip { peer, tip } => {
+                trace!(target: EVENT_TARGET, hash = %tip.hash(), "new_tip");
+                vec![SelectChain::forward_block(peer, tip, span)]
             }
             chain_selection::ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
-                tip: _,
                 fork,
             }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
-                self.switch_to_fork(peer, rollback_point, fork, span)
+                SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
             chain_selection::ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
@@ -125,7 +128,7 @@ impl SelectChain {
             .chain_selector
             .lock()
             .await
-            .select_rollback(&peer, Hash::from(&rollback_point));
+            .select_rollback(&peer, &rollback_point.hash())?;
 
         match result {
             RollbackChainSelection::RollbackTo(hash) => {
@@ -140,16 +143,22 @@ impl SelectChain {
                 peer,
                 rollback_point,
                 fork,
-                tip: _,
-            }) => Ok(self.switch_to_fork(peer, rollback_point, fork, span)),
+            }) => Ok(SelectChain::switch_to_fork(
+                peer,
+                rollback_point,
+                fork,
+                span,
+            )),
             RollbackChainSelection::NoChange => Ok(vec![]),
-            RollbackChainSelection::RollbackBeyondLimit(peer, rollback_point, max_point) => {
-                Err(ConsensusError::InvalidRollback {
-                    peer,
-                    rollback_point,
-                    max_point,
-                })
-            }
+            RollbackChainSelection::RollbackBeyondLimit {
+                peer,
+                rollback_point,
+                max_point,
+            } => Err(ConsensusError::InvalidRollback {
+                peer,
+                rollback_point,
+                max_point,
+            }),
         }
     }
 

@@ -14,22 +14,34 @@
 
 use super::*;
 use amaru_kernel::cbor;
+use std::fmt::Debug;
 use std::{
     fmt,
     fmt::{Display, Formatter},
 };
 
 /// Basic `Header` implementation for testing purposes.
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(PartialEq, Clone, Copy)]
 pub struct FakeHeader {
     pub block_number: u64,
     pub slot: u64,
-    pub parent: Option<Hash<HASH_SIZE>>,
-    pub body_hash: Hash<HASH_SIZE>,
+    pub parent: Option<Hash<HEADER_HASH_SIZE>>,
+    pub body_hash: Hash<HEADER_HASH_SIZE>,
+}
+
+impl Debug for FakeHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FakeHeader")
+            .field("block_number", &format!("{}", self.block_number))
+            .field("slot", &format!("{}", self.slot))
+            .field("hash", &self.hash().to_string())
+            .field("body", &self.body_hash.to_string())
+            .finish()
+    }
 }
 
 impl IsHeader for FakeHeader {
-    fn parent(&self) -> Option<Hash<HASH_SIZE>> {
+    fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
         self.parent
     }
 

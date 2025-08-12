@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{peer::Peer, Point};
+use amaru_kernel::{peer::Peer, Point, HEADER_HASH_SIZE};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use pallas_crypto::hash::Hash;
+use std::fmt;
+use std::fmt::Display;
 use thiserror::Error;
 
 pub use amaru_ouroboros_traits::*;
@@ -42,6 +44,8 @@ pub enum ConsensusError {
     CannotDecodeHeader { point: Point, header: Vec<u8> },
     #[error("Unknown peer {0}, bailing out")]
     UnknownPeer(Peer),
+    #[error("Unknown point {0}, bailing out")]
+    UnknownPoint(Hash<HEADER_HASH_SIZE>),
     #[error(
         "Invalid rollback {} from peer {}, cannot go further than {}",
         rollback_point,
@@ -50,11 +54,31 @@ pub enum ConsensusError {
     )]
     InvalidRollback {
         peer: Peer,
-        rollback_point: Hash<32>,
-        max_point: Hash<32>,
+        rollback_point: Hash<HEADER_HASH_SIZE>,
+        max_point: Hash<HEADER_HASH_SIZE>,
     },
     #[error("{0}")]
     NoncesError(#[from] consensus::store::NoncesError),
+    #[error("{0}")]
+    InvalidHeaderParent(Box<InvalidHeaderParentData>),
+}
+
+#[derive(Debug, Clone)]
+pub struct InvalidHeaderParentData {
+    peer: Peer,
+    forwarded: Point,
+    actual: Option<Hash<HEADER_HASH_SIZE>>,
+    expected: Point,
+}
+
+impl Display for InvalidHeaderParentData {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Invalid forwarded header {} from peer {}, actual parent {:?}, expected parent {}",
+            self.forwarded, self.peer, self.actual, self.expected
+        )
+    }
 }
 
 #[cfg(test)]
