@@ -28,8 +28,6 @@ pub enum ChainSyncClientError {
     NetworkError(String),
     #[error("No intersection found for points: {points:?}")]
     NoIntersectionFound { points: Vec<Point> },
-    #[error("Peer client lock error")]
-    PeerClientLockError,
 }
 
 pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSyncClientError> {
