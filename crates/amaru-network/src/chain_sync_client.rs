@@ -1,4 +1,4 @@
-// Copyright 2024 PRAGMA
+// Copyright 2025 PRAGMA
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::session::PeerSession;
+use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
 use amaru_kernel::Point;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
@@ -177,20 +177,3 @@ impl ChainSyncClient {
     }
 }
 
-// Helper functions for point conversion
-use amaru_kernel::Point as KernelPoint;
-use pallas_network::miniprotocols::Point as NetworkPoint;
-
-pub fn to_network_point(point: KernelPoint) -> NetworkPoint {
-    match point {
-        KernelPoint::Origin => NetworkPoint::Origin,
-        KernelPoint::Specific(slot, hash) => NetworkPoint::Specific(slot, hash),
-    }
-}
-
-pub fn from_network_point(point: &NetworkPoint) -> KernelPoint {
-    match point {
-        NetworkPoint::Origin => KernelPoint::Origin,
-        NetworkPoint::Specific(slot, hash) => KernelPoint::Specific(*slot, hash.clone()),
-    }
-}

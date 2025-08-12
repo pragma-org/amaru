@@ -12,6 +12,19 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod chain_sync_client;
-pub mod point;
-pub mod session;
+use amaru_kernel::Point as KernelPoint;
+use pallas_network::miniprotocols::Point as NetworkPoint;
+
+pub fn to_network_point(point: KernelPoint) -> NetworkPoint {
+    match point {
+        KernelPoint::Origin => NetworkPoint::Origin,
+        KernelPoint::Specific(slot, hash) => NetworkPoint::Specific(slot, hash),
+    }
+}
+
+pub fn from_network_point(point: &NetworkPoint) -> KernelPoint {
+    match point {
+        NetworkPoint::Origin => KernelPoint::Origin,
+        NetworkPoint::Specific(slot, hash) => KernelPoint::Specific(*slot, hash.clone()),
+    }
+}
