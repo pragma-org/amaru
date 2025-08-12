@@ -18,7 +18,10 @@ use amaru_kernel::Point;
 use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
 use std::sync::{Arc, RwLock};
-use tracing::{Level, Span, instrument};
+use tracing::{instrument, Level, Span};
+use pallas_network::miniprotocols::Point as NetworkPoint;
+
+const MAX_BATCH_SIZE : usize = 10;
 
 #[derive(Debug, thiserror::Error)]
 pub enum ChainSyncClientError {
@@ -44,6 +47,39 @@ pub struct ChainSyncClient {
     peer_session: PeerSession,
     intersection: Vec<Point>,
     is_catching_up: Arc<RwLock<bool>>,
+}
+
+struct PullBuffer {
+    buffer: Vec<HeaderContent>
+}
+
+impl PullBuffer {
+    fn new() -> Self {
+        PullBuffer { buffer: vec![] }
+    }
+
+    fn len(&self) -> usize {
+        self.buffer.len()
+    }
+
+    fn forward(&mut self, header: HeaderContent) {
+        self.buffer.push(header)
+    }
+
+    fn rollback(&mut self, _point: &NetworkPoint) -> RollbackHandling {
+        RollbackHandling::Handled
+    }
+}
+
+enum RollbackHandling {
+    Handled,
+    BeforeBatch
+}
+
+pub enum PullResult {
+    ForwardBatch(Vec<HeaderContent>),
+    RollBack(Point),
+    Nothing
 }
 
 impl ChainSyncClient {
@@ -110,7 +146,7 @@ impl ChainSyncClient {
         Ok(())
     }
 
-    pub async fn roll_forward(
+    pub fn roll_forward(
         &mut self,
         header: &HeaderContent,
     ) -> Result<ChainSyncEvent, ChainSyncClientError> {
@@ -130,7 +166,7 @@ impl ChainSyncClient {
         Ok(event)
     }
 
-    pub async fn roll_back(
+    pub fn roll_back(
         &self,
         rollback_point: Point,
         _tip: Tip,
@@ -143,18 +179,28 @@ impl ChainSyncClient {
         })
     }
 
-    pub async fn request_next(
+    pub async fn pull_batch(
         &mut self,
-    ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
+    ) -> Result<PullResult, ChainSyncClientError> {
         self.catching_up();
         let mut peer_client = self.peer_session.lock().await;
         let client = (*peer_client).chainsync();
+        let mut batch = PullBuffer::new();
 
-        client
-            .request_next()
-            .await
-            .inspect_err(|err| tracing::error!(reason = %err, "request next failed; retrying"))
-            .map_err(ChainSyncClientError::NetworkError)
+        while batch.len() < MAX_BATCH_SIZE {
+            let response = client.recv_while_can_await().await.map_err(|_| unimplemented!())?;
+
+            match response {
+                NextResponse::RollForward(content, _tip) => batch.forward(content),
+                NextResponse::RollBackward(point, _tip) => match batch.rollback(&point) {
+                    RollbackHandling::Handled => (),
+                    RollbackHandling::BeforeBatch => return Ok(PullResult::RollBack(crate::point::from_network_point(&point)))
+                }
+                NextResponse::Await => break,
+            }
+        };
+
+        Ok(PullResult::Nothing)
     }
 
     pub async fn await_next(
