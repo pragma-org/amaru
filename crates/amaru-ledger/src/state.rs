@@ -18,7 +18,7 @@ pub mod diff_set;
 pub mod volatile_db;
 
 use crate::{
-    governance::ratification::ratify_proposals,
+    governance::ratification::{self, ratify_proposals, ProposalRoots, RatificationContext},
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{
         columns::{pools, proposals},
@@ -35,11 +35,12 @@ use amaru_kernel::{
     expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, MintedBlock,
-    Point, PoolId, ProposalId, ProtocolVersion, Slot, StakeCredential, StakeCredentialType,
-    TransactionInput,
+    stake_credential_hash, ConstitutionalCommittee, EraHistory, Hash, Lovelace,
+    MemoizedTransactionOutput, MintedBlock, Point, PoolId, ProposalId, ProtocolVersion, Slot,
+    StakeCredential, StakeCredentialType, TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
+use num::Rational64;
 use slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
@@ -260,10 +261,15 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // epoch than the previously applied block (i.e. the tip of the stable storage).
         if epoch_transitioning {
             let old_protocol_version = self.protocol_version;
+
+            let ratification_context =
+                new_ratification_context(self.snapshots.for_epoch(current_epoch - 2)?)?;
+
             self.protocol_version = epoch_transition(
                 &mut *db,
                 self.network,
                 current_epoch,
+                ratification_context,
                 self.rewards_summary.take(),
                 &self.protocol_parameters,
             )?;
@@ -505,6 +511,7 @@ fn epoch_transition(
     db: &mut impl Store,
     network: NetworkName,
     next_epoch: Epoch,
+    ratification_context: RatificationContext,
     rewards_summary: Option<RewardsSummary>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<ProtocolVersion, StateError> {
@@ -537,14 +544,24 @@ fn epoch_transition(
 
     // Start of epoch
     let proposals = db.iter_proposals()?.collect::<Vec<_>>();
+
     let batch = db.create_transaction();
     let should_begin_epoch = batch.try_epoch_transition(
         Some(EpochTransitionProgress::SnapshotTaken),
         Some(EpochTransitionProgress::EpochStarted),
     )?;
+
+    // FIXME: This should come from the store, and not be hard-coded. Requires to be capable of
+    // appreciating and enacting hard forks. Soon TM.
     let protocol_version = network.protocol_version(next_epoch);
     if should_begin_epoch {
-        begin_epoch(&batch, next_epoch, proposals, protocol_parameters)?;
+        begin_epoch(
+            &batch,
+            next_epoch,
+            ratification_context,
+            proposals,
+            protocol_parameters,
+        )?;
         batch.set_protocol_version(protocol_version)?;
     }
     batch.commit()?;
@@ -586,6 +603,7 @@ fn end_epoch<'store>(
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    ctx: RatificationContext,
     proposals: Vec<(ProposalId, proposals::Row)>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StoreError> {
@@ -603,10 +621,9 @@ fn begin_epoch<'store>(
     // delegates.
     tick_pools(db, epoch, protocol_parameters)?;
 
-    ratify_proposals(proposals, epoch);
-
-    // Refund deposit for any proposal that has expired.
-    tick_proposals(db, epoch)?;
+    // Ratify and enact proposals at the epoch boundary. Also refund deposit for any proposal that
+    // has expired.
+    tick_proposals(db, epoch, ctx, proposals)?;
 
     Ok(())
 }
@@ -695,12 +712,61 @@ pub fn tick_pools<'store>(
     )
 }
 
+#[instrument(level = Level::INFO, name = "ratification.create-context", skip_all)]
+pub fn new_ratification_context(
+    snapshot: impl Snapshot,
+) -> Result<RatificationContext, StoreError> {
+    let protocol_version = snapshot.protocol_version()?;
+
+    let protocol_parameters = snapshot.protocol_parameters()?;
+
+    let constitutional_committee = match snapshot.constitutional_committee()? {
+        ConstitutionalCommittee::NoConfidence => None,
+        ConstitutionalCommittee::Trusted { threshold } => {
+            let members = snapshot
+                .iter_cc_members()?
+                .map(|(cold_credential, row)| {
+                    (cold_credential, (row.hot_credential, row.valid_until))
+                })
+                .collect();
+
+            Some(ratification::ConstitutionalCommittee {
+                threshold: Rational64::new(
+                    threshold.numerator as i64,
+                    threshold.denominator as i64,
+                ),
+                members,
+            })
+        }
+    };
+
+    Ok(RatificationContext {
+        epoch: snapshot.epoch(),
+        protocol_version,
+        min_committee_size: protocol_parameters.cc_min_size as usize,
+        constitutional_committee,
+        // FIXME
+        votes: BTreeMap::new(),
+        // FIXME
+        roots: ProposalRoots {
+            protocol_parameters: None,
+            hard_fork: None,
+            constitutional_committee: None,
+            constitution: None,
+        },
+    })
+}
+
 #[instrument(level = Level::INFO, name = "tick.proposals", skip_all)]
 pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    ctx: RatificationContext,
+    proposals: Vec<(ProposalId, proposals::Row)>,
 ) -> Result<(), StoreError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
+
+    ratify_proposals(ctx, proposals);
 
     db.with_proposals(|iterator| {
         for (_key, item) in iterator {
