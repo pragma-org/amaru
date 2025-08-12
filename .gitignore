@@ -41,3 +41,4 @@ coverage/
 
 # llvm-cov generated file
 lcov.info
+.aider*

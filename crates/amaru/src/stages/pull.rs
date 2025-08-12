@@ -190,7 +190,7 @@ pub enum WorkUnit {
 }
 
 #[derive(Stage)]
-#[stage(name = "pull", unit = "WorkUnit", worker = "Worker")]
+#[stage(name = "stage.chain_sync_client", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
     pub client: ChainSyncClient,
     pub downstream: DownstreamPort,
@@ -212,7 +212,7 @@ impl Stage {
         self.client
             .find_intersection()
             .await
-            .map_err(|e| WorkerError::Panic)
+            .or_panic()
     }
 
     pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
@@ -220,7 +220,7 @@ impl Stage {
             .client
             .roll_forward(header)
             .await
-            .map_err(|_| WorkerError::Panic)?;
+            .or_panic();
         send!(&mut self.downstream, event)
     }
 
@@ -229,7 +229,7 @@ impl Stage {
             .client
             .roll_back(rollback_point, tip)
             .await
-            .map_err(|_| WorkerError::Panic)?;
+            .or_panic();
         self.downstream.send(event.into()).await.or_panic()
     }
 }
@@ -267,12 +267,12 @@ impl gasket::framework::Worker<Stage> for Worker {
                 .client
                 .request_next()
                 .await
-                .map_err(|_| WorkerError::Panic)?,
+                .or_panic()?,
             WorkUnit::Await => stage
                 .client
                 .await_next()
                 .await
-                .map_err(|_| WorkerError::Panic)?,
+                .or_panic()?,
         };
 
         match next {
