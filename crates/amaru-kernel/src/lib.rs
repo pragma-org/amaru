@@ -81,6 +81,9 @@ pub mod borrowed_datum;
 pub use ballot::Ballot;
 pub mod ballot;
 
+pub use constitutional_committee::*;
+pub mod constitutional_committee;
+
 pub use certificate_pointer::*;
 pub mod certificate_pointer;
 
@@ -137,9 +140,10 @@ pub mod serde_utils;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     pub use crate::{
-        anchor::tests::*, ballot::tests::*, certificate_pointer::tests::*, point::tests::*,
-        pool_params::tests::*, proposal_id::tests::*, proposal_pointer::tests::*,
-        protocol_parameters::tests::*, transaction_pointer::tests::*,
+        anchor::tests::*, ballot::tests::*, certificate_pointer::tests::*,
+        constitutional_committee::tests::*, point::tests::*, pool_params::tests::*,
+        proposal_id::tests::*, proposal_pointer::tests::*, protocol_parameters::tests::*,
+        transaction_pointer::tests::*,
     };
 }
 
