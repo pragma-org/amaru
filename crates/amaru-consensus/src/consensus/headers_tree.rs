@@ -34,7 +34,6 @@ use std::slice::Iter;
 #[allow(dead_code)]
 pub struct HeadersTree<H> {
     /// The arena maintains a list of headers and their parent/child relationship.
-    /// TODO: rename to `tree`, `arena` is very technical
     arena: Arena<Tip<H>>,
     /// Maximum size allowed for a given chain
     max_length: usize,
@@ -758,7 +757,7 @@ mod tests {
         assert_eq!(
             tree.best_chain_tip(),
             Some(&header),
-            "there is not best chain for an empty tree yet"
+            "there must be a best chain available after the first roll forward"
         );
     }
 
