@@ -13,13 +13,14 @@
 // limitations under the License.
 
 use crate::{
+    governance::ratification::ProposalRoots,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{self, columns::proposals, Store, StoreError, TransactionalContext},
 };
 use amaru_kernel::{
     cbor, heterogeneous_array, network::NetworkName, protocol_parameters::ProtocolParameters,
-    Account, Anchor, CertificatePointer, DRep, DRepState, Epoch, EraHistory, Lovelace,
-    MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalPointer, ProposalState,
+    Account, Anchor, CertificatePointer, ComparableProposalId, DRep, DRepState, Epoch, EraHistory,
+    Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalPointer, ProposalState,
     ProtocolVersion, Reward, Set, Slot, StakeCredential, StrictMaybe, TransactionInput,
     TransactionPointer, UnitInterval,
 };
@@ -170,9 +171,8 @@ pub fn import_initial_snapshot(
 
     // Proposals
     d.array()?;
-
-    // Proposals roots
-    d.skip()?;
+    d.array()?;
+    import_proposal_roots(db, d.decode()?, d.decode()?, d.decode()?, d.decode()?)?;
     let proposals: Vec<ProposalState> = d.decode()?;
 
     // Constitutional committee
@@ -758,6 +758,35 @@ fn import_accounts(
     Ok(())
 }
 
+fn import_proposal_roots(
+    db: &impl Store,
+    protocol_parameters: StrictMaybe<ComparableProposalId>,
+    hard_fork: StrictMaybe<ComparableProposalId>,
+    constitutional_committee: StrictMaybe<ComparableProposalId>,
+    constitution: StrictMaybe<ComparableProposalId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    let roots = ProposalRoots {
+        protocol_parameters: Option::from(protocol_parameters),
+        hard_fork: Option::from(hard_fork),
+        constitutional_committee: Option::from(constitutional_committee),
+        constitution: Option::from(constitution),
+    };
+
+    info!(
+        protocol_parameters = ?roots.protocol_parameters,
+        hard_fork = ?roots.hard_fork,
+        constitutional_committee = ?roots.constitutional_committee,
+        constitution = ?roots.constitution,
+        "roots"
+    );
+
+    transaction.set_proposal_roots(&roots)?;
+    transaction.commit()?;
+    Ok(())
+}
+
 fn import_constitutional_committee(
     db: &impl Store,
     point: &Point,
@@ -774,7 +803,10 @@ fn import_constitutional_committee(
     })?;
 
     let cc = match cc {
-        StrictMaybe::Nothing => amaru_kernel::ConstitutionalCommittee::NoConfidence,
+        StrictMaybe::Nothing => {
+            info!(state = "no confidence", "constitutional committee");
+            amaru_kernel::ConstitutionalCommittee::NoConfidence
+        }
         StrictMaybe::Just(ConstitutionalCommittee { threshold, members }) => {
             // FIXME: also retain cc members expiry deadline 'valid_until'
             members.into_iter().for_each(|(cold_cred, _valid_until)| {
@@ -782,6 +814,14 @@ fn import_constitutional_committee(
                     ConstitutionalCommitteeAuthorization::Resigned(StrictMaybe::Nothing),
                 );
             });
+
+            info!(
+                state = "trusted",
+                threshold = format!("{}/{}", threshold.numerator, threshold.denominator),
+                members = cc_members.len(),
+                "constitutional committee"
+            );
+
             amaru_kernel::ConstitutionalCommittee::Trusted { threshold }
         }
     };
