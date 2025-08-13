@@ -12,24 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::{
-    chain_selection::{RollbackChainSelection, DEFAULT_MAXIMUM_FRAGMENT_LENGTH},
-    DecodedChainSyncEvent, ValidateHeaderEvent,
-};
+use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::HeadersTree;
-use crate::{
-    consensus::{
-        chain_selection::{self, Fork},
-        EVENT_TARGET,
-    },
-    ConsensusError,
-};
+use crate::{consensus::EVENT_TARGET, ConsensusError};
 use amaru_kernel::{peer::Peer, Header, Point};
 use amaru_ouroboros::IsHeader;
+use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{trace, Span};
+
+pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct SelectChain {
@@ -97,11 +91,11 @@ impl SelectChain {
             .select_roll_forward(&peer, header)?;
 
         let events = match result {
-            chain_selection::ForwardChainSelection::NewTip { peer, tip } => {
+            ForwardChainSelection::NewTip { peer, tip } => {
                 trace!(target: EVENT_TARGET, hash = %tip.hash(), "new_tip");
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
-            chain_selection::ForwardChainSelection::SwitchToFork(Fork {
+            ForwardChainSelection::SwitchToFork(Fork {
                 peer,
                 rollback_point,
                 fork,
@@ -109,7 +103,7 @@ impl SelectChain {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
-            chain_selection::ForwardChainSelection::NoChange => {
+            ForwardChainSelection::NoChange => {
                 trace!(target: EVENT_TARGET, "no_change");
                 vec![]
             }
@@ -177,4 +171,50 @@ impl SelectChain {
             } => self.select_rollback(peer, rollback_point, span).await,
         }
     }
+}
+
+/// Definition of a fork.
+///
+/// FIXME: The peer should not be needed here, as the fork should be
+/// comprised of known blocks. It is only needed to download the blocks
+/// we don't currently store.
+#[derive(Debug, PartialEq)]
+pub struct Fork<H: IsHeader> {
+    pub peer: Peer,
+    pub rollback_point: Point,
+    pub fork: Vec<H>,
+}
+
+/// The outcome of the chain selection process in  case of
+/// roll forward.
+#[derive(Debug, PartialEq)]
+pub enum ForwardChainSelection<H: IsHeader> {
+    /// The current best chain has been extended with a (single) new header.
+    NewTip { peer: Peer, tip: H },
+
+    /// The current best chain is unchanged.
+    NoChange,
+
+    /// The current best chain has switched to given fork.
+    SwitchToFork(Fork<H>),
+}
+
+/// The outcome of the chain selection process in case of rollback
+#[derive(Debug, PartialEq)]
+pub enum RollbackChainSelection<H: IsHeader> {
+    /// The current best chain has been rolled back to the given hash.
+    RollbackTo(Hash<32>),
+
+    /// The current best chain has switched to given fork.
+    SwitchToFork(Fork<H>),
+
+    /// The peer tried to rollback beyond the limit
+    RollbackBeyondLimit {
+        peer: Peer,
+        rollback_point: Hash<32>,
+        max_point: Hash<32>,
+    },
+
+    /// The current best chain as not changed
+    NoChange,
 }

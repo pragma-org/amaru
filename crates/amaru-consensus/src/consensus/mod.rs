@@ -19,7 +19,6 @@ use amaru_kernel::{peer::Peer, Header, Point};
 use serde::{Deserialize, Serialize};
 use tracing::Span;
 
-pub mod chain_selection;
 pub mod headers_tree;
 pub mod receive_header;
 pub mod select_chain;

@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use super::echo::Envelope;
-use amaru_consensus::consensus::chain_selection::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
+use amaru_consensus::consensus::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
 use amaru_consensus::consensus::{
     headers_tree::HeadersTree, receive_header::handle_chain_sync, select_chain::SelectChain,
     store::ChainStore, store_header::StoreHeader, validate_header, validate_header::ValidateHeader,

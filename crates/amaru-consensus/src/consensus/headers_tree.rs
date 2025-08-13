@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::chain_selection::RollbackChainSelection::RollbackBeyondLimit;
-use crate::consensus::chain_selection::{Fork, ForwardChainSelection, RollbackChainSelection};
+use crate::consensus::select_chain::RollbackChainSelection::RollbackBeyondLimit;
+use crate::consensus::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
 use crate::consensus::tip::Tip;
 use crate::{ConsensusError, InvalidHeaderParentData};
 use amaru_kernel::{peer::Peer, Point, HEADER_HASH_SIZE};
@@ -729,8 +729,7 @@ fn find_best_tip<T>(arena: &Arena<T>) -> Option<NodeId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::chain_selection::ForwardChainSelection;
-    use crate::consensus::chain_selection::RollbackChainSelection::RollbackTo;
+    use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
     use amaru_kernel::{from_cbor, to_cbor, HEADER_HASH_SIZE};
     use amaru_ouroboros_traits::fake::FakeHeader;
     use proptest::arbitrary::any;
