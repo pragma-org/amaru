@@ -118,7 +118,7 @@ pub mod tests {
     use std::cmp::max;
 
     /// Create a list of arbitrary fake headers starting from a root, and where chain[i] is the parent of chain[i+1]
-    pub fn any_headers_chain(n: usize) -> impl Strategy<Value=Vec<FakeHeader>> {
+    pub fn any_headers_chain(n: usize) -> impl Strategy<Value = Vec<FakeHeader>> {
         prop::collection::vec(any_fake_header(), 1..(max(n, 2))).prop_map(|mut headers| {
             let mut parent = None;
             for (i, h) in headers.iter_mut().enumerate() {
@@ -132,12 +132,12 @@ pub mod tests {
     }
 
     /// Create an arbitrary header hash with the right number of bytes
-    pub fn any_header_hash() -> impl Strategy<Value=Hash<HEADER_HASH_SIZE>> {
+    pub fn any_header_hash() -> impl Strategy<Value = Hash<HEADER_HASH_SIZE>> {
         any::<[u8; HEADER_HASH_SIZE]>().prop_map(Hash::from)
     }
 
     /// Create an arbitrary FakeHeader
-    pub fn any_fake_header() -> impl Strategy<Value=FakeHeader> {
+    pub fn any_fake_header() -> impl Strategy<Value = FakeHeader> {
         (
             0u64..=1_000_000,
             0u64..=1_000_000,

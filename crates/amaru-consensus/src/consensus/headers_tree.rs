@@ -32,6 +32,7 @@ use std::slice::Iter;
 /// tree of headers.
 ///
 #[allow(dead_code)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HeadersTree<H> {
     /// The arena maintains a list of headers and their parent/child relationship.
     arena: Arena<Tip<H>>,
@@ -67,19 +68,20 @@ impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
             .map(|n| n.hash().to_string())
             .unwrap_or("GENESIS".to_string());
 
-        f.write_str(&self.pretty_print())?;
-        f.write_str("\n")?;
-        f.debug_struct("HeadersTree")
-            .field("\n   peers", &debug_peers)
-            .field("\n   best_chain", &debug_best_chain)
-            .field("\n   best_node_id", &self.best_chain.to_string())
-            .field(
-                "\n   best_peer",
-                &self.best_peer.as_ref().map(|p| p.to_string()),
-            )
-            .field("\n   max_length", &self.max_length)
-            .finish()?;
-        f.write_str("\n")
+        f.write_str("HeadersTree {\n")?;
+        f.write_fmt(format_args!("  arena:\n{}\n", &self.pretty_print()))?;
+        f.write_fmt(format_args!("  peers: {:?}\n", &debug_peers))?;
+        f.write_fmt(format_args!("  best_chain: {}\n", &debug_best_chain))?;
+        f.write_fmt(format_args!(
+            "  best_node_id: {}\n",
+            &self.best_chain.to_string()
+        ))?;
+        f.write_fmt(format_args!(
+            "  best_peer: {:?}\n",
+            &self.best_peer.as_ref().map(|p| p.to_string())
+        ))?;
+        f.write_fmt(format_args!("  max_length: {}\n", &self.max_length))?;
+        f.write_str("}\n")
     }
 }
 
@@ -476,6 +478,25 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
             .and_then(|n| self.unsafe_get_arena_node(n).get().to_header()))
     }
 
+    /// Return the chain root header
+    fn get_root(&self) -> Option<&H> {
+        if let Some(root_node_id) = self.get_root_node_id() {
+            self.unsafe_get_arena_node(root_node_id).get().to_header()
+        } else {
+            None
+        }
+    }
+
+    /// Return the chain root header hash
+    fn get_root_hash(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
+        self.get_root().map(|r| r.hash())
+    }
+
+    /// Return the root node id for this tree if the arena is not empty
+    fn get_root_node_id(&self) -> Option<NodeId> {
+        get_arena_root(&self.arena)
+    }
+
     /// Return the chain tip for a given Peer
     fn get_node_id_tip_for(&self, peer: &Peer) -> Result<NodeId, ConsensusError> {
         Ok(*self
@@ -536,18 +557,13 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     /// Insert headers into the arena and return the last created node id
     /// This function is used to initialize the tree from persistent storage.
     pub fn insert_headers(&mut self, headers: &[H]) -> NodeId {
-        let mut iter = headers.iter();
-        if let Some(first) = iter.next() {
-            let rest: Vec<_> = iter.collect();
-            let mut last_node_id: NodeId = self.arena.new_node(Tip::Hdr(first.clone()));
-
-            for header in rest {
-                let new_node_id = self.arena.new_node(Tip::Hdr(header.clone()));
-                last_node_id.append(new_node_id, &mut self.arena);
-                last_node_id = new_node_id;
-            }
-            self.best_chain = last_node_id;
-        };
+        let mut last_node_id: NodeId = self.get_root_node_id().unwrap();
+        for header in headers {
+            let new_node_id = self.arena.new_node(Tip::Hdr(header.clone()));
+            last_node_id.append(new_node_id, &mut self.arena);
+            last_node_id = new_node_id;
+        }
+        self.best_chain = last_node_id;
         self.best_chain()
     }
 
@@ -686,33 +702,22 @@ fn get_arena_active_nodes<T>(arena: &Arena<T>) -> Filter<Iter<'_, Node<T>>, fn(&
 ///
 /// Shows a graphical representation of the internal structure of
 /// the tree.
-/// ```text
-/// Hdr(FakeHeader { block_number: 1, slot: 7, parent: None, body_hash: Hash<32>("2cabe6ea") })
-/// |-- Hdr(FakeHeader { block_number: 2, slot: 22, parent: Some(Hash<32>("d4f3cf2e")), body_hash: Hash<32>("cd932b1e") })
-/// |   `-- Hdr(FakeHeader { block_number: 3, slot: 23, parent: Some(Hash<32>("f72dbcd2")), body_hash: Hash<32>("5b466114") })
-/// |       `-- Hdr(FakeHeader { block_number: 4, slot: 26, parent: Some(Hash<32>("a0326a71")), body_hash: Hash<32>("993e8517") })
-/// |           `-- Hdr(FakeHeader { block_number: 5, slot: 28, parent: Some(Hash<32>("b452d00f")), body_hash: Hash<32>("9d341c29") })
-/// |               `-- Hdr(FakeHeader { block_number: 6, slot: 93, parent: Some(Hash<32>("143b3c68")), body_hash: Hash<32>("35894500") })
-/// |                   `-- Hdr(FakeHeader { block_number: 7, slot: 111, parent: Some(Hash<32>("448fa5c3")), body_hash: Hash<32>("b18964dc") })
-/// |                       `-- Hdr(FakeHeader { block_number: 8, slot: 115, parent: Some(Hash<32>("c3f7d827")), body_hash: Hash<32>("db0a9b64") })
-/// |                           `-- Hdr(FakeHeader { block_number: 9, slot: 124, parent: Some(Hash<32>("f1a8d8ce")), body_hash: Hash<32>("25a75c75") })
-/// |                               `-- Hdr(FakeHeader { block_number: 10, slot: 151, parent: Some(Hash<32>("17254ace")), body_hash: Hash<32>("9f3acd52") })
-/// `-- Hdr(FakeHeader { block_number: 2, slot: 0, parent: Some(Hash<32>("d4f3cf2e")), body_hash: Hash<32>("24115f11") })
-///     `-- Hdr(FakeHeader { block_number: 3, slot: 0, parent: Some(Hash<32>("83ee63d6")), body_hash: Hash<32>("7950c684") })
-///```
 fn pretty_print_root<T: Debug>(arena: &Arena<T>) -> String {
     // take the first active node and retrieve the root of the tree from there
-    if let Some(tip) = get_arena_active_nodes(arena)
-        .next()
-        .and_then(|n| arena.get_node_id(n))
-    {
-        tip.ancestors(arena)
-            .last()
-            .map(|root| format!("{:?}", root.debug_pretty_print(arena)))
-            .unwrap_or("".to_string())
+    if let Some(root) = get_arena_root(arena) {
+        format!("{:?}", root.debug_pretty_print(arena))
     } else {
         "<EMPTY ARENA>".to_string()
     }
+}
+
+fn get_arena_root<T>(arena: &Arena<T>) -> Option<NodeId> {
+    // take the first active node and retrieve the root of the tree from there
+    get_arena_active_nodes(arena).next().and_then(|n| {
+        arena
+            .get_node_id(n)
+            .and_then(|tip| tip.ancestors(arena).last())
+    })
 }
 
 /// Return the node id at the tip of the longest chain
@@ -731,7 +736,6 @@ mod tests {
     use crate::consensus::chain_selection::ForwardChainSelection;
     use crate::consensus::chain_selection::RollbackChainSelection::RollbackTo;
     use amaru_kernel::{cbor, from_cbor, to_cbor, HEADER_HASH_SIZE};
-    use amaru_ouroboros_traits::fake::FakeHeader;
     use proptest::arbitrary::any;
     use proptest::prelude::{Just, ProptestConfig, Strategy};
     use proptest::{prop_compose, proptest};
@@ -740,12 +744,13 @@ mod tests {
     use rand_distr::{Distribution, Exp};
     use std::fmt;
     use std::fmt::Display;
+    use std::fmt::{Debug, Write as _};
     use std::hash::Hasher;
     use toposort::{Dag, Toposort};
 
     #[test]
     fn empty() {
-        let tree: HeadersTree<FakeHeader> = HeadersTree::new(10, &None);
+        let tree: HeadersTree<TestHeader> = HeadersTree::new(10, &None);
         assert_eq!(
             tree.best_chain_tip(),
             None,
@@ -755,7 +760,7 @@ mod tests {
 
     #[test]
     fn initialize_peer_on_empty_tree() {
-        let mut tree: HeadersTree<FakeHeader> = HeadersTree::new(10, &None);
+        let mut tree: HeadersTree<TestHeader> = HeadersTree::new(10, &None);
         let peer = Peer::new("alice");
         let header = generate_headers_chain(1)[0];
         tree.initialize_peer(&peer, &Point::Origin.hash()).unwrap();
@@ -777,7 +782,7 @@ mod tests {
         assert_eq!(tree.best_chain_tip(), Some(last));
         assert_eq!(
             tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&FakeHeader>>()
+            headers.iter().collect::<Vec<&TestHeader>>()
         );
     }
 
@@ -818,11 +823,10 @@ mod tests {
             ForwardChainSelection::NewTip { peer, tip: new_tip }
         );
         assert_eq!(tree.best_chain_tip(), Some(&new_tip));
-
         headers.push(new_tip);
         assert_eq!(
             tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&FakeHeader>>()
+            headers.iter().collect::<Vec<&TestHeader>>()
         );
     }
 
@@ -879,7 +883,7 @@ mod tests {
         headers.push(new_tip);
         assert_eq!(
             tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&FakeHeader>>()
+            headers.iter().collect::<Vec<&TestHeader>>()
         );
     }
 
@@ -908,7 +912,7 @@ mod tests {
 
         assert_eq!(
             tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&FakeHeader>>(),
+            headers.iter().collect::<Vec<&TestHeader>>(),
             "the best chain hasn't changed"
         );
     }
@@ -938,7 +942,7 @@ mod tests {
 
         assert_eq!(
             tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&FakeHeader>>(),
+            headers.iter().collect::<Vec<&TestHeader>>(),
             "the best chain hasn't changed"
         );
     }
@@ -958,7 +962,7 @@ mod tests {
         // Adding a new header must create a fork
         let bob_new_header3 = make_header_with_parent(new_bob_headers.last().unwrap());
         new_bob_headers.push(bob_new_header3);
-        let fork: Vec<FakeHeader> = new_bob_headers;
+        let fork: Vec<TestHeader> = new_bob_headers;
         let fork = Fork {
             peer: bob.clone(),
             rollback_point: middle.point(),
@@ -1022,7 +1026,7 @@ mod tests {
         // in order to stay below max_length
         headers.push(new_tip);
         let expected = headers.split_off(1);
-        let expected = expected.iter().collect::<Vec<&FakeHeader>>();
+        let expected = expected.iter().collect::<Vec<&TestHeader>>();
         assert_eq!(tree.best_chain_fragment(), expected);
     }
 
@@ -1040,13 +1044,13 @@ mod tests {
         _ = tree.select_roll_forward(&alice, new_tip).unwrap();
 
         // The original chain anchor is still present in the arena but marked as removed (its data is dropped)
-        assert_eq!(tree.size(), 12);
+        assert_eq!(tree.size(), 11);
 
         // If we add a new header to the current chain, the arena reuses the removed node to store
         // the new header
         let new_tip = make_header_with_parent(&new_tip.clone());
         _ = tree.select_roll_forward(&alice, new_tip).unwrap();
-        assert_eq!(tree.size(), 12);
+        assert_eq!(tree.size(), 11);
     }
 
     #[test]
@@ -1068,7 +1072,7 @@ mod tests {
         // Now roll forward alice's tip twice
         // The tree must not grow in size because bob's arena nodes have been reused
         _ = rollforward_from(&mut tree, tip, &alice, 4);
-        assert_eq!(tree.size(), 14);
+        assert_eq!(tree.size(), 13);
     }
 
     #[test]
@@ -1240,7 +1244,7 @@ mod tests {
         expected = "Cannot create a headers tree with maximum chain length lower than 2"
     )]
     fn cannot_initialize_tree_with_k_lower_than_2() {
-        HeadersTree::<FakeHeader>::new(1, &None);
+        HeadersTree::<TestHeader>::new(1, &None);
     }
 
     #[test]
@@ -1274,34 +1278,77 @@ mod tests {
 
     proptest! {
         #[test]
-        fn generate_tree(tree in any_headers_tree(3, 2)) {
+        fn generate_tree(tree in any_headers_tree(3, 5, 2)) {
             assert_eq!(tree.best_length(), 3);
         }
     }
 
     proptest! {
-        #![proptest_config(start_config().no_shrink().with_cases(10).ok())]
+        #![proptest_config(start_config().no_shrink().with_cases(1).ok())]
         #[test]
-        fn simulate_peer(actions in any_roll_forward_actions(10)) {
-            let mut tree = HeadersTree::new(10, &None);
-            let mut initialized_peers = BTreeSet::new();
-            let mut results = vec![];
-            for action in actions.into_iter() {
-                if !initialized_peers.contains(&action.peer) {
-                    tree.initialize_peer(&action.peer, &Point::Origin.hash()).unwrap();
-                    initialized_peers.insert(action.peer.clone());
-                }
-                let header = TestHeader {
-                    parent: action.parent, hash: action.hash
-                };
-                results.push(tree.select_roll_forward(&action.peer, header).unwrap());
-            };
+        fn simulate_peer((upstream_tree, actions) in any_roll_forward_actions(5, 10)) {
+            let mut our_tree = HeadersTree::new(10, &upstream_tree.get_root().cloned());
+            let results = execute_roll_forward_actions(&mut our_tree, actions);
+            assert_eq!(our_tree.best_length(), upstream_tree.best_length());
+
+            let mut downstream_tree = HeadersTree::new(10, &our_tree.get_root().cloned());
+
+            for result in results {
+                match result {
+                    ForwardChainSelection::NewTip{ peer, tip } => {
+                        if !downstream_tree.peers.keys().collect::<Vec<_>>().contains(&&peer) {
+                            if let Some(parent) = tip.parent {
+                                downstream_tree.initialize_peer(&peer, &parent)?;
+                            }
+                        };
+                        _ = downstream_tree.select_roll_forward(&peer, tip)?
+
+                    },
+                    ForwardChainSelection::SwitchToFork(fork) => {
+                        if !downstream_tree.peers.keys().collect::<Vec<_>>().contains(&&fork.peer) {
+                            downstream_tree.initialize_peer(&fork.peer, &fork.rollback_point.hash())?;
+                        };
+                        _ = downstream_tree.select_rollback(&fork.peer, &fork.rollback_point.hash())?;
+                        for h in fork.fork {
+                            _ = downstream_tree.select_roll_forward(&fork.peer, h)?
+                        }
+                    },
+                    ForwardChainSelection::NoChange => {},
+               }
+            }
+            assert_eq!(downstream_tree.best_length(), upstream_tree.best_length());
+            assert_eq!(downstream_tree.best_chain_fragment(), our_tree.best_chain_fragment());
         }
     }
 
+    fn execute_roll_forward_actions(
+        tree: &mut HeadersTree<TestHeader>,
+        actions: Vec<RollForwardAction>,
+    ) -> Vec<ForwardChainSelection<TestHeader>> {
+        let mut initialized_peers = BTreeSet::new();
+        let mut results = vec![];
+        for action in actions.into_iter() {
+            if !initialized_peers.contains(&action.peer) {
+                tree.initialize_peer(&action.peer, &tree.get_root_hash().unwrap())
+                    .unwrap();
+                initialized_peers.insert(action.peer.clone());
+            }
+            let header = TestHeader {
+                hash: action.hash,
+                slot: action.slot,
+                parent: action.parent,
+            };
+            results.push(tree.select_roll_forward(&action.peer, header).unwrap());
+        }
+        results
+    }
+
     /// Return a list of RollForward actions to execute for a given peer
-    fn any_roll_forward_actions(depth: usize) -> impl Strategy<Value=Vec<RollForwardAction>> {
-        any_headers_tree(depth, 1).prop_flat_map(|tree| {
+    fn any_roll_forward_actions(
+        depth: usize,
+        max_length: usize,
+    ) -> impl Strategy<Value=(HeadersTree<TestHeader>, Vec<RollForwardAction>)> {
+        any_headers_tree(depth, max_length, 1).prop_flat_map(|tree| {
             // collect the tips of the tree
             let tips: Vec<NodeId> = tree
                 .get_active_nodes()
@@ -1310,11 +1357,11 @@ mod tests {
                 .collect();
 
             // create a chain of headers for each tip (a path in the tree from the root to the tip)
-            let mut chains: Vec<Vec<Hash<HEADER_HASH_SIZE>>> = tips
+            let mut chains: Vec<Vec<TestHeader>> = tips
                 .into_iter()
                 .map(|n| {
                     n.ancestors(&tree.arena)
-                        .map(|a| tree.arena.get(a).unwrap().get().hash())
+                        .filter_map(|a| tree.arena.get(a).unwrap().get().to_header().cloned())
                         .collect()
                 })
                 .collect();
@@ -1331,7 +1378,8 @@ mod tests {
                 for h in chain.into_iter() {
                     let current_node = RollForwardAction {
                         peer: peer.clone(),
-                        hash: h,
+                        hash: h.hash,
+                        slot: h.slot,
                         parent: parent_hash,
                     };
                     if let Some(parent_node) = parent_node {
@@ -1341,16 +1389,19 @@ mod tests {
                         }
                     };
                     parent_node = Some(current_node);
-                    parent_hash = Some(h);
+                    parent_hash = Some(h.hash);
                 }
             });
             let result: Vec<Vec<RollForwardAction>> = dag.toposort().unwrap_or(vec![]);
 
             // Randomly shuffle each level of the topological sort to simulate data coming from
             // peers concurrently and flatten the resulting list of actions.
-            Just(result)
-                .prop_flat_map(|r| shuffled_inner_vectors(r))
-                .prop_map(|vs| vs.into_iter().flatten().collect())
+            (
+                Just(tree),
+                Just(result)
+                    .prop_flat_map(|r| shuffled_inner_vectors(r))
+                    .prop_map(|vs| vs.into_iter().flatten().collect()),
+            )
         })
     }
 
@@ -1384,39 +1435,40 @@ mod tests {
     }
 
     proptest! {
-        // Roundtrip check for CBOR encoding/decoding of FakeHeaders
+        // Roundtrip check for CBOR encoding/decoding of TestHeaders
         #[test]
         fn prop_roundtrip_cbor(hdr in any_test_header()) {
             let bytes = to_cbor(&hdr);
-            let hdr2 = from_cbor::<FakeHeader>(&bytes).unwrap();
+            let hdr2 = from_cbor::<TestHeader>(&bytes).unwrap();
             assert_eq!(hdr, hdr2);
         }
     }
 
     /// HELPERS
-    fn create_headers_tree(size: usize) -> (HeadersTree<FakeHeader>, Vec<FakeHeader>) {
-        let mut tree = HeadersTree::new(10, &None);
+    fn create_headers_tree(size: usize) -> (HeadersTree<TestHeader>, Vec<TestHeader>) {
         let headers = generate_headers_chain(size);
-        _ = tree.insert_headers(&headers);
+        let mut tree = HeadersTree::new(10, &headers.first().cloned());
+        let mut tail = headers.clone();
+        _ = tail.remove(0);
+        _ = tree.insert_headers(&tail);
         (tree, headers)
     }
 
     fn initialize_with_peer(
         size: usize,
         peer: &Peer,
-    ) -> (HeadersTree<FakeHeader>, Vec<FakeHeader>) {
+    ) -> (HeadersTree<TestHeader>, Vec<TestHeader>) {
         let (mut tree, headers) = create_headers_tree(size);
         let tip = headers.last().unwrap();
         tree.initialize_peer(peer, &tip.hash()).unwrap();
         (tree, headers)
     }
 
-    fn make_header_with_parent(parent: &FakeHeader) -> FakeHeader {
-        FakeHeader {
-            block_number: parent.block_number + 1,
-            slot: 0,
+    fn make_header_with_parent(parent: &TestHeader) -> TestHeader {
+        TestHeader {
+            hash: Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice()),
+            slot: parent.slot + 1,
             parent: Some(parent.hash()),
-            body_hash: random_bytes(HEADER_HASH_SIZE).as_slice().into(),
         }
     }
 
@@ -1427,11 +1479,11 @@ mod tests {
     ///
     /// And return the last created header
     fn rollforward_from(
-        tree: &mut HeadersTree<FakeHeader>,
-        header: &FakeHeader,
+        tree: &mut HeadersTree<TestHeader>,
+        header: &TestHeader,
         peer: &Peer,
         times: u32,
-    ) -> Vec<FakeHeader> {
+    ) -> Vec<TestHeader> {
         let mut result = vec![];
         let mut parent = *header;
         for _ in 0..times {
@@ -1447,27 +1499,27 @@ mod tests {
     ///
     /// The chain is generated by creating headers with random body hash, and linking
     /// them to the previous header in the chain until the desired length is reached.
-    fn generate_headers_chain(length: usize) -> Vec<FakeHeader> {
+    fn generate_headers_chain(length: usize) -> Vec<TestHeader> {
         let mut rng = StdRng::seed_from_u64(42);
         generate_headers(length, &mut rng)
     }
+
     /// Generate a chain of headers anchored at a given header.
     ///
     /// The chain is generated by creating headers with random body hash, and linking
     /// them to the previous header in the chain until the desired length is reached.
-    fn generate_headers(length: usize, rng: &mut StdRng) -> Vec<FakeHeader> {
-        let mut headers: Vec<FakeHeader> = Vec::new();
-        let mut parent: Option<FakeHeader> = None;
+    fn generate_headers(length: usize, rng: &mut StdRng) -> Vec<TestHeader> {
+        let mut headers: Vec<TestHeader> = Vec::new();
+        let mut parent: Option<TestHeader> = None;
         // simulate block distribution on mainnet as an exponential distribution with
         // parameter λ = 1/20
         let poi = Exp::new(0.05).unwrap();
         for _ in 0..length {
             let next_slot: f32 = poi.sample(rng);
-            let header = FakeHeader {
-                block_number: parent.map_or(0, |h| h.block_height()) + 1,
+            let header = TestHeader {
+                hash: Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice()),
                 slot: parent.map_or(0, |h| h.slot()) + (next_slot.floor() as u64),
                 parent: parent.map(|h| h.hash()),
-                body_hash: random_bytes(32).as_slice().into(),
             };
             headers.push(header);
             parent = Some(header);
@@ -1477,14 +1529,20 @@ mod tests {
 
     fn any_headers_tree(
         depth: usize,
+        max_length: usize,
         peers_nb: usize,
-    ) -> impl Strategy<Value=HeadersTree<FakeHeader>> {
-        (0..u64::MAX).prop_map(move |seed| generate_headers_tree(depth, peers_nb, seed))
+    ) -> impl Strategy<Value=HeadersTree<TestHeader>> {
+        (0..u64::MAX).prop_map(move |seed| generate_headers_tree(depth, max_length, peers_nb, seed))
     }
 
     /// Generate a headers tree of max depth 'depth' (also the size of the longest chain)
     /// and random peers (named "1", "2", "3",...) pointing on some nodes of the tree
-    fn generate_headers_tree(depth: usize, peers_nb: usize, seed: u64) -> HeadersTree<FakeHeader> {
+    fn generate_headers_tree(
+        depth: usize,
+        max_length: usize,
+        peers_nb: usize,
+        seed: u64,
+    ) -> HeadersTree<TestHeader> {
         let mut rng = StdRng::seed_from_u64(seed);
         let mut arena = generate_arena(depth, &mut rng);
         renumber_headers(&mut arena);
@@ -1493,31 +1551,30 @@ mod tests {
         let mut peers = generate_peers(&arena, peers_nb);
 
         // Set a peer at the tip of the best chain
-        let best_peer = Peer::new(&format!("{}", peers_nb + 1));
-        peers.insert(best_peer.clone(), tip);
+        let best_peer: Option<Peer> = peers.keys().last().cloned();
+        peers.insert(best_peer.clone().unwrap(), tip);
 
         HeadersTree {
             arena,
-            max_length: depth,
+            max_length,
             peers,
             best_chain: tip,
-            best_peer: Some(best_peer),
+            best_peer,
         }
     }
 
     /// Once the arena is generated rename the block numbers and slots in the order of their creation
     /// to help diagnose the tests.
-    fn renumber_headers(arena: &mut Arena<Tip<FakeHeader>>) {
+    fn renumber_headers(arena: &mut Arena<Tip<TestHeader>>) {
         for (count, n) in arena.iter_mut().enumerate() {
             if let Tip::Hdr(header) = n.get_mut() {
                 header.slot = count as u64 + 1;
-                header.block_number = count as u64 + 1;
             };
         }
     }
 
     /// Generate an arbitrary list of peers named "1", "2", "3",... pointing at existing nodes in the arena.
-    fn generate_peers(arena: &Arena<Tip<FakeHeader>>, nb: usize) -> BTreeMap<Peer, NodeId> {
+    fn generate_peers(arena: &Arena<Tip<TestHeader>>, nb: usize) -> BTreeMap<Peer, NodeId> {
         let mut rng = rand::rng();
         let node_ids: Vec<_> = get_arena_active_nodes(arena)
             .map(|n| arena.get_node_id(n).unwrap())
@@ -1531,7 +1588,7 @@ mod tests {
     }
 
     /// Generate an arena of fake headers with a limited depth
-    pub fn generate_arena(depth: usize, rng: &mut StdRng) -> Arena<Tip<FakeHeader>> {
+    pub fn generate_arena(depth: usize, rng: &mut StdRng) -> Arena<Tip<TestHeader>> {
         let mut arena = Arena::with_capacity(depth * depth);
         let root = generate_headers(1, rng)[0];
         let root_node_id = arena.new_node(Tip::Hdr(root));
@@ -1541,18 +1598,24 @@ mod tests {
 
     /// Generate an arena of fake headers with a limited depth
     fn generate_blocktree_in_arena(
-        arena: &mut Arena<Tip<FakeHeader>>,
+        arena: &mut Arena<Tip<TestHeader>>,
         rng: &mut StdRng,
         depth: usize,
-        parent: NodeId,
+        parent_node_id: NodeId,
     ) {
-        let spine = generate_headers(depth, rng);
+        let mut spine = generate_headers(depth, rng);
         let mut current_size = 0;
-        let mut parent = parent;
-        for n in spine.iter() {
+        let mut parent_node_id = parent_node_id;
+        for n in spine.iter_mut() {
+            n.parent = arena
+                .get(parent_node_id)
+                .unwrap()
+                .get()
+                .to_header()
+                .map(|h| h.hash());
             let tip = arena.new_node(Tip::Hdr(*n));
-            parent.append(tip, arena);
-            parent = tip;
+            parent_node_id.append(tip, arena);
+            parent_node_id = tip;
             current_size += 1;
             let other_branch_depth = rng.random_range(0..(depth - current_size + 1));
             if other_branch_depth > 0 {
@@ -1569,20 +1632,18 @@ mod tests {
         buffer
     }
 
-    // Data generator for random FakeHeaders
+    // Data generator for random TestHeaders
     prop_compose! {
         fn any_test_header()(
             slot in 0..1000000u64,
-            block_number in 0..100000u64,
             parent in any::<[u8; 32]>(),
             body in any::<[u8; 32]>(),
         )
-            -> FakeHeader {
-            FakeHeader {
-                block_number,
+            -> TestHeader {
+            TestHeader {
+                hash: body.into(),
                 slot,
                 parent: Some(parent.into()),
-                body_hash: body.into(),
             }
         }
     }
@@ -1590,6 +1651,7 @@ mod tests {
     #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
     struct RollForwardAction {
         hash: Hash<HEADER_HASH_SIZE>,
+        slot: u64,
         peer: Peer,
         parent: Option<Hash<HEADER_HASH_SIZE>>,
     }
@@ -1603,19 +1665,31 @@ mod tests {
     #[derive(PartialEq, Clone, Copy)]
     pub struct TestHeader {
         pub hash: Hash<HEADER_HASH_SIZE>,
+        pub slot: u64,
         pub parent: Option<Hash<HEADER_HASH_SIZE>>,
     }
 
     impl Debug for TestHeader {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             f.debug_struct("TestHeader")
-                .field("hash", &self.hash().to_string())
-                .field("parent", &self.parent.map(|h| h.to_string()).unwrap_or("None".to_string()))
+                .field("hash", &self.hash.to_string())
+                .field("slot", &self.slot.to_string())
+                .field(
+                    "parent",
+                    &self
+                        .parent
+                        .map(|h| h.to_string())
+                        .unwrap_or("None".to_string()),
+                )
                 .finish()
         }
     }
 
     impl IsHeader for TestHeader {
+        fn point(&self) -> Point {
+            Point::Specific(self.slot(), self.hash.to_vec())
+        }
+
         fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
             self.parent
         }
@@ -1624,12 +1698,12 @@ mod tests {
             0
         }
 
-        fn slot(&self) -> u64 {
-            0
+        fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+            self.hash.clone()
         }
 
-        fn point(&self) -> Point {
-            Point::Specific(self.slot(), self.hash.to_vec())
+        fn slot(&self) -> u64 {
+            self.slot
         }
 
         fn extended_vrf_nonce_output(&self) -> Vec<u8> {
@@ -1645,8 +1719,9 @@ mod tests {
             e: &mut cbor::Encoder<W>,
             ctx: &mut C,
         ) -> Result<(), cbor::encode::Error<W::Error>> {
-            e.array(2)?
+            e.array(3)?
                 .encode_with(self.hash, ctx)?
+                .encode_with(self.slot, ctx)?
                 .encode_with(self.parent, ctx)?
                 .ok()
         }
@@ -1656,18 +1731,17 @@ mod tests {
         fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
             d.array()?;
             let hash = d.decode_with(ctx)?;
+            let slot = d.decode_with(ctx)?;
             let parent = d.decode_with(ctx)?;
-            Ok(Self {
-                hash,
-                parent,
-            })
+            Ok(Self { hash, slot, parent })
         }
     }
     impl Display for TestHeader {
         fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
             write!(
                 f,
-                "TestHeader {{ hash: {}, parent: {}, }}",
+                "TestHeader {{ slot: {}, hash: {}, parent: {}, }}",
+                self.slot,
                 self.hash(),
                 self.parent
                     .map(|h| h.to_string())
@@ -1682,6 +1756,7 @@ mod tests {
     }
 
     impl Config {
+        #[allow(dead_code)]
         fn with_max_shrink(mut self, n: u32) -> Self {
             self.config.max_shrink_iters = n;
             self
@@ -1702,5 +1777,35 @@ mod tests {
         }
     }
 
-    fn start_config() -> Config { Config { config: Default::default() } }
+    fn start_config() -> Config {
+        Config {
+            config: Default::default(),
+        }
+    }
+
+    pub trait JoinDebug {
+        #[allow(dead_code)]
+        fn join_debug(&self, sep: &str) -> String;
+    }
+
+    impl<T, U> JoinDebug for T
+    where
+        T: IntoIterator<Item=U> + Clone,
+        U: Debug,
+    {
+        fn join_debug(&self, sep: &str) -> String {
+            let mut it = self.clone().into_iter();
+            let mut out = String::new();
+
+            if let Some(first) = it.next() {
+                write!(&mut out, "{:?}", first).unwrap();
+                for item in it {
+                    out.push_str(sep);
+                    write!(&mut out, "{:?}", item).unwrap();
+                }
+            }
+
+            out
+        }
+    }
 }
