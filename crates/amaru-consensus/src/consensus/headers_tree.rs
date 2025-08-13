@@ -728,15 +728,20 @@ fn find_best_tip<T>(arena: &Arena<T>) -> Option<NodeId> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
-    use amaru_kernel::{from_cbor, to_cbor, HEADER_HASH_SIZE};
+    use crate::consensus::chain_selection::ForwardChainSelection;
+    use crate::consensus::chain_selection::RollbackChainSelection::RollbackTo;
+    use amaru_kernel::{cbor, from_cbor, to_cbor, HEADER_HASH_SIZE};
     use amaru_ouroboros_traits::fake::FakeHeader;
     use proptest::arbitrary::any;
-    use proptest::prelude::Strategy;
+    use proptest::prelude::{Just, ProptestConfig, Strategy};
     use proptest::{prop_compose, proptest};
     use rand::prelude::{RngCore, SeedableRng, StdRng};
     use rand::Rng;
     use rand_distr::{Distribution, Exp};
+    use std::fmt;
+    use std::fmt::Display;
+    use std::hash::Hasher;
+    use toposort::{Dag, Toposort};
 
     #[test]
     fn empty() {
@@ -1269,9 +1274,113 @@ mod tests {
 
     proptest! {
         #[test]
-        fn generate_tree(tree in any_headers_tree(10, 2)) {
-            assert_eq!(tree.best_length(), 10);
+        fn generate_tree(tree in any_headers_tree(3, 2)) {
+            assert_eq!(tree.best_length(), 3);
         }
+    }
+
+    proptest! {
+        #![proptest_config(start_config().no_shrink().with_cases(10).ok())]
+        #[test]
+        fn simulate_peer(actions in any_roll_forward_actions(10)) {
+            let mut tree = HeadersTree::new(10, &None);
+            let mut initialized_peers = BTreeSet::new();
+            let mut results = vec![];
+            for action in actions.into_iter() {
+                if !initialized_peers.contains(&action.peer) {
+                    tree.initialize_peer(&action.peer, &Point::Origin.hash()).unwrap();
+                    initialized_peers.insert(action.peer.clone());
+                }
+                let header = TestHeader {
+                    parent: action.parent, hash: action.hash
+                };
+                results.push(tree.select_roll_forward(&action.peer, header).unwrap());
+            };
+        }
+    }
+
+    /// Return a list of RollForward actions to execute for a given peer
+    fn any_roll_forward_actions(depth: usize) -> impl Strategy<Value=Vec<RollForwardAction>> {
+        any_headers_tree(depth, 1).prop_flat_map(|tree| {
+            // collect the tips of the tree
+            let tips: Vec<NodeId> = tree
+                .get_active_nodes()
+                .map(|n| tree.arena.get_node_id(n).unwrap())
+                .filter(|n| n.children(&tree.arena).count() == 0)
+                .collect();
+
+            // create a chain of headers for each tip (a path in the tree from the root to the tip)
+            let mut chains: Vec<Vec<Hash<HEADER_HASH_SIZE>>> = tips
+                .into_iter()
+                .map(|n| {
+                    n.ancestors(&tree.arena)
+                        .map(|a| tree.arena.get(a).unwrap().get().hash())
+                        .collect()
+                })
+                .collect();
+            chains.iter_mut().for_each(|c| c.reverse());
+
+            // Associate a distinct peer to each chain and perform a topological sort
+            // of all the roll forward actions necessary to create each chain
+            let mut dag = Dag::new();
+            let mut seen_nodes = BTreeSet::new();
+            chains.into_iter().enumerate().for_each(|(i, chain)| {
+                let peer = Peer::new(&format!("{}", i + 1));
+                let mut parent_hash: Option<Hash<HEADER_HASH_SIZE>> = None;
+                let mut parent_node: Option<RollForwardAction> = None;
+                for h in chain.into_iter() {
+                    let current_node = RollForwardAction {
+                        peer: peer.clone(),
+                        hash: h,
+                        parent: parent_hash,
+                    };
+                    if let Some(parent_node) = parent_node {
+                        if !seen_nodes.contains(&current_node) {
+                            dag.before(parent_node.clone(), current_node.clone());
+                            seen_nodes.insert(current_node.clone());
+                        }
+                    };
+                    parent_node = Some(current_node);
+                    parent_hash = Some(h);
+                }
+            });
+            let result: Vec<Vec<RollForwardAction>> = dag.toposort().unwrap_or(vec![]);
+
+            // Randomly shuffle each level of the topological sort to simulate data coming from
+            // peers concurrently and flatten the resulting list of actions.
+            Just(result)
+                .prop_flat_map(|r| shuffled_inner_vectors(r))
+                .prop_map(|vs| vs.into_iter().flatten().collect())
+        })
+    }
+
+    fn shuffled_inner_vectors<T: Clone + Debug>(
+        values: Vec<Vec<T>>,
+    ) -> impl Strategy<Value=Vec<Vec<T>>> {
+        Just(values).prop_flat_map(|outer| {
+            // create a list of indices covering all internal vectors
+            let shuffles = proptest::collection::vec(
+                any::<proptest::sample::Index>(),
+                outer.iter().map(|v| v.len()).sum::<usize>(),
+            );
+            shuffles.prop_map(move |indexes| {
+                let mut result = outer.clone();
+                let mut offset = 0;
+                for inner in &mut result {
+                    let inner_len = inner.len();
+                    let idxs = &indexes[offset..offset + inner_len];
+                    offset += inner_len;
+
+                    // reorder using the generated indexes
+                    let mut shuffled = inner.clone();
+                    for (i, &ix) in idxs.iter().enumerate() {
+                        shuffled.swap(i, ix.index(inner_len));
+                    }
+                    *inner = shuffled;
+                }
+                result
+            })
+        })
     }
 
     proptest! {
@@ -1477,4 +1586,121 @@ mod tests {
             }
         }
     }
+
+    #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
+    struct RollForwardAction {
+        hash: Hash<HEADER_HASH_SIZE>,
+        peer: Peer,
+        parent: Option<Hash<HEADER_HASH_SIZE>>,
+    }
+
+    impl std::hash::Hash for RollForwardAction {
+        fn hash<H: Hasher>(&self, state: &mut H) {
+            state.write(self.hash.as_slice())
+        }
+    }
+
+    #[derive(PartialEq, Clone, Copy)]
+    pub struct TestHeader {
+        pub hash: Hash<HEADER_HASH_SIZE>,
+        pub parent: Option<Hash<HEADER_HASH_SIZE>>,
+    }
+
+    impl Debug for TestHeader {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            f.debug_struct("TestHeader")
+                .field("hash", &self.hash().to_string())
+                .field("parent", &self.parent.map(|h| h.to_string()).unwrap_or("None".to_string()))
+                .finish()
+        }
+    }
+
+    impl IsHeader for TestHeader {
+        fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
+            self.parent
+        }
+
+        fn block_height(&self) -> u64 {
+            0
+        }
+
+        fn slot(&self) -> u64 {
+            0
+        }
+
+        fn point(&self) -> Point {
+            Point::Specific(self.slot(), self.hash.to_vec())
+        }
+
+        fn extended_vrf_nonce_output(&self) -> Vec<u8> {
+            unimplemented!(
+                "called 'extended_vrf_nonce_output' on a TestHeader clearly not ready for that."
+            )
+        }
+    }
+
+    impl<C> cbor::encode::Encode<C> for TestHeader {
+        fn encode<W: cbor::encode::Write>(
+            &self,
+            e: &mut cbor::Encoder<W>,
+            ctx: &mut C,
+        ) -> Result<(), cbor::encode::Error<W::Error>> {
+            e.array(2)?
+                .encode_with(self.hash, ctx)?
+                .encode_with(self.parent, ctx)?
+                .ok()
+        }
+    }
+
+    impl<'b, C> cbor::decode::Decode<'b, C> for TestHeader {
+        fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+            d.array()?;
+            let hash = d.decode_with(ctx)?;
+            let parent = d.decode_with(ctx)?;
+            Ok(Self {
+                hash,
+                parent,
+            })
+        }
+    }
+    impl Display for TestHeader {
+        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+            write!(
+                f,
+                "TestHeader {{ hash: {}, parent: {}, }}",
+                self.hash(),
+                self.parent
+                    .map(|h| h.to_string())
+                    .unwrap_or_else(|| "None".to_string()),
+            )
+        }
+    }
+
+    #[derive(Default, Clone)]
+    struct Config {
+        config: ProptestConfig,
+    }
+
+    impl Config {
+        fn with_max_shrink(mut self, n: u32) -> Self {
+            self.config.max_shrink_iters = n;
+            self
+        }
+
+        fn no_shrink(mut self) -> Self {
+            self.config.max_shrink_iters = 0;
+            self
+        }
+
+        fn with_cases(mut self, n: u32) -> Self {
+            self.config.cases = n;
+            self
+        }
+
+        fn ok(self) -> ProptestConfig {
+            self.config
+        }
+    }
+
+    fn start_config() -> Config { Config { config: Default::default() } }
 }
