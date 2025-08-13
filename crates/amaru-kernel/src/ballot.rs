@@ -12,11 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, heterogeneous_array, Anchor, ProposalId, Vote};
+use crate::{cbor, heterogeneous_array, Anchor, Vote};
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Ballot {
-    pub proposal: ProposalId,
     pub vote: Vote,
     pub anchor: Option<Anchor>,
 }
@@ -27,8 +26,7 @@ impl<C> cbor::encode::Encode<C> for Ballot {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(3)?;
-        e.encode_with(&self.proposal, ctx)?;
+        e.array(2)?;
         e.encode_with(&self.vote, ctx)?;
         e.encode_with(&self.anchor, ctx)?;
         Ok(())
@@ -38,9 +36,8 @@ impl<C> cbor::encode::Encode<C> for Ballot {
 impl<'d, C> cbor::decode::Decode<'d, C> for Ballot {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         heterogeneous_array(d, |d, assert_len| {
-            assert_len(3)?;
-            Ok(Ballot {
-                proposal: d.decode_with(ctx)?,
+            assert_len(2)?;
+            Ok(Self {
                 vote: d.decode_with(ctx)?,
                 anchor: d.decode_with(ctx)?,
             })
@@ -51,9 +48,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Ballot {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::Ballot;
-    use crate::{
-        anchor::tests::any_anchor, prop_cbor_roundtrip, proposal_id::tests::any_proposal_id, Vote,
-    };
+    use crate::{anchor::tests::any_anchor, prop_cbor_roundtrip, Vote};
     use proptest::{option, prelude::*, prop_compose};
 
     pub fn any_vote() -> impl Strategy<Value = Vote> {
@@ -62,12 +57,10 @@ pub mod tests {
 
     prop_compose! {
         pub fn any_ballot()(
-            proposal in any_proposal_id(),
             vote in any_vote(),
             anchor in option::of(any_anchor()),
         ) -> Ballot  {
             Ballot {
-                proposal,
                 vote,
                 anchor,
             }

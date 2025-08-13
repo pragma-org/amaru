@@ -22,9 +22,9 @@ use crate::{
     store::{self, columns::*},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Anchor, Ballot, CertificatePointer,
+    protocol_parameters::ProtocolParameters, Anchor, Ballot, BallotId, CertificatePointer,
     ComparableProposalId, DRep, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams,
-    Proposal, ProposalId, ProposalPointer, StakeCredential, TransactionInput, Voter,
+    Proposal, ProposalId, ProposalPointer, StakeCredential, TransactionInput,
 };
 use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -144,7 +144,7 @@ pub struct VolatileState {
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub proposals: DiffBind<ComparableProposalId, Empty, Empty, (Proposal, ProposalPointer)>,
-    pub votes: DiffSet<Voter, Ballot>,
+    pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
 }
 

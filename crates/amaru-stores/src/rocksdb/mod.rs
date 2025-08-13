@@ -419,6 +419,15 @@ macro_rules! impl_ReadStore {
             > {
                 iter(|mode, opts| self.db.iterator_opt(mode, opts), cc_members::PREFIX, Direction::Forward)
             }
+
+            fn iter_votes(
+                &self,
+            ) -> Result<
+                impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Row)>,
+                StoreError,
+            > {
+                iter(|mode, opts| self.db.iterator_opt(mode, opts), votes::PREFIX, Direction::Forward)
+            }
         })*
     }
 }

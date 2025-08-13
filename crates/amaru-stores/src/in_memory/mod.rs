@@ -296,6 +296,21 @@ impl ReadStore for MemoryStore {
 
         Ok(cc_members_vec.into_iter())
     }
+
+    #[allow(refining_impl_trait)]
+    fn iter_votes(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::votes::Key,
+                amaru_ledger::store::columns::votes::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        Ok(std::iter::empty())
+    }
 }
 
 pub struct MemoryTransactionalContext<'a> {

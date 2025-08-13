@@ -173,6 +173,9 @@ pub trait ReadStore {
 
     /// Iterate over constitutional committee members.
     fn iter_cc_members(&self) -> Result<impl Iterator<Item = (cc_members::Key, cc_members::Row)>>;
+
+    /// Iterate over votes.
+    fn iter_votes(&self) -> Result<impl Iterator<Item = (votes::Key, votes::Row)>>;
 }
 
 // HistoricalStores
