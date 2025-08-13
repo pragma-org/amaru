@@ -35,7 +35,7 @@ pub fn add<DB>(
     let mut voting_dreps = BTreeSet::new();
 
     for (key, value) in rows {
-        match key {
+        match key.voter {
             Voter::DRepKey(hash) => {
                 voting_dreps.insert(StakeCredential::AddrKeyhash(hash));
             }

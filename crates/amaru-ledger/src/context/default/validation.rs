@@ -22,9 +22,10 @@ use crate::{
     state::volatile_db::VolatileState,
 };
 use amaru_kernel::{
-    Anchor, Ballot, CertificatePointer, DRep, DatumHash, Hash, Lovelace, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput, Vote, Voter,
+    Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, DRep, DatumHash, Hash,
+    Lovelace, MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams,
+    Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential,
+    TransactionInput, Vote, Voter,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -227,12 +228,11 @@ impl ProposalsSlice for DefaultValidationContext {
 
     fn vote(&mut self, proposal: ProposalId, voter: Voter, vote: Vote, anchor: Option<Anchor>) {
         self.state.votes.produce(
-            voter,
-            Ballot {
-                proposal,
-                vote,
-                anchor,
+            BallotId {
+                proposal: ComparableProposalId::from(proposal),
+                voter,
             },
+            Ballot { vote, anchor },
         )
     }
 }

@@ -18,7 +18,7 @@ pub mod diff_set;
 pub mod volatile_db;
 
 use crate::{
-    governance::ratification::{self, ratify_proposals, ProposalRoots, RatificationContext},
+    governance::ratification::{self, ratify_proposals, RatificationContext},
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{
         columns::{pools, proposals},
@@ -44,7 +44,7 @@ use num::Rational64;
 use slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{btree_map, BTreeMap, BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
@@ -712,7 +712,7 @@ pub fn tick_pools<'store>(
     )
 }
 
-#[instrument(level = Level::INFO, name = "ratification.create-context", skip_all)]
+#[instrument(level = Level::INFO, name = "ratification.context.new", skip_all)]
 pub fn new_ratification_context(
     snapshot: impl Snapshot,
 ) -> Result<RatificationContext, StoreError> {
@@ -740,20 +740,35 @@ pub fn new_ratification_context(
         }
     };
 
+    let roots = snapshot.proposal_roots()?;
+
+    // FIXME: This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
+    // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
+    // require much memory; but it becomes a potential attack vector.
+    //
+    // So ideally, we should avoid loading votes in memory.
+    let votes = snapshot
+        .iter_votes()?
+        .fold(BTreeMap::new(), |mut votes, (k, v)| {
+            match votes.entry(k.proposal) {
+                btree_map::Entry::Vacant(entry) => {
+                    entry.insert(BTreeMap::from([(k.voter, v)]));
+                }
+                btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().insert(k.voter, v);
+                }
+            }
+
+            votes
+        });
+
     Ok(RatificationContext {
         epoch: snapshot.epoch(),
         protocol_version,
         min_committee_size: protocol_parameters.cc_min_size as usize,
         constitutional_committee,
-        // FIXME
-        votes: BTreeMap::new(),
-        // FIXME
-        roots: ProposalRoots {
-            protocol_parameters: None,
-            hard_fork: None,
-            constitutional_committee: None,
-            constitution: None,
-        },
+        votes,
+        roots,
     })
 }
 
