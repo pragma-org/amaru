@@ -14,7 +14,7 @@
 
 pub mod columns;
 
-use crate::summary::Pots;
+use crate::{governance::ratification::ProposalRoots, summary::Pots};
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
@@ -45,51 +45,34 @@ pub enum OpenErrorKind {
 }
 
 #[derive(Debug, Error)]
-#[error(transparent)]
-pub enum TipErrorKind {
-    #[error("no database tip. Did you forget to 'import' a snapshot first?")]
-    Missing,
-}
-
-#[derive(Debug, Error)]
-#[error(transparent)]
-pub enum ProtocolParametersErrorKind {
-    #[error("no database protocol parameters. Did you forget to 'import' a snapshot first?")]
-    Missing,
-}
-
-#[derive(Debug, Error)]
-#[error(transparent)]
-pub enum ProtocolVersionErrorKind {
-    #[error("no database protocol version. Did you forget to 'import' a snapshot first?")]
-    Missing,
-}
-
-#[derive(Debug, Error)]
-#[error(transparent)]
-pub enum ConstitutionalCommitteeErrorKind {
-    #[error("no database constitutional committee. Did you forget to 'import' a snapshot first?")]
-    Missing,
-}
+#[error("no database {}. Did you forget to 'import' a snapshot first?", std::any::type_name::<T>())]
+pub struct MissingKind<T>(std::marker::PhantomData<T>);
 
 #[derive(Error, Debug)]
 pub enum StoreError {
     #[error(transparent)]
     Internal(#[from] Box<dyn std::error::Error + Send + Sync>),
+
     #[error("unable to decode database's value: {0}")]
     Undecodable(#[from] minicbor::decode::Error),
+
     #[error("error sending work unit through output port")]
     Send,
+
     #[error("error opening the store: {0}")]
     Open(#[source] OpenErrorKind),
-    #[error("error opening the tip: {0}")]
-    Tip(#[source] TipErrorKind),
-    #[error("error retrieving protocol parameters: {0}")]
-    ProtocolParameters(#[source] ProtocolParametersErrorKind),
-    #[error("error retrieving protocol version: {0}")]
-    ProtocolVersion(#[source] ProtocolVersionErrorKind),
-    #[error("error retrieving constitutional committee: {0}")]
-    ConstitutionalCommittee(#[source] ConstitutionalCommitteeErrorKind),
+
+    #[error("error retrieving {0}: {1}")]
+    Missing(String, #[source] Box<dyn std::error::Error + Send + Sync>),
+}
+
+impl StoreError {
+    pub fn missing<T: std::fmt::Debug + Send + Sync + 'static>(name: &str) -> Self {
+        Self::Missing(
+            name.to_string(),
+            Box::new(MissingKind(std::marker::PhantomData::<T>)),
+        )
+    }
 }
 
 // Types
@@ -165,6 +148,10 @@ pub trait ReadStore {
 
     /// Retrieve the state of the constitutional committee.
     fn constitutional_committee(&self) -> Result<ConstitutionalCommittee>;
+
+    /// Get the latest governance roots; which corresponds to the id of the latest governance
+    /// actions enacted for specific categories.
+    fn proposal_roots(&self) -> Result<ProposalRoots>;
 
     /// Get details about all utxos
     fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value)>>;
@@ -284,6 +271,9 @@ pub trait TransactionalContext<'a> {
 
     /// Persist the constitutional committee state for the ongoing epoch.
     fn set_constitutional_committee(&self, committee: &ConstitutionalCommittee) -> Result<()>;
+
+    /// Persist the latest proposal roots for the ongoing epoch.
+    fn set_proposal_roots(&self, roots: &ProposalRoots) -> Result<()>;
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.
     fn with_pots(&self, with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>)) -> Result<()>;
