@@ -83,9 +83,17 @@ fn decode_legacy_output<C>(
                 )))
             }
             None => {
-                let datum: Legacy<MemoizedDatum> = d.decode_with(ctx)?;
-                decode_break(d, len)?;
-                datum.0
+                if decode_break(d, len)? {
+                    MemoizedDatum::None
+                } else {
+                    let datum: Legacy<MemoizedDatum> = d.decode_with(ctx)?;
+                    if !decode_break(d, len)? {
+                        return Err(cbor::decode::Error::message(
+                            "expected break after legacy transaction output datum",
+                        ));
+                    }
+                    datum.0
+                }
             }
         },
         script: None,

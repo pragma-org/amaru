@@ -102,20 +102,16 @@ impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
 
 impl<'b, C> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
     fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        if d.datatype()? == cbor::data::Type::Break {
-            Ok(memoized::Legacy(MemoizedDatum::None))
-        } else {
-            let raw = d.bytes()?;
-            if raw.len() != 32 {
-                return Err(cbor::decode::Error::message(format!(
-                    "expected legacy datum hash of length 32, got {}",
-                    raw.len()
-                )));
-            }
-            Ok(memoized::Legacy(MemoizedDatum::Hash(
-                pallas_primitives::Hash::<32>::from(raw),
-            )))
+        let raw = d.bytes()?;
+        if raw.len() != 32 {
+            return Err(cbor::decode::Error::message(format!(
+                "expected legacy datum hash of length 32, got {}",
+                raw.len()
+            )));
         }
+        Ok(memoized::Legacy(MemoizedDatum::Hash(
+            pallas_primitives::Hash::<32>::from(raw),
+        )))
     }
 }
 
