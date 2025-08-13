@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::cbor;
 pub use pallas_primitives::conway::GovActionId as ProposalId;
 use std::{cmp::Ordering, fmt};
 
@@ -60,11 +61,32 @@ impl Ord for ComparableProposalId {
     }
 }
 
+impl<C> cbor::encode::Encode<C> for ComparableProposalId {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.encode_with(&self.inner, ctx)?;
+        Ok(())
+    }
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ComparableProposalId {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        Ok(Self {
+            inner: d.decode_with(ctx)?,
+        })
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
-    use super::ProposalId;
-    use crate::Hash;
+    use super::{ComparableProposalId, ProposalId};
+    use crate::{prop_cbor_roundtrip, Hash};
     use proptest::{prelude::*, prop_compose};
+
+    prop_cbor_roundtrip!(ComparableProposalId, any_comparable_proposal_id());
 
     prop_compose! {
         pub fn any_proposal_id()(
@@ -74,6 +96,16 @@ pub mod tests {
             ProposalId {
                 transaction_id: Hash::new(transaction_id),
                 action_index,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_comparable_proposal_id()(
+            inner in any_proposal_id()
+        ) -> ComparableProposalId {
+            ComparableProposalId {
+                inner,
             }
         }
     }

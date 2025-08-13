@@ -14,9 +14,10 @@
 
 use crate::store::columns::proposals;
 use amaru_kernel::{
-    display_protocol_parameters_update, expect_stake_credential, Ballot, ComparableProposalId,
-    Constitution, Epoch, GovAction, Lovelace, Nullable, PoolId, ProposalId, ProtocolParamUpdate,
-    ProtocolVersion, ScriptHash, StakeCredential, UnitInterval, Vote, Voter, PROTOCOL_VERSION_9,
+    cbor, display_protocol_parameters_update, expect_stake_credential, Ballot,
+    ComparableProposalId, Constitution, Epoch, GovAction, Lovelace, Nullable, PoolId, ProposalId,
+    ProtocolParamUpdate, ProtocolVersion, ScriptHash, StakeCredential, UnitInterval, Vote, Voter,
+    PROTOCOL_VERSION_9,
 };
 use num::Rational64;
 use std::{
@@ -207,7 +208,7 @@ fn partition_votes(
 // ProposalRoots
 // ----------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct ProposalRoots {
     pub protocol_parameters: Option<ComparableProposalId>,
     pub hard_fork: Option<ComparableProposalId>,
@@ -231,6 +232,47 @@ impl ProposalRoots {
                 parent.as_deref() == self.constitution.as_ref()
             }
         }
+    }
+}
+
+impl<C> cbor::encode::Encode<C> for ProposalRoots {
+    fn encode<W: cbor::encode::Write>(
+        &self,
+        e: &mut cbor::Encoder<W>,
+        ctx: &mut C,
+    ) -> Result<(), cbor::encode::Error<W::Error>> {
+        e.begin_map()?;
+        e.u8(0)?;
+        e.encode_with(&self.protocol_parameters, ctx)?;
+        e.u8(1)?;
+        e.encode_with(&self.hard_fork, ctx)?;
+        e.u8(2)?;
+        e.encode_with(&self.constitutional_committee, ctx)?;
+        e.u8(3)?;
+        e.encode_with(&self.constitution, ctx)?;
+        e.end()?;
+        Ok(())
+    }
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ProposalRoots {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        d.map()?;
+        d.u8()?;
+        let protocol_parameters = d.decode_with(ctx)?;
+        d.u8()?;
+        let hard_fork = d.decode_with(ctx)?;
+        d.u8()?;
+        let constitutional_committee = d.decode_with(ctx)?;
+        d.u8()?;
+        let constitution = d.decode_with(ctx)?;
+        d.skip()?;
+        Ok(Self {
+            protocol_parameters,
+            hard_fork,
+            constitutional_committee,
+            constitution,
+        })
     }
 }
 

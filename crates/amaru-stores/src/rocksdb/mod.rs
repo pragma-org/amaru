@@ -19,10 +19,10 @@ use amaru_kernel::{
     StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
+    governance::ratification::ProposalRoots,
     store::{
-        columns as scolumns, Columns, ConstitutionalCommitteeErrorKind, EpochTransitionProgress,
-        HistoricalStores, OpenErrorKind, ProtocolParametersErrorKind, ProtocolVersionErrorKind,
-        ReadStore, Snapshot, Store, StoreError, TipErrorKind, TransactionalContext,
+        columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
+        ReadStore, Snapshot, Store, StoreError, TransactionalContext,
     },
     summary::Pots,
 };
@@ -67,6 +67,9 @@ const KEY_PROTOCOL_VERSION: &str = "protocol-version";
 
 /// key where is stored the constitutional committee information;
 const KEY_CONSTITUTIONAL_COMMITTEE: &str = "constitutional-committee";
+
+/// key where are stored the proposal roots;
+const KEY_PROPOSAL_ROOTS: &str = "proposal-roots";
 
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
@@ -253,7 +256,7 @@ impl Store for RocksDB {
     }
 
     fn tip(&self) -> Result<Point, StoreError> {
-        get(|key| self.db.get(key), KEY_TIP)?.ok_or(StoreError::Tip(TipErrorKind::Missing))
+        get_or_bail(|key| self.db.get(key), KEY_TIP)
     }
 }
 
@@ -324,21 +327,25 @@ macro_rules! impl_ReadStore {
                 &self,
             ) -> Result<ProtocolVersion, StoreError> {
                 get(|key| self.db.get(key), &KEY_PROTOCOL_VERSION)?
-                    .ok_or(StoreError::ProtocolVersion(ProtocolVersionErrorKind::Missing))
+                    .ok_or(StoreError::missing::<ProtocolVersion>(KEY_PROTOCOL_VERSION))
             }
 
             fn protocol_parameters(
                 &self,
             ) -> Result<ProtocolParameters, StoreError> {
-                get(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)?
-                    .ok_or(StoreError::ProtocolParameters(ProtocolParametersErrorKind::Missing))
+                get_or_bail(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)
             }
 
             fn constitutional_committee(
                 &self,
             ) -> Result<ConstitutionalCommittee, StoreError> {
-                get(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)?
-                    .ok_or(StoreError::ConstitutionalCommittee(ConstitutionalCommitteeErrorKind::Missing))
+                get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)
+            }
+
+            fn proposal_roots(
+                &self,
+            ) -> Result<ProposalRoots, StoreError> {
+                get_or_bail(|key| self.db.get(key), &KEY_PROPOSAL_ROOTS)
             }
 
             fn pool(&self, pool: &PoolId) -> Result<Option<scolumns::pools::Row>, StoreError> {
@@ -512,6 +519,13 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                 KEY_CONSTITUTIONAL_COMMITTEE,
                 as_value(constitutional_committee),
             )
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
+    fn set_proposal_roots(&self, roots: &ProposalRoots) -> Result<(), StoreError> {
+        self.transaction
+            .put(KEY_PROPOSAL_ROOTS, as_value(roots))
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }
@@ -713,6 +727,21 @@ fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
         .map(|b| cbor::decode(b.as_ref()))
         .transpose()
         .map_err(StoreError::Undecodable)
+}
+
+fn get_or_bail<T>(
+    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+    key: &str,
+) -> Result<T, StoreError>
+where
+    T: std::fmt::Debug + Send + Sync + for<'d> cbor::decode::Decode<'d, ()> + 'static,
+{
+    (db_get)(key)
+        .map_err(|err| StoreError::Internal(err.into()))?
+        .map(|b| cbor::decode(b.as_ref()))
+        .transpose()
+        .map_err(StoreError::Undecodable)?
+        .ok_or(StoreError::missing::<T>(key))
 }
 
 #[allow(clippy::panic)]

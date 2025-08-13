@@ -20,14 +20,17 @@ use amaru_kernel::{
     EraHistory, Lovelace, Point, PoolId, ProposalId, ProtocolVersion, Slot, StakeCredential,
     TransactionInput, PROTOCOL_VERSION_9,
 };
-use amaru_ledger::store::{
-    columns::{
-        accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
-        pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
-        votes as votes_column,
+use amaru_ledger::{
+    governance::ratification::ProposalRoots,
+    store::{
+        columns::{
+            accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
+            pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
+            votes as votes_column,
+        },
+        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
+        TransactionalContext,
     },
-    ConstitutionalCommitteeErrorKind, EpochTransitionProgress, HistoricalStores,
-    ProtocolParametersErrorKind, ReadStore, Snapshot, Store, StoreError, TransactionalContext,
 };
 use iter_borrow::IterBorrow;
 use slot_arithmetic::Epoch;
@@ -98,9 +101,15 @@ impl ReadStore for MemoryStore {
         self.protocol_parameters
             .borrow()
             .clone()
-            .ok_or(StoreError::ProtocolParameters(
-                ProtocolParametersErrorKind::Missing,
+            .ok_or(StoreError::missing::<ProtocolParameters>(
+                "protocol-parameters",
             ))
+    }
+
+    /// Get the latest governance roots; which corresponds to the id of the latest governance
+    /// actions enacted for specific categories.
+    fn proposal_roots(&self) -> Result<ProposalRoots, StoreError> {
+        Ok(ProposalRoots::default())
     }
 
     fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
@@ -389,6 +398,10 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
     ) -> Result<(), StoreError> {
         *self.store.constitutional_committee.borrow_mut() = constitutional_committee.clone();
         Ok(())
+    }
+
+    fn set_proposal_roots(&self, _roots: &ProposalRoots) -> Result<(), StoreError> {
+        unimplemented!("set_proposal_roots");
     }
 
     fn save(
