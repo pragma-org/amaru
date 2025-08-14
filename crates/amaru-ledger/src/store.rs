@@ -14,7 +14,7 @@
 
 pub mod columns;
 
-use crate::{governance::ratification::ProposalRoots, summary::Pots};
+use crate::{governance::ratification::ProposalsRoots, summary::Pots};
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
@@ -151,7 +151,7 @@ pub trait ReadStore {
 
     /// Get the latest governance roots; which corresponds to the id of the latest governance
     /// actions enacted for specific categories.
-    fn proposal_roots(&self) -> Result<ProposalRoots>;
+    fn proposals_roots(&self) -> Result<ProposalsRoots>;
 
     /// Get details about all utxos
     fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value)>>;
@@ -276,7 +276,7 @@ pub trait TransactionalContext<'a> {
     fn set_constitutional_committee(&self, committee: &ConstitutionalCommittee) -> Result<()>;
 
     /// Persist the latest proposal roots for the ongoing epoch.
-    fn set_proposal_roots(&self, roots: &ProposalRoots) -> Result<()>;
+    fn set_proposals_roots(&self, roots: &ProposalsRoots) -> Result<()>;
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.
     fn with_pots(&self, with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>)) -> Result<()>;

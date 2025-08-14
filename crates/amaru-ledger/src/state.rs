@@ -18,11 +18,11 @@ pub mod diff_set;
 pub mod volatile_db;
 
 use crate::{
-    governance::ratification::{self, ratify_proposals, RatificationContext},
+    governance::ratification::{self, RatificationContext},
     state::volatile_db::{StoreUpdate, VolatileDB},
     store::{
         columns::{pools, proposals},
-        EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
+        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
         TransactionalContext,
     },
     summary::{
@@ -40,7 +40,6 @@ use amaru_kernel::{
     StakeCredential, StakeCredentialType, TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
-use num::Rational64;
 use slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
@@ -262,8 +261,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         if epoch_transitioning {
             let old_protocol_version = self.protocol_version;
 
-            let ratification_context =
-                new_ratification_context(self.snapshots.for_epoch(current_epoch - 2)?)?;
+            let ratification_context = self.new_ratification_context(current_epoch - 2)?;
 
             self.protocol_version = epoch_transition(
                 &mut *db,
@@ -445,6 +443,64 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         tracing::Span::current().record("resolved_from_db", resolved_from_db);
 
         Ok(result)
+    }
+
+    #[instrument(level = Level::INFO, name = "ratification.context.new", skip_all)]
+    fn new_ratification_context(&self, epoch: Epoch) -> Result<RatificationContext, StoreError> {
+        let snapshot = self.snapshots.for_epoch(epoch)?;
+
+        let protocol_version = snapshot.protocol_version()?;
+
+        let protocol_parameters = snapshot.protocol_parameters()?;
+
+        let constitutional_committee = match snapshot.constitutional_committee()? {
+            ConstitutionalCommittee::NoConfidence => None,
+            ConstitutionalCommittee::Trusted { threshold } => {
+                let members = snapshot
+                    .iter_cc_members()?
+                    .map(|(cold_credential, row)| {
+                        (cold_credential, (row.hot_credential, row.valid_until))
+                    })
+                    .collect();
+
+                Some(ratification::ConstitutionalCommittee::new(
+                    threshold, members,
+                ))
+            }
+        };
+
+        let roots = snapshot.proposals_roots()?;
+
+        // FIXME: This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
+        // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
+        // require much memory; but it becomes a potential attack vector.
+        //
+        // So ideally, we should avoid loading votes in memory.
+        let votes = snapshot
+            .iter_votes()?
+            .fold(BTreeMap::new(), |mut votes, (k, v)| {
+                match votes.entry(k.proposal) {
+                    btree_map::Entry::Vacant(entry) => {
+                        entry.insert(BTreeMap::from([(k.voter, v)]));
+                    }
+                    btree_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().insert(k.voter, v);
+                    }
+                }
+
+                votes
+            });
+
+        Ok(RatificationContext {
+            epoch: snapshot.epoch(),
+            stake_distributions: self.stake_distributions.clone(),
+            protocol_version,
+            min_committee_size: protocol_parameters.cc_min_size as usize,
+            stake_pools_voting_thresholds: protocol_parameters.pool_thresholds.clone(),
+            constitutional_committee,
+            votes,
+            roots,
+        })
     }
 }
 
@@ -712,66 +768,6 @@ pub fn tick_pools<'store>(
     )
 }
 
-#[instrument(level = Level::INFO, name = "ratification.context.new", skip_all)]
-pub fn new_ratification_context(
-    snapshot: impl Snapshot,
-) -> Result<RatificationContext, StoreError> {
-    let protocol_version = snapshot.protocol_version()?;
-
-    let protocol_parameters = snapshot.protocol_parameters()?;
-
-    let constitutional_committee = match snapshot.constitutional_committee()? {
-        ConstitutionalCommittee::NoConfidence => None,
-        ConstitutionalCommittee::Trusted { threshold } => {
-            let members = snapshot
-                .iter_cc_members()?
-                .map(|(cold_credential, row)| {
-                    (cold_credential, (row.hot_credential, row.valid_until))
-                })
-                .collect();
-
-            Some(ratification::ConstitutionalCommittee {
-                threshold: Rational64::new(
-                    threshold.numerator as i64,
-                    threshold.denominator as i64,
-                ),
-                members,
-            })
-        }
-    };
-
-    let roots = snapshot.proposal_roots()?;
-
-    // FIXME: This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
-    // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
-    // require much memory; but it becomes a potential attack vector.
-    //
-    // So ideally, we should avoid loading votes in memory.
-    let votes = snapshot
-        .iter_votes()?
-        .fold(BTreeMap::new(), |mut votes, (k, v)| {
-            match votes.entry(k.proposal) {
-                btree_map::Entry::Vacant(entry) => {
-                    entry.insert(BTreeMap::from([(k.voter, v)]));
-                }
-                btree_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().insert(k.voter, v);
-                }
-            }
-
-            votes
-        });
-
-    Ok(RatificationContext {
-        epoch: snapshot.epoch(),
-        protocol_version,
-        min_committee_size: protocol_parameters.cc_min_size as usize,
-        constitutional_committee,
-        votes,
-        roots,
-    })
-}
-
 #[instrument(level = Level::INFO, name = "tick.proposals", skip_all)]
 pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
@@ -781,7 +777,7 @@ pub fn tick_proposals<'store>(
 ) -> Result<(), StoreError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
-    ratify_proposals(ctx, proposals);
+    ctx.ratify_proposals(proposals);
 
     db.with_proposals(|iterator| {
         for (_key, item) in iterator {

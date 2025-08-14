@@ -21,7 +21,7 @@ use amaru_kernel::{
     TransactionInput, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
-    governance::ratification::ProposalRoots,
+    governance::ratification::ProposalsRoots,
     store::{
         columns::{
             accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
@@ -108,8 +108,8 @@ impl ReadStore for MemoryStore {
 
     /// Get the latest governance roots; which corresponds to the id of the latest governance
     /// actions enacted for specific categories.
-    fn proposal_roots(&self) -> Result<ProposalRoots, StoreError> {
-        Ok(ProposalRoots::default())
+    fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
+        Ok(ProposalsRoots::default())
     }
 
     fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
@@ -415,8 +415,8 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn set_proposal_roots(&self, _roots: &ProposalRoots) -> Result<(), StoreError> {
-        unimplemented!("set_proposal_roots");
+    fn set_proposals_roots(&self, _roots: &ProposalsRoots) -> Result<(), StoreError> {
+        unimplemented!("set_proposals_roots");
     }
 
     fn save(
