@@ -27,7 +27,7 @@ thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
-amaru-consensus.workspace = true
+amaru-consensus = { workspace = true, features = ["test-utils"] }
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
