@@ -28,13 +28,17 @@ impl ProposalsRoots {
         match proposal {
             // Orphans have no parents, so no roots. Hence it always _matches_.
             ProposalEnum::Orphan(..) => true,
+
             ProposalEnum::ProtocolParameters(_, parent) => {
                 parent.as_deref() == self.protocol_parameters.as_ref()
             }
+
             ProposalEnum::HardFork(_, parent) => parent.as_deref() == self.hard_fork.as_ref(),
+
             ProposalEnum::ConstitutionalCommittee(_, parent) => {
                 parent.as_deref() == self.constitutional_committee.as_ref()
             }
+
             ProposalEnum::Constitution(_, parent) => {
                 parent.as_deref() == self.constitution.as_ref()
             }

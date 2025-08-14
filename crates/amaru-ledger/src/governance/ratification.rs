@@ -25,7 +25,7 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use tracing::debug;
+use tracing::{debug, debug_span, field, info_span, trace_span, Span};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
@@ -117,24 +117,6 @@ impl RatificationContext {
         let mut iterator = forest.iter();
 
         while let Some((id, proposal)) = guard(!delayed, || iterator.next()) {
-            if !matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)) {
-                debug!("proposal.id" = %id, "ratifying");
-            }
-
-            // TODO: There are additional checks we should perform at the moment of ratification
-            //
-            // - On constitutional committee updates, we should ensure that any term limit is still
-            //   valid. This can happen if a protocol parameter change that changes the max term limit
-            //   is ratified *before* a committee update, possibly rendering it invalid.
-            //
-            // - On treasury withdrawals, we must ensure there's still enough money in the treasury.
-            //   This is necessary since there can be an arbitrary number of withdrawals that have been
-            //   ratified and enacted just before; possibly depleting the treasury.
-            //
-            // Note that either way, it doesn't _invalidate_ proposals, since time and subsequent
-            // proposals may turn the tide again. They should simply be skipped, and revisited at the
-            // next epoch boundary.
-
             // Ensures that the next proposal points to an active root. Not being the case isn't
             // necessarily an issue or a sign that something went wrong.
             //
@@ -144,11 +126,80 @@ impl RatificationContext {
             // Encountering a non-matching root also doesn't mean we shouldn't process other proposals.
             // The order is given by their point of submission; and thus, proposals submitted later may
             // points to totally different (and active) roots.
-            if self.roots.matching(proposal)
-                && self.is_accepted_by_everyone(id, proposal, stake_distribution)
-            {
-                todo!("a proposal has been ratified, it must now be enacted!")
-            }
+            let matching_root = self.roots.matching(proposal);
+
+            Self::new_span(id, proposal, matching_root).in_scope(|| {
+                // TODO: There are additional checks we should perform at the moment of ratification
+                //
+                // - On constitutional committee updates, we should ensure that any term limit is still
+                //   valid. This can happen if a protocol parameter change that changes the max term limit
+                //   is ratified *before* a committee update, possibly rendering it invalid.
+                //
+                // - On treasury withdrawals, we must ensure there's still enough money in the treasury.
+                //   This is necessary since there can be an arbitrary number of withdrawals that have been
+                //   ratified and enacted just before; possibly depleting the treasury.
+                //
+                // Note that either way, it doesn't _invalidate_ proposals, since time and subsequent
+                // proposals may turn the tide again. They should simply be skipped, and revisited at the
+                // next epoch boundary.
+
+                let accepted_by_everyone =
+                    self.is_accepted_by_everyone(id, proposal, stake_distribution);
+
+                if matching_root && accepted_by_everyone {
+                    todo!("a proposal has been ratified, it must now be enacted!")
+                }
+            });
+        }
+    }
+
+    fn new_span(id: &ComparableProposalId, proposal: &ProposalEnum, matching_root: bool) -> Span {
+        let short_id = id.to_string().chars().take(10).collect::<String>();
+
+        if matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)) {
+            trace_span!(
+                "ratifying",
+                "proposal.id" = short_id,
+                "proposal.kind" = proposal.display_kind(),
+                "proposal.matching_root" = matching_root,
+                "required_threshold.committee" = field::Empty,
+                "votes.committee.yes" = field::Empty,
+                "votes.committee.no" = field::Empty,
+                "votes.committee.abstain" = field::Empty,
+                "approved.committee" = field::Empty,
+                "required_threshold.pools" = field::Empty,
+                "votes.pools.yes" = field::Empty,
+                "votes.pools.no" = field::Empty,
+                "votes.pools.abstain" = field::Empty,
+                "approved.pools" = field::Empty,
+                "required_threshold.dreps" = field::Empty,
+                "votes.dreps.yes" = field::Empty,
+                "votes.dreps.no" = field::Empty,
+                "votes.dreps.abstain" = field::Empty,
+                "approved.dreps" = field::Empty,
+            )
+        } else {
+            debug_span!(
+                "ratifying",
+                "proposal.id" = short_id,
+                "proposal.kind" = proposal.display_kind(),
+                "proposal.matching_root" = matching_root,
+                "required_threshold.committee" = field::Empty,
+                "votes.committee.yes" = field::Empty,
+                "votes.committee.no" = field::Empty,
+                "votes.committee.abstain" = field::Empty,
+                "approved.committee" = field::Empty,
+                "required_threshold.pools" = field::Empty,
+                "votes.pools.yes" = field::Empty,
+                "votes.pools.no" = field::Empty,
+                "votes.pools.abstain" = field::Empty,
+                "approved.pools" = field::Empty,
+                "required_threshold.dreps" = field::Empty,
+                "votes.dreps.yes" = field::Empty,
+                "votes.dreps.no" = field::Empty,
+                "votes.dreps.abstain" = field::Empty,
+                "approved.dreps" = field::Empty,
+            )
         }
     }
 
@@ -158,14 +209,24 @@ impl RatificationContext {
         proposal: &ProposalEnum,
         stake_distribution: &StakeDistribution,
     ) -> bool {
+        let span = tracing::Span::current();
+
         let empty = BTreeMap::new();
 
         let (_dreps_votes, cc_votes, pool_votes) =
             partition_votes(self.votes.get(id).unwrap_or(&empty));
 
-        self.is_accepted_by_constitutional_committee(proposal, cc_votes)
-            && self.is_accepted_by_stake_pool_operators(proposal, pool_votes, stake_distribution)
-            && self.is_accepted_by_delegate_representatives(proposal)
+        let cc_approved = self.is_accepted_by_constitutional_committee(proposal, cc_votes);
+        span.record("approved.committee", cc_approved);
+
+        let spos_approved =
+            self.is_accepted_by_stake_pool_operators(proposal, pool_votes, stake_distribution);
+        span.record("approved.pools", spos_approved);
+
+        let dreps_approved = self.is_accepted_by_delegate_representatives(proposal);
+        span.record("approved.dreps", dreps_approved);
+
+        cc_approved && spos_approved && dreps_approved
     }
 
     fn is_accepted_by_constitutional_committee(
@@ -182,6 +243,9 @@ impl RatificationContext {
                     self.min_committee_size,
                     proposal,
                 )?;
+
+                tracing::Span::current()
+                    .record("required_threshold.committee", threshold.to_string());
 
                 let tally = || committee.tally(self.epoch, votes);
 
@@ -203,9 +267,12 @@ impl RatificationContext {
         ) {
             None => false,
             Some(threshold) => {
+                tracing::Span::current().record("required_threshold.pools", threshold.to_string());
+
                 let tally = || {
                     stake_pools::tally(self.protocol_version, proposal, votes, stake_distribution)
                 };
+
                 threshold == Rational64::ZERO || tally() >= threshold
             }
         }
@@ -237,6 +304,25 @@ pub enum ProposalEnum {
     ConstitutionalCommittee(CommitteeUpdate, Option<Rc<ComparableProposalId>>),
     Constitution(Constitution, Option<Rc<ComparableProposalId>>),
     Orphan(OrphanProposal),
+}
+
+impl ProposalEnum {
+    pub fn display_kind(&self) -> String {
+        match self {
+            Self::ProtocolParameters(..) => "protocol-parameters",
+            Self::HardFork(..) => "hard-fork",
+            Self::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => {
+                "motion-of-no-confidence"
+            }
+            Self::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { .. }, _) => {
+                "constitutional-committee"
+            }
+            Self::Constitution(..) => "constitution",
+            Self::Orphan(OrphanProposal::NicePoll) => "nice-poll",
+            Self::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => "treasury-withdrawal",
+        }
+        .to_string()
+    }
 }
 
 // CommitteeUpdate
