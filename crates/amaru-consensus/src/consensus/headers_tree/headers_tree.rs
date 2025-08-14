@@ -1229,7 +1229,7 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(start_config().no_shrink().with_cases(1).ok())]
+        #![proptest_config(config_begin().no_shrink().with_cases(1).end())]
         #[test]
         fn simulate_peer((upstream_tree, actions) in any_roll_forward_actions(5, 10)) {
             let mut our_tree = HeadersTree::new(10, &upstream_tree.get_root().cloned());
@@ -1425,39 +1425,6 @@ mod tests {
     impl std::hash::Hash for RollForwardAction {
         fn hash<H: Hasher>(&self, state: &mut H) {
             state.write(self.hash.as_slice())
-        }
-    }
-
-    #[derive(Default, Clone)]
-    struct Config {
-        config: ProptestConfig,
-    }
-
-    impl Config {
-        #[allow(dead_code)]
-        fn with_max_shrink(mut self, n: u32) -> Self {
-            self.config.max_shrink_iters = n;
-            self
-        }
-
-        fn no_shrink(mut self) -> Self {
-            self.config.max_shrink_iters = 0;
-            self
-        }
-
-        fn with_cases(mut self, n: u32) -> Self {
-            self.config.cases = n;
-            self
-        }
-
-        fn ok(self) -> ProptestConfig {
-            self.config
-        }
-    }
-
-    fn start_config() -> Config {
-        Config {
-            config: Default::default(),
         }
     }
 }
