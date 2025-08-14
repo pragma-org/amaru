@@ -15,6 +15,7 @@ rust-version.workspace = true
 [features]
 default = []
 telemetry = ["opentelemetry", "tracing-opentelemetry"]
+test-utils = ["proptest", "rand", "rand_distr"]
 
 [dependencies]
 anyhow.workspace = true
@@ -23,6 +24,9 @@ indextree.workspace = true
 opentelemetry = { workspace = true, optional = true }
 pallas-crypto.workspace = true
 pallas-math.workspace = true
+proptest = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+rand_distr = { workspace = true, optional = true }
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
@@ -42,7 +46,6 @@ insta.workspace = true
 minicbor.workspace = true
 proptest.workspace = true
 rand.workspace = true
-rand_distr.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 tokio = { workspace = true, features = ["rt", "macros"] }
