@@ -75,7 +75,7 @@ impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
 
         f.write_str("HeadersTree {\n")?;
         f.write_fmt(format_args!("  arena:\n{}\n", &self.pretty_print()))?;
-        f.write_fmt(format_args!("  peers: {:?}\n", &debug_peers))?;
+        f.write_fmt(format_args!("  peers: {}\n", &debug_peers.join(", ")))?;
         f.write_fmt(format_args!("  best_chain: {}\n", &debug_best_chain))?;
         f.write_fmt(format_args!(
             "  best_node_id: {}\n",
@@ -145,7 +145,13 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 
     /// Create a HeadersTree from private members for data generation
     #[cfg(test)]
-    pub fn create(arena: Arena<Tip<H>>, max_length: usize, peers: BTreeMap<Peer, NodeId>, best_chain: NodeId, best_peer: Option<Peer>) -> HeadersTree<H> {
+    pub fn create(
+        arena: Arena<Tip<H>>,
+        max_length: usize,
+        peers: BTreeMap<Peer, NodeId>,
+        best_chain: NodeId,
+        best_peer: Option<Peer>,
+    ) -> HeadersTree<H> {
         HeadersTree {
             arena,
             max_length,
@@ -154,7 +160,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
             best_peer,
         }
     }
-
 
     /// Add a peer and its current chain tip.
     /// This function must be invoked after the point header has been added to the tree,
@@ -680,14 +685,14 @@ mod tests {
     use super::*;
     use crate::consensus::chain_selection::ForwardChainSelection;
     use crate::consensus::chain_selection::RollbackChainSelection::RollbackTo;
+    use crate::consensus::headers_tree::data_generation::*;
     use amaru_kernel::{from_cbor, to_cbor, HEADER_HASH_SIZE};
     use proptest::arbitrary::any;
     use proptest::prelude::{Just, ProptestConfig, Strategy};
-    use proptest::{proptest};
-    use std::fmt::{Debug, Write as _};
+    use proptest::proptest;
+    use std::fmt::Debug;
     use std::hash::Hasher;
     use toposort::{Dag, Toposort};
-    use crate::consensus::headers_tree::data_generation::*;
 
     #[test]
     fn empty() {
@@ -1409,7 +1414,6 @@ mod tests {
         result
     }
 
-
     #[derive(Debug, Clone, Eq, PartialEq, PartialOrd, Ord)]
     struct RollForwardAction {
         hash: Hash<HEADER_HASH_SIZE>,
@@ -1423,7 +1427,6 @@ mod tests {
             state.write(self.hash.as_slice())
         }
     }
-
 
     #[derive(Default, Clone)]
     struct Config {
@@ -1455,32 +1458,6 @@ mod tests {
     fn start_config() -> Config {
         Config {
             config: Default::default(),
-        }
-    }
-
-    pub trait JoinDebug {
-        #[allow(dead_code)]
-        fn join_debug(&self, sep: &str) -> String;
-    }
-
-    impl<T, U> JoinDebug for T
-    where
-        T: IntoIterator<Item=U> + Clone,
-        U: Debug,
-    {
-        fn join_debug(&self, sep: &str) -> String {
-            let mut it = self.clone().into_iter();
-            let mut out = String::new();
-
-            if let Some(first) = it.next() {
-                write!(&mut out, "{:?}", first).unwrap();
-                for item in it {
-                    out.push_str(sep);
-                    write!(&mut out, "{:?}", item).unwrap();
-                }
-            }
-
-            out
         }
     }
 }
