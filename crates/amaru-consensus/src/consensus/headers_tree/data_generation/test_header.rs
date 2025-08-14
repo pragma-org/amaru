@@ -25,7 +25,7 @@ use std::fmt::{Debug, Display, Formatter};
 /// which is harder to control for tests.
 ///
 #[derive(PartialEq, Clone, Copy)]
-pub(in crate::consensus::headers_tree) struct TestHeader {
+pub struct TestHeader {
     pub hash: Hash<HEADER_HASH_SIZE>,
     pub slot: u64,
     pub parent: Option<Hash<HEADER_HASH_SIZE>>,
