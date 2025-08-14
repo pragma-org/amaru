@@ -262,10 +262,11 @@ mod tests {
     use amaru_consensus::consensus::chain_selection::generators::generate_headers_anchored_at;
     use amaru_kernel::Point;
     use amaru_ouroboros::fake::FakeHeader;
+    use amaru_ouroboros_traits::IsHeader;
     use async_trait::async_trait;
-    use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse};
+    use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 
-    use crate::{chain_sync_client::ChainSyncClient, session::PeerSession};
+    use crate::{chain_sync_client::ChainSyncClient, point::to_network_point, session::PeerSession};
 
     use super::{ChainSync, NetworkHeader};
 
@@ -297,11 +298,20 @@ mod tests {
     #[tokio::test]
     async fn batch_all_headers_from_forward() {
         let headers = generate_headers_anchored_at(None, 3);
-        let tip = headers[2].point();
+        let tip_header = headers[2];
         let mock_client = MockNetworkClient::new(
             headers
-                .iter()
-                .map(|hdr| NextResponse::RollForward(FakeContent(hdr), tip)),
+                .into_iter()
+                .map(|hdr| {
+                    NextResponse::RollForward(
+                        FakeContent(hdr),
+                        Tip(
+                            to_network_point(tip_header.point()),
+                            tip_header.block_height(),
+                        ),
+                    )
+                })
+                .collect(),
         );
         let session = ChainSyncClient::new1(mock_client, &vec![Point::Origin]);
     }
