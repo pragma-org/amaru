@@ -12,8 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, cbor::data::IanaTag, DatumHash, MemoizedPlutusData, MintedDatumOption};
+use crate::{
+    cbor::{self, data::IanaTag},
+    memoized, DatumHash, Legacy, MemoizedPlutusData, MintedDatumOption,
+};
 use serde::ser::SerializeStruct;
+
+use minicbor_extra::heterogeneous_array;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MemoizedDatum {
@@ -58,6 +63,55 @@ impl<'de> serde::Deserialize<'de> for MemoizedDatum {
             PlaceholderDatum::Hash(bytes) => Ok(MemoizedDatum::Hash(bytes)),
             PlaceholderDatum::Data(data) => Ok(MemoizedDatum::Inline(data)),
         }
+    }
+}
+
+impl<'b, C> cbor::Decode<'b, C> for MemoizedDatum {
+    fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, 2, |d| {
+            let datum_option = d.u8()?;
+            match datum_option {
+                0 => {
+                    let raw = d.bytes()?;
+                    if raw.len() != 32 {
+                        return Err(cbor::decode::Error::message(format!(
+                            "expected datum hash of length 32, got {}",
+                            raw.len()
+                        )));
+                    }
+                    Ok(MemoizedDatum::Hash(pallas_primitives::Hash::<32>::from(
+                        raw,
+                    )))
+                }
+                1 => {
+                    if d.tag()? != IanaTag::Cbor.tag() {
+                        return Err(cbor::decode::Error::message("unknown tag for datum tag"));
+                    }
+                    let plutus_data: pallas_primitives::KeepRaw<'_, pallas_primitives::PlutusData> =
+                        cbor::decode_with(d.bytes()?, ctx)?;
+                    Ok(MemoizedDatum::Inline(MemoizedPlutusData::from(plutus_data)))
+                }
+                _ => Err(cbor::decode::Error::message(format!(
+                    "unknown datum option: {}",
+                    datum_option
+                ))),
+            }
+        })
+    }
+}
+
+impl<'b, C> cbor::Decode<'b, C> for Legacy<MemoizedDatum> {
+    fn decode(d: &mut cbor::Decoder<'b>, _ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        let raw = d.bytes()?;
+        if raw.len() != 32 {
+            return Err(cbor::decode::Error::message(format!(
+                "expected legacy datum hash of length 32, got {}",
+                raw.len()
+            )));
+        }
+        Ok(memoized::Legacy(MemoizedDatum::Hash(
+            pallas_primitives::Hash::<32>::from(raw),
+        )))
     }
 }
 
