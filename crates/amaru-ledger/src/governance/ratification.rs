@@ -25,7 +25,7 @@ use std::{
     fmt,
     rc::Rc,
 };
-use tracing::info;
+use tracing::{debug, instrument, Level};
 
 // Top-level logic
 // ----------------------------------------------------------------------------
@@ -71,7 +71,10 @@ pub fn ratify_proposals(
             forest
         });
 
-    println!("{forest}");
+    debug!(
+        "forest" = %forest,
+        "ratifying"
+    );
 
     // The ratification of some proposals causes all other subsequent proposals' ratification to be
     // delayed to the next epoch boundary. Initially, there's none and we'll switch the flag if any
@@ -89,7 +92,7 @@ pub fn ratify_proposals(
     let mut iterator = forest.iter();
 
     while let Some((id, proposal)) = guard(!delayed, || iterator.next()) {
-        info!("proposal.id" = %id, "ratifying");
+        debug!("proposal.id" = %id, "ratifying");
 
         // TODO: There are additional checks we should perform at the moment of ratification
         //
@@ -346,7 +349,10 @@ impl ConstitutionalCommittee {
     /// - Members that do not vote will count as a default "no" (i.e. increases the denominator);
     /// - Members that expired are excluded entirely (also from the denominator);
     /// - Members that have resigned (i.e. no hot keys) are also excluded;
+    #[instrument(level = Level::DEBUG)]
     pub fn tally(&self, epoch: Epoch, votes: BTreeMap<StakeCredential, &Vote>) -> Rational64 {
+        // TODO: Avoid re-computing this on each tally? The set of active members is fixed per
+        // epoch.
         let active_members = self.active_members(epoch, |_, hot_cred| hot_cred);
 
         let (numerator, denominator) = votes.iter().fold(
@@ -367,9 +373,7 @@ impl ConstitutionalCommittee {
         if denominator == 0 {
             Rational64::ZERO
         } else {
-            let r = Rational64::new(numerator, denominator);
-            info!("constitutional_committee.tally" = %r);
-            r
+            Rational64::new(numerator, denominator)
         }
     }
 }
@@ -769,12 +773,14 @@ impl<'a> Iterator for ProposalsForestIterator<'a> {
         let id = self.forest.sequence.get(self.cursor)?;
         let proposal = self.forest.proposals.get(id)?;
 
+        self.cursor += 1;
+
         Some((id, proposal))
     }
 }
 
-/// Pretty-print a forest. Proposals are shown by groups, and in order within each group. The total
-/// ordering is however lost in this representation.
+/// Pretty-print a forest. Proposals are shown by groups, and in order *within each group*. The
+/// total ordering is however lost in this representation.
 ///
 /// For example:
 ///
@@ -813,7 +819,6 @@ impl fmt::Display for ProposalsForest {
             }
             writeln!(f, "{title}")?;
             render_tree(f, lookup, summarize, tree)?;
-            writeln!(f)?;
             Ok(())
         }
 
@@ -905,6 +910,12 @@ impl fmt::Display for ProposalsForest {
         }
 
         // ---- Forest printing -----------------------------------------------
+
+        if !self.sequence.is_empty() {
+            writeln!(f)?;
+        } else {
+            write!(f, "empty")?;
+        }
 
         section::<ProtocolParamUpdate>(
             f,
