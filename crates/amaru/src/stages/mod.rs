@@ -15,7 +15,7 @@
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     consensus::{
-        chain_selection::{ChainSelector, ChainSelectorBuilder},
+        headers_tree::HeadersTree,
         select_chain::SelectChain,
         store::ChainStore,
         store_block::StoreBlock,
@@ -30,7 +30,7 @@ use amaru_kernel::{
     network::NetworkName,
     peer::Peer,
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Header,
+    EraHistory, Hash, Header, Point,
 };
 use amaru_network::session::PeerSession;
 use amaru_stores::{
@@ -380,21 +380,20 @@ fn make_chain_selector(
     header: &Option<Header>,
     peers: &Vec<PeerSession>,
     consensus_security_parameter: usize,
-) -> Result<Arc<Mutex<ChainSelector<Header>>>, ConsensusError> {
-    let mut builder = ChainSelectorBuilder::new();
+) -> Result<Arc<Mutex<HeadersTree<Header>>>, ConsensusError> {
+    // TODO: initialize the headers tree from the ChainDB store
+    let mut tree = HeadersTree::new(consensus_security_parameter, header);
 
-    builder.set_max_fragment_length(consensus_security_parameter);
-
-    match header {
-        Some(h) => builder.set_tip(h),
-        None => &builder,
+    let root_hash = match header {
+        Some(h) => h.hash(),
+        None => Point::Origin.hash(),
     };
 
     for peer in peers {
-        builder.add_peer(&peer.peer);
+        tree.initialize_peer(&peer.peer, &root_hash)?;
     }
 
-    Ok(Arc::new(Mutex::new(builder.build()?)))
+    Ok(Arc::new(Mutex::new(tree)))
 }
 
 pub trait PallasPoint {

@@ -15,6 +15,7 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 hex.workspace = true
+indextree.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
 rayon.workspace = true

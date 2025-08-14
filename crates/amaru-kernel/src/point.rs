@@ -15,6 +15,8 @@
 use crate::{cbor, Hash, Slot};
 use std::fmt::{self, Debug, Display};
 
+pub const HEADER_HASH_SIZE: usize = 32;
+
 #[derive(Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Point {
     Origin,
@@ -28,36 +30,34 @@ impl Point {
             Point::Specific(slot, _) => Slot::from(*slot),
         }
     }
+
+    pub fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        match self {
+            // By convention, the hash of `Genesis` is all 0s.
+            Point::Origin => Hash::from([0; HEADER_HASH_SIZE]),
+            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
+        }
+    }
 }
 
 impl Debug for Point {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Point::Origin => write!(f, "Origin"),
-            Point::Specific(slot, hash) => write!(f, "Specific({slot}, {})", hex::encode(hash)),
+            Point::Specific(slot, _hash) => write!(f, "Specific({slot}, {})", self.hash()),
         }
     }
 }
 
 impl Display for Point {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Point::Origin => write!(
-                f,
-                "0.0000000000000000000000000000000000000000000000000000000000000000"
-            ),
-            Point::Specific(slot, vec) => write!(f, "{}.{}", slot, hex::encode(vec)),
-        }
+        write!(f, "{}.{}", self.slot_or_default(), self.hash())
     }
 }
 
-impl From<&Point> for Hash<32> {
+impl From<&Point> for Hash<HEADER_HASH_SIZE> {
     fn from(point: &Point) -> Self {
-        match point {
-            // By convention, the hash of `Genesis` is all 0s.
-            Point::Origin => Hash::from([0; 32]),
-            Point::Specific(_, header_hash) => Hash::from(header_hash.as_slice()),
-        }
+        point.hash()
     }
 }
 
@@ -162,6 +162,26 @@ pub mod tests {
         )]
         fn better_debug_point(point: Point) -> String {
             format!("{point:?}")
+        }
+
+        #[test_case(
+            Point::Origin => "0.0000000000000000000000000000000000000000000000000000000000000000";
+           "origin"
+        )]
+        #[test_case(
+            Point::Specific(
+                42,
+                vec![
+                  254, 252, 156,   3, 124,  63, 156, 139,
+                   79, 183, 138, 155,  15,  19, 123,  94,
+                  208, 128,  60,  61,  70, 189,  45,  14,
+                   64, 197, 159, 169,  12, 160,   2, 193
+                ]
+            ) => "42.fefc9c037c3f9c8b4fb78a9b0f137b5ed0803c3d46bd2d0e40c59fa90ca002c1";
+            "specific"
+        )]
+        fn better_display_point(point: Point) -> String {
+            format!("{point}")
         }
 
         #[test]
