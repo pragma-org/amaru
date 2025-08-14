@@ -679,6 +679,8 @@ mod tests {
     use std::fmt::{Debug, Write as _};
     use std::hash::Hasher;
     use toposort::{Dag, Toposort};
+    use crate::consensus::headers_tree::arena::find_best_tip;
+    use crate::consensus::headers_tree::data_generation::TestHeader;
 
     #[test]
     fn empty() {
@@ -1279,7 +1281,7 @@ mod tests {
     fn any_roll_forward_actions(
         depth: usize,
         max_length: usize,
-    ) -> impl Strategy<Value = (HeadersTree<TestHeader>, Vec<RollForwardAction>)> {
+    ) -> impl Strategy<Value=(HeadersTree<TestHeader>, Vec<RollForwardAction>)> {
         any_headers_tree(depth, max_length, 1).prop_flat_map(|tree| {
             // collect the tips of the tree
             let tips: Vec<NodeId> = tree
@@ -1339,7 +1341,7 @@ mod tests {
 
     fn shuffled_inner_vectors<T: Clone + Debug>(
         values: Vec<Vec<T>>,
-    ) -> impl Strategy<Value = Vec<Vec<T>>> {
+    ) -> impl Strategy<Value=Vec<Vec<T>>> {
         Just(values).prop_flat_map(|outer| {
             // create a list of indices covering all internal vectors
             let shuffles = proptest::collection::vec(
@@ -1463,7 +1465,7 @@ mod tests {
         depth: usize,
         max_length: usize,
         peers_nb: usize,
-    ) -> impl Strategy<Value = HeadersTree<TestHeader>> {
+    ) -> impl Strategy<Value=HeadersTree<TestHeader>> {
         (0..u64::MAX).prop_map(move |seed| generate_headers_tree(depth, max_length, peers_nb, seed))
     }
 
@@ -1594,93 +1596,6 @@ mod tests {
         }
     }
 
-    #[derive(PartialEq, Clone, Copy)]
-    pub struct TestHeader {
-        pub hash: Hash<HEADER_HASH_SIZE>,
-        pub slot: u64,
-        pub parent: Option<Hash<HEADER_HASH_SIZE>>,
-    }
-
-    impl Debug for TestHeader {
-        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-            f.debug_struct("TestHeader")
-                .field("hash", &self.hash.to_string())
-                .field("slot", &self.slot.to_string())
-                .field(
-                    "parent",
-                    &self
-                        .parent
-                        .map(|h| h.to_string())
-                        .unwrap_or("None".to_string()),
-                )
-                .finish()
-        }
-    }
-
-    impl IsHeader for TestHeader {
-        fn point(&self) -> Point {
-            Point::Specific(self.slot(), self.hash.to_vec())
-        }
-
-        fn parent(&self) -> Option<Hash<HEADER_HASH_SIZE>> {
-            self.parent
-        }
-
-        fn block_height(&self) -> u64 {
-            0
-        }
-
-        fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
-            self.hash.clone()
-        }
-
-        fn slot(&self) -> u64 {
-            self.slot
-        }
-
-        fn extended_vrf_nonce_output(&self) -> Vec<u8> {
-            unimplemented!(
-                "called 'extended_vrf_nonce_output' on a TestHeader clearly not ready for that."
-            )
-        }
-    }
-
-    impl<C> cbor::encode::Encode<C> for TestHeader {
-        fn encode<W: cbor::encode::Write>(
-            &self,
-            e: &mut cbor::Encoder<W>,
-            ctx: &mut C,
-        ) -> Result<(), cbor::encode::Error<W::Error>> {
-            e.array(3)?
-                .encode_with(self.hash, ctx)?
-                .encode_with(self.slot, ctx)?
-                .encode_with(self.parent, ctx)?
-                .ok()
-        }
-    }
-
-    impl<'b, C> cbor::decode::Decode<'b, C> for TestHeader {
-        fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-            d.array()?;
-            let hash = d.decode_with(ctx)?;
-            let slot = d.decode_with(ctx)?;
-            let parent = d.decode_with(ctx)?;
-            Ok(Self { hash, slot, parent })
-        }
-    }
-    impl Display for TestHeader {
-        fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-            write!(
-                f,
-                "TestHeader {{ slot: {}, hash: {}, parent: {}, }}",
-                self.slot,
-                self.hash(),
-                self.parent
-                    .map(|h| h.to_string())
-                    .unwrap_or_else(|| "None".to_string()),
-            )
-        }
-    }
 
     #[derive(Default, Clone)]
     struct Config {
@@ -1722,7 +1637,7 @@ mod tests {
 
     impl<T, U> JoinDebug for T
     where
-        T: IntoIterator<Item = U> + Clone,
+        T: IntoIterator<Item=U> + Clone,
         U: Debug,
     {
         fn join_debug(&self, sep: &str) -> String {
