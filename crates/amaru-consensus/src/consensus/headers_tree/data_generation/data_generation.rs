@@ -119,7 +119,7 @@ prop_compose! {
     }
 }
 
-/// IMPLEMENTATION
+// IMPLEMENTATION
 
 /// Generate a chain of headers anchored at a given header.
 ///

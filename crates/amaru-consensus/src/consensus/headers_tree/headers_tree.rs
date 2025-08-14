@@ -12,8 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::chain_selection::RollbackChainSelection::RollbackBeyondLimit;
-use crate::consensus::chain_selection::{Fork, ForwardChainSelection, RollbackChainSelection};
 use crate::consensus::headers_tree::arena::{
     get_arena_active_nodes, get_arena_root, pretty_print_root, trim_arena_unused_nodes,
 };
@@ -713,9 +711,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
                 if !self.peers.keys().collect::<Vec<_>>().contains(&peer) {
                     self.initialize_peer(peer, &hash)?;
                 };
-                let mut result = vec![];
-                result.push(Right(self.select_rollback(peer, &hash)?));
-                Ok(result)
+                Ok(vec![Right(self.select_rollback(peer, &hash)?)])
             }
             RollbackChainSelection::SwitchToFork(fork) => {
                 if !self.peers.keys().collect::<Vec<_>>().contains(&&fork.peer) {
@@ -779,7 +775,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 
     /// Insert headers into the arena and return the last created node id
     /// This function is used to initialize the tree from persistent storage.
-    fn insert_headers(&mut self, headers: &[H]) -> NodeId {
+    pub(crate) fn insert_headers(&mut self, headers: &[H]) -> NodeId {
         let mut last_node_id: NodeId = self.get_root_node_id().unwrap();
         for header in headers {
             let new_node_id = self.arena.new_node(Tip::Hdr(header.clone()));
@@ -794,9 +790,8 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::chain_selection::ForwardChainSelection;
-    use crate::consensus::chain_selection::RollbackChainSelection::RollbackTo;
     use crate::consensus::headers_tree::data_generation::*;
+    use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
     use amaru_kernel::{from_cbor, to_cbor};
     use proptest::proptest;
 
@@ -1366,7 +1361,7 @@ mod tests {
         }
     }
 
-    /// HELPERS
+    // HELPERS
 
     /// Roll forward the tree:
     ///  - Starting from a given header,

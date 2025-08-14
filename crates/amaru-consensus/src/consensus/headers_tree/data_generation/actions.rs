@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::chain_selection::ForwardChainSelection;
 use crate::consensus::headers_tree::data_generation::{any_headers_tree, TestHeader};
 use crate::consensus::headers_tree::HeadersTree;
+use crate::consensus::select_chain::ForwardChainSelection;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::HEADER_HASH_SIZE;
 use pallas_crypto::hash::Hash;
@@ -72,7 +72,7 @@ pub fn any_roll_forward_actions(
         (
             Just(tree),
             Just(result)
-                .prop_flat_map(|r| shuffled_inner_vectors(r))
+                .prop_flat_map(shuffled_inner_vectors)
                 .prop_map(|vs| vs.into_iter().flatten().collect()),
         )
     })

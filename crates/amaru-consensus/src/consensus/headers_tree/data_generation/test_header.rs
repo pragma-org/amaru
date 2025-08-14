@@ -68,7 +68,7 @@ impl IsHeader for TestHeader {
     }
 
     fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
-        self.hash.clone()
+        self.hash
     }
 
     fn slot(&self) -> u64 {
