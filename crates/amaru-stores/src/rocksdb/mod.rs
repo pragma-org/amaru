@@ -772,13 +772,21 @@ where
     let it = (db_iter_opt)(IteratorMode::From(prefix.as_ref(), direction), opts);
     let decoded_it = it.map(|e| {
         let (key, value) = e.unwrap();
-        let k = cbor::decode(&key[PREFIX_LEN..])
-            .unwrap_or_else(|e| panic!("unable to decode key ({}): {e:?}", hex::encode(&key)));
+        let k = cbor::decode(&key[PREFIX_LEN..]).unwrap_or_else(|e| {
+            panic!(
+                "unable to decode key {}::<{}> for type {}: {e:?}",
+                hex::encode(&key),
+                std::any::type_name::<K>(),
+                std::any::type_name::<V>()
+            )
+        });
         let v = cbor::decode(&value).unwrap_or_else(|e| {
             panic!(
-                "unable to decode value ({}) for key ({}): {e:?}",
+                "unable to decode value {}::<{}> for key {}::<{}>: {e:?}",
                 hex::encode(&value),
-                hex::encode(&key)
+                std::any::type_name::<V>(),
+                hex::encode(&key),
+                std::any::type_name::<K>(),
             )
         });
         (k, v)
