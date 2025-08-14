@@ -15,8 +15,13 @@
 use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::Point;
+use amaru_kernel::cbor;
 use amaru_kernel::peer::Peer;
+use pallas_codec::Fragment;
 use pallas_network::miniprotocols::Point as NetworkPoint;
+use pallas_network::miniprotocols::chainsync::{
+    Client, ClientError, HeaderContent, Message, NextResponse, Tip,
+};
 use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
 use std::future::Future;
@@ -45,12 +50,21 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSy
     out.map_err(|e| ChainSyncClientError::HeaderDecodeError(e.to_string()))
 }
 
-pub trait ChainSync<C> {
+#[async_trait::async_trait(?Send)]
+trait ChainSync<C> {
     // NOTE: from https://smallcultfollowing.com/babysteps/blog/2025/03/24/box-box-box/
     // traits with async fn cannot be dyn
-    fn recv_while_can_await(
-        &mut self,
-    ) -> Box<dyn Future<Output = Result<NextResponse<C>, ClientError>>>;
+    async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError>;
+}
+
+#[async_trait::async_trait(?Send)]
+impl<C> ChainSync<C> for Client<C>
+where
+    Message<C>: Fragment,
+{
+    async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError> {
+        self.recv_while_can_await().await
+    }
 }
 
 /// Handles chain synchronization network operations
@@ -94,9 +108,15 @@ pub enum PullResult {
     Nothing,
 }
 
-trait NetworkHeader {}
+trait NetworkHeader {
+    fn content(self) -> HeaderContent;
+}
 
-impl NetworkHeader for HeaderContent {}
+impl NetworkHeader for HeaderContent {
+    fn content(self) -> HeaderContent {
+        self
+    }
+}
 
 impl<C: NetworkHeader> ChainSyncClient<C> {
     pub fn new(
@@ -194,7 +214,7 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
                 .map_err(|_| unimplemented!())?;
 
             match response {
-                NextResponse::RollForward(content, _tip) => batch.forward(content),
+                NextResponse::RollForward(content, _tip) => batch.forward(content.content()),
                 NextResponse::RollBackward(point, _tip) => match batch.rollback(&point) {
                     RollbackHandling::Handled => (),
                     RollbackHandling::BeforeBatch => {
@@ -210,46 +230,62 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
         Ok(PullResult::Nothing)
     }
 
-    pub async fn await_next(
-        &mut self,
-    ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
-        self.no_longer_catching_up();
-        let mut peer_client = self.peer_session.lock().await;
-        let client = (*peer_client).chainsync();
+    // pub async fn await_next(
+    //     &mut self,
+    // ) -> Result<NextResponse<HeaderDecodeError>, ChainSyncClientError> {
+    //     self.no_longer_catching_up();
+    //     let mut peer_client = self.peer_session.lock().await;
+    //     let client = (*peer_client).chainsync();
 
-        match client.recv_while_must_reply().await {
-            Ok(result) => Ok(result),
-            Err(e) => {
-                tracing::error!(reason = %e, "failed while awaiting for next block");
-                Err(ChainSyncClientError::NetworkError(e))
-            }
-        }
-    }
+    //     match client.recv_while_must_reply().await {
+    //         Ok(result) => Ok(result),
+    //         Err(e) => {
+    //             tracing::error!(reason = %e, "failed while awaiting for next block");
+    //             Err(ChainSyncClientError::NetworkError(e))
+    //         }
+    //     }
+    // }
 
-    pub async fn has_agency(&self) -> bool {
-        let mut peer_client = self.peer_session.lock().await;
-        let client = (*peer_client).chainsync();
-        client.has_agency()
-    }
+    // pub async fn has_agency(&self) -> bool {
+    //     let mut peer_client = self.peer_session.lock().await;
+    //     let client = (*peer_client).chainsync();
+    //     client.has_agency()
+    // }
 
-    fn new1(mock_client: impl ChainSync<H>, intersection: _) -> Self {
+    fn new1(mock_client: impl ChainSync<C>, intersection: &Vec<Point>) -> Self {
         todo!()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use amaru_consensus::consensus::chain_selection::tests::generate_headers_anchored_at;
+    use amaru_consensus::consensus::chain_selection::generators::generate_headers_anchored_at;
     use amaru_kernel::Point;
     use amaru_ouroboros::fake::FakeHeader;
-    use pallas_network::miniprotocols::chainsync::NextResponse;
+    use async_trait::async_trait;
+    use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse};
 
     use crate::{chain_sync_client::ChainSyncClient, session::PeerSession};
 
+    use super::{ChainSync, NetworkHeader};
+
     struct FakeContent(FakeHeader);
+
+    impl NetworkHeader for FakeContent {
+        fn content(self) -> HeaderContent {
+            todo!()
+        }
+    }
 
     struct MockNetworkClient {
         responses: Vec<NextResponse<FakeContent>>,
+    }
+
+    #[async_trait::async_trait(?Send)]
+    impl ChainSync<FakeContent> for MockNetworkClient {
+        async fn recv_while_can_await(&mut self) -> Result<NextResponse<FakeContent>, ClientError> {
+            todo!()
+        }
     }
 
     impl MockNetworkClient {
@@ -267,6 +303,6 @@ mod tests {
                 .iter()
                 .map(|hdr| NextResponse::RollForward(FakeContent(hdr), tip)),
         );
-        let session = ChainSyncClient::new1(mock_client, vec![Point::Origin]);
+        let session = ChainSyncClient::new1(mock_client, &vec![Point::Origin]);
     }
 }
