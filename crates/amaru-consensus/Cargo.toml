@@ -31,6 +31,7 @@ pure-stage.workspace = true
 slot-arithmetic.workspace = true
 
 [dev-dependencies]
+either.workspace = true
 hex.workspace = true
 insta.workspace = true
 minicbor.workspace = true

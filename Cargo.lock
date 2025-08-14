@@ -97,6 +97,7 @@ dependencies = [
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "anyhow",
+ "either",
  "hex",
  "indextree",
  "insta",

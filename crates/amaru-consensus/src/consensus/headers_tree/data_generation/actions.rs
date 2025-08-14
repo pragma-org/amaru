@@ -24,31 +24,6 @@ use std::collections::BTreeSet;
 use std::fmt::Debug;
 use toposort::{Dag, Toposort};
 
-/// Execute a list of forward chain selection events on a give HeadersTree
-/// and return the resulting events
-pub fn execute_forward_chain_selection(
-    tree: &mut HeadersTree<TestHeader>,
-    actions: Vec<ForwardChainSelection<TestHeader>>,
-) -> Vec<ForwardChainSelection<TestHeader>> {
-    let mut initialized_peers = BTreeSet::new();
-    let mut results = vec![];
-    for action in actions.into_iter() {
-        match action {
-            ForwardChainSelection::NewTip { peer, tip } => {
-                if !initialized_peers.contains(&peer) {
-                    tree.initialize_peer(&peer, &tree.get_root_hash().unwrap())
-                        .unwrap();
-                    initialized_peers.insert(peer.clone());
-                }
-                results.push(tree.select_roll_forward(&peer, tip).unwrap());
-            }
-            ForwardChainSelection::NoChange => {}
-            ForwardChainSelection::SwitchToFork(_) => {}
-        }
-    }
-    results
-}
-
 /// Return a list of NewTip actions to execute for a given peer
 pub fn any_roll_forward_actions(
     depth: usize,
