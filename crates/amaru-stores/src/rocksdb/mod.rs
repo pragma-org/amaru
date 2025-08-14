@@ -54,22 +54,22 @@ use transaction::OngoingTransaction;
 const EVENT_TARGET: &str = "amaru::ledger::store";
 
 /// Key where is stored the tip of the database (most recently applied delta)
-const KEY_TIP: &str = "tip";
+const KEY_TIP: &str = "@tip";
 
 /// key where is stored the progress of the database
-const KEY_PROGRESS: &str = "progress";
+const KEY_PROGRESS: &str = "@progress";
 
 /// Key where is stored the current protocol parameters
-const KEY_PROTOCOL_PARAMETERS: &str = "protocol-parameters";
+const KEY_PROTOCOL_PARAMETERS: &str = "@protocol-parameters";
 
 /// key where is stored the current protocol version
-const KEY_PROTOCOL_VERSION: &str = "protocol-version";
+const KEY_PROTOCOL_VERSION: &str = "@protocol-version";
 
 /// key where is stored the constitutional committee information;
-const KEY_CONSTITUTIONAL_COMMITTEE: &str = "constitutional-committee";
+const KEY_CONSTITUTIONAL_COMMITTEE: &str = "@constitutional-committee";
 
 /// key where are stored the proposal roots;
-const KEY_PROPOSAL_ROOTS: &str = "proposal-roots";
+const KEY_PROPOSAL_ROOTS: &str = "@proposal-roots";
 
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
