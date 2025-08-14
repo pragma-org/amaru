@@ -793,7 +793,7 @@ fn import_constitutional_committee(
     point: &Point,
     era_history: &EraHistory,
     cc: StrictMaybe<ConstitutionalCommittee>,
-    mut cc_members: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
+    mut hot_cold_delegations: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
@@ -803,25 +803,22 @@ fn import_constitutional_committee(
         }
     })?;
 
+    let mut cc_members = BTreeMap::new();
+
     let cc = match cc {
         StrictMaybe::Nothing => {
             info!(state = "no confidence", "constitutional committee");
             amaru_kernel::ConstitutionalCommittee::NoConfidence
         }
         StrictMaybe::Just(ConstitutionalCommittee { threshold, members }) => {
-            // FIXME: also retain cc members expiry deadline 'valid_until'
-            members.into_iter().for_each(|(cold_cred, _valid_until)| {
-                cc_members.entry(cold_cred).or_insert(
-                    ConstitutionalCommitteeAuthorization::Resigned(StrictMaybe::Nothing),
-                );
-            });
-
             info!(
                 state = "trusted",
                 threshold = format!("{}/{}", threshold.numerator, threshold.denominator),
-                members = cc_members.len(),
+                members = members.len(),
                 "constitutional committee"
             );
+
+            cc_members = members;
 
             amaru_kernel::ConstitutionalCommittee::Trusted { threshold }
         }
@@ -839,18 +836,17 @@ fn import_constitutional_committee(
             dreps: iter::empty(),
             proposals: iter::empty(),
             votes: iter::empty(),
-            cc_members: cc_members.into_iter().map(|(cold_cred, state)| {
-                (
-                    cold_cred,
-                    match state {
-                        ConstitutionalCommitteeAuthorization::Resigned(..) => {
-                            (Resettable::Reset, Resettable::Unchanged)
-                        }
-                        ConstitutionalCommitteeAuthorization::DelegatedToHotCredential(
-                            hot_cred,
-                        ) => (Resettable::Set(hot_cred), Resettable::Unchanged),
-                    },
-                )
+            cc_members: cc_members.into_iter().map(|(cold_cred, valid_until)| {
+                let hot_cred = match hot_cold_delegations.remove(&cold_cred) {
+                    Some(ConstitutionalCommitteeAuthorization::DelegatedToHotCredential(
+                        hot_cred,
+                    )) => Resettable::Set(hot_cred),
+                    None | Some(ConstitutionalCommitteeAuthorization::Resigned(..)) => {
+                        Resettable::Reset
+                    }
+                };
+
+                (cold_cred, (hot_cred, Resettable::Set(valid_until)))
             }),
         },
         Default::default(),
