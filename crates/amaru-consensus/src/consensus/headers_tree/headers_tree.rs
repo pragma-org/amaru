@@ -12,6 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::consensus::chain_selection::RollbackChainSelection::RollbackBeyondLimit;
+use crate::consensus::chain_selection::{Fork, ForwardChainSelection, RollbackChainSelection};
+use crate::consensus::headers_tree::arena::{
+    get_arena_active_nodes, get_arena_root, pretty_print_root, trim_arena_unused_nodes,
+};
 use crate::consensus::select_chain::RollbackChainSelection::RollbackBeyondLimit;
 use crate::consensus::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
 use crate::consensus::tip::Tip;
@@ -657,79 +662,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     }
 }
 
-/// Walk through the list of all nodes that are younger than each tip
-/// and delete them from the arena.
-///
-/// For example:
-///
-///  0 +- 1
-///    +- 2 - 3 - 4
-///    +- 5 - 6
-///
-///  peers = alice 2, bob 3, eve 5
-///
-/// Then, after trimming we get:
-///
-///  0 +- 1
-///    +- 2 - 3
-///
-fn trim_arena_unused_nodes<T>(arena: &mut Arena<T>, all_tips: BTreeSet<NodeId>) {
-    // list of nodes to remove with their descendants
-    let mut to_remove: BTreeSet<NodeId> = BTreeSet::new();
-
-    // find any tip that is not included in another chain
-    // i.e has the tip of another chain as a descendant of its children
-    for node in all_tips.iter() {
-        for children in node.children(arena) {
-            let mut children_descendants = children.descendants(arena);
-            if !children_descendants.any(|n| all_tips.contains(&n)) {
-                to_remove.insert(children);
-            }
-        }
-    }
-    for n in to_remove {
-        n.remove_subtree(arena);
-    }
-}
-
-/// Return the list of nodes in the arena that haven't been removed
-/// For those nodes it is safe to extract the value of type T with node.get()
-fn get_arena_active_nodes<T>(arena: &Arena<T>) -> Filter<Iter<'_, Node<T>>, fn(&&Node<T>) -> bool> {
-    arena.iter().filter(|n| !n.is_removed())
-}
-
-/// Pretty-print the arena starting from the root of the tree
-///
-/// Shows a graphical representation of the internal structure of
-/// the tree.
-fn pretty_print_root<T: Debug>(arena: &Arena<T>) -> String {
-    // take the first active node and retrieve the root of the tree from there
-    if let Some(root) = get_arena_root(arena) {
-        format!("{:?}", root.debug_pretty_print(arena))
-    } else {
-        "<EMPTY ARENA>".to_string()
-    }
-}
-
-fn get_arena_root<T>(arena: &Arena<T>) -> Option<NodeId> {
-    // take the first active node and retrieve the root of the tree from there
-    get_arena_active_nodes(arena).next().and_then(|n| {
-        arena
-            .get_node_id(n)
-            .and_then(|tip| tip.ancestors(arena).last())
-    })
-}
-
-/// Return the node id at the tip of the longest chain
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-fn find_best_tip<T>(arena: &Arena<T>) -> Option<NodeId> {
-    get_arena_active_nodes(arena)
-        .map(|n| (n, arena.get_node_id(n).unwrap().ancestors(arena).count()))
-        .max_by_key(|(_, l)| *l)
-        .map(|(n, _)| arena.get_node_id(n).unwrap())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1347,7 +1279,7 @@ mod tests {
     fn any_roll_forward_actions(
         depth: usize,
         max_length: usize,
-    ) -> impl Strategy<Value=(HeadersTree<TestHeader>, Vec<RollForwardAction>)> {
+    ) -> impl Strategy<Value = (HeadersTree<TestHeader>, Vec<RollForwardAction>)> {
         any_headers_tree(depth, max_length, 1).prop_flat_map(|tree| {
             // collect the tips of the tree
             let tips: Vec<NodeId> = tree
@@ -1407,7 +1339,7 @@ mod tests {
 
     fn shuffled_inner_vectors<T: Clone + Debug>(
         values: Vec<Vec<T>>,
-    ) -> impl Strategy<Value=Vec<Vec<T>>> {
+    ) -> impl Strategy<Value = Vec<Vec<T>>> {
         Just(values).prop_flat_map(|outer| {
             // create a list of indices covering all internal vectors
             let shuffles = proptest::collection::vec(
@@ -1531,7 +1463,7 @@ mod tests {
         depth: usize,
         max_length: usize,
         peers_nb: usize,
-    ) -> impl Strategy<Value=HeadersTree<TestHeader>> {
+    ) -> impl Strategy<Value = HeadersTree<TestHeader>> {
         (0..u64::MAX).prop_map(move |seed| generate_headers_tree(depth, max_length, peers_nb, seed))
     }
 
@@ -1790,7 +1722,7 @@ mod tests {
 
     impl<T, U> JoinDebug for T
     where
-        T: IntoIterator<Item=U> + Clone,
+        T: IntoIterator<Item = U> + Clone,
         U: Debug,
     {
         fn join_debug(&self, sep: &str) -> String {
