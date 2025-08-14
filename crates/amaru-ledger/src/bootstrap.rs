@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    governance::ratification::ProposalRoots,
+    governance::ratification::ProposalsRoots,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{self, columns::proposals, Store, StoreError, TransactionalContext},
 };
@@ -172,7 +172,7 @@ pub fn import_initial_snapshot(
     // Proposals
     d.array()?;
     d.array()?;
-    import_proposal_roots(db, d.decode()?, d.decode()?, d.decode()?, d.decode()?)?;
+    import_proposals_roots(db, d.decode()?, d.decode()?, d.decode()?, d.decode()?)?;
     let proposals: Vec<ProposalState> = d.decode()?;
 
     // Constitutional committee
@@ -758,7 +758,7 @@ fn import_accounts(
     Ok(())
 }
 
-fn import_proposal_roots(
+fn import_proposals_roots(
     db: &impl Store,
     protocol_parameters: StrictMaybe<ComparableProposalId>,
     hard_fork: StrictMaybe<ComparableProposalId>,
@@ -767,7 +767,7 @@ fn import_proposal_roots(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
-    let roots = ProposalRoots {
+    let roots = ProposalsRoots {
         protocol_parameters: Option::from(protocol_parameters),
         hard_fork: Option::from(hard_fork),
         constitutional_committee: Option::from(constitutional_committee),
@@ -782,8 +782,9 @@ fn import_proposal_roots(
         "roots"
     );
 
-    transaction.set_proposal_roots(&roots)?;
+    transaction.set_proposals_roots(&roots)?;
     transaction.commit()?;
+
     Ok(())
 }
 
