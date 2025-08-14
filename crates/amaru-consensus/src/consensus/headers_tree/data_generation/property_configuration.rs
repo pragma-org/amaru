@@ -37,6 +37,11 @@ impl ProptestConfiguration {
         self
     }
 
+    pub fn show_seed(mut self) -> Self {
+        self.config.failure_persistence = None;
+        self
+    }
+
     pub fn with_cases(mut self, n: u32) -> Self {
         self.config.cases = n;
         self

@@ -1330,7 +1330,7 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(config_begin().no_shrink().with_cases(1).end())]
+        #![proptest_config(config_begin().no_shrink().with_cases(100).show_seed().end())]
         #[test]
         fn run_chain_selection_downstream((upstream_tree, actions) in any_roll_forward_actions(5, 10)) {
             let mut our_tree = HeadersTree::new(10, &upstream_tree.get_root().cloned());
