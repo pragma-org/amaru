@@ -18,7 +18,6 @@ use amaru_kernel::{
 };
 use num::Rational64;
 use std::collections::{BTreeMap, BTreeSet};
-use tracing::{instrument, Level};
 
 #[derive(Debug)]
 pub struct ConstitutionalCommittee {
@@ -99,31 +98,37 @@ impl ConstitutionalCommittee {
     /// - Members that do not vote will count as a default "no" (i.e. increases the denominator);
     /// - Members that expired are excluded entirely (also from the denominator);
     /// - Members that have resigned (i.e. no hot keys) are also excluded;
-    #[instrument(level = Level::DEBUG)]
     pub fn tally(&self, epoch: Epoch, votes: BTreeMap<StakeCredential, &Vote>) -> Rational64 {
         // TODO: Avoid re-computing this on each tally? The set of active members is fixed per
         // epoch.
         let active_members = self.active_members(epoch, |_, hot_cred| hot_cred);
 
-        let (numerator, denominator) = votes.iter().fold(
-            (0, active_members.len() as i64),
-            |(numerator, denominator), (hot_cred, vote)| {
-                if active_members.contains(hot_cred) {
-                    match vote {
-                        Vote::Yes => (numerator + 1, denominator),
-                        Vote::No => (numerator, denominator),
-                        Vote::Abstain => (numerator, denominator - 1),
-                    }
-                } else {
-                    (numerator, denominator)
-                }
-            },
-        );
+        let total_active_members = active_members.len() as i64;
 
-        if denominator == 0 {
+        let (yes, no, abstain) =
+            votes
+                .iter()
+                .fold((0, 0, 0), |(yes, no, abstain), (hot_cred, vote)| {
+                    if active_members.contains(hot_cred) {
+                        match vote {
+                            Vote::Yes => (yes + 1, no, abstain),
+                            Vote::No => (yes, no + 1, abstain),
+                            Vote::Abstain => (yes, no, abstain + 1),
+                        }
+                    } else {
+                        (yes, no, abstain)
+                    }
+                });
+
+        let span = tracing::Span::current();
+        span.record("votes.committee.yes", yes);
+        span.record("votes.committee.no", no);
+        span.record("votes.committee.abstain", abstain);
+
+        if abstain >= total_active_members {
             Rational64::ZERO
         } else {
-            Rational64::new(numerator, denominator)
+            Rational64::new(yes, total_active_members - abstain)
         }
     }
 }

@@ -20,7 +20,6 @@ use amaru_kernel::{
 };
 use num::Rational64;
 use std::collections::BTreeMap;
-use tracing::{instrument, Level};
 
 /// Compute the voting threshold corresponding to the proposal; the thresholds are mostly
 /// influenced by three things:
@@ -76,7 +75,6 @@ fn any_update_in_security_group(update: &ProtocolParamUpdate) -> bool {
 }
 
 /// Count the ratio of yes votes amongst pool operators.
-#[instrument(level = Level::DEBUG)]
 pub fn tally(
     protocol_version: ProtocolVersion,
     proposal: &ProposalEnum,
@@ -94,23 +92,23 @@ pub fn tally(
         ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _)
     );
 
-    let (yes, abstain) =
+    let (yes, no, abstain) =
         stake_distribution
             .pools
             .iter()
-            .fold((0, 0), |(yes, abstain), (pool_id, pool)| {
+            .fold((0, 0, 0), |(yes, no, abstain), (pool_id, pool)| {
                 match votes.get(pool_id) {
-                    Some(Vote::Yes) => (yes + pool.voting_stake, abstain),
-                    Some(Vote::No) => (yes, abstain),
-                    Some(Vote::Abstain) => (yes, abstain + pool.voting_stake),
+                    Some(Vote::Yes) => (yes + pool.voting_stake, no, abstain),
+                    Some(Vote::No) => (yes, no + pool.voting_stake, abstain),
+                    Some(Vote::Abstain) => (yes, no, abstain + pool.voting_stake),
 
                     // Hard forks always require explicit votes from SPO
-                    None if is_hardfork => (yes, abstain),
+                    None if is_hardfork => (yes, no, abstain),
 
                     // Prior to v10, a pool not voting would be considered abstaining on anything
                     // other than a hard fork.
                     None if protocol_version <= PROTOCOL_VERSION_9 => {
-                        (yes, abstain + pool.voting_stake)
+                        (yes, no, abstain + pool.voting_stake)
                     }
 
                     // Starting from v10, the fallback is given to the DRep chosen by the pool's
@@ -127,14 +125,19 @@ pub fn tally(
 
                         match drep {
                             Some(DRep::NoConfidence) if is_motion_of_no_confidence => {
-                                (yes + pool.voting_stake, abstain)
+                                (yes + pool.voting_stake, no, abstain)
                             }
-                            Some(DRep::Abstain) => (yes, abstain + pool.voting_stake),
-                            Some(..) | None => (yes, abstain),
+                            Some(DRep::Abstain) => (yes, no, abstain + pool.voting_stake),
+                            Some(..) | None => (yes, no, abstain),
                         }
                     }
                 }
             });
+
+    let span = tracing::Span::current();
+    span.record("votes.pools.yes", yes);
+    span.record("votes.pools.no", no);
+    span.record("votes.pools.abstain", abstain);
 
     if abstain >= stake_distribution.voting_stake {
         Rational64::ZERO
