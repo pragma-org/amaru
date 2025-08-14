@@ -77,7 +77,7 @@ pub fn any_headers_tree(
     depth: usize,
     max_length: usize,
     peers_nb: usize,
-) -> impl Strategy<Value=HeadersTree<TestHeader>> {
+) -> impl Strategy<Value = HeadersTree<TestHeader>> {
     (0..u64::MAX).prop_map(move |seed| generate_headers_tree(depth, max_length, peers_nb, seed))
 }
 

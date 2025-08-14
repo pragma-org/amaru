@@ -96,10 +96,10 @@ impl SelectChain {
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => {
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
@@ -134,10 +134,10 @@ impl SelectChain {
                 }])
             }
             RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => Ok(SelectChain::switch_to_fork(
+                                                     peer,
+                                                     rollback_point,
+                                                     fork,
+                                                 }) => Ok(SelectChain::switch_to_fork(
                 peer,
                 rollback_point,
                 fork,
@@ -178,7 +178,7 @@ impl SelectChain {
 /// FIXME: The peer should not be needed here, as the fork should be
 /// comprised of known blocks. It is only needed to download the blocks
 /// we don't currently store.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Fork<H: IsHeader> {
     pub peer: Peer,
     pub rollback_point: Point,
@@ -187,7 +187,7 @@ pub struct Fork<H: IsHeader> {
 
 /// The outcome of the chain selection process in  case of
 /// roll forward.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ForwardChainSelection<H: IsHeader> {
     /// The current best chain has been extended with a (single) new header.
     NewTip { peer: Peer, tip: H },

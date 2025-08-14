@@ -17,6 +17,7 @@ use amaru_ouroboros_traits::IsHeader;
 use pallas_crypto::hash::Hash;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::hash::Hasher;
 
 /// Simplified version of a header
 /// It essentially keeps track only of the parent->child relationship between headers and the header slot.
@@ -24,11 +25,17 @@ use std::fmt::{Debug, Display, Formatter};
 /// This is more practical to operate than a FakeHeader where the hash is computed on the whole header serialized data
 /// which is harder to control for tests.
 ///
-#[derive(PartialEq, Clone, Copy)]
+#[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
 pub struct TestHeader {
     pub hash: Hash<HEADER_HASH_SIZE>,
     pub slot: u64,
     pub parent: Option<Hash<HEADER_HASH_SIZE>>,
+}
+
+impl std::hash::Hash for TestHeader {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.hash.as_slice())
+    }
 }
 
 impl Debug for TestHeader {
