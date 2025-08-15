@@ -20,7 +20,7 @@ pub mod volatile_db;
 use crate::{
     governance::ratification::{self, RatificationContext},
     state::{
-        ratification::{ProposalsRoots, ProposalsRootsRc},
+        ratification::{ProposalsRoots, ProposalsRootsRc, RatificationResult},
         volatile_db::{StoreUpdate, VolatileDB},
     },
     store::{
@@ -785,16 +785,20 @@ pub fn tick_proposals<'store>(
 ) -> Result<(), StateError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
-    let (ctx, changes) = ctx
+    let RatificationResult {
+        context: ctx,
+        store_updates,
+        pruned_proposals,
+    } = ctx
         .ratify_proposals(proposals, ProposalsRootsRc::from(roots))
         .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
 
-    changes
+    store_updates
         .into_iter()
         .try_for_each(|apply_changes| apply_changes(db, &ctx))?;
 
     db.with_proposals(|iterator| {
-        for (_key, item) in iterator {
+        for (key, mut item) in iterator {
             if let Some(row) = item.borrow() {
                 // This '+2' is worthy of an explanation.
                 //
@@ -817,7 +821,7 @@ pub fn tick_proposals<'store>(
                 // 2. `epoch` designates the arrival epoch (i.e. `e+2`);
                 //
                 // Hence: epoch == valid_until + 2
-                if epoch == row.valid_until + 2 {
+                if epoch == row.valid_until + 2 || pruned_proposals.contains(&key) {
                     let key = expect_stake_credential(&row.proposal.reward_account);
                     refunds
                         .entry(key)
@@ -826,6 +830,7 @@ pub fn tick_proposals<'store>(
                         // blind 'insert'.
                         .and_modify(|entry| *entry += row.proposal.deposit)
                         .or_insert_with(|| row.proposal.deposit);
+                    *item.borrow_mut() = None;
                 }
             }
         }

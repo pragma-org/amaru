@@ -83,12 +83,18 @@ pub enum RatificationInternalError {
     InternalForestEnactmentError(#[from] ProposalsEnactError),
 }
 
+pub struct RatificationResult<S> {
+    pub context: RatificationContext,
+    pub store_updates: Vec<StoreUpdate<S>>,
+    pub pruned_proposals: BTreeSet<Rc<ComparableProposalId>>,
+}
+
 impl RatificationContext {
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
         mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
         roots: ProposalsRootsRc,
-    ) -> Result<(Self, Vec<StoreUpdate<'store, S>>), RatificationInternalError> {
+    ) -> Result<RatificationResult<S>, RatificationInternalError> {
         proposals.sort_by(|a, b| a.1.proposed_in.cmp(&b.1.proposed_in));
 
         info_roots(&roots);
@@ -131,7 +137,7 @@ impl RatificationContext {
         // We collect updates to be done on the store while enacting proposals. The updates aren't
         // executed, but stashed for later. This allows processing proposals in a pure fasion,
         // while accumulating changes to be done on the store.
-        let mut updates: Vec<StoreUpdate<'_, S>> = Vec::new();
+        let mut store_updates: Vec<StoreUpdate<S>> = Vec::new();
 
         // We also accumulate proposals that get pruned due to other proposals being enacted. Those
         // proposals are obsolete, and must be removed from the database.
@@ -191,7 +197,7 @@ impl RatificationContext {
                     match proposal {
                         ProposalEnum::ProtocolParameters(params_update, _parent) => {
                             self.protocol_parameters.update(params_update);
-                            updates.push(Box::new(|db, ctx| {
+                            store_updates.push(Box::new(|db, ctx| {
                                 db.set_protocol_parameters(&ctx.protocol_parameters)
                             }));
                         }
@@ -199,7 +205,7 @@ impl RatificationContext {
                         ProposalEnum::HardFork(protocol_version, _parent) => {
                             self.protocol_version = protocol_version;
                             self.protocol_parameters.protocol_version = protocol_version;
-                            updates.push(Box::new(|db, ctx| {
+                            store_updates.push(Box::new(|db, ctx| {
                                 db.set_protocol_version(&ctx.protocol_version)?;
                                 db.set_protocol_parameters(&ctx.protocol_parameters)
                             }));
@@ -227,17 +233,13 @@ impl RatificationContext {
         // proposals are ratified; but it's just one db key/value update.
         let new_roots = forest.roots();
         info_roots(&new_roots);
-        updates.push(Box::new(move |db, _ctx| db.set_proposals_roots(&new_roots)));
+        store_updates.push(Box::new(move |db, _ctx| db.set_proposals_roots(&new_roots)));
 
-        // And finally, remove all proposals that have been either enacted or dropped due to other
-        // being enacted.
-        if !pruned_proposals.is_empty() {
-            updates.push(Box::new(move |db, _ctx| {
-                db.remove_proposals(pruned_proposals)
-            }))
-        }
-
-        Ok((self, updates))
+        Ok(RatificationResult {
+            context: self,
+            store_updates,
+            pruned_proposals,
+        })
     }
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
@@ -498,8 +500,7 @@ impl fmt::Display for OrphanProposal {
 // Enactments
 // ----------------------------------------------------------------------------
 
-pub type StoreUpdate<'store, S> =
-    Box<dyn FnOnce(&S, &RatificationContext) -> Result<(), StoreError>>;
+pub type StoreUpdate<S> = Box<dyn FnOnce(&S, &RatificationContext) -> Result<(), StoreError>>;
 
 // Helpers
 // ----------------------------------------------------------------------------
