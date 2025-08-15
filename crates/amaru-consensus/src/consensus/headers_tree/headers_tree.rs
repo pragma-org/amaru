@@ -278,11 +278,8 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         // Get the best chain data before the peer change
         let (previous_best_tip, previous_best_length) = (self.best_chain(), self.best_length());
 
-        // Update the peer node id
-        self.peers.insert(peer.clone(), *node_id);
-
         // Compute the new best chain
-        self.update_best_chain(peer)?;
+        self.update_best_chain(peer, *node_id)?;
 
         // 3 options:
         //
@@ -327,11 +324,8 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
             self.best_peer().cloned(),
         );
 
-        // Update the peer node id
-        self.peers.insert(peer.clone(), *rollback_node_id);
-
         // Compute the new best chain
-        self.update_best_chain(peer)?;
+        self.update_best_chain(peer, *rollback_node_id)?;
 
         // 3 options:
         //
@@ -461,10 +455,13 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 
     /// Update the best chain after a peer has done a roll forward or rollback
     #[allow(clippy::expect_used)]
-    fn update_best_chain(&mut self, peer: &Peer) -> Result<(), ConsensusError> {
+    fn update_best_chain(&mut self, peer: &Peer, new_node_id: NodeId) -> Result<(), ConsensusError> {
         if self.best_peer.as_ref().is_some() {
             let previous_best_tip = self.best_chain;
             let previous_best_length = previous_best_tip.ancestors(&self.arena).count();
+
+            // Update the peer node id
+            self.peers.insert(peer.clone(), new_node_id);
 
             let (next_best_peer, new_best_node_id, new_best_length) = self
                 .peers
@@ -475,6 +472,8 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 
             if previous_best_length != new_best_length {
                 self.best_chain = *new_best_node_id;
+                self.best_peer = Some(next_best_peer.clone())
+            } else if previous_best_length == new_best_length && peer != next_best_peer {
                 self.best_peer = Some(next_best_peer.clone())
             }
         } else {
@@ -1134,6 +1133,25 @@ mod tests {
     }
 
     #[test]
+    fn rollback_on_the_best_chain_from_best_peer() {
+        let alice = Peer::new("alice");
+        let (mut tree, headers) = initialize_with_peer(3, &alice);
+
+        // Let bob go further than alice
+        let bob = Peer::new("bob");
+        tree.initialize_peer(&bob, &headers[2].hash()).unwrap();
+        let new_tip = make_header_with_parent(&headers[2]);
+        _ = tree.select_roll_forward(&bob, new_tip).unwrap();
+
+        // Let alice catch up
+        tree.select_roll_forward(&alice, new_tip).unwrap();
+
+        // Rollback bob before alice. There should no change to the best chain since alice is still there
+        let result = tree.select_rollback(&bob, &headers[0].hash()).unwrap();
+        assert_eq!(result, RollbackChainSelection::NoChange, "{tree:?}");
+    }
+
+    #[test]
     fn rollback_beyond_limit() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
@@ -1254,7 +1272,7 @@ mod tests {
     proptest! {
         #![proptest_config(config_begin().no_shrink().show_seed().with_cases(100).with_seed(42).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(3)) {
+        fn run_chain_selection(actions in any_select_chains(4)) {
             let mut tree = HeadersTree::new(10, &None);
             let mut results: BTreeMap<(usize, Action), SelectionResult> = BTreeMap::new();
             for (action_nb, action) in actions.iter().enumerate() {
