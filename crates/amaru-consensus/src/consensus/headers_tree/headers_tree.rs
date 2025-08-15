@@ -718,6 +718,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::consensus::headers_tree::data_generation::SelectionResult::{Back, Forward};
     use crate::consensus::headers_tree::data_generation::*;
     use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
     use amaru_kernel::{from_cbor, to_cbor};
@@ -1253,68 +1254,99 @@ mod tests {
     proptest! {
         #![proptest_config(config_begin().no_shrink().show_seed().with_cases(100).with_seed(42).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(5)) {
+        fn run_chain_selection(actions in any_select_chains(3)) {
             let mut tree = HeadersTree::new(10, &None);
-            let mut results: Vec<ForwardChainSelection<TestHeader>> = vec![];
-            for action in actions.iter() {
+            let mut results: BTreeMap<(usize, Action), SelectionResult> = BTreeMap::new();
+            for (action_nb, action) in actions.iter().enumerate() {
                 match action {
                     Action::RollForward { ref peer, ref header} =>  {
                         if !tree.peers.keys().collect::<Vec<_>>().contains(&peer) {
                             let parent = header.parent.unwrap_or(Point::Origin.hash());
                             tree.initialize_peer(peer, &parent)?;
                         };
-                        results.push(tree.select_roll_forward(&peer, header.clone()).unwrap());
+                        println!("rolling forward for {peer} to {}", header.hash());
+                        let result = tree.select_roll_forward(&peer, header.clone()).unwrap() ;
+                        results.insert((action_nb, action.clone()), Forward(result.clone()));
+                        println!("the resulting event is {result:?}");
+                        println!("headers tree\n{tree:?}");
                     },
-                    Action::RollBack{..} => todo!()
+                    Action::RollBack{ ref peer, ref rollback_point} => {
+                        println!("rolling back for {peer} to {}", rollback_point.hash());
+                        let result = tree.select_rollback(&peer, &rollback_point.hash()).unwrap();
+                        results.insert((action_nb, action.clone()), Back(result.clone()));
+                        println!("the resulting event is {result:?}");
+                        println!("headers tree\n{tree:?}");
+                    }
                 }
             }
+            println!("results {results:?}");
             let actual = make_best_chain_from_events(&results);
-            let expected = make_best_chain_from_actions(&actions);
-            assert_eq!(actual, expected);
+            let expected_best_chains = make_best_chains_from_actions(&actions);
+            assert!(expected_best_chains.contains(&actual), "The actual chain is {actual:?}\n The best chains are {expected_best_chains:?}");
+            println!("TEST OK!!!!")
         }
     }
 
-    fn make_best_chain_from_events(events: &Vec<ForwardChainSelection<TestHeader>>) -> Vec<TestHeader> {
+    fn make_best_chain_from_events(
+        events: &BTreeMap<(usize, Action), SelectionResult>,
+    ) -> Vec<TestHeader> {
         let mut result: Vec<TestHeader> = vec![];
         for event in events {
             match event {
-                ForwardChainSelection::NewTip { tip, .. } => {
+                (action, Forward(ForwardChainSelection::NewTip { tip, peer })) => {
                     if let Some(parent) = result.last() {
-                        assert_eq!(Some(parent.hash()), tip.parent);
+                        assert_eq!(Some(parent.hash()), tip.parent, "after the action {action:?}, the select forward for peer {peer} to {tip:?} failed. The current chain is {result:?}");
                     }
                     result.push(tip.clone())
                 }
-                ForwardChainSelection::NoChange => {}
-                ForwardChainSelection::SwitchToFork(fork) => {
+                (_, Forward(ForwardChainSelection::NoChange)) => {}
+                (action, Forward(ForwardChainSelection::SwitchToFork(fork)))
+                | (action, Back(RollbackChainSelection::SwitchToFork(fork))) => {
                     let rollback_position = result
                         .iter()
                         .position(|h| h.hash() == fork.rollback_point.hash());
-                    assert!(rollback_position.is_some());
+                    assert!(rollback_position.is_some(), "after the action {action:?}, we have a rollback position that does not exist with hash {}", fork.rollback_point.hash());
                     result.truncate(rollback_position.unwrap() + 1);
                     result.extend(fork.fork.clone())
                 }
+                (action, Back(RollbackTo(hash))) => {
+                    let rollback_position = result.iter().position(|h| &h.hash() == hash);
+                    assert!(rollback_position.is_some(), "after the action {action:?}, we have a rollback position that does not exist with hash {hash}");
+                    result.truncate(rollback_position.unwrap() + 1);
+                }
+                (_, Back(RollbackBeyondLimit { .. })) => {}
+                (_, Back(RollbackChainSelection::NoChange)) => {}
             }
         }
         result
     }
 
-    fn make_best_chain_from_actions(actions: &Vec<Action>) -> Vec<TestHeader> {
-        let mut result: Vec<TestHeader> = vec![];
+    fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<TestHeader>> {
+        let mut chains: BTreeMap<Peer, Vec<TestHeader>> = BTreeMap::new();
         for action in actions {
+            if chains.get(action.peer()).is_none() {
+                chains.insert(action.peer().clone(), vec![]);
+            }
+            let chain: &mut Vec<TestHeader> = chains.get_mut(action.peer()).unwrap();
             match action {
                 Action::RollForward { header, .. } => {
-                    result.push(header.clone())
+                    if header.parent == chain.last().map(|p| p.hash()) {
+                        chain.push(header.clone())
+                    }
                 }
                 Action::RollBack { rollback_point, .. } => {
-                    let rollback_position = result
-                        .iter()
-                        .position(|h| h.hash() == rollback_point.hash());
+                    let rollback_position =
+                        chain.iter().position(|h| h.hash() == rollback_point.hash());
                     assert!(rollback_position.is_some());
-                    result.truncate(rollback_position.unwrap() + 1);
+                    chain.truncate(rollback_position.unwrap() + 1);
                 }
             }
         }
-        result
+        let best_length = chains.values().map(|c| c.len()).max().unwrap();
+        chains
+            .into_values()
+            .filter(|c| c.len() == best_length)
+            .collect()
     }
 
     proptest! {

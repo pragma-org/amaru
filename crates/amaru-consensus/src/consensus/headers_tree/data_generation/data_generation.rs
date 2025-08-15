@@ -23,12 +23,12 @@ use proptest::prop_compose;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Exp};
-use std::fmt::Debug;
+use std::fmt::{Debug, Display, Formatter};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tree<H> {
-    value: H,
-    children: Vec<Tree<H>>,
+    pub value: H,
+    pub children: Vec<Tree<H>>,
 }
 
 /// Generate a tree of headers
@@ -45,12 +45,53 @@ pub fn generate_test_header_tree(
     root_tree
 }
 
+impl Display for Tree<TestHeader> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.pretty_print())
+    }
+}
+
 impl Tree<TestHeader> {
     fn renumber_slots(&mut self, start: u64) {
         self.value.slot = start;
         for (i, child) in self.children.iter_mut().enumerate() {
-            child.renumber_slots(start + ((i + 1) as u64))
+            child.renumber_slots(start + ((i + 1) as u64));
+            child.value.parent = Some(self.value.hash);
         }
+    }
+}
+
+impl<H: Display> Tree<H> {
+    pub fn pretty_print(&self) -> String {
+        let mut out = String::new();
+        self.pretty_print_with_prefix("", true, &mut out);
+        out
+    }
+
+    fn pretty_print_with_prefix(&self, prefix: &str, is_last: bool, out: &mut String) {
+        out.push_str(prefix);
+        if !prefix.is_empty() {
+            out.push_str(if is_last { "└── " } else { "├── " });
+        }
+        out.push_str(&self.value.to_string());
+        out.push('\n');
+
+        let new_prefix = format!(
+            "{}{}",
+            prefix,
+            if is_last { "    " } else { "│   " }
+        );
+
+        for (i, child) in self.children.iter().enumerate() {
+            let last = i == self.children.len() - 1;
+            child.pretty_print_with_prefix(&new_prefix, last, out);
+        }
+    }
+}
+
+impl<H> Tree<H> {
+    fn depth(&self) -> usize {
+        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
     }
 }
 
@@ -69,6 +110,7 @@ impl<H: Clone> Tree<H> {
         self.children.get_mut(l - 1)
     }
 
+    #[allow(dead_code)]
     pub fn all_chains(&self) -> Vec<Vec<&H>> {
         let mut result: Vec<Vec<&H>> = vec![];
         for child in self.children.iter() {
@@ -210,4 +252,15 @@ fn random_bytes_with_rng(arg: usize, rng: &mut StdRng) -> Vec<u8> {
     let mut buffer = vec![0; arg];
     rng.fill_bytes(&mut buffer);
     buffer
+}
+
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_generate_test_headers_tree() {
+        let tree = generate_test_header_tree(5, 42);
+        println!("{tree}");
+        assert_eq!(tree.depth(), 5);
+    }
 }
