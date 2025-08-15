@@ -78,35 +78,35 @@ const DIR_LIVE_DB: &str = "live";
 // RocksDB
 // ----------------------------------------------------------------------------
 
-/// An opaque handle for a store implementation of top of RocksDB. The database has the
-/// following structure:
-///
-/// * ===========================*=============================================== *
-/// * key                        * value                                          *
-/// * ===========================*=============================================== *
-/// * 'tip'                      * Point                                          *
-/// * 'progress'                 * EpochTransitionProgress                        *
-/// * 'pots'                     * (Lovelace, Lovelace, Lovelace)                 *
-/// * 'protocol-version'         * ProtocolVersion                                *
-/// * 'protocol-parameters'      * ProtocolParameters                             *
-/// * 'constitutional-committee' * ConstitutionalCommittee                        *
-/// * 'utxo:'TransactionInput    * TransactionOutput                              *
-/// * 'pool:'PoolId              * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
-/// * 'acct:'StakeCredential     * (Option<PoolId>, Lovelace, Lovelace)           *
-/// * 'drep:'StakeCredential     * (                                              *
-/// *                            *   Lovelace,                                    *
-/// *                            *   Option<Anchor>,                              *
-/// *                            *   CertificatePointer,                          *
-/// *                            *   Option<Epoch>,                               *
-/// *                            *   Option<CertificatePointer>,                  *
-/// *                            * )                                              *
-/// * 'comm:'StakeCredential     * (Option<StakeCredential>)                      *
-/// * 'prop:'ProposalId          * (ProposalPointer, Epoch, Proposal)             *
-/// * 'vote:'Voter               * Ballot                                         *
-/// * 'slot':slot                * PoolId                                         *
-/// * ===========================*=============================================== *
-///
-/// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
+// An opaque handle for a store implementation of top of RocksDB. The database has the
+// following structure:
+//
+// * ===========================*=============================================== *
+// * key                        * value                                          *
+// * ===========================*=============================================== *
+// * 'tip'                      * Point                                          *
+// * 'progress'                 * EpochTransitionProgress                        *
+// * 'pots'                     * (Lovelace, Lovelace, Lovelace)                 *
+// * 'protocol-version'         * ProtocolVersion                                *
+// * 'protocol-parameters'      * ProtocolParameters                             *
+// * 'constitutional-committee' * ConstitutionalCommittee                        *
+// * 'utxo:'TransactionInput    * TransactionOutput                              *
+// * 'pool:'PoolId              * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
+// * 'acct:'StakeCredential     * (Option<PoolId>, Lovelace, Lovelace)           *
+// * 'drep:'StakeCredential     * (                                              *
+// *                            *   Lovelace,                                    *
+// *                            *   Option<Anchor>,                              *
+// *                            *   CertificatePointer,                          *
+// *                            *   Option<Epoch>,                               *
+// *                            *   Option<CertificatePointer>,                  *
+// *                            * )                                              *
+// * 'comm:'StakeCredential     * (Option<StakeCredential>)                      *
+// * 'prop:'ProposalId          * (ProposalPointer, Epoch, Proposal)             *
+// * 'vote:'Voter               * Ballot                                         *
+// * 'slot':slot                * PoolId                                         *
+// * ===========================*=============================================== *
+//
+// CBOR is used to serialize objects (as keys or values) into their binary equivalent.
 pub struct RocksDB {
     /// The working directory where we store the various key/value stores.
     dir: PathBuf,
