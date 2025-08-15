@@ -274,7 +274,7 @@ impl ReadStore for MemoryStore {
             .proposals
             .borrow()
             .iter()
-            .map(|(proposal_id, row)| (ProposalId::from(proposal_id.clone()), row.clone()))
+            .map(|(proposal_id, row)| (proposal_id.clone(), row.clone()))
             .collect();
 
         Ok(proposals_vec.into_iter())
@@ -580,12 +580,9 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
 
     fn with_proposals(
         &self,
-        mut with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
+        with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        self.with_column(&self.store.proposals, |iter| {
-            let mapped = iter.map(|(k, v)| (ProposalId::from(k), v));
-            with(Box::new(mapped));
-        })
+        self.with_column(&self.store.proposals, with)
     }
 
     fn with_cc_members(

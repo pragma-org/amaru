@@ -18,8 +18,8 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, Constitution, Epoch,
-    Lovelace, PoolId, ProposalId, ProtocolParamUpdate, ProtocolVersion, ScriptHash,
-    StakeCredential, UnitInterval, Vote, Voter,
+    Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, ScriptHash, StakeCredential,
+    UnitInterval, Vote, Voter,
 };
 use num::Rational64;
 use std::{
@@ -75,7 +75,7 @@ pub struct RatificationContext {
 impl RatificationContext {
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
-        mut proposals: Vec<(ProposalId, proposals::Row)>,
+        mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
     ) -> (Self, Vec<StoreUpdate<'store, S>>) {
         proposals.sort_by(|a, b| a.1.proposed_in.cmp(&b.1.proposed_in));
 
@@ -83,7 +83,7 @@ impl RatificationContext {
             ProposalsForest::new(&self.roots),
             |mut forest, (id, row)| {
                 forest
-                    .insert(ComparableProposalId::from(id), row.proposal.gov_action)
+                    .insert(id, row.proposal.gov_action)
                     // FIXME: Bubble this up. There should be no error here; this is a sign of a ledger
                     // rule violation. It can only mean that a proposal was accepted without having an
                     // existing parent.

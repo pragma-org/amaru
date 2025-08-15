@@ -38,8 +38,8 @@ use amaru_kernel::{
     expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, ConstitutionalCommittee, EraHistory, Hash, Lovelace,
-    MemoizedTransactionOutput, MintedBlock, Point, PoolId, ProposalId, ProtocolVersion, Slot,
+    stake_credential_hash, ComparableProposalId, ConstitutionalCommittee, EraHistory, Hash,
+    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, ProtocolVersion, Slot,
     StakeCredential, StakeCredentialType, TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
@@ -662,7 +662,7 @@ fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
     ctx: RatificationContext,
-    proposals: Vec<(ProposalId, proposals::Row)>,
+    proposals: Vec<(ComparableProposalId, proposals::Row)>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StoreError> {
     // Reset counters before the epoch begins.
@@ -775,7 +775,7 @@ pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
     ctx: RatificationContext,
-    proposals: Vec<(ProposalId, proposals::Row)>,
+    proposals: Vec<(ComparableProposalId, proposals::Row)>,
 ) -> Result<(), StoreError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 

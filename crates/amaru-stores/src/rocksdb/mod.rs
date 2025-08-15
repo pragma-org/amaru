@@ -544,12 +544,12 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     /// cause other proposals to become obsolete.
     fn remove_proposals<'iter, Id>(
         &self,
-        _proposals: impl IntoIterator<Item = Id>,
+        proposals: impl IntoIterator<Item = Id>,
     ) -> Result<(), StoreError>
     where
         Id: Deref<Target = ComparableProposalId> + 'iter,
     {
-        todo!("remove_proposals")
+        proposals::remove(&self.transaction, proposals.into_iter())
     }
 
     fn save(
