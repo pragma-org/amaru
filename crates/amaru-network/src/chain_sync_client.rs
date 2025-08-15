@@ -72,7 +72,6 @@ pub struct ChainSyncClient<C> {
     peer: Peer,
     client: Arc<Mutex<dyn ChainSync<C>>>,
     intersection: Vec<Point>,
-    is_catching_up: Arc<RwLock<bool>>,
 }
 
 struct PullBuffer {
@@ -102,6 +101,7 @@ enum RollbackHandling {
     BeforeBatch,
 }
 
+#[derive(Debug)]
 pub enum PullResult {
     ForwardBatch(Vec<HeaderContent>),
     RollBack(Point),
@@ -125,28 +125,6 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
         _catching_up: Arc<RwLock<bool>>,
     ) -> Self {
         unimplemented!()
-    }
-
-    #[allow(clippy::unwrap_used)]
-    fn no_longer_catching_up(&self) {
-        // Do not acquire the lock unless necessary.
-        if self.is_catching_up.read().map(|lock| *lock).unwrap_or(true) {
-            tracing::info!("chain tip reached; awaiting next block");
-            *self.is_catching_up.write().unwrap() = false;
-        }
-    }
-
-    #[allow(clippy::unwrap_used)]
-    fn catching_up(&self) {
-        // Do not acquire the lock unless necessary.
-        if !self
-            .is_catching_up
-            .read()
-            .map(|lock| *lock)
-            .unwrap_or(false)
-        {
-            *self.is_catching_up.write().unwrap() = true;
-        }
     }
 
     // pub async fn find_intersection(&self) -> Result<(), ChainSyncClientError> {
@@ -227,7 +205,7 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
             }
         }
 
-        Ok(PullResult::Nothing)
+        Ok(PullResult::ForwardBatch(batch.buffer))
     }
 
     // pub async fn await_next(
@@ -252,21 +230,32 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
     //     client.has_agency()
     // }
 
-    fn new1(mock_client: impl ChainSync<C>, intersection: &Vec<Point>) -> Self {
-        todo!()
+    fn new1(client: Arc<Mutex<dyn ChainSync<C>>>, intersection: &Vec<Point>) -> Self {
+        ChainSyncClient {
+            client,
+            peer: Peer::new("alice"),
+            intersection: intersection.to_vec(),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use amaru_consensus::consensus::chain_selection::generators::generate_headers_anchored_at;
     use amaru_kernel::Point;
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
     use async_trait::async_trait;
     use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
+    use tokio::sync::Mutex;
 
-    use crate::{chain_sync_client::ChainSyncClient, point::to_network_point, session::PeerSession};
+    use crate::{
+        chain_sync_client::{ChainSyncClient, PullResult},
+        point::to_network_point,
+        session::PeerSession,
+    };
 
     use super::{ChainSync, NetworkHeader};
 
@@ -274,7 +263,11 @@ mod tests {
 
     impl NetworkHeader for FakeContent {
         fn content(self) -> HeaderContent {
-            todo!()
+            HeaderContent {
+                variant: 6,
+                byron_prefix: None,
+                cbor: vec![],
+            }
         }
     }
 
@@ -285,7 +278,12 @@ mod tests {
     #[async_trait::async_trait(?Send)]
     impl ChainSync<FakeContent> for MockNetworkClient {
         async fn recv_while_can_await(&mut self) -> Result<NextResponse<FakeContent>, ClientError> {
-            todo!()
+            if !self.responses.is_empty() {
+                let next = self.responses.pop().unwrap();
+                Ok(next)
+            } else {
+                Ok(NextResponse::Await)
+            }
         }
     }
 
@@ -299,12 +297,14 @@ mod tests {
     async fn batch_all_headers_from_forward() {
         let headers = generate_headers_anchored_at(None, 3);
         let tip_header = headers[2];
+        let contents: Vec<FakeContent> = headers.into_iter().map(FakeContent).collect();
+
         let mock_client = MockNetworkClient::new(
-            headers
+            contents
                 .into_iter()
-                .map(|hdr| {
+                .map(|content| {
                     NextResponse::RollForward(
-                        FakeContent(hdr),
+                        content,
                         Tip(
                             to_network_point(tip_header.point()),
                             tip_header.block_height(),
@@ -313,6 +313,20 @@ mod tests {
                 })
                 .collect(),
         );
-        let session = ChainSyncClient::new1(mock_client, &vec![Point::Origin]);
+        let mut session =
+            ChainSyncClient::new1(Arc::new(Mutex::new(mock_client)), &vec![Point::Origin]);
+
+        let result = session.pull_batch().await.unwrap();
+
+        match result {
+            PullResult::ForwardBatch(header_contents) => assert_eq!(
+                3, // PullResult::ForwardBatch(contents.iter().map(|c| c.content()).collect()),
+                header_contents.len()
+            ),
+            PullResult::RollBack(point) => {
+                panic!("expected batch of headers, got rollback {}", point)
+            }
+            PullResult::Nothing => panic!("got Nothing, expected a batch of headers"),
+        }
     }
 }
