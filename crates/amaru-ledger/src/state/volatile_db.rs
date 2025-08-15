@@ -374,7 +374,7 @@ fn add_proposals(
         ): (usize, (_, Bind<_, Empty, _>))| {
             match value {
                 Some((proposal, proposed_in)) => Some((
-                    ProposalId::from(proposal_id),
+                    proposal_id,
                     proposals::Value {
                         proposed_in,
                         valid_until: expiration,

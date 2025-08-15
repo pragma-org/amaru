@@ -554,7 +554,7 @@ fn import_proposals(
                 .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
                     let proposal_index = proposal.id.action_index as usize;
                     Ok((
-                        proposal.id,
+                        ComparableProposalId::from(proposal.id),
                         proposals::Value {
                             proposed_in: ProposalPointer {
                                 transaction: TransactionPointer {

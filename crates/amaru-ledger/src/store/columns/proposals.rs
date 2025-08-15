@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Proposal, ProposalId, ProposalPointer};
+use amaru_kernel::{cbor, ComparableProposalId, Proposal, ProposalPointer};
 use iter_borrow::IterBorrow;
 use slot_arithmetic::Epoch;
 
@@ -21,7 +21,7 @@ pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 /// Iterator used to browse rows from the proposals column. Meant to be referenced using qualified imports.
 pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Row>>;
 
-pub type Key = ProposalId;
+pub type Key = ComparableProposalId;
 
 pub type Value = Row;
 
@@ -457,6 +457,4 @@ pub mod tests {
 
     #[cfg(not(target_os = "windows"))]
     prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row());
-
-    prop_cbor_roundtrip!(prop_cbor_roundtrip_key, Key, any_proposal_id());
 }

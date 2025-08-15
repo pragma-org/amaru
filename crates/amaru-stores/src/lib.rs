@@ -21,8 +21,8 @@ pub mod tests {
     use amaru_kernel::{
         network::NetworkName,
         tests::{any_pool_id, any_pool_params, any_proposal_id},
-        Anchor, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId, PoolParams, ProposalId,
-        Slot, StakeCredential, TransactionInput,
+        Anchor, ComparableProposalId, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId,
+        PoolParams, Slot, StakeCredential, TransactionInput,
     };
     use amaru_ledger::{
         state::diff_bind,
@@ -51,7 +51,7 @@ pub mod tests {
         pub pool_epoch: Epoch,
         pub drep_key: StakeCredential,
         pub drep_row: dreps::Row,
-        pub proposal_key: ProposalId,
+        pub proposal_key: proposals::Key,
         pub proposal_row: proposals::Row,
         pub cc_member_key: StakeCredential,
         pub cc_member_row: cc_members::Row,
@@ -161,7 +161,8 @@ pub mod tests {
         // proposals (Does not generate proposal row on Windows due to stack overflow)
         #[cfg(not(target_os = "windows"))]
         let (proposal_iter, proposal_key, proposal_row) = {
-            let proposal_key = any_proposal_id().new_tree(runner).unwrap().current();
+            let proposal_key =
+                ComparableProposalId::from(any_proposal_id().new_tree(runner).unwrap().current());
             let proposal_row = amaru_ledger::store::columns::proposals::tests::any_row()
                 .new_tree(runner)
                 .unwrap()
