@@ -173,7 +173,7 @@ mod tests {
         fixture!(
             "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
             ProtocolParameters {
-                coins_per_utxo_byte: 100_000_000_000,
+                lovelace_per_utxo_byte: 100_000_000_000,
                 ..amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
             }
         ) => matches Err(InvalidOutputs{invalid_outputs})
@@ -185,7 +185,7 @@ mod tests {
     #[test_case(fixture!(
             "4d8e6416f1566dc2ab8557cb291b522f46abbd9411746289b82dfa96872ee4e2",
             ProtocolParameters {
-                max_val_size: 1,
+                max_value_size: 1,
                 ..amaru_kernel::protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
             }
         ) => matches Err(InvalidOutputs{invalid_outputs})

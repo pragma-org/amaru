@@ -17,8 +17,8 @@ use crate::in_memory::ledger::columns::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, ComparableProposalId, ConstitutionalCommittee,
-    EraHistory, Lovelace, Point, PoolId, ProposalId, ProtocolVersion, Slot, StakeCredential,
-    TransactionInput, PROTOCOL_VERSION_9,
+    EraHistory, Lovelace, Point, PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput,
+    PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},

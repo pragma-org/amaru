@@ -144,7 +144,7 @@ pub fn display_protocol_parameters_update(
         &mut s,
         &mut is_first,
         prefix,
-        "ada_per_utxo_byte",
+        "lovelace_per_utxo_byte",
         &update.ada_per_utxo_byte,
     )?;
 
