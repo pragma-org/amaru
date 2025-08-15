@@ -19,7 +19,10 @@ pub mod volatile_db;
 
 use crate::{
     governance::ratification::{self, RatificationContext},
-    state::volatile_db::{StoreUpdate, VolatileDB},
+    state::{
+        ratification::ProposalsRootsRc,
+        volatile_db::{StoreUpdate, VolatileDB},
+    },
     store::{
         columns::{pools, proposals},
         EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
@@ -469,7 +472,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             }
         };
 
-        let roots = snapshot.proposals_roots()?;
+        let roots = ProposalsRootsRc::from(snapshot.proposals_roots()?);
 
         // FIXME: This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
         // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
@@ -495,8 +498,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             epoch: snapshot.epoch(),
             stake_distributions: self.stake_distributions.clone(),
             protocol_version,
-            min_committee_size: protocol_parameters.cc_min_size as usize,
-            stake_pools_voting_thresholds: protocol_parameters.pool_thresholds.clone(),
+            protocol_parameters,
             constitutional_committee,
             votes,
             roots,
@@ -777,7 +779,10 @@ pub fn tick_proposals<'store>(
 ) -> Result<(), StoreError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
-    ctx.ratify_proposals(proposals);
+    let (ctx, changes) = ctx.ratify_proposals(proposals);
+    changes
+        .into_iter()
+        .try_for_each(|apply_changes| apply_changes(db, &ctx))?;
 
     db.with_proposals(|iterator| {
         for (_key, item) in iterator {

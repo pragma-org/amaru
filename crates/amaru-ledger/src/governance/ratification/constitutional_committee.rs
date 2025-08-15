@@ -67,7 +67,7 @@ impl ConstitutionalCommittee {
         &self,
         current_epoch: Epoch,
         protocol_version: ProtocolVersion,
-        min_committee_size: usize,
+        min_committee_size: u16,
         proposal: &ProposalEnum,
     ) -> Option<&Rational64> {
         match proposal {
@@ -82,7 +82,7 @@ impl ConstitutionalCommittee {
 
                 // The minimum committee size has no effect during the bootstrap phase (i.e. v9). The
                 // committee is always allowed to vote during v9.
-                if active_members.len() < min_committee_size
+                if active_members.len() < (min_committee_size as usize)
                     && protocol_version > PROTOCOL_VERSION_9
                 {
                     return None;

@@ -12,41 +12,35 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::governance::ratification::ProposalEnum;
 use amaru_kernel::{cbor, ComparableProposalId};
+use std::{ops::Deref, rc::Rc};
+
+pub type ProposalsRoots = GenericProposalsRoots<ComparableProposalId>;
+
+pub type ProposalsRootsRc = GenericProposalsRoots<Rc<ComparableProposalId>>;
 
 #[derive(Debug, Default)]
-pub struct ProposalsRoots {
-    pub protocol_parameters: Option<ComparableProposalId>,
-    pub hard_fork: Option<ComparableProposalId>,
-    pub constitutional_committee: Option<ComparableProposalId>,
-    pub constitution: Option<ComparableProposalId>,
+pub struct GenericProposalsRoots<T> {
+    pub protocol_parameters: Option<T>,
+    pub hard_fork: Option<T>,
+    pub constitutional_committee: Option<T>,
+    pub constitution: Option<T>,
 }
 
-impl ProposalsRoots {
-    pub fn matching(&self, proposal: &ProposalEnum) -> bool {
-        match proposal {
-            // Orphans have no parents, so no roots. Hence it always _matches_.
-            ProposalEnum::Orphan(..) => true,
-
-            ProposalEnum::ProtocolParameters(_, parent) => {
-                parent.as_deref() == self.protocol_parameters.as_ref()
-            }
-
-            ProposalEnum::HardFork(_, parent) => parent.as_deref() == self.hard_fork.as_ref(),
-
-            ProposalEnum::ConstitutionalCommittee(_, parent) => {
-                parent.as_deref() == self.constitutional_committee.as_ref()
-            }
-
-            ProposalEnum::Constitution(_, parent) => {
-                parent.as_deref() == self.constitution.as_ref()
-            }
+impl<T> From<GenericProposalsRoots<T>> for GenericProposalsRoots<Rc<T>> {
+    fn from(roots: GenericProposalsRoots<T>) -> Self {
+        Self {
+            protocol_parameters: roots.protocol_parameters.map(Rc::new),
+            hard_fork: roots.hard_fork.map(Rc::new),
+            constitutional_committee: roots.constitutional_committee.map(Rc::new),
+            constitution: roots.constitution.map(Rc::new),
         }
     }
 }
 
-impl<C> cbor::encode::Encode<C> for ProposalsRoots {
+impl<C, T: Deref<Target = ComparableProposalId>> cbor::encode::Encode<C>
+    for GenericProposalsRoots<T>
+{
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -54,19 +48,19 @@ impl<C> cbor::encode::Encode<C> for ProposalsRoots {
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.begin_map()?;
         e.u8(0)?;
-        e.encode_with(&self.protocol_parameters, ctx)?;
+        e.encode_with(self.protocol_parameters.as_deref(), ctx)?;
         e.u8(1)?;
-        e.encode_with(&self.hard_fork, ctx)?;
+        e.encode_with(self.hard_fork.as_deref(), ctx)?;
         e.u8(2)?;
-        e.encode_with(&self.constitutional_committee, ctx)?;
+        e.encode_with(self.constitutional_committee.as_deref(), ctx)?;
         e.u8(3)?;
-        e.encode_with(&self.constitution, ctx)?;
+        e.encode_with(self.constitution.as_deref(), ctx)?;
         e.end()?;
         Ok(())
     }
 }
 
-impl<'d, C> cbor::decode::Decode<'d, C> for ProposalsRoots {
+impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ComparableProposalId> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
         d.map()?;
         d.u8()?;

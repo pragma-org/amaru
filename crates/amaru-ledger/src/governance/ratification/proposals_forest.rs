@@ -13,7 +13,8 @@
 // limitations under the License.
 
 use super::{
-    proposals_tree::{ProposalsInsertError, ProposalsTree, Sibling},
+    proposals_roots::ProposalsRootsRc,
+    proposals_tree::{ProposalsInsertError, ProposalsPromoteError, ProposalsTree, Sibling},
     CommitteeUpdate, OrphanProposal, ProposalEnum,
 };
 use amaru_kernel::{
@@ -21,7 +22,7 @@ use amaru_kernel::{
     Constitution, Epoch, GovAction, Nullable, ProposalId, ProtocolParamUpdate, ProtocolVersion,
 };
 use std::{
-    collections::{BTreeMap, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     rc::Rc,
 };
@@ -38,6 +39,11 @@ pub struct ProposalsForest {
     /// inserted.
     sequence: VecDeque<Rc<ComparableProposalId>>,
 
+    /// A flag indicating whether the ratification is now interrupted due to a
+    /// high-priority/high-impact proposal (i.e. hard-fork, constitutional committee or
+    /// constitution) having been ratified.
+    is_interrupted: bool,
+
     // Finally, the relation between proposals is preserved through multiple tree-like structures.
     // This is what gives this data-structure its name.
     protocol_parameters: ProposalsTree,
@@ -47,20 +53,24 @@ pub struct ProposalsForest {
 }
 
 impl ProposalsForest {
-    pub fn empty() -> Self {
+    pub fn new(roots: &ProposalsRootsRc) -> Self {
         ProposalsForest {
+            is_interrupted: false,
+
             proposals: BTreeMap::new(),
             sequence: VecDeque::new(),
-            protocol_parameters: ProposalsTree::Empty,
-            hard_fork: ProposalsTree::Empty,
-            constitutional_committee: ProposalsTree::Empty,
-            constitution: ProposalsTree::Empty,
+
+            // NOTE: clones are cheap, roots are `Rc`.
+            protocol_parameters: ProposalsTree::new(roots.protocol_parameters.clone()),
+            hard_fork: ProposalsTree::new(roots.hard_fork.clone()),
+            constitutional_committee: ProposalsTree::new(roots.constitutional_committee.clone()),
+            constitution: ProposalsTree::new(roots.constitution.clone()),
         }
     }
 
     /// Returns an iterator over the forest's proposal.
-    pub fn iter(&self) -> impl Iterator<Item = (&ComparableProposalId, &ProposalEnum)> {
-        ProposalsForestIterator::new(self)
+    pub fn new_compass(&self) -> ProposalsForestCompass {
+        ProposalsForestCompass::new(self)
     }
 
     /// Insert a proposal in the forest. This retains the order of insertion, so it is assumed
@@ -83,6 +93,15 @@ impl ProposalsForest {
 
         let id = Rc::new(id);
 
+        // FIXME: insert in priority order
+        //
+        // no confidence -> 1st
+        // constitutional committee -> 2nd
+        // constitution -> 3rd
+        // hard fork -> 4th
+        // protocol parameters -> 5th
+        // treasury withdrawals -> 6th
+        // poll -> 7th
         self.sequence.push_back(id.clone());
 
         match proposal {
@@ -187,35 +206,171 @@ impl ProposalsForest {
             }
         }
     }
-}
 
-/// An iterator to conveniently navigate a forest in proposals' order.
-#[derive(Debug)]
-pub struct ProposalsForestIterator<'a> {
-    cursor: usize,
-    forest: &'a ProposalsForest,
-}
+    /// Get the current roots of the forest.
+    pub fn roots(&self) -> ProposalsRootsRc {
+        // NOTE: clone are cheap here, because everything is an `Rc`.
+        ProposalsRootsRc {
+            protocol_parameters: self.protocol_parameters.root.clone(),
+            hard_fork: self.hard_fork.root.clone(),
+            constitutional_committee: self.constitutional_committee.root.clone(),
+            constitution: self.constitution.root.clone(),
+        }
+    }
 
-impl<'a> ProposalsForestIterator<'a> {
-    pub fn new(forest: &'a ProposalsForest) -> Self {
-        Self { cursor: 0, forest }
+    /// Enact a proposal in the forest. Which means:
+    ///
+    /// 1. Promote it as new root in its appropriate sub-tree, and prune all its siblings and their
+    ///    children. Those proposals are now unreachable / unvotable, and will be cleared from the
+    ///    state.
+    ///
+    ///    Note that, orphan proposals are simply cleared from the orphan list.
+    ///
+    /// 2. Remove the enacted proposal and any of the pruned proposal from the `proposals` lookup
+    ///    table.
+    ///
+    /// 3. Amend the `sequence` accordingly as well.
+    ///
+    /// 4. And finally, we must remember whether that enacted proposal is:
+    ///
+    ///     - a `HardFork`; or
+    ///     - a `ConstitutionalCommittee`; or
+    ///     - a `Constitution`
+    ///
+    ///    No other proposal can be ratified in the same epoch boundary.
+    pub fn enact(
+        &mut self,
+        id: Rc<ComparableProposalId>,
+        proposal: &ProposalEnum,
+        compass: &mut ProposalsForestCompass,
+    ) -> Result<BTreeSet<Rc<ComparableProposalId>>, ProposalsPromoteError> {
+        // Promote to new root & remember delaying cases
+        let (id, mut pruned) = match proposal {
+            ProposalEnum::HardFork(..) => {
+                self.is_interrupted = true;
+                self.hard_fork.enact(id)
+            }
+            ProposalEnum::ConstitutionalCommittee(..) => {
+                self.is_interrupted = true;
+                self.constitutional_committee.enact(id)
+            }
+            ProposalEnum::Constitution(..) => {
+                self.is_interrupted = true;
+                self.constitution.enact(id)
+            }
+            ProposalEnum::ProtocolParameters(..) => self.protocol_parameters.enact(id),
+            ProposalEnum::Orphan(..) => Ok((id, BTreeSet::new())),
+        }?;
+
+        pruned.insert(id);
+
+        // Clean up the lookup table.
+        self.proposals
+            .retain(|pid, _| !pruned.contains(pid.as_ref()));
+
+        // Clean up sequence, while preserving its order.
+        self.sequence.retain(|sid| !pruned.contains(sid.as_ref()));
+
+        // Force replacement of the compass; since any previous one is now obsolete.
+        *compass = self.new_compass();
+
+        Ok(pruned)
+    }
+
+    /// Check whether a given proposal's parent matches the current forest root. Orphans proposals
+    /// have no parents, hence they are always considering matching.
+    fn matching_root(&self, proposal: &ProposalEnum) -> bool {
+        match proposal {
+            ProposalEnum::Orphan(..) => true,
+
+            ProposalEnum::ProtocolParameters(_, parent) => {
+                parent.as_deref() == self.protocol_parameters.root.as_deref()
+            }
+
+            ProposalEnum::HardFork(_, parent) => {
+                parent.as_deref() == self.hard_fork.root.as_deref()
+            }
+
+            ProposalEnum::ConstitutionalCommittee(_, parent) => {
+                parent.as_deref() == self.constitutional_committee.root.as_deref()
+            }
+
+            ProposalEnum::Constitution(_, parent) => {
+                parent.as_deref() == self.constitution.root.as_deref()
+            }
+        }
     }
 }
 
-impl<'a> Iterator for ProposalsForestIterator<'a> {
-    type Item = (&'a ComparableProposalId, &'a ProposalEnum);
+/// A mutable cursor to navigate the forest. This allows to iterate over the forest elements
+/// without holding a mutable reference on the forest. The mutation is being seggregated in the
+/// compass.
+///
+/// This enables a consumer to walk the forest, and perform short-lived mutations on it (prune
+/// trees by enacting proposals). Following any mutation, a new compass needs to be acquired.
+/// Re-using an old compass will create a panic.
+#[derive(Debug)]
+pub struct ProposalsForestCompass {
+    cursor: usize,
+    original_len: usize,
+}
 
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.cursor >= self.forest.sequence.len() {
+impl ProposalsForestCompass {
+    pub fn new(forest: &ProposalsForest) -> Self {
+        Self {
+            cursor: 0,
+            original_len: forest.sequence.len(),
+        }
+    }
+
+    /// Get the next proposal in line for ratification. This relies on a few invariant from the
+    /// ProposalsForest, such that:
+    ///
+    /// - the `sequence` ultimately defines the order
+    /// - any id present in the sequence also exists in the `proposals` lookup table.
+    /// - a cursor isn't reused following an enactment.
+    pub fn next<'forest>(
+        &mut self,
+        forest: &'forest ProposalsForest,
+    ) -> Option<(Rc<ComparableProposalId>, &'forest ProposalEnum)> {
+        assert!(
+            forest.sequence.len() == self.original_len,
+            "compass re-used on a forest that has changed; you should have created a new compass."
+        );
+
+        // A high-priority/high-impact proposal has already been enacted; so we prevent the
+        // ratification of any new proposal from then on.
+        if forest.is_interrupted {
             return None;
         }
 
-        let id = self.forest.sequence.get(self.cursor)?;
-        let proposal = self.forest.proposals.get(id)?;
+        loop {
+            let result: Option<(Rc<ComparableProposalId>, &'forest ProposalEnum)> = {
+                let id = forest.sequence.get(self.cursor)?.clone();
+                let proposal = forest.proposals.get(&id)?;
 
-        self.cursor += 1;
+                self.cursor += 1;
 
-        Some((id, proposal))
+                // Ensures that the next proposal points to an active root. Not being the case isn't
+                // necessarily an issue or a sign that something went wrong.
+                //
+                // In fact, since proposals can form arbitrarily long chain, it is very plausible that a
+                // proposal points to another that isn't ratified just yet.
+                //
+                // Encountering a non-matching root also doesn't mean we shouldn't process other proposals.
+                // The order is given by their point of submission; and thus, proposals submitted later may
+                // points to totally different (and active) roots. So we just skip those proposals.
+                if forest.matching_root(proposal) {
+                    Some((id, proposal))
+                } else {
+                    None
+                }
+            };
+
+            if result.is_some() || self.cursor >= self.original_len {
+                return result;
+            }
+        }
     }
 }
 
@@ -254,7 +409,7 @@ impl fmt::Display for ProposalsForest {
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
             tree: &'a ProposalsTree,
         ) -> fmt::Result {
-            if matches!(tree, ProposalsTree::Empty) {
+            if tree.is_empty() {
                 return Ok(());
             }
             writeln!(f, "{title}")?;
@@ -269,16 +424,11 @@ impl fmt::Display for ProposalsForest {
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
             tree: &'a ProposalsTree,
         ) -> fmt::Result {
-            match tree {
-                ProposalsTree::Empty => Ok(()),
-                ProposalsTree::Node { siblings, .. } => {
-                    for (i, s) in siblings.iter().enumerate() {
-                        let is_last = i + 1 == siblings.len();
-                        render_sibling(f, s, "", lookup.clone(), summarize.clone(), is_last)?;
-                    }
-                    Ok(())
-                }
+            for (i, s) in tree.siblings.iter().enumerate() {
+                let is_last = i + 1 == tree.siblings.len();
+                render_sibling(f, s, "", lookup.clone(), summarize.clone(), is_last)?;
             }
+            Ok(())
         }
 
         // Render a single sibling + its (flattened) children.
@@ -294,7 +444,7 @@ impl fmt::Display for ProposalsForest {
 
             // Children are a Vec<ProposalsTree<A>>; flatten to a linear list of Sibling<A>
             // to get correct "last" detection for drawing.
-            let flat: Vec<&Sibling> = collect_child_siblings(&s.children);
+            let children = &s.children;
             let next_prefix = if is_last {
                 format!("{prefix}   ")
             } else {
@@ -309,11 +459,11 @@ impl fmt::Display for ProposalsForest {
                     None => "?".to_string(), // NOTE: should be impossible on a well-formed forest.
                     Some(a) => summarize(
                         a,
-                        &if is_last && flat.is_empty() {
+                        &if is_last && children.is_empty() {
                             format!(" {prefix}    ")
                         } else if is_last {
                             format!(" {prefix}  │ ")
-                        } else if flat.is_empty() {
+                        } else if children.is_empty() {
                             format!("│{prefix}    ")
                         } else {
                             format!("│{prefix}  │ ")
@@ -322,8 +472,8 @@ impl fmt::Display for ProposalsForest {
                 }
             )?;
 
-            for (idx, cs) in flat.iter().enumerate() {
-                let last_here = idx + 1 == flat.len();
+            for (idx, cs) in children.iter().enumerate() {
+                let last_here = idx + 1 == children.len();
                 render_sibling(
                     f,
                     cs,
@@ -334,19 +484,6 @@ impl fmt::Display for ProposalsForest {
                 )?;
             }
             Ok(())
-        }
-
-        // Gather all siblings from all non-empty child subtrees, in order.
-        fn collect_child_siblings(children: &[ProposalsTree]) -> Vec<&Sibling> {
-            let mut out = Vec::new();
-            for c in children {
-                if let ProposalsTree::Node { siblings, .. } = c {
-                    for s in siblings {
-                        out.push(s);
-                    }
-                }
-            }
-            out
         }
 
         // ---- Forest printing -----------------------------------------------

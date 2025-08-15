@@ -21,7 +21,7 @@ use amaru_kernel::{
     TransactionInput, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
-    governance::ratification::ProposalsRoots,
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     store::{
         columns::{
             accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
@@ -109,7 +109,12 @@ impl ReadStore for MemoryStore {
     /// Get the latest governance roots; which corresponds to the id of the latest governance
     /// actions enacted for specific categories.
     fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
-        Ok(ProposalsRoots::default())
+        Ok(ProposalsRoots {
+            protocol_parameters: None,
+            hard_fork: None,
+            constitutional_committee: None,
+            constitution: None,
+        })
     }
 
     fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
@@ -415,8 +420,18 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn set_proposals_roots(&self, _roots: &ProposalsRoots) -> Result<(), StoreError> {
+    fn set_proposals_roots(&self, _roots: &ProposalsRootsRc) -> Result<(), StoreError> {
         unimplemented!("set_proposals_roots");
+    }
+
+    fn remove_proposals<'iter, Id>(
+        &self,
+        _proposals: impl IntoIterator<Item = Id>,
+    ) -> Result<(), StoreError>
+    where
+        Id: Deref<Target = ComparableProposalId> + 'iter,
+    {
+        unimplemented!("remove_proposals");
     }
 
     fn save(

@@ -14,7 +14,10 @@
 
 pub mod columns;
 
-use crate::{governance::ratification::ProposalsRoots, summary::Pots};
+use crate::{
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
+    summary::Pots,
+};
 use amaru_kernel::{
     // NOTE: We have to import cbor as minicbor here because we derive 'Encode' and 'Decode' traits
     // instances for some types, and the macro rule handling that seems to be explicitly looking
@@ -29,10 +32,12 @@ use amaru_kernel::{
     StakeCredential,
     TransactionInput,
 };
-use amaru_kernel::{ConstitutionalCommittee, MemoizedTransactionOutput, ProtocolVersion};
+use amaru_kernel::{
+    ComparableProposalId, ConstitutionalCommittee, MemoizedTransactionOutput, ProtocolVersion,
+};
 use columns::*;
 use slot_arithmetic::Epoch;
-use std::{borrow::BorrowMut, io, iter};
+use std::{borrow::BorrowMut, io, iter, ops::Deref};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -45,8 +50,10 @@ pub enum OpenErrorKind {
 }
 
 #[derive(Debug, Error)]
-#[error("no database {}. Did you forget to 'import' a snapshot first?", std::any::type_name::<T>())]
-pub struct MissingKind<T>(std::marker::PhantomData<T>);
+#[error("no database {type_name}. Did you forget to 'import' a snapshot first?")]
+pub struct MissingKind {
+    type_name: String,
+}
 
 #[derive(Error, Debug)]
 pub enum StoreError {
@@ -63,14 +70,16 @@ pub enum StoreError {
     Open(#[source] OpenErrorKind),
 
     #[error("error retrieving {0}: {1}")]
-    Missing(String, #[source] Box<dyn std::error::Error + Send + Sync>),
+    Missing(String, #[source] MissingKind),
 }
 
 impl StoreError {
-    pub fn missing<T: std::fmt::Debug + Send + Sync + 'static>(name: &str) -> Self {
+    pub fn missing<T: std::fmt::Debug + 'static>(name: &str) -> Self {
         Self::Missing(
             name.to_string(),
-            Box::new(MissingKind(std::marker::PhantomData::<T>)),
+            MissingKind {
+                type_name: std::any::type_name::<T>().to_string(),
+            },
         )
     }
 }
@@ -276,7 +285,13 @@ pub trait TransactionalContext<'a> {
     fn set_constitutional_committee(&self, committee: &ConstitutionalCommittee) -> Result<()>;
 
     /// Persist the latest proposal roots for the ongoing epoch.
-    fn set_proposals_roots(&self, roots: &ProposalsRoots) -> Result<()>;
+    fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<()>;
+
+    /// Remove a list of proposals from the database. This is done when enacting proposals that
+    /// cause other proposals to become obsolete.
+    fn remove_proposals<'iter, Id>(&self, proposals: impl IntoIterator<Item = Id>) -> Result<()>
+    where
+        Id: Deref<Target = ComparableProposalId> + 'iter;
 
     /// Get current values of the treasury and reserves accounts, and possibly modify them.
     fn with_pots(&self, with: impl FnMut(Box<dyn BorrowMut<pots::Row> + '_>)) -> Result<()>;
