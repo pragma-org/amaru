@@ -12,22 +12,40 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::headers_tree::data_generation::{any_headers_tree, TestHeader};
-use crate::consensus::headers_tree::HeadersTree;
+use crate::consensus::headers_tree::data_generation::{any_tree_of_headers, TestHeader};
 use amaru_kernel::peer::Peer;
 use amaru_kernel::{Point, HEADER_HASH_SIZE};
 use pallas_crypto::hash::Hash;
 use proptest::arbitrary::any;
-use proptest::prelude::{BoxedStrategy, Just, Strategy};
+use proptest::prelude::{Just, Strategy};
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use toposort::{Dag, Toposort};
 
-pub fn any_select_roll_forwards(
-    depth: usize,
-    max_length: usize,
-) -> impl Strategy<Value = (HeadersTree<TestHeader>, Vec<Action>)> {
-    any_headers_tree(depth, max_length, 1).prop_flat_map(|tree| {
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Action {
+    RollForward { peer: Peer, header: TestHeader },
+    RollBack { peer: Peer, rollback_point: Point },
+}
+
+impl Action {
+    fn peer(&self) -> &Peer {
+        match self {
+            Action::RollForward { ref peer, .. } => peer,
+            Action::RollBack { ref peer, .. } => peer,
+        }
+    }
+
+    fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        match self {
+            Action::RollForward { header, .. } => header.hash,
+            Action::RollBack { rollback_point, .. } => rollback_point.hash(),
+        }
+    }
+}
+
+pub fn any_select_chains(depth: usize) -> impl Strategy<Value=Vec<Action>> {
+    any_tree_of_headers(depth).prop_flat_map(|tree| {
         // Collect the tree chains
         let chains = tree.all_chains();
 
@@ -62,44 +80,17 @@ pub fn any_select_roll_forwards(
 
         // Randomly shuffle each level of the topological sort to simulate data coming from
         // peers concurrently and flatten the resulting list of actions.
-        (
-            Just(tree),
-            Just(result)
-                .prop_flat_map(shuffled_inner_vectors)
-                .prop_map(|vs| vs.into_iter().flatten().collect()),
-        )
+
+        Just(result)
+            .prop_flat_map(shuffled_inner_vectors)
+            .prop_map(|vs| vs.into_iter().flatten().collect())
     })
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum Action {
-    RollForward { peer: Peer, header: TestHeader },
-    RollBack { peer: Peer, rollback_point: Point },
-}
-
-fn gen_strat(depth: usize, cur_chain: Vec<bool>) -> BoxedStrategy<Vec<bool>> {
-    if cur_chain.len() == depth {
-        Just(cur_chain.clone()).boxed()
-    } else {
-        any::<bool>()
-            .prop_flat_map(move |b| {
-                let mut extended = cur_chain.clone();
-                extended.push(b);
-                gen_strat(depth, extended)
-            })
-            .boxed()
-    }
-}
-
-pub fn any_select_chain(depth: usize, max_length: usize) -> impl Strategy<Value = Vec<bool>> {
-    let mut acc = Vec::new();
-    gen_strat(depth, acc)
 }
 
 /// This strategy shuffles vectors inside a list of vectors
 fn shuffled_inner_vectors<T: Clone + Debug>(
     values: Vec<Vec<T>>,
-) -> impl Strategy<Value = Vec<Vec<T>>> {
+) -> impl Strategy<Value=Vec<Vec<T>>> {
     Just(values).prop_flat_map(|outer| {
         // create a list of indices covering all internal vectors
         let shuffles = proptest::collection::vec(
@@ -124,19 +115,4 @@ fn shuffled_inner_vectors<T: Clone + Debug>(
             result
         })
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use proptest::prelude::*;
-
-    use crate::consensus::headers_tree::data_generation::any_select_chain;
-
-    proptest! {
-        #[test]
-        fn test(chain in any_select_chain(42, 10)) {
-            println!("{:?}", chain);
-            assert_eq!(chain.len(), 42)
-        }
-    }
 }

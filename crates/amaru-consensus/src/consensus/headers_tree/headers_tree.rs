@@ -1251,37 +1251,30 @@ mod tests {
     }
 
     proptest! {
-        #[test]
-        fn generate_tree(tree in any_headers_tree(3, 5, 2)) {
-            assert_eq!(tree.best_length(), 3);
-        }
-    }
-
-    proptest! {
         #![proptest_config(config_begin().no_shrink().show_seed().with_cases(100).with_seed(42).end())]
         #[test]
-        fn run_chain_selection((generated_tree, actions) in any_select_roll_forwards(5, 10)) {
+        fn run_chain_selection(actions in any_select_chains(5)) {
             let mut tree = HeadersTree::new(10, &None);
             let mut results: Vec<ForwardChainSelection<TestHeader>> = vec![];
-            for action in actions {
+            for action in actions.iter() {
                 match action {
-                    Action::RollForward { peer, header} =>  {
-                        if !tree.peers.keys().collect::<Vec<_>>().contains(&&peer) {
+                    Action::RollForward { ref peer, ref header} =>  {
+                        if !tree.peers.keys().collect::<Vec<_>>().contains(&peer) {
                             let parent = header.parent.unwrap_or(Point::Origin.hash());
-                            tree.initialize_peer(&peer, &parent)?;
+                            tree.initialize_peer(peer, &parent)?;
                         };
-
-                        results.push(tree.select_roll_forward(&peer, header).unwrap());
+                        results.push(tree.select_roll_forward(&peer, header.clone()).unwrap());
                     },
                     Action::RollBack{..} => todo!()
                 }
             }
-            let actual = make_best_chain(results.clone());
-            assert!(generated_tree.all_best_chain_fragments().contains(&actual), "results are {:?}\nactual is {:?}", results, actual);
+            let actual = make_best_chain_from_events(&results);
+            let expected = make_best_chain_from_actions(&actions);
+            assert_eq!(actual, expected);
         }
     }
 
-    fn make_best_chain(events: Vec<ForwardChainSelection<TestHeader>>) -> Vec<TestHeader> {
+    fn make_best_chain_from_events(events: &Vec<ForwardChainSelection<TestHeader>>) -> Vec<TestHeader> {
         let mut result: Vec<TestHeader> = vec![];
         for event in events {
             match event {
@@ -1289,7 +1282,7 @@ mod tests {
                     if let Some(parent) = result.last() {
                         assert_eq!(Some(parent.hash()), tip.parent);
                     }
-                    result.push(tip)
+                    result.push(tip.clone())
                 }
                 ForwardChainSelection::NoChange => {}
                 ForwardChainSelection::SwitchToFork(fork) => {
@@ -1298,7 +1291,26 @@ mod tests {
                         .position(|h| h.hash() == fork.rollback_point.hash());
                     assert!(rollback_position.is_some());
                     result.truncate(rollback_position.unwrap() + 1);
-                    result.extend(fork.fork)
+                    result.extend(fork.fork.clone())
+                }
+            }
+        }
+        result
+    }
+
+    fn make_best_chain_from_actions(actions: &Vec<Action>) -> Vec<TestHeader> {
+        let mut result: Vec<TestHeader> = vec![];
+        for action in actions {
+            match action {
+                Action::RollForward { header, .. } => {
+                    result.push(header.clone())
+                }
+                Action::RollBack { rollback_point, .. } => {
+                    let rollback_position = result
+                        .iter()
+                        .position(|h| h.hash() == rollback_point.hash());
+                    assert!(rollback_position.is_some());
+                    result.truncate(rollback_position.unwrap() + 1);
                 }
             }
         }

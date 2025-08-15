@@ -12,21 +12,96 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::headers_tree::arena::{find_best_tip, get_arena_active_nodes};
 use crate::consensus::headers_tree::data_generation::TestHeader;
 use crate::consensus::headers_tree::HeadersTree;
-use crate::consensus::tip::Tip;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_ouroboros_traits::IsHeader;
-use indextree::{Arena, NodeId};
 use pallas_crypto::hash::Hash;
 use proptest::prelude::{any, RngCore, Strategy};
 use proptest::prop_compose;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Exp};
-use std::collections::BTreeMap;
+use std::fmt::Debug;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tree<H> {
+    value: H,
+    children: Vec<Tree<H>>,
+}
+
+/// Generate a tree of headers
+pub fn generate_test_header_tree(
+    depth: usize,
+    seed: u64,
+) -> Tree<TestHeader> {
+    let mut rng = StdRng::seed_from_u64(seed);
+
+    let root = generate_test_header(&mut rng);
+    let mut root_tree = Tree::make_leaf(&root);
+    generate_test_header_subtree(&mut rng, &mut root_tree, depth - 1);
+    root_tree.renumber_slots(1);
+    root_tree
+}
+
+impl Tree<TestHeader> {
+    fn renumber_slots(&mut self, start: u64) {
+        self.value.slot = start;
+        for (i, child) in self.children.iter_mut().enumerate() {
+            child.renumber_slots(start + ((i + 1) as u64))
+        }
+    }
+}
+
+impl<H: Clone> Tree<H> {
+    fn make_leaf(root: &H) -> Tree<H> {
+        Tree { value: root.clone(), children: vec![] }
+    }
+
+    fn add_child(&mut self, child: &H) -> &mut Tree<H> {
+        self.children.push(Tree::make_leaf(&child));
+        self
+    }
+
+    fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
+        let l = self.children.len();
+        self.children.get_mut(l - 1)
+    }
+
+    pub fn all_chains(&self) -> Vec<Vec<&H>> {
+        let mut result: Vec<Vec<&H>> = vec![];
+        for child in self.children.iter() {
+            result.extend(child.all_chains().iter().map(|c| {
+                let mut start = vec![&self.value];
+                start.extend(c);
+                start
+            }))
+        }
+        result
+    }
+}
+
+fn generate_test_header_subtree(
+    rng: &mut StdRng,
+    tree: &mut Tree<TestHeader>,
+    depth: usize,
+) {
+    let mut spine = generate_headers(depth, rng);
+    let mut current = tree;
+    let mut current_size = 0;
+    for n in spine.iter_mut() {
+        current.add_child(n);
+        n.parent = Some(current.value.hash());
+        current = current.get_last_child_mut().unwrap();
+        current_size += 1;
+        let other_branch_depth = rng.random_range(0..(depth - current_size + 1));
+        if other_branch_depth > 0 {
+            generate_test_header_subtree(rng, current, other_branch_depth);
+        }
+    }
+}
+
 
 /// Generate a chain of headers anchored at a given header.
 ///
@@ -73,34 +148,10 @@ pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
     Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
 }
 
-pub fn any_headers_tree(
+pub fn any_tree_of_headers(
     depth: usize,
-    max_length: usize,
-    peers_nb: usize,
-) -> impl Strategy<Value = HeadersTree<TestHeader>> {
-    (0..u64::MAX).prop_map(move |seed| generate_headers_tree(depth, max_length, peers_nb, seed))
-}
-
-/// Generate a headers tree of max depth 'depth' (also the size of the longest chain)
-/// and random peers (named "1", "2", "3",...) pointing on some nodes of the tree
-pub fn generate_headers_tree(
-    depth: usize,
-    max_length: usize,
-    peers_nb: usize,
-    seed: u64,
-) -> HeadersTree<TestHeader> {
-    let mut rng = StdRng::seed_from_u64(seed);
-    let mut arena = generate_arena(depth, &mut rng);
-    renumber_headers(&mut arena);
-
-    let tip = find_best_tip(&arena).unwrap();
-    let mut peers = generate_peers(&arena, peers_nb, &mut rng);
-
-    // Set a peer at the tip of the best chain
-    let best_peer: Option<Peer> = peers.keys().last().cloned();
-    peers.insert(best_peer.clone().unwrap(), tip);
-
-    HeadersTree::create(arena, max_length, peers, tip, best_peer)
+) -> impl Strategy<Value=Tree<TestHeader>> {
+    (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed))
 }
 
 // Data generator for random TestHeaders
@@ -128,83 +179,24 @@ prop_compose! {
 fn generate_headers(length: usize, rng: &mut StdRng) -> Vec<TestHeader> {
     let mut headers: Vec<TestHeader> = Vec::new();
     let mut parent: Option<TestHeader> = None;
-    // simulate block distribution on mainnet as an exponential distribution with
-    // parameter λ = 1/20
+    // simulate block distribution on mainnet as an exponential distribution with parameter λ = 1/20
     let poi = Exp::new(0.05).unwrap();
+    let next_slot: f32 = poi.sample(rng);
     for _ in 0..length {
-        let next_slot: f32 = poi.sample(rng);
-        let header = TestHeader {
-            hash: Hash::from(random_bytes_with_rng(HEADER_HASH_SIZE, rng).as_slice()),
-            slot: parent.map_or(0, |h| h.slot()) + (next_slot.floor() as u64),
-            parent: parent.map(|h| h.hash()),
-        };
+        let mut header = generate_test_header(rng);
+        header.slot = parent.map_or(0, |h| h.slot()) + (next_slot.floor() as u64);
+        header.parent = parent.map(|h| h.hash());
         headers.push(header);
         parent = Some(header);
     }
     headers
 }
 
-/// Once the arena is generated rename the block numbers and slots in the order of their creation
-/// to help diagnose the tests.
-fn renumber_headers(arena: &mut Arena<Tip<TestHeader>>) {
-    for (count, n) in arena.iter_mut().enumerate() {
-        if let Tip::Hdr(header) = n.get_mut() {
-            header.slot = count as u64 + 1;
-        };
-    }
-}
-
-/// Generate an arbitrary list of peers named "1", "2", "3",... pointing at existing nodes in the arena.
-fn generate_peers(
-    arena: &Arena<Tip<TestHeader>>,
-    nb: usize,
-    rng: &mut StdRng,
-) -> BTreeMap<Peer, NodeId> {
-    let node_ids: Vec<_> = get_arena_active_nodes(arena)
-        .map(|n| arena.get_node_id(n).unwrap())
-        .collect();
-    let mut result = BTreeMap::new();
-    for n in 1..(nb + 1) {
-        let node_id = node_ids[rng.random_range(0..node_ids.len())];
-        result.insert(Peer::new(&format!("{n}")), node_id);
-    }
-    result
-}
-
-/// Generate an arena of fake headers with a limited depth
-fn generate_arena(depth: usize, rng: &mut StdRng) -> Arena<Tip<TestHeader>> {
-    let mut arena = Arena::with_capacity(depth * depth);
-    let root = generate_headers(1, rng)[0];
-    let root_node_id = arena.new_node(Tip::Hdr(root));
-    generate_blocktree_in_arena(&mut arena, rng, depth - 1, root_node_id);
-    arena
-}
-
-/// Generate an arena of fake headers with a limited depth
-fn generate_blocktree_in_arena(
-    arena: &mut Arena<Tip<TestHeader>>,
-    rng: &mut StdRng,
-    depth: usize,
-    parent_node_id: NodeId,
-) {
-    let mut spine = generate_headers(depth, rng);
-    let mut current_size = 0;
-    let mut parent_node_id = parent_node_id;
-    for n in spine.iter_mut() {
-        n.parent = arena
-            .get(parent_node_id)
-            .unwrap()
-            .get()
-            .to_header()
-            .map(|h| h.hash());
-        let tip = arena.new_node(Tip::Hdr(*n));
-        parent_node_id.append(tip, arena);
-        parent_node_id = tip;
-        current_size += 1;
-        let other_branch_depth = rng.random_range(0..(depth - current_size + 1));
-        if other_branch_depth > 0 {
-            generate_blocktree_in_arena(arena, rng, other_branch_depth, tip);
-        }
+fn generate_test_header(rng: &mut StdRng) -> TestHeader {
+    TestHeader {
+        hash: Hash::from(random_bytes_with_rng(HEADER_HASH_SIZE, rng).as_slice()),
+        slot: 0,
+        parent: None,
     }
 }
 

@@ -82,13 +82,3 @@ pub(super) fn get_arena_root<T>(arena: &Arena<T>) -> Option<NodeId> {
             .and_then(|tip| tip.ancestors(arena).last())
     })
 }
-
-/// Return the node id at the tip of the longest chain
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-pub(super) fn find_best_tip<T>(arena: &Arena<T>) -> Option<NodeId> {
-    get_arena_active_nodes(arena)
-        .map(|n| (n, arena.get_node_id(n).unwrap().ancestors(arena).count()))
-        .max_by_key(|(_, l)| *l)
-        .map(|(n, _)| arena.get_node_id(n).unwrap())
-}
