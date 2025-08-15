@@ -15,7 +15,7 @@
 use crate::consensus::headers_tree::data_generation::{any_headers_tree, TestHeader};
 use crate::consensus::headers_tree::HeadersTree;
 use amaru_kernel::peer::Peer;
-use amaru_kernel::HEADER_HASH_SIZE;
+use amaru_kernel::{Point, HEADER_HASH_SIZE};
 use pallas_crypto::hash::Hash;
 use proptest::arbitrary::any;
 use proptest::prelude::{Just, Strategy};
@@ -23,16 +23,10 @@ use std::collections::BTreeSet;
 use std::fmt::Debug;
 use toposort::{Dag, Toposort};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct SelectRollForward {
-    pub peer: Peer,
-    pub header: TestHeader,
-}
-
 pub fn any_select_roll_forwards(
     depth: usize,
     max_length: usize,
-) -> impl Strategy<Value = (HeadersTree<TestHeader>, Vec<SelectRollForward>)> {
+) -> impl Strategy<Value = (HeadersTree<TestHeader>, Vec<Action>)> {
     any_headers_tree(depth, max_length, 1).prop_flat_map(|tree| {
         // Collect the tree chains
         let chains = tree.all_chains();
@@ -44,9 +38,9 @@ pub fn any_select_roll_forwards(
         chains.into_iter().enumerate().for_each(|(i, chain)| {
             let peer = Peer::new(&format!("{}", i + 1));
             let mut parent_hash: Option<Hash<HEADER_HASH_SIZE>> = None;
-            let mut parent_node: Option<SelectRollForward> = None;
+            let mut parent_node: Option<Action> = None;
             for h in chain.into_iter() {
-                let current_node = SelectRollForward {
+                let current_node = Action::RollForward {
                     peer: peer.clone(),
                     header: TestHeader {
                         hash: h.hash,
@@ -64,7 +58,7 @@ pub fn any_select_roll_forwards(
                 parent_hash = Some(h.hash);
             }
         });
-        let result: Vec<Vec<SelectRollForward>> = dag.toposort().unwrap_or(vec![]);
+        let result: Vec<Vec<Action>> = dag.toposort().unwrap_or(vec![]);
 
         // Randomly shuffle each level of the topological sort to simulate data coming from
         // peers concurrently and flatten the resulting list of actions.
@@ -75,6 +69,12 @@ pub fn any_select_roll_forwards(
                 .prop_map(|vs| vs.into_iter().flatten().collect()),
         )
     })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Action {
+    RollForward { peer: Peer, header: TestHeader },
+    RollBack { peer: Peer, rollback_point: Point },
 }
 
 /// This strategy shuffles vectors inside a list of vectors

@@ -1260,16 +1260,21 @@ mod tests {
     proptest! {
         #![proptest_config(config_begin().no_shrink().show_seed().with_cases(100).with_seed(42).end())]
         #[test]
-        fn run_chain_selection((generated_tree, select_roll_forwards) in any_select_roll_forwards(5, 10)) {
+        fn run_chain_selection((generated_tree, actions) in any_select_roll_forwards(5, 10)) {
             let mut tree = HeadersTree::new(10, &None);
             let mut results: Vec<ForwardChainSelection<TestHeader>> = vec![];
-            for forward in select_roll_forwards {
-                if !tree.peers.keys().collect::<Vec<_>>().contains(&&forward.peer) {
-                    let parent = forward.header.parent.unwrap_or(Point::Origin.hash());
-                    tree.initialize_peer(&forward.peer, &parent)?;
-                };
+            for action in actions {
+                match action {
+                    Action::RollForward { peer, header} =>  {
+                        if !tree.peers.keys().collect::<Vec<_>>().contains(&&peer) {
+                            let parent = header.parent.unwrap_or(Point::Origin.hash());
+                            tree.initialize_peer(&peer, &parent)?;
+                        };
 
-               results.push(tree.select_roll_forward(&forward.peer, forward.header).unwrap());
+                        results.push(tree.select_roll_forward(&peer, header).unwrap());
+                    },
+                    Action::RollBack{..} => todo!()
+                }
             }
             let actual = make_best_chain(results.clone());
             assert!(generated_tree.all_best_chain_fragments().contains(&actual), "results are {:?}\nactual is {:?}", results, actual);
