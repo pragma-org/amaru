@@ -18,7 +18,7 @@ use amaru_kernel::peer::Peer;
 use amaru_kernel::{Point, HEADER_HASH_SIZE};
 use pallas_crypto::hash::Hash;
 use proptest::arbitrary::any;
-use proptest::prelude::{Just, Strategy};
+use proptest::prelude::{BoxedStrategy, Just, Strategy};
 use std::collections::BTreeSet;
 use std::fmt::Debug;
 use toposort::{Dag, Toposort};
@@ -77,6 +77,25 @@ pub enum Action {
     RollBack { peer: Peer, rollback_point: Point },
 }
 
+fn gen_strat(depth: usize, cur_chain: Vec<bool>) -> BoxedStrategy<Vec<bool>> {
+    if cur_chain.len() == depth {
+        Just(cur_chain.clone()).boxed()
+    } else {
+        any::<bool>()
+            .prop_flat_map(move |b| {
+                let mut extended = cur_chain.clone();
+                extended.push(b);
+                gen_strat(depth, extended)
+            })
+            .boxed()
+    }
+}
+
+pub fn any_select_chain(depth: usize, max_length: usize) -> impl Strategy<Value = Vec<bool>> {
+    let mut acc = Vec::new();
+    gen_strat(depth, acc)
+}
+
 /// This strategy shuffles vectors inside a list of vectors
 fn shuffled_inner_vectors<T: Clone + Debug>(
     values: Vec<Vec<T>>,
@@ -105,4 +124,19 @@ fn shuffled_inner_vectors<T: Clone + Debug>(
             result
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use proptest::prelude::*;
+
+    use crate::consensus::headers_tree::data_generation::any_select_chain;
+
+    proptest! {
+        #[test]
+        fn test(chain in any_select_chain(42, 10)) {
+            println!("{:?}", chain);
+            assert_eq!(chain.len(), 42)
+        }
+    }
 }
