@@ -36,7 +36,7 @@ pub use constitutional_committee::ConstitutionalCommittee;
 mod stake_pools;
 
 mod proposals_forest;
-use proposals_forest::ProposalsForest;
+use proposals_forest::{ProposalsEnactError, ProposalsForest, ProposalsInsertError};
 
 mod proposals_roots;
 pub use proposals_roots::{ProposalsRoots, ProposalsRootsRc};
@@ -72,34 +72,48 @@ pub struct RatificationContext {
     pub roots: ProposalsRootsRc,
 }
 
+#[derive(Debug, thiserror::Error)]
+pub enum RatificationInternalError {
+    #[error("failed to acquire stake distribution shared lock")]
+    FailedToAcquireStakeDistrLock,
+
+    #[error("no suitable stake distribution for the ratification")]
+    NoSuitableStakeDistribution,
+
+    #[error("invalid operation while creating the proposals forest: {0}")]
+    InternalForestCreationError(#[from] ProposalsInsertError),
+
+    #[error("invalid operation while enacting a proposal: {0}")]
+    InternalForestEnactmentError(#[from] ProposalsEnactError),
+}
+
 impl RatificationContext {
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
         mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
-    ) -> (Self, Vec<StoreUpdate<'store, S>>) {
+    ) -> Result<(Self, Vec<StoreUpdate<'store, S>>), RatificationInternalError> {
         proposals.sort_by(|a, b| a.1.proposed_in.cmp(&b.1.proposed_in));
 
-        let mut forest = proposals.drain(..).fold(
-            ProposalsForest::new(&self.roots),
-            |mut forest, (id, row)| {
-                forest
-                    .insert(id, row.proposal.gov_action)
-                    // FIXME: Bubble this up. There should be no error here; this is a sign of a ledger
-                    // rule violation. It can only mean that a proposal was accepted without having an
-                    // existing parent.
-                    .unwrap_or_else(|e| panic!("{e}"));
-                forest
-            },
-        );
+        let mut forest = proposals
+            .drain(..)
+            .try_fold::<_, _, Result<_, RatificationInternalError>>(
+                ProposalsForest::new(&self.roots),
+                |mut forest, (id, row)| {
+                    forest.insert(id, row.proposal.gov_action)?;
+                    Ok(forest)
+                },
+            )?;
 
         let stake_distributions = self.stake_distributions.clone();
 
-        let stake_distributions = stake_distributions.lock().unwrap();
+        let stake_distributions = stake_distributions
+            .lock()
+            .map_err(|_| RatificationInternalError::FailedToAcquireStakeDistrLock)?;
 
         let stake_distribution = stake_distributions
             .iter()
             .find(|stake_distribution| stake_distribution.epoch == self.epoch)
-            .unwrap_or_else(|| panic!("no stake distribution for target epoch"));
+            .ok_or(RatificationInternalError::NoSuitableStakeDistribution)?;
 
         // The ratification of some proposals causes all other subsequent proposals' ratification to be
         // delayed to the next epoch boundary. Initially, there's none and we'll switch the flag if any
@@ -133,7 +147,7 @@ impl RatificationContext {
                 };
 
                 Self::new_span(&id, proposal).in_scope(|| {
-                    // TODO: There are additional checks we should perform at the moment of ratification
+                    // FIXME: There are additional checks we should perform at the moment of ratification
                     //
                     // - On constitutional committee updates, we should ensure that any term limit is still
                     //   valid. This can happen if a protocol parameter change that changes the max term limit
@@ -161,13 +175,7 @@ impl RatificationContext {
             }; // <-- immutable borrows of `forest` end here
 
             if let Some((id, proposal)) = ratified {
-                pruned_proposals.append(
-                    &mut forest
-                        .enact(id, &proposal, &mut compass)
-                        .unwrap_or_else(|e| {
-                            panic!("attempted to enact unknown/invalid proposals: {e:?}")
-                        }),
-                );
+                pruned_proposals.append(&mut forest.enact(id, &proposal, &mut compass)?);
 
                 match proposal {
                     ProposalEnum::ProtocolParameters(params_update, _parent) => {
@@ -176,8 +184,13 @@ impl RatificationContext {
                             db.set_protocol_parameters(&ctx.protocol_parameters)
                         }));
                     }
-                    ProposalEnum::HardFork(_protocol_version, _parent) => {
-                        todo!("an hardfork proposal has been ratified, it must now be enacted!")
+                    ProposalEnum::HardFork(protocol_version, _parent) => {
+                        self.protocol_version = protocol_version;
+                        self.protocol_parameters.protocol_version = protocol_version;
+                        updates.push(Box::new(|db, ctx| {
+                            db.set_protocol_version(&ctx.protocol_version)?;
+                            db.set_protocol_parameters(&ctx.protocol_parameters)
+                        }));
                     }
                     ProposalEnum::ConstitutionalCommittee(_committee_update, _parent) => {
                         todo!("an constitutional committee proposal has been ratified, it must now be enacted!")
@@ -205,7 +218,7 @@ impl RatificationContext {
             }))
         }
 
-        (self, updates)
+        Ok((self, updates))
     }
 
     fn new_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {

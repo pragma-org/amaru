@@ -14,7 +14,7 @@
 
 use super::{
     proposals_roots::ProposalsRootsRc,
-    proposals_tree::{ProposalsInsertError, ProposalsPromoteError, ProposalsTree, Sibling},
+    proposals_tree::{ProposalsTree, Sibling},
     CommitteeUpdate, OrphanProposal, ProposalEnum,
 };
 use amaru_kernel::{
@@ -26,6 +26,8 @@ use std::{
     fmt,
     rc::Rc,
 };
+
+pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 
 #[derive(Debug)]
 pub struct ProposalsForest {
@@ -243,7 +245,7 @@ impl ProposalsForest {
         id: Rc<ComparableProposalId>,
         proposal: &ProposalEnum,
         compass: &mut ProposalsForestCompass,
-    ) -> Result<BTreeSet<Rc<ComparableProposalId>>, ProposalsPromoteError> {
+    ) -> Result<BTreeSet<Rc<ComparableProposalId>>, ProposalsEnactError> {
         // Promote to new root & remember delaying cases
         let (id, mut pruned) = match proposal {
             ProposalEnum::HardFork(..) => {
