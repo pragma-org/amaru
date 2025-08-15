@@ -94,7 +94,7 @@ pub fn generate_headers_tree(
     renumber_headers(&mut arena);
 
     let tip = find_best_tip(&arena).unwrap();
-    let mut peers = generate_peers(&arena, peers_nb);
+    let mut peers = generate_peers(&arena, peers_nb, &mut rng);
 
     // Set a peer at the tip of the best chain
     let best_peer: Option<Peer> = peers.keys().last().cloned();
@@ -134,7 +134,7 @@ fn generate_headers(length: usize, rng: &mut StdRng) -> Vec<TestHeader> {
     for _ in 0..length {
         let next_slot: f32 = poi.sample(rng);
         let header = TestHeader {
-            hash: Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice()),
+            hash: Hash::from(random_bytes_with_rng(HEADER_HASH_SIZE, rng).as_slice()),
             slot: parent.map_or(0, |h| h.slot()) + (next_slot.floor() as u64),
             parent: parent.map(|h| h.hash()),
         };
@@ -155,8 +155,7 @@ fn renumber_headers(arena: &mut Arena<Tip<TestHeader>>) {
 }
 
 /// Generate an arbitrary list of peers named "1", "2", "3",... pointing at existing nodes in the arena.
-fn generate_peers(arena: &Arena<Tip<TestHeader>>, nb: usize) -> BTreeMap<Peer, NodeId> {
-    let mut rng = rand::rng();
+fn generate_peers(arena: &Arena<Tip<TestHeader>>, nb: usize, rng: &mut StdRng) -> BTreeMap<Peer, NodeId> {
     let node_ids: Vec<_> = get_arena_active_nodes(arena)
         .map(|n| arena.get_node_id(n).unwrap())
         .collect();
@@ -207,7 +206,11 @@ fn generate_blocktree_in_arena(
 
 /// Very simple function to generate random sequence of bytes of given length.
 fn random_bytes(arg: usize) -> Vec<u8> {
-    let mut rng = StdRng::from_os_rng();
+    random_bytes_with_rng(arg, &mut StdRng::from_os_rng())
+}
+
+/// Very simple function to generate random sequence of bytes of given length.
+fn random_bytes_with_rng(arg: usize, rng: &mut StdRng) -> Vec<u8> {
     let mut buffer = vec![0; arg];
     rng.fill_bytes(&mut buffer);
     buffer

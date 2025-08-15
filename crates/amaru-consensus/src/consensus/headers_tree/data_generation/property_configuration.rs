@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use proptest::prelude::ProptestConfig;
+use proptest::test_runner::RngSeed;
 
 /// This data type provides a more fluent DSL for configuring proptest properties. For example:
 /// ```
@@ -37,6 +38,7 @@ impl ProptestConfiguration {
         self
     }
 
+    #[allow(dead_code)]
     pub fn show_seed(mut self) -> Self {
         self.config.failure_persistence = None;
         self

@@ -29,6 +29,7 @@ amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true
 pure-stage.workspace = true
 slot-arithmetic.workspace = true
+itertools = "0.13.0"
 
 [dev-dependencies]
 either.workspace = true

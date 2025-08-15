@@ -101,6 +101,7 @@ dependencies = [
  "hex",
  "indextree",
  "insta",
+ "itertools 0.13.0",
  "minicbor",
  "pallas-crypto",
  "pallas-math",
