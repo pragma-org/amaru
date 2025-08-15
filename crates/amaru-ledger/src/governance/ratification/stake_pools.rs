@@ -15,7 +15,7 @@
 use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
 use crate::summary::stake_distribution::StakeDistribution;
 use amaru_kernel::{
-    expect_stake_credential, protocol_parameters::PoolThresholds, DRep, PoolId,
+    expect_stake_credential, protocol_parameters::PoolVotingThresholds, DRep, PoolId,
     ProtocolParamUpdate, ProtocolVersion, RationalNumber, Vote, PROTOCOL_VERSION_9,
 };
 use num::Rational64;
@@ -30,26 +30,30 @@ use std::collections::BTreeMap;
 /// - whether a parameter updates contains security-related protocol parameters;
 pub fn voting_threshold(
     is_state_of_no_confidence: bool,
-    voting_thresholds: &PoolThresholds,
+    voting_thresholds: &PoolVotingThresholds,
     proposal: &ProposalEnum,
 ) -> Option<Rational64> {
     match proposal {
         ProposalEnum::ProtocolParameters(params_update, _) => {
             if any_update_in_security_group(params_update) {
-                Some(into_rational64(&voting_thresholds.security_group))
+                Some(into_rational64(
+                    &voting_thresholds.security_voting_threshold,
+                ))
             } else {
                 Some(Rational64::ZERO)
             }
         }
-        ProposalEnum::HardFork(..) => Some(into_rational64(&voting_thresholds.hard_fork)),
+        ProposalEnum::HardFork(..) => {
+            Some(into_rational64(&voting_thresholds.hard_fork_initiation))
+        }
         ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => {
-            Some(into_rational64(&voting_thresholds.no_confidence))
+            Some(into_rational64(&voting_thresholds.motion_no_confidence))
         }
         ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { .. }, _) => {
             Some(if is_state_of_no_confidence {
-                into_rational64(&voting_thresholds.committee_under_no_confidence)
+                into_rational64(&voting_thresholds.committee_no_confidence)
             } else {
-                into_rational64(&voting_thresholds.committee)
+                into_rational64(&voting_thresholds.committee_normal)
             })
         }
         ProposalEnum::Constitution(..)

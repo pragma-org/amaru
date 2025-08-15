@@ -161,18 +161,17 @@ impl RatificationContext {
             }; // <-- immutable borrows of `forest` end here
 
             if let Some((id, proposal)) = ratified {
-                match &proposal {
+                pruned_proposals.append(
+                    &mut forest
+                        .enact(id, &proposal, &mut compass)
+                        .unwrap_or_else(|e| {
+                            panic!("attempted to enact unknown/invalid proposals: {e:?}")
+                        }),
+                );
+
+                match proposal {
                     ProposalEnum::ProtocolParameters(params_update, _parent) => {
-                        update_protocol_parameters(&mut self.protocol_parameters, params_update);
-
-                        pruned_proposals.append(
-                            &mut forest
-                                .enact(id, &proposal, &mut compass)
-                                .unwrap_or_else(|e| {
-                                    panic!("attempted to enact unknown/invalid proposals: {e:?}")
-                                }),
-                        );
-
+                        self.protocol_parameters.update(params_update);
                         updates.push(Box::new(|db, ctx| {
                             db.set_protocol_parameters(&ctx.protocol_parameters)
                         }));
@@ -294,7 +293,7 @@ impl RatificationContext {
                 let threshold = committee.voting_threshold(
                     self.epoch,
                     self.protocol_version,
-                    self.protocol_parameters.cc_min_size,
+                    self.protocol_parameters.min_committee_size,
                     proposal,
                 )?;
 
@@ -316,7 +315,7 @@ impl RatificationContext {
     ) -> bool {
         match stake_pools::voting_threshold(
             self.constitutional_committee.is_none(),
-            &self.protocol_parameters.pool_thresholds,
+            &self.protocol_parameters.pool_voting_thresholds,
             proposal,
         ) {
             None => false,
@@ -462,13 +461,6 @@ impl fmt::Display for OrphanProposal {
 
 pub type StoreUpdate<'store, S> =
     Box<dyn FnOnce(&S, &RatificationContext) -> Result<(), StoreError>>;
-
-pub fn update_protocol_parameters(
-    _protocol_parameters: &mut ProtocolParameters,
-    _update: &ProtocolParamUpdate,
-) {
-    todo!()
-}
 
 // Helpers
 // ----------------------------------------------------------------------------

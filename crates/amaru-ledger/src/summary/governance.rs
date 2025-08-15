@@ -97,7 +97,7 @@ impl GovernanceSummary {
         let mandate = drep_mandate_calculator(
             protocol_version,
             protocol_parameters.gov_action_lifetime,
-            protocol_parameters.drep_expiry as u64,
+            protocol_parameters.drep_expiry,
             era_history,
             current_epoch,
             proposals,
@@ -274,7 +274,7 @@ fn drep_mandate_calculator(
             // epoch with no proposal but on the last slot is arguably dormant. But as a
             // consequence, we may also label as dormant epochs with proposals submitted on the
             // very first slot too.
-            (*start + 1..=*start + governance_action_lifetime as u64).collect::<BTreeSet<_>>()
+            (*start + 1..=*start + governance_action_lifetime).collect::<BTreeSet<_>>()
         })
         .collect::<BTreeSet<Epoch>>();
 

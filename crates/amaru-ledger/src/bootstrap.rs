@@ -452,13 +452,13 @@ fn import_dreps(
                     let last_interaction = era_first_epoch;
                     #[allow(clippy::unwrap_used)]
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
+                    if state.expiry > epoch + protocol_parameters.drep_expiry {
                         (epoch_bound.start, last_interaction)
                     } else {
                         (point.slot_or_default(), last_interaction)
                     }
                 } else {
-                    let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
+                    let last_interaction = state.expiry - protocol_parameters.drep_expiry;
                     #[allow(clippy::unwrap_used)]
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     // start or end doesn't matter here.
@@ -564,7 +564,7 @@ fn import_proposals(
                                 proposal_index,
                             },
                             valid_until: proposal.proposed_in
-                                + protocol_parameters.gov_action_lifetime as u64,
+                                + protocol_parameters.gov_action_lifetime,
                             proposal: proposal.procedure,
                         },
                     ))

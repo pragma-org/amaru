@@ -193,7 +193,7 @@ pub(crate) mod tests {
     #[test]
     fn validate_block_header_size_too_big() {
         let pp = ProtocolParameters {
-            max_header_size: 1,
+            max_block_header_size: 1,
             ..protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
         };
 

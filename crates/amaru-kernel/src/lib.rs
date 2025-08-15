@@ -50,7 +50,7 @@ pub use pallas_primitives::{
     conway::{
         AddrKeyhash, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, Constitution,
         CostModel, CostModels, DRep, DRepVotingThresholds, DatumOption, ExUnitPrices, ExUnits,
-        GovAction, HeaderBody, KeepRaw, MintedBlock, MintedDatumOption, MintedScriptRef,
+        GovAction, HeaderBody, KeepRaw, Language, MintedBlock, MintedDatumOption, MintedScriptRef,
         MintedTransactionBody, MintedTransactionOutput, MintedTx, MintedWitnessSet, Multiasset,
         NonEmptySet, NonZeroInt, PoolMetadata, PoolVotingThresholds, PostAlonzoTransactionOutput,
         ProposalProcedure as Proposal, ProtocolParamUpdate, ProtocolVersion, PseudoScript,
@@ -168,7 +168,7 @@ pub const ORIGIN_HASH: Hash<HEADER_HASH_SIZE> = Hash::new([0; HEADER_HASH_SIZE])
 
 pub type Lovelace = u64;
 
-pub type EpochInterval = u32;
+pub type EpochInterval = u64;
 
 pub type ScriptPurpose = RedeemerTag;
 

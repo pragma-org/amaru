@@ -24,7 +24,7 @@ use crate::{
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Anchor, Ballot, BallotId, CertificatePointer,
     ComparableProposalId, DRep, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams,
-    Proposal, ProposalId, ProposalPointer, StakeCredential, TransactionInput,
+    Proposal, ProposalPointer, StakeCredential, TransactionInput,
 };
 use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -205,7 +205,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = ()>,
         >,
     > {
-        let gov_action_lifetime = protocol_parameters.gov_action_lifetime as u64;
+        let gov_action_lifetime = protocol_parameters.gov_action_lifetime;
 
         StoreUpdate {
             point: self.anchor.0,
