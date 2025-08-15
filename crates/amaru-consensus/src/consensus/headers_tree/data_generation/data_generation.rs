@@ -155,7 +155,11 @@ fn renumber_headers(arena: &mut Arena<Tip<TestHeader>>) {
 }
 
 /// Generate an arbitrary list of peers named "1", "2", "3",... pointing at existing nodes in the arena.
-fn generate_peers(arena: &Arena<Tip<TestHeader>>, nb: usize, rng: &mut StdRng) -> BTreeMap<Peer, NodeId> {
+fn generate_peers(
+    arena: &Arena<Tip<TestHeader>>,
+    nb: usize,
+    rng: &mut StdRng,
+) -> BTreeMap<Peer, NodeId> {
     let node_ids: Vec<_> = get_arena_active_nodes(arena)
         .map(|n| arena.get_node_id(n).unwrap())
         .collect();

@@ -22,10 +22,7 @@ use crate::{ConsensusError, InvalidHeaderParentData};
 use amaru_kernel::{peer::Peer, Point, HEADER_HASH_SIZE};
 use amaru_ouroboros_traits::IsHeader;
 #[cfg(test)]
-use either::{
-    Either,
-    Either::{Left, Right},
-};
+use either::Either;
 use indextree::{Arena, Node, NodeId};
 use pallas_crypto::hash::Hash;
 use std::collections::{BTreeMap, BTreeSet};
@@ -667,83 +664,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         chains
     }
 
-    /// Execute a forward selection event and return a list of events that can be executed on
-    /// a downstream headers tree
-    pub fn execute_forward_selection(
-        &mut self,
-        forward: ForwardChainSelection<H>,
-    ) -> Result<Vec<SelectionEvent<H>>, ConsensusError> {
-        match forward {
-            ForwardChainSelection::NewTip { peer, tip } => {
-                if !self.peers.keys().collect::<Vec<_>>().contains(&&peer) {
-                    if let Some(parent) = tip.parent().or(self.get_root_hash()) {
-                        self.initialize_peer(&peer, &parent)?;
-                    }
-                };
-                Ok(vec![Left(self.select_roll_forward(&peer, tip)?)])
-            }
-            ForwardChainSelection::SwitchToFork(fork) => {
-                if !self.peers.keys().collect::<Vec<_>>().contains(&&fork.peer) {
-                    self.initialize_peer(&fork.peer, &fork.rollback_point.hash())?;
-                };
-                let mut result = vec![];
-                result.push(Right(
-                    self.select_rollback(&fork.peer, &fork.rollback_point.hash())?,
-                ));
-                for h in fork.fork {
-                    result.push(Left(self.select_roll_forward(&fork.peer, h)?))
-                }
-                Ok(result)
-            }
-            ForwardChainSelection::NoChange => Ok(vec![]),
-        }
-    }
-
-    /// Execute a rollback selection event and return a list of events that can be executed on
-    /// a downstream headers tree
-    pub fn execute_rollback_selection(
-        &mut self,
-        peer: &Peer,
-        rollback: RollbackChainSelection<H>,
-    ) -> Result<Vec<SelectionEvent<H>>, ConsensusError> {
-        match rollback {
-            RollbackChainSelection::RollbackTo(hash) => {
-                if !self.peers.keys().collect::<Vec<_>>().contains(&peer) {
-                    self.initialize_peer(peer, &hash)?;
-                };
-                Ok(vec![Right(self.select_rollback(peer, &hash)?)])
-            }
-            RollbackChainSelection::SwitchToFork(fork) => {
-                if !self.peers.keys().collect::<Vec<_>>().contains(&&fork.peer) {
-                    self.initialize_peer(&fork.peer, &fork.rollback_point.hash())?;
-                };
-                let mut result = vec![];
-                result.push(Right(
-                    self.select_rollback(&fork.peer, &fork.rollback_point.hash())?,
-                ));
-                for h in fork.fork {
-                    result.push(Left(self.select_roll_forward(&fork.peer, h)?))
-                }
-                Ok(result)
-            }
-            RollbackBeyondLimit { .. } => Ok(vec![]),
-            RollbackChainSelection::NoChange => Ok(vec![]),
-        }
-    }
-
-    /// Execute a selection event and return a list of events that can be executed on
-    /// a downstream headers tree
-    pub fn execute_selection(
-        &mut self,
-        peer: &Peer,
-        event: SelectionEvent<H>,
-    ) -> Result<Vec<SelectionEvent<H>>, ConsensusError> {
-        match event {
-            Left(event) => self.execute_forward_selection(event),
-            Right(event) => self.execute_rollback_selection(peer, event),
-        }
-    }
-
     /// Return all the tips of a headers tree
     fn all_tips(&self) -> Vec<NodeId> {
         self.get_active_nodes()
@@ -753,8 +673,16 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     }
 
     /// Return the best chain fragment currently known as a list of headers
-    fn best_chain_fragment(&self) -> Vec<&H> {
+    pub fn best_chain_fragment(&self) -> Vec<&H> {
         self.get_chain_fragment_from(&self.best_chain())
+    }
+
+    /// Return all the best chain fragment currently known as a list of headers
+    pub fn all_best_chain_fragments(&self) -> Vec<Vec<H>> {
+        self.all_chains()
+            .into_iter()
+            .filter(|chain| chain.len() == self.best_length())
+            .collect::<Vec<Vec<H>>>()
     }
 
     /// Return the chain ending with the header at node_id (sorted from older to younger).
@@ -1330,25 +1258,46 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(config_begin().no_shrink().with_cases(100).show_seed().end())]
+        #![proptest_config(config_begin().no_shrink().show_seed().with_cases(100).with_seed(42).end())]
         #[test]
-        fn run_chain_selection_downstream((upstream_tree, actions) in any_roll_forward_actions(5, 10)) {
-            let mut our_tree = HeadersTree::new(10, &upstream_tree.get_root().cloned());
-            let mut results: Vec<SelectionEvent<TestHeader>> = vec![];
-            for action in actions {
-               results.extend(our_tree.execute_forward_selection(action).unwrap());
+        fn run_chain_selection((generated_tree, select_roll_forwards) in any_select_roll_forwards(5, 10)) {
+            let mut tree = HeadersTree::new(10, &None);
+            let mut results: Vec<ForwardChainSelection<TestHeader>> = vec![];
+            for forward in select_roll_forwards {
+                if !tree.peers.keys().collect::<Vec<_>>().contains(&&forward.peer) {
+                    let parent = forward.header.parent.unwrap_or(Point::Origin.hash());
+                    tree.initialize_peer(&forward.peer, &parent)?;
+                };
+
+               results.push(tree.select_roll_forward(&forward.peer, forward.header).unwrap());
             }
-
-            assert_eq!(our_tree.best_length(), upstream_tree.best_length());
-
-            let mut downstream_tree = HeadersTree::new(10, &our_tree.get_root().cloned());
-
-            for result in results {
-                _ = downstream_tree.execute_selection(our_tree.best_peer().unwrap(), result)?;
-            }
-            assert_eq!(downstream_tree.best_length(), upstream_tree.best_length());
-            assert_eq!(downstream_tree.best_chain_fragment(), our_tree.best_chain_fragment());
+            let actual = make_best_chain(results.clone());
+            assert!(generated_tree.all_best_chain_fragments().contains(&actual), "results are {:?}\nactual is {:?}", results, actual);
         }
+    }
+
+    fn make_best_chain(events: Vec<ForwardChainSelection<TestHeader>>) -> Vec<TestHeader> {
+        let mut result: Vec<TestHeader> = vec![];
+        for event in events {
+            match event {
+                ForwardChainSelection::NewTip { tip, .. } => {
+                    if let Some(parent) = result.last() {
+                        assert_eq!(Some(parent.hash()), tip.parent);
+                    }
+                    result.push(tip)
+                }
+                ForwardChainSelection::NoChange => {}
+                ForwardChainSelection::SwitchToFork(fork) => {
+                    let rollback_position = result
+                        .iter()
+                        .position(|h| h.hash() == fork.rollback_point.hash());
+                    assert!(rollback_position.is_some());
+                    result.truncate(rollback_position.unwrap() + 1);
+                    result.extend(fork.fork)
+                }
+            }
+        }
+        result
     }
 
     proptest! {

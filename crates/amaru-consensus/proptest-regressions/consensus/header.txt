@@ -1,7 +1,0 @@
-# Seeds for failure cases proptest has generated in the past. It is
-# automatically read and these particular cases re-run before any
-# novel cases are generated.
-#
-# It is recommended to check this file in to source control so that
-# everyone who runs the test benefits from these saved cases.
-cc a92f9cade93bcc03da2662dd05e5acdc5c971ce230b18626b882fb3878725fd6 # shrinks to hdr = TestHeader { block_number: 0, slot: 0, parent: Hash<32>("0000000000000000000000000000000000000000000000000000000000000000"), body_hash: Hash<32>("0000000000000000000000000000000000000000000000000000000000000000") }

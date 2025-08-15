@@ -14,7 +14,6 @@
 
 use crate::consensus::headers_tree::data_generation::{any_headers_tree, TestHeader};
 use crate::consensus::headers_tree::HeadersTree;
-use crate::consensus::select_chain::ForwardChainSelection;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::HEADER_HASH_SIZE;
 use pallas_crypto::hash::Hash;
@@ -24,16 +23,16 @@ use std::collections::BTreeSet;
 use std::fmt::Debug;
 use toposort::{Dag, Toposort};
 
-/// Return a list of NewTip actions to execute for a given peer
-pub fn any_roll_forward_actions(
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct SelectRollForward {
+    pub peer: Peer,
+    pub header: TestHeader,
+}
+
+pub fn any_select_roll_forwards(
     depth: usize,
     max_length: usize,
-) -> impl Strategy<
-    Value = (
-        HeadersTree<TestHeader>,
-        Vec<ForwardChainSelection<TestHeader>>,
-    ),
-> {
+) -> impl Strategy<Value = (HeadersTree<TestHeader>, Vec<SelectRollForward>)> {
     any_headers_tree(depth, max_length, 1).prop_flat_map(|tree| {
         // Collect the tree chains
         let chains = tree.all_chains();
@@ -45,11 +44,11 @@ pub fn any_roll_forward_actions(
         chains.into_iter().enumerate().for_each(|(i, chain)| {
             let peer = Peer::new(&format!("{}", i + 1));
             let mut parent_hash: Option<Hash<HEADER_HASH_SIZE>> = None;
-            let mut parent_node: Option<ForwardChainSelection<TestHeader>> = None;
+            let mut parent_node: Option<SelectRollForward> = None;
             for h in chain.into_iter() {
-                let current_node = ForwardChainSelection::NewTip {
+                let current_node = SelectRollForward {
                     peer: peer.clone(),
-                    tip: TestHeader {
+                    header: TestHeader {
                         hash: h.hash,
                         slot: h.slot,
                         parent: parent_hash,
@@ -65,7 +64,7 @@ pub fn any_roll_forward_actions(
                 parent_hash = Some(h.hash);
             }
         });
-        let result: Vec<Vec<ForwardChainSelection<TestHeader>>> = dag.toposort().unwrap_or(vec![]);
+        let result: Vec<Vec<SelectRollForward>> = dag.toposort().unwrap_or(vec![]);
 
         // Randomly shuffle each level of the topological sort to simulate data coming from
         // peers concurrently and flatten the resulting list of actions.

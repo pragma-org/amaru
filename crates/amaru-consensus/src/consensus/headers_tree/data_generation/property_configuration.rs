@@ -49,6 +49,11 @@ impl ProptestConfiguration {
         self
     }
 
+    pub fn with_seed(mut self, seed: u64) -> Self {
+        self.config.rng_seed = RngSeed::Fixed(seed);
+        self
+    }
+
     pub fn end(self) -> ProptestConfig {
         self.config
     }
