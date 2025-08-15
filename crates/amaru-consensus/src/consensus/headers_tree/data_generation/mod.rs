@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod has_stake_distribution;
-pub use has_stake_distribution::*;
+mod actions;
+mod data_generation;
+mod property_configuration;
+mod test_header;
 
-pub mod praos;
-pub use praos::*;
-
-pub mod is_header;
-pub use is_header::*;
-
-#[cfg(test)]
-pub use is_header::fake::tests::*;
+pub(super) use actions::*;
+pub(super) use data_generation::*;
+pub(super) use property_configuration::*;
+pub(super) use test_header::*;

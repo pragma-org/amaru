@@ -1,0 +1,83 @@
+// Copyright 2025 PRAGMA
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use crate::consensus::headers_tree::data_generation::{any_tree_of_headers, TestHeader, Tree};
+use crate::consensus::select_chain::{ForwardChainSelection, RollbackChainSelection};
+use amaru_kernel::peer::Peer;
+use amaru_kernel::Point;
+use amaru_ouroboros_traits::IsHeader;
+use proptest::prelude::Strategy;
+use rand::prelude::StdRng;
+use rand::{Rng, SeedableRng};
+use std::fmt::Debug;
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Action {
+    RollForward { peer: Peer, header: TestHeader },
+    RollBack { peer: Peer, rollback_point: Point },
+}
+
+impl Action {
+    pub fn peer(&self) -> &Peer {
+        match self {
+            Action::RollForward { ref peer, .. } => { peer }
+            Action::RollBack { ref peer, .. } => { peer }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SelectionResult {
+    Forward(ForwardChainSelection<TestHeader>),
+    Back(RollbackChainSelection<TestHeader>),
+}
+
+pub fn random_walk(
+    rng: &mut StdRng,
+    tree: &Tree<TestHeader>,
+    peer: &Peer,
+    result: &mut Vec<Action>,
+) {
+    result.push(Action::RollForward {
+        peer: peer.clone(),
+        header: tree.value.clone(),
+    });
+    for child in tree.children.iter() {
+        random_walk(rng, child, peer, result);
+        if rng.random() {
+            result.push(Action::RollBack {
+                peer: peer.clone(),
+                rollback_point: Point::Specific(0, tree.value.hash().to_vec()),
+            });
+        } else {
+            break;
+        }
+    }
+}
+
+pub fn any_select_chains(depth: usize) -> impl Strategy<Value=Vec<Action>> {
+    any_tree_of_headers(depth).prop_flat_map(|tree| {
+        println!("tree\n{tree}");
+        (1..u64::MAX).prop_map(move |seed| {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let peers_nb = 2;
+            let mut result = vec![];
+            for i in 0..peers_nb {
+                let peer = Peer::new(&format!("{}", i + 1));
+                random_walk(&mut rng, &tree, &peer, &mut result);
+            }
+            result
+        })
+    })
+}

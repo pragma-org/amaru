@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod has_stake_distribution;
-pub use has_stake_distribution::*;
-
-pub mod praos;
-pub use praos::*;
-
-pub mod is_header;
-pub use is_header::*;
-
+mod arena;
 #[cfg(test)]
-pub use is_header::fake::tests::*;
+#[allow(clippy::module_inception)]
+mod data_generation;
+
+#[allow(clippy::module_inception)]
+pub mod headers_tree;
+
+pub use headers_tree::*;

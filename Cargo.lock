@@ -97,9 +97,11 @@ dependencies = [
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
  "anyhow",
+ "either",
  "hex",
  "indextree",
  "insta",
+ "itertools 0.13.0",
  "minicbor",
  "pallas-crypto",
  "pallas-math",
@@ -230,6 +232,7 @@ name = "amaru-ouroboros-traits"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "proptest",
  "serde",
  "slot-arithmetic",
 ]
