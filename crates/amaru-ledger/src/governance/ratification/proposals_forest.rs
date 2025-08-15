@@ -44,8 +44,8 @@ pub struct ProposalsForest {
     /// constitution) having been ratified.
     is_interrupted: bool,
 
-    // Finally, the relation between proposals is preserved through multiple tree-like structures.
-    // This is what gives this data-structure its name.
+    // Finally, the relation between proposals of the same nature is preserved through multiple
+    // tree-like structures. This is what gives this data-structure its name.
     protocol_parameters: ProposalsTree,
     hard_fork: ProposalsTree,
     constitutional_committee: ProposalsTree,
@@ -379,7 +379,7 @@ impl ProposalsForestCompass {
 ///
 /// For example:
 ///
-/// ```no_run
+/// ```ignore
 /// Protocol Parameter Updates
 /// └─ 0.f6cb185a1f:
 ///    │ · min_fee_b=42
