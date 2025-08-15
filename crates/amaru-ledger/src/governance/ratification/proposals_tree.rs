@@ -173,12 +173,12 @@ impl Sibling {
         })
     }
 
-    fn partition(nodes: Vec<Self>, needle: &ComparableProposalId) -> (Option<Self>, Vec<Self>) {
+    fn partition(nodes: Vec<Self>, pivot: &ComparableProposalId) -> (Option<Self>, Vec<Self>) {
         let capacity = nodes.len();
         nodes.into_iter().fold(
             (None, Vec::with_capacity(capacity)),
             |(new_root, mut now_obsolete), sibling| {
-                if sibling.id.as_ref() == needle {
+                if sibling.id.as_ref() == pivot {
                     (Some(sibling), now_obsolete)
                 } else {
                     now_obsolete.push(sibling);
