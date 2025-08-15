@@ -28,7 +28,7 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use tracing::{debug_span, field, trace_span, Span};
+use tracing::{debug_span, field, info, info_span, trace_span, Span};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
@@ -66,10 +66,6 @@ pub struct RatificationContext {
 
     /// All latest votes indexed by proposals and voters.
     pub votes: BTreeMap<ComparableProposalId, BTreeMap<Voter, Ballot>>,
-
-    /// The current roots (i.e. latest enacted proposal ids) for each of the
-    /// relevant proposal categories.
-    pub roots: ProposalsRootsRc,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -91,13 +87,16 @@ impl RatificationContext {
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
         mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
+        roots: ProposalsRootsRc,
     ) -> Result<(Self, Vec<StoreUpdate<'store, S>>), RatificationInternalError> {
         proposals.sort_by(|a, b| a.1.proposed_in.cmp(&b.1.proposed_in));
+
+        info_roots(&roots);
 
         let mut forest = proposals
             .drain(..)
             .try_fold::<_, _, Result<_, RatificationInternalError>>(
-                ProposalsForest::new(&self.roots),
+                ProposalsForest::new(&roots),
                 |mut forest, (id, row)| {
                     forest.insert(id, row.proposal.gov_action)?;
                     Ok(forest)
@@ -146,7 +145,7 @@ impl RatificationContext {
                     break;
                 };
 
-                Self::new_span(&id, proposal).in_scope(|| {
+                Self::new_ratify_span(&id, proposal).in_scope(|| {
                     // FIXME: There are additional checks we should perform at the moment of ratification
                     //
                     // - On constitutional committee updates, we should ensure that any term limit is still
@@ -175,39 +174,59 @@ impl RatificationContext {
             }; // <-- immutable borrows of `forest` end here
 
             if let Some((id, proposal)) = ratified {
-                pruned_proposals.append(&mut forest.enact(id, &proposal, &mut compass)?);
+                Self::new_enact_span(&id, &proposal).in_scope(|| -> Result<(), RatificationInternalError> {
+                    let now_obsolete = &mut forest.enact(id, &proposal, &mut compass)?;
 
-                match proposal {
-                    ProposalEnum::ProtocolParameters(params_update, _parent) => {
-                        self.protocol_parameters.update(params_update);
-                        updates.push(Box::new(|db, ctx| {
-                            db.set_protocol_parameters(&ctx.protocol_parameters)
-                        }));
+                    tracing::Span::current().record(
+                        "proposals.pruned",
+                        field::valuable(
+                            &now_obsolete
+                                .iter()
+                                .map(|id| id.to_compact_string()).collect::<Vec<_>>()
+                        )
+                    );
+
+                    pruned_proposals.append(now_obsolete);
+
+                    match proposal {
+                        ProposalEnum::ProtocolParameters(params_update, _parent) => {
+                            self.protocol_parameters.update(params_update);
+                            updates.push(Box::new(|db, ctx| {
+                                db.set_protocol_parameters(&ctx.protocol_parameters)
+                            }));
+                        }
+
+                        ProposalEnum::HardFork(protocol_version, _parent) => {
+                            self.protocol_version = protocol_version;
+                            self.protocol_parameters.protocol_version = protocol_version;
+                            updates.push(Box::new(|db, ctx| {
+                                db.set_protocol_version(&ctx.protocol_version)?;
+                                db.set_protocol_parameters(&ctx.protocol_parameters)
+                            }));
+                        }
+
+                        ProposalEnum::ConstitutionalCommittee(_committee_update, _parent) => {
+                            todo!("an constitutional committee proposal has been ratified, it must now be enacted!")
+                        }
+
+                        ProposalEnum::Constitution(_constitution, _parent) => {
+                            todo!("an constitution proposal has been ratified, it must now be enacted!")
+                        }
+
+                        ProposalEnum::Orphan(_orphan) => {
+                            todo!("an orphan proposal has been ratified, it must now be enacted!")
+                        }
                     }
-                    ProposalEnum::HardFork(protocol_version, _parent) => {
-                        self.protocol_version = protocol_version;
-                        self.protocol_parameters.protocol_version = protocol_version;
-                        updates.push(Box::new(|db, ctx| {
-                            db.set_protocol_version(&ctx.protocol_version)?;
-                            db.set_protocol_parameters(&ctx.protocol_parameters)
-                        }));
-                    }
-                    ProposalEnum::ConstitutionalCommittee(_committee_update, _parent) => {
-                        todo!("an constitutional committee proposal has been ratified, it must now be enacted!")
-                    }
-                    ProposalEnum::Constitution(_constitution, _parent) => {
-                        todo!("an constitution proposal has been ratified, it must now be enacted!")
-                    }
-                    ProposalEnum::Orphan(_orphan) => {
-                        todo!("an orphan proposal has been ratified, it must now be enacted!")
-                    }
-                }
+
+                    Ok(())
+                })?
             }
         }
 
         // Finally, replace the roots in the store. Note that this is pretty much a no-op when no
         // proposals are ratified; but it's just one db key/value update.
         let new_roots = forest.roots();
+        info_roots(&new_roots);
         updates.push(Box::new(move |db, _ctx| db.set_proposals_roots(&new_roots)));
 
         // And finally, remove all proposals that have been either enacted or dropped due to other
@@ -221,13 +240,20 @@ impl RatificationContext {
         Ok((self, updates))
     }
 
-    fn new_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
-        let short_id = id.to_string().chars().take(10).collect::<String>();
+    fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
+        info_span!(
+            "enacting",
+            "proposal.id" = id.to_compact_string(),
+            "proposal.kind" = proposal.display_kind(),
+            "proposals.pruned" = field::Empty,
+        )
+    }
 
+    fn new_ratify_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         if matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)) {
             trace_span!(
                 "ratifying",
-                "proposal.id" = short_id,
+                "proposal.id" = id.to_compact_string(),
                 "proposal.kind" = proposal.display_kind(),
                 "required_threshold.committee" = field::Empty,
                 "votes.committee.yes" = field::Empty,
@@ -248,7 +274,7 @@ impl RatificationContext {
         } else {
             debug_span!(
                 "ratifying",
-                "proposal.id" = short_id,
+                "proposal.id" = id.to_compact_string(),
                 "proposal.kind" = proposal.display_kind(),
                 "required_threshold.committee" = field::Empty,
                 "votes.committee.yes" = field::Empty,
@@ -511,4 +537,18 @@ fn partition_votes(
             (dreps, committee, pools)
         },
     )
+}
+
+fn info_roots(roots: &ProposalsRootsRc) {
+    fn opt_root(opt: Option<&ComparableProposalId>) -> String {
+        opt.map(|r| r.to_compact_string())
+            .unwrap_or_else(|| "none".to_string())
+    }
+
+    info!(
+        "roots.protocol_parameters" = opt_root(roots.protocol_parameters.as_deref()),
+        "roots.hard_fork" = opt_root(roots.hard_fork.as_deref()),
+        "roots.constitutional_committee" = opt_root(roots.constitutional_committee.as_deref()),
+        "roots.constitution" = opt_root(roots.constitution.as_deref()),
+    );
 }

@@ -20,7 +20,7 @@ pub mod volatile_db;
 use crate::{
     governance::ratification::{self, RatificationContext},
     state::{
-        ratification::ProposalsRootsRc,
+        ratification::{ProposalsRoots, ProposalsRootsRc},
         volatile_db::{StoreUpdate, VolatileDB},
     },
     store::{
@@ -472,8 +472,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             }
         };
 
-        let roots = ProposalsRootsRc::from(snapshot.proposals_roots()?);
-
         // FIXME: This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
         // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
         // require much memory; but it becomes a potential attack vector.
@@ -501,7 +499,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             protocol_parameters,
             constitutional_committee,
             votes,
-            roots,
         })
     }
 }
@@ -601,7 +598,13 @@ fn epoch_transition(
     batch.commit()?;
 
     // Start of epoch
+
+    // Get all proposals to ratify / enact. Note that, even though the ratification happens with an
+    // epoch of delay (and thus, using data from a snapshot), we always use the most recent set of
+    // proposals available. While recently submitted proposals won't have any votes, they might
+    // still end up being pruned due to a previous proposal being enacted.
     let proposals = db.iter_proposals()?.collect::<Vec<_>>();
+    let roots = db.proposals_roots()?;
 
     let batch = db.create_transaction();
     let should_begin_epoch = batch.try_epoch_transition(
@@ -618,6 +621,7 @@ fn epoch_transition(
             next_epoch,
             ratification_context,
             proposals,
+            roots,
             protocol_parameters,
         )?;
         batch.set_protocol_version(protocol_version)?;
@@ -663,6 +667,7 @@ fn begin_epoch<'store>(
     epoch: Epoch,
     ctx: RatificationContext,
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
+    roots: ProposalsRoots,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<(), StateError> {
     // Reset counters before the epoch begins.
@@ -681,7 +686,7 @@ fn begin_epoch<'store>(
 
     // Ratify and enact proposals at the epoch boundary. Also refund deposit for any proposal that
     // has expired.
-    tick_proposals(db, epoch, ctx, proposals)?;
+    tick_proposals(db, epoch, ctx, proposals, roots)?;
 
     Ok(())
 }
@@ -776,11 +781,12 @@ pub fn tick_proposals<'store>(
     epoch: Epoch,
     ctx: RatificationContext,
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
+    roots: ProposalsRoots,
 ) -> Result<(), StateError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
     let (ctx, changes) = ctx
-        .ratify_proposals(proposals)
+        .ratify_proposals(proposals, ProposalsRootsRc::from(roots))
         .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
 
     changes

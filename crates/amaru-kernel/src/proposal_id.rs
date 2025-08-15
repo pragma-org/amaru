@@ -24,6 +24,22 @@ pub struct ComparableProposalId {
     pub inner: ProposalId,
 }
 
+impl ComparableProposalId {
+    /// Like `Display`, but more compact
+    pub fn to_compact_string(&self) -> String {
+        format!(
+            "{}.{}",
+            self.inner.action_index,
+            self.inner
+                .transaction_id
+                .to_string()
+                .chars()
+                .take(8)
+                .collect::<String>()
+        )
+    }
+}
+
 impl fmt::Display for ComparableProposalId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
