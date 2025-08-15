@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use crate::{
-    governance::ratification::ProposalsRoots,
+    governance::ratification::ProposalsRootsRc,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{self, columns::proposals, Store, StoreError, TransactionalContext},
 };
@@ -25,7 +25,7 @@ use amaru_kernel::{
     TransactionPointer, UnitInterval,
 };
 use progress_bar::ProgressBar;
-use std::{collections::BTreeMap, fs, iter, path::PathBuf, sync::LazyLock};
+use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -767,11 +767,11 @@ fn import_proposals_roots(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
-    let roots = ProposalsRoots {
-        protocol_parameters: Option::from(protocol_parameters),
-        hard_fork: Option::from(hard_fork),
-        constitutional_committee: Option::from(constitutional_committee),
-        constitution: Option::from(constitution),
+    let roots = ProposalsRootsRc {
+        protocol_parameters: Option::from(protocol_parameters).map(Rc::new),
+        hard_fork: Option::from(hard_fork).map(Rc::new),
+        constitutional_committee: Option::from(constitutional_committee).map(Rc::new),
+        constitution: Option::from(constitution).map(Rc::new),
     };
 
     info!(

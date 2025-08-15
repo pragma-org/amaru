@@ -14,12 +14,12 @@
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
-    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, ConstitutionalCommittee,
-    EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId, ProtocolVersion,
-    StakeCredential, TransactionInput,
+    cbor, protocol_parameters::ProtocolParameters, CertificatePointer, ComparableProposalId,
+    ConstitutionalCommittee, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
+    ProtocolVersion, StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
-    governance::ratification::ProposalsRoots,
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     store::{
         columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
         ReadStore, Snapshot, Store, StoreError, TransactionalContext,
@@ -33,6 +33,7 @@ use rocksdb::{
 use slot_arithmetic::Epoch;
 use std::{
     fmt, fs,
+    ops::Deref,
     path::{Path, PathBuf},
 };
 use tracing::{info, instrument, trace, warn, Level};
@@ -532,11 +533,23 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Ok(())
     }
 
-    fn set_proposals_roots(&self, roots: &ProposalsRoots) -> Result<(), StoreError> {
+    fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<(), StoreError> {
         self.transaction
             .put(KEY_PROPOSALS_ROOTS, as_value(roots))
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
+    }
+
+    /// Remove a list of proposals from the database. This is done when enacting proposals that
+    /// cause other proposals to become obsolete.
+    fn remove_proposals<'iter, Id>(
+        &self,
+        _proposals: impl IntoIterator<Item = Id>,
+    ) -> Result<(), StoreError>
+    where
+        Id: Deref<Target = ComparableProposalId> + 'iter,
+    {
+        todo!("remove_proposals")
     }
 
     fn save(
@@ -743,7 +756,7 @@ fn get_or_bail<T>(
     key: &str,
 ) -> Result<T, StoreError>
 where
-    T: std::fmt::Debug + Send + Sync + for<'d> cbor::decode::Decode<'d, ()> + 'static,
+    T: std::fmt::Debug + for<'d> cbor::decode::Decode<'d, ()> + 'static,
 {
     (db_get)(key)
         .map_err(|err| StoreError::Internal(err.into()))?

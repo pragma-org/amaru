@@ -12,9 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{store::columns::proposals, summary::stake_distribution::StakeDistribution};
+use crate::{
+    store::{columns::proposals, StoreError, TransactionalContext},
+    summary::stake_distribution::StakeDistribution,
+};
 use amaru_kernel::{
-    protocol_parameters::PoolThresholds, Ballot, ComparableProposalId, Constitution, Epoch,
+    protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, Constitution, Epoch,
     Lovelace, PoolId, ProposalId, ProtocolParamUpdate, ProtocolVersion, ScriptHash,
     StakeCredential, UnitInterval, Vote, Voter,
 };
@@ -25,7 +28,7 @@ use std::{
     rc::Rc,
     sync::{Arc, Mutex},
 };
-use tracing::{debug, debug_span, field, info_span, trace_span, Span};
+use tracing::{debug_span, field, trace_span, Span};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
@@ -36,7 +39,7 @@ mod proposals_forest;
 use proposals_forest::ProposalsForest;
 
 mod proposals_roots;
-pub use proposals_roots::ProposalsRoots;
+pub use proposals_roots::{ProposalsRoots, ProposalsRootsRc};
 
 mod proposals_tree;
 
@@ -54,11 +57,8 @@ pub struct RatificationContext {
     /// The computed stake distribution for the epoch
     pub stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
 
-    /// The minimum constitutional committee's size, as per latest enacted protocol parameters.
-    pub min_committee_size: usize,
-
-    /// The stake pool voting thresholds, as per latest enacted protocol parameters.
-    pub stake_pools_voting_thresholds: PoolThresholds,
+    /// Last enacted protocol parameters for this epoch.
+    pub protocol_parameters: ProtocolParameters,
 
     /// The current constitutional committee, if any. No committee signals a state of
     /// no-confidence.
@@ -69,32 +69,32 @@ pub struct RatificationContext {
 
     /// The current roots (i.e. latest enacted proposal ids) for each of the
     /// relevant proposal categories.
-    pub roots: ProposalsRoots,
+    pub roots: ProposalsRootsRc,
 }
 
 impl RatificationContext {
-    pub fn ratify_proposals(self, mut proposals: Vec<(ProposalId, proposals::Row)>) {
+    pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
+        mut self,
+        mut proposals: Vec<(ProposalId, proposals::Row)>,
+    ) -> (Self, Vec<StoreUpdate<'store, S>>) {
         proposals.sort_by(|a, b| a.1.proposed_in.cmp(&b.1.proposed_in));
 
-        let mut forest =
-            proposals
-                .drain(..)
-                .fold(ProposalsForest::empty(), |mut forest, (id, row)| {
-                    forest
-                        .insert(ComparableProposalId::from(id), row.proposal.gov_action)
-                        // FIXME: Bubble this up. There should be no error here; this is a sign of a ledger
-                        // rule violation. It can only mean that a proposal was accepted without having an
-                        // existing parent.
-                        .unwrap_or_else(|e| panic!("{e}"));
-                    forest
-                });
-
-        debug!(
-            "forest" = %forest,
-            "ratifying"
+        let mut forest = proposals.drain(..).fold(
+            ProposalsForest::new(&self.roots),
+            |mut forest, (id, row)| {
+                forest
+                    .insert(ComparableProposalId::from(id), row.proposal.gov_action)
+                    // FIXME: Bubble this up. There should be no error here; this is a sign of a ledger
+                    // rule violation. It can only mean that a proposal was accepted without having an
+                    // existing parent.
+                    .unwrap_or_else(|e| panic!("{e}"));
+                forest
+            },
         );
 
-        let stake_distributions = self.stake_distributions.lock().unwrap();
+        let stake_distributions = self.stake_distributions.clone();
+
+        let stake_distributions = stake_distributions.lock().unwrap();
 
         let stake_distribution = stake_distributions
             .iter()
@@ -113,47 +113,103 @@ impl RatificationContext {
         // Said differently, there can be many treasury withdrawals, protocol parameters changes or
         // nice polls; but as soon as one of the other is encountered; EVERYTHING (including treasury
         // withdrawals and parameters changes) is postponed until the next epoch.
-        let mut delayed = false;
-        let mut iterator = forest.iter();
+        let mut compass = forest.new_compass();
 
-        while let Some((id, proposal)) = guard(!delayed, || iterator.next()) {
-            // Ensures that the next proposal points to an active root. Not being the case isn't
-            // necessarily an issue or a sign that something went wrong.
-            //
-            // In fact, since proposals can form arbitrarily long chain, it is very plausible that a
-            // proposal points to another that isn't ratified just yet.
-            //
-            // Encountering a non-matching root also doesn't mean we shouldn't process other proposals.
-            // The order is given by their point of submission; and thus, proposals submitted later may
-            // points to totally different (and active) roots.
-            let matching_root = self.roots.matching(proposal);
+        // We collect updates to be done on the store while enacting proposals. The updates aren't
+        // executed, but stashed for later. This allows processing proposals in a pure fasion,
+        // while accumulating changes to be done on the store.
+        let mut updates: Vec<StoreUpdate<'_, S>> = Vec::new();
 
-            Self::new_span(id, proposal, matching_root).in_scope(|| {
-                // TODO: There are additional checks we should perform at the moment of ratification
-                //
-                // - On constitutional committee updates, we should ensure that any term limit is still
-                //   valid. This can happen if a protocol parameter change that changes the max term limit
-                //   is ratified *before* a committee update, possibly rendering it invalid.
-                //
-                // - On treasury withdrawals, we must ensure there's still enough money in the treasury.
-                //   This is necessary since there can be an arbitrary number of withdrawals that have been
-                //   ratified and enacted just before; possibly depleting the treasury.
-                //
-                // Note that either way, it doesn't _invalidate_ proposals, since time and subsequent
-                // proposals may turn the tide again. They should simply be skipped, and revisited at the
-                // next epoch boundary.
+        // We also accumulate proposals that get pruned due to other proposals being enacted. Those
+        // proposals are obsolete, and must be removed from the database.
+        let mut pruned_proposals: BTreeSet<Rc<ComparableProposalId>> = BTreeSet::new();
 
-                let accepted_by_everyone =
-                    self.is_accepted_by_everyone(id, proposal, stake_distribution);
+        loop {
+            // The inner block limits the lifetime of the immutable borrow(s) on forest; so that we
+            // can then borrow the forest as immutable when a proposal gets ratified.
+            let ratified: Option<(Rc<ComparableProposalId>, ProposalEnum)> = {
+                let Some((id, proposal)) = compass.next(&forest) else {
+                    break;
+                };
 
-                if matching_root && accepted_by_everyone {
-                    todo!("a proposal has been ratified, it must now be enacted!")
+                Self::new_span(&id, proposal).in_scope(|| {
+                    // TODO: There are additional checks we should perform at the moment of ratification
+                    //
+                    // - On constitutional committee updates, we should ensure that any term limit is still
+                    //   valid. This can happen if a protocol parameter change that changes the max term limit
+                    //   is ratified *before* a committee update, possibly rendering it invalid.
+                    //
+                    // - On treasury withdrawals, we must ensure there's still enough money in the treasury.
+                    //   This is necessary since there can be an arbitrary number of withdrawals that have been
+                    //   ratified and enacted just before; possibly depleting the treasury.
+                    //
+                    // Note that either way, it doesn't _invalidate_ proposals, since time and subsequent
+                    // proposals may turn the tide again. They should simply be skipped, and revisited at the
+                    // next epoch boundary.
+
+                    if self.is_accepted_by_everyone(&id, proposal, stake_distribution) {
+                        // NOTE: The .clone() on the proposal is necessary so we can drop the
+                        // immutable borrow on the forest. It only happens when a proposal is
+                        // ratified, though.
+                        //
+                        // The .clone() on the id is cheap, because it's an Rc.
+                        Some((id.clone(), proposal.clone()))
+                    } else {
+                        None
+                    }
+                })
+            }; // <-- immutable borrows of `forest` end here
+
+            if let Some((id, proposal)) = ratified {
+                match &proposal {
+                    ProposalEnum::ProtocolParameters(params_update, _parent) => {
+                        update_protocol_parameters(&mut self.protocol_parameters, params_update);
+
+                        pruned_proposals.append(
+                            &mut forest
+                                .enact(id, &proposal, &mut compass)
+                                .unwrap_or_else(|e| {
+                                    panic!("attempted to enact unknown/invalid proposals: {e:?}")
+                                }),
+                        );
+
+                        updates.push(Box::new(|db, ctx| {
+                            db.set_protocol_parameters(&ctx.protocol_parameters)
+                        }));
+                    }
+                    ProposalEnum::HardFork(_protocol_version, _parent) => {
+                        todo!("an hardfork proposal has been ratified, it must now be enacted!")
+                    }
+                    ProposalEnum::ConstitutionalCommittee(_committee_update, _parent) => {
+                        todo!("an constitutional committee proposal has been ratified, it must now be enacted!")
+                    }
+                    ProposalEnum::Constitution(_constitution, _parent) => {
+                        todo!("an constitution proposal has been ratified, it must now be enacted!")
+                    }
+                    ProposalEnum::Orphan(_orphan) => {
+                        todo!("an orphan proposal has been ratified, it must now be enacted!")
+                    }
                 }
-            });
+            }
         }
+
+        // Finally, replace the roots in the store. Note that this is pretty much a no-op when no
+        // proposals are ratified; but it's just one db key/value update.
+        let new_roots = forest.roots();
+        updates.push(Box::new(move |db, _ctx| db.set_proposals_roots(&new_roots)));
+
+        // And finally, remove all proposals that have been either enacted or dropped due to other
+        // being enacted.
+        if !pruned_proposals.is_empty() {
+            updates.push(Box::new(move |db, _ctx| {
+                db.remove_proposals(pruned_proposals)
+            }))
+        }
+
+        (self, updates)
     }
 
-    fn new_span(id: &ComparableProposalId, proposal: &ProposalEnum, matching_root: bool) -> Span {
+    fn new_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
         let short_id = id.to_string().chars().take(10).collect::<String>();
 
         if matches!(proposal, ProposalEnum::Orphan(OrphanProposal::NicePoll)) {
@@ -161,7 +217,6 @@ impl RatificationContext {
                 "ratifying",
                 "proposal.id" = short_id,
                 "proposal.kind" = proposal.display_kind(),
-                "proposal.matching_root" = matching_root,
                 "required_threshold.committee" = field::Empty,
                 "votes.committee.yes" = field::Empty,
                 "votes.committee.no" = field::Empty,
@@ -183,7 +238,6 @@ impl RatificationContext {
                 "ratifying",
                 "proposal.id" = short_id,
                 "proposal.kind" = proposal.display_kind(),
-                "proposal.matching_root" = matching_root,
                 "required_threshold.committee" = field::Empty,
                 "votes.committee.yes" = field::Empty,
                 "votes.committee.no" = field::Empty,
@@ -240,7 +294,7 @@ impl RatificationContext {
                 let threshold = committee.voting_threshold(
                     self.epoch,
                     self.protocol_version,
-                    self.min_committee_size,
+                    self.protocol_parameters.cc_min_size,
                     proposal,
                 )?;
 
@@ -262,7 +316,7 @@ impl RatificationContext {
     ) -> bool {
         match stake_pools::voting_threshold(
             self.constitutional_committee.is_none(),
-            &self.stake_pools_voting_thresholds,
+            &self.protocol_parameters.pool_thresholds,
             proposal,
         ) {
             None => false,
@@ -297,7 +351,7 @@ impl RatificationContext {
 /// - Treasury withdrawals and polls (a.k.a 'info actions') are also grouped together, as they're
 ///   the only actions that do not need to form a chain; they have no parents (hence,
 ///   `OrphanProposal`)
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum ProposalEnum {
     ProtocolParameters(ProtocolParamUpdate, Option<Rc<ComparableProposalId>>),
     HardFork(ProtocolVersion, Option<Rc<ComparableProposalId>>),
@@ -328,7 +382,7 @@ impl ProposalEnum {
 // CommitteeUpdate
 // ----------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum CommitteeUpdate {
     NoConfidence,
     ChangeMembers {
@@ -379,7 +433,7 @@ impl fmt::Display for CommitteeUpdate {
 // OrphanProposal
 // ----------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum OrphanProposal {
     TreasuryWithdrawal {
         withdrawals: BTreeMap<StakeCredential, Lovelace>,
@@ -401,6 +455,19 @@ impl fmt::Display for OrphanProposal {
             }
         }
     }
+}
+
+// Enactments
+// ----------------------------------------------------------------------------
+
+pub type StoreUpdate<'store, S> =
+    Box<dyn FnOnce(&S, &RatificationContext) -> Result<(), StoreError>>;
+
+pub fn update_protocol_parameters(
+    _protocol_parameters: &mut ProtocolParameters,
+    _update: &ProtocolParamUpdate,
+) {
+    todo!()
 }
 
 // Helpers
@@ -439,13 +506,4 @@ fn partition_votes(
             (dreps, committee, pools)
         },
     )
-}
-
-/// Execute the guarded action if the predicate is `true`; returns `None` otherwise.
-fn guard<A>(predicate: bool, mut action: impl FnMut() -> Option<A>) -> Option<A> {
-    if predicate {
-        action()
-    } else {
-        None
-    }
 }

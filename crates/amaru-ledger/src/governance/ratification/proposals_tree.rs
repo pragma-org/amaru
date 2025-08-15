@@ -13,7 +13,10 @@
 // limitations under the License.
 
 use amaru_kernel::ComparableProposalId;
-use std::rc::Rc;
+use std::{collections::BTreeSet, rc::Rc};
+
+// ProposalsTree
+// ----------------------------------------------------------------------------
 
 /// A data-structure for holding arbitrary chains of proposals of the same kind.
 ///
@@ -22,30 +25,47 @@ use std::rc::Rc;
 /// node.
 ///
 #[derive(Debug)]
-pub enum ProposalsTree {
-    Empty,
-    Node {
-        parent: Option<Rc<ComparableProposalId>>,
-        siblings: Vec<Sibling>,
-    },
-}
-
-#[derive(Debug)]
-pub struct Sibling {
-    pub id: Rc<ComparableProposalId>,
-    pub children: Vec<ProposalsTree>,
-}
-
-impl Sibling {
-    pub fn new(id: Rc<ComparableProposalId>) -> Self {
-        Self {
-            id,
-            children: vec![],
-        }
-    }
+pub struct ProposalsTree {
+    pub root: Option<Rc<ComparableProposalId>>,
+    pub siblings: Vec<Sibling>,
 }
 
 impl ProposalsTree {
+    pub fn new(root: Option<Rc<ComparableProposalId>>) -> Self {
+        Self {
+            root,
+            siblings: Vec::new(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.siblings.is_empty()
+    }
+
+    /// Enact a proposal as new root, collecting all propoals rendered obsolete through that
+    /// promotion (that is, all siblings and their children).
+    pub fn enact(
+        &mut self,
+        id: Rc<ComparableProposalId>,
+    ) -> Result<(Rc<ComparableProposalId>, BTreeSet<Rc<ComparableProposalId>>), ProposalsPromoteError>
+    {
+        use ProposalsPromoteError::*;
+
+        match Sibling::partition(std::mem::take(&mut self.siblings), &id) {
+            (None, _) => Err(UnknownProposal { id }),
+
+            (Some(new_root), now_obsolete) => {
+                self.root = Some(new_root.id);
+                self.siblings = new_root.children;
+
+                let mut pruned = BTreeSet::new();
+                Sibling::collect_all(&mut pruned, now_obsolete);
+
+                Ok((id, pruned))
+            }
+        }
+    }
+
     pub fn insert(
         &mut self,
         id: Rc<ComparableProposalId>,
@@ -53,23 +73,20 @@ impl ProposalsTree {
     ) -> Result<(), ProposalsInsertError> {
         use ProposalsInsertError::*;
 
-        match self {
-            ProposalsTree::Empty => {
-                *self = ProposalsTree::Node {
-                    parent,
-                    siblings: vec![Sibling::new(id)],
-                };
+        match (self.root.as_deref(), parent) {
+            (Some(..), None) => Err(UnknownParent { id, parent: None }),
+
+            (None, None) => {
+                self.siblings.push(Sibling::new(id));
                 Ok(())
             }
-            ProposalsTree::Node {
-                parent: siblings_parent,
-                siblings,
-            } => {
+
+            (_, Some(parent)) => {
                 // If they have the same parent, they are siblings and we're done searching.
                 // This is by far, the most common case since proposals will usually end up
                 // targetting the 'root' of the tree (that is, the latest-approved proposal).
-                if siblings_parent == &parent {
-                    siblings.push(Sibling::new(id));
+                if self.root.as_deref() == Some(&parent) {
+                    self.siblings.push(Sibling::new(id));
                     return Ok(());
                 }
 
@@ -80,29 +97,15 @@ impl ProposalsTree {
                 // perform reasonably okay.
                 //
                 // Besides, they have similar worst-case performances.
-
-                let initial_state = Err(UnknownParent { id, parent });
-
-                siblings.iter_mut().fold(initial_state, |needle, sibling| {
-                    needle.or_else(|UnknownParent { id, parent }| {
-                        // One of the sibling at this level has the same id as the proposal's
-                        // parent, so it is the parent. We can stop the search.
-                        if Some(sibling.id.as_ref()) == parent.as_deref() {
-                            sibling.children.push(ProposalsTree::Node {
-                                parent: Some(sibling.id.clone()),
-                                siblings: vec![Sibling::new(id)],
-                            });
-                            return Ok(());
-                        }
-
-                        // Otherwise, we must check children all children of that sibling.
-                        let needle = Err(UnknownParent { id, parent });
-
-                        sibling.children.iter_mut().fold(needle, |needle, child| {
-                            needle.or_else(|UnknownParent { id, parent }| child.insert(id, parent))
+                let st = Err(SiblingInsertError::UnknownParent { id, parent });
+                self.siblings
+                    .iter_mut()
+                    .fold(st, |st, sibling| {
+                        st.or_else(|SiblingInsertError::UnknownParent { id, parent }| {
+                            sibling.insert(id, parent)
                         })
                     })
-                })
+                    .map_err(ProposalsInsertError::from)
             }
         }
     }
@@ -114,5 +117,90 @@ pub enum ProposalsInsertError {
     UnknownParent {
         id: Rc<ComparableProposalId>,
         parent: Option<Rc<ComparableProposalId>>,
+    },
+}
+
+impl From<SiblingInsertError> for ProposalsInsertError {
+    fn from(SiblingInsertError::UnknownParent { id, parent }: SiblingInsertError) -> Self {
+        Self::UnknownParent {
+            id,
+            parent: Some(parent),
+        }
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProposalsPromoteError {
+    #[error("unknown proposal {id:?}")]
+    UnknownProposal { id: Rc<ComparableProposalId> },
+}
+
+// Sibling
+// ----------------------------------------------------------------------------
+
+#[derive(Debug)]
+pub struct Sibling {
+    pub id: Rc<ComparableProposalId>,
+    pub children: Vec<Sibling>,
+}
+
+impl Sibling {
+    pub fn new(id: Rc<ComparableProposalId>) -> Self {
+        Self {
+            id,
+            children: vec![],
+        }
+    }
+
+    pub fn insert(
+        &mut self,
+        id: Rc<ComparableProposalId>,
+        parent: Rc<ComparableProposalId>,
+    ) -> Result<(), SiblingInsertError> {
+        use SiblingInsertError::*;
+
+        // One of the sibling at this level has the same id as the proposal's
+        // parent, so it is the parent. We can stop the search.
+        if self.id.as_ref() == parent.as_ref() {
+            self.children.push(Sibling::new(id));
+            return Ok(());
+        }
+
+        // Otherwise, we must check children of that sibling.
+        let st = Err(UnknownParent { id, parent });
+        self.children.iter_mut().fold(st, |st, child| {
+            st.or_else(|UnknownParent { id, parent }| child.insert(id, parent))
+        })
+    }
+
+    fn partition(nodes: Vec<Self>, needle: &ComparableProposalId) -> (Option<Self>, Vec<Self>) {
+        let capacity = nodes.len();
+        nodes.into_iter().fold(
+            (None, Vec::with_capacity(capacity)),
+            |(new_root, mut now_obsolete), sibling| {
+                if sibling.id.as_ref() == needle {
+                    (Some(sibling), now_obsolete)
+                } else {
+                    now_obsolete.push(sibling);
+                    (new_root, now_obsolete)
+                }
+            },
+        )
+    }
+
+    fn collect_all(accum: &mut BTreeSet<Rc<ComparableProposalId>>, nodes: Vec<Self>) {
+        nodes.into_iter().for_each(|s| {
+            accum.insert(s.id);
+            Self::collect_all(accum, s.children);
+        })
+    }
+}
+
+#[derive(Debug, thiserror::Error)]
+pub enum SiblingInsertError {
+    #[error("proposal {id:?} has an unknown parent {parent:?}")]
+    UnknownParent {
+        id: Rc<ComparableProposalId>,
+        parent: Rc<ComparableProposalId>,
     },
 }

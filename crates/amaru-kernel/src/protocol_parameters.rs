@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, Coin, EpochInterval, ExUnits, Lovelace, RationalNumber};
+use crate::{cbor, Coin, EpochInterval, ExUnits, Lovelace, PoolVotingThresholds, RationalNumber};
 use pallas_codec::minicbor::{data::Tag, Decoder};
 use pallas_primitives::{conway::CostModels, CostModel};
 use slot_arithmetic::Slot;
@@ -406,6 +406,18 @@ pub struct PoolThresholds {
     pub hard_fork: RationalNumber,
     // named `q5e` in the spec
     pub security_group: RationalNumber,
+}
+
+impl From<PoolVotingThresholds> for PoolThresholds {
+    fn from(thresholds: PoolVotingThresholds) -> Self {
+        Self {
+            no_confidence: thresholds.motion_no_confidence,
+            committee: thresholds.committee_normal,
+            committee_under_no_confidence: thresholds.committee_no_confidence,
+            hard_fork: thresholds.hard_fork_initiation,
+            security_group: thresholds.security_voting_threshold,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
