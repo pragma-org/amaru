@@ -47,9 +47,9 @@ impl ProposalsTree {
     pub fn enact(
         &mut self,
         id: Rc<ComparableProposalId>,
-    ) -> Result<(Rc<ComparableProposalId>, BTreeSet<Rc<ComparableProposalId>>), ProposalsPromoteError>
+    ) -> Result<(Rc<ComparableProposalId>, BTreeSet<Rc<ComparableProposalId>>), ProposalsEnactError>
     {
-        use ProposalsPromoteError::*;
+        use ProposalsEnactError::*;
 
         match Sibling::partition(std::mem::take(&mut self.siblings), &id) {
             (None, _) => Err(UnknownProposal { id }),
@@ -130,7 +130,7 @@ impl From<SiblingInsertError> for ProposalsInsertError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ProposalsPromoteError {
+pub enum ProposalsEnactError {
     #[error("unknown proposal {id:?}")]
     UnknownProposal { id: Rc<ComparableProposalId> },
 }

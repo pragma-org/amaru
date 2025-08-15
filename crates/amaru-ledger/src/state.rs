@@ -664,7 +664,7 @@ fn begin_epoch<'store>(
     ctx: RatificationContext,
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     // Reset counters before the epoch begins.
     reset_blocks_count(db)?;
     reset_fees(db)?;
@@ -724,7 +724,7 @@ pub fn reset_blocks_count<'store>(
 pub fn refund_many<'store>(
     db: &impl TransactionalContext<'store>,
     mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     let leftovers =
         refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
             debug!(
@@ -751,7 +751,7 @@ pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     let mut refunds = Vec::new();
 
     db.with_pools(|iterator| {
@@ -776,10 +776,13 @@ pub fn tick_proposals<'store>(
     epoch: Epoch,
     ctx: RatificationContext,
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
-    let (ctx, changes) = ctx.ratify_proposals(proposals);
+    let (ctx, changes) = ctx
+        .ratify_proposals(proposals)
+        .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
+
     changes
         .into_iter()
         .try_for_each(|apply_changes| apply_changes(db, &ctx))?;
@@ -922,6 +925,12 @@ pub enum StateError {
     Storage(#[from] StoreError),
     #[error("no stake distribution available for rewards calculation.")]
     StakeDistributionNotAvailableForRewards,
+    // TODO: Using a mere 'String' here because the source error contains some `Rc`, which aren't
+    // safe to send across threads. For the sake of carrying the error around, we might want to not
+    // keep Rc in errors, but clone the underlying data -- which is small anyway, in places where
+    // the error is generated.
+    #[error("error when ratifying proposals: {0}")]
+    RatificationFailed(String),
     #[error("rewards summary not ready")]
     RewardsSummaryNotReady,
     #[error("failed to compute epoch from slot {0:?}: {1}")]
