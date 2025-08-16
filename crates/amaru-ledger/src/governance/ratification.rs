@@ -417,6 +417,17 @@ impl ProposalEnum {
         }
         .to_string()
     }
+
+    pub fn is_hardfork(&self) -> bool {
+        matches!(self, Self::HardFork { .. })
+    }
+
+    pub fn is_no_confidence(&self) -> bool {
+        matches!(
+            self,
+            Self::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _)
+        )
+    }
 }
 
 // CommitteeUpdate
@@ -552,4 +563,102 @@ fn info_roots(roots: &ProposalsRootsRc) {
         "roots.constitutional_committee" = opt_root(roots.constitutional_committee.as_deref()),
         "roots.constitution" = opt_root(roots.constitution.as_deref()),
     );
+}
+
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
+    use crate::store::columns::accounts::tests::any_stake_credential;
+    use amaru_kernel::{
+        tests::{
+            any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
+            any_protocol_version, any_script_hash,
+        },
+        RationalNumber,
+    };
+    use proptest::{collection, option, prelude::*};
+    use std::rc::Rc;
+
+    pub fn any_proposal_enum() -> impl Strategy<Value = ProposalEnum> {
+        let any_protocol_parameters = (
+            option::of(any_comparable_proposal_id()),
+            any_protocol_params_update(),
+        )
+            .prop_map(|(parent, params_update)| {
+                ProposalEnum::ProtocolParameters(params_update, parent.map(Rc::new))
+            });
+
+        let any_hard_fork = (
+            option::of(any_comparable_proposal_id()),
+            any_protocol_version(),
+        )
+            .prop_map(|(parent, protocol_version)| {
+                ProposalEnum::HardFork(protocol_version, parent.map(Rc::new))
+            });
+
+        let any_constitutional_committee = (
+            option::of(any_comparable_proposal_id()),
+            any_committee_update(),
+        )
+            .prop_map(|(parent, committee)| {
+                ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new))
+            });
+
+        let any_constitution = (option::of(any_comparable_proposal_id()), any_constitution())
+            .prop_map(|(parent, constitution)| {
+                ProposalEnum::Constitution(constitution, parent.map(Rc::new))
+            });
+
+        let any_orphan = any_orphan_proposal().prop_map(ProposalEnum::Orphan);
+
+        prop_oneof![
+            any_protocol_parameters,
+            any_hard_fork,
+            any_constitutional_committee,
+            any_constitution,
+            any_orphan,
+        ]
+    }
+
+    pub fn any_orphan_proposal() -> impl Strategy<Value = OrphanProposal> {
+        let any_nice_poll = Just(OrphanProposal::NicePoll);
+
+        let any_treasury_withdrawal = (
+            option::of(any_script_hash()),
+            collection::btree_map(any_stake_credential(), 1_u64.., 1..3),
+        )
+            .prop_map(
+                |(guardrails, withdrawals)| OrphanProposal::TreasuryWithdrawal {
+                    guardrails,
+                    withdrawals,
+                },
+            );
+
+        prop_oneof![any_nice_poll, any_treasury_withdrawal]
+    }
+
+    pub fn any_committee_update() -> impl Strategy<Value = CommitteeUpdate> {
+        let any_no_confidence = Just(CommitteeUpdate::NoConfidence);
+
+        let any_change_members = (
+            any::<u8>(),
+            collection::btree_set(any_stake_credential(), 0..3),
+            collection::btree_map(any_stake_credential(), any_epoch(), 0..3),
+        )
+            .prop_map(
+                |(numerator, removed, added)| CommitteeUpdate::ChangeMembers {
+                    removed,
+                    added,
+                    threshold: RationalNumber {
+                        numerator: numerator as u64,
+                        denominator: 1,
+                    },
+                },
+            );
+
+        prop_oneof![any_no_confidence, any_change_members]
+    }
 }

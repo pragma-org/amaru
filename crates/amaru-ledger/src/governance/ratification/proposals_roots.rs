@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use amaru_kernel::{cbor, ComparableProposalId};
-use std::{ops::Deref, rc::Rc};
+use std::rc::Rc;
 
 pub type ProposalsRoots = GenericProposalsRoots<ComparableProposalId>;
 
 pub type ProposalsRootsRc = GenericProposalsRoots<Rc<ComparableProposalId>>;
 
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub struct GenericProposalsRoots<T> {
     pub protocol_parameters: Option<T>,
     pub hard_fork: Option<T>,
@@ -37,10 +37,7 @@ impl<T> From<GenericProposalsRoots<T>> for GenericProposalsRoots<Rc<T>> {
         }
     }
 }
-
-impl<C, T: Deref<Target = ComparableProposalId>> cbor::encode::Encode<C>
-    for GenericProposalsRoots<T>
-{
+impl<C, T: AsRef<ComparableProposalId>> cbor::encode::Encode<C> for GenericProposalsRoots<T> {
     fn encode<W: cbor::encode::Write>(
         &self,
         e: &mut cbor::Encoder<W>,
@@ -48,13 +45,16 @@ impl<C, T: Deref<Target = ComparableProposalId>> cbor::encode::Encode<C>
     ) -> Result<(), cbor::encode::Error<W::Error>> {
         e.begin_map()?;
         e.u8(0)?;
-        e.encode_with(self.protocol_parameters.as_deref(), ctx)?;
+        e.encode_with(self.protocol_parameters.as_ref().map(AsRef::as_ref), ctx)?;
         e.u8(1)?;
-        e.encode_with(self.hard_fork.as_deref(), ctx)?;
+        e.encode_with(self.hard_fork.as_ref().map(AsRef::as_ref), ctx)?;
         e.u8(2)?;
-        e.encode_with(self.constitutional_committee.as_deref(), ctx)?;
+        e.encode_with(
+            self.constitutional_committee.as_ref().map(AsRef::as_ref),
+            ctx,
+        )?;
         e.u8(3)?;
-        e.encode_with(self.constitution.as_deref(), ctx)?;
+        e.encode_with(self.constitution.as_ref().map(AsRef::as_ref), ctx)?;
         e.end()?;
         Ok(())
     }
@@ -62,6 +62,8 @@ impl<C, T: Deref<Target = ComparableProposalId>> cbor::encode::Encode<C>
 
 impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ComparableProposalId> {
     fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        // NOTE: This type is only ever created by *us*, so it is okay-ish to not check for the map
+        // keys values and expect keys in the right order.
         d.map()?;
         d.u8()?;
         let protocol_parameters = d.decode_with(ctx)?;
@@ -78,5 +80,33 @@ impl<'d, C> cbor::decode::Decode<'d, C> for GenericProposalsRoots<ComparableProp
             constitutional_committee,
             constitution,
         })
+    }
+}
+
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::ProposalsRoots;
+    use amaru_kernel::{prop_cbor_roundtrip, tests::any_comparable_proposal_id};
+    use proptest::{option, prop_compose};
+
+    prop_cbor_roundtrip!(ProposalsRoots, any_proposals_roots());
+
+    prop_compose! {
+        pub fn any_proposals_roots()(
+            protocol_parameters in option::of(any_comparable_proposal_id()),
+            hard_fork in option::of(any_comparable_proposal_id()),
+            constitutional_committee in option::of(any_comparable_proposal_id()),
+            constitution in option::of(any_comparable_proposal_id()),
+        ) -> ProposalsRoots  {
+            ProposalsRoots {
+                protocol_parameters,
+                hard_fork,
+                constitutional_committee,
+                constitution,
+            }
+        }
     }
 }

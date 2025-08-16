@@ -114,9 +114,9 @@ impl ::serde::Serialize for Pots {
 
 // ------------------------------------------------------------------- SafeRatio
 
-type SafeRatio = Ratio<BigUint>;
+pub type SafeRatio = Ratio<BigUint>;
 
-fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
+pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
     SafeRatio::new(BigUint::from(numerator), BigUint::from(denominator))
 }
 

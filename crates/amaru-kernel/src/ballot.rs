@@ -48,12 +48,11 @@ impl<'d, C> cbor::decode::Decode<'d, C> for Ballot {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::Ballot;
-    use crate::{anchor::tests::any_anchor, prop_cbor_roundtrip, Vote};
-    use proptest::{option, prelude::*, prop_compose};
-
-    pub fn any_vote() -> impl Strategy<Value = Vote> {
-        prop_oneof![Just(Vote::Yes), Just(Vote::No), Just(Vote::Abstain)]
-    }
+    use crate::{
+        prop_cbor_roundtrip,
+        tests::{any_anchor, any_vote},
+    };
+    use proptest::{option, prelude::*};
 
     prop_compose! {
         pub fn any_ballot()(
