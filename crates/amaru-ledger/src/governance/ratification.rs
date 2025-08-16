@@ -18,9 +18,9 @@ use crate::{
     summary::{stake_distribution::StakeDistribution, SafeRatio},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, Constitution, Epoch,
-    Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, StakeCredential, UnitInterval, Vote,
-    Voter,
+    protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, Constitution, DRep,
+    Epoch, Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, StakeCredential, UnitInterval,
+    Vote, Voter,
 };
 use num::Zero;
 use std::{
@@ -33,6 +33,8 @@ use tracing::{debug_span, field, info, info_span, trace_span, Span};
 
 mod constitutional_committee;
 pub use constitutional_committee::ConstitutionalCommittee;
+
+mod dreps;
 
 mod stake_pools;
 
@@ -445,7 +447,7 @@ impl RatificationContext {
 
         let empty = BTreeMap::new();
 
-        let (_dreps_votes, cc_votes, pool_votes) =
+        let (dreps_votes, cc_votes, pool_votes) =
             partition_votes(self.votes.get(id).unwrap_or(&empty));
 
         let cc_approved = self.is_accepted_by_constitutional_committee(proposal, cc_votes);
@@ -455,7 +457,8 @@ impl RatificationContext {
             self.is_accepted_by_stake_pool_operators(proposal, pool_votes, stake_distribution);
         span.record("approved.pools", spos_approved);
 
-        let dreps_approved = self.is_accepted_by_delegate_representatives(proposal);
+        let dreps_approved =
+            self.is_accepted_by_delegate_representatives(proposal, dreps_votes, stake_distribution);
         span.record("approved.dreps", dreps_approved);
 
         cc_approved && spos_approved && dreps_approved
@@ -510,9 +513,29 @@ impl RatificationContext {
         }
     }
 
-    fn is_accepted_by_delegate_representatives(&self, _proposal: &ProposalEnum) -> bool {
-        // FIXME
-        true
+    fn is_accepted_by_delegate_representatives(
+        &self,
+        proposal: &ProposalEnum,
+        votes: BTreeMap<DRep, &Vote>,
+        stake_distribution: &StakeDistribution,
+    ) -> bool {
+        match dreps::voting_threshold(
+            self.protocol_version,
+            self.constitutional_committee.is_none(),
+            &self.protocol_parameters.drep_voting_thresholds,
+            proposal,
+        ) {
+            None => false,
+            Some(threshold) => {
+                tracing::Span::current().record("required_threshold.dreps", threshold.to_string());
+
+                let tally = || -> SafeRatio {
+                    dreps::tally(self.epoch, proposal, votes, stake_distribution)
+                };
+
+                threshold == SafeRatio::zero() || tally() >= threshold
+            }
+        }
     }
 }
 
@@ -663,7 +686,7 @@ pub type StoreUpdate<S> = Box<dyn FnOnce(&S, &RatificationContext) -> Result<(),
 fn partition_votes(
     votes: &BTreeMap<Voter, Ballot>,
 ) -> (
-    BTreeMap<StakeCredential, &Vote>,
+    BTreeMap<DRep, &Vote>,
     BTreeMap<StakeCredential, &Vote>,
     BTreeMap<&PoolId, &Vote>,
 ) {
@@ -678,10 +701,10 @@ fn partition_votes(
                     committee.insert(StakeCredential::ScriptHash(*hash), &ballot.vote);
                 }
                 Voter::DRepKey(hash) => {
-                    dreps.insert(StakeCredential::AddrKeyhash(*hash), &ballot.vote);
+                    dreps.insert(DRep::Key(*hash), &ballot.vote);
                 }
                 Voter::DRepScript(hash) => {
-                    dreps.insert(StakeCredential::ScriptHash(*hash), &ballot.vote);
+                    dreps.insert(DRep::Script(*hash), &ballot.vote);
                 }
                 Voter::StakePoolKey(pool_id) => {
                     pools.insert(pool_id, &ballot.vote);
