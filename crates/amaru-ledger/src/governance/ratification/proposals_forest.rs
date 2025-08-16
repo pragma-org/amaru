@@ -17,6 +17,7 @@ use super::{
     proposals_tree::{ProposalsTree, Sibling},
     CommitteeUpdate, OrphanProposal, ProposalEnum,
 };
+use crate::summary::into_safe_ratio;
 use amaru_kernel::{
     display_protocol_parameters_update, expect_stake_credential, ComparableProposalId,
     Constitution, Epoch, GovAction, Nullable, ProposalId, ProtocolParamUpdate, ProtocolVersion,
@@ -130,7 +131,7 @@ impl ProposalsForest {
                 Ok(())
             }
 
-            TreasuryWithdrawals(withdrawals, guardrails_script) => {
+            TreasuryWithdrawals(withdrawals, _guardrails_script) => {
                 let withdrawals = withdrawals.to_vec().into_iter().fold(
                     BTreeMap::new(),
                     |mut accum, (reward_account, amount)| {
@@ -141,10 +142,7 @@ impl ProposalsForest {
 
                 self.proposals.insert(
                     id.clone(),
-                    ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal {
-                        withdrawals,
-                        guardrails: Option::from(guardrails_script),
-                    }),
+                    ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)),
                 );
 
                 Ok(())
@@ -166,7 +164,7 @@ impl ProposalsForest {
                                 .into_iter()
                                 .map(|(k, v)| (k, Epoch::from(v)))
                                 .collect(),
-                            threshold,
+                            threshold: into_safe_ratio(&threshold),
                         },
                         parent,
                     ),

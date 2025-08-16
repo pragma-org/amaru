@@ -16,9 +16,9 @@ use crate::in_memory::ledger::columns::{
     accounts, cc_members, dreps, pools, proposals, utxo, votes,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, ComparableProposalId, ConstitutionalCommittee,
-    EraHistory, Lovelace, Point, PoolId, ProtocolVersion, Slot, StakeCredential, TransactionInput,
-    PROTOCOL_VERSION_9,
+    protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution,
+    ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, ProtocolVersion, Slot,
+    StakeCredential, TransactionInput, PROTOCOL_VERSION_9,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -119,6 +119,10 @@ impl ReadStore for MemoryStore {
 
     fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
         Ok(self.constitutional_committee.borrow().clone())
+    }
+
+    fn constitution(&self) -> Result<Constitution, StoreError> {
+        unimplemented!(".constitution")
     }
 
     fn account(
@@ -421,7 +425,11 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
     }
 
     fn set_proposals_roots(&self, _roots: &ProposalsRootsRc) -> Result<(), StoreError> {
-        unimplemented!("set_proposals_roots");
+        unimplemented!(".set_proposals_roots");
+    }
+
+    fn set_constitution(&self, _constitution: &Constitution) -> Result<(), StoreError> {
+        unimplemented!(".set_constitution");
     }
 
     fn remove_proposals<'iter, Id>(
