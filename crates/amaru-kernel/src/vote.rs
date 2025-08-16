@@ -12,14 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{Ballot, BallotId};
-use iter_borrow::IterBorrow;
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use crate::Vote;
+    use proptest::prelude::*;
 
-/// Iterator used to browse rows from the votes column. Meant to be referenced using qualified imports.
-pub type Iter<'a, 'b> = IterBorrow<'a, 'b, Key, Option<Value>>;
-
-pub type Key = BallotId;
-
-pub type Value = Ballot;
-
-pub type Row = Value;
+    pub fn any_vote() -> impl Strategy<Value = Vote> {
+        prop_oneof![Just(Vote::Yes), Just(Vote::No), Just(Vote::Abstain)]
+    }
+}

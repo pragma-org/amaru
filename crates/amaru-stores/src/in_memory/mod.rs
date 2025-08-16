@@ -16,18 +16,21 @@ use crate::in_memory::ledger::columns::{
     accounts, cc_members, dreps, pools, proposals, utxo, votes,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, ComparableProposalId, EraHistory, Lovelace, Point,
-    PoolId, ProposalId, ProtocolVersion, Slot, StakeCredential, TransactionInput,
-    PROTOCOL_VERSION_9,
+    protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution,
+    ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, ProtocolVersion, Slot,
+    StakeCredential, TransactionInput, PROTOCOL_VERSION_9,
 };
-use amaru_ledger::store::{
-    columns::{
-        accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
-        pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
-        votes as votes_column,
+use amaru_ledger::{
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
+    store::{
+        columns::{
+            accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
+            pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
+            votes as votes_column,
+        },
+        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
+        TransactionalContext,
     },
-    EpochTransitionProgress, HistoricalStores, ProtocolParametersErrorKind, ReadStore, Snapshot,
-    Store, StoreError, TransactionalContext,
 };
 use iter_borrow::IterBorrow;
 use slot_arithmetic::Epoch;
@@ -56,6 +59,7 @@ pub struct MemoryStore {
     votes: RefCell<BTreeMap<votes_column::Key, votes_column::Value>>,
     protocol_parameters: RefCell<Option<ProtocolParameters>>,
     protocol_version: RefCell<ProtocolVersion>,
+    constitutional_committee: RefCell<ConstitutionalCommittee>,
     era_history: EraHistory,
 }
 
@@ -76,6 +80,7 @@ impl MemoryStore {
             protocol_parameters: RefCell::new(None),
             era_history,
             protocol_version: RefCell::new(protocol_version),
+            constitutional_committee: RefCell::new(ConstitutionalCommittee::NoConfidence),
         }
     }
 }
@@ -96,9 +101,28 @@ impl ReadStore for MemoryStore {
         self.protocol_parameters
             .borrow()
             .clone()
-            .ok_or(StoreError::ProtocolParameters(
-                ProtocolParametersErrorKind::Missing,
+            .ok_or(StoreError::missing::<ProtocolParameters>(
+                "protocol-parameters",
             ))
+    }
+
+    /// Get the latest governance roots; which corresponds to the id of the latest governance
+    /// actions enacted for specific categories.
+    fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
+        Ok(ProposalsRoots {
+            protocol_parameters: None,
+            hard_fork: None,
+            constitutional_committee: None,
+            constitution: None,
+        })
+    }
+
+    fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+        Ok(self.constitutional_committee.borrow().clone())
+    }
+
+    fn constitution(&self) -> Result<Constitution, StoreError> {
+        unimplemented!(".constitution")
     }
 
     fn account(
@@ -254,10 +278,47 @@ impl ReadStore for MemoryStore {
             .proposals
             .borrow()
             .iter()
-            .map(|(proposal_id, row)| (ProposalId::from(proposal_id.clone()), row.clone()))
+            .map(|(proposal_id, row)| (proposal_id.clone(), row.clone()))
             .collect();
 
         Ok(proposals_vec.into_iter())
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_cc_members(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::cc_members::Key,
+                amaru_ledger::store::columns::cc_members::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        let cc_members_vec: Vec<_> = self
+            .cc_members
+            .borrow()
+            .iter()
+            .map(|(key, row)| (key.clone(), row.clone()))
+            .collect();
+
+        Ok(cc_members_vec.into_iter())
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_votes(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::votes::Key,
+                amaru_ledger::store::columns::votes::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        Ok(std::iter::empty())
     }
 }
 
@@ -353,6 +414,32 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
     fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError> {
         *self.store.protocol_version.borrow_mut() = *protocol_version;
         Ok(())
+    }
+
+    fn set_constitutional_committee(
+        &self,
+        constitutional_committee: &ConstitutionalCommittee,
+    ) -> Result<(), StoreError> {
+        *self.store.constitutional_committee.borrow_mut() = constitutional_committee.clone();
+        Ok(())
+    }
+
+    fn set_proposals_roots(&self, _roots: &ProposalsRootsRc) -> Result<(), StoreError> {
+        unimplemented!(".set_proposals_roots");
+    }
+
+    fn set_constitution(&self, _constitution: &Constitution) -> Result<(), StoreError> {
+        unimplemented!(".set_constitution");
+    }
+
+    fn remove_proposals<'iter, Id>(
+        &self,
+        _proposals: impl IntoIterator<Item = Id>,
+    ) -> Result<(), StoreError>
+    where
+        Id: Deref<Target = ComparableProposalId> + 'iter,
+    {
+        unimplemented!("remove_proposals");
     }
 
     fn save(
@@ -501,12 +588,16 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
 
     fn with_proposals(
         &self,
-        mut with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
+        with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        self.with_column(&self.store.proposals, |iter| {
-            let mapped = iter.map(|(k, v)| (ProposalId::from(k), v));
-            with(Box::new(mapped));
-        })
+        self.with_column(&self.store.proposals, with)
+    }
+
+    fn with_cc_members(
+        &self,
+        with: impl FnMut(amaru_ledger::store::columns::cc_members::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        self.with_column(&self.store.cc_members, with)
     }
 }
 

@@ -42,27 +42,33 @@ fn decode_break<'d>(
 /// Decode any heterogeneous CBOR array, irrespective of whether they're indefinite or definite.
 pub fn heterogeneous_array<'d, A>(
     d: &mut cbor::Decoder<'d>,
-    expected_len: u64,
-    elems: impl FnOnce(&mut cbor::Decoder<'d>) -> Result<A, cbor::decode::Error>,
+    elems: impl FnOnce(
+        &mut cbor::Decoder<'d>,
+        Box<dyn FnOnce(u64) -> Result<(), cbor::decode::Error>>,
+    ) -> Result<A, cbor::decode::Error>,
 ) -> Result<A, cbor::decode::Error> {
     let len = d.array()?;
 
-    let result = elems(d)?;
-
     match len {
         None => {
+            let result = elems(d, Box::new(|_| Ok(())))?;
             decode_break(d, len)?;
+            Ok(result)
         }
-        Some(len) if len != expected_len => {
-            return Err(cbor::decode::Error::message(format!(
-                "CBOR array length mismatch: expected {} got {}",
-                expected_len, len
-            )));
-        }
-        Some(_len) => (),
-    }
+        Some(len) => elems(
+            d,
+            Box::new(move |expected_len| {
+                if len != expected_len {
+                    return Err(cbor::decode::Error::message(format!(
+                        "CBOR array length mismatch: expected {} got {}",
+                        expected_len, len
+                    )));
+                }
 
-    Ok(result)
+                Ok(())
+            }),
+        ),
+    }
 }
 
 // Map
@@ -207,7 +213,8 @@ mod tests {
                     d: &mut cbor::Decoder<'d>,
                     ctx: &mut C,
                 ) -> Result<Self, cbor::decode::Error> {
-                    heterogeneous_array(d, 2, |d| {
+                    heterogeneous_array(d, |d, assert_len| {
+                        assert_len(2)?;
                         Ok(TestCase(Foo {
                             field0: d.decode_with(ctx)?,
                             field1: d.decode_with(ctx)?,
@@ -231,7 +238,8 @@ mod tests {
                     d: &mut cbor::Decoder<'d>,
                     ctx: &mut C,
                 ) -> Result<Self, cbor::decode::Error> {
-                    heterogeneous_array(d, 1, |d| {
+                    heterogeneous_array(d, |d, assert_len| {
+                        assert_len(1)?;
                         Ok(TestCase(Foo {
                             field0: d.decode_with(ctx)?,
                             field1: d.decode_with(ctx)?,
@@ -254,7 +262,8 @@ mod tests {
                     d: &mut cbor::Decoder<'d>,
                     ctx: &mut C,
                 ) -> Result<Self, cbor::decode::Error> {
-                    heterogeneous_array(d, 3, |d| {
+                    heterogeneous_array(d, |d, assert_len| {
+                        assert_len(3)?;
                         Ok(TestCase(Foo {
                             field0: d.decode_with(ctx)?,
                             field1: d.decode_with(ctx)?,

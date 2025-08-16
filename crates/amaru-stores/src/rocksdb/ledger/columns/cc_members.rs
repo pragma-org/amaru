@@ -13,8 +13,13 @@
 // limitations under the License.
 
 use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_ledger::store::{columns::unsafe_decode, StoreError};
+use amaru_kernel::{stake_credential_hash, StakeCredentialType};
+use amaru_ledger::{
+    state::diff_bind::Resettable,
+    store::{columns::unsafe_decode, StoreError},
+};
 use rocksdb::Transaction;
+use tracing::error;
 
 use amaru_ledger::store::columns::cc_members::{Key, Row, Value};
 
@@ -26,23 +31,39 @@ pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
 ) -> Result<(), StoreError> {
-    for (credential, hot_credential) in rows {
-        let key = as_key(&PREFIX, &credential);
+    for (cold_credential, (hot_credential, valid_until)) in rows {
+        let key = as_key(&PREFIX, &cold_credential);
 
-        // In case where a registration already exists, then we must only update the underlying
-        // entry.
-        let mut row = db
+        let row = db
             .get(&key)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(unsafe_decode::<Row>)
-            .unwrap_or(Row {
-                hot_credential: None,
+            // If the registration doesn't exists, but a new cc member is being added,
+            // then we can initialize a default value.
+            .or(match valid_until {
+                Resettable::Set(valid_until) => Some(Row {
+                    hot_credential: None,
+                    valid_until,
+                }),
+                Resettable::Unchanged | Resettable::Reset => None,
             });
 
-        hot_credential.set_or_reset(&mut row.hot_credential);
-
-        db.put(key, as_value(row))
-            .map_err(|err| StoreError::Internal(err.into()))?;
+        // Either the cc member exists, or it's a completely new value. Either way, at this point,
+        // we do expect a row.
+        if let Some(mut row) = row {
+            hot_credential.set_or_reset(&mut row.hot_credential);
+            db.put(key, as_value(row))
+                .map_err(|err| StoreError::Internal(err.into()))?;
+        } else {
+            // We don't expect modification of cc members to be possible if they don't exists.
+            // CC members are added through the ratification of specific governance actions.
+            error!(
+                target: "store::cc_members::add",
+                name = "add.unknown",
+                cold_credential.type = %StakeCredentialType::from(&cold_credential),
+                cold_credential.hash = %stake_credential_hash(&cold_credential),
+            );
+        }
     }
 
     Ok(())

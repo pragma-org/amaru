@@ -10,3 +10,6 @@ deny-amaru = "deny check licenses --config .cargo/deny.toml"
 
 [env]
 CLIPPY_CONF_DIR = ".cargo"
+
+[build]
+rustflags = ["--cfg", "tracing_unstable"]

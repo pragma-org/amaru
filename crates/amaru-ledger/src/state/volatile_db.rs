@@ -18,13 +18,13 @@ use super::{
     diff_set::DiffSet,
 };
 use crate::{
-    state::diff_epoch_reg::Registrations,
+    state::{diff_bind::Resettable, diff_epoch_reg::Registrations},
     store::{self, columns::*},
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Anchor, Ballot, CertificatePointer,
+    protocol_parameters::ProtocolParameters, Anchor, Ballot, BallotId, CertificatePointer,
     ComparableProposalId, DRep, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams,
-    Proposal, ProposalId, ProposalPointer, StakeCredential, TransactionInput, Voter,
+    Proposal, ProposalPointer, StakeCredential, TransactionInput,
 };
 use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -144,7 +144,7 @@ pub struct VolatileState {
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
     pub proposals: DiffBind<ComparableProposalId, Empty, Empty, (Proposal, ProposalPointer)>,
-    pub votes: DiffSet<Voter, Ballot>,
+    pub votes: DiffSet<BallotId, Ballot>,
     pub fees: Lovelace,
 }
 
@@ -205,7 +205,7 @@ impl AnchoredVolatileState {
             impl Iterator<Item = ()>,
         >,
     > {
-        let gov_action_lifetime = protocol_parameters.gov_action_lifetime as u64;
+        let gov_action_lifetime = protocol_parameters.gov_action_lifetime;
 
         StoreUpdate {
             point: self.anchor.0,
@@ -344,7 +344,7 @@ fn add_committee(
                 right: _,
                 value: _,
             },
-        )| { (credential, hot_credential) },
+        )| { (credential, (hot_credential, Resettable::Unchanged)) },
     )
 }
 
@@ -374,7 +374,7 @@ fn add_proposals(
         ): (usize, (_, Bind<_, Empty, _>))| {
             match value {
                 Some((proposal, proposed_in)) => Some((
-                    ProposalId::from(proposal_id),
+                    proposal_id,
                     proposals::Value {
                         proposed_in,
                         valid_until: expiration,

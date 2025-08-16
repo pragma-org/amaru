@@ -20,6 +20,6 @@ fn main() {
 
     // Set the NETWORK environment variable based on the value from the environment or default to "preprod"
     // This is necessary for the tests to run correctly, as they rely on the NETWORK variable to be set at build time
-    let network = env::var("NETWORK").unwrap_or_else(|_| "preprod".into());
+    let network = env::var("NETWORK").unwrap_or_else(|_| "preview".into());
     println!("cargo:rustc-env=NETWORK={}", network);
 }

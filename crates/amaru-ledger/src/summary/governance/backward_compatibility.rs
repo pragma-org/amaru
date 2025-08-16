@@ -99,13 +99,13 @@ fn last_dormant_period<'a>(
     proposals: BTreeSet<&'a (TransactionPointer, Epoch)>,
 ) -> LastDormantEpoch<'a> {
     let dormant_period = |previous_epoch, current_epoch| {
-        if previous_epoch <= current_epoch + governance_action_lifetime as u64 {
+        if previous_epoch <= current_epoch + governance_action_lifetime {
             None
         } else {
             // We iterate on a BTreeSet in reverse order, so when in dormant periods, the previous
             // epoch is necessarily larger than the current one. And we've just guaranteed there's
             // a gap that is greater than the governance_action_lifetime between both.
-            Some(previous_epoch - current_epoch - governance_action_lifetime as u64)
+            Some(previous_epoch - current_epoch - governance_action_lifetime)
         }
     };
 

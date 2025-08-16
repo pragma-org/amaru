@@ -18,29 +18,36 @@ pub mod diff_set;
 pub mod volatile_db;
 
 use crate::{
-    state::volatile_db::{StoreUpdate, VolatileDB},
+    governance::ratification::{self, RatificationContext},
+    state::{
+        ratification::{ProposalsRoots, ProposalsRootsRc, RatificationResult},
+        volatile_db::{StoreUpdate, VolatileDB},
+    },
     store::{
-        columns::pools, EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
+        columns::{pools, proposals},
+        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
         TransactionalContext,
     },
     summary::{
         governance::{self, GovernanceSummary},
         rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
+        Pots,
     },
 };
 use amaru_kernel::{
     expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, MintedBlock,
-    Point, PoolId, ProtocolVersion, Slot, StakeCredential, StakeCredentialType, TransactionInput,
+    stake_credential_hash, ComparableProposalId, ConstitutionalCommittee, EraHistory, Hash,
+    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, ProtocolVersion, Slot,
+    StakeCredential, StakeCredentialType, TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{btree_map, BTreeMap, BTreeSet, VecDeque},
     sync::{Arc, Mutex},
 };
 use thiserror::Error;
@@ -257,10 +264,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // epoch than the previously applied block (i.e. the tip of the stable storage).
         if epoch_transitioning {
             let old_protocol_version = self.protocol_version;
+
+            let ratification_context = self.new_ratification_context(current_epoch - 2)?;
+
             self.protocol_version = epoch_transition(
                 &mut *db,
                 self.network,
                 current_epoch,
+                ratification_context,
                 self.rewards_summary.take(),
                 &self.protocol_parameters,
             )?;
@@ -437,6 +448,64 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         Ok(result)
     }
+
+    #[instrument(level = Level::INFO, name = "ratification.context.new", skip_all)]
+    fn new_ratification_context(&self, epoch: Epoch) -> Result<RatificationContext, StoreError> {
+        let snapshot = self.snapshots.for_epoch(epoch)?;
+
+        let protocol_version = snapshot.protocol_version()?;
+
+        let protocol_parameters = snapshot.protocol_parameters()?;
+
+        let Pots { treasury, .. } = snapshot.pots()?;
+
+        let constitutional_committee = match snapshot.constitutional_committee()? {
+            ConstitutionalCommittee::NoConfidence => None,
+            ConstitutionalCommittee::Trusted { threshold } => {
+                let members = snapshot
+                    .iter_cc_members()?
+                    .map(|(cold_credential, row)| {
+                        (cold_credential, (row.hot_credential, row.valid_until))
+                    })
+                    .collect();
+
+                Some(ratification::ConstitutionalCommittee::new(
+                    threshold, members,
+                ))
+            }
+        };
+
+        // FIXME: This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
+        // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
+        // require much memory; but it becomes a potential attack vector.
+        //
+        // So ideally, we should avoid loading votes in memory.
+        let votes = snapshot
+            .iter_votes()?
+            .fold(BTreeMap::new(), |mut votes, (k, v)| {
+                match votes.entry(k.proposal) {
+                    btree_map::Entry::Vacant(entry) => {
+                        entry.insert(BTreeMap::from([(k.voter, v)]));
+                    }
+                    btree_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().insert(k.voter, v);
+                    }
+                }
+
+                votes
+            });
+
+        Ok(RatificationContext {
+            epoch: snapshot.epoch(),
+            total_withdrawn: 0,
+            treasury,
+            stake_distributions: self.stake_distributions.clone(),
+            protocol_version,
+            protocol_parameters,
+            constitutional_committee,
+            votes,
+        })
+    }
 }
 
 // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
@@ -502,6 +571,7 @@ fn epoch_transition(
     db: &mut impl Store,
     network: NetworkName,
     next_epoch: Epoch,
+    ratification_context: RatificationContext,
     rewards_summary: Option<RewardsSummary>,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<ProtocolVersion, StateError> {
@@ -533,14 +603,32 @@ fn epoch_transition(
     batch.commit()?;
 
     // Start of epoch
+
+    // Get all proposals to ratify / enact. Note that, even though the ratification happens with an
+    // epoch of delay (and thus, using data from a snapshot), we always use the most recent set of
+    // proposals available. While recently submitted proposals won't have any votes, they might
+    // still end up being pruned due to a previous proposal being enacted.
+    let proposals = db.iter_proposals()?.collect::<Vec<_>>();
+    let roots = db.proposals_roots()?;
+
     let batch = db.create_transaction();
     let should_begin_epoch = batch.try_epoch_transition(
         Some(EpochTransitionProgress::SnapshotTaken),
         Some(EpochTransitionProgress::EpochStarted),
     )?;
+
+    // FIXME: This should come from the store, and not be hard-coded. Requires to be capable of
+    // appreciating and enacting hard forks. Soon TM.
     let protocol_version = network.protocol_version(next_epoch);
     if should_begin_epoch {
-        begin_epoch(&batch, next_epoch, protocol_parameters)?;
+        begin_epoch(
+            &batch,
+            next_epoch,
+            ratification_context,
+            proposals,
+            roots,
+            protocol_parameters,
+        )?;
         batch.set_protocol_version(protocol_version)?;
     }
     batch.commit()?;
@@ -582,8 +670,11 @@ fn end_epoch<'store>(
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    ctx: RatificationContext,
+    proposals: Vec<(ComparableProposalId, proposals::Row)>,
+    roots: ProposalsRoots,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     // Reset counters before the epoch begins.
     reset_blocks_count(db)?;
     reset_fees(db)?;
@@ -598,13 +689,14 @@ fn begin_epoch<'store>(
     // delegates.
     tick_pools(db, epoch, protocol_parameters)?;
 
-    // Refund deposit for any proposal that has expired.
-    tick_proposals(db, epoch)?;
+    // Ratify and enact proposals at the epoch boundary. Also refund deposit for any proposal that
+    // has expired.
+    tick_proposals(db, epoch, ctx, proposals, roots)?;
 
     Ok(())
 }
 
-// Operation on the state
+// Operations on the state
 // ----------------------------------------------------------------------------
 
 #[instrument(
@@ -642,7 +734,7 @@ pub fn reset_blocks_count<'store>(
 pub fn refund_many<'store>(
     db: &impl TransactionalContext<'store>,
     mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     let leftovers =
         refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
             debug!(
@@ -669,7 +761,7 @@ pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     let mut refunds = Vec::new();
 
     db.with_pools(|iterator| {
@@ -692,11 +784,26 @@ pub fn tick_pools<'store>(
 pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
-) -> Result<(), StoreError> {
+    ctx: RatificationContext,
+    proposals: Vec<(ComparableProposalId, proposals::Row)>,
+    roots: ProposalsRoots,
+) -> Result<(), StateError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
+    let RatificationResult {
+        context: ctx,
+        store_updates,
+        pruned_proposals,
+    } = ctx
+        .ratify_proposals(proposals, ProposalsRootsRc::from(roots))
+        .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
+
+    store_updates
+        .into_iter()
+        .try_for_each(|apply_changes| apply_changes(db, &ctx))?;
+
     db.with_proposals(|iterator| {
-        for (_key, item) in iterator {
+        for (key, mut item) in iterator {
             if let Some(row) = item.borrow() {
                 // This '+2' is worthy of an explanation.
                 //
@@ -719,7 +826,7 @@ pub fn tick_proposals<'store>(
                 // 2. `epoch` designates the arrival epoch (i.e. `e+2`);
                 //
                 // Hence: epoch == valid_until + 2
-                if epoch == row.valid_until + 2 {
+                if epoch == row.valid_until + 2 || pruned_proposals.contains(&key) {
                     let key = expect_stake_credential(&row.proposal.reward_account);
                     refunds
                         .entry(key)
@@ -728,6 +835,7 @@ pub fn tick_proposals<'store>(
                         // blind 'insert'.
                         .and_modify(|entry| *entry += row.proposal.deposit)
                         .or_insert_with(|| row.proposal.deposit);
+                    *item.borrow_mut() = None;
                 }
             }
         }
@@ -833,6 +941,12 @@ pub enum StateError {
     Storage(#[from] StoreError),
     #[error("no stake distribution available for rewards calculation.")]
     StakeDistributionNotAvailableForRewards,
+    // TODO: Using a mere 'String' here because the source error contains some `Rc`, which aren't
+    // safe to send across threads. For the sake of carrying the error around, we might want to not
+    // keep Rc in errors, but clone the underlying data -- which is small anyway, in places where
+    // the error is generated.
+    #[error("error when ratifying proposals: {0}")]
+    RatificationFailed(String),
     #[error("rewards summary not ready")]
     RewardsSummaryNotReady,
     #[error("failed to compute epoch from slot {0:?}: {1}")]

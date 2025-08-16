@@ -13,17 +13,20 @@
 // limitations under the License.
 
 use crate::{
+    governance::ratification::ProposalsRootsRc,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{self, columns::proposals, Store, StoreError, TransactionalContext},
 };
 use amaru_kernel::{
-    cbor, network::NetworkName, protocol_parameters::ProtocolParameters, Account,
-    CertificatePointer, DRep, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
-    Point, PoolId, PoolParams, ProposalPointer, ProposalState, ProtocolVersion, Reward, Set, Slot,
-    StakeCredential, TransactionInput, TransactionPointer,
+    cbor, heterogeneous_array, network::NetworkName, protocol_parameters::ProtocolParameters,
+    Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
+    DRep, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
+    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolVersion, Reward,
+    ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
+    UnitInterval, Vote, Voter,
 };
 use progress_bar::ProgressBar;
-use std::{collections::BTreeMap, fs, iter, path::PathBuf, sync::LazyLock};
+use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
 use tracing::info;
 
 const BATCH_SIZE: usize = 5000;
@@ -103,8 +106,8 @@ pub fn import_initial_snapshot(
 
     let dreps = d.decode()?;
 
-    // Committee
-    d.skip()?;
+    // Committee cold -> hot delegations
+    let cc_members = d.decode()?;
 
     // Dormant Epoch
     d.skip()?;
@@ -169,14 +172,16 @@ pub fn import_initial_snapshot(
 
     // Proposals
     d.array()?;
-    // Proposals roots
-    d.skip()?;
+    d.array()?;
+    import_proposals_roots(db, d.decode()?, d.decode()?, d.decode()?, d.decode()?)?;
     let proposals: Vec<ProposalState> = d.decode()?;
 
     // Constitutional committee
-    d.skip()?;
+    import_constitutional_committee(db, point, era_history, d.decode()?, cc_members)?;
+
     // Constitution
-    d.skip()?;
+    import_constitution(db, d.decode()?)?;
+
     // Current Protocol Params
     let pparams = if let Some(dir) = protocol_parameters_dir {
         decode_seggregated_parameters(dir, d.decode()?)?
@@ -184,15 +189,48 @@ pub fn import_initial_snapshot(
         d.decode()?
     };
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
-    import_dreps(db, era_history, point, epoch, dreps, &protocol_parameters)?;
+    import_dreps(db, point, era_history, epoch, dreps, &protocol_parameters)?;
     import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
     // Previous Protocol Params
     d.skip()?;
+
     // Future Protocol Params
     d.skip()?;
+
     // DRep Pulsing State
-    d.skip()?;
+    d.array()?;
+
+    d.array()?; // Pulsing Snapshot
+
+    import_votes(db, point, era_history, d.decode()?)?;
+
+    d.skip()?; // DRep distr
+    d.skip()?; // DRep state
+    d.skip()?; // Pool distr
+
+    d.array()?; // Ratify State
+
+    d.skip()?; // Enact State
+
+    let enacted: Vec<GovActionState> = d.decode()?;
+    assert!(
+        enacted.is_empty(),
+        "unimplemented import scenario: snapshot contains expired governance action: {enacted:?}"
+    );
+
+    d.tag()?;
+    let expired: Vec<ProposalId> = d.decode()?;
+    assert!(
+        expired.is_empty(),
+        "unimplemented import scenario: snapshot contains expired governance action: {expired:?}"
+    );
+
+    let delayed: bool = d.decode()?;
+    assert!(
+        !delayed,
+        "unimplemented import scenario: snapshot contains a ratified delaying governance action"
+    );
 
     // Epoch State / Ledger State / UTxO State / utxosStakeDistr
     d.skip()?;
@@ -202,6 +240,7 @@ pub fn import_initial_snapshot(
 
     // Epoch State / Snapshots
     d.skip()?;
+
     // Epoch State / NonMyopic
     d.skip()?;
 
@@ -378,8 +417,8 @@ fn import_utxo(
 
 fn import_dreps(
     db: &impl Store,
-    era_history: &EraHistory,
     point: &Point,
+    era_history: &EraHistory,
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
     protocol_parameters: &ProtocolParameters,
@@ -448,13 +487,13 @@ fn import_dreps(
                     let last_interaction = era_first_epoch;
                     #[allow(clippy::unwrap_used)]
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    if state.expiry > epoch + protocol_parameters.drep_expiry as u64 {
+                    if state.expiry > epoch + protocol_parameters.drep_expiry {
                         (epoch_bound.start, last_interaction)
                     } else {
                         (point.slot_or_default(), last_interaction)
                     }
                 } else {
-                    let last_interaction = state.expiry - protocol_parameters.drep_expiry as u64;
+                    let last_interaction = state.expiry - protocol_parameters.drep_expiry;
                     #[allow(clippy::unwrap_used)]
                     let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
                     // start or end doesn't matter here.
@@ -550,7 +589,7 @@ fn import_proposals(
                 .map(|proposal| -> Result<_, Box<dyn std::error::Error>> {
                     let proposal_index = proposal.id.action_index as usize;
                     Ok((
-                        proposal.id,
+                        ComparableProposalId::from(proposal.id),
                         proposals::Value {
                             proposed_in: ProposalPointer {
                                 transaction: TransactionPointer {
@@ -560,7 +599,7 @@ fn import_proposals(
                                 proposal_index,
                             },
                             valid_until: proposal.proposed_in
-                                + protocol_parameters.gov_action_lifetime as u64,
+                                + protocol_parameters.gov_action_lifetime,
                             proposal: proposal.procedure,
                         },
                     ))
@@ -754,6 +793,204 @@ fn import_accounts(
     Ok(())
 }
 
+fn import_proposals_roots(
+    db: &impl Store,
+    protocol_parameters: StrictMaybe<ComparableProposalId>,
+    hard_fork: StrictMaybe<ComparableProposalId>,
+    constitutional_committee: StrictMaybe<ComparableProposalId>,
+    constitution: StrictMaybe<ComparableProposalId>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    let roots = ProposalsRootsRc {
+        protocol_parameters: Option::from(protocol_parameters).map(Rc::new),
+        hard_fork: Option::from(hard_fork).map(Rc::new),
+        constitutional_committee: Option::from(constitutional_committee).map(Rc::new),
+        constitution: Option::from(constitution).map(Rc::new),
+    };
+
+    info!(
+        protocol_parameters = ?roots.protocol_parameters,
+        hard_fork = ?roots.hard_fork,
+        constitutional_committee = ?roots.constitutional_committee,
+        constitution = ?roots.constitution,
+        "proposal roots"
+    );
+
+    transaction.set_proposals_roots(&roots)?;
+    transaction.commit()?;
+
+    Ok(())
+}
+
+fn import_constitution(
+    db: &impl Store,
+    constitution: Constitution,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    info!(
+        anchor = constitution.anchor.url,
+        guardrails = Option::from(constitution.guardrail_script.clone())
+            .map(|s: ScriptHash| s.to_string().chars().take(8).collect())
+            .unwrap_or_else(|| "none".to_string()),
+        "constitution"
+    );
+
+    transaction.set_constitution(&constitution)?;
+
+    transaction.commit()?;
+
+    Ok(())
+}
+
+fn import_constitutional_committee(
+    db: &impl Store,
+    point: &Point,
+    era_history: &EraHistory,
+    cc: StrictMaybe<ConstitutionalCommittee>,
+    mut hot_cold_delegations: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let transaction = db.create_transaction();
+
+    transaction.with_cc_members(|iterator| {
+        for (_, mut handle) in iterator {
+            *handle.borrow_mut() = None;
+        }
+    })?;
+
+    let mut cc_members = BTreeMap::new();
+
+    let cc = match cc {
+        StrictMaybe::Nothing => {
+            info!(state = "no confidence", "constitutional committee");
+            amaru_kernel::ConstitutionalCommittee::NoConfidence
+        }
+        StrictMaybe::Just(ConstitutionalCommittee { threshold, members }) => {
+            info!(
+                state = "trusted",
+                threshold = format!("{}/{}", threshold.numerator, threshold.denominator),
+                members = members.len(),
+                "constitutional committee"
+            );
+
+            cc_members = members;
+
+            amaru_kernel::ConstitutionalCommittee::Trusted { threshold }
+        }
+    };
+
+    transaction.set_constitutional_committee(&cc)?;
+
+    transaction.save(
+        point,
+        None,
+        store::Columns {
+            utxo: iter::empty(),
+            pools: iter::empty(),
+            accounts: iter::empty(),
+            dreps: iter::empty(),
+            proposals: iter::empty(),
+            votes: iter::empty(),
+            cc_members: cc_members.into_iter().map(|(cold_cred, valid_until)| {
+                let hot_cred = match hot_cold_delegations.remove(&cold_cred) {
+                    Some(ConstitutionalCommitteeAuthorization::DelegatedToHotCredential(
+                        hot_cred,
+                    )) => Resettable::Set(hot_cred),
+                    None | Some(ConstitutionalCommitteeAuthorization::Resigned(..)) => {
+                        Resettable::Reset
+                    }
+                };
+
+                (cold_cred, (hot_cred, Resettable::Set(valid_until)))
+            }),
+        },
+        Default::default(),
+        iter::empty(),
+        era_history,
+    )?;
+
+    transaction.commit()?;
+
+    Ok(())
+}
+
+fn import_votes(
+    db: &impl Store,
+    point: &Point,
+    era_history: &EraHistory,
+    actions: Vec<GovActionState>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let votes = actions
+        .into_iter()
+        .flat_map(|st| {
+            let new_ballot_id = |voter| BallotId {
+                proposal: ComparableProposalId::from(st.id.clone()),
+                voter,
+            };
+
+            let mut votes = Vec::new();
+
+            for (committee, vote) in st.committee_votes.into_iter() {
+                let voter = match committee {
+                    StakeCredential::AddrKeyhash(hash) => Voter::ConstitutionalCommitteeKey(hash),
+                    StakeCredential::ScriptHash(hash) => Voter::ConstitutionalCommitteeScript(hash),
+                };
+
+                let ballot = Ballot { vote, anchor: None };
+
+                votes.push((new_ballot_id(voter), ballot));
+            }
+
+            for (drep, vote) in st.dreps_votes.into_iter() {
+                let voter = match drep {
+                    StakeCredential::AddrKeyhash(hash) => Voter::DRepKey(hash),
+                    StakeCredential::ScriptHash(hash) => Voter::DRepScript(hash),
+                };
+
+                let ballot = Ballot { vote, anchor: None };
+
+                votes.push((new_ballot_id(voter), ballot));
+            }
+
+            for (pool_id, vote) in st.pools_votes.into_iter() {
+                let voter = Voter::StakePoolKey(pool_id);
+
+                let ballot = Ballot { vote, anchor: None };
+
+                votes.push((new_ballot_id(voter), ballot));
+            }
+
+            votes
+        })
+        .collect::<Vec<_>>();
+
+    info!(size = votes.len(), "votes");
+
+    let transaction = db.create_transaction();
+
+    transaction.save(
+        point,
+        None,
+        store::Columns {
+            utxo: iter::empty(),
+            pools: iter::empty(),
+            accounts: iter::empty(),
+            dreps: iter::empty(),
+            proposals: iter::empty(),
+            cc_members: iter::empty(),
+            votes: votes.into_iter(),
+        },
+        Default::default(),
+        iter::empty(),
+        era_history,
+    )?;
+
+    transaction.commit()?;
+
+    Ok(())
+}
+
 fn decode_seggregated_parameters(
     dir: &PathBuf,
     hash: &cbor::bytes::ByteSlice,
@@ -772,4 +1009,78 @@ fn decode_seggregated_parameters(
     let pparams = cbor::Decoder::new(&pparams_file).decode()?;
 
     Ok(pparams)
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+#[allow(dead_code)]
+struct GovActionState {
+    id: ProposalId,
+    committee_votes: BTreeMap<StakeCredential, Vote>,
+    dreps_votes: BTreeMap<StakeCredential, Vote>,
+    pools_votes: BTreeMap<PoolId, Vote>,
+    proposal: Proposal,
+    proposed_in: Epoch,
+    expires_after: Epoch,
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for GovActionState {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(7)?;
+            Ok(GovActionState {
+                id: d.decode_with(ctx)?,
+                committee_votes: d.decode_with(ctx)?,
+                dreps_votes: d.decode_with(ctx)?,
+                pools_votes: d.decode_with(ctx)?,
+                proposal: d.decode_with(ctx)?,
+                proposed_in: d.decode_with(ctx)?,
+                expires_after: d.decode_with(ctx)?,
+            })
+        })
+    }
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+enum ConstitutionalCommitteeAuthorization {
+    DelegatedToHotCredential(StakeCredential),
+    Resigned(#[allow(dead_code)] StrictMaybe<Anchor>),
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommitteeAuthorization {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| match d.u8()? {
+            0 => {
+                assert_len(1)?;
+                Ok(Self::DelegatedToHotCredential(d.decode_with(ctx)?))
+            }
+            1 => {
+                assert_len(1)?;
+                Ok(Self::Resigned(d.decode_with(ctx)?))
+            }
+            t => Err(cbor::decode::Error::message(format!(
+                "unexpected ConstitutionalCommitteeAuthorization kind: {t}; expected 0 or 1."
+            ))),
+        })
+    }
+}
+
+// TODO: Move to Pallas
+#[derive(Debug)]
+struct ConstitutionalCommittee {
+    members: BTreeMap<StakeCredential, Epoch>,
+    threshold: UnitInterval,
+}
+
+impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
+    fn decode(d: &mut cbor::Decoder<'d>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
+            Ok(ConstitutionalCommittee {
+                members: d.decode_with(ctx)?,
+                threshold: d.decode_with(ctx)?,
+            })
+        })
+    }
 }
