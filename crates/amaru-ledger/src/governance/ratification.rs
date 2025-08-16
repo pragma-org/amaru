@@ -77,10 +77,10 @@ pub enum RatificationInternalError {
     NoSuitableStakeDistribution,
 
     #[error("invalid operation while creating the proposals forest: {0}")]
-    InternalForestCreationError(#[from] ProposalsInsertError),
+    InternalForestCreationError(#[from] ProposalsInsertError<ComparableProposalId>),
 
     #[error("invalid operation while enacting a proposal: {0}")]
-    InternalForestEnactmentError(#[from] ProposalsEnactError),
+    InternalForestEnactmentError(#[from] ProposalsEnactError<ComparableProposalId>),
 }
 
 pub struct RatificationResult<S> {

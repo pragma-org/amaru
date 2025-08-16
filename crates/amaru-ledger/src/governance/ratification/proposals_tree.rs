@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::ComparableProposalId;
 use std::{collections::BTreeSet, rc::Rc};
 
 // ProposalsTree
@@ -25,13 +24,13 @@ use std::{collections::BTreeSet, rc::Rc};
 /// node.
 ///
 #[derive(Debug)]
-pub struct ProposalsTree {
-    pub root: Option<Rc<ComparableProposalId>>,
-    pub siblings: Vec<Sibling>,
+pub struct ProposalsTree<T> {
+    pub root: Option<Rc<T>>,
+    pub siblings: Vec<Sibling<T>>,
 }
 
-impl ProposalsTree {
-    pub fn new(root: Option<Rc<ComparableProposalId>>) -> Self {
+impl<T: Ord> ProposalsTree<T> {
+    pub fn new(root: Option<Rc<T>>) -> Self {
         Self {
             root,
             siblings: Vec::new(),
@@ -44,11 +43,7 @@ impl ProposalsTree {
 
     /// Enact a proposal as new root, collecting all propoals rendered obsolete through that
     /// promotion (that is, all siblings and their children).
-    pub fn enact(
-        &mut self,
-        id: Rc<ComparableProposalId>,
-    ) -> Result<(Rc<ComparableProposalId>, BTreeSet<Rc<ComparableProposalId>>), ProposalsEnactError>
-    {
+    pub fn enact(&mut self, id: Rc<T>) -> Result<(Rc<T>, BTreeSet<Rc<T>>), ProposalsEnactError<T>> {
         use ProposalsEnactError::*;
 
         match Sibling::partition(std::mem::take(&mut self.siblings), &id) {
@@ -68,9 +63,9 @@ impl ProposalsTree {
 
     pub fn insert(
         &mut self,
-        id: Rc<ComparableProposalId>,
-        parent: Option<Rc<ComparableProposalId>>,
-    ) -> Result<(), ProposalsInsertError> {
+        id: Rc<T>,
+        parent: Option<Rc<T>>,
+    ) -> Result<(), ProposalsInsertError<T>> {
         use ProposalsInsertError::*;
 
         match (self.root.as_deref(), parent) {
@@ -112,16 +107,13 @@ impl ProposalsTree {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ProposalsInsertError {
+pub enum ProposalsInsertError<T> {
     #[error("proposal {id:?} has an unknown parent {parent:?}")]
-    UnknownParent {
-        id: Rc<ComparableProposalId>,
-        parent: Option<Rc<ComparableProposalId>>,
-    },
+    UnknownParent { id: Rc<T>, parent: Option<Rc<T>> },
 }
 
-impl From<SiblingInsertError> for ProposalsInsertError {
-    fn from(SiblingInsertError::UnknownParent { id, parent }: SiblingInsertError) -> Self {
+impl<T> From<SiblingInsertError<T>> for ProposalsInsertError<T> {
+    fn from(SiblingInsertError::UnknownParent { id, parent }: SiblingInsertError<T>) -> Self {
         Self::UnknownParent {
             id,
             parent: Some(parent),
@@ -130,33 +122,29 @@ impl From<SiblingInsertError> for ProposalsInsertError {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum ProposalsEnactError {
+pub enum ProposalsEnactError<T> {
     #[error("unknown proposal {id:?}")]
-    UnknownProposal { id: Rc<ComparableProposalId> },
+    UnknownProposal { id: Rc<T> },
 }
 
 // Sibling
 // ----------------------------------------------------------------------------
 
 #[derive(Debug)]
-pub struct Sibling {
-    pub id: Rc<ComparableProposalId>,
-    pub children: Vec<Sibling>,
+pub struct Sibling<T> {
+    pub id: Rc<T>,
+    pub children: Vec<Sibling<T>>,
 }
 
-impl Sibling {
-    pub fn new(id: Rc<ComparableProposalId>) -> Self {
+impl<T: Eq + Ord> Sibling<T> {
+    pub fn new(id: Rc<T>) -> Self {
         Self {
             id,
             children: vec![],
         }
     }
 
-    pub fn insert(
-        &mut self,
-        id: Rc<ComparableProposalId>,
-        parent: Rc<ComparableProposalId>,
-    ) -> Result<(), SiblingInsertError> {
+    pub fn insert(&mut self, id: Rc<T>, parent: Rc<T>) -> Result<(), SiblingInsertError<T>> {
         use SiblingInsertError::*;
 
         // One of the sibling at this level has the same id as the proposal's
@@ -173,7 +161,7 @@ impl Sibling {
         })
     }
 
-    fn partition(nodes: Vec<Self>, pivot: &ComparableProposalId) -> (Option<Self>, Vec<Self>) {
+    fn partition(nodes: Vec<Self>, pivot: &T) -> (Option<Self>, Vec<Self>) {
         let capacity = nodes.len();
         nodes.into_iter().fold(
             (None, Vec::with_capacity(capacity)),
@@ -188,7 +176,7 @@ impl Sibling {
         )
     }
 
-    fn collect_all(accum: &mut BTreeSet<Rc<ComparableProposalId>>, nodes: Vec<Self>) {
+    fn collect_all(accum: &mut BTreeSet<Rc<T>>, nodes: Vec<Self>) {
         nodes.into_iter().for_each(|s| {
             accum.insert(s.id);
             Self::collect_all(accum, s.children);
@@ -197,10 +185,7 @@ impl Sibling {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum SiblingInsertError {
+pub enum SiblingInsertError<T> {
     #[error("proposal {id:?} has an unknown parent {parent:?}")]
-    UnknownParent {
-        id: Rc<ComparableProposalId>,
-        parent: Rc<ComparableProposalId>,
-    },
+    UnknownParent { id: Rc<T>, parent: Rc<T> },
 }

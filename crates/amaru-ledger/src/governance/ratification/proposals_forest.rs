@@ -48,10 +48,10 @@ pub struct ProposalsForest {
 
     // Finally, the relation between proposals of the same nature is preserved through multiple
     // tree-like structures. This is what gives this data-structure its name.
-    protocol_parameters: ProposalsTree,
-    hard_fork: ProposalsTree,
-    constitutional_committee: ProposalsTree,
-    constitution: ProposalsTree,
+    protocol_parameters: ProposalsTree<ComparableProposalId>,
+    hard_fork: ProposalsTree<ComparableProposalId>,
+    constitutional_committee: ProposalsTree<ComparableProposalId>,
+    constitution: ProposalsTree<ComparableProposalId>,
 }
 
 impl ProposalsForest {
@@ -90,7 +90,7 @@ impl ProposalsForest {
         &mut self,
         id: ComparableProposalId,
         proposal: GovAction,
-    ) -> Result<(), ProposalsInsertError> {
+    ) -> Result<(), ProposalsInsertError<ComparableProposalId>> {
         use amaru_kernel::GovAction::*;
 
         let id = Rc::new(id);
@@ -245,7 +245,7 @@ impl ProposalsForest {
         id: Rc<ComparableProposalId>,
         proposal: &ProposalEnum,
         compass: &mut ProposalsForestCompass,
-    ) -> Result<BTreeSet<Rc<ComparableProposalId>>, ProposalsEnactError> {
+    ) -> Result<BTreeSet<Rc<ComparableProposalId>>, ProposalsEnactError<ComparableProposalId>> {
         // Promote to new root & remember delaying cases
         let (id, mut pruned) = match proposal {
             ProposalEnum::HardFork(..) => {
@@ -409,7 +409,7 @@ impl fmt::Display for ProposalsForest {
             title: &str,
             lookup: Rc<dyn Fn(&'_ ComparableProposalId) -> Option<&'a A> + 'a>,
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
-            tree: &'a ProposalsTree,
+            tree: &'a ProposalsTree<ComparableProposalId>,
         ) -> fmt::Result {
             if tree.is_empty() {
                 return Ok(());
@@ -424,7 +424,7 @@ impl fmt::Display for ProposalsForest {
             f: &mut fmt::Formatter<'_>,
             lookup: Rc<dyn Fn(&'_ ComparableProposalId) -> Option<&'a A> + 'a>,
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
-            tree: &'a ProposalsTree,
+            tree: &'a ProposalsTree<ComparableProposalId>,
         ) -> fmt::Result {
             for (i, s) in tree.siblings.iter().enumerate() {
                 let is_last = i + 1 == tree.siblings.len();
@@ -436,7 +436,7 @@ impl fmt::Display for ProposalsForest {
         // Render a single sibling + its (flattened) children.
         fn render_sibling<'a, A>(
             f: &mut fmt::Formatter<'_>,
-            s: &'a Sibling,
+            s: &'a Sibling<ComparableProposalId>,
             prefix: &str,
             lookup: Rc<dyn Fn(&'_ ComparableProposalId) -> Option<&'a A> + 'a>,
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
