@@ -142,6 +142,7 @@ pub mod reward_kind;
 pub use script_kind::*;
 pub mod script_kind;
 
+pub use stake_credential::*;
 pub mod stake_credential;
 
 pub use strict_maybe::*;

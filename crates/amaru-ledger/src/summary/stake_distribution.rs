@@ -298,3 +298,93 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
         s.end()
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::StakeDistribution;
+    use crate::summary::{safe_ratio, AccountState, PoolState};
+    use amaru_kernel::{
+        expect_stake_credential,
+        tests::{any_drep, any_pool_id, any_pool_params, any_stake_credential},
+        Epoch, Lovelace,
+    };
+    use proptest::{collection, option, prelude::*, prop_compose};
+    use std::collections::BTreeMap;
+
+    prop_compose! {
+        pub fn any_stake_distribution_no_dreps()(
+            epoch in any::<u64>(),
+            pools in collection::btree_map(any_pool_id(), any_pool_state(), 1..10),
+            accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
+        ) -> StakeDistribution {
+            let voting_stake = pools.values().fold(0, |total, st| total + st.voting_stake);
+            let active_stake = pools.values().fold(0, |total, st| total + st.stake);
+
+            let pools_len = pools.len();
+
+            let pools_vec = pools.iter().collect::<Vec<_>>();
+
+            // Artificially create some links between pools and accounts.
+            let accounts = accounts.into_iter().enumerate().map(|(ix, (mut account, account_st))| {
+                let pool = pools_vec.get(ix % pools_len);
+
+                // Ensure some of the reward accounts do exists.
+                if ix % 2 == 0 {
+                    if let Some((_, pool_st)) = pool {
+                        account = expect_stake_credential(&pool_st.parameters.reward_account);
+                    }
+                }
+
+                // Make sure accounts are delegated to existing pools, when they are.
+                account_st.pool.and_then(|_| pool.map(|(k, _)| *k));
+
+                (account, account_st)
+            }).collect();
+
+            StakeDistribution {
+                epoch: Epoch::from(epoch),
+                active_stake,
+                voting_stake,
+                pools,
+                accounts,
+                dreps: BTreeMap::new(),
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_account_state()(
+            lovelace in any::<Lovelace>(),
+            pool in option::of(any_pool_id()),
+            drep in option::of(any_drep()),
+        ) -> AccountState {
+            AccountState {
+                lovelace,
+                pool,
+                drep
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_pool_state()(
+            blocks_count in any::<u64>(),
+            stake in 0_u64..1_000_000_000_000,
+            voting_stake in 0_u64..1_000_000_000_000,
+            parameters in any_pool_params(),
+        ) -> PoolState {
+            let margin = safe_ratio(
+                parameters.margin.numerator,
+                parameters.margin.denominator,
+            );
+
+            PoolState {
+                blocks_count,
+                stake,
+                voting_stake: stake.max(voting_stake),
+                margin,
+                parameters,
+            }
+        }
+    }
+}

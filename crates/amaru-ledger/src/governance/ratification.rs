@@ -14,14 +14,14 @@
 
 use crate::{
     store::{columns::proposals, StoreError, TransactionalContext},
-    summary::stake_distribution::StakeDistribution,
+    summary::{stake_distribution::StakeDistribution, SafeRatio},
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, Constitution, Epoch,
     Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, ScriptHash, StakeCredential,
     UnitInterval, Vote, Voter,
 };
-use num::Rational64;
+use num::Zero;
 use std::{
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
@@ -343,7 +343,7 @@ impl RatificationContext {
 
                 let tally = || committee.tally(self.epoch, votes);
 
-                Some(threshold == &Rational64::ZERO || &tally() >= threshold)
+                Some(threshold == &SafeRatio::zero() || &tally() >= threshold)
             })
             .unwrap_or(false)
     }
@@ -351,7 +351,7 @@ impl RatificationContext {
     fn is_accepted_by_stake_pool_operators(
         &self,
         proposal: &ProposalEnum,
-        votes: BTreeMap<PoolId, &Vote>,
+        votes: BTreeMap<&PoolId, &Vote>,
         stake_distribution: &StakeDistribution,
     ) -> bool {
         match stake_pools::voting_threshold(
@@ -367,7 +367,7 @@ impl RatificationContext {
                     stake_pools::tally(self.protocol_version, proposal, votes, stake_distribution)
                 };
 
-                threshold == Rational64::ZERO || tally() >= threshold
+                threshold == SafeRatio::zero() || tally() >= threshold
             }
         }
     }
@@ -426,6 +426,13 @@ impl ProposalEnum {
         matches!(
             self,
             Self::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _)
+        )
+    }
+
+    pub fn is_committee_member_update(&self) -> bool {
+        matches!(
+            self,
+            Self::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { .. }, _)
         )
     }
 }
@@ -523,7 +530,7 @@ fn partition_votes(
 ) -> (
     BTreeMap<StakeCredential, &Vote>,
     BTreeMap<StakeCredential, &Vote>,
-    BTreeMap<PoolId, &Vote>,
+    BTreeMap<&PoolId, &Vote>,
 ) {
     votes.iter().fold(
         (BTreeMap::new(), BTreeMap::new(), BTreeMap::new()),
@@ -542,7 +549,7 @@ fn partition_votes(
                     dreps.insert(StakeCredential::ScriptHash(*hash), &ballot.vote);
                 }
                 Voter::StakePoolKey(pool_id) => {
-                    pools.insert(*pool_id, &ballot.vote);
+                    pools.insert(pool_id, &ballot.vote);
                 }
             };
 

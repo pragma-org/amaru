@@ -12,6 +12,32 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::{Hash, StakeCredential};
+
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum BorrowedStakeCredential<'a> {
+    KeyHash(&'a Hash<28>),
+    ScriptHash(&'a Hash<28>),
+}
+
+impl<'a> From<&'a StakeCredential> for BorrowedStakeCredential<'a> {
+    fn from(value: &'a StakeCredential) -> Self {
+        match value {
+            StakeCredential::AddrKeyhash(hash) => Self::KeyHash(hash),
+            StakeCredential::ScriptHash(hash) => Self::ScriptHash(hash),
+        }
+    }
+}
+
+impl From<BorrowedStakeCredential<'_>> for StakeCredential {
+    fn from(value: BorrowedStakeCredential<'_>) -> Self {
+        match value {
+            BorrowedStakeCredential::KeyHash(hash) => Self::AddrKeyhash(*hash),
+            BorrowedStakeCredential::ScriptHash(hash) => Self::ScriptHash(*hash),
+        }
+    }
+}
+
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use crate::{Hash, StakeCredential};
