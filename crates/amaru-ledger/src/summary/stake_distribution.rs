@@ -298,3 +298,57 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
         s.end()
     }
 }
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::StakeDistribution;
+    use crate::summary::{safe_ratio, PoolState};
+    use amaru_kernel::{
+        tests::{any_pool_id, any_pool_params},
+        Epoch,
+    };
+    use proptest::{collection, prelude::*, prop_compose};
+    use std::collections::BTreeMap;
+
+    prop_compose! {
+        pub fn any_stake_distribution_no_dreps()(
+            epoch in any::<u64>(),
+            pools in collection::btree_map(any_pool_id(), any_pool_state(), 1..10),
+        ) -> StakeDistribution {
+            let voting_stake = pools.values().fold(0, |total, st| total + st.voting_stake);
+            let active_stake = pools.values().fold(0, |total, st| total + st.stake);
+
+            StakeDistribution {
+                epoch: Epoch::from(epoch),
+                active_stake,
+                voting_stake,
+                pools,
+                // TODO: Add some accounts
+                accounts: BTreeMap::new(),
+                dreps: BTreeMap::new(),
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_pool_state()(
+            blocks_count in any::<u64>(),
+            stake in 0_u64..1_000_000_000_000,
+            voting_stake in 0_u64..1_000_000_000_000,
+            parameters in any_pool_params(),
+        ) -> PoolState {
+            let margin = safe_ratio(
+                parameters.margin.numerator,
+                parameters.margin.denominator,
+            );
+
+            PoolState {
+                blocks_count,
+                stake,
+                voting_stake: stake.max(voting_stake),
+                margin,
+                parameters,
+            }
+        }
+    }
+}

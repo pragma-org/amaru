@@ -13,16 +13,22 @@
 // limitations under the License.
 
 use super::{OrphanProposal, ProposalEnum};
+use crate::summary::{into_safe_ratio, safe_ratio, SafeRatio};
 use amaru_kernel::{
     Epoch, ProtocolVersion, RationalNumber, StakeCredential, Vote, PROTOCOL_VERSION_9,
 };
-use num::Rational64;
-use std::collections::{BTreeMap, BTreeSet};
+use num::Zero;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::LazyLock,
+};
+
+static ZERO: LazyLock<SafeRatio> = LazyLock::new(|| SafeRatio::zero());
 
 #[derive(Debug)]
 pub struct ConstitutionalCommittee {
     /// Threshold (i.e. ratio of yes over no votes) necessary to reach agreement.
-    pub threshold: Rational64,
+    pub threshold: SafeRatio,
 
     /// Members cold key hashes mapped to their hot key credential, if any and their expiry epoch.
     pub members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
@@ -34,7 +40,7 @@ impl ConstitutionalCommittee {
         members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
     ) -> Self {
         Self {
-            threshold: Rational64::new(threshold.numerator as i64, threshold.denominator as i64),
+            threshold: into_safe_ratio(&threshold),
             members,
         }
     }
@@ -69,10 +75,10 @@ impl ConstitutionalCommittee {
         protocol_version: ProtocolVersion,
         min_committee_size: u16,
         proposal: &ProposalEnum,
-    ) -> Option<&Rational64> {
+    ) -> Option<&SafeRatio> {
         match proposal {
             ProposalEnum::ConstitutionalCommittee(..)
-            | ProposalEnum::Orphan(OrphanProposal::NicePoll) => Some(&Rational64::ZERO),
+            | ProposalEnum::Orphan(OrphanProposal::NicePoll) => Some(&ZERO),
 
             ProposalEnum::ProtocolParameters(..)
             | ProposalEnum::HardFork(..)
@@ -98,12 +104,12 @@ impl ConstitutionalCommittee {
     /// - Members that do not vote will count as a default "no" (i.e. increases the denominator);
     /// - Members that expired are excluded entirely (also from the denominator);
     /// - Members that have resigned (i.e. no hot keys) are also excluded;
-    pub fn tally(&self, epoch: Epoch, votes: BTreeMap<StakeCredential, &Vote>) -> Rational64 {
+    pub fn tally(&self, epoch: Epoch, votes: BTreeMap<StakeCredential, &Vote>) -> SafeRatio {
         // TODO: Avoid re-computing this on each tally? The set of active members is fixed per
         // epoch.
         let active_members = self.active_members(epoch, |_, hot_cred| hot_cred);
 
-        let total_active_members = active_members.len() as i64;
+        let total_active_members = active_members.len() as u64;
 
         let (yes, no, abstain) =
             votes
@@ -126,9 +132,9 @@ impl ConstitutionalCommittee {
         span.record("votes.committee.abstain", abstain);
 
         if abstain >= total_active_members {
-            Rational64::ZERO
+            SafeRatio::zero()
         } else {
-            Rational64::new(yes, total_active_members - abstain)
+            safe_ratio(yes, total_active_members - abstain)
         }
     }
 }
