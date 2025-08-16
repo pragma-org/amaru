@@ -23,6 +23,9 @@ use amaru_kernel::{
 use num::Zero;
 use std::collections::BTreeMap;
 
+// Voting Thresholds
+// ----------------------------------------------------------------------------
+
 /// Compute the voting threshold corresponding to the proposal; the thresholds are mostly
 /// influenced by three things:
 ///
@@ -45,12 +48,15 @@ pub fn voting_threshold(
                 Some(SafeRatio::zero())
             }
         }
+
         ProposalEnum::HardFork(..) => {
             Some(into_safe_ratio(&voting_thresholds.hard_fork_initiation))
         }
+
         ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _) => {
             Some(into_safe_ratio(&voting_thresholds.motion_no_confidence))
         }
+
         ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::ChangeMembers { .. }, _) => {
             Some(if is_state_of_no_confidence {
                 into_safe_ratio(&voting_thresholds.committee_no_confidence)
@@ -58,10 +64,12 @@ pub fn voting_threshold(
                 into_safe_ratio(&voting_thresholds.committee_normal)
             })
         }
+
         ProposalEnum::Constitution(..)
         | ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
             Some(SafeRatio::zero())
         }
+
         ProposalEnum::Orphan(OrphanProposal::NicePoll) => None,
     }
 }
@@ -81,6 +89,9 @@ fn any_update_in_security_group(update: &ProtocolParamUpdate) -> bool {
         || update.governance_action_deposit.is_some()
         || update.minfee_refscript_cost_per_byte.is_some()
 }
+
+// Tally
+// ----------------------------------------------------------------------------
 
 /// Count the ratio of yes votes amongst pool operators.
 pub fn tally(
@@ -139,6 +150,9 @@ pub fn tally(
     span.record("votes.pools.yes", yes);
     span.record("votes.pools.abstain", abstain);
 
+    // FIXME: This use the *pool* voting stake, not the drep one. That is, the active stake + all
+    // deposits whose reward account is delegated to a pool. Or simply, the sum of all pool's
+    // voting stake.
     if abstain >= stake_distribution.voting_stake {
         span.record("votes.pools.no", 0);
         SafeRatio::zero()
