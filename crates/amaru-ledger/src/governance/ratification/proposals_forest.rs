@@ -213,10 +213,10 @@ impl ProposalsForest {
     pub fn roots(&self) -> ProposalsRootsRc {
         // NOTE: clone are cheap here, because everything is an `Rc`.
         ProposalsRootsRc {
-            protocol_parameters: self.protocol_parameters.root.clone(),
-            hard_fork: self.hard_fork.root.clone(),
-            constitutional_committee: self.constitutional_committee.root.clone(),
-            constitution: self.constitution.root.clone(),
+            protocol_parameters: self.protocol_parameters.root(),
+            hard_fork: self.hard_fork.root(),
+            constitutional_committee: self.constitutional_committee.root(),
+            constitution: self.constitution.root(),
         }
     }
 
@@ -286,19 +286,17 @@ impl ProposalsForest {
             ProposalEnum::Orphan(..) => true,
 
             ProposalEnum::ProtocolParameters(_, parent) => {
-                parent.as_deref() == self.protocol_parameters.root.as_deref()
+                parent.as_deref() == self.protocol_parameters.as_root()
             }
 
-            ProposalEnum::HardFork(_, parent) => {
-                parent.as_deref() == self.hard_fork.root.as_deref()
-            }
+            ProposalEnum::HardFork(_, parent) => parent.as_deref() == self.hard_fork.as_root(),
 
             ProposalEnum::ConstitutionalCommittee(_, parent) => {
-                parent.as_deref() == self.constitutional_committee.root.as_deref()
+                parent.as_deref() == self.constitutional_committee.as_root()
             }
 
             ProposalEnum::Constitution(_, parent) => {
-                parent.as_deref() == self.constitution.root.as_deref()
+                parent.as_deref() == self.constitution.as_root()
             }
         }
     }
@@ -426,8 +424,9 @@ impl fmt::Display for ProposalsForest {
             summarize: Rc<dyn Fn(&A, &str) -> Result<String, fmt::Error>>,
             tree: &'a ProposalsTree<ComparableProposalId>,
         ) -> fmt::Result {
-            for (i, s) in tree.siblings.iter().enumerate() {
-                let is_last = i + 1 == tree.siblings.len();
+            let siblings = tree.siblings();
+            for (i, s) in siblings.iter().enumerate() {
+                let is_last = i + 1 == siblings.len();
                 render_sibling(f, s, "", lookup.clone(), summarize.clone(), is_last)?;
             }
             Ok(())
@@ -446,7 +445,7 @@ impl fmt::Display for ProposalsForest {
 
             // Children are a Vec<ProposalsTree<A>>; flatten to a linear list of Sibling<A>
             // to get correct "last" detection for drawing.
-            let children = &s.children;
+            let children = s.children();
             let next_prefix = if is_last {
                 format!("{prefix}   ")
             } else {
@@ -456,8 +455,8 @@ impl fmt::Display for ProposalsForest {
             writeln!(
                 f,
                 "{prefix}{branch} {}: {}",
-                s.id.to_string().chars().take(12).collect::<String>(),
-                match lookup(&s.id) {
+                s.as_id().to_string().chars().take(12).collect::<String>(),
+                match lookup(s.as_id()) {
                     None => "?".to_string(), // NOTE: should be impossible on a well-formed forest.
                     Some(a) => summarize(
                         a,
