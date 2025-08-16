@@ -84,11 +84,17 @@ pub mod ballot;
 pub use ballot_id::*;
 pub mod ballot_id;
 
+pub mod block;
+
+pub mod constitution;
+
 pub use constitutional_committee::*;
 pub mod constitutional_committee;
 
 pub use certificate_pointer::*;
 pub mod certificate_pointer;
+
+pub mod drep;
 
 pub use drep_state::*;
 pub mod drep_state;
@@ -96,11 +102,17 @@ pub mod drep_state;
 pub use memoized::*;
 pub mod memoized;
 
+pub mod network;
+
+pub mod peer;
+
 pub use point::*;
 pub mod point;
 
 pub use pool_params::*;
 pub mod pool_params;
+
+pub mod proposal;
 
 pub use proposal_id::*;
 pub mod proposal_id;
@@ -122,11 +134,15 @@ pub mod required_script;
 pub use reward::*;
 pub mod reward;
 
+pub mod reward_account;
+
 pub use reward_kind::*;
 pub mod reward_kind;
 
 pub use script_kind::*;
 pub mod script_kind;
+
+pub mod stake_credential;
 
 pub use strict_maybe::*;
 pub mod strict_maybe;
@@ -134,20 +150,64 @@ pub mod strict_maybe;
 pub use transaction_pointer::*;
 pub mod transaction_pointer;
 
-pub mod block;
+pub mod vote;
+
 pub mod macros;
-pub mod network;
-pub mod peer;
 pub mod serde_utils;
 
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
+    use super::{Epoch, Hash, Nullable, RationalNumber, ScriptHash};
+    use proptest::prelude::*;
+
     pub use crate::{
         anchor::tests::*, ballot::tests::*, ballot_id::tests::*, certificate_pointer::tests::*,
-        constitutional_committee::tests::*, point::tests::*, pool_params::tests::*,
+        constitution::tests::*, constitutional_committee::tests::*, drep::tests::*,
+        network::tests::*, point::tests::*, pool_params::tests::*, proposal::tests::*,
         proposal_id::tests::*, proposal_pointer::tests::*, protocol_parameters::tests::*,
-        transaction_pointer::tests::*,
+        reward_account::tests::*, stake_credential::tests::*, transaction_pointer::tests::*,
+        vote::tests::*,
     };
+
+    prop_compose! {
+        pub fn any_key_hash()(bytes in any::<[u8; 28]>()) -> Hash<28> {
+            Hash::from(bytes)
+        }
+    }
+
+    prop_compose! {
+        pub fn any_script_hash()(bytes in any::<[u8; 28]>()) -> ScriptHash {
+            Hash::from(bytes)
+        }
+    }
+
+    prop_compose! {
+        pub fn any_epoch()(epoch in any::<u64>()) -> Epoch {
+            Epoch::from(epoch)
+        }
+    }
+
+    pub fn any_nullable<T: std::fmt::Debug + Clone>(
+        any_inner: impl Strategy<Value = T>,
+    ) -> impl Strategy<Value = Nullable<T>> {
+        prop_oneof![
+            Just(Nullable::Undefined),
+            Just(Nullable::Null),
+            any_inner.prop_map(Nullable::Some)
+        ]
+    }
+
+    prop_compose! {
+        pub fn any_rational_number()(
+            numerator in any::<u64>(),
+            denominator in 1..u64::MAX,
+        ) -> RationalNumber {
+            RationalNumber {
+                numerator,
+                denominator,
+            }
+        }
+    }
 }
 
 // Constants

@@ -89,30 +89,23 @@ pub fn tally(
         return Rational64::ZERO;
     }
 
-    let is_hardfork = matches!(proposal, ProposalEnum::HardFork { .. });
-
-    let is_motion_of_no_confidence = matches!(
-        proposal,
-        ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _)
-    );
-
-    let (yes, no, abstain) =
+    let (yes, abstain) =
         stake_distribution
             .pools
             .iter()
-            .fold((0, 0, 0), |(yes, no, abstain), (pool_id, pool)| {
+            .fold((0, 0), |(yes, abstain), (pool_id, pool)| {
                 match votes.get(pool_id) {
-                    Some(Vote::Yes) => (yes + pool.voting_stake, no, abstain),
-                    Some(Vote::No) => (yes, no + pool.voting_stake, abstain),
-                    Some(Vote::Abstain) => (yes, no, abstain + pool.voting_stake),
+                    Some(Vote::Yes) => (yes + pool.voting_stake, abstain),
+                    Some(Vote::No) => (yes, abstain),
+                    Some(Vote::Abstain) => (yes, abstain + pool.voting_stake),
 
                     // Hard forks always require explicit votes from SPO
-                    None if is_hardfork => (yes, no, abstain),
+                    None if proposal.is_hardfork() => (yes, abstain),
 
                     // Prior to v10, a pool not voting would be considered abstaining on anything
                     // other than a hard fork.
                     None if protocol_version <= PROTOCOL_VERSION_9 => {
-                        (yes, no, abstain + pool.voting_stake)
+                        (yes, abstain + pool.voting_stake)
                     }
 
                     // Starting from v10, the fallback is given to the DRep chosen by the pool's
@@ -128,11 +121,11 @@ pub fn tally(
                             .and_then(|st| st.drep.as_ref());
 
                         match drep {
-                            Some(DRep::NoConfidence) if is_motion_of_no_confidence => {
-                                (yes + pool.voting_stake, no, abstain)
+                            Some(DRep::NoConfidence) if proposal.is_no_confidence() => {
+                                (yes + pool.voting_stake, abstain)
                             }
-                            Some(DRep::Abstain) => (yes, no, abstain + pool.voting_stake),
-                            Some(..) | None => (yes, no, abstain),
+                            Some(DRep::Abstain) => (yes, abstain + pool.voting_stake),
+                            Some(..) | None => (yes, abstain),
                         }
                     }
                 }
@@ -140,16 +133,15 @@ pub fn tally(
 
     let span = tracing::Span::current();
     span.record("votes.pools.yes", yes);
-    span.record("votes.pools.no", no);
     span.record("votes.pools.abstain", abstain);
 
     if abstain >= stake_distribution.voting_stake {
+        span.record("votes.pools.no", 0);
         Rational64::ZERO
     } else {
-        Rational64::new(
-            yes as i64,
-            (stake_distribution.voting_stake - abstain) as i64,
-        )
+        let no = stake_distribution.voting_stake - abstain;
+        span.record("votes.pools.no", no);
+        Rational64::new(yes as i64, no as i64)
     }
 }
 
@@ -158,4 +150,83 @@ pub fn tally(
 
 fn into_rational64(rational: &RationalNumber) -> Rational64 {
     Rational64::new(rational.numerator as i64, rational.denominator as i64)
+}
+
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use crate::summary::{safe_ratio, stake_distribution::StakeDistribution, PoolState};
+    use amaru_kernel::{
+        tests::{any_pool_id, any_pool_params},
+        Epoch, Lovelace, PoolId, Vote,
+    };
+    use proptest::{collection, prelude::*, prop_compose, sample};
+    use std::collections::BTreeMap;
+
+    static VOTE_YES: Vote = Vote::Yes;
+    static VOTE_NO: Vote = Vote::No;
+    static VOTE_ABSTAIN: Vote = Vote::Abstain;
+
+    pub fn any_votes(
+        stake_distribution: &StakeDistribution,
+    ) -> impl Strategy<Value = BTreeMap<PoolId, &Vote>> {
+        let pools: Vec<PoolId> = stake_distribution.pools.keys().cloned().collect();
+        let upper_bound = pools.len() - 1;
+        let voters = sample::subsequence(pools, 0..upper_bound);
+
+        voters
+            .prop_flat_map(|voters| {
+                collection::vec(any_vote(), voters.len())
+                    .prop_map(move |votes| voters.clone().into_iter().zip(votes))
+            })
+            .prop_map(|kvs| kvs.into_iter().collect())
+    }
+
+    pub fn any_vote() -> impl Strategy<Value = &'static Vote> {
+        prop_oneof![Just(&VOTE_YES), Just(&VOTE_NO), Just(&VOTE_ABSTAIN)]
+    }
+
+    prop_compose! {
+        pub fn any_pool_state()(
+            blocks_count in any::<u64>(),
+            stake in any::<Lovelace>(),
+            voting_stake in any::<Lovelace>(),
+            parameters in any_pool_params(),
+        ) -> PoolState {
+            let margin = safe_ratio(
+                parameters.margin.numerator,
+                parameters.margin.denominator,
+            );
+
+            PoolState {
+                blocks_count,
+                stake,
+                voting_stake: stake.max(voting_stake),
+                margin,
+                parameters,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_stake_distribution()(
+            epoch in any::<u64>(),
+            pools in collection::btree_map(any_pool_id(), any_pool_state(), 1..10),
+        ) -> StakeDistribution {
+            let voting_stake = pools.values().fold(0, |total, st| total + st.voting_stake);
+            let active_stake = pools.values().fold(0, |total, st| total + st.stake);
+
+            StakeDistribution {
+                epoch: Epoch::from(epoch),
+                active_stake,
+                voting_stake,
+                pools,
+                // TODO: Add some accounts
+                accounts: BTreeMap::new(),
+                dreps: BTreeMap::new(),
+            }
+        }
+    }
 }

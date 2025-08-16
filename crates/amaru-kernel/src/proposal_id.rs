@@ -40,6 +40,12 @@ impl ComparableProposalId {
     }
 }
 
+impl AsRef<ComparableProposalId> for ComparableProposalId {
+    fn as_ref(&self) -> &ComparableProposalId {
+        self
+    }
+}
+
 impl fmt::Display for ComparableProposalId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(

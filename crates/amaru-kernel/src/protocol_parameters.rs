@@ -445,63 +445,48 @@ pub mod tests {
     use crate::{
         prop_cbor_roundtrip,
         protocol_parameters::{CostModels, ProtocolParameters, ProtocolVersion},
-        DRepVotingThresholds, ExUnitPrices, ExUnits, Lovelace, PoolVotingThresholds,
-        RationalNumber,
+        tests::{
+            any_constitution, any_nullable, any_proposal_id, any_rational_number,
+            any_reward_account, any_script_hash, any_stake_credential,
+        },
+        CostModel, DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, KeyValuePairs, Lovelace,
+        Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, RewardAccount, ScriptHash,
+        Set, StakeCredential,
     };
-    use proptest::prelude::*;
+    use proptest::{collection, option, prelude::*};
 
-    prop_cbor_roundtrip!(ProtocolParameters, any_protocol_paramater());
-
-    prop_compose! {
-        pub fn any_rational_number()(numerator in any::<u64>(), denominator in any::<u64>()) -> RationalNumber {
-            RationalNumber {
-                numerator,
-                denominator,
-            }
-        }
-    }
+    prop_cbor_roundtrip!(ProtocolParameters, any_protocol_parameter());
 
     prop_compose! {
         pub fn any_ex_units()(
-            mem in any::<u32>(),
+            mem in any::<u64>(),
             steps in any::<u64>(),
         ) -> ExUnits {
             ExUnits {
-                mem: mem as u64,
+                mem,
                 steps,
             }
         }
     }
 
     prop_compose! {
-        pub fn any_cost_models()(
-            plutus_v1 in any::<Vec<i64>>(),
-            plutus_v2 in any::<Vec<i64>>(),
-            plutus_v3 in any::<Vec<i64>>(),
-        ) -> CostModels {
-            CostModels {
-                plutus_v1: Some(plutus_v1),
-                plutus_v2: Some(plutus_v2),
-                plutus_v3: Some(plutus_v3),
+        pub fn any_ex_units_prices()(
+            mem_price in any_rational_number(),
+            step_price in any_rational_number(),
+        ) -> ExUnitPrices {
+            ExUnitPrices {
+                mem_price,
+                step_price,
             }
         }
     }
 
     prop_compose! {
-        pub fn any_pool_voting_thresholds()(
-            motion_no_confidence in any_rational_number(),
-            committee_normal in any_rational_number(),
-            committee_no_confidence in any_rational_number(),
-            hard_fork_initiation in any_rational_number(),
-            security_voting_threshold in any_rational_number(),
-        ) -> PoolVotingThresholds {
-            PoolVotingThresholds {
-                motion_no_confidence,
-                committee_normal,
-                committee_no_confidence,
-                hard_fork_initiation,
-                security_voting_threshold,
-            }
+        pub fn any_protocol_version()(
+            major in any::<u8>(),
+            minor in any::<u64>(),
+        ) -> ProtocolVersion {
+            ((major % 13) as u64, minor)
         }
     }
 
@@ -534,7 +519,56 @@ pub mod tests {
     }
 
     prop_compose! {
-        pub fn any_ex_units_prices()(
+        pub fn any_pool_voting_thresholds()(
+            motion_no_confidence in any_rational_number(),
+            committee_normal in any_rational_number(),
+            committee_no_confidence in any_rational_number(),
+            hard_fork_initiation in any_rational_number(),
+            security_voting_threshold in any_rational_number(),
+        ) -> PoolVotingThresholds {
+            PoolVotingThresholds {
+                motion_no_confidence,
+                committee_normal,
+                committee_no_confidence,
+                hard_fork_initiation,
+                security_voting_threshold,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_cost_model()(
+            machine_cost in option::of(any::<i64>()),
+            some_builtin in option::of(any::<i64>()),
+            some_other_builtin in option::of(any::<i64>()),
+        ) -> CostModel {
+            vec![
+                machine_cost,
+                some_builtin,
+                some_other_builtin,
+            ]
+            .into_iter()
+            .flatten()
+            .collect()
+        }
+    }
+
+    prop_compose! {
+        pub fn any_cost_models()(
+            plutus_v1 in option::of(any_cost_model()),
+            plutus_v2 in option::of(any_cost_model()),
+            plutus_v3 in option::of(any_cost_model()),
+        ) -> CostModels {
+            CostModels {
+                plutus_v1,
+                plutus_v2,
+                plutus_v3,
+            }
+        }
+    }
+
+    prop_compose! {
+        pub fn any_ex_unit_prices()(
             mem_price in any_rational_number(),
             step_price in any_rational_number(),
         ) -> ExUnitPrices {
@@ -546,16 +580,195 @@ pub mod tests {
     }
 
     prop_compose! {
-        pub fn any_protocol_version()(
-            major in any::<u8>(),
-            minor in any::<u64>(),
-        ) -> ProtocolVersion {
-            ((major % 13) as u64, minor)
+        pub fn any_protocol_params_update()(
+            minfee_a in option::of(any::<u64>()),
+            minfee_b in option::of(any::<u64>()),
+            max_block_body_size in option::of(any::<u64>()),
+            max_transaction_size in option::of(any::<u64>()),
+            max_block_header_size in option::of(any::<u64>()),
+            key_deposit in option::of(any::<Lovelace>()),
+            pool_deposit in option::of(any::<Lovelace>()),
+            maximum_epoch in option::of(any::<u64>()),
+            desired_number_of_stake_pools in option::of(any::<u64>()),
+            pool_pledge_influence in option::of(any_rational_number()),
+            expansion_rate in option::of(any_rational_number()),
+            treasury_growth_rate in option::of(any_rational_number()),
+            min_pool_cost in option::of(any::<Lovelace>()),
+            ada_per_utxo_byte in option::of(any::<Lovelace>()),
+            cost_models_for_script_languages in option::of(any_cost_models()),
+            execution_costs in option::of(any_ex_unit_prices()),
+            max_tx_ex_units in option::of(any_ex_units()),
+            max_block_ex_units in option::of(any_ex_units()),
+            max_value_size in option::of(any::<u64>()),
+            collateral_percentage in option::of(any::<u64>()),
+            max_collateral_inputs in option::of(any::<u64>()),
+            pool_voting_thresholds in option::of(any_pool_voting_thresholds()),
+            drep_voting_thresholds in option::of(any_drep_voting_thresholds()),
+            min_committee_size in option::of(any::<u64>()),
+            committee_term_limit in option::of(any::<u64>()),
+            governance_action_validity_period in option::of(any::<u64>()),
+            governance_action_deposit in option::of(any::<Lovelace>()),
+            drep_deposit in option::of(any::<Lovelace>()),
+            drep_inactivity_period in option::of(any::<u64>()),
+            minfee_refscript_cost_per_byte in option::of(any_rational_number()),
+        ) -> ProtocolParamUpdate {
+            ProtocolParamUpdate {
+                minfee_a,
+                minfee_b,
+                max_block_body_size,
+                max_transaction_size,
+                max_block_header_size,
+                key_deposit,
+                pool_deposit,
+                maximum_epoch,
+                desired_number_of_stake_pools,
+                pool_pledge_influence,
+                expansion_rate,
+                treasury_growth_rate,
+                min_pool_cost,
+                ada_per_utxo_byte,
+                cost_models_for_script_languages,
+                execution_costs,
+                max_tx_ex_units,
+                max_block_ex_units,
+                max_value_size,
+                collateral_percentage,
+                max_collateral_inputs,
+                pool_voting_thresholds,
+                drep_voting_thresholds,
+                min_committee_size,
+                committee_term_limit,
+                governance_action_validity_period,
+                governance_action_deposit,
+                drep_deposit,
+                drep_inactivity_period,
+                minfee_refscript_cost_per_byte,
+            }
         }
     }
 
+    pub fn any_gov_action() -> impl Strategy<Value = GovAction> {
+        prop_compose! {
+            fn any_parent_proposal_id()(
+                proposal_id in option::of(any_proposal_id()),
+            ) -> Nullable<ProposalId> {
+                Nullable::from(proposal_id)
+            }
+        }
+
+        prop_compose! {
+            fn any_action_parameter_change()(
+                parent_proposal_id in any_parent_proposal_id(),
+                pparams in any_protocol_params_update(),
+                guardrails in any_guardrails_script(),
+            ) -> GovAction {
+                GovAction::ParameterChange(parent_proposal_id, Box::new(pparams), guardrails)
+            }
+        }
+
+        prop_compose! {
+            fn any_hardfork_initiation()(
+                parent_proposal_id in any_parent_proposal_id(),
+                protocol_version in any_protocol_version(),
+            ) -> GovAction {
+                GovAction::HardForkInitiation(parent_proposal_id, protocol_version)
+            }
+        }
+
+        prop_compose! {
+            fn any_treasury_withdrawals()(
+                withdrawals in collection::vec(any_withdrawal(), 0..3),
+                guardrails in any_guardrails_script(),
+                is_definite in any::<bool>(),
+            ) -> GovAction {
+                GovAction::TreasuryWithdrawals(
+                    if is_definite {
+                        KeyValuePairs::Def(withdrawals)
+                    } else {
+                        KeyValuePairs::Indef(withdrawals)
+                    },
+                    guardrails
+                )
+            }
+        }
+
+        prop_compose! {
+            fn any_no_confidence()(
+                parent_proposal_id in any_parent_proposal_id(),
+            ) -> GovAction {
+                GovAction::NoConfidence(parent_proposal_id)
+            }
+        }
+
+        prop_compose! {
+            fn any_committee_registration()(
+                credential in any_stake_credential(),
+                epoch in any::<u64>(),
+            ) -> (StakeCredential, u64) {
+                (credential, epoch)
+            }
+        }
+
+        prop_compose! {
+            fn any_committee_update()(
+                parent_proposal_id in any_parent_proposal_id(),
+                to_remove in collection::btree_set(any_stake_credential(), 0..3),
+                to_add in collection::vec(any_committee_registration(), 0..3),
+                is_definite in any::<bool>(),
+                quorum in any_rational_number(),
+            ) -> GovAction {
+                GovAction::UpdateCommittee(
+                    parent_proposal_id,
+                    Set::from(to_remove.into_iter().collect::<Vec<_>>()),
+                    if is_definite {
+                        KeyValuePairs::Def(to_add)
+                    } else {
+                        KeyValuePairs::Indef(to_add)
+                    },
+                    quorum
+                )
+            }
+        }
+
+        prop_compose! {
+            fn any_new_constitution()(
+                parent_proposal_id in any_parent_proposal_id(),
+                constitution in any_constitution(),
+            ) -> GovAction {
+                GovAction::NewConstitution(parent_proposal_id, constitution)
+            }
+        }
+
+        fn any_nice_poll() -> impl Strategy<Value = GovAction> {
+            prop::strategy::Just(GovAction::Information)
+        }
+
+        prop_oneof![
+            any_action_parameter_change(),
+            any_hardfork_initiation(),
+            any_treasury_withdrawals(),
+            any_no_confidence(),
+            any_committee_update(),
+            any_new_constitution(),
+            any_nice_poll(),
+        ]
+    }
+
     prop_compose! {
-        pub fn any_protocol_paramater()(
+        pub fn any_withdrawal()(
+            reward_account in any_reward_account(),
+            amount in any::<Lovelace>(),
+        ) -> (RewardAccount, Lovelace) {
+            (reward_account, amount)
+        }
+    }
+
+    pub fn any_guardrails_script() -> impl Strategy<Value = Nullable<ScriptHash>> {
+        any_nullable(any_script_hash())
+    }
+
+    prop_compose! {
+        pub fn any_protocol_parameter()(
             protocol_version in any_protocol_version(),
             max_block_body_size in any::<u64>(),
             max_transaction_size in any::<u64>(),
