@@ -23,7 +23,7 @@ use std::{
     sync::LazyLock,
 };
 
-static ZERO: LazyLock<SafeRatio> = LazyLock::new(|| SafeRatio::zero());
+static ZERO: LazyLock<SafeRatio> = LazyLock::new(SafeRatio::zero);
 
 #[derive(Debug)]
 pub struct ConstitutionalCommittee {
@@ -77,8 +77,9 @@ impl ConstitutionalCommittee {
         proposal: &ProposalEnum,
     ) -> Option<&SafeRatio> {
         match proposal {
-            ProposalEnum::ConstitutionalCommittee(..)
-            | ProposalEnum::Orphan(OrphanProposal::NicePoll) => Some(&ZERO),
+            ProposalEnum::Orphan(OrphanProposal::NicePoll) => None,
+
+            ProposalEnum::ConstitutionalCommittee(..) => Some(&ZERO),
 
             ProposalEnum::ProtocolParameters(..)
             | ProposalEnum::HardFork(..)
