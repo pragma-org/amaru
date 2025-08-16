@@ -33,7 +33,8 @@ use amaru_kernel::{
     TransactionInput,
 };
 use amaru_kernel::{
-    ComparableProposalId, ConstitutionalCommittee, MemoizedTransactionOutput, ProtocolVersion,
+    ComparableProposalId, Constitution, ConstitutionalCommittee, MemoizedTransactionOutput,
+    ProtocolVersion,
 };
 use columns::*;
 use slot_arithmetic::Epoch;
@@ -157,6 +158,9 @@ pub trait ReadStore {
 
     /// Retrieve the state of the constitutional committee.
     fn constitutional_committee(&self) -> Result<ConstitutionalCommittee>;
+
+    /// Retrieve the current protocol's constitution
+    fn constitution(&self) -> Result<Constitution>;
 
     /// Get the latest governance roots; which corresponds to the id of the latest governance
     /// actions enacted for specific categories.
@@ -286,6 +290,9 @@ pub trait TransactionalContext<'a> {
 
     /// Persist the latest proposal roots for the ongoing epoch.
     fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<()>;
+
+    /// Persist the latest enacted constitution
+    fn set_constitution(&self, constitution: &Constitution) -> Result<()>;
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.

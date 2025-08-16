@@ -15,8 +15,8 @@
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
 use amaru_kernel::{
     cbor, protocol_parameters::ProtocolParameters, CertificatePointer, ComparableProposalId,
-    ConstitutionalCommittee, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
-    ProtocolVersion, StakeCredential, TransactionInput,
+    Constitution, ConstitutionalCommittee, EraHistory, Lovelace, MemoizedTransactionOutput, Point,
+    PoolId, ProtocolVersion, StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -69,6 +69,9 @@ const KEY_PROTOCOL_VERSION: &str = "@protocol-version";
 /// key where is stored the constitutional committee information;
 const KEY_CONSTITUTIONAL_COMMITTEE: &str = "@constitutional-committee";
 
+/// key where is stored the constitution
+const KEY_CONSTITUTION: &str = "@constitution";
+
 /// key where are stored the proposals roots;
 const KEY_PROPOSALS_ROOTS: &str = "@proposals-roots";
 
@@ -90,6 +93,7 @@ const DIR_LIVE_DB: &str = "live";
 // * 'protocol-version'         * ProtocolVersion                                *
 // * 'protocol-parameters'      * ProtocolParameters                             *
 // * 'constitutional-committee' * ConstitutionalCommittee                        *
+// * 'constitutional'           * Constitution                                   *
 // * 'utxo:'TransactionInput    * TransactionOutput                              *
 // * 'pool:'PoolId              * (PoolParams, Vec<(Option<PoolParams>, Epoch)>) *
 // * 'acct:'StakeCredential     * (Option<PoolId>, Lovelace, Lovelace)           *
@@ -343,6 +347,12 @@ macro_rules! impl_ReadStore {
                 get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)
             }
 
+            fn constitution(
+                &self,
+            ) -> Result<Constitution, StoreError> {
+                get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTION)
+            }
+
             fn proposals_roots(
                 &self,
             ) -> Result<ProposalsRoots, StoreError> {
@@ -536,6 +546,13 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<(), StoreError> {
         self.transaction
             .put(KEY_PROPOSALS_ROOTS, as_value(roots))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
+    fn set_constitution(&self, constitution: &Constitution) -> Result<(), StoreError> {
+        self.transaction
+            .put(KEY_CONSTITUTION, as_value(constitution))
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }

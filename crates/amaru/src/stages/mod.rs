@@ -316,7 +316,7 @@ fn make_chain_store(
 }
 
 enum LedgerStage {
-    InMemLedgerStage(ValidateBlockStage<MemoryStore, MemoryStore>),
+    InMemLedgerStage(Box<ValidateBlockStage<MemoryStore, MemoryStore>>),
     OnDiskLedgerStage(ValidateBlockStage<RocksDB, RocksDBHistoricalStores>),
 }
 
@@ -324,7 +324,7 @@ impl LedgerStage {
     fn spawn(self, policy: runtime::Policy) -> Tether {
         match self {
             LedgerStage::InMemLedgerStage(validate_block_stage) => {
-                spawn_stage(validate_block_stage, policy)
+                spawn_stage(*validate_block_stage, policy)
             }
             LedgerStage::OnDiskLedgerStage(validate_block_stage) => {
                 spawn_stage(validate_block_stage, policy)
@@ -367,7 +367,7 @@ fn make_ledger(
                 global_parameters,
                 is_catching_up,
             )?;
-            Ok((LedgerStage::InMemLedgerStage(ledger), tip))
+            Ok((LedgerStage::InMemLedgerStage(Box::new(ledger)), tip))
         }
         StorePath::OnDisk(ref ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(

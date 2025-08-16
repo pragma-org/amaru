@@ -32,6 +32,7 @@ use crate::{
         governance::{self, GovernanceSummary},
         rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
+        Pots,
     },
 };
 use amaru_kernel::{
@@ -456,6 +457,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         let protocol_parameters = snapshot.protocol_parameters()?;
 
+        let Pots { treasury, .. } = snapshot.pots()?;
+
         let constitutional_committee = match snapshot.constitutional_committee()? {
             ConstitutionalCommittee::NoConfidence => None,
             ConstitutionalCommittee::Trusted { threshold } => {
@@ -494,6 +497,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         Ok(RatificationContext {
             epoch: snapshot.epoch(),
+            total_withdrawn: 0,
+            treasury,
             stake_distributions: self.stake_distributions.clone(),
             protocol_version,
             protocol_parameters,

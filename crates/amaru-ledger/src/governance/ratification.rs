@@ -13,13 +13,14 @@
 // limitations under the License.
 
 use crate::{
+    governance::ratification::proposals_forest::ProposalsForestCompass,
     store::{columns::proposals, StoreError, TransactionalContext},
     summary::{stake_distribution::StakeDistribution, SafeRatio},
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, Constitution, Epoch,
-    Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, ScriptHash, StakeCredential,
-    UnitInterval, Vote, Voter,
+    Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, StakeCredential, UnitInterval, Vote,
+    Voter,
 };
 use num::Zero;
 use std::{
@@ -53,6 +54,13 @@ pub struct RatificationContext {
 
     /// The protocol version at the moment the epoch ended.
     pub protocol_version: ProtocolVersion,
+
+    /// The *current* (live! not from the stake distr snapshot) value of the treasury
+    pub treasury: Lovelace,
+
+    /// The total amount of Lovelace withdrawn during this ratification. This is used to track the
+    /// amount in-between withdrawals and ensures we down underflow the treasury.
+    pub total_withdrawn: Lovelace,
 
     /// The computed stake distribution for the epoch
     pub stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
@@ -152,21 +160,9 @@ impl RatificationContext {
                 };
 
                 Self::new_ratify_span(&id, proposal).in_scope(|| {
-                    // FIXME: There are additional checks we should perform at the moment of ratification
-                    //
-                    // - On constitutional committee updates, we should ensure that any term limit is still
-                    //   valid. This can happen if a protocol parameter change that changes the max term limit
-                    //   is ratified *before* a committee update, possibly rendering it invalid.
-                    //
-                    // - On treasury withdrawals, we must ensure there's still enough money in the treasury.
-                    //   This is necessary since there can be an arbitrary number of withdrawals that have been
-                    //   ratified and enacted just before; possibly depleting the treasury.
-                    //
-                    // Note that either way, it doesn't _invalidate_ proposals, since time and subsequent
-                    // proposals may turn the tide again. They should simply be skipped, and revisited at the
-                    // next epoch boundary.
-
-                    if self.is_accepted_by_everyone(&id, proposal, stake_distribution) {
+                    if self.is_accepted_by_everyone(&id, proposal, stake_distribution)
+                        && self.is_still_valid(proposal)
+                    {
                         // NOTE: The .clone() on the proposal is necessary so we can drop the
                         // immutable borrow on the forest. It only happens when a proposal is
                         // ratified, though.
@@ -180,53 +176,24 @@ impl RatificationContext {
             }; // <-- immutable borrows of `forest` end here
 
             if let Some((id, proposal)) = ratified {
-                Self::new_enact_span(&id, &proposal).in_scope(|| -> Result<(), RatificationInternalError> {
-                    let now_obsolete = &mut forest.enact(id, &proposal, &mut compass)?;
-
-                    tracing::Span::current().record(
-                        "proposals.pruned",
-                        field::valuable(
-                            &now_obsolete
-                                .iter()
-                                .map(|id| id.to_compact_string()).collect::<Vec<_>>()
-                        )
-                    );
-
-                    pruned_proposals.append(now_obsolete);
-
-                    match proposal {
-                        ProposalEnum::ProtocolParameters(params_update, _parent) => {
-                            self.protocol_parameters.update(params_update);
-                            store_updates.push(Box::new(|db, ctx| {
-                                db.set_protocol_parameters(&ctx.protocol_parameters)
-                            }));
-                        }
-
-                        ProposalEnum::HardFork(protocol_version, _parent) => {
-                            self.protocol_version = protocol_version;
-                            self.protocol_parameters.protocol_version = protocol_version;
-                            store_updates.push(Box::new(|db, ctx| {
-                                db.set_protocol_version(&ctx.protocol_version)?;
-                                db.set_protocol_parameters(&ctx.protocol_parameters)
-                            }));
-                        }
-
-                        ProposalEnum::ConstitutionalCommittee(_committee_update, _parent) => {
-                            todo!("an constitutional committee proposal has been ratified, it must now be enacted!")
-                        }
-
-                        ProposalEnum::Constitution(_constitution, _parent) => {
-                            todo!("an constitution proposal has been ratified, it must now be enacted!")
-                        }
-
-                        ProposalEnum::Orphan(_orphan) => {
-                            todo!("an orphan proposal has been ratified, it must now be enacted!")
-                        }
-                    }
-
-                    Ok(())
-                })?
+                self.enact_proposal(
+                    id,
+                    proposal,
+                    &mut forest,
+                    &mut compass,
+                    &mut pruned_proposals,
+                    &mut store_updates,
+                )?;
             }
+        }
+
+        // Ensures that the treasury is properly depleted, if necessary.
+        if self.total_withdrawn > 0 {
+            store_updates.push(Box::new(move |db, _ctx| {
+                db.with_pots(|mut pots| {
+                    pots.borrow_mut().treasury -= self.total_withdrawn;
+                })
+            }));
         }
 
         // Finally, replace the roots in the store. Note that this is pretty much a no-op when no
@@ -240,6 +207,143 @@ impl RatificationContext {
             store_updates,
             pruned_proposals,
         })
+    }
+
+    /// Apply the effect of a (now-approved) proposal to both the current state (i.e. self), and
+    /// the persistent store. Note that updates to the store are actually happening *after*, once
+    /// the ratification procedure is fully done. So we only stash updates, in order (as some
+    /// updates may override some previous update in the same ratification).
+    fn enact_proposal<'store, S: TransactionalContext<'store>>(
+        &mut self,
+        id: Rc<ComparableProposalId>,
+        proposal: ProposalEnum,
+        forest: &mut ProposalsForest,
+        compass: &mut ProposalsForestCompass,
+        pruned_proposals: &mut BTreeSet<Rc<ComparableProposalId>>,
+        store_updates: &mut Vec<StoreUpdate<S>>,
+    ) -> Result<(), RatificationInternalError> {
+        Self::new_enact_span(&id, &proposal).in_scope(
+            || -> Result<(), RatificationInternalError> {
+                let now_obsolete = &mut forest.enact(id, &proposal, compass)?;
+
+                tracing::Span::current().record(
+                    "proposals.pruned",
+                    field::valuable(
+                        &now_obsolete
+                            .iter()
+                            .map(|id| id.to_compact_string())
+                            .collect::<Vec<_>>(),
+                    ),
+                );
+
+                pruned_proposals.append(now_obsolete);
+
+                match proposal {
+                    ProposalEnum::ProtocolParameters(params_update, _parent) => {
+                        self.protocol_parameters.update(params_update);
+                        store_updates.push(Box::new(|db, ctx| {
+                            db.set_protocol_parameters(&ctx.protocol_parameters)
+                        }));
+                    }
+
+                    ProposalEnum::HardFork(protocol_version, _parent) => {
+                        self.protocol_version = protocol_version;
+                        self.protocol_parameters.protocol_version = protocol_version;
+                        store_updates.push(Box::new(|db, ctx| {
+                            db.set_protocol_version(&ctx.protocol_version)?;
+                            db.set_protocol_parameters(&ctx.protocol_parameters)
+                        }));
+                    }
+
+                    ProposalEnum::ConstitutionalCommittee(
+                        CommitteeUpdate::NoConfidence,
+                        _parent,
+                    ) => {
+                        self.constitutional_committee = None;
+                        store_updates.push(Box::new(|db, _ctx| {
+                            db.set_constitutional_committee(
+                                &amaru_kernel::ConstitutionalCommittee::NoConfidence,
+                            )
+                        }))
+                    }
+
+                    ProposalEnum::ConstitutionalCommittee(
+                        CommitteeUpdate::ChangeMembers {
+                            removed,
+                            added,
+                            threshold,
+                        },
+                        _parent,
+                    ) => {
+                        let committee = amaru_kernel::ConstitutionalCommittee::Trusted {
+                            threshold: UnitInterval {
+                                numerator: threshold.numer().try_into().unwrap_or_else(|e| {
+                                    unreachable!("threshold numerator larger than u64?!: {e}")
+                                }),
+                                denominator: threshold.denom().try_into().unwrap_or_else(|e| {
+                                    unreachable!("threshold numerator larger than u64?!: {e}")
+                                }),
+                            },
+                        };
+
+                        if let Some(committee) = &mut self.constitutional_committee {
+                            committee.threshold = threshold;
+                            committee.members.retain(|k, _| !removed.contains(k));
+                            for (cold_cred, valid_until) in added.into_iter() {
+                                committee.members.insert(cold_cred, (None, valid_until));
+                            }
+                        } else {
+                            self.constitutional_committee = Some(ConstitutionalCommittee {
+                                threshold,
+                                members: added
+                                    .into_iter()
+                                    .map(|(cold_cred, valid_until)| {
+                                        (cold_cred, (None, valid_until))
+                                    })
+                                    .collect(),
+                            });
+                        }
+
+                        store_updates.push(Box::new(move |db, _ctx| {
+                            db.set_constitutional_committee(&committee)
+                        }))
+                    }
+
+                    ProposalEnum::Constitution(constitution, _parent) => store_updates
+                        .push(Box::new(move |db, _ctx| db.set_constitution(&constitution))),
+
+                    ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
+                        withdrawals.iter().for_each(|(_, magic_internet_money)| {
+                            self.total_withdrawn += magic_internet_money;
+                        });
+
+                        store_updates.push(Box::new(move |db, _ctx| {
+                            let leftovers = withdrawals
+                                .into_iter()
+                                .try_fold::<_, _, Result<_, StoreError>>(
+                                    0,
+                                    |leftovers, (account, magic_internet_money)| {
+                                        Ok(leftovers + db.refund(&account, magic_internet_money)?)
+                                    },
+                                )?;
+
+                            if leftovers > 0 {
+                                info!(%leftovers, "withdrawn into treasury");
+                                db.with_pots(|mut pots| pots.borrow_mut().treasury += leftovers)?;
+                            }
+
+                            Ok(())
+                        }));
+                    }
+
+                    ProposalEnum::Orphan(OrphanProposal::NicePoll) => {
+                        unreachable!("enacted an un-enactable proposal kind ?!")
+                    }
+                }
+
+                Ok(())
+            },
+        )
     }
 
     fn new_enact_span(id: &ComparableProposalId, proposal: &ProposalEnum) -> Span {
@@ -294,6 +398,40 @@ impl RatificationContext {
                 "votes.dreps.abstain" = field::Empty,
                 "approved.dreps" = field::Empty,
             )
+        }
+    }
+
+    /// There are additional checks we should perform at the moment of ratification
+    ///
+    /// - On treasury withdrawals, we must ensure there's still enough money in the treasury.
+    ///   This is necessary since there can be an arbitrary number of withdrawals that have been
+    ///   ratified and enacted just before; possibly depleting the treasury.
+    ///
+    /// - On constitutional committee updates, we should ensure that any term limit is still
+    ///   valid. This can happen if a protocol parameter change that changes the max term limit
+    ///   is ratified *before* a committee update, possibly rendering it invalid.
+    ///
+    /// Note that either way, it doesn't *invalidate* proposals, since time and subsequent
+    /// proposals may turn the tide again. They should simply be skipped, and revisited at the
+    /// next epoch boundary.
+    fn is_still_valid(&self, proposal: &ProposalEnum) -> bool {
+        match proposal {
+            ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _)
+            | ProposalEnum::HardFork(..)
+            | ProposalEnum::Constitution(..)
+            | ProposalEnum::ProtocolParameters(..)
+            | ProposalEnum::Orphan(OrphanProposal::NicePoll) => true,
+
+            ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
+                self.total_withdrawn + withdrawals.values().sum::<Lovelace>() <= self.treasury
+            }
+
+            ProposalEnum::ConstitutionalCommittee(
+                CommitteeUpdate::ChangeMembers { added, .. },
+                _,
+            ) => added.values().all(|valid_until| {
+                valid_until <= &(self.epoch + self.protocol_parameters.max_committee_term_length)
+            }),
         }
     }
 
@@ -446,7 +584,7 @@ pub enum CommitteeUpdate {
     ChangeMembers {
         removed: BTreeSet<StakeCredential>,
         added: BTreeMap<StakeCredential, Epoch>,
-        threshold: UnitInterval,
+        threshold: SafeRatio,
     },
 }
 
@@ -480,8 +618,8 @@ impl fmt::Display for CommitteeUpdate {
                     f,
                     "{}threshold={}/{}",
                     if need_separator { ", " } else { "" },
-                    threshold.numerator,
-                    threshold.denominator,
+                    threshold.numer(),
+                    threshold.denom(),
                 )
             }
         }
@@ -493,10 +631,7 @@ impl fmt::Display for CommitteeUpdate {
 
 #[derive(Debug, Clone)]
 pub enum OrphanProposal {
-    TreasuryWithdrawal {
-        withdrawals: BTreeMap<StakeCredential, Lovelace>,
-        guardrails: Option<ScriptHash>,
-    },
+    TreasuryWithdrawal(BTreeMap<StakeCredential, Lovelace>),
     NicePoll,
 }
 
@@ -504,7 +639,7 @@ impl fmt::Display for OrphanProposal {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             OrphanProposal::NicePoll => write!(f, "nice poll"),
-            OrphanProposal::TreasuryWithdrawal { withdrawals, .. } => {
+            OrphanProposal::TreasuryWithdrawal(withdrawals) => {
                 let total = withdrawals
                     .iter()
                     .fold(0, |total, (_, single)| total + single)
@@ -578,14 +713,12 @@ fn info_roots(roots: &ProposalsRootsRc) {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
-    use crate::store::columns::accounts::tests::any_stake_credential;
-    use amaru_kernel::{
-        tests::{
-            any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
-            any_protocol_version, any_script_hash,
-        },
-        RationalNumber,
+    use crate::{store::columns::accounts::tests::any_stake_credential, summary::SafeRatio};
+    use amaru_kernel::tests::{
+        any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
+        any_protocol_version,
     };
+    use num::{BigUint, One};
     use proptest::{collection, option, prelude::*};
     use std::rc::Rc;
 
@@ -633,16 +766,8 @@ pub mod tests {
     pub fn any_orphan_proposal() -> impl Strategy<Value = OrphanProposal> {
         let any_nice_poll = Just(OrphanProposal::NicePoll);
 
-        let any_treasury_withdrawal = (
-            option::of(any_script_hash()),
-            collection::btree_map(any_stake_credential(), 1_u64.., 1..3),
-        )
-            .prop_map(
-                |(guardrails, withdrawals)| OrphanProposal::TreasuryWithdrawal {
-                    guardrails,
-                    withdrawals,
-                },
-            );
+        let any_treasury_withdrawal = collection::btree_map(any_stake_credential(), 1_u64.., 1..3)
+            .prop_map(OrphanProposal::TreasuryWithdrawal);
 
         prop_oneof![any_nice_poll, any_treasury_withdrawal]
     }
@@ -659,10 +784,7 @@ pub mod tests {
                 |(numerator, removed, added)| CommitteeUpdate::ChangeMembers {
                     removed,
                     added,
-                    threshold: RationalNumber {
-                        numerator: numerator as u64,
-                        denominator: 1,
-                    },
+                    threshold: SafeRatio::new(BigUint::from(numerator), BigUint::one()),
                 },
             );
 
