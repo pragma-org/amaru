@@ -150,9 +150,6 @@ pub fn tally(
     span.record("votes.pools.yes", yes);
     span.record("votes.pools.abstain", abstain);
 
-    // FIXME: This use the *pool* voting stake, not the drep one. That is, the active stake + all
-    // deposits whose reward account is delegated to a pool. Or simply, the sum of all pool's
-    // voting stake.
     if abstain >= stake_distribution.pools_voting_stake {
         span.record("votes.pools.no", 0);
         SafeRatio::zero()
