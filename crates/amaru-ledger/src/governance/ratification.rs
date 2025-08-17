@@ -14,6 +14,7 @@
 
 use crate::{
     governance::ratification::proposals_forest::ProposalsForestCompass,
+    state::StakeDistributionView,
     store::{columns::proposals, StoreError, TransactionalContext},
     summary::{stake_distribution::StakeDistribution, SafeRatio},
 };
@@ -24,10 +25,9 @@ use amaru_kernel::{
 };
 use num::Zero;
 use std::{
-    collections::{BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet},
     fmt,
     rc::Rc,
-    sync::{Arc, Mutex},
 };
 use tracing::{debug_span, field, info, info_span, trace_span, Span};
 
@@ -50,7 +50,7 @@ mod proposals_tree;
 // ----------------------------------------------------------------------------
 
 /// All informations needed to ratify votes.
-pub struct RatificationContext {
+pub struct RatificationContext<'a> {
     /// The epoch that just ended.
     pub epoch: Epoch,
 
@@ -65,7 +65,7 @@ pub struct RatificationContext {
     pub total_withdrawn: Lovelace,
 
     /// The computed stake distribution for the epoch
-    pub stake_distributions: Arc<Mutex<VecDeque<StakeDistribution>>>,
+    pub stake_distribution: StakeDistributionView<'a>,
 
     /// Last enacted protocol parameters for this epoch.
     pub protocol_parameters: ProtocolParameters,
@@ -80,12 +80,6 @@ pub struct RatificationContext {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RatificationInternalError {
-    #[error("failed to acquire stake distribution shared lock")]
-    FailedToAcquireStakeDistrLock,
-
-    #[error("no suitable stake distribution for the ratification")]
-    NoSuitableStakeDistribution,
-
     #[error("invalid operation while creating the proposals forest: {0}")]
     InternalForestCreationError(#[from] ProposalsInsertError<ComparableProposalId>),
 
@@ -93,18 +87,18 @@ pub enum RatificationInternalError {
     InternalForestEnactmentError(#[from] ProposalsEnactError<ComparableProposalId>),
 }
 
-pub struct RatificationResult<S> {
-    pub context: RatificationContext,
-    pub store_updates: Vec<StoreUpdate<S>>,
+pub struct RatificationResult<'distr, S> {
+    pub context: RatificationContext<'distr>,
+    pub store_updates: Vec<StoreUpdate<'distr, S>>,
     pub pruned_proposals: BTreeSet<Rc<ComparableProposalId>>,
 }
 
-impl RatificationContext {
+impl<'distr> RatificationContext<'distr> {
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
         mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
         roots: ProposalsRootsRc,
-    ) -> Result<RatificationResult<S>, RatificationInternalError> {
+    ) -> Result<RatificationResult<'distr, S>, RatificationInternalError> {
         proposals.sort_by(|a, b| a.1.proposed_in.cmp(&b.1.proposed_in));
 
         info_roots(&roots);
@@ -118,17 +112,6 @@ impl RatificationContext {
                     Ok(forest)
                 },
             )?;
-
-        let stake_distributions = self.stake_distributions.clone();
-
-        let stake_distributions = stake_distributions
-            .lock()
-            .map_err(|_| RatificationInternalError::FailedToAcquireStakeDistrLock)?;
-
-        let stake_distribution = stake_distributions
-            .iter()
-            .find(|stake_distribution| stake_distribution.epoch == self.epoch)
-            .ok_or(RatificationInternalError::NoSuitableStakeDistribution)?;
 
         // The ratification of some proposals causes all other subsequent proposals' ratification to be
         // delayed to the next epoch boundary. Initially, there's none and we'll switch the flag if any
@@ -147,7 +130,7 @@ impl RatificationContext {
         // We collect updates to be done on the store while enacting proposals. The updates aren't
         // executed, but stashed for later. This allows processing proposals in a pure fasion,
         // while accumulating changes to be done on the store.
-        let mut store_updates: Vec<StoreUpdate<S>> = Vec::new();
+        let mut store_updates: Vec<StoreUpdate<'distr, S>> = Vec::new();
 
         // We also accumulate proposals that get pruned due to other proposals being enacted. Those
         // proposals are obsolete, and must be removed from the database.
@@ -162,7 +145,7 @@ impl RatificationContext {
                 };
 
                 Self::new_ratify_span(&id, proposal).in_scope(|| {
-                    if self.is_accepted_by_everyone(&id, proposal, stake_distribution)
+                    if self.is_accepted_by_everyone(&id, proposal, &self.stake_distribution)
                         && self.is_still_valid(proposal)
                     {
                         // NOTE: The .clone() on the proposal is necessary so we can drop the
@@ -222,7 +205,7 @@ impl RatificationContext {
         forest: &mut ProposalsForest,
         compass: &mut ProposalsForestCompass,
         pruned_proposals: &mut BTreeSet<Rc<ComparableProposalId>>,
-        store_updates: &mut Vec<StoreUpdate<S>>,
+        store_updates: &mut Vec<StoreUpdate<'distr, S>>,
     ) -> Result<(), RatificationInternalError> {
         Self::new_enact_span(&id, &proposal).in_scope(
             || -> Result<(), RatificationInternalError> {
@@ -676,7 +659,8 @@ impl fmt::Display for OrphanProposal {
 // Enactments
 // ----------------------------------------------------------------------------
 
-pub type StoreUpdate<S> = Box<dyn FnOnce(&S, &RatificationContext) -> Result<(), StoreError>>;
+pub type StoreUpdate<'distr, S> =
+    Box<dyn FnOnce(&S, &RatificationContext<'distr>) -> Result<(), StoreError>>;
 
 // Helpers
 // ----------------------------------------------------------------------------
