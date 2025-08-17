@@ -13,13 +13,13 @@
 // limitations under the License.
 
 use super::{OrphanProposal, ProposalEnum};
-use crate::summary::{into_safe_ratio, safe_ratio, SafeRatio};
-use amaru_kernel::{
-    Epoch, ProtocolVersion, RationalNumber, StakeCredential, Vote, PROTOCOL_VERSION_9,
-};
+use crate::summary::{safe_ratio, SafeRatio};
+use amaru_kernel::{Epoch, ProtocolVersion, StakeCredential, Vote, PROTOCOL_VERSION_9};
 use num::Zero;
 use std::{
+    cell::RefCell,
     collections::{BTreeMap, BTreeSet},
+    rc::Rc,
     sync::LazyLock,
 };
 
@@ -28,21 +28,44 @@ static ZERO: LazyLock<SafeRatio> = LazyLock::new(SafeRatio::zero);
 #[derive(Debug)]
 pub struct ConstitutionalCommittee {
     /// Threshold (i.e. ratio of yes over no votes) necessary to reach agreement.
-    pub threshold: SafeRatio,
+    threshold: SafeRatio,
 
     /// Members cold key hashes mapped to their hot key credential, if any and their expiry epoch.
-    pub members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
+    members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
+
+    /// Active members for a given ongoing epoch. We memoized the result to avoid re-computing it
+    /// over and over.
+    active_members: RefCell<Option<(Epoch, Rc<BTreeMap<StakeCredential, StakeCredential>>)>>,
 }
 
 impl ConstitutionalCommittee {
     pub fn new(
-        threshold: RationalNumber,
+        threshold: SafeRatio,
         members: BTreeMap<StakeCredential, (Option<StakeCredential>, Epoch)>,
     ) -> Self {
         Self {
-            threshold: into_safe_ratio(&threshold),
+            threshold,
             members,
+            active_members: RefCell::new(None),
         }
+    }
+
+    /// Add & remove members from a committee, following some constitutional committee update.
+    pub fn update(
+        &mut self,
+        threshold: SafeRatio,
+        added: BTreeMap<StakeCredential, Epoch>,
+        removed: BTreeSet<StakeCredential>,
+    ) {
+        self.threshold = threshold;
+        // NOTE: members must be removed BEFORE new ones are added. It's possible that
+        // 'added' re-add members that are removed; so we need to land on the same outcome across
+        // all nodes.
+        self.members.retain(|k, _| !removed.contains(k));
+        for (cold_cred, valid_until) in added.into_iter() {
+            self.members.insert(cold_cred, (None, valid_until));
+        }
+        *self.active_members.borrow_mut() = None;
     }
 
     /// Get the subset of cc member that is current active, as per the current epoch. A member is active iif:
@@ -50,23 +73,35 @@ impl ConstitutionalCommittee {
     /// - it exists
     /// - its cold key is delegated to a hot key
     /// - it hasn't expired yet
-    pub fn active_members<'a>(
-        &'a self,
-        // The epoch that just ended.
+    fn active_members(
+        &self,
         current_epoch: Epoch,
-        // A selector for accessing either the cold or hot credential.
-        select: impl Fn(&'a StakeCredential, &'a StakeCredential) -> &'a StakeCredential,
-    ) -> BTreeSet<&'a StakeCredential> {
-        self.members
-            .iter()
-            .filter_map(|(cold_cred, (hot_cred, valid_until))| {
-                if valid_until >= &current_epoch {
-                    Some(select(cold_cred, hot_cred.as_ref()?))
-                } else {
-                    None
-                }
-            })
-            .collect()
+    ) -> Rc<BTreeMap<StakeCredential, StakeCredential>> {
+        match self.active_members.borrow().as_ref() {
+            Some((memoized_epoch, active_members)) if memoized_epoch == &current_epoch => {
+                active_members.clone()
+            }
+            Some(..) | None => {
+                let active_members = Rc::new(
+                    self.members
+                        .iter()
+                        .filter_map(|(cold_cred, (hot_cred, valid_until))| {
+                            if valid_until >= &current_epoch {
+                                Some((cold_cred.clone(), hot_cred.as_ref()?.clone()))
+                            } else {
+                                None
+                            }
+                        })
+                        .collect::<BTreeMap<_, _>>(),
+                );
+
+                let rc = active_members.clone();
+
+                *self.active_members.borrow_mut() = Some((current_epoch, active_members));
+
+                rc
+            }
+        }
     }
 
     pub fn voting_threshold(
@@ -85,11 +120,9 @@ impl ConstitutionalCommittee {
             | ProposalEnum::HardFork(..)
             | ProposalEnum::Constitution(..)
             | ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => {
-                let active_members = self.active_members(current_epoch, |cold_cred, _| cold_cred);
-
                 // The minimum committee size has no effect during the bootstrap phase (i.e. v9). The
                 // committee is always allowed to vote during v9.
-                if active_members.len() < (min_committee_size as usize)
+                if self.active_members(current_epoch).len() < (min_committee_size as usize)
                     && protocol_version > PROTOCOL_VERSION_9
                 {
                     return None;
@@ -106,9 +139,7 @@ impl ConstitutionalCommittee {
     /// - Members that expired are excluded entirely (also from the denominator);
     /// - Members that have resigned (i.e. no hot keys) are also excluded;
     pub fn tally(&self, epoch: Epoch, votes: BTreeMap<StakeCredential, &Vote>) -> SafeRatio {
-        // TODO: Avoid re-computing this on each tally? The set of active members is fixed per
-        // epoch.
-        let active_members = self.active_members(epoch, |_, hot_cred| hot_cred);
+        let active_members = self.active_members(epoch);
 
         let total_active_members = active_members.len() as u64;
 
@@ -116,7 +147,7 @@ impl ConstitutionalCommittee {
             votes
                 .iter()
                 .fold((0, 0, 0), |(yes, no, abstain), (hot_cred, vote)| {
-                    if active_members.contains(hot_cred) {
+                    if active_members.contains_key(hot_cred) {
                         match vote {
                             Vote::Yes => (yes + 1, no, abstain),
                             Vote::No => (yes, no + 1, abstain),

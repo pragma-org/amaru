@@ -280,21 +280,17 @@ impl<'distr> RatificationContext<'distr> {
                         };
 
                         if let Some(committee) = &mut self.constitutional_committee {
-                            committee.threshold = threshold;
-                            committee.members.retain(|k, _| !removed.contains(k));
-                            for (cold_cred, valid_until) in added.into_iter() {
-                                committee.members.insert(cold_cred, (None, valid_until));
-                            }
+                            committee.update(threshold, added, removed);
                         } else {
-                            self.constitutional_committee = Some(ConstitutionalCommittee {
+                            self.constitutional_committee = Some(ConstitutionalCommittee::new(
                                 threshold,
-                                members: added
+                                added
                                     .into_iter()
                                     .map(|(cold_cred, valid_until)| {
                                         (cold_cred, (None, valid_until))
                                     })
                                     .collect(),
-                            });
+                            ));
                         }
 
                         store_updates.push(Box::new(move |db, _ctx| {

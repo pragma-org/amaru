@@ -30,6 +30,7 @@ use crate::{
     },
     summary::{
         governance::{self, GovernanceSummary},
+        into_safe_ratio,
         rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
     },
@@ -820,7 +821,8 @@ fn new_ratification_context<'distr>(
                 .collect();
 
             Some(ratification::ConstitutionalCommittee::new(
-                threshold, members,
+                into_safe_ratio(&threshold),
+                members,
             ))
         }
     };
