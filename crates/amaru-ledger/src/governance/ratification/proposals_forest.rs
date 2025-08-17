@@ -35,7 +35,7 @@ pub struct ProposalsForest {
     /// We keep a map of id -> ProposalEnum. This serves as a lookup table to retrieve proposals
     /// from the forest in a timely manner while the relationships between all proposals is
     /// maintained independently.
-    proposals: BTreeMap<Rc<ComparableProposalId>, ProposalEnum>,
+    proposals: BTreeMap<Rc<ComparableProposalId>, ProposedIn<ProposalEnum>>,
 
     /// The order in which proposals are inserted matters. The forest is an insertion-preserving
     /// structure. Iterating on the forest will yield the proposals in the order they were
@@ -47,8 +47,13 @@ pub struct ProposalsForest {
     /// constitution) having been ratified.
     is_interrupted: bool,
 
+    /// The minimal epoch proposals must have been submitted after to be considered for
+    /// ratification. This allows skipping the ratification of *just* submitted proposals, since it
+    /// should happens with an epoch of delay.
+    min_epoch: Epoch,
+
     // Finally, the relation between proposals of the same nature is preserved through multiple
-    // tree-like structures. This is what gives this data-structure its name.
+    // tree-like structures. This is proposal gives this data-structure its name.
     protocol_parameters: ProposalsTree<ComparableProposalId>,
     hard_fork: ProposalsTree<ComparableProposalId>,
     constitutional_committee: ProposalsTree<ComparableProposalId>,
@@ -56,8 +61,9 @@ pub struct ProposalsForest {
 }
 
 impl ProposalsForest {
-    pub fn new(roots: &ProposalsRootsRc) -> Self {
+    pub fn new(min_epoch: Epoch, roots: &ProposalsRootsRc) -> Self {
         ProposalsForest {
+            min_epoch,
             is_interrupted: false,
 
             proposals: BTreeMap::new(),
@@ -90,6 +96,7 @@ impl ProposalsForest {
     pub fn insert(
         &mut self,
         id: ComparableProposalId,
+        proposed_in: Epoch,
         proposal: GovAction,
     ) -> Result<(), ProposalsInsertError<ComparableProposalId>> {
         use amaru_kernel::GovAction::*;
@@ -107,6 +114,16 @@ impl ProposalsForest {
         // poll -> 7th
         self.sequence.push_back(id.clone());
 
+        let mut insert = |proposal| {
+            self.proposals.insert(
+                id.clone(),
+                ProposedIn {
+                    epoch: proposed_in,
+                    proposal,
+                },
+            )
+        };
+
         match proposal {
             ParameterChange(parent, update, _guardrails_script) => {
                 let parent = into_parent_id(parent);
@@ -114,8 +131,7 @@ impl ProposalsForest {
                 self.protocol_parameters
                     .insert(id.clone(), parent.clone())?;
 
-                self.proposals
-                    .insert(id, ProposalEnum::ProtocolParameters(*update, parent));
+                insert(ProposalEnum::ProtocolParameters(*update, parent));
 
                 Ok(())
             }
@@ -125,8 +141,7 @@ impl ProposalsForest {
 
                 self.hard_fork.insert(id.clone(), parent.clone())?;
 
-                self.proposals
-                    .insert(id, ProposalEnum::HardFork(protocol_version, parent));
+                insert(ProposalEnum::HardFork(protocol_version, parent));
 
                 Ok(())
             }
@@ -140,10 +155,9 @@ impl ProposalsForest {
                     },
                 );
 
-                self.proposals.insert(
-                    id.clone(),
-                    ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)),
-                );
+                insert(ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(
+                    withdrawals,
+                )));
 
                 Ok(())
             }
@@ -154,21 +168,18 @@ impl ProposalsForest {
                 self.constitutional_committee
                     .insert(id.clone(), parent.clone())?;
 
-                self.proposals.insert(
-                    id.clone(),
-                    ProposalEnum::ConstitutionalCommittee(
-                        CommitteeUpdate::ChangeMembers {
-                            removed: removed.to_vec().into_iter().collect(),
-                            added: added
-                                .to_vec()
-                                .into_iter()
-                                .map(|(k, v)| (k, Epoch::from(v)))
-                                .collect(),
-                            threshold: into_safe_ratio(&threshold),
-                        },
-                        parent,
-                    ),
-                );
+                insert(ProposalEnum::ConstitutionalCommittee(
+                    CommitteeUpdate::ChangeMembers {
+                        removed: removed.to_vec().into_iter().collect(),
+                        added: added
+                            .to_vec()
+                            .into_iter()
+                            .map(|(k, v)| (k, Epoch::from(v)))
+                            .collect(),
+                        threshold: into_safe_ratio(&threshold),
+                    },
+                    parent,
+                ));
 
                 Ok(())
             }
@@ -179,10 +190,10 @@ impl ProposalsForest {
                 self.constitutional_committee
                     .insert(id.clone(), parent.clone())?;
 
-                self.proposals.insert(
-                    id.clone(),
-                    ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, parent),
-                );
+                insert(ProposalEnum::ConstitutionalCommittee(
+                    CommitteeUpdate::NoConfidence,
+                    parent,
+                ));
 
                 Ok(())
             }
@@ -192,16 +203,13 @@ impl ProposalsForest {
 
                 self.constitution.insert(id.clone(), parent.clone())?;
 
-                self.proposals
-                    .insert(id.clone(), ProposalEnum::Constitution(constitution, parent));
+                insert(ProposalEnum::Constitution(constitution, parent));
 
                 Ok(())
             }
 
             Information => {
-                self.proposals
-                    .insert(id.clone(), ProposalEnum::Orphan(OrphanProposal::NicePoll));
-
+                insert(ProposalEnum::Orphan(OrphanProposal::NicePoll));
                 Ok(())
             }
         }
@@ -336,8 +344,23 @@ impl ProposalsForestCompass {
             "compass re-used on a forest that has changed; you should have created a new compass."
         );
 
-        // A high-priority/high-impact proposal has already been enacted; so we prevent the
-        // ratification of any new proposal from then on.
+        // == TL; DR;
+        //   A high-priority/high-impact proposal has already been enacted; so we prevent the
+        //   ratification of any new proposal from then on.
+        //
+        // == Longer explanation:
+        //   The ratification of some proposals causes all other subsequent proposals' ratification
+        //   to be delayed to the next epoch boundary. Initially, there's none and we'll switch the
+        //   flag if any of the following proposal kind gets ratified:
+        //
+        //   - a motion of no confidence; or
+        //   - a hard fork; or
+        //   - a constitutional committee update; or
+        //   - a constitution update.
+        //
+        //   Said differently, there can be many treasury withdrawals, protocol parameters changes
+        //   or nice polls; but as soon as one of the other is encountered; EVERYTHING (including
+        //   treasury withdrawals and parameters changes) is postponed until the next epoch.
         if forest.is_interrupted {
             return None;
         }
@@ -345,9 +368,26 @@ impl ProposalsForestCompass {
         loop {
             let result: Option<(Rc<ComparableProposalId>, &'forest ProposalEnum)> = {
                 let id = forest.sequence.get(self.cursor)?.clone();
-                let proposal = forest.proposals.get(&id)?;
-
+                let ProposedIn {
+                    epoch: proposed_in,
+                    proposal,
+                } = forest.proposals.get(&id)?;
                 self.cursor += 1;
+
+                // Proposals are ratified with an epoch of delay. So
+                //
+                // - if a proposal is submitted in epoch e, it musn't be ratified in the
+                // transition from e -> e + 1, but from the transition from e + 1 -> e + 2.
+                //
+                // - Yet, the forest will always include ALL proposals, since we must potentially
+                // prune recent proposals due to the enactment of older proposals.
+                //
+                // - `forest.min_epoch` contains the minimum epoch for which we might consider
+                // for ratification. If a proposal was submitted in the epoch that just ended, we
+                // skip it.
+                if proposed_in >= &forest.min_epoch {
+                    return None;
+                }
 
                 // Ensures that the next proposal points to an active root. Not being the case isn't
                 // necessarily an issue or a sign that something went wrong.
@@ -496,9 +536,12 @@ impl fmt::Display for ProposalsForest {
         section::<ProtocolParamUpdate>(
             f,
             "Protocol Parameter Updates",
-            Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::ProtocolParameters(a, _)) => Some(a),
-                _ => None,
+            Rc::new(|id| {
+                if let ProposalEnum::ProtocolParameters(a, _) = &self.proposals.get(id)?.proposal {
+                    Some(a)
+                } else {
+                    None
+                }
             }),
             Rc::new(|pp, prefix| {
                 Ok(format!(
@@ -512,9 +555,12 @@ impl fmt::Display for ProposalsForest {
         section::<ProtocolVersion>(
             f,
             "Hard forks",
-            Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::HardFork(a, _)) => Some(a),
-                _ => None,
+            Rc::new(|id| {
+                if let ProposalEnum::HardFork(a, _) = &self.proposals.get(id)?.proposal {
+                    Some(a)
+                } else {
+                    None
+                }
             }),
             Rc::new(|protocol_version, _| {
                 Ok(format!(
@@ -528,9 +574,14 @@ impl fmt::Display for ProposalsForest {
         section::<CommitteeUpdate>(
             f,
             "Constitutional Committee Updates",
-            Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::ConstitutionalCommittee(a, _)) => Some(a),
-                _ => None,
+            Rc::new(|id| {
+                if let ProposalEnum::ConstitutionalCommittee(a, _) =
+                    &self.proposals.get(id)?.proposal
+                {
+                    Some(a)
+                } else {
+                    None
+                }
             }),
             Rc::new(|committee_update, _| Ok(committee_update.to_string())),
             &self.constitutional_committee,
@@ -539,9 +590,12 @@ impl fmt::Display for ProposalsForest {
         section::<Constitution>(
             f,
             "Constitution updates",
-            Rc::new(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::Constitution(a, _)) => Some(a),
-                _ => None,
+            Rc::new(|id| {
+                if let ProposalEnum::Constitution(a, _) = &self.proposals.get(id)?.proposal {
+                    Some(a)
+                } else {
+                    None
+                }
             }),
             Rc::new(|constitution, _| {
                 Ok(format!(
@@ -562,9 +616,12 @@ impl fmt::Display for ProposalsForest {
         let others = self
             .sequence
             .iter()
-            .filter_map(|id| match self.proposals.get(id) {
-                Some(ProposalEnum::Orphan(o)) => Some(o),
-                _ => None,
+            .filter_map(|id| {
+                if let ProposalEnum::Orphan(o) = &self.proposals.get(id).as_ref()?.proposal {
+                    Some(o)
+                } else {
+                    None
+                }
             })
             .collect::<Vec<_>>();
 
@@ -584,6 +641,13 @@ impl fmt::Display for ProposalsForest {
 
 // Helpers
 // ----------------------------------------------------------------------------
+
+/// A type akin to a (Epoch, T), but with field name for readability.
+#[derive(Debug, Clone)]
+pub struct ProposedIn<T> {
+    pub epoch: Epoch,
+    pub proposal: T,
+}
 
 fn into_parent_id(nullable: Nullable<ProposalId>) -> Option<Rc<ComparableProposalId>> {
     match nullable {
