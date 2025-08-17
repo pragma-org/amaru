@@ -49,9 +49,13 @@ pub struct StakeDistribution {
     /// Total stake, in Lovelace, delegated to registered pools
     pub active_stake: Lovelace,
 
+    /// Active stake plus deposits of ongoing proposals whose reward accounts are delegated to
+    /// active stake pools.
+    pub pools_voting_stake: Lovelace,
+
     /// Total voting stake, in Lovelace, corresponding to the total stake assigned to registered
     /// and active delegate representatives.
-    pub voting_stake: Lovelace,
+    pub dreps_voting_stake: Lovelace,
 
     /// Mapping of accounts' stake credentials to their respective state.
     ///
@@ -175,8 +179,10 @@ impl StakeDistribution {
             })
             .collect::<BTreeMap<PoolId, PoolState>>();
 
-        let mut voting_stake: Lovelace = 0;
         let mut active_stake: Lovelace = 0;
+        let mut pools_voting_stake: Lovelace = 0;
+        let mut dreps_voting_stake: Lovelace = 0;
+
         let accounts = accounts
             .into_iter()
             .filter(|(credential, account)| {
@@ -214,7 +220,7 @@ impl StakeDistribution {
                 // NOTE: Only accounts delegated to active dreps counts towards the voting stake.
                 if let Some(drep) = &account.drep {
                     if let Some(st) = dreps.get_mut(drep) {
-                        voting_stake += account.lovelace + drep_deposits + refund;
+                        dreps_voting_stake += account.lovelace + drep_deposits + refund;
                         st.stake += account.lovelace + drep_deposits + refund;
                     }
                 }
@@ -234,8 +240,9 @@ impl StakeDistribution {
                             // reap), any pool retiring in the next epoch is considered having no
                             // voting power whatsoever.
                             if !retiring_pools.contains(&pool_id) {
-                                pool.voting_stake += account.lovelace;
-                                pool.voting_stake += pool_deposits;
+                                let delta = account.lovelace + pool_deposits;
+                                pool.voting_stake += delta;
+                                pools_voting_stake += delta;
                             }
                             true
                         }
@@ -260,14 +267,16 @@ impl StakeDistribution {
             pools = %pools.len(),
             active_stake = %active_stake,
             dreps = %dreps.len(),
-            voting_stake = %voting_stake,
+            dreps_voting_stake = %dreps_voting_stake,
+            pools_voting_stake = %pools_voting_stake,
             "stake_distribution.snapshot",
         );
 
         Ok(StakeDistribution {
             epoch,
             active_stake,
-            voting_stake,
+            dreps_voting_stake,
+            pools_voting_stake,
             accounts,
             pools,
             dreps,
@@ -289,7 +298,7 @@ impl serde::Serialize for StakeDistributionForNetwork<'_> {
         let mut s = serializer.serialize_struct("StakeDistribution", 5)?;
         s.serialize_field("epoch", &self.0.epoch)?;
         s.serialize_field("active_stake", &self.0.active_stake)?;
-        s.serialize_field("voting_stake", &self.0.voting_stake)?;
+        s.serialize_field("voting_stake", &self.0.dreps_voting_stake)?;
         serialize_map("accounts", &mut s, &self.0.accounts, |credential| {
             encode_stake_credential(self.1, credential)
         })?;
@@ -317,8 +326,8 @@ pub mod tests {
             pools in collection::btree_map(any_pool_id(), any_pool_state(), 1..10),
             accounts in collection::btree_map(any_stake_credential(), any_account_state(), 1..20),
         ) -> StakeDistribution {
-            let voting_stake = pools.values().fold(0, |total, st| total + st.voting_stake);
             let active_stake = pools.values().fold(0, |total, st| total + st.stake);
+            let pools_voting_stake = pools.values().fold(0, |total, st| total + st.voting_stake);
 
             let pools_len = pools.len();
 
@@ -344,10 +353,11 @@ pub mod tests {
             StakeDistribution {
                 epoch: Epoch::from(epoch),
                 active_stake,
-                voting_stake,
                 pools,
+                pools_voting_stake,
                 accounts,
                 dreps: BTreeMap::new(),
+                dreps_voting_stake: 0,
             }
         }
     }
