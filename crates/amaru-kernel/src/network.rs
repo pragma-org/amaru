@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    protocol_parameters::{
-        GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
-        PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
-    },
-    ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+use crate::protocol_parameters::{
+    GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
+    PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
 };
 use pallas_addresses::Network;
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
@@ -507,23 +504,6 @@ impl NetworkName {
             Self::Preprod => 1,
             Self::Preview => 2,
             Self::Testnet(magic) => magic,
-        }
-    }
-
-    // FIXME: This function should NOT exist; but it does until we have fully implemented
-    // Hard-Forks enactment.
-    pub fn protocol_version(&self, epoch: Epoch) -> &ProtocolVersion {
-        let v10_starting_epoch = match self {
-            Self::Mainnet => unimplemented!(),
-            Self::Preprod => Epoch::from(180),
-            Self::Preview => Epoch::from(742),
-            Self::Testnet(..) => unimplemented!(),
-        };
-
-        if epoch >= v10_starting_epoch {
-            &PROTOCOL_VERSION_10
-        } else {
-            &PROTOCOL_VERSION_9
         }
     }
 }
