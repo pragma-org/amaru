@@ -18,7 +18,7 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::{
-    store::Snapshot,
+    store::{ReadStore, Snapshot},
     summary::{
         governance::GovernanceSummary, rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
@@ -93,7 +93,7 @@ fn compare_snapshot(epoch: Epoch) {
         NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
     };
 
-    let protocol_version = *network.protocol_version(epoch);
+    let protocol_version = snapshot.protocol_version().unwrap();
 
     let dreps = GovernanceSummary::new(
         snapshot.as_ref(),

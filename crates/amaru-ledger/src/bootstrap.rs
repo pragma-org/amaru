@@ -287,7 +287,12 @@ pub fn import_initial_snapshot(
         d.skip()?;
     }
 
-    save_point(db, point, network.protocol_version(epoch), era_history)?;
+    save_point(
+        db,
+        point,
+        &protocol_parameters.protocol_version,
+        era_history,
+    )?;
 
     Ok(epoch)
 }

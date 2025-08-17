@@ -24,7 +24,7 @@ use crate::{
 use amaru_kernel::{
     expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
     DRep, HasLovelace, Lovelace, Network, PoolId, ProtocolVersion, StakeCredential,
-    PROTOCOL_VERSION_10,
+    PROTOCOL_VERSION_9,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use serde::ser::SerializeStruct;
@@ -102,8 +102,7 @@ impl StakeDistribution {
                                     ..
                                 } = dreps.get(&drep)?;
 
-                                // FIXME: Change this behaviour in protocol 10
-                                if protocol_version < PROTOCOL_VERSION_10 {
+                                if protocol_version <= PROTOCOL_VERSION_9 {
                                     if &Some(since) > previous_deregistration {
                                         Some(drep)
                                     } else {

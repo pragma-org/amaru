@@ -65,7 +65,6 @@ impl GovernanceSummary {
 
         let mut proposals = BTreeSet::new();
 
-        // FIXME: filter out proposals that have been ratified
         let mut deposits = BTreeMap::new();
 
         db.iter_proposals()?
