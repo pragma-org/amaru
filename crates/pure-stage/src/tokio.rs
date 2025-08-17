@@ -21,6 +21,7 @@ use crate::{
     effect::{StageEffect, StageResponse},
     resources::Resources,
     simulation::EffectBox,
+    stagegraph::StageGraphRunning,
     time::Clock,
     BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageGraph, StageRef,
 };
@@ -35,7 +36,10 @@ use std::{
 };
 use tokio::{
     runtime::Handle,
-    sync::mpsc::{self, Receiver},
+    sync::{
+        mpsc::{self, Receiver},
+        watch,
+    },
     task::JoinHandle,
 };
 
@@ -50,15 +54,17 @@ struct TokioInner {
     clock: Arc<dyn Clock + Send + Sync>,
     resources: Resources,
     mailbox_size: usize,
+    termination: watch::Sender<bool>,
 }
 
-impl Default for TokioInner {
-    fn default() -> Self {
+impl TokioInner {
+    fn new(termination: watch::Sender<bool>) -> Self {
         Self {
             senders: Default::default(),
             clock: Arc::new(TokioClock),
             resources: Resources::default(),
             mailbox_size: 10,
+            termination,
         }
     }
 }
@@ -76,10 +82,21 @@ impl Clock for TokioClock {
 /// *This is currently only a minimal sketch that will likely not fit the intended design.
 /// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::simulation::SimulationBuilder)
 /// implementation.*
-#[derive(Default)]
 pub struct TokioBuilder {
     tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, anyhow::Result<()>>>>,
     inner: TokioInner,
+    termination: watch::Receiver<bool>,
+}
+
+impl Default for TokioBuilder {
+    fn default() -> Self {
+        let (termination, termination_rx) = watch::channel(false);
+        Self {
+            tasks: Default::default(),
+            inner: TokioInner::new(termination),
+            termination: termination_rx,
+        }
+    }
 }
 
 impl StageGraph for TokioBuilder {
@@ -139,7 +156,7 @@ impl StageGraph for TokioBuilder {
                 let sender = mk_sender(&stage_name, &inner);
                 let effects = Effects::new(me, effect.clone(), inner.clock.clone(), sender);
                 while let Some(msg) = rx.recv().await {
-                    state = interpreter(
+                    let result = interpreter(
                         &inner,
                         &effect,
                         &stage_name,
@@ -149,10 +166,15 @@ impl StageGraph for TokioBuilder {
                             effects.clone(),
                         ),
                     )
-                    .await
-                    .inspect_err(|err| {
-                        tracing::error!("stage `{}` error: {:?}", stage_name, err);
-                    })?;
+                    .await;
+                    match result {
+                        Ok(st) => state = st,
+                        Err(err) => {
+                            tracing::error!("stage `{}` failed: {:?}", stage_name, err);
+                            inner.termination.send_replace(true);
+                            return Err(err);
+                        }
+                    }
                 }
                 Ok(())
             })
@@ -169,13 +191,34 @@ impl StageGraph for TokioBuilder {
     }
 
     fn run(self, rt: Handle) -> Self::Running {
-        let Self { tasks, inner } = self;
+        let Self {
+            tasks,
+            inner,
+            termination,
+        } = self;
         let inner = Arc::new(inner);
-        let handles = tasks
-            .into_iter()
-            .map(|t| rt.spawn(t(inner.clone())))
-            .collect();
-        TokioRunning { handles }
+        let handles = Arc::new(Mutex::new(
+            tasks
+                .into_iter()
+                .map(|t| rt.spawn(t(inner.clone())))
+                .collect::<Vec<_>>(),
+        ));
+
+        // abort all tasks as soon as the termination signal is received
+        let mut termination2 = termination.clone();
+        let handles2 = handles.clone();
+        rt.spawn(async move {
+            termination2.wait_for(|x| *x).await.ok();
+            let handles = std::mem::take(&mut *handles2.lock());
+            for handle in handles {
+                handle.abort();
+            }
+        });
+
+        TokioRunning {
+            handles,
+            termination,
+        }
     }
 
     fn resources(&self) -> &Resources {
@@ -281,22 +324,37 @@ fn now() -> Instant {
 /// Handle to the running stages.
 #[must_use = "this handle needs to be either joined or aborted"]
 pub struct TokioRunning {
-    handles: Vec<JoinHandle<anyhow::Result<()>>>,
+    handles: Arc<Mutex<Vec<JoinHandle<anyhow::Result<()>>>>>,
+    termination: watch::Receiver<bool>,
 }
 
 impl TokioRunning {
     /// Abort all stage tasks of this network.
     pub fn abort(self) {
-        for handle in self.handles {
+        for handle in self.handles.lock().iter() {
             handle.abort();
         }
     }
 
     pub async fn join(self) -> Vec<anyhow::Result<()>> {
         let mut res = Vec::new();
-        for handle in self.handles.into_iter() {
+        let handles = std::mem::take(&mut *self.handles.lock());
+        for handle in handles {
             res.push(handle.await.unwrap_or_else(|err| Err(err.into())));
         }
         res
+    }
+}
+
+impl StageGraphRunning for TokioRunning {
+    fn is_terminated(&self) -> bool {
+        *self.termination.borrow()
+    }
+
+    fn termination(&self) -> BoxFuture<'static, ()> {
+        let mut rx = self.termination.clone();
+        Box::pin(async move {
+            rx.wait_for(|x| *x).await.ok();
+        })
     }
 }

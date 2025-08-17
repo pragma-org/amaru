@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    types::MpscSender, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
-    StageBuildRef, StageRef, Void,
+    types::MpscSender, BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources,
+    SendData, Sender, StageBuildRef, StageRef, Void,
 };
 use std::{
     fmt::Debug,
@@ -131,7 +131,7 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let mut running = network.run(rt.handle().clone());
 /// ```
 pub trait StageGraph {
-    type Running;
+    type Running: StageGraphRunning;
     type RefAux<Msg, State>;
 
     /// Create a stage from an asynchronous transition function (state × message → state) and
@@ -219,4 +219,9 @@ pub trait StageGraph {
     ///
     /// It is prudent to populate this collection before running the network.
     fn resources(&self) -> &Resources;
+}
+
+pub trait StageGraphRunning {
+    fn is_terminated(&self) -> bool;
+    fn termination(&self) -> BoxFuture<'static, ()>;
 }

@@ -24,10 +24,10 @@ use crate::{
         },
         Blocked,
     },
-    stagegraph::CallRef,
+    stagegraph::{CallRef, StageGraphRunning},
     time::Clock,
     trace_buffer::TraceBuffer,
-    CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
+    BoxFuture, CallId, Effect, ExternalEffect, Name, Resources, SendData, StageRef,
 };
 use either::Either::{Left, Right};
 use parking_lot::Mutex;
@@ -40,7 +40,7 @@ use std::{
 };
 use tokio::{
     runtime::Handle,
-    sync::oneshot::{Receiver, Sender},
+    sync::{oneshot, watch},
 };
 
 /// A handle to a running [`SimulationBuilder`](crate::simulation::SimulationBuilder).
@@ -68,6 +68,8 @@ pub struct SimulationRunning {
     overrides: Vec<OverrideExternalEffect>,
     breakpoints: Vec<(Name, Box<dyn Fn(&Effect) -> bool + Send + 'static>)>,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
+    terminate: watch::Sender<bool>,
+    termination: watch::Receiver<bool>,
 }
 
 impl SimulationRunning {
@@ -82,6 +84,7 @@ impl SimulationRunning {
         rt: Handle,
         trace_buffer: Arc<Mutex<TraceBuffer>>,
     ) -> Self {
+        let (terminate, termination) = watch::channel(false);
         Self {
             stages,
             inputs,
@@ -96,6 +99,8 @@ impl SimulationRunning {
             overrides: Vec::new(),
             breakpoints: Vec::new(),
             trace_buffer,
+            terminate,
+            termination,
         }
     }
 
@@ -529,7 +534,8 @@ impl SimulationRunning {
                     .expect("external effect is always runnable");
             }
             Effect::Failure { at_stage, error } => {
-                panic!("stage `{at_stage}` failed with {error:?}");
+                tracing::error!("stage `{at_stage}` failed: {error:?}");
+                self.terminate.send_replace(true);
             }
         }
     }
@@ -621,7 +627,11 @@ impl SimulationRunning {
         &mut self,
         from: Name,
         to: Name,
-        call: Option<(Duration, Receiver<Box<dyn SendData + 'static>>, CallId)>,
+        call: Option<(
+            Duration,
+            oneshot::Receiver<Box<dyn SendData + 'static>>,
+            CallId,
+        )>,
     ) {
         if let Some((timeout, recv, id)) = call {
             let deadline = self.clock.now() + timeout;
@@ -758,7 +768,7 @@ impl SimulationRunning {
     fn handle_send_response(
         &mut self,
         msg: Box<dyn SendData>,
-        (target, id, deadline, sender): (Name, CallId, Instant, Sender<Box<dyn SendData>>),
+        (target, id, deadline, sender): (Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>),
     ) {
         if let Err(msg) = sender.send(msg) {
             tracing::warn!(
@@ -784,6 +794,19 @@ impl SimulationRunning {
             .expect("stage ref exists, so stage must exist");
         resume_external_internal(data, result, &mut |name, response| {
             self.runnable.push_back((name, response));
+        })
+    }
+}
+
+impl StageGraphRunning for SimulationRunning {
+    fn is_terminated(&self) -> bool {
+        *self.termination.borrow()
+    }
+
+    fn termination(&self) -> BoxFuture<'static, ()> {
+        let mut rx = self.termination.clone();
+        Box::pin(async move {
+            rx.wait_for(|x| *x).await.ok();
         })
     }
 }
