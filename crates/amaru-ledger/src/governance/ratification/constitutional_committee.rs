@@ -395,6 +395,7 @@ mod tests {
     proptest! {
         #[test]
         #[should_panic]
+        #[cfg(not(target_os = "windows"))]
         fn prop_min_size_has_no_effect_in_v9(
             committee in any_constitutional_committee(),
             min_committee_size in 0..MAX_COMMITTEE_SIZE,

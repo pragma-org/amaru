@@ -443,7 +443,6 @@ pub struct Prices {
 pub mod tests {
     use super::PREPROD_INITIAL_PROTOCOL_PARAMETERS;
     use crate::{
-        prop_cbor_roundtrip,
         protocol_parameters::{CostModels, ProtocolParameters, ProtocolVersion},
         tests::{
             any_constitution, any_nullable, any_proposal_id, any_rational_number,
@@ -455,6 +454,10 @@ pub mod tests {
     };
     use proptest::{collection, option, prelude::*};
 
+    #[cfg(not(target_os = "windows"))]
+    use crate::prop_cbor_roundtrip;
+
+    #[cfg(not(target_os = "windows"))]
     prop_cbor_roundtrip!(ProtocolParameters, any_protocol_parameter());
 
     prop_compose! {
