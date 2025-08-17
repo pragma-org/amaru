@@ -205,7 +205,7 @@ pub fn tally(
             });
 
     let no = denominator - yes;
-    let abstain = stake_distribution.voting_stake - denominator;
+    let abstain = stake_distribution.dreps_voting_stake - denominator;
 
     let span = tracing::Span::current();
     span.record("votes.dreps.yes", yes);
