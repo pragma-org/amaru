@@ -184,7 +184,7 @@ mod tests {
     };
     use num::{One, ToPrimitive, Zero};
     use proptest::{collection, option, prelude::*, sample};
-    use std::{collections::BTreeMap, rc::Rc, sync::Arc};
+    use std::{collections::BTreeMap, rc::Rc};
 
     static VOTE_YES: Vote = Vote::Yes;
     static VOTE_NO: Vote = Vote::No;
@@ -442,7 +442,7 @@ mod tests {
             ProtocolVersion,
             ProposalEnum,
             BTreeMap<PoolId, &'static Vote>,
-            Arc<StakeDistribution>,
+            Rc<StakeDistribution>,
         ),
     > {
         any_stake_distribution_no_dreps().prop_flat_map(|stake_distribution| {
@@ -450,7 +450,7 @@ mod tests {
                 any_protocol_version(),
                 any_proposal_enum(),
                 any_votes(&stake_distribution),
-                Just(Arc::new(stake_distribution)),
+                Just(Rc::new(stake_distribution)),
             )
                 .prop_map(
                     move |(protocol_version, proposal, votes, stake_distribution)| {

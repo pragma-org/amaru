@@ -279,18 +279,16 @@ impl<'distr> RatificationContext<'distr> {
                             },
                         };
 
+                        let added_as_inactive = added
+                            .into_iter()
+                            .map(|(cold_cred, valid_until)| (cold_cred, (None, valid_until)))
+                            .collect();
+
                         if let Some(committee) = &mut self.constitutional_committee {
-                            committee.update(threshold, added, removed);
+                            committee.update(threshold, added_as_inactive, removed);
                         } else {
-                            self.constitutional_committee = Some(ConstitutionalCommittee::new(
-                                threshold,
-                                added
-                                    .into_iter()
-                                    .map(|(cold_cred, valid_until)| {
-                                        (cold_cred, (None, valid_until))
-                                    })
-                                    .collect(),
-                            ));
+                            self.constitutional_committee =
+                                Some(ConstitutionalCommittee::new(threshold, added_as_inactive));
                         }
 
                         store_updates.push(Box::new(move |db, _ctx| {
@@ -532,9 +530,8 @@ impl<'distr> RatificationContext<'distr> {
 /// Akin to a GovAction, but with a split that is more tailored to the ratification needs.
 /// In particular:
 ///
-/// - Motion of no confidence and update to the constitutional commitee are grouped together as
-///   `CommitteeUpdate`. This is because they, in fact, belong to the same chain of
-///   relationships.
+/// - Motion of no confidence and update to the constitutional committee are grouped together as
+///   `CommitteeUpdate`. This is because they, in fact, belong to the same chain of relationships.
 ///
 /// - Treasury withdrawals and polls (a.k.a 'info actions') are also grouped together, as they're
 ///   the only actions that do not need to form a chain; they have no parents (hence,
