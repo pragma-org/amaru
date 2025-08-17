@@ -20,10 +20,11 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, Constitution, DRep,
-    Epoch, Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, StakeCredential, UnitInterval,
-    Vote, Voter,
+    Epoch, EraHistory, Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, Slot,
+    StakeCredential, UnitInterval, Vote, Voter,
 };
 use num::Zero;
+use slot_arithmetic::EraHistoryError;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,
@@ -85,6 +86,9 @@ pub enum RatificationInternalError {
 
     #[error("invalid operation while enacting a proposal: {0}")]
     InternalForestEnactmentError(#[from] ProposalsEnactError<ComparableProposalId>),
+
+    #[error("failed to compute epoch from slot {0:?}: {1}")]
+    InternalSlotToEpochError(Slot, EraHistoryError),
 }
 
 pub struct RatificationResult<'distr, S> {
@@ -96,6 +100,7 @@ pub struct RatificationResult<'distr, S> {
 impl<'distr> RatificationContext<'distr> {
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
+        era_history: &EraHistory,
         mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
         roots: ProposalsRootsRc,
     ) -> Result<RatificationResult<'distr, S>, RatificationInternalError> {
@@ -106,25 +111,28 @@ impl<'distr> RatificationContext<'distr> {
         let mut forest = proposals
             .drain(..)
             .try_fold::<_, _, Result<_, RatificationInternalError>>(
-                ProposalsForest::new(&roots),
+                ProposalsForest::new(self.epoch, &roots),
                 |mut forest, (id, row)| {
-                    forest.insert(id, row.proposal.gov_action)?;
+                    let slot = row.proposed_in.slot();
+                    #[allow(clippy::disallowed_methods)]
+                    let proposed_in = era_history
+                        // NOTE: Usage of _unchecked_horizon is safe because the proposal was
+                        // necessarily proposed in the past!
+                        .slot_to_epoch_unchecked_horizon(slot)
+                        .map_err(|e| {
+                            RatificationInternalError::InternalSlotToEpochError(slot, e)
+                        })?;
+                    forest.insert(id, proposed_in, row.proposal.gov_action)?;
                     Ok(forest)
                 },
             )?;
 
-        // The ratification of some proposals causes all other subsequent proposals' ratification to be
-        // delayed to the next epoch boundary. Initially, there's none and we'll switch the flag if any
-        // of the following proposal kind gets ratified:
+        // A mutable compass to navigate the forest. This compass holds the tiny bit of mutable
+        // state we need to iterate over the forest; but without introducing a mutable borrow on
+        // the forest. This allows to interleave updates on the forest when needed.
         //
-        // - a motion of no confidence; or
-        // - a hard fork; or
-        // - a constitutional committee update; or
-        // - a constitution update.
-        //
-        // Said differently, there can be many treasury withdrawals, protocol parameters changes or
-        // nice polls; but as soon as one of the other is encountered; EVERYTHING (including treasury
-        // withdrawals and parameters changes) is postponed until the next epoch.
+        // Any update on the forest invalidate the compass, which must be replaced to continue
+        // iterating.
         let mut compass = forest.new_compass();
 
         // We collect updates to be done on the store while enacting proposals. The updates aren't

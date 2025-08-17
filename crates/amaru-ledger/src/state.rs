@@ -372,6 +372,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             begin_epoch(
                 &batch,
                 next_epoch,
+                &self.era_history,
                 ratification_context,
                 // Get all proposals to ratify / enact. Note that, even though the ratification happens
                 // with an epoch of delay (and thus, using data from a snapshot), we always use the most
@@ -621,6 +622,7 @@ fn end_epoch<'store>(
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    era_history: &EraHistory,
     ctx: RatificationContext<'_>,
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
     roots: ProposalsRoots,
@@ -642,7 +644,7 @@ fn begin_epoch<'store>(
 
     // Ratify and enact proposals at the epoch boundary. Also refund deposit for any proposal that
     // has expired.
-    let protocol_version = tick_proposals(db, epoch, ctx, proposals, roots)?;
+    let protocol_version = tick_proposals(db, epoch, era_history, ctx, proposals, roots)?;
 
     Ok(protocol_version)
 }
@@ -735,6 +737,7 @@ pub fn tick_pools<'store>(
 pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    era_history: &EraHistory,
     ctx: RatificationContext<'_>,
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
     roots: ProposalsRoots,
@@ -746,7 +749,7 @@ pub fn tick_proposals<'store>(
         store_updates,
         pruned_proposals,
     } = ctx
-        .ratify_proposals(proposals, ProposalsRootsRc::from(roots))
+        .ratify_proposals(era_history, proposals, ProposalsRootsRc::from(roots))
         .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
 
     store_updates
