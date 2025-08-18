@@ -20,9 +20,11 @@ use super::{
 use crate::summary::into_safe_ratio;
 use amaru_kernel::{
     display_protocol_parameters_update, expect_stake_credential, ComparableProposalId,
-    Constitution, Epoch, GovAction, Nullable, ProposalId, ProtocolParamUpdate, ProtocolVersion,
+    Constitution, Epoch, EraHistory, GovAction, Nullable, ProposalId, ProposalPointer,
+    ProtocolParamUpdate, ProtocolVersion,
 };
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet, VecDeque},
     fmt,
     rc::Rc,
@@ -96,33 +98,39 @@ impl ProposalsForest {
     /// `Ok`.
     pub fn insert(
         &mut self,
+        era_history: &'_ EraHistory,
         id: ComparableProposalId,
-        proposed_in: Epoch,
+        proposed_in: ProposalPointer,
         proposal: GovAction,
     ) -> Result<(), ProposalsInsertError<ComparableProposalId>> {
         use amaru_kernel::GovAction::*;
 
         let id = Rc::new(id);
 
-        // FIXME: insert in priority order
-        //
-        // no confidence -> 1st
-        // constitutional committee -> 2nd
-        // constitution -> 3rd
-        // hard fork -> 4th
-        // protocol parameters -> 5th
-        // treasury withdrawals -> 6th
-        // poll -> 7th
-        self.sequence.push_back(id.clone());
+        let mut insert = |proposal| -> Result<(), ProposalsInsertError<ComparableProposalId>> {
+            priority_insert(
+                &mut self.sequence,
+                id.clone(),
+                (&proposed_in, &proposal),
+                &self.proposals,
+            );
 
-        let mut insert = |proposal| {
+            let slot = proposed_in.slot();
+
+            let epoch = era_history
+                .slot_to_epoch(slot, slot)
+                .map_err(|e| ProposalsInsertError::InternalSlotToEpochError(slot, e))?;
+
             self.proposals.insert(
                 id.clone(),
                 ProposedIn {
-                    epoch: proposed_in,
+                    epoch,
+                    pointer: proposed_in,
                     proposal,
                 },
-            )
+            );
+
+            Ok(())
         };
 
         match proposal {
@@ -132,9 +140,7 @@ impl ProposalsForest {
                 self.protocol_parameters
                     .insert(id.clone(), parent.clone())?;
 
-                insert(ProposalEnum::ProtocolParameters(*update, parent));
-
-                Ok(())
+                insert(ProposalEnum::ProtocolParameters(*update, parent))
             }
 
             HardForkInitiation(parent, protocol_version) => {
@@ -142,9 +148,7 @@ impl ProposalsForest {
 
                 self.hard_fork.insert(id.clone(), parent.clone())?;
 
-                insert(ProposalEnum::HardFork(protocol_version, parent));
-
-                Ok(())
+                insert(ProposalEnum::HardFork(protocol_version, parent))
             }
 
             TreasuryWithdrawals(withdrawals, _guardrails_script) => {
@@ -158,9 +162,7 @@ impl ProposalsForest {
 
                 insert(ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(
                     withdrawals,
-                )));
-
-                Ok(())
+                )))
             }
 
             UpdateCommittee(parent, removed, added, threshold) => {
@@ -180,9 +182,7 @@ impl ProposalsForest {
                         threshold: into_safe_ratio(&threshold),
                     },
                     parent,
-                ));
-
-                Ok(())
+                ))
             }
 
             NoConfidence(parent) => {
@@ -194,9 +194,7 @@ impl ProposalsForest {
                 insert(ProposalEnum::ConstitutionalCommittee(
                     CommitteeUpdate::NoConfidence,
                     parent,
-                ));
-
-                Ok(())
+                ))
             }
 
             NewConstitution(parent, constitution) => {
@@ -204,15 +202,10 @@ impl ProposalsForest {
 
                 self.constitution.insert(id.clone(), parent.clone())?;
 
-                insert(ProposalEnum::Constitution(constitution, parent));
-
-                Ok(())
+                insert(ProposalEnum::Constitution(constitution, parent))
             }
 
-            Information => {
-                insert(ProposalEnum::Orphan(OrphanProposal::NicePoll));
-                Ok(())
-            }
+            Information => insert(ProposalEnum::Orphan(OrphanProposal::NicePoll)),
         }
     }
 
@@ -339,7 +332,10 @@ impl ProposalsForestCompass {
     pub fn next<'forest>(
         &mut self,
         forest: &'forest ProposalsForest,
-    ) -> Option<(Rc<ComparableProposalId>, &'forest ProposalEnum)> {
+    ) -> Option<(
+        Rc<ComparableProposalId>,
+        (&'forest ProposalEnum, &'forest ProposalPointer),
+    )> {
         assert!(
             forest.sequence.len() == self.original_len,
             "compass re-used on a forest that has changed; you should have created a new compass."
@@ -367,12 +363,16 @@ impl ProposalsForestCompass {
         }
 
         loop {
-            let result: Option<(Rc<ComparableProposalId>, &'forest ProposalEnum)> = {
+            let result: Option<(
+                Rc<ComparableProposalId>,
+                (&'forest ProposalEnum, &'forest ProposalPointer),
+            )> = {
                 let id = forest.sequence.get(self.cursor)?.clone();
 
                 let ProposedIn {
                     epoch: proposed_in,
                     proposal,
+                    pointer,
                 } = forest.proposals.get(&id).or_else(|| {
                     error!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
                     None
@@ -405,7 +405,7 @@ impl ProposalsForestCompass {
                 // The order is given by their point of submission; and thus, proposals submitted later may
                 // points to totally different (and active) roots. So we just skip those proposals.
                 if forest.matching_root(proposal) {
-                    Some((id, proposal))
+                    Some((id, (proposal, pointer)))
                 } else {
                     None
                 }
@@ -652,6 +652,7 @@ impl fmt::Display for ProposalsForest {
 #[derive(Debug, Clone)]
 pub struct ProposedIn<T> {
     pub epoch: Epoch,
+    pub pointer: ProposalPointer,
     pub proposal: T,
 }
 
@@ -662,23 +663,94 @@ fn into_parent_id(nullable: Nullable<ProposalId>) -> Option<Rc<ComparableProposa
     }
 }
 
+/// Insert a proposal in a sequence while maintaining a priority order. The priority is given by
+/// the type of proposal.
+fn priority_insert(
+    seq: &mut VecDeque<Rc<ComparableProposalId>>,
+    new_id: Rc<ComparableProposalId>,
+    (new_pointer, new_proposal): (&ProposalPointer, &ProposalEnum),
+    proposals: &BTreeMap<Rc<ComparableProposalId>, ProposedIn<ProposalEnum>>,
+) {
+    let mut insertion_ix = 0;
+
+    for id in seq.iter() {
+        if let Some(ProposedIn {
+            proposal, pointer, ..
+        }) = proposals.get(id)
+        {
+            match proposal.cmp_priority(new_proposal) {
+                // Next proposal has a lower priority;
+                // -> we must insert before it.
+                Ordering::Less => {
+                    break;
+                }
+
+                // Next proposal has equal priority, but was submitted after us;
+                // -> we must insert before it
+                Ordering::Equal if pointer.cmp(new_pointer) == Ordering::Greater => {
+                    break;
+                }
+
+                Ordering::Greater | Ordering::Equal => (),
+            }
+
+            insertion_ix += 1;
+        } else {
+            unreachable!(
+                "invariant violation: \
+                proposal {id:?} in sequence {seq:?} but not in lookup-table {proposals:?}"
+            );
+        }
+    }
+
+    seq.insert(insertion_ix, new_id);
+}
+
 // Tests
 // ----------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
     use super::ProposalsForest;
-    use crate::governance::ratification::ProposalsRootsRc;
+    use crate::governance::ratification::{
+        tests::any_committee_update, CommitteeUpdate, ProposalsRootsRc,
+    };
     use amaru_kernel::{
-        tests::{any_comparable_proposal_id, any_gov_action, any_protocol_params_update},
-        ComparableProposalId, Epoch, GovAction, Nullable, ProposalId,
+        tests::{
+            any_comparable_proposal_id, any_constitution, any_gov_action, any_proposal_pointer,
+            any_protocol_params_update, any_protocol_version,
+        },
+        Bound, ComparableProposalId, Epoch, EraHistory, EraParams, GovAction, KeyValuePairs,
+        Nullable, ProposalId, ProposalPointer, RationalNumber, Set, Slot, Summary,
     };
     use proptest::{collection, prelude::*};
-    use std::{collections::BTreeSet, rc::Rc};
+    use std::{cmp::Ordering, collections::BTreeSet, rc::Rc, sync::LazyLock};
 
-    const TREE_MAX_DEPTH: usize = 8;
+    const MAX_TREE_SIZE: usize = 8;
+
+    // Technically higher than the actual gap we may see in 'real life', but, why not.
+    const MAX_ARBITRARY_EPOCH: u64 = 10;
     const MIN_ARBITRARY_EPOCH: u64 = 0;
-    const MAX_ARBITRARY_EPOCH: u64 = 5;
+
+    static ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
+        EraHistory::new(
+            &[Summary {
+                start: Bound {
+                    time_ms: 0,
+                    slot: Slot::from(0),
+                    epoch: Epoch::from(0),
+                },
+                end: None,
+                params: EraParams {
+                    // Pick an epoch length such that epochs falls within the min and max bounds;
+                    // knowing that slots ranges across all u64.
+                    epoch_size_slots: u64::MAX / (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH + 1),
+                    slot_length: 1,
+                },
+            }],
+            Slot::from(0),
+        )
+    });
 
     fn check_invariants(forest: &ProposalsForest) -> usize {
         let size = forest.sequence.len();
@@ -711,11 +783,38 @@ mod tests {
     //
     // After enacting a constitution, hard fork, or committee change; the compass always yield none;
     // Skip recently submitted proposal
-    // Sequence contains no duplicate
-    // All proposals in 'sequence' have a corresponding match in 'proposals'
     // Cannot insert proposal with unknown parent
     //
     // Compass throws if re-used;
+
+    proptest! {
+        #[test]
+        fn prop_era_history_yields_within_epoch_bounds(pointer in any_proposal_pointer(u64::MAX)) {
+            let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+            prop_assert!(
+                epoch >= Epoch::from(MIN_ARBITRARY_EPOCH) && epoch <= Epoch::from(MAX_ARBITRARY_EPOCH),
+                "generated a pointer outside of the configured epoch range; epoch = {epoch}"
+            );
+        }
+    }
+
+    proptest! {
+        #[test]
+        #[should_panic]
+        fn prop_proposal_pointer_sometimes_min_epoch(pointer in any_proposal_pointer(u64::MAX)) {
+            let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+            prop_assert!(epoch != Epoch::from(MIN_ARBITRARY_EPOCH));
+        }
+    }
+
+    proptest! {
+        #[test]
+        #[should_panic]
+        fn prop_proposal_pointer_sometimes_max_epoch(pointer in any_proposal_pointer(u64::MAX)) {
+            let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+            prop_assert!(epoch != Epoch::from(MAX_ARBITRARY_EPOCH));
+        }
+    }
 
     proptest! {
         #[test]
@@ -723,6 +822,7 @@ mod tests {
             mut forest in any_proposals_forest(),
             id in any_comparable_proposal_id(),
             mut action in any_gov_action(),
+            pointer in any_proposal_pointer(u64::MAX),
             parent in any::<u8>()
         ) {
             let size_before = check_invariants(&forest);
@@ -731,7 +831,8 @@ mod tests {
             if !parents.is_empty() {
                 action = set_parent(action, select(&parents, parent));
             }
-            forest.insert(id, forest.current_epoch, action).unwrap();
+
+            forest.insert(&ERA_HISTORY, id, pointer, action).unwrap();
 
             let size_after = check_invariants(&forest);
 
@@ -746,31 +847,56 @@ mod tests {
         ) {
             use super::ProposalEnum::*;
 
+            let mut previous_proposal = None;
             let mut compass = forest.new_compass();
-            while let Some((_id, proposal)) = compass.next(&forest) {
-                // TODO: Check that priority is lower or equal to previous priority.
 
-                // Ensures that the yielded proposal always has a matching root.
+            while let Some((id, (proposal, pointer))) = compass.next(&forest) {
+                // Controls that the yielded proposal always has a matching root.
                 let roots = forest.roots();
                 match proposal {
                     ProtocolParameters(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
-                        roots.protocol_parameters.as_ref()
+                        roots.protocol_parameters.as_ref(),
+                        "yielded proposal has a different root than latest enacted one",
                     ),
                     HardFork(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
-                        roots.hard_fork.as_ref()
+                        roots.hard_fork.as_ref(),
+                        "yielded proposal has a different root than latest enacted one",
                     ),
                     ConstitutionalCommittee(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
-                        roots.constitutional_committee.as_ref()
+                        roots.constitutional_committee.as_ref(),
+                        "yielded proposal has a different root than latest enacted one",
                     ),
                     Constitution(_, parent) => prop_assert_eq!(
                         parent.as_ref(),
-                        roots.constitution.as_ref()
+                        roots.constitution.as_ref(),
+                        "yielded proposal has a different root than latest enacted one",
                     ),
                     Orphan(..) => ()
                 }
+
+                if let Some((previous_proposal, previous_pointer)) = previous_proposal {
+                    // Controls that any yielded proposal comes with a lower priority than any
+                    // previously yielded one.
+                    let relative_priority = proposal.cmp_priority(previous_proposal);
+                    prop_assert!(
+                        relative_priority == Ordering::Equal || relative_priority == Ordering::Less,
+                        "yielded proposal has a higher priority than the previously yielded proposal",
+                    );
+
+                    // Controls that any yielded proposal comes strictly after any previously yielded
+                    // one; unless the previous one has higher priority.
+                    if relative_priority == Ordering::Equal {
+                        prop_assert!(
+                            pointer.cmp(previous_pointer) == Ordering::Greater,
+                            "yielded proposal {id} at {pointer:?} was submitted before previous one at {previous_pointer:?}",
+                        );
+                    }
+                }
+
+                previous_proposal = Some((proposal, pointer));
             }
         }
     }
@@ -778,37 +904,97 @@ mod tests {
     fn any_proposals_forest() -> impl Strategy<Value = ProposalsForest> {
         let any_ids = collection::btree_set(
             any_comparable_proposal_id().prop_map(Rc::new),
-            4 * (TREE_MAX_DEPTH + 1) + TREE_MAX_DEPTH,
-        );
+            4 * (MAX_TREE_SIZE + 2),
+        )
+        .prop_map(|ids| ids.into_iter().collect::<Vec<_>>());
 
-        any_ids.prop_flat_map(|ids| {
-            let any_protocol_parameters_tree = any_protocol_parameters_tree(
-                ids.clone().into_iter().collect(),
+        any_ids.prop_flat_map(|ids: Vec<Rc<ComparableProposalId>>| {
+            let (lo, hi) = (0, MAX_TREE_SIZE + 1);
+            let any_protocol_parameters_tree = any_proposals_tree(
+                ids[lo..hi].into(),
                 any_protocol_params_update(),
                 |parent, update| {
                     GovAction::ParameterChange(parent, Box::new(update), Nullable::Null)
                 },
             );
 
-            any_protocol_parameters_tree.prop_map(|(root_params, seq_params)| {
-                let mut forest = ProposalsForest::new(
-                    // Leave one epoch for proposals that are fresh but not ready for ratification
-                    // yet.
-                    Epoch::from(MIN_ARBITRARY_EPOCH + 1),
-                    &ProposalsRootsRc {
-                        protocol_parameters: root_params,
-                        hard_fork: None,
-                        constitutional_committee: None,
-                        constitution: None,
+            let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
+            let any_hard_fork_tree = any_proposals_tree(
+                ids[lo..hi].into(),
+                any_protocol_version(),
+                GovAction::HardForkInitiation,
+            );
+
+            let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
+            let any_constitution_tree = any_proposals_tree(
+                ids[lo..hi].into(),
+                any_constitution(),
+                GovAction::NewConstitution,
+            );
+
+            let (lo, hi) = (hi + 1, hi + MAX_TREE_SIZE + 2);
+            let any_constitutional_committee_tree = any_proposals_tree(
+                ids[lo..hi].into(),
+                any_committee_update(
+                    (MIN_ARBITRARY_EPOCH..MAX_ARBITRARY_EPOCH).prop_map(Epoch::from),
+                ),
+                |parent, update| match update {
+                    CommitteeUpdate::NoConfidence => GovAction::NoConfidence(parent),
+                    CommitteeUpdate::ChangeMembers {
+                        threshold,
+                        added,
+                        removed,
+                    } => GovAction::UpdateCommittee(
+                        parent,
+                        Set::from(removed.into_iter().collect::<Vec<_>>()),
+                        KeyValuePairs::from(
+                            added
+                                .into_iter()
+                                .map(|(k, v)| (k, u64::from(v)))
+                                .collect::<Vec<(_, _)>>(),
+                        ),
+                        RationalNumber {
+                            numerator: threshold.numer().try_into().unwrap(),
+                            denominator: threshold.denom().try_into().unwrap(),
+                        },
+                    ),
+                },
+            );
+
+            (
+                any_protocol_parameters_tree,
+                any_hard_fork_tree,
+                any_constitutional_committee_tree,
+                any_constitution_tree,
+            )
+                .prop_map(
+                    |(protocol_parameters, hard_fork, constitutional_committee, constitution)| {
+                        let mut forest = ProposalsForest::new(
+                            // Leave one epoch for proposals that are fresh but not ready for ratification
+                            // yet.
+                            Epoch::from(MIN_ARBITRARY_EPOCH + 1),
+                            &ProposalsRootsRc {
+                                protocol_parameters: protocol_parameters.0,
+                                hard_fork: hard_fork.0,
+                                constitutional_committee: constitutional_committee.0,
+                                constitution: constitution.0,
+                            },
+                        );
+
+                        std::iter::empty()
+                            .chain(protocol_parameters.1)
+                            .chain(hard_fork.1)
+                            .chain(constitutional_committee.1)
+                            .chain(constitution.1)
+                            .for_each(|(id, pointer, action)| {
+                                forest
+                                    .insert(&ERA_HISTORY, id.clone(), pointer, action.clone())
+                                    .unwrap();
+                            });
+
+                        forest
                     },
-                );
-
-                for (id, epoch, action) in seq_params.into_iter() {
-                    forest.insert(id, epoch, action).unwrap();
-                }
-
-                forest
-            })
+                )
         })
     }
 
@@ -820,7 +1006,7 @@ mod tests {
     // generate the sequence as a BTreeSet outside of this generator).
     //
     // We strive for the sequence to be as arbitrary as possible. We return
-    fn any_protocol_parameters_tree<Arg: 'static>(
+    fn any_proposals_tree<Arg: 'static>(
         ids: Vec<Rc<ComparableProposalId>>,
         any_action_arg: impl Strategy<Value = Arg>,
         into_action: impl Fn(Nullable<ProposalId>, Arg) -> GovAction,
@@ -830,23 +1016,23 @@ mod tests {
             Option<Rc<ComparableProposalId>>,
             // A sequence of proposals (a.k.a GovAction) and the epoch in which they've been
             // proposed.
-            Vec<(ComparableProposalId, Epoch, GovAction)>,
+            Vec<(ComparableProposalId, ProposalPointer, GovAction)>,
         ),
     > {
         // We generate indices for the
         let any_root = prop_oneof![Just(None), Just(Some(0))];
-        let any_parents = collection::vec(any::<u8>(), 0..TREE_MAX_DEPTH);
-        let any_action_args = collection::vec(any_action_arg, TREE_MAX_DEPTH);
-        let any_epochs = collection::vec(MIN_ARBITRARY_EPOCH..MAX_ARBITRARY_EPOCH, TREE_MAX_DEPTH);
+        let any_parents = collection::vec(any::<u8>(), 0..MAX_TREE_SIZE);
+        let any_action_args = collection::vec(any_action_arg, MAX_TREE_SIZE);
+        let any_pointers = collection::vec(any_proposal_pointer(u64::MAX), MAX_TREE_SIZE);
 
         (
             Just(ids),
             any_root,
             any_parents,
-            any_epochs,
+            any_pointers,
             any_action_args,
         )
-            .prop_map(move |(ids, root, parents, mut epochs, mut args)| {
+            .prop_map(move |(ids, root, parents, mut pointers, mut args)| {
                 let mut next = 1;
 
                 let root = root.map(|ix| ids[ix].clone());
@@ -860,9 +1046,9 @@ mod tests {
 
                     let action = into_action(select(&known_parents, parent), args.remove(0));
 
-                    let epoch = Epoch::from(epochs.remove(0));
+                    let pointer = pointers.remove(0);
 
-                    sequence.push((sibling.as_ref().clone(), epoch, action));
+                    sequence.push((sibling.as_ref().clone(), pointer, action));
 
                     known_parents.push(Some(sibling));
 
@@ -916,9 +1102,8 @@ mod tests {
     // Overwrite the parent of the given governance action
     fn set_parent(action: GovAction, parent: Nullable<ProposalId>) -> GovAction {
         use GovAction::*;
-
         match action {
-            Information | TreasuryWithdrawals(_, _) => action,
+            Information | TreasuryWithdrawals(..) => action,
             NoConfidence(_) => NoConfidence(parent),
             ParameterChange(_, params, guardrails) => ParameterChange(parent, params, guardrails),
             UpdateCommittee(_, removed, added, threshold) => {

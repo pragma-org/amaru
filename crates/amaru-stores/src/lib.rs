@@ -95,7 +95,7 @@ pub mod tests {
         let account_key = any_stake_credential().new_tree(runner).unwrap().current();
         let account_key_clone = account_key.clone();
 
-        let account_row = amaru_ledger::store::columns::accounts::tests::any_row()
+        let account_row = amaru_ledger::store::columns::accounts::tests::any_row(10_000_000)
             .new_tree(runner)
             .unwrap()
             .current();
@@ -124,7 +124,7 @@ pub mod tests {
 
         // dreps
         let drep_key = any_stake_credential().new_tree(runner).unwrap().current();
-        let mut drep_row = amaru_ledger::store::columns::dreps::tests::any_row()
+        let mut drep_row = amaru_ledger::store::columns::dreps::tests::any_row(10_000_000)
             .new_tree(runner)
             .unwrap()
             .current();
@@ -163,7 +163,7 @@ pub mod tests {
         let (proposal_iter, proposal_key, proposal_row) = {
             let proposal_key =
                 ComparableProposalId::from(any_proposal_id().new_tree(runner).unwrap().current());
-            let proposal_row = amaru_ledger::store::columns::proposals::tests::any_row()
+            let proposal_row = amaru_ledger::store::columns::proposals::tests::any_row(10_000_000)
                 .new_tree(runner)
                 .unwrap()
                 .current();

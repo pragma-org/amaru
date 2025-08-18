@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_kernel::Slot;
+use slot_arithmetic::EraHistoryError;
 use std::{collections::BTreeSet, rc::Rc};
 
 // ProposalsTree
@@ -148,6 +150,9 @@ impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
 pub enum ProposalsInsertError<T> {
     #[error("proposal {id:?} has an unknown parent {parent:?}")]
     UnknownParent { id: Rc<T>, parent: Option<Rc<T>> },
+
+    #[error("failed to compute epoch from slot {0:?}: {1}")]
+    InternalSlotToEpochError(Slot, EraHistoryError),
 }
 
 impl<T> From<SiblingInsertError<T>> for ProposalsInsertError<T> {

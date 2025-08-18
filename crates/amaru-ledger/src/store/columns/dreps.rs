@@ -87,12 +87,12 @@ pub mod tests {
     use proptest::{option, prelude::*, prop_compose};
 
     prop_compose! {
-        pub fn any_row()(
+        pub fn any_row(max_slot: u64)(
             deposit in any::<Lovelace>(),
             anchor in option::of(any_anchor()),
-            registered_at in any_certificate_pointer(),
+            registered_at in any_certificate_pointer(max_slot),
             last_interaction in option::of(any::<Epoch>()),
-            previous_deregistration in option::of(any_certificate_pointer()),
+            previous_deregistration in option::of(any_certificate_pointer(max_slot)),
         ) -> Row {
             Row {
                 deposit,
@@ -104,5 +104,5 @@ pub mod tests {
         }
     }
 
-    prop_cbor_roundtrip!(Row, any_row());
+    prop_cbor_roundtrip!(Row, any_row(u64::MAX));
 }

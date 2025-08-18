@@ -67,11 +67,11 @@ pub mod tests {
     use proptest::{prelude::*, prop_compose};
 
     #[cfg(not(target_os = "windows"))]
-    prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row());
+    prop_cbor_roundtrip!(prop_cbor_roundtrip_row, Row, any_row(u64::MAX));
 
     prop_compose! {
-        pub fn any_row()(
-            proposed_in in any_proposal_pointer(),
+        pub fn any_row(max_slot: u64)(
+            proposed_in in any_proposal_pointer(max_slot),
             valid_until in any::<Epoch>(),
             proposal in any_proposal(),
         ) -> Row {

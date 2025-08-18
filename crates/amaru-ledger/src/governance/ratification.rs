@@ -20,12 +20,12 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, Constitution, DRep,
-    Epoch, EraHistory, Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, Slot,
-    StakeCredential, UnitInterval, Vote, Voter,
+    Epoch, EraHistory, Lovelace, PoolId, ProtocolParamUpdate, ProtocolVersion, StakeCredential,
+    UnitInterval, Vote, Voter,
 };
 use num::Zero;
-use slot_arithmetic::EraHistoryError;
 use std::{
+    cmp::Ordering,
     collections::{BTreeMap, BTreeSet},
     fmt,
     rc::Rc,
@@ -86,9 +86,6 @@ pub enum RatificationInternalError {
 
     #[error("invalid operation while enacting a proposal: {0}")]
     InternalForestEnactmentError(#[from] ProposalsEnactError<ComparableProposalId>),
-
-    #[error("failed to compute epoch from slot {0:?}: {1}")]
-    InternalSlotToEpochError(Slot, EraHistoryError),
 }
 
 pub struct RatificationResult<'distr, S> {
@@ -104,8 +101,6 @@ impl<'distr> RatificationContext<'distr> {
         mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
         roots: ProposalsRootsRc,
     ) -> Result<RatificationResult<'distr, S>, RatificationInternalError> {
-        proposals.sort_by(|a, b| a.1.proposed_in.cmp(&b.1.proposed_in));
-
         info_roots(&roots);
 
         let mut forest = proposals
@@ -113,16 +108,11 @@ impl<'distr> RatificationContext<'distr> {
             .try_fold::<_, _, Result<_, RatificationInternalError>>(
                 ProposalsForest::new(self.epoch, &roots),
                 |mut forest, (id, row)| {
-                    let slot = row.proposed_in.slot();
-                    #[allow(clippy::disallowed_methods)]
-                    let proposed_in = era_history
-                        // NOTE: Usage of _unchecked_horizon is safe because the proposal was
-                        // necessarily proposed in the past!
-                        .slot_to_epoch_unchecked_horizon(slot)
-                        .map_err(|e| {
-                            RatificationInternalError::InternalSlotToEpochError(slot, e)
-                        })?;
-                    forest.insert(id, proposed_in, row.proposal.gov_action)?;
+                    // There shouldn't be any invalid proposals left at this point.
+                    assert!(row.valid_until <= self.epoch);
+
+                    forest.insert(era_history, id, row.proposed_in, row.proposal.gov_action)?;
+
                     Ok(forest)
                 },
             )?;
@@ -148,7 +138,7 @@ impl<'distr> RatificationContext<'distr> {
             // The inner block limits the lifetime of the immutable borrow(s) on forest; so that we
             // can then borrow the forest as immutable when a proposal gets ratified.
             let ratified: Option<(Rc<ComparableProposalId>, ProposalEnum)> = {
-                let Some((id, proposal)) = compass.next(&forest) else {
+                let Some((id, (proposal, _))) = compass.next(&forest) else {
                     break;
                 };
 
@@ -558,9 +548,56 @@ impl ProposalEnum {
             }
             Self::Constitution(..) => "constitution",
             Self::Orphan(OrphanProposal::NicePoll) => "nice-poll",
-            Self::Orphan(OrphanProposal::TreasuryWithdrawal { .. }) => "treasury-withdrawal",
+            Self::Orphan(OrphanProposal::TreasuryWithdrawal(..)) => "treasury-withdrawal",
         }
         .to_string()
+    }
+
+    // Compare two proposals according to their priority. This influences the ratification order.
+    //
+    // 1st. NoConfidence
+    // 2nd. UpdateCommittee
+    // 3rd. NewConstitution
+    // 4th. HardForkInitiation
+    // 5th. ParameterChange
+    // 6th. TreasuryWithdrawals
+    // 7th. Information
+    pub fn cmp_priority(&self, other: &Self) -> Ordering {
+        use CommitteeUpdate::*;
+        use OrphanProposal::*;
+        use ProposalEnum::*;
+
+        match (self, other) {
+            // Priority #1: No Confidence
+            (
+                ConstitutionalCommittee(NoConfidence, ..),
+                ConstitutionalCommittee(NoConfidence, ..),
+            ) => Ordering::Equal,
+            (ConstitutionalCommittee(NoConfidence, ..), _) => Ordering::Greater,
+            (_, ConstitutionalCommittee(NoConfidence, ..)) => Ordering::Less,
+            // Priority #2: Update to the Constitutional Committee
+            (ConstitutionalCommittee(..), ConstitutionalCommittee(..)) => Ordering::Equal,
+            (ConstitutionalCommittee(..), _) => Ordering::Greater,
+            (_, ConstitutionalCommittee(..)) => Ordering::Less,
+            // Priority #3: Update to the Constitution
+            (Constitution(..), Constitution(..)) => Ordering::Equal,
+            (Constitution(..), _) => Ordering::Greater,
+            (_, Constitution(..)) => Ordering::Less,
+            // Priority #4: Hard Fork
+            (HardFork(..), HardFork(..)) => Ordering::Equal,
+            (HardFork(..), _) => Ordering::Greater,
+            (_, HardFork(..)) => Ordering::Less,
+            // Priority #5: Protocol Parameters updates
+            (ProtocolParameters(..), ProtocolParameters(..)) => Ordering::Equal,
+            (ProtocolParameters(..), _) => Ordering::Greater,
+            (_, ProtocolParameters(..)) => Ordering::Less,
+            // Priority #6: Treasury Withdrawals
+            (Orphan(TreasuryWithdrawal(..)), Orphan(TreasuryWithdrawal(..))) => Ordering::Equal,
+            (Orphan(TreasuryWithdrawal(..)), _) => Ordering::Greater,
+            (_, Orphan(TreasuryWithdrawal(..))) => Ordering::Less,
+            // Priority #7: Nice polls
+            (Orphan(NicePoll), Orphan(NicePoll)) => Ordering::Equal,
+        }
     }
 
     pub fn is_hardfork(&self) -> bool {
@@ -722,9 +759,12 @@ fn info_roots(roots: &ProposalsRootsRc) {
 pub mod tests {
     use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
     use crate::{store::columns::accounts::tests::any_stake_credential, summary::SafeRatio};
-    use amaru_kernel::tests::{
-        any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
-        any_protocol_version,
+    use amaru_kernel::{
+        tests::{
+            any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
+            any_protocol_version,
+        },
+        Epoch,
     };
     use num::{BigUint, One};
     use proptest::{collection, option, prelude::*};
@@ -749,7 +789,7 @@ pub mod tests {
 
         let any_constitutional_committee = (
             option::of(any_comparable_proposal_id()),
-            any_committee_update(),
+            any_committee_update(any_epoch()),
         )
             .prop_map(|(parent, committee)| {
                 ProposalEnum::ConstitutionalCommittee(committee, parent.map(Rc::new))
@@ -780,13 +820,15 @@ pub mod tests {
         prop_oneof![any_nice_poll, any_treasury_withdrawal]
     }
 
-    pub fn any_committee_update() -> impl Strategy<Value = CommitteeUpdate> {
+    pub fn any_committee_update(
+        any_epoch: impl Strategy<Value = Epoch>,
+    ) -> impl Strategy<Value = CommitteeUpdate> {
         let any_no_confidence = Just(CommitteeUpdate::NoConfidence);
 
         let any_change_members = (
             any::<u8>(),
             collection::btree_set(any_stake_credential(), 0..3),
-            collection::btree_map(any_stake_credential(), any_epoch(), 0..3),
+            collection::btree_map(any_stake_credential(), any_epoch, 0..3),
         )
             .prop_map(
                 |(numerator, removed, added)| CommitteeUpdate::ChangeMembers {
@@ -796,6 +838,6 @@ pub mod tests {
                 },
             );
 
-        prop_oneof![any_no_confidence, any_change_members]
+        prop_oneof![1 => any_no_confidence, 2 => any_change_members]
     }
 }

@@ -57,11 +57,11 @@ pub mod tests {
     use crate::{prop_cbor_roundtrip, tests::any_transaction_pointer};
     use proptest::{prelude::*, prop_compose};
 
-    prop_cbor_roundtrip!(CertificatePointer, any_certificate_pointer());
+    prop_cbor_roundtrip!(CertificatePointer, any_certificate_pointer(u64::MAX));
 
     prop_compose! {
-        pub fn any_certificate_pointer()(
-            transaction in any_transaction_pointer(),
+        pub fn any_certificate_pointer(max_slot: u64)(
+            transaction in any_transaction_pointer(max_slot),
             certificate_index in any::<usize>(),
         ) -> CertificatePointer {
             CertificatePointer {

@@ -51,11 +51,11 @@ pub mod tests {
     use crate::{prop_cbor_roundtrip, Slot};
     use proptest::{prelude::*, prop_compose};
 
-    prop_cbor_roundtrip!(TransactionPointer, any_transaction_pointer());
+    prop_cbor_roundtrip!(TransactionPointer, any_transaction_pointer(u64::MAX));
 
     prop_compose! {
-        pub fn any_transaction_pointer()(
-            slot in 0..10_000_000u64,
+        pub fn any_transaction_pointer(max_slot: u64)(
+            slot in 0..max_slot,
             transaction_index in any::<usize>(),
         ) -> TransactionPointer {
             TransactionPointer {

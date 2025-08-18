@@ -103,11 +103,11 @@ pub mod tests {
     }
 
     prop_compose! {
-        pub fn any_row()(
+        pub fn any_row(max_slot: u64)(
             delegatee in option::of(any_pool_id()),
             deposit in any::<Lovelace>(),
             drep in option::of(any_drep()),
-            drep_registered_at in any_certificate_pointer(),
+            drep_registered_at in any_certificate_pointer(max_slot),
             rewards in any::<Lovelace>(),
         ) -> Row {
             Row {
@@ -119,5 +119,5 @@ pub mod tests {
         }
     }
 
-    prop_cbor_roundtrip!(Row, any_row());
+    prop_cbor_roundtrip!(Row, any_row(u64::MAX));
 }
