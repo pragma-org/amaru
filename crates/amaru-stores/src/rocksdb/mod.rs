@@ -771,10 +771,10 @@ mod tests {
         let file_path = dir.path().join("0");
         let _fake_snapshot = File::create(&file_path).unwrap();
 
-        let rw_db = RocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
+        let rw_db = RocksDB::new(dir.path()).inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(rw_db, Ok(..)));
 
-        let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| println!("{e:#?}"));
+        let ro_db = ReadOnlyRocksDB::new(dir.path()).inspect_err(|e| eprintln!("{e:#?}"));
         assert!(matches!(ro_db, Ok(..)));
     }
 

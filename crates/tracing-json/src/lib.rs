@@ -215,7 +215,7 @@ where
     let result = run();
     let collected = collector.flush();
     // NOTE: Print statement is only printed on test failures.
-    println!(
+    eprintln!(
         "collected traces:\n  - {}",
         collected
             .iter()
