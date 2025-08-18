@@ -118,7 +118,7 @@ future-incompatible = { level = "deny" }
 
 [workspace.lints.clippy]
 # Enable clippy lints for all members
-# * https://doc.rust-lang.org/clippy/lints.htwml
+# * https://doc.rust-lang.org/clippy/lints.html
 
 
 # Group lints
@@ -139,6 +139,7 @@ panic = "warn"
 todo = "warn"
 unwrap_used = "warn"
 wildcard_enum_match_arm = "warn"
+print_stdout = "deny" # Breaks user piping, see https://github.com/rust-lang/rust/issues/119980
 
 # See https://doc.rust-lang.org/cargo/reference/profiles.html
 
