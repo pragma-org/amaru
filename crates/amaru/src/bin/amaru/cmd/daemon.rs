@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
+use crate::{metrics::track_system_metrics}; use amaru_network::connect_to_peer;
 use amaru::stages::{bootstrap, Config, StorePath};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
 use clap::{ArgAction, Parser};

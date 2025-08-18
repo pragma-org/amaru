@@ -22,7 +22,8 @@ use amaru_network::{
 };
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
-use std::sync::{Arc, RwLock};
+use tokio::sync::Mutex;
+use std::{rc::Rc, sync::{Arc, RwLock}};
 use tracing::{instrument, Level};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
@@ -35,7 +36,7 @@ pub enum WorkUnit {
 #[derive(Stage)]
 #[stage(name = "stage.chain_sync_client", unit = "WorkUnit", worker = "Worker")]
 pub struct Stage {
-    pub client: ChainSyncClient,
+    pub client: ChainSyncClient<HeaderContent>,
     pub downstream: DownstreamPort,
 }
 
@@ -51,7 +52,7 @@ impl Stage {
         }
     }
 
-    pub async fn find_intersection(&self) -> Result<(), WorkerError> {
+    pub async fn find_intersection(&mut self) -> Result<(), WorkerError> {
         self.client.find_intersection().await.or_panic()
     }
 
@@ -71,7 +72,7 @@ pub struct Worker {}
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
     async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        stage.find_intersection().await?;
+        //stage.find_intersection().await?;
 
         let worker = Self {};
 
@@ -79,13 +80,14 @@ impl gasket::framework::Worker<Stage> for Worker {
     }
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        if stage.client.has_agency().await {
-            // should request next block
-            Ok(WorkSchedule::Unit(WorkUnit::Pull))
-        } else {
-            // should await for next block
-            Ok(WorkSchedule::Unit(WorkUnit::Await))
-        }
+        // if stage.client.has_agency().await {
+        //     // should request next block
+        //     Ok(WorkSchedule::Unit(WorkUnit::Pull))
+        // } else {
+        //     // should await for next block
+        //     Ok(WorkSchedule::Unit(WorkUnit::Await))
+        // }
+        Ok(WorkSchedule::Unit(WorkUnit::Await))
     }
 
     #[instrument(
@@ -103,7 +105,7 @@ impl gasket::framework::Worker<Stage> for Worker {
                     PullResult::Nothing => todo!(),
                 }
             }
-            WorkUnit::Await => stage.client.await_next().await.or_panic()?,
+            WorkUnit::Await => todo!() // stage.client.await_next().await.or_panic()?,
         };
 
         match next {

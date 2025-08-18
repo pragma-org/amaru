@@ -12,7 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::cmd::connect_to_peer;
 use amaru::stages::pull;
 use amaru_consensus::{consensus::store::ChainStore, IsHeader};
 use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, peer::Peer, Header, Point};
