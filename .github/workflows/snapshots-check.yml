@@ -1,0 +1,156 @@
+name: E2E Snapshots (manual)
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_CACHE_PATH: |
+    ~/.cargo/bin/
+    ~/.cargo/registry/index/
+    ~/.cargo/registry/cache/
+    ~/.cargo/git/db/
+    target/
+
+jobs:
+  snapshots:
+    name: End-to-end snapshot tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        network:
+        - name: preprod
+          magic: 1
+        cardano_node_version: [10.1.4]
+    continue-on-error: true
+    steps:
+    - uses: actions/checkout@v4
+
+    - id: timestamp
+      shell: bash
+      run: |
+        echo "value=$(/bin/date -u '+%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+    - name: Restore cardano-node DB
+      id: cache-cardano-node-db
+      uses: actions/cache/restore@v4
+      with:
+        # The path should match the one used for the 'Nightly Sync' workflow.
+        path: ${{ runner.temp }}/db-${{ matrix.network.name }}
+        # The key should also match
+        key: cardano-node-ogmios-${{ matrix.network.name }}
+        restore-keys: |
+          cardano-node-ogmios-${{ matrix.network.name }}
+
+    - name: Check if cardano-node-db is available
+      if: steps.cache-cardano-node-db.outputs.cache-hit == ''
+      run: |
+        echo "Haskell node db not available, aborting job."
+        exit 1
+
+    - name: Spawn Haskell Node
+      id: spawn-cardano-node
+      shell: bash
+      run: |
+        docker pull ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }}
+        make HASKELL_NODE_CONFIG_DIR=cardano-node-config NETWORK=${{ matrix.network.name }} download-haskell-config
+        docker run -d --name cardano-node \
+          -v ${{ runner.temp }}/db-${{ matrix.network.name }}:/db \
+          -v ${{ runner.temp }}/ipc:/ipc \
+          -v ./cardano-node-config:/config \
+          -v ./cardano-node-config:/genesis \
+          -p 3001:3001 \
+          ghcr.io/intersectmbo/cardano-node:${{ matrix.cardano_node_version }} run \
+            --config /config/config.json \
+            --database-path /db \
+            --socket-path /ipc/node.socket \
+            --topology /config/topology.json
+
+    - uses: actions/cache/restore@v4
+      with:
+        path: ${{ env.RUST_CACHE_PATH }}
+        key: cargo-x86_64-unknown-linux-gnu
+        restore-keys: |
+          cargo-x86_64-unknown-linux-gnu
+
+    - name: Build Amaru
+      run: |
+        cargo test --no-run -p amaru
+
+    - name: Cache Amaru's ledger.${{ matrix.network.name }}.db
+      id: cache-ledger-db
+      uses: actions/cache/restore@v4
+      with:
+        path: ./ledger.${{ matrix.network.name }}.db
+        # If the ledger store serialisation format changes and become
+        # incompatible, it is necessary to bump the index below to invalidate
+        # the cached ledger snapshots, and recompute them from the CBOR ones
+        # (i.e. Full bootstrap below)
+        key: ${{ runner.OS }}-ledger-cache-v8-${{ steps.timestamp.outputs.value }}
+        restore-keys: |
+          ${{ runner.OS }}-ledger-cache-v8
+
+    - name: Full bootstrap amaru
+      if: steps.cache-ledger-db.outputs.cache-hit == ''
+      run: |
+        make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} bootstrap
+
+    - name: Light bootstrap amaru
+      if: steps.cache-ledger-db.outputs.cache-hit != ''
+      run: |
+        make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} import-headers
+        make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} import-nonces
+
+    - uses: actions/cache/save@v4
+      if: github.event_name == 'push' || steps.cache-ledger-db.outputs.cache-hit == ''
+      with:
+        path: ./ledger.${{ matrix.network.name }}.db
+        key: ${{ runner.OS }}-ledger-cache-v8-${{ steps.timestamp.outputs.value }}
+
+    - name: Run node
+      if: github.event_name == 'pull_request'
+      timeout-minutes: 30
+      shell: bash
+      run: make BUILD_PROFILE=test demo
+
+    - name: Install Cardano CLI
+      if: github.event_name != 'pull_request'
+      run: |
+        set -eux
+        
+        VERSION="10.11.0.0"
+        
+        curl -L -o cardano-cli.tar.gz \
+          "https://github.com/IntersectMBO/cardano-cli/releases/download/cardano-cli-${VERSION}/cardano-cli-${VERSION}-x86_64-linux.tar.gz"
+        
+        mkdir -p cardano-cli-bin
+        tar -xzf cardano-cli.tar.gz -C cardano-cli-bin
+        mv cardano-cli-bin/cardano-cli* cardano-cli-bin/cardano-cli
+        ls $PWD/cardano-cli-bin/
+        chmod +x cardano-cli-bin/cardano-cli
+
+    - name: Run node until latest epoch (main branch only)
+      if: github.event_name != 'pull_request'
+      timeout-minutes: 30
+      shell: bash
+      run: |
+        set -eux
+        
+        export DEMO_TARGET_EPOCH=$(sudo $PWD/cardano-cli-bin/cardano-cli query tip --socket-path ${{ runner.temp }}/ipc/node.socket --testnet-magic ${{ matrix.network.magic }} | jq '.epoch - 1')
+        make BUILD_PROFILE=test demo
+
+    - name: Run tests
+      run: |
+        make BUILD_PROFILE=test NETWORK=${{ matrix.network.name }} test-e2e
+
+    - name: Teardown haskell node
+      shell: bash
+      run: |
+        docker stop cardano-node
+        docker rm cardano-node
+
+    - uses: actions/cache/save@v4
+      if: github.event_name == 'push'
+      with:
+        path: ${{ runner.temp }}/db-${{ matrix.network.name }}
+        key: cardano-node-ogmios-${{ matrix.network.name }}-${{ steps.timestamp.outputs.value }}
