@@ -118,7 +118,7 @@ future-incompatible = { level = "deny" }
 
 [workspace.lints.clippy]
 # Enable clippy lints for all members
-# * https://doc.rust-lang.org/clippy/lints.htwml
+# * https://doc.rust-lang.org/clippy/lints.html
 
 
 # Group lints
