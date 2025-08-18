@@ -96,10 +96,10 @@ impl SelectChain {
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
-                                                    peer,
-                                                    rollback_point,
-                                                    fork,
-                                                }) => {
+                peer,
+                rollback_point,
+                fork,
+            }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
@@ -134,10 +134,10 @@ impl SelectChain {
                 }])
             }
             RollbackChainSelection::SwitchToFork(Fork {
-                                                     peer,
-                                                     rollback_point,
-                                                     fork,
-                                                 }) => Ok(SelectChain::switch_to_fork(
+                peer,
+                rollback_point,
+                fork,
+            }) => Ok(SelectChain::switch_to_fork(
                 peer,
                 rollback_point,
                 fork,

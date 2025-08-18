@@ -318,11 +318,8 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         rollback_node_id: &NodeId,
     ) -> Result<RollbackChainSelection<H>, ConsensusError> {
         // Get the best chain data before the peer change
-        let (previous_best_tip, previous_best_length, previous_best_peer) = (
-            self.best_chain(),
-            self.best_length(),
-            self.best_peer().cloned(),
-        );
+        let (previous_best_tip, previous_best_peer) =
+            (self.best_chain(), self.best_peer().cloned());
 
         // Compute the new best chain
         self.update_best_chain(peer, *rollback_node_id)?;
@@ -332,7 +329,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         // - The best chain is still the exact same -> no change
         // - Another chain becomes the best chain -> fork
         // - The previous best chain is smaller but still the best -> rollback
-        let result = if self.best_length() == previous_best_length {
+        let result = if self.best_chain() == previous_best_tip {
             Ok(RollbackChainSelection::NoChange)
         } else if previous_best_peer.as_ref() != self.best_peer() {
             let fork = self.make_fork(
@@ -455,7 +452,11 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
 
     /// Update the best chain after a peer has done a roll forward or rollback
     #[allow(clippy::expect_used)]
-    fn update_best_chain(&mut self, peer: &Peer, new_node_id: NodeId) -> Result<(), ConsensusError> {
+    fn update_best_chain(
+        &mut self,
+        peer: &Peer,
+        new_node_id: NodeId,
+    ) -> Result<(), ConsensusError> {
         if self.best_peer.as_ref().is_some() {
             let previous_best_tip = self.best_chain;
             let previous_best_length = previous_best_tip.ancestors(&self.arena).count();
@@ -470,10 +471,8 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
                 .max_by_key(|(_, _, l)| *l)
                 .expect("there has to be at least one peer since we have a best peer");
 
-            if previous_best_length != new_best_length {
+            if previous_best_length != new_best_length || peer != next_best_peer {
                 self.best_chain = *new_best_node_id;
-                self.best_peer = Some(next_best_peer.clone())
-            } else if previous_best_length == new_best_length && peer != next_best_peer {
                 self.best_peer = Some(next_best_peer.clone())
             }
         } else {
@@ -1233,6 +1232,36 @@ mod tests {
     }
 
     #[test]
+    fn rollback_can_switch_chain_given_other_chain_is_longer_variation_2() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+
+        // alice has the best chain with 3 headers
+        let (mut tree, mut headers) = initialize_with_peer(3, &alice);
+
+        // bob starts with the same chain, rollbacks once, then becomes the best chain with 2 new
+        // roll forwards and eventually rolls back so that alice becomes the best chain again.
+        tree.initialize_peer(&bob, &headers[0].hash()).unwrap();
+
+        let _ = tree.select_roll_forward(&bob, headers[1]).unwrap();
+        let _ = tree.select_roll_forward(&bob, headers[2]).unwrap();
+        let _ = tree.select_rollback(&bob, &headers[1].hash()).unwrap();
+        let added_headers = rollforward_from(&mut tree, &headers[1], &bob, 2);
+        let _ = tree
+            .select_rollback(&bob, &added_headers[0].hash())
+            .unwrap();
+        let result = tree.select_rollback(&bob, &headers[1].hash()).unwrap();
+        let intersection = headers[1].point();
+        let forked_headers = headers.split_off(2);
+        let fork = Fork {
+            peer: alice,
+            rollback_point: intersection,
+            fork: forked_headers,
+        };
+        assert_eq!(result, RollbackChainSelection::SwitchToFork(fork));
+    }
+
+    #[test]
     #[should_panic(
         expected = "Cannot create a headers tree with maximum chain length lower than 2"
     )]
@@ -1270,38 +1299,56 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(config_begin().no_shrink().show_seed().with_cases(100).with_seed(42).end())]
+        #![proptest_config(config_begin().no_shrink().show_seed().with_cases(10000).with_seed(42).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(4)) {
-            let mut tree = HeadersTree::new(10, &None);
+        fn run_chain_selection(actions in any_select_chains(20, 10)) {
+            let max_length = 20;
+            let mut tree = HeadersTree::new(max_length, &None);
             let mut results: BTreeMap<(usize, Action), SelectionResult> = BTreeMap::new();
+            let mut stopped_peers = BTreeSet::new();
+            let print = false;
+
             for (action_nb, action) in actions.iter().enumerate() {
+                if stopped_peers.contains(action.peer()) {
+                    continue
+                }
+                if print { println!("running action {action:?}") }
                 match action {
                     Action::RollForward { ref peer, ref header} =>  {
                         if !tree.peers.keys().collect::<Vec<_>>().contains(&peer) {
-                            let parent = header.parent.unwrap_or(Point::Origin.hash());
+                            let parent = header.parent.unwrap_or(tree.get_root_hash().unwrap_or(Point::Origin.hash()));
                             tree.initialize_peer(peer, &parent)?;
                         };
-                        println!("rolling forward for {peer} to {}", header.hash());
-                        let result = tree.select_roll_forward(&peer, header.clone()).unwrap() ;
+                        if print { println!("rolling forward for {peer} to {}", header.hash()) };
+                        let result = tree.select_roll_forward(peer, *header).unwrap() ;
                         results.insert((action_nb, action.clone()), Forward(result.clone()));
-                        println!("the resulting event is {result:?}");
-                        println!("headers tree\n{tree:?}");
+                        if print {
+                            println!("the resulting event is {result:?}");
+                            println!("headers tree\n{tree:?}");
+                        }
                     },
                     Action::RollBack{ ref peer, ref rollback_point} => {
-                        println!("rolling back for {peer} to {}", rollback_point.hash());
-                        let result = tree.select_rollback(&peer, &rollback_point.hash()).unwrap();
+                        if print {  println!("rolling back for {peer} to {}", rollback_point.hash()) };
+                        let result = tree.select_rollback(peer, &rollback_point.hash()).unwrap();
                         results.insert((action_nb, action.clone()), Back(result.clone()));
-                        println!("the resulting event is {result:?}");
-                        println!("headers tree\n{tree:?}");
+
+                        // Stop executing a peer that has gone beyond the limit because its actions
+                        // will reference a header that does not exist anymore
+                        if let RollbackBeyondLimit{ .. } = result {
+                           stopped_peers.insert(peer.clone());
+                        }
+                        if print {
+                            println!("the resulting event is {result:?}");
+                            println!("headers tree\n{tree:?}")
+                        };
                     }
                 }
             }
-            println!("results {results:?}");
+            if print {  println!("results {results:?}") };
             let actual = make_best_chain_from_events(&results);
             let expected_best_chains = make_best_chains_from_actions(&actions);
             assert!(expected_best_chains.contains(&actual), "The actual chain is {actual:?}\n The best chains are {expected_best_chains:?}");
-            println!("TEST OK!!!!")
+            if print { println!("TEST OK!!!!") }
         }
     }
 
@@ -1311,12 +1358,7 @@ mod tests {
         let mut result: Vec<TestHeader> = vec![];
         for event in events {
             match event {
-                (action, Forward(ForwardChainSelection::NewTip { tip, peer })) => {
-                    if let Some(parent) = result.last() {
-                        assert_eq!(Some(parent.hash()), tip.parent, "after the action {action:?}, the select forward for peer {peer} to {tip:?} failed. The current chain is {result:?}");
-                    }
-                    result.push(tip.clone())
-                }
+                (_action, Forward(ForwardChainSelection::NewTip { tip, .. })) => result.push(*tip),
                 (_, Forward(ForwardChainSelection::NoChange)) => {}
                 (action, Forward(ForwardChainSelection::SwitchToFork(fork)))
                 | (action, Back(RollbackChainSelection::SwitchToFork(fork))) => {
@@ -1342,21 +1384,20 @@ mod tests {
     fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<TestHeader>> {
         let mut chains: BTreeMap<Peer, Vec<TestHeader>> = BTreeMap::new();
         for action in actions {
-            if chains.get(action.peer()).is_none() {
+            if !chains.contains_key(action.peer()) {
                 chains.insert(action.peer().clone(), vec![]);
             }
             let chain: &mut Vec<TestHeader> = chains.get_mut(action.peer()).unwrap();
             match action {
                 Action::RollForward { header, .. } => {
-                    if header.parent == chain.last().map(|p| p.hash()) {
-                        chain.push(header.clone())
-                    }
+                    chain.push(*header);
                 }
                 Action::RollBack { rollback_point, .. } => {
-                    let rollback_position =
-                        chain.iter().position(|h| h.hash() == rollback_point.hash());
-                    assert!(rollback_position.is_some());
-                    chain.truncate(rollback_position.unwrap() + 1);
+                    if let Some(rollback_position) =
+                        chain.iter().position(|h| h.hash() == rollback_point.hash())
+                    {
+                        chain.truncate(rollback_position + 1)
+                    }
                 }
             }
         }

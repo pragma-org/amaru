@@ -31,8 +31,8 @@ pub enum Action {
 impl Action {
     pub fn peer(&self) -> &Peer {
         match self {
-            Action::RollForward { ref peer, .. } => { peer }
-            Action::RollBack { ref peer, .. } => { peer }
+            Action::RollForward { ref peer, .. } => peer,
+            Action::RollBack { ref peer, .. } => peer,
         }
     }
 }
@@ -47,15 +47,16 @@ pub fn random_walk(
     rng: &mut StdRng,
     tree: &Tree<TestHeader>,
     peer: &Peer,
+    max_length: usize,
     result: &mut Vec<Action>,
 ) {
     result.push(Action::RollForward {
         peer: peer.clone(),
-        header: tree.value.clone(),
+        header: tree.value,
     });
     for child in tree.children.iter() {
-        random_walk(rng, child, peer, result);
-        if rng.random() {
+        random_walk(rng, child, peer, max_length, result);
+        if rng.random() && child.depth() < max_length {
             result.push(Action::RollBack {
                 peer: peer.clone(),
                 rollback_point: Point::Specific(0, tree.value.hash().to_vec()),
@@ -66,16 +67,15 @@ pub fn random_walk(
     }
 }
 
-pub fn any_select_chains(depth: usize) -> impl Strategy<Value=Vec<Action>> {
-    any_tree_of_headers(depth).prop_flat_map(|tree| {
-        println!("tree\n{tree}");
+pub fn any_select_chains(depth: usize, max_length: usize) -> impl Strategy<Value = Vec<Action>> {
+    any_tree_of_headers(depth).prop_flat_map(move |tree| {
         (1..u64::MAX).prop_map(move |seed| {
             let mut rng = StdRng::seed_from_u64(seed);
             let peers_nb = 2;
             let mut result = vec![];
             for i in 0..peers_nb {
                 let peer = Peer::new(&format!("{}", i + 1));
-                random_walk(&mut rng, &tree, &peer, &mut result);
+                random_walk(&mut rng, &tree, &peer, max_length, &mut result);
             }
             result
         })

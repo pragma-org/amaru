@@ -32,10 +32,7 @@ pub struct Tree<H> {
 }
 
 /// Generate a tree of headers
-pub fn generate_test_header_tree(
-    depth: usize,
-    seed: u64,
-) -> Tree<TestHeader> {
+pub fn generate_test_header_tree(depth: usize, seed: u64) -> Tree<TestHeader> {
     let mut rng = StdRng::seed_from_u64(seed);
 
     let root = generate_test_header(&mut rng);
@@ -76,11 +73,7 @@ impl<H: Display> Tree<H> {
         out.push_str(&self.value.to_string());
         out.push('\n');
 
-        let new_prefix = format!(
-            "{}{}",
-            prefix,
-            if is_last { "    " } else { "│   " }
-        );
+        let new_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
 
         for (i, child) in self.children.iter().enumerate() {
             let last = i == self.children.len() - 1;
@@ -90,18 +83,21 @@ impl<H: Display> Tree<H> {
 }
 
 impl<H> Tree<H> {
-    fn depth(&self) -> usize {
+    pub fn depth(&self) -> usize {
         1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
     }
 }
 
 impl<H: Clone> Tree<H> {
     fn make_leaf(root: &H) -> Tree<H> {
-        Tree { value: root.clone(), children: vec![] }
+        Tree {
+            value: root.clone(),
+            children: vec![],
+        }
     }
 
     fn add_child(&mut self, child: &H) -> &mut Tree<H> {
-        self.children.push(Tree::make_leaf(&child));
+        self.children.push(Tree::make_leaf(child));
         self
     }
 
@@ -124,11 +120,7 @@ impl<H: Clone> Tree<H> {
     }
 }
 
-fn generate_test_header_subtree(
-    rng: &mut StdRng,
-    tree: &mut Tree<TestHeader>,
-    depth: usize,
-) {
+fn generate_test_header_subtree(rng: &mut StdRng, tree: &mut Tree<TestHeader>, depth: usize) {
     let mut spine = generate_headers(depth, rng);
     let mut current = tree;
     let mut current_size = 0;
@@ -143,7 +135,6 @@ fn generate_test_header_subtree(
         }
     }
 }
-
 
 /// Generate a chain of headers anchored at a given header.
 ///
@@ -190,9 +181,7 @@ pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
     Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
 }
 
-pub fn any_tree_of_headers(
-    depth: usize,
-) -> impl Strategy<Value=Tree<TestHeader>> {
+pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = Tree<TestHeader>> {
     (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed))
 }
 
@@ -260,7 +249,6 @@ mod tests {
     #[test]
     fn test_generate_test_headers_tree() {
         let tree = generate_test_header_tree(5, 42);
-        println!("{tree}");
         assert_eq!(tree.depth(), 5);
     }
 }
