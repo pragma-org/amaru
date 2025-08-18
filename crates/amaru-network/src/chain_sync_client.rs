@@ -20,7 +20,7 @@ use amaru_kernel::peer::Peer;
 use pallas_codec::Fragment;
 use pallas_network::miniprotocols::Point as NetworkPoint;
 use pallas_network::miniprotocols::chainsync::{
-    Client, ClientError, HeaderContent, Message, NextResponse, Tip,
+    Client, ClientError, HeaderContent, IntersectResponse, Message, NextResponse, Tip,
 };
 use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
@@ -52,9 +52,12 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSy
 
 #[async_trait::async_trait(?Send)]
 trait ChainSync<C> {
-    // NOTE: from https://smallcultfollowing.com/babysteps/blog/2025/03/24/box-box-box/
-    // traits with async fn cannot be dyn
     async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError>;
+
+    async fn find_intersect(
+        &mut self,
+        points: Vec<NetworkPoint>,
+    ) -> Result<IntersectResponse, ClientError>;
 }
 
 #[async_trait::async_trait(?Send)]
@@ -64,6 +67,13 @@ where
 {
     async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError> {
         self.recv_while_can_await().await
+    }
+
+    async fn find_intersect(
+        &mut self,
+        points: Vec<NetworkPoint>,
+    ) -> Result<IntersectResponse, ClientError> {
+        self.find_intersect(points).await
     }
 }
 
@@ -127,25 +137,28 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
         unimplemented!()
     }
 
-    // pub async fn find_intersection(&self) -> Result<(), ChainSyncClientError> {
-    //     let mut peer_client = self.peer_session.lock().await;
-    //     let client = (*peer_client).chainsync();
-    //     let (point, _) = client
-    //         .find_intersect(
-    //             self.intersection
-    //                 .iter()
-    //                 .cloned()
-    //                 .map(to_network_point)
-    //                 .collect(),
-    //         )
-    //         .await
-    //         .map_err(ChainSyncClientError::NetworkError)?;
+    pub async fn find_intersection(&mut self) -> Result<(), ChainSyncClientError> {
+        let points: Vec<NetworkPoint> = self
+            .intersection
+            .iter()
+            .cloned()
+            .map(to_network_point)
+            .collect();
 
-    //     point.ok_or(ChainSyncClientError::NoIntersectionFound {
-    //         points: self.intersection.clone(),
-    //     })?;
-    //     Ok(())
-    // }
+        let point = self
+            .client
+            .lock()
+            .await
+            .find_intersect(points)
+            .await
+            .map_err(ChainSyncClientError::NetworkError)?
+            .0;
+
+        point.ok_or(ChainSyncClientError::NoIntersectionFound {
+            points: self.intersection.clone(),
+        })?;
+        Ok(())
+    }
 
     pub fn roll_forward(
         &mut self,
@@ -248,7 +261,10 @@ mod tests {
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
     use async_trait::async_trait;
-    use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
+    use pallas_network::miniprotocols::chainsync::{
+        ClientError, HeaderContent, IntersectResponse, NextResponse, Tip,
+    };
+    use pallas_network::miniprotocols::Point as NetworkPoint;
     use tokio::sync::Mutex;
 
     use crate::{
@@ -273,6 +289,7 @@ mod tests {
 
     struct MockNetworkClient {
         responses: Vec<NextResponse<FakeContent>>,
+        intersection: Option<IntersectResponse>,
     }
 
     #[async_trait::async_trait(?Send)]
@@ -285,11 +302,26 @@ mod tests {
                 Ok(NextResponse::Await)
             }
         }
+
+        async fn find_intersect(
+            &mut self,
+            points: Vec<NetworkPoint>,
+        ) -> Result<IntersectResponse, ClientError> {
+            self.intersection
+                .clone()
+                .ok_or(ClientError::IntersectionNotFound)
+        }
     }
 
     impl MockNetworkClient {
-        fn new(responses: Vec<NextResponse<FakeContent>>) -> Self {
-            Self { responses }
+        fn new(
+            responses: Vec<NextResponse<FakeContent>>,
+            intersection: Option<IntersectResponse>,
+        ) -> Self {
+            Self {
+                responses,
+                intersection,
+            }
         }
     }
 
@@ -312,11 +344,12 @@ mod tests {
                     )
                 })
                 .collect(),
+            None,
         );
-        let mut session =
+        let mut chain_sync_client =
             ChainSyncClient::new1(Arc::new(Mutex::new(mock_client)), &vec![Point::Origin]);
 
-        let result = session.pull_batch().await.unwrap();
+        let result = chain_sync_client.pull_batch().await.unwrap();
 
         match result {
             PullResult::ForwardBatch(header_contents) => assert_eq!(
@@ -328,5 +361,21 @@ mod tests {
             }
             PullResult::Nothing => panic!("got Nothing, expected a batch of headers"),
         }
+    }
+
+    #[tokio::test]
+    async fn intersect_succeeds_given_underlying_client_succeeds() {
+        let expected_intersection = (
+            Some(to_network_point(Point::Origin)),
+            Tip(to_network_point(Point::Origin), 0),
+        );
+        let mock_client = MockNetworkClient::new(vec![], Some(expected_intersection));
+
+        let mut chain_sync_client =
+            ChainSyncClient::new1(Arc::new(Mutex::new(mock_client)), &vec![Point::Origin]);
+
+        let result = chain_sync_client.find_intersection().await.unwrap();
+
+        assert_eq!((), result);
     }
 }
