@@ -294,7 +294,7 @@ pub struct StakeDistributionForNetwork<'a>(&'a StakeDistribution, Network);
 
 impl serde::Serialize for StakeDistributionForNetwork<'_> {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        let mut s = serializer.serialize_struct("StakeDistribution", 5)?;
+        let mut s = serializer.serialize_struct("StakeDistribution", 6)?;
         s.serialize_field("epoch", &self.0.epoch)?;
         s.serialize_field("active_stake", &self.0.active_stake)?;
         s.serialize_field("voting_stake", &self.0.dreps_voting_stake)?;
