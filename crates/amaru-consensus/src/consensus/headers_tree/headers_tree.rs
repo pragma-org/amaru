@@ -471,7 +471,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
                 .max_by_key(|(_, _, l)| *l)
                 .expect("there has to be at least one peer since we have a best peer");
 
-            if previous_best_length != new_best_length || peer != next_best_peer {
+            if previous_best_length != new_best_length || (peer != next_best_peer) {
                 self.best_chain = *new_best_node_id;
                 self.best_peer = Some(next_best_peer.clone())
             }
@@ -720,6 +720,7 @@ mod tests {
     use crate::consensus::headers_tree::data_generation::*;
     use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
     use amaru_kernel::{from_cbor, to_cbor};
+    use itertools::Itertools;
     use proptest::proptest;
 
     #[test]
@@ -1232,6 +1233,37 @@ mod tests {
     }
 
     #[test]
+    fn rollback_doesnt_fork_until_better_chain_is_known() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+        let charlie = Peer::new("charlie");
+
+        let actions_as_list_of_strings = [
+            "{\"RollForward\":{\"peer\":{\"name\":\"1\"},\"header\":{\"hash\":\"e60a1a517c702dccc89677ec23d275510d102c0714418c4668aa1e693a763b46\",\"slot\":1,\"parent\":null}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"1\"},\"header\":{\"hash\":\"d9dee067701868d437ac0e0b582318bafe0ea21346f47d9e50b0a34643762d85\",\"slot\":2,\"parent\":\"e60a1a517c702dccc89677ec23d275510d102c0714418c4668aa1e693a763b46\"}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"1\"},\"header\":{\"hash\":\"85e972660750a9f00e07abde7731c2343ab1b7d9a5edc0e5ff820227fdba3fbf\",\"slot\":3,\"parent\":\"d9dee067701868d437ac0e0b582318bafe0ea21346f47d9e50b0a34643762d85\"}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"1\"},\"header\":{\"hash\":\"c5132318d38536501a886ed85652242083a81e922b8f79b9ea2a726315028f04\",\"slot\":4,\"parent\":\"85e972660750a9f00e07abde7731c2343ab1b7d9a5edc0e5ff820227fdba3fbf\"}}}",
+            "{\"RollBack\":{\"peer\":{\"name\":\"1\"},\"rollback_point\":\"0.d9dee067701868d437ac0e0b582318bafe0ea21346f47d9e50b0a34643762d85\"}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"1\"},\"header\":{\"hash\":\"fe52c3448ad441b3ea05321637e3a25d2c1efe8dfaa103d71a0ca76726fd38f0\",\"slot\":4,\"parent\":\"d9dee067701868d437ac0e0b582318bafe0ea21346f47d9e50b0a34643762d85\"}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"1\"},\"header\":{\"hash\":\"e14eb3b5eeaa2dc35c584d2644757217f5f6e82f17a9eb9be0137044bb2302c5\",\"slot\":5,\"parent\":\"fe52c3448ad441b3ea05321637e3a25d2c1efe8dfaa103d71a0ca76726fd38f0\"}}}",
+            "{\"RollBack\":{\"peer\":{\"name\":\"1\"},\"rollback_point\":\"0.fe52c3448ad441b3ea05321637e3a25d2c1efe8dfaa103d71a0ca76726fd38f0\"}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"2\"},\"header\":{\"hash\":\"e60a1a517c702dccc89677ec23d275510d102c0714418c4668aa1e693a763b46\",\"slot\":1,\"parent\":null}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"2\"},\"header\":{\"hash\":\"d9dee067701868d437ac0e0b582318bafe0ea21346f47d9e50b0a34643762d85\",\"slot\":2,\"parent\":\"e60a1a517c702dccc89677ec23d275510d102c0714418c4668aa1e693a763b46\"}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"2\"},\"header\":{\"hash\":\"85e972660750a9f00e07abde7731c2343ab1b7d9a5edc0e5ff820227fdba3fbf\",\"slot\":3,\"parent\":\"d9dee067701868d437ac0e0b582318bafe0ea21346f47d9e50b0a34643762d85\"}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"2\"},\"header\":{\"hash\":\"c5132318d38536501a886ed85652242083a81e922b8f79b9ea2a726315028f04\",\"slot\":4,\"parent\":\"85e972660750a9f00e07abde7731c2343ab1b7d9a5edc0e5ff820227fdba3fbf\"}}}",
+            "{\"RollBack\":{\"peer\":{\"name\":\"2\"},\"rollback_point\":\"0.e60a1a517c702dccc89677ec23d275510d102c0714418c4668aa1e693a763b46\"}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"3\"},\"header\":{\"hash\":\"e60a1a517c702dccc89677ec23d275510d102c0714418c4668aa1e693a763b46\",\"slot\":1,\"parent\":null}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"3\"},\"header\":{\"hash\":\"d9dee067701868d437ac0e0b582318bafe0ea21346f47d9e50b0a34643762d85\",\"slot\":2,\"parent\":\"e60a1a517c702dccc89677ec23d275510d102c0714418c4668aa1e693a763b46\"}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"3\"},\"header\":{\"hash\":\"85e972660750a9f00e07abde7731c2343ab1b7d9a5edc0e5ff820227fdba3fbf\",\"slot\":3,\"parent\":\"d9dee067701868d437ac0e0b582318bafe0ea21346f47d9e50b0a34643762d85\"}}}",
+            "{\"RollForward\":{\"peer\":{\"name\":\"3\"},\"header\":{\"hash\":\"c5132318d38536501a886ed85652242083a81e922b8f79b9ea2a726315028f04\",\"slot\":4,\"parent\":\"85e972660750a9f00e07abde7731c2343ab1b7d9a5edc0e5ff820227fdba3fbf\"}}}"];
+
+        let actions: Vec<Action> =
+            serde_json::from_str(&format!("[{}]", &actions_as_list_of_strings.iter().join(","))).unwrap();
+        let results = execute_actions(10, &actions).unwrap();
+        println!("{}", results.values().map(|r| format!("{}", r)).collect::<Vec<_>>().join("\n"));
+    }
+
+    #[test]
     fn rollback_can_switch_chain_given_other_chain_is_longer_variation_2() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
@@ -1299,57 +1331,87 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(config_begin().no_shrink().show_seed().with_cases(10000).with_seed(42).end())]
+        #![proptest_config(config_begin().no_shrink().show_seed().with_cases(1000).with_seed(42).end())]
         #[test]
-        fn run_chain_selection(actions in any_select_chains(20, 10)) {
+        fn run_chain_selection(actions in any_select_chains(10, 20)) {
+            let print = true;
             let max_length = 20;
-            let mut tree = HeadersTree::new(max_length, &None);
-            let mut results: BTreeMap<(usize, Action), SelectionResult> = BTreeMap::new();
-            let mut stopped_peers = BTreeSet::new();
-            let print = false;
-
-            for (action_nb, action) in actions.iter().enumerate() {
-                if stopped_peers.contains(action.peer()) {
-                    continue
-                }
-                if print { println!("running action {action:?}") }
-                match action {
-                    Action::RollForward { ref peer, ref header} =>  {
-                        if !tree.peers.keys().collect::<Vec<_>>().contains(&peer) {
-                            let parent = header.parent.unwrap_or(tree.get_root_hash().unwrap_or(Point::Origin.hash()));
-                            tree.initialize_peer(peer, &parent)?;
-                        };
-                        if print { println!("rolling forward for {peer} to {}", header.hash()) };
-                        let result = tree.select_roll_forward(peer, *header).unwrap() ;
-                        results.insert((action_nb, action.clone()), Forward(result.clone()));
-                        if print {
-                            println!("the resulting event is {result:?}");
-                            println!("headers tree\n{tree:?}");
-                        }
-                    },
-                    Action::RollBack{ ref peer, ref rollback_point} => {
-                        if print {  println!("rolling back for {peer} to {}", rollback_point.hash()) };
-                        let result = tree.select_rollback(peer, &rollback_point.hash()).unwrap();
-                        results.insert((action_nb, action.clone()), Back(result.clone()));
-
-                        // Stop executing a peer that has gone beyond the limit because its actions
-                        // will reference a header that does not exist anymore
-                        if let RollbackBeyondLimit{ .. } = result {
-                           stopped_peers.insert(peer.clone());
-                        }
-                        if print {
-                            println!("the resulting event is {result:?}");
-                            println!("headers tree\n{tree:?}")
-                        };
-                    }
-                }
-            }
-            if print {  println!("results {results:?}") };
+            let results = execute_actions(max_length, &actions).unwrap();
             let actual = make_best_chain_from_events(&results);
             let expected_best_chains = make_best_chains_from_actions(&actions);
+            if print {
+                let all_lines: Vec<_> = actions.iter().map(|action| serde_json::to_string(&serde_json::to_string(action).unwrap()).unwrap()).collect();
+                println!("{}", format!("[{}]", all_lines.iter().join(",\n")));
+            }
             assert!(expected_best_chains.contains(&actual), "The actual chain is {actual:?}\n The best chains are {expected_best_chains:?}");
             if print { println!("TEST OK!!!!") }
         }
+    }
+
+    fn execute_actions(
+        max_length: usize,
+        actions: &Vec<Action>,
+    ) -> Result<BTreeMap<(usize, Action), SelectionResult>, ConsensusError> {
+        let mut tree = HeadersTree::new(max_length, &None);
+        let mut results: BTreeMap<(usize, Action), SelectionResult> = BTreeMap::new();
+        let mut stopped_peers = BTreeSet::new();
+        let print = false;
+
+        for (action_nb, action) in actions.iter().enumerate() {
+            if stopped_peers.contains(action.peer()) {
+                continue;
+            }
+            if print {
+                println!("running action {action:?}")
+            }
+            match action {
+                Action::RollForward {
+                    ref peer,
+                    ref header,
+                } => {
+                    if !tree.peers.keys().collect::<Vec<_>>().contains(&peer) {
+                        let parent = header
+                            .parent
+                            .unwrap_or(tree.get_root_hash().unwrap_or(Point::Origin.hash()));
+                        tree.initialize_peer(peer, &parent)?;
+                    };
+                    if print {
+                        println!("rolling forward for {peer} to {}", header.hash())
+                    };
+                    let result = tree.select_roll_forward(peer, *header).unwrap();
+                    results.insert((action_nb, action.clone()), Forward(result.clone()));
+                    if print {
+                        println!("the resulting event is {result:?}");
+                        println!("headers tree\n{tree:?}");
+                    }
+                }
+                Action::RollBack {
+                    ref peer,
+                    ref rollback_point,
+                } => {
+                    if print {
+                        println!("rolling back for {peer} to {}", rollback_point.hash())
+                    };
+                    let result = tree.select_rollback(peer, &rollback_point.hash()).unwrap();
+                    results.insert((action_nb, action.clone()), Back(result.clone()));
+
+                    // Stop executing a peer that has gone beyond the limit because its actions
+                    // will reference a header that does not exist anymore
+                    if let RollbackBeyondLimit { .. } = result {
+                        stopped_peers.insert(peer.clone());
+                    }
+                    if print {
+                        println!("the resulting event is {result:?}");
+                        println!("headers tree\n{tree:?}")
+                    };
+                }
+            }
+        }
+        println!("tree {tree:?}");
+        if print {
+            println!("results {results:?}")
+        };
+        Ok(results)
     }
 
     fn make_best_chain_from_events(

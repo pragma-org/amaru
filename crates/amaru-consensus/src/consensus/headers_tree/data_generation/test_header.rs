@@ -18,6 +18,7 @@ use pallas_crypto::hash::Hash;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hasher;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Simplified version of a header
 /// It essentially keeps track only of the parent->child relationship between headers and the header slot.
@@ -25,12 +26,36 @@ use std::hash::Hasher;
 /// This is more practical to operate than a FakeHeader where the hash is computed on the whole header serialized data
 /// which is harder to control for tests.
 ///
-#[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+#[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord, Deserialize, Serialize)]
 pub struct TestHeader {
     pub hash: Hash<HEADER_HASH_SIZE>,
     pub slot: u64,
     pub parent: Option<Hash<HEADER_HASH_SIZE>>,
 }
+
+#[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]
+struct TestHash(Hash<HEADER_HASH_SIZE>);
+
+impl<'de> Deserialize<'de> for TestHash {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let buf = <String>::deserialize(deserializer)?;
+        let bytes = hex::decode(buf).map_err(serde::de::Error::custom)?;
+        Ok(TestHash(Hash::from(bytes.as_slice())))
+    }
+}
+
+impl Serialize for TestHash {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(&self.0.to_string())
+    }
+}
+
 
 impl std::hash::Hash for TestHeader {
     fn hash<H: Hasher>(&self, state: &mut H) {
@@ -51,6 +76,12 @@ impl Debug for TestHeader {
                     .unwrap_or("None".to_string()),
             )
             .finish()
+    }
+}
+
+impl Display for TestHeader {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_str(&format!("{} (slot: {}, parent: {})", self.hash, self.slot, self.parent.map(|p| p.to_string()).unwrap_or("None".to_string())))
     }
 }
 
@@ -103,19 +134,5 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TestHeader {
         let slot = d.decode_with(ctx)?;
         let parent = d.decode_with(ctx)?;
         Ok(Self { hash, slot, parent })
-    }
-}
-
-impl Display for TestHeader {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        write!(
-            f,
-            "TestHeader {{ slot: {}, hash: {}, parent: {}, }}",
-            self.slot,
-            self.hash(),
-            self.parent
-                .map(|h| h.to_string())
-                .unwrap_or_else(|| "None".to_string()),
-        )
     }
 }

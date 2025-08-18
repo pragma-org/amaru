@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::fmt::{Display, Formatter};
 use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::HeadersTree;
 use crate::{consensus::EVENT_TARGET, ConsensusError};
@@ -22,6 +23,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{trace, Span};
+use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -96,10 +98,10 @@ impl SelectChain {
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => {
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
@@ -134,10 +136,10 @@ impl SelectChain {
                 }])
             }
             RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => Ok(SelectChain::switch_to_fork(
+                                                     peer,
+                                                     rollback_point,
+                                                     fork,
+                                                 }) => Ok(SelectChain::switch_to_fork(
                 peer,
                 rollback_point,
                 fork,
@@ -199,6 +201,24 @@ pub enum ForwardChainSelection<H: IsHeader> {
     SwitchToFork(Fork<H>),
 }
 
+impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForwardChainSelection::NewTip { peer, tip } => {
+                f.write_str(&format!("NewTip[{}, {}]", peer, tip))
+            }
+            ForwardChainSelection::NoChange => {
+                f.write_str("NoChange")
+            }
+            ForwardChainSelection::SwitchToFork(Fork {
+                                                    peer, rollback_point, fork
+                                                }) => {
+                f.write_str(&format!("SwitchToFork[{}, {}, {}]", peer, rollback_point, fork.iter().map(|h| h.to_string()).collect::<Vec<_>>().join(", ")))
+            }
+        }
+    }
+}
+
 /// The outcome of the chain selection process in case of rollback
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RollbackChainSelection<H: IsHeader> {
@@ -217,4 +237,26 @@ pub enum RollbackChainSelection<H: IsHeader> {
 
     /// The current best chain as not changed
     NoChange,
+}
+
+impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RollbackTo(hash) => {
+                f.write_str(&format!("RollbackTo[{}]", hash))
+            }
+            RollbackChainSelection::NoChange => {
+                f.write_str("NoChange")
+            }
+            RollbackChainSelection::SwitchToFork(Fork {
+                                                     peer, rollback_point, fork
+                                                 }) => {
+                f.write_str(&format!("SwitchToFork[{}, {}, {}]", peer, rollback_point, fork.iter().map(|h| h.to_string()).collect::<Vec<_>>().join(", ")))
+            }
+
+            RollbackChainSelection::RollbackBeyondLimit { peer, rollback_point, max_point } => {
+                f.write_str(&format!("RollbackBeyondLimit[{}, {}, {}]", peer, rollback_point, max_point))
+            }
+        }
+    }
 }

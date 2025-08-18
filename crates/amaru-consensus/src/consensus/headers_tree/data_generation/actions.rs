@@ -20,12 +20,32 @@ use amaru_ouroboros_traits::IsHeader;
 use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
-use std::fmt::Debug;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use std::fmt::{Debug, Display, Formatter};
 
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Action {
-    RollForward { peer: Peer, header: TestHeader },
-    RollBack { peer: Peer, rollback_point: Point },
+    RollForward {
+        peer: Peer,
+        header: TestHeader,
+    },
+    RollBack {
+        peer: Peer,
+        #[serde(
+            serialize_with = "serialize_point",
+            deserialize_with = "deserialize_point"
+        )]
+        rollback_point: Point,
+    },
+}
+
+fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&point.to_string())
+}
+
+fn deserialize_point<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Point, D::Error> {
+    let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
+    Point::try_from(bytes).map_err(serde::de::Error::custom)
 }
 
 impl Action {
@@ -41,6 +61,15 @@ impl Action {
 pub enum SelectionResult {
     Forward(ForwardChainSelection<TestHeader>),
     Back(RollbackChainSelection<TestHeader>),
+}
+
+impl Display for SelectionResult {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SelectionResult::Forward(forward) => f.write_str(&forward.to_string()),
+            SelectionResult::Back(back) => f.write_str(&back.to_string()),
+        }
+    }
 }
 
 pub fn random_walk(
@@ -67,11 +96,11 @@ pub fn random_walk(
     }
 }
 
-pub fn any_select_chains(depth: usize, max_length: usize) -> impl Strategy<Value = Vec<Action>> {
+pub fn any_select_chains(depth: usize, max_length: usize) -> impl Strategy<Value=Vec<Action>> {
     any_tree_of_headers(depth).prop_flat_map(move |tree| {
         (1..u64::MAX).prop_map(move |seed| {
             let mut rng = StdRng::seed_from_u64(seed);
-            let peers_nb = 2;
+            let peers_nb = 3;
             let mut result = vec![];
             for i in 0..peers_nb {
                 let peer = Peer::new(&format!("{}", i + 1));
