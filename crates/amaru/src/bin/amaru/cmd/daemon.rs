@@ -12,9 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::metrics::track_system_metrics;
 use crate::{cmd::connect_to_peer, metrics::track_system_metrics};
 use amaru::stages::{Config, MaxExtraLedgerSnapshots, StorePath, bootstrap};
 use amaru_kernel::{default_chain_dir, default_ledger_dir, network::NetworkName};
+use amaru_network::connect_to_peer;
 use clap::{ArgAction, Parser};
 use opentelemetry_sdk::metrics::SdkMeterProvider;
 use pallas_network::facades::PeerClient;
