@@ -139,6 +139,7 @@ panic = "warn"
 todo = "warn"
 unwrap_used = "warn"
 wildcard_enum_match_arm = "warn"
+print_stdout = "deny"
 
 # See https://doc.rust-lang.org/cargo/reference/profiles.html
 
