@@ -16,6 +16,7 @@ use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::Point;
 use amaru_kernel::cbor;
+use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use pallas_codec::Fragment;
 use pallas_network::miniprotocols::Point as NetworkPoint;
@@ -51,7 +52,7 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSy
 }
 
 #[async_trait::async_trait(?Send)]
-trait ChainSync<C> {
+pub trait ChainSync<C> {
     async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError>;
 
     async fn find_intersect(
@@ -77,10 +78,27 @@ where
     }
 }
 
+#[async_trait::async_trait(?Send)]
+impl<C> ChainSync<C> for &mut Client<C>
+where
+    Message<C>: Fragment,
+{
+    async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError> {
+        self.recv_while_can_await().await
+    }
+
+    async fn find_intersect(
+        &mut self,
+        points: Vec<NetworkPoint>,
+    ) -> Result<IntersectResponse, ClientError> {
+        self.find_intersect(points).await
+    }
+}
+
 /// Handles chain synchronization network operations
 pub struct ChainSyncClient<C> {
     peer: Peer,
-    client: Arc<Mutex<dyn ChainSync<C>>>,
+    client: Box<dyn ChainSync<C> + Sync + Send>,
     intersection: Vec<Point>,
 }
 
@@ -147,8 +165,6 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
 
         let point = self
             .client
-            .lock()
-            .await
             .find_intersect(points)
             .await
             .map_err(ChainSyncClientError::NetworkError)?
@@ -198,8 +214,6 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
         while batch.len() < MAX_BATCH_SIZE {
             let response = self
                 .client
-                .lock()
-                .await
                 .recv_while_can_await()
                 .await
                 .map_err(|_| unimplemented!())?;
@@ -243,7 +257,7 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
     //     client.has_agency()
     // }
 
-    fn new1(client: Arc<Mutex<dyn ChainSync<C>>>, intersection: &Vec<Point>) -> Self {
+    pub fn new1(client: Box<dyn ChainSync<C> + Sync + Send>, intersection: &Vec<Point>) -> Self {
         ChainSyncClient {
             client,
             peer: Peer::new("alice"),
@@ -261,10 +275,10 @@ mod tests {
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
     use async_trait::async_trait;
+    use pallas_network::miniprotocols::Point as NetworkPoint;
     use pallas_network::miniprotocols::chainsync::{
         ClientError, HeaderContent, IntersectResponse, NextResponse, Tip,
     };
-    use pallas_network::miniprotocols::Point as NetworkPoint;
     use tokio::sync::Mutex;
 
     use crate::{
@@ -347,7 +361,7 @@ mod tests {
             None,
         );
         let mut chain_sync_client =
-            ChainSyncClient::new1(Arc::new(Mutex::new(mock_client)), &vec![Point::Origin]);
+            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin]);
 
         let result = chain_sync_client.pull_batch().await.unwrap();
 
@@ -371,8 +385,7 @@ mod tests {
         );
         let mock_client = MockNetworkClient::new(vec![], Some(expected_intersection));
 
-        let mut chain_sync_client =
-            ChainSyncClient::new1(Arc::new(Mutex::new(mock_client)), &vec![Point::Origin]);
+        let chain_sync_client = ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin]);
 
         let result = chain_sync_client.find_intersection().await.unwrap();
 

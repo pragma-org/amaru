@@ -13,7 +13,6 @@
 // limitations under the License.
 
 use amaru_kernel::network::NetworkName;
-use pallas_network::facades::PeerClient;
 
 pub(crate) mod bootstrap;
 pub(crate) mod daemon;
@@ -25,12 +24,3 @@ pub(crate) const DEFAULT_NETWORK: NetworkName = NetworkName::Preprod;
 
 /// Default address to listen on for incoming connections.
 pub(crate) const DEFAULT_LISTEN_ADDRESS: &str = "0.0.0.0:3000";
-
-/// Establish a connection to another peer. The connection are discriminated by network types.
-pub(crate) async fn connect_to_peer(
-    peer_address: &str,
-    network: &NetworkName,
-) -> Result<PeerClient, pallas_network::facades::Error> {
-    PeerClient::connect(peer_address, network.to_network_magic() as u64).await
-        .inspect_err(|reason| tracing::error!(peer = %peer_address, reason = %reason, "failed to connect to peer"))
-}
