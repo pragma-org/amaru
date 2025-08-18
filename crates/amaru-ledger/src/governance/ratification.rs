@@ -98,24 +98,16 @@ impl<'distr> RatificationContext<'distr> {
     pub fn ratify_proposals<'store, S: TransactionalContext<'store>>(
         mut self,
         era_history: &EraHistory,
-        mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
+        proposals: Vec<(ComparableProposalId, proposals::Row)>,
         roots: ProposalsRootsRc,
     ) -> Result<RatificationResult<'distr, S>, RatificationInternalError> {
         info_roots(&roots);
 
-        let mut forest = proposals
-            .drain(..)
-            .try_fold::<_, _, Result<_, RatificationInternalError>>(
-                ProposalsForest::new(self.epoch, &roots),
-                |mut forest, (id, row)| {
-                    // There shouldn't be any invalid proposals left at this point.
-                    assert!(row.valid_until <= self.epoch);
-
-                    forest.insert(era_history, id, row.proposed_in, row.proposal.gov_action)?;
-
-                    Ok(forest)
-                },
-            )?;
+        // A forest (i.e. a multitude of trees) that tracks what proposals needs to be ratified,
+        // in what order and what are the relationships between proposals; such that, when a
+        // proposal is enacted, conflicting proposals (those pointing at the same parent) are
+        // pruned.
+        let mut forest = ProposalsForest::new(self.epoch, &roots).drain(era_history, proposals)?;
 
         // A mutable compass to navigate the forest. This compass holds the tiny bit of mutable
         // state we need to iterate over the forest; but without introducing a mutable borrow on

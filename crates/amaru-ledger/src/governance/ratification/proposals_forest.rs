@@ -17,7 +17,7 @@ use super::{
     proposals_tree::{ProposalsTree, Sibling},
     CommitteeUpdate, OrphanProposal, ProposalEnum,
 };
-use crate::summary::into_safe_ratio;
+use crate::{store::columns::proposals, summary::into_safe_ratio};
 use amaru_kernel::{
     display_protocol_parameters_update, expect_stake_credential, ComparableProposalId,
     Constitution, Epoch, EraHistory, GovAction, Nullable, ProposalId, ProposalPointer,
@@ -83,6 +83,31 @@ impl ProposalsForest {
     /// Returns an iterator over the forest's proposal.
     pub fn new_compass(&self) -> ProposalsForestCompass {
         ProposalsForestCompass::new(self)
+    }
+
+    /// Insert many proposals at once, consuming them.
+    pub fn drain(
+        mut self,
+        era_history: &'_ EraHistory,
+        mut proposals: Vec<(ComparableProposalId, proposals::Row)>,
+    ) -> Result<Self, ProposalsInsertError<ComparableProposalId>> {
+        let current_epoch = self.current_epoch;
+
+        proposals
+            .drain(..)
+            .try_fold::<_, _, Result<_, ProposalsInsertError<_>>>(
+                &mut self,
+                |forest, (id, row)| {
+                    // There shouldn't be any invalid proposals left at this point.
+                    assert!(row.valid_until <= current_epoch);
+
+                    forest.insert(era_history, id, row.proposed_in, row.proposal.gov_action)?;
+
+                    Ok(forest)
+                },
+            )?;
+
+        Ok(self)
     }
 
     /// Insert a proposal in the forest. This retains the order of insertion, so it is assumed
