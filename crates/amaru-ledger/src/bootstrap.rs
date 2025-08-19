@@ -21,9 +21,9 @@ use amaru_kernel::{
     cbor, heterogeneous_array, network::NetworkName, protocol_parameters::ProtocolParameters,
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
     DRep, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, ProtocolVersion, Reward,
-    ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
-    UnitInterval, Vote, Voter,
+    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward, ScriptHash, Set,
+    Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer, UnitInterval, Vote,
+    Voter,
 };
 use progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
@@ -287,12 +287,7 @@ pub fn import_initial_snapshot(
         d.skip()?;
     }
 
-    save_point(
-        db,
-        point,
-        &protocol_parameters.protocol_version,
-        era_history,
-    )?;
+    save_point(db, point, era_history)?;
 
     Ok(epoch)
 }
@@ -300,7 +295,6 @@ pub fn import_initial_snapshot(
 fn save_point(
     db: &impl Store,
     point: &Point,
-    protocol_version: &ProtocolVersion,
     era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
@@ -313,8 +307,6 @@ fn save_point(
         iter::empty(),
         era_history,
     )?;
-
-    transaction.set_protocol_version(protocol_version)?;
 
     transaction.commit()?;
 

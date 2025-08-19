@@ -451,7 +451,6 @@ impl AsTip for Header {
 mod tests {
     use amaru_kernel::{
         network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS, EraHistory,
-        PROTOCOL_VERSION_9,
     };
     use amaru_ledger::store::{Store, TransactionalContext};
     use amaru_stores::in_memory::MemoryStore;
@@ -463,7 +462,7 @@ mod tests {
     fn bootstrap_all_stages() {
         let network = NetworkName::Preprod;
         let era_history: &EraHistory = network.into();
-        let ledger_store = MemoryStore::new(era_history.clone(), PROTOCOL_VERSION_9);
+        let ledger_store = MemoryStore::new(era_history.clone());
 
         // Add initial protocol parameters to the database; needed by the ledger.
         let transaction = ledger_store.create_transaction();

@@ -20,7 +20,7 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Ballot, ComparableProposalId, DRep, Epoch, EraHistory,
-    Lovelace, PoolId, ProtocolVersion, StakeCredential, UnitInterval, Vote, Voter,
+    Lovelace, PoolId, StakeCredential, UnitInterval, Vote, Voter,
 };
 use num::Zero;
 use std::{
@@ -56,9 +56,6 @@ pub mod tests {
 pub struct RatificationContext<'a> {
     /// The epoch that just ended.
     pub epoch: Epoch,
-
-    /// The protocol version at the moment the epoch ended.
-    pub protocol_version: ProtocolVersion,
 
     /// The *current* (live! not from the stake distr snapshot) value of the treasury
     pub treasury: Lovelace,
@@ -227,10 +224,8 @@ impl<'distr> RatificationContext<'distr> {
                     }
 
                     ProposalEnum::HardFork(protocol_version, _parent) => {
-                        self.protocol_version = protocol_version;
                         self.protocol_parameters.protocol_version = protocol_version;
                         store_updates.push(Box::new(|db, ctx| {
-                            db.set_protocol_version(&ctx.protocol_version)?;
                             db.set_protocol_parameters(&ctx.protocol_parameters)
                         }));
                     }
@@ -446,7 +441,7 @@ impl<'distr> RatificationContext<'distr> {
             .and_then(|committee| {
                 let threshold = committee.voting_threshold(
                     self.epoch,
-                    self.protocol_version,
+                    self.protocol_parameters.protocol_version,
                     self.protocol_parameters.min_committee_size,
                     proposal,
                 )?;
@@ -478,7 +473,12 @@ impl<'distr> RatificationContext<'distr> {
                     .record("required_threshold.pools", field::display(&threshold));
 
                 let tally = || {
-                    stake_pools::tally(self.protocol_version, proposal, votes, stake_distribution)
+                    stake_pools::tally(
+                        self.protocol_parameters.protocol_version,
+                        proposal,
+                        votes,
+                        stake_distribution,
+                    )
                 };
 
                 threshold == SafeRatio::zero() || tally() >= threshold
@@ -493,7 +493,7 @@ impl<'distr> RatificationContext<'distr> {
         stake_distribution: &StakeDistribution,
     ) -> bool {
         match dreps::voting_threshold(
-            self.protocol_version,
+            self.protocol_parameters.protocol_version,
             self.constitutional_committee.is_none(),
             &self.protocol_parameters.drep_voting_thresholds,
             proposal,

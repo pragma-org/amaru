@@ -34,7 +34,6 @@ use amaru_kernel::{
 };
 use amaru_kernel::{
     ComparableProposalId, Constitution, ConstitutionalCommittee, MemoizedTransactionOutput,
-    ProtocolVersion,
 };
 use columns::*;
 use slot_arithmetic::Epoch;
@@ -138,9 +137,6 @@ pub trait Store: ReadStore {
 // ----------------------------------------------------------------------------
 
 pub trait ReadStore {
-    /// Get the current protocol version, which only changes through forks.
-    fn protocol_version(&self) -> Result<ProtocolVersion>;
-
     /// Get the current protocol parameters
     fn protocol_parameters(&self) -> Result<ProtocolParameters>;
 
@@ -281,9 +277,6 @@ pub trait TransactionalContext<'a> {
 
     /// Persist ProtocolParameters for the ongoing epoch.
     fn set_protocol_parameters(&self, protocol_parameters: &ProtocolParameters) -> Result<()>;
-
-    /// Persist the protocol version for the ongoing epoch.
-    fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<()>;
 
     /// Persist the constitutional committee state for the ongoing epoch.
     fn set_constitutional_committee(&self, committee: &ConstitutionalCommittee) -> Result<()>;

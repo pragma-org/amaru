@@ -1109,6 +1109,7 @@ mod tests {
                                 .map(|(k, v)| (k, u64::from(v)))
                                 .collect::<Vec<(_, _)>>(),
                         ),
+                        #[allow(clippy::unwrap_used)]
                         RationalNumber {
                             numerator: threshold.numer().try_into().unwrap(),
                             denominator: threshold.denom().try_into().unwrap(),
@@ -1143,6 +1144,7 @@ mod tests {
                             .chain(constitutional_committee.1)
                             .chain(constitution.1)
                             .for_each(|(id, pointer, action)| {
+                                #[allow(clippy::unwrap_used)]
                                 forest
                                     .insert(&ERA_HISTORY, id.clone(), pointer, action.clone())
                                     .unwrap();
@@ -1274,7 +1276,7 @@ mod tests {
     // the list. For a non empty list, this ensures to return an element from the list.
     fn select(list: &[Option<Rc<ComparableProposalId>>], ix: u8) -> Nullable<ProposalId> {
         list.get(ix as usize % list.len())
-            .unwrap_or_else(|| panic!("out of bound"))
+            .unwrap_or_else(|| unreachable!("out of bound"))
             .as_ref()
             .map(|id| Nullable::Some(ProposalId::from(id.as_ref().clone())))
             .unwrap_or(Nullable::Null)

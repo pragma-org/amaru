@@ -17,8 +17,8 @@ use crate::in_memory::ledger::columns::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution,
-    ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, ProtocolVersion, Slot,
-    StakeCredential, TransactionInput, PROTOCOL_VERSION_9,
+    ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential,
+    TransactionInput,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -58,13 +58,12 @@ pub struct MemoryStore {
     cc_members: RefCell<BTreeMap<StakeCredential, cc_members_column::Row>>,
     votes: RefCell<BTreeMap<votes_column::Key, votes_column::Value>>,
     protocol_parameters: RefCell<Option<ProtocolParameters>>,
-    protocol_version: RefCell<ProtocolVersion>,
     constitutional_committee: RefCell<ConstitutionalCommittee>,
     era_history: EraHistory,
 }
 
 impl MemoryStore {
-    pub fn new(era_history: EraHistory, protocol_version: ProtocolVersion) -> Self {
+    pub fn new(era_history: EraHistory) -> Self {
         MemoryStore {
             tip: RefCell::new(Some(Point::Origin)),
             epoch_progress: RefCell::new(None),
@@ -78,9 +77,8 @@ impl MemoryStore {
             cc_members: RefCell::new(BTreeMap::new()),
             votes: RefCell::new(BTreeMap::new()),
             protocol_parameters: RefCell::new(None),
-            era_history,
-            protocol_version: RefCell::new(protocol_version),
             constitutional_committee: RefCell::new(ConstitutionalCommittee::NoConfidence),
+            era_history,
         }
     }
 }
@@ -93,10 +91,6 @@ impl Snapshot for MemoryStore {
 }
 
 impl ReadStore for MemoryStore {
-    fn protocol_version(&self) -> Result<ProtocolVersion, StoreError> {
-        Ok(*self.protocol_version.borrow())
-    }
-
     fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
         self.protocol_parameters
             .borrow()
@@ -411,11 +405,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError> {
-        *self.store.protocol_version.borrow_mut() = *protocol_version;
-        Ok(())
-    }
-
     fn set_constitutional_committee(
         &self,
         constitutional_committee: &ConstitutionalCommittee,
@@ -630,10 +619,7 @@ impl HistoricalStores for MemoryStore {
     }
 
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore::new(
-            self.era_history.clone(),
-            PROTOCOL_VERSION_9,
-        ))
+        Ok(MemoryStore::new(self.era_history.clone()))
     }
 }
 
@@ -691,7 +677,7 @@ mod tests {
             test_remove_drep, test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
         },
     };
-    use amaru_kernel::{network::NetworkName, EraHistory, PROTOCOL_VERSION_9};
+    use amaru_kernel::{network::NetworkName, EraHistory};
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
 
@@ -702,7 +688,7 @@ mod tests {
         runner: &mut TestRunner,
     ) -> Result<(MemoryStore, Fixture), StoreError> {
         let era_history: &EraHistory = NetworkName::Preprod.into();
-        let store = MemoryStore::new(era_history.clone(), PROTOCOL_VERSION_9);
+        let store = MemoryStore::new(era_history.clone());
         let fixture = add_test_data_to_store(&store, era_history, runner)?;
         Ok((store, fixture))
     }

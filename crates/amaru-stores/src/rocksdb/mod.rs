@@ -16,7 +16,7 @@ use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransfo
 use amaru_kernel::{
     cbor, protocol_parameters::ProtocolParameters, CertificatePointer, ComparableProposalId,
     Constitution, ConstitutionalCommittee, EraHistory, Lovelace, MemoizedTransactionOutput, Point,
-    PoolId, ProtocolVersion, StakeCredential, TransactionInput,
+    PoolId, StakeCredential, TransactionInput,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
@@ -62,9 +62,6 @@ const KEY_PROGRESS: &str = "@progress";
 
 /// Key where is stored the current protocol parameters
 const KEY_PROTOCOL_PARAMETERS: &str = "@protocol-parameters";
-
-/// key where is stored the current protocol version
-const KEY_PROTOCOL_VERSION: &str = "@protocol-version";
 
 /// key where is stored the constitutional committee information;
 const KEY_CONSTITUTIONAL_COMMITTEE: &str = "@constitutional-committee";
@@ -328,13 +325,6 @@ impl HistoricalStores for RocksDBHistoricalStores {
 macro_rules! impl_ReadStore {
     (for $($s:ty),+) => {
         $(impl ReadStore for $s {
-            fn protocol_version(
-                &self,
-            ) -> Result<ProtocolVersion, StoreError> {
-                get(|key| self.db.get(key), &KEY_PROTOCOL_VERSION)?
-                    .ok_or(StoreError::missing::<ProtocolVersion>(KEY_PROTOCOL_VERSION))
-            }
-
             fn protocol_parameters(
                 &self,
             ) -> Result<ProtocolParameters, StoreError> {
@@ -519,13 +509,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     ) -> Result<(), StoreError> {
         self.transaction
             .put(KEY_PROTOCOL_PARAMETERS, as_value(protocol_parameters))
-            .map_err(|err| StoreError::Internal(err.into()))?;
-        Ok(())
-    }
-
-    fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError> {
-        self.transaction
-            .put(KEY_PROTOCOL_VERSION, as_value(protocol_version))
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }
@@ -755,17 +738,6 @@ fn default_opts_with_prefix() -> Options {
     let mut opts = Options::default();
     opts.set_prefix_extractor(SliceTransform::create_fixed_prefix(PREFIX_LEN));
     opts
-}
-
-fn get<T: for<'d> cbor::decode::Decode<'d, ()>>(
-    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
-    key: &str,
-) -> Result<Option<T>, StoreError> {
-    (db_get)(key)
-        .map_err(|err| StoreError::Internal(err.into()))?
-        .map(|b| cbor::decode(b.as_ref()))
-        .transpose()
-        .map_err(StoreError::Undecodable)
 }
 
 fn get_or_bail<T>(

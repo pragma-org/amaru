@@ -18,7 +18,7 @@ use crate::store::{columns::dreps, Snapshot, StoreError};
 use amaru_kernel::{
     expect_stake_credential, network::EraHistory, protocol_parameters::ProtocolParameters, Anchor,
     CertificatePointer, DRep, EpochInterval, Lovelace, ProtocolVersion, Slot, StakeCredential,
-    TransactionPointer,
+    TransactionPointer, PROTOCOL_VERSION_9,
 };
 use slot_arithmetic::{Epoch, EraHistoryError};
 use std::collections::{BTreeMap, BTreeSet};
@@ -57,7 +57,6 @@ pub enum Error {
 impl GovernanceSummary {
     pub fn new(
         db: &impl Snapshot,
-        protocol_version: ProtocolVersion,
         era_history: &EraHistory,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, Error> {
@@ -94,7 +93,7 @@ impl GovernanceSummary {
             })?;
 
         let mandate = drep_mandate_calculator(
-            protocol_version,
+            protocol_parameters.protocol_version,
             protocol_parameters.gov_action_lifetime,
             protocol_parameters.drep_expiry,
             era_history,
@@ -317,9 +316,7 @@ fn drep_mandate_calculator(
         },
     );
 
-    let major_version = protocol_version.0;
-
-    if major_version <= 9 {
+    if protocol_version <= PROTOCOL_VERSION_9 {
         return Box::new(
             move |registered_at: (Slot, Epoch), last_interaction: Option<Epoch>| -> Epoch {
                 let registered_in = registered_at.1;

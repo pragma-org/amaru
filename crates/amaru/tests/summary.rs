@@ -18,7 +18,7 @@ use amaru_kernel::{
     protocol_parameters::GlobalParameters,
 };
 use amaru_ledger::{
-    store::{ReadStore, Snapshot},
+    store::Snapshot,
     summary::{
         governance::GovernanceSummary, rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
@@ -93,23 +93,11 @@ fn compare_snapshot(epoch: Epoch) {
         NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
     };
 
-    let protocol_version = snapshot.protocol_version().unwrap();
+    let dreps =
+        GovernanceSummary::new(snapshot.as_ref(), network.into(), protocol_parameters).unwrap();
 
-    let dreps = GovernanceSummary::new(
-        snapshot.as_ref(),
-        protocol_version,
-        network.into(),
-        protocol_parameters,
-    )
-    .unwrap();
-
-    let stake_distr = StakeDistribution::new(
-        snapshot.as_ref(),
-        protocol_version,
-        dreps,
-        protocol_parameters,
-    )
-    .unwrap();
+    let stake_distr =
+        StakeDistribution::new(snapshot.as_ref(), protocol_parameters, dreps).unwrap();
 
     insta::with_settings!({
         snapshot_path => format!("snapshots/{}", network)

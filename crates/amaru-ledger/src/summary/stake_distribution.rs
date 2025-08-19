@@ -23,8 +23,7 @@ use crate::{
 };
 use amaru_kernel::{
     expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
-    DRep, HasLovelace, Lovelace, Network, PoolId, ProtocolVersion, StakeCredential,
-    PROTOCOL_VERSION_9,
+    DRep, HasLovelace, Lovelace, Network, PoolId, StakeCredential, PROTOCOL_VERSION_9,
 };
 use iter_borrow::borrowable_proxy::BorrowableProxy;
 use serde::ser::SerializeStruct;
@@ -76,12 +75,11 @@ impl StakeDistribution {
     /// Invariant: The given store is expected to be a snapshot taken at the end of an epoch.
     pub fn new(
         db: &impl Snapshot,
-        protocol_version: ProtocolVersion,
+        protocol_parameters: &ProtocolParameters,
         GovernanceSummary {
             mut dreps,
             deposits,
         }: GovernanceSummary,
-        protocol_parameters: &ProtocolParameters,
     ) -> Result<Self, StoreError> {
         let epoch = db.epoch();
 
@@ -102,7 +100,7 @@ impl StakeDistribution {
                                     ..
                                 } = dreps.get(&drep)?;
 
-                                if protocol_version <= PROTOCOL_VERSION_9 {
+                                if protocol_parameters.protocol_version <= PROTOCOL_VERSION_9 {
                                     if &Some(since) > previous_deregistration {
                                         Some(drep)
                                     } else {

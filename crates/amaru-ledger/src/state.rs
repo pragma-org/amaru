@@ -40,8 +40,8 @@ use amaru_kernel::{
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     stake_credential_hash, ComparableProposalId, ConstitutionalCommittee, EraHistory, Hash,
-    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, ProtocolVersion, Slot,
-    StakeCredential, StakeCredentialType, TransactionInput,
+    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, Slot, StakeCredential,
+    StakeCredentialType, TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::{Epoch, EraHistoryError};
@@ -116,10 +116,7 @@ where
     global_parameters: Arc<GlobalParameters>,
 
     /// Updatable protocol parameters.
-    protocol_parameters: Arc<ProtocolParameters>,
-
-    /// Current protocol version.
-    protocol_version: ProtocolVersion,
+    protocol_parameters: ProtocolParameters,
 
     /// Which network are we connected to. This is mostly helpful for distinguishing between
     /// behavious that are network specifics (e.g. address discriminant).
@@ -134,12 +131,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         era_history: EraHistory,
         global_parameters: GlobalParameters,
     ) -> Result<Self, StoreError> {
-        let protocol_version = stable.protocol_version()?;
-
-        let stake_distributions =
-            initial_stake_distributions(&stable, &snapshots, &era_history, protocol_version)?;
-
         let protocol_parameters = stable.protocol_parameters()?;
+
+        let stake_distributions = initial_stake_distributions(&stable, &snapshots, &era_history)?;
 
         Ok(Self::new_with(
             stable,
@@ -148,7 +142,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             era_history,
             global_parameters,
             protocol_parameters,
-            protocol_version,
             stake_distributions,
         ))
     }
@@ -161,7 +154,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         era_history: EraHistory,
         global_parameters: GlobalParameters,
         protocol_parameters: ProtocolParameters,
-        protocol_version: ProtocolVersion,
         stake_distributions: VecDeque<StakeDistribution>,
     ) -> Self {
         Self {
@@ -189,9 +181,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             global_parameters: Arc::new(global_parameters),
 
-            protocol_parameters: Arc::new(protocol_parameters),
-
-            protocol_version,
+            protocol_parameters,
 
             network,
         }
@@ -264,17 +254,19 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
         // epoch than the previously applied block (i.e. the tip of the stable storage).
         if epoch_transitioning {
-            let old_protocol_version = self.protocol_version;
+            let old_protocol_version = self.protocol_parameters.protocol_version;
 
             let rewards_summary = self.rewards_summary.take();
 
-            self.protocol_version =
+            let protocol_parameters =
                 self.epoch_transition(&mut *db, current_epoch, rewards_summary)?;
 
-            if old_protocol_version != self.protocol_version {
+            self.protocol_parameters = protocol_parameters;
+
+            if old_protocol_version != self.protocol_parameters.protocol_version {
                 info!(
                     from = old_protocol_version.0,
-                    to = self.protocol_version.0,
+                    to = self.protocol_parameters.protocol_version.0,
                     "protocol.upgrade"
                 )
             }
@@ -329,7 +321,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         db: &mut impl Store,
         next_epoch: Epoch,
         rewards_summary: Option<RewardsSummary>,
-    ) -> Result<ProtocolVersion, StateError> {
+    ) -> Result<ProtocolParameters, StateError> {
         // ---------------------------------------------------------------------------- End of epoch
         let batch = db.create_transaction();
         let should_end_epoch =
@@ -369,7 +361,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             self.stake_distribution(next_epoch - 2)?,
         )?;
 
-        let protocol_version = if should_begin_epoch {
+        let protocol_parameters = if should_begin_epoch {
             begin_epoch(
                 &batch,
                 next_epoch,
@@ -387,11 +379,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 &self.protocol_parameters,
             )
         } else {
-            Ok(db.protocol_version()?)
+            Ok(db.protocol_parameters()?)
         }?;
         batch.commit()?;
 
-        Ok(protocol_version)
+        Ok(protocol_parameters)
     }
 
     #[allow(clippy::unwrap_used)]
@@ -416,7 +408,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         stake_distributions.push_front(recover_stake_distribution(
             &snapshot,
             &self.era_history,
-            self.protocol_version,
             &self.protocol_parameters,
         )?);
 
@@ -546,7 +537,6 @@ pub fn initial_stake_distributions(
     db: &impl Store,
     snapshots: &impl HistoricalStores,
     era_history: &EraHistory,
-    protocol_version: ProtocolVersion,
 ) -> Result<VecDeque<StakeDistribution>, StoreError> {
     let latest_epoch = snapshots.most_recent_snapshot();
 
@@ -558,13 +548,8 @@ pub fn initial_stake_distributions(
 
         let snapshot = snapshots.for_epoch(epoch)?;
         stake_distributions.push_front(
-            recover_stake_distribution(
-                &snapshot,
-                era_history,
-                protocol_version,
-                &protocol_parameters,
-            )
-            .map_err(|err| StoreError::Internal(err.into()))?,
+            recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
+                .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
 
@@ -574,14 +559,12 @@ pub fn initial_stake_distributions(
 pub fn recover_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
-    protocol_version: ProtocolVersion,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
     StakeDistribution::new(
         snapshot,
-        protocol_version,
-        GovernanceSummary::new(snapshot, protocol_version, era_history, protocol_parameters)?,
         protocol_parameters,
+        GovernanceSummary::new(snapshot, era_history, protocol_parameters)?,
     )
     .map_err(StateError::Storage)
 }
@@ -628,7 +611,7 @@ fn begin_epoch<'store>(
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
     roots: ProposalsRoots,
     protocol_parameters: &ProtocolParameters,
-) -> Result<ProtocolVersion, StateError> {
+) -> Result<ProtocolParameters, StateError> {
     // Reset counters before the epoch begins.
     reset_blocks_count(db)?;
     reset_fees(db)?;
@@ -645,9 +628,9 @@ fn begin_epoch<'store>(
 
     // Ratify and enact proposals at the epoch boundary. Also refund deposit for any proposal that
     // has expired.
-    let protocol_version = tick_proposals(db, epoch, era_history, ctx, proposals, roots)?;
+    let protocol_parameters = tick_proposals(db, epoch, era_history, ctx, proposals, roots)?;
 
-    Ok(protocol_version)
+    Ok(protocol_parameters)
 }
 
 // Operations on the state
@@ -742,7 +725,7 @@ pub fn tick_proposals<'store>(
     ctx: RatificationContext<'_>,
     proposals: Vec<(ComparableProposalId, proposals::Row)>,
     roots: ProposalsRoots,
-) -> Result<ProtocolVersion, StateError> {
+) -> Result<ProtocolParameters, StateError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
     let RatificationResult {
@@ -798,7 +781,7 @@ pub fn tick_proposals<'store>(
 
     refund_many(db, refunds.into_iter())?;
 
-    Ok(ctx.protocol_version)
+    Ok(ctx.protocol_parameters)
 }
 
 #[instrument(level = Level::INFO, name = "ratification.context.new", skip_all)]
@@ -806,8 +789,6 @@ fn new_ratification_context<'distr>(
     snapshot: impl Snapshot,
     stake_distribution: StakeDistributionView<'distr>,
 ) -> Result<RatificationContext<'distr>, StoreError> {
-    let protocol_version = snapshot.protocol_version()?;
-
     let protocol_parameters = snapshot.protocol_parameters()?;
 
     let constitutional_committee = match snapshot.constitutional_committee()? {
@@ -859,7 +840,6 @@ fn new_ratification_context<'distr>(
         total_withdrawn: 0,
         treasury,
         stake_distribution,
-        protocol_version,
         protocol_parameters,
         constitutional_committee,
         votes,
