@@ -205,12 +205,11 @@ impl<'distr> RatificationContext<'distr> {
 
                 tracing::Span::current().record(
                     "proposals.pruned",
-                    field::valuable(
-                        &now_obsolete
-                            .iter()
-                            .map(|id| id.to_compact_string())
-                            .collect::<Vec<_>>(),
-                    ),
+                    &now_obsolete
+                        .iter()
+                        .map(|id| id.to_compact_string())
+                        .collect::<Vec<_>>()
+                        .join(", "),
                 );
 
                 pruned_proposals.append(&mut now_obsolete);
