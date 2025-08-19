@@ -12,11 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::point::from_network_point;
 use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{consensus::ChainSyncEvent, RawHeader};
-use amaru_kernel::cbor;
-use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::Point;
 use pallas_codec::Fragment;
@@ -26,13 +23,10 @@ use pallas_network::miniprotocols::chainsync::{
 };
 use pallas_network::miniprotocols::Point as NetworkPoint;
 use pallas_traverse::MultiEraHeader;
-use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use std::fmt::{self, Display};
-use std::future::Future;
 use std::sync::{Arc, RwLock};
-use tokio::sync::Mutex;
-use tracing::{instrument, Level, Span};
+use tracing::Span;
 
 const MAX_BATCH_SIZE: usize = 10;
 
@@ -201,7 +195,7 @@ impl Display for PullResult {
     }
 }
 
-trait NetworkHeader {
+pub trait NetworkHeader {
     fn content(self) -> HeaderContent;
     fn point(&self) -> NetworkPoint;
 }
@@ -355,23 +349,17 @@ pub fn new_with_peer(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
-
     use amaru_consensus::consensus::chain_selection::generators::generate_headers_anchored_at;
-    use amaru_kernel::Point;
+    use amaru_kernel::{to_cbor, Point};
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
-    use async_trait::async_trait;
     use pallas_network::miniprotocols::chainsync::{
         ClientError, HeaderContent, IntersectResponse, NextResponse, Tip,
     };
     use pallas_network::miniprotocols::Point as NetworkPoint;
-    use tokio::sync::Mutex;
-
     use crate::{
         chain_sync_client::{ChainSyncClient, PullResult},
         point::to_network_point,
-        session::PeerSession,
     };
 
     use super::{ChainSync, NetworkHeader, MAX_BATCH_SIZE};
@@ -384,7 +372,7 @@ mod tests {
             HeaderContent {
                 variant: 6,
                 byron_prefix: None,
-                cbor: vec![],
+                cbor: to_cbor(&self.1),
             }
         }
 
@@ -420,7 +408,7 @@ mod tests {
 
         async fn find_intersect(
             &mut self,
-            points: Vec<NetworkPoint>,
+            _points: Vec<NetworkPoint>,
         ) -> Result<IntersectResponse, ClientError> {
             self.intersection
                 .clone()
