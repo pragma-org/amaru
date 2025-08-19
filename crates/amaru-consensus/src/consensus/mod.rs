@@ -15,7 +15,8 @@
 use std::fmt;
 
 use crate::is_header::IsHeader;
-use amaru_kernel::{peer::Peer, Header, Point};
+use amaru_kernel::{peer::Peer, protocol_parameters::GlobalParameters, Header, Point};
+use pure_stage::StageGraph;
 use serde::{Deserialize, Serialize};
 use tracing::Span;
 
@@ -29,6 +30,27 @@ pub mod tip;
 pub mod validate_header;
 
 pub const EVENT_TARGET: &str = "amaru::consensus";
+
+pub fn build_stage_graph(
+    global_parameters: &GlobalParameters,
+    consensus: validate_header::ValidateHeader,
+    network: &mut impl StageGraph,
+) -> (
+    pure_stage::Receiver<DecodedChainSyncEvent>,
+    pure_stage::Sender<DecodedChainSyncEvent>,
+) {
+    let validate_header_stage = network.stage("validate_header", validate_header::stage);
+
+    let (network_output_ref, network_output) = network.output("network_output", 50);
+
+    let validate_header_stage = network.wire_up(
+        validate_header_stage,
+        (consensus, global_parameters.clone(), network_output_ref),
+    );
+
+    let validate_header_input = network.input(&validate_header_stage);
+    (network_output, validate_header_input)
+}
 
 #[derive(Clone)]
 pub enum ChainSyncEvent {

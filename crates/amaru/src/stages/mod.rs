@@ -15,14 +15,13 @@
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     consensus::{
+        build_stage_graph,
         headers_tree::HeadersTree,
         select_chain::SelectChain,
         store::ChainStore,
         store_block::StoreBlock,
         store_header::StoreHeader,
-        validate_header::{
-            self, ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
-        },
+        validate_header::{self, ValidateHeader},
         ChainSyncEvent,
     },
     ConsensusError, IsHeader,
@@ -194,10 +193,10 @@ pub fn bootstrap(
 
     network
         .resources()
-        .put::<ValidateHeaderResourceStore>(chain_store_ref);
+        .put::<validate_header::ValidateHeaderResourceStore>(chain_store_ref);
     network
         .resources()
-        .put::<ValidateHeaderResourceParameters>(global_parameters.clone());
+        .put::<validate_header::ValidateHeaderResourceParameters>(global_parameters.clone());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -258,27 +257,6 @@ pub fn bootstrap(
     stages.push(ledger);
     stages.push(block_forward);
     Ok(stages)
-}
-
-fn build_stage_graph(
-    global_parameters: &GlobalParameters,
-    consensus: ValidateHeader,
-    network: &mut impl StageGraph,
-) -> (
-    pure_stage::Receiver<amaru_consensus::consensus::DecodedChainSyncEvent>,
-    pure_stage::Sender<amaru_consensus::consensus::DecodedChainSyncEvent>,
-) {
-    let validate_header_stage = network.stage("validate_header", validate_header::stage);
-
-    let (network_output_ref, network_output) = network.output("network_output", 50);
-
-    let validate_header_stage = network.wire_up(
-        validate_header_stage,
-        (consensus, global_parameters.clone(), network_output_ref),
-    );
-
-    let validate_header_input = network.input(&validate_header_stage);
-    (network_output, validate_header_input)
 }
 
 type ChainStoreResult = (Tip, Option<Header>, Arc<Mutex<dyn ChainStore<Header>>>);
