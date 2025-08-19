@@ -27,6 +27,7 @@ use pallas_network::miniprotocols::chainsync::{
 use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
 use serde::{Deserialize, Serialize};
+use std::fmt::Debug;
 use std::fmt::{self, Display};
 use std::future::Future;
 use std::sync::{Arc, RwLock};
@@ -137,7 +138,7 @@ struct PullBuffer<C> {
     buffer: Vec<C>,
 }
 
-impl<C: NetworkHeader> PullBuffer<C> {
+impl<C: NetworkHeader + Debug> PullBuffer<C> {
     fn new() -> Self {
         PullBuffer { buffer: vec![] }
     }
@@ -161,7 +162,7 @@ impl<C: NetworkHeader> PullBuffer<C> {
         };
 
         match find_index() {
-            Some(i) => self.buffer.truncate(i),
+            Some(i) => self.buffer.truncate(i + 1),
             None => (),
         }
 
@@ -215,7 +216,7 @@ impl NetworkHeader for HeaderContent {
     }
 }
 
-impl<C: NetworkHeader> ChainSyncClient<C> {
+impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
     pub fn new(
         _peer_session: PeerSession,
         _intersection: Vec<Point>,
@@ -372,6 +373,7 @@ mod tests {
 
     use super::{ChainSync, NetworkHeader};
 
+    #[derive(Debug)]
     struct FakeContent(NetworkPoint, FakeHeader);
 
     impl NetworkHeader for FakeContent {
@@ -397,7 +399,7 @@ mod tests {
     impl ChainSync<FakeContent> for MockNetworkClient {
         async fn recv_while_can_await(&mut self) -> Result<NextResponse<FakeContent>, ClientError> {
             if !self.responses.is_empty() {
-                let next = self.responses.pop().unwrap();
+                let next = self.responses.remove(0);
                 Ok(next)
             } else {
                 Ok(NextResponse::Await)
@@ -406,7 +408,7 @@ mod tests {
 
         async fn request_next(&mut self) -> Result<NextResponse<FakeContent>, ClientError> {
             if !self.responses.is_empty() {
-                let next = self.responses.pop().unwrap();
+                let next = self.responses.remove(0);
                 Ok(next)
             } else {
                 Ok(NextResponse::Await)
