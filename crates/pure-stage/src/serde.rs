@@ -53,6 +53,11 @@ impl<T> std::fmt::Debug for NoDebug<T> {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Void {}
 
+#[allow(clippy::panic)]
+pub fn never() -> ! {
+    panic!("never")
+}
+
 /// `#[serde(with = "pure_stage::serde::serialize_error")]` for serializing [`anyhow::Error`].
 pub mod serialize_error {
     use super::*;

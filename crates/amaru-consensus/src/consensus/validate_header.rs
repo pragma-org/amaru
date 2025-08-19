@@ -157,16 +157,9 @@ impl ValidateHeader {
             point.hash = %Hash::<32>::from(&point),
         )
     )]
-    pub async fn handle_roll_forward(
+    pub async fn handle_roll_forward<M, S>(
         &mut self,
-        eff: &Effects<
-            DecodedChainSyncEvent,
-            (
-                ValidateHeader,
-                GlobalParameters,
-                StageRef<DecodedChainSyncEvent, Void>,
-            ),
-        >,
+        eff: &Effects<M, S>,
         peer: Peer,
         point: Point,
         header: Header,
@@ -192,16 +185,9 @@ impl ValidateHeader {
         })
     }
 
-    pub async fn validate_header(
+    pub async fn validate_header<M, S>(
         &mut self,
-        eff: &Effects<
-            DecodedChainSyncEvent,
-            (
-                ValidateHeader,
-                GlobalParameters,
-                StageRef<DecodedChainSyncEvent, Void>,
-            ),
-        >,
+        eff: &Effects<M, S>,
         chain_sync: DecodedChainSyncEvent,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
@@ -224,15 +210,24 @@ type State = (
     ValidateHeader,
     GlobalParameters,
     StageRef<DecodedChainSyncEvent, Void>,
+    StageRef<(Peer, String), Void>,
 );
 
 pub async fn stage(
     state: State,
     msg: DecodedChainSyncEvent,
     eff: Effects<DecodedChainSyncEvent, State>,
-) -> Result<State, anyhow::Error> {
-    let (mut state, global, downstream) = state;
-    let result = state.validate_header(&eff, msg, &global).await?;
+) -> State {
+    let (mut state, global, downstream, errors) = state;
+    let peer = msg.peer();
+    let result = match state.validate_header(&eff, msg, &global).await {
+        Ok(result) => result,
+        Err(error) => {
+            tracing::warn!(%peer, %error, "invalid header");
+            eff.send(&errors, (peer, error.to_string())).await;
+            return (state, global, downstream, errors);
+        }
+    };
     eff.send(&downstream, result).await;
-    Ok((state, global, downstream))
+    (state, global, downstream, errors)
 }

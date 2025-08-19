@@ -41,11 +41,24 @@ pub fn build_stage_graph(
 ) {
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
 
+    let errors_stage = network.stage("errors", async |_, (peer, error), eff| {
+        tracing::error!(%peer, %error, "invalid header");
+        // termination here will tear down the entire stage graph
+        eff.terminate().await
+    });
+
     let (network_output_ref, network_output) = network.output("network_output", 50);
+
+    let errors_stage = network.wire_up(errors_stage, ());
 
     let validate_header_stage = network.wire_up(
         validate_header_stage,
-        (consensus, global_parameters.clone(), network_output_ref),
+        (
+            consensus,
+            global_parameters.clone(),
+            network_output_ref,
+            errors_stage.without_state(),
+        ),
     );
 
     let validate_header_input = network.input(&validate_header_stage);
@@ -113,6 +126,15 @@ pub enum DecodedChainSyncEvent {
         #[serde(skip, default = "Span::none")]
         span: Span,
     },
+}
+
+impl DecodedChainSyncEvent {
+    pub fn peer(&self) -> Peer {
+        match self {
+            DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
+            DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
+        }
+    }
 }
 
 impl fmt::Debug for DecodedChainSyncEvent {

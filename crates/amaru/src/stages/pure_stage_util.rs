@@ -20,6 +20,7 @@ use gasket::{
 use pure_stage::{tokio::TokioRunning, BoxFuture, Receiver, SendData, Sender, StageGraphRunning};
 use std::time::Duration;
 use tokio::{runtime::Runtime, select, time::sleep};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Stage)]
 #[stage(name = "pure_stage", unit = "()", worker = "Worker")]
@@ -27,14 +28,16 @@ pub struct PureStageSim {
     _tokio_running: TokioRunning,
     termination: BoxFuture<'static, ()>,
     _runtime: Runtime,
+    exit: CancellationToken,
 }
 
 impl PureStageSim {
-    pub fn new(tokio_running: TokioRunning, runtime: Runtime) -> Self {
+    pub fn new(tokio_running: TokioRunning, runtime: Runtime, exit: CancellationToken) -> Self {
         Self {
             termination: tokio_running.termination(),
             _tokio_running: tokio_running,
             _runtime: runtime,
+            exit,
         }
     }
 }
@@ -58,7 +61,10 @@ impl gasket::framework::Worker<PureStageSim> for Worker {
         // we cannot use pending(), though, because that prevents gasket from
         // shutting down the stage.
         select! {
-            _ = &mut stage.termination => Ok(WorkSchedule::Done),
+            _ = &mut stage.termination => {
+                stage.exit.cancel();
+                Ok(WorkSchedule::Done)
+            }
             _ = sleep(Duration::from_secs(1)) => Ok(WorkSchedule::Unit(())),
         }
     }

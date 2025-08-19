@@ -83,7 +83,7 @@ impl Clock for TokioClock {
 /// It is more likely that the effect handling will be done like in the [`SimulationBuilder`](crate::simulation::SimulationBuilder)
 /// implementation.*
 pub struct TokioBuilder {
-    tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, anyhow::Result<()>>>>,
+    tasks: Vec<Box<dyn FnOnce(Arc<TokioInner>) -> BoxFuture<'static, ()>>>,
     inner: TokioInner,
     termination: watch::Receiver<bool>,
 }
@@ -105,7 +105,7 @@ impl StageGraph for TokioBuilder {
     type RefAux<Msg, State> = (
         Receiver<Box<dyn SendData>>,
         Box<
-            dyn FnMut(State, Msg, Effects<Msg, State>) -> BoxFuture<'static, anyhow::Result<State>>
+            dyn FnMut(State, Msg, Effects<Msg, State>) -> BoxFuture<'static, State>
                 + 'static
                 + Send,
         >,
@@ -118,7 +118,7 @@ impl StageGraph for TokioBuilder {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
-        Fut: Future<Output = anyhow::Result<St>> + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
     {
         // THIS MUST MATCH THE SIMULATION BUILDER
         let name = Name::from(&*format!("{}-{}", name.as_ref(), self.inner.senders.len()));
@@ -168,15 +168,14 @@ impl StageGraph for TokioBuilder {
                     )
                     .await;
                     match result {
-                        Ok(st) => state = st,
-                        Err(err) => {
-                            tracing::error!("stage `{}` failed: {:?}", stage_name, err);
+                        Some(st) => state = st,
+                        None => {
+                            tracing::info!(%stage_name, "terminated");
                             inner.termination.send_replace(true);
-                            return Err(err);
+                            break;
                         }
                     }
                 }
-                Ok(())
             })
         }));
         StageRef {
@@ -248,12 +247,12 @@ async fn interpreter<St>(
     inner: &TokioInner,
     effect: &EffectBox,
     name: &Name,
-    mut stage: BoxFuture<'static, anyhow::Result<St>>,
-) -> anyhow::Result<St> {
+    mut stage: BoxFuture<'static, St>,
+) -> Option<St> {
     loop {
         let poll = stage.as_mut().poll(&mut Context::from_waker(Waker::noop()));
         if let Poll::Ready(state) = poll {
-            return state;
+            return Some(state);
         }
         #[allow(clippy::panic)]
         let Some(Left(eff)) = effect.lock().take() else {
@@ -266,15 +265,16 @@ async fn interpreter<St>(
                     panic!("effect Receive cannot be explicitly awaited (stage `{name}`)")
                 }
             }
-            StageEffect::Send(name, msg, call) => {
+            StageEffect::Send(target, msg, call) => {
                 #[allow(clippy::expect_used)]
                 let tx = inner
                     .senders
-                    .get(&name)
+                    .get(&target)
                     .expect("stage ref contained unknown name");
-                tx.send(msg).await.map_err(|_| SendError {
-                    target: name.clone(),
-                })?;
+                let Ok(_) = tx.send(msg).await else {
+                    tracing::warn!("message send failed from stage `{name}` to stage `{target}`");
+                    return None;
+                };
                 if let Some((d, rx, _id)) = call {
                     tokio::time::timeout(d, rx)
                         .await
@@ -312,6 +312,10 @@ async fn interpreter<St>(
                 tracing::debug!("stage `{name}` external effect: {:?}", effect);
                 StageResponse::ExternalResponse(effect.run(inner.resources.clone()).await)
             }
+            StageEffect::Terminate => {
+                tracing::warn!("stage `{name}` terminated");
+                return None;
+            }
         };
         *effect.lock() = Some(Right(resp));
     }
@@ -324,7 +328,7 @@ fn now() -> Instant {
 /// Handle to the running stages.
 #[must_use = "this handle needs to be either joined or aborted"]
 pub struct TokioRunning {
-    handles: Arc<Mutex<Vec<JoinHandle<anyhow::Result<()>>>>>,
+    handles: Arc<Mutex<Vec<JoinHandle<()>>>>,
     termination: watch::Receiver<bool>,
 }
 
@@ -336,13 +340,13 @@ impl TokioRunning {
         }
     }
 
-    pub async fn join(self) -> Vec<anyhow::Result<()>> {
-        let mut res = Vec::new();
+    pub async fn join(self) {
         let handles = std::mem::take(&mut *self.handles.lock());
         for handle in handles {
-            res.push(handle.await.unwrap_or_else(|err| Err(err.into())));
+            handle.await.unwrap_or_else(|err| {
+                tracing::error!("stage task failed: {:?}", err);
+            });
         }
-        res
     }
 }
 

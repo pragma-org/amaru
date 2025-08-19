@@ -61,6 +61,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 pub mod common;
 pub mod consensus;
@@ -114,6 +115,7 @@ impl Default for Config {
 pub fn bootstrap(
     config: Config,
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
+    exit: CancellationToken,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     let era_history: &EraHistory = config.network.into();
 
@@ -200,7 +202,7 @@ pub fn bootstrap(
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
-    let pure_stages = PureStageSim::new(network, rt);
+    let pure_stages = PureStageSim::new(network, rt, exit);
 
     let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = stages
         .iter_mut()
@@ -434,6 +436,7 @@ mod tests {
     use amaru_ledger::store::{Store, TransactionalContext};
     use amaru_stores::in_memory::MemoryStore;
     use std::path::PathBuf;
+    use tokio_util::sync::CancellationToken;
 
     use super::{bootstrap, Config, StorePath, StorePath::*};
 
@@ -457,7 +460,7 @@ mod tests {
             ..Config::default()
         };
 
-        let stages = bootstrap(config, vec![]).unwrap();
+        let stages = bootstrap(config, vec![], CancellationToken::new()).unwrap();
 
         assert_eq!(8, stages.len());
     }

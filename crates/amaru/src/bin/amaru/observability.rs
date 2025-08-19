@@ -284,7 +284,7 @@ fn teardown_open_telemetry(
 // -----------------------------------------------------------------------------
 // ENV FILTER
 // -----------------------------------------------------------------------------
-#[allow(clippy::panic)]
+#[allow(clippy::expect_used)]
 fn default_filter(var: &str, default: &str) -> EnvFilter {
     EnvFilter::try_from_env(var)
         .unwrap_or_else(|_| EnvFilter::from_str(default).expect("invalid default filter"))

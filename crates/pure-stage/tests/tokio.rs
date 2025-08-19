@@ -30,7 +30,7 @@ fn basic() {
     let mut graph = TokioBuilder::default();
     let double = graph.stage("double", async |to, msg: u32, eff| {
         eff.send(&to, msg * 2).await;
-        Ok(to)
+        to
     });
     let (out_ref, mut out_rx) = graph.output("output", 10);
     let double = graph.wire_up(double, out_ref);

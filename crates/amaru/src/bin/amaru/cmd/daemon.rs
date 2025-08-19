@@ -74,9 +74,9 @@ pub async fn run(
         clients.push((peer.clone(), Arc::new(Mutex::new(client))));
     }
 
-    let sync = bootstrap(config, clients)?;
-
     let exit = amaru::exit::hook_exit_token();
+
+    let sync = bootstrap(config, clients, exit.clone())?;
 
     run_pipeline(gasket::daemon::Daemon::new(sync), exit).await;
 

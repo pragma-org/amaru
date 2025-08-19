@@ -57,6 +57,23 @@ pub enum AssertHeaderError {
     UnknownPool { pool: PoolId },
 }
 
+impl PartialEq for AssertHeaderError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::KnownLeaderVrf(l0), Self::KnownLeaderVrf(r0)) => l0 == r0,
+            (Self::VrfProof(l0), Self::VrfProof(r0)) => l0 == r0,
+            (Self::LeaderStake(l0), Self::LeaderStake(r0)) => l0 == r0,
+            (Self::KesSignature(l0), Self::KesSignature(r0)) => l0 == r0,
+            (Self::OperationalCertificate(l0), Self::OperationalCertificate(r0)) => l0 == r0,
+            (Self::TryFromSliceError(_), Self::TryFromSliceError(_)) => true,
+            (Self::UnknownPool { pool: l_pool }, Self::UnknownPool { pool: r_pool }) => {
+                l_pool == r_pool
+            }
+            _ => false,
+        }
+    }
+}
+
 pub type Assertion<'a> = Box<dyn Fn() -> Result<(), AssertHeaderError> + Send + Sync + 'a>;
 
 pub fn assert_all<'a>(
@@ -202,6 +219,37 @@ pub enum AssertVrfProofError {
         declared: Vec<u8>,
         computed: Vec<u8>,
     },
+}
+
+impl PartialEq for AssertVrfProofError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::MalformedProof(l0), Self::MalformedProof(r0)) => l0 == r0,
+            (Self::InvalidProof(l0), Self::InvalidProof(r0)) => l0 == r0,
+            (Self::TryFromSliceError(_), Self::TryFromSliceError(_)) => true,
+            (
+                Self::ProofMismatch {
+                    declared: l_declared,
+                    computed: l_computed,
+                },
+                Self::ProofMismatch {
+                    declared: r_declared,
+                    computed: r_computed,
+                },
+            ) => l_declared == r_declared && l_computed == r_computed,
+            (
+                Self::OutputMismatch {
+                    declared: l_declared,
+                    computed: l_computed,
+                },
+                Self::OutputMismatch {
+                    declared: r_declared,
+                    computed: r_computed,
+                },
+            ) => l_declared == r_declared && l_computed == r_computed,
+            _ => false,
+        }
+    }
 }
 
 impl AssertVrfProofError {

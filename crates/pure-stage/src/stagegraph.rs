@@ -114,7 +114,7 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
 ///     state += msg;
 ///     eff.send(&out, state).await;
-///     Ok((state, out))
+///     (state, out)
 /// });
 /// // this is a feature of the SimulationBuilder
 /// let (output, mut rx) = network.output("output", 10);
@@ -164,7 +164,7 @@ pub trait StageGraph {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
-        Fut: Future<Output = anyhow::Result<St>> + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
@@ -208,7 +208,7 @@ pub trait StageGraph {
         let output = self.stage(name, async |tx: MpscSender<Msg>, msg: Msg, eff| {
             eff.external(OutputEffect::new(eff.me().name(), msg, tx.clone()))
                 .await;
-            Ok(tx)
+            tx
         });
         let output = self.wire_up(output, tx);
 

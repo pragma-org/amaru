@@ -533,8 +533,8 @@ impl SimulationRunning {
                 resume_external_internal(data, result, run)
                     .expect("external effect is always runnable");
             }
-            Effect::Failure { at_stage, error } => {
-                tracing::error!("stage `{at_stage}` failed: {error:?}");
+            Effect::Failure { at_stage } => {
+                tracing::warn!("stage `{at_stage}` terminated");
                 self.terminate.send_replace(true);
             }
         }
@@ -948,22 +948,11 @@ pub fn poll_stage(
     *effect.lock() = Some(Right(response));
     let result = pin.as_mut().poll(&mut Context::from_waker(Waker::noop()));
 
-    if let Poll::Ready(result) = result {
-        match result {
-            Ok(state) => {
-                trace_buffer.push_state(&name, &state);
-                data.state = StageState::Idle(state);
-                data.waiting = Some(StageEffect::Receive);
-                Effect::Receive { at_stage: name }
-            }
-            Err(error) => {
-                data.state = StageState::Failed(error.to_string());
-                Effect::Failure {
-                    at_stage: name,
-                    error,
-                }
-            }
-        }
+    if let Poll::Ready(state) = result {
+        trace_buffer.push_state(&name, &state);
+        data.state = StageState::Idle(state);
+        data.waiting = Some(StageEffect::Receive);
+        Effect::Receive { at_stage: name }
     } else {
         let stage_effect = match effect.lock().take() {
             Some(Left(effect)) => effect,
@@ -1002,7 +991,7 @@ fn simulation_invariants() {
             Msg(Some(cr))
         })
         .await;
-        Ok(true)
+        true
     });
 
     let stage = network.wire_up(stage, false);

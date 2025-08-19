@@ -38,7 +38,7 @@ fn basic() {
     let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
         state.0 += msg;
         eff.send(&state.1, state.0).await;
-        Ok(state)
+        state
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.without_state()));
@@ -80,7 +80,7 @@ fn automatic() {
             state.0 += msg;
             eff.wait(Duration::from_secs(10)).await;
             eff.send(&state.1, state.0).await;
-            Ok(state)
+            state
         });
         let (output, rx) = network.output("output", 10);
         let basic = network.wire_up(basic, State(1u32, output.without_state()));
@@ -176,7 +176,7 @@ fn breakpoint() {
     let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
         state.0 += msg;
         eff.send(&state.1, state.0).await;
-        Ok(state)
+        state
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.without_state()));
@@ -203,7 +203,7 @@ fn overrides() {
     let basic = network.stage("basic", async |mut state: State, msg: u32, eff| {
         state.0 += msg;
         eff.send(&state.1, state.0).await;
-        Ok(state)
+        state
     });
     let (output, mut rx) = network.output("output", 10);
     let basic = network.wire_up(basic, State(1u32, output.without_state()));
@@ -237,7 +237,7 @@ fn backpressure() {
 
     let sender = network.stage("sender", async |target, msg: u32, eff| {
         eff.send(&target, msg).await;
-        Ok(target)
+        target
     });
 
     let pressure = network.stage("pressure", async |mut state, msg: u32, eff| {
@@ -245,7 +245,7 @@ fn backpressure() {
         // we need to place an effect that we can install a breakpoint on
         // other than Receive, because that is automatically resumed upon sending
         eff.clock().await;
-        Ok(state)
+        state
     });
 
     let sender = network.wire_up(sender, pressure.sender());
@@ -288,7 +288,7 @@ fn clock() {
     let basic = network.stage("basic", async |_state: State2, msg: u32, eff| {
         let now = eff.clock().await;
         let later = eff.wait(Duration::from_secs(1)).await;
-        Ok(State2::Full(msg, now, later))
+        State2::Full(msg, now, later)
     });
     let basic = network.wire_up(basic, State2::Empty);
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -317,7 +317,7 @@ fn clock_manual() {
     let stage = network.stage("basic", async |_state, msg: u32, eff| {
         let now = eff.clock().await;
         let later = eff.wait(Duration::from_secs(1)).await;
-        Ok(State2::Full(msg, now, later))
+        State2::Full(msg, now, later)
     });
     let stage = network.wire_up(stage, State2::Empty);
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -366,19 +366,22 @@ fn call() {
 
     let mut network = SimulationBuilder::default();
     let caller = network.stage("caller", async |mut state: State3, msg: u32, eff| {
-        state.0 = eff
+        let Some(response) = eff
             .call(&state.1, Duration::from_secs(2), move |cr| {
                 Msg3(msg + 1, cr)
             })
             .await
-            .ok_or_else(|| anyhow::anyhow!("call timed out"))?;
-        Ok(state)
+        else {
+            return eff.terminate().await;
+        };
+        state.0 = response;
+        state
     });
 
     let callee = network.stage("callee", async |state, msg: Msg3, eff| {
         eff.wait(Duration::from_secs(1)).await;
         eff.respond(msg.1, msg.0 * 2).await;
-        Ok(state)
+        state
     });
     let caller = network.wire_up(caller, State3(1u32, callee.sender()));
     let callee = network.wire_up(callee, ());
