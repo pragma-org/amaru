@@ -15,10 +15,10 @@
 use amaru_kernel::{cbor, Point, HEADER_HASH_SIZE};
 use amaru_ouroboros_traits::IsHeader;
 use pallas_crypto::hash::Hash;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::hash::Hasher;
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Simplified version of a header
 /// It essentially keeps track only of the parent->child relationship between headers and the header slot.
@@ -56,7 +56,6 @@ impl Serialize for TestHash {
     }
 }
 
-
 impl std::hash::Hash for TestHeader {
     fn hash<H: Hasher>(&self, state: &mut H) {
         state.write(self.hash.as_slice())
@@ -81,7 +80,14 @@ impl Debug for TestHeader {
 
 impl Display for TestHeader {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_str(&format!("{} (slot: {}, parent: {})", self.hash, self.slot, self.parent.map(|p| p.to_string()).unwrap_or("None".to_string())))
+        f.write_str(&format!(
+            "{} (slot: {}, parent: {})",
+            self.hash,
+            self.slot,
+            self.parent
+                .map(|p| p.to_string())
+                .unwrap_or("None".to_string())
+        ))
     }
 }
 
