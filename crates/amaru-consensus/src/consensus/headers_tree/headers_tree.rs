@@ -685,7 +685,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     }
 
     /// Return the best chain fragment currently known as a list of headers
-    pub fn best_chain_fragment(&self) -> Vec<&H> {
+    pub fn best_chain_fragment(&self) -> Vec<H> {
         self.get_chain_fragment_from(&self.best_chain())
     }
 
@@ -703,10 +703,14 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     }
 
     /// Return the chain ending with the header at node_id (sorted from older to younger).
-    fn get_chain_fragment_from(&self, node_id: &NodeId) -> Vec<&H> {
-        let mut chain: Vec<&H> = node_id
+    fn get_chain_fragment_from(&self, node_id: &NodeId) -> Vec<H> {
+        let mut chain: Vec<H> = node_id
             .ancestors(&self.arena)
-            .filter_map(|n_id| self.arena.get(n_id).and_then(|n| n.get().to_header()))
+            .filter_map(|n_id| {
+                self.arena
+                    .get(n_id)
+                    .and_then(|n| n.get().to_header().cloned())
+            })
             .collect();
         chain.reverse();
         chain
@@ -739,7 +743,6 @@ mod tests {
     use crate::consensus::headers_tree::data_generation::*;
     use crate::consensus::select_chain::ForwardChainSelection::SwitchToFork;
     use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
-    use amaru_kernel::{from_cbor, to_cbor};
     use itertools::Itertools;
     use proptest::proptest;
     use std::assert_matches::assert_matches;
@@ -776,27 +779,24 @@ mod tests {
         tree.insert_headers(&headers);
 
         assert_eq!(tree.best_chain_tip(), Some(last));
-        assert_eq!(
-            tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&TestHeader>>()
-        );
+        assert_eq!(tree.best_chain_fragment(), headers);
     }
 
     #[test]
     fn initialize_peer_on_known_point() {
-        let (mut tree, headers) = create_headers_tree(5);
-
+        let mut tree = create_headers_tree(5);
+        let headers = tree.best_chain_fragment();
         let peer = Peer::new("alice");
 
-        let last = headers.last().unwrap();
-        tree.initialize_peer(&peer, &last.hash()).unwrap();
+        let last_hash = headers[4].hash();
+        tree.initialize_peer(&peer, &last_hash).unwrap();
 
-        assert_eq!(tree.get_point(&peer).unwrap(), last.point());
+        assert_eq!(tree.get_point(&peer).unwrap(), headers[4].point());
     }
 
     #[test]
     fn initialize_peer_on_unknown_point_fails() {
-        let mut tree = create_headers_tree(5).0;
+        let mut tree = create_headers_tree(5);
 
         let peer = Peer::new("alice");
         assert!(tree.initialize_peer(&peer, &random_hash()).is_err());
@@ -804,7 +804,8 @@ mod tests {
 
     #[test]
     fn roll_forward_extends_best_chain() {
-        let (mut tree, mut headers) = create_headers_tree(5);
+        let mut tree = create_headers_tree(5);
+        let mut headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
 
         // initialize alice as a peer with last known header = 5
@@ -819,15 +820,13 @@ mod tests {
         );
         assert_eq!(tree.best_chain_tip(), Some(&new_tip));
         headers.push(new_tip);
-        assert_eq!(
-            tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&TestHeader>>()
-        );
+        assert_eq!(tree.best_chain_fragment(), headers);
     }
 
     #[test]
     fn roll_forward_with_incorrect_parent_fails() {
-        let (mut tree, headers) = create_headers_tree(5);
+        let mut tree = create_headers_tree(5);
+        let headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
 
         // create a new tip pointing to an incorrect parent (the first header of the chain in this example)
@@ -843,21 +842,23 @@ mod tests {
 
     #[test]
     fn roll_forward_from_unknown_peer_fails() {
-        let (mut tree, headers) = create_headers_tree(5);
-        let last = headers.last().unwrap();
+        let mut tree = create_headers_tree(5);
+        let headers = tree.best_chain_fragment();
+        let last = *headers.last().unwrap();
 
         let peer = Peer::new("alice");
         tree.initialize_peer(&peer, &last.hash()).unwrap();
 
         // Now roll forward with an unknown peer
         let peer = Peer::new("bob");
-        assert!(tree.select_roll_forward(&peer, *last).is_err());
+        assert!(tree.select_roll_forward(&peer, last).is_err());
     }
 
     #[test]
     fn roll_forward_from_another_peer_at_tip_extends_best_chain() {
         let alice = Peer::new("alice");
-        let (mut tree, mut headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let mut headers = tree.best_chain_fragment();
 
         // Initialize bob with the same headers as alice
         let bob = Peer::new("bob");
@@ -876,16 +877,14 @@ mod tests {
         assert_eq!(tree.best_chain_tip(), Some(&new_tip));
 
         headers.push(new_tip);
-        assert_eq!(
-            tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&TestHeader>>()
-        );
+        assert_eq!(tree.best_chain_fragment(), headers);
     }
 
     #[test]
     fn roll_forward_from_another_peer_on_a_smaller_chain_is_noop() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
 
         // Initialize bob with the less headers than alice
         let bob = Peer::new("bob");
@@ -907,7 +906,7 @@ mod tests {
 
         assert_eq!(
             tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&TestHeader>>(),
+            headers,
             "the best chain hasn't changed"
         );
     }
@@ -915,7 +914,8 @@ mod tests {
     #[test]
     fn roll_forward_from_another_peer_on_the_best_chain_is_noop() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
 
         // Initialize bob with same chain than alice minus the last header
         let bob = Peer::new("bob");
@@ -937,7 +937,7 @@ mod tests {
 
         assert_eq!(
             tree.best_chain_fragment(),
-            headers.iter().collect::<Vec<&TestHeader>>(),
+            headers,
             "the best chain hasn't changed"
         );
     }
@@ -945,7 +945,8 @@ mod tests {
     #[test]
     fn roll_forward_from_another_peer_creates_a_fork_if_the_new_chain_is_the_best() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
 
         // Initialize bob with some headers common with alice + additional headers that are different
         // so that their chains have the same length
@@ -966,14 +967,15 @@ mod tests {
 
         assert_eq!(
             tree.select_roll_forward(&bob, bob_new_header3).unwrap(),
-            ForwardChainSelection::SwitchToFork(fork)
+            SwitchToFork(fork)
         );
     }
 
     #[test]
     fn roll_forward_with_fork_to_a_disjoint_chain() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
         let anchor = headers.first().unwrap();
 
         // Initialize bob with a completely different chain of the same size
@@ -993,14 +995,15 @@ mod tests {
 
         assert_eq!(
             tree.select_roll_forward(&bob, bob_new_tip).unwrap(),
-            ForwardChainSelection::SwitchToFork(fork)
+            SwitchToFork(fork)
         );
     }
 
     #[test]
     fn roll_forward_beyond_max_length() {
         // create a chain at max length
-        let (mut tree, mut headers) = create_headers_tree(10);
+        let mut tree = create_headers_tree(10);
+        let mut headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
 
         let alice = Peer::new("alice");
@@ -1021,14 +1024,14 @@ mod tests {
         // in order to stay below max_length
         headers.push(new_tip);
         let expected = headers.split_off(1);
-        let expected = expected.iter().collect::<Vec<&TestHeader>>();
         assert_eq!(tree.best_chain_fragment(), expected);
     }
 
     #[test]
     fn roll_forward_with_one_chain_an_unreachable_anchor_must_be_dropped() {
         // create a chain at max length
-        let (mut tree, headers) = create_headers_tree(10);
+        let mut tree = create_headers_tree(10);
+        let headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
 
         let alice = Peer::new("alice");
@@ -1051,7 +1054,8 @@ mod tests {
     #[test]
     fn roll_forward_beyond_limit_drops_unreachable_chain() {
         // create a chain at max length
-        let (mut tree, headers) = create_headers_tree(10);
+        let mut tree = create_headers_tree(10);
+        let headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
 
         let alice = Peer::new("alice");
@@ -1073,7 +1077,8 @@ mod tests {
     #[test]
     fn dangling_peers_are_removed_when_the_best_chain_grows_too_large() {
         // create a chain at max length for alice
-        let (mut tree, headers) = create_headers_tree(10);
+        let mut tree = create_headers_tree(10);
+        let headers = tree.best_chain_fragment();
         let tip = headers.last().unwrap();
 
         let alice = Peer::new("alice");
@@ -1098,7 +1103,8 @@ mod tests {
     #[test]
     fn rollback_on_the_best_chain() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
         let middle = headers[3];
         let result = RollbackTo(middle.hash());
         assert_eq!(
@@ -1112,7 +1118,8 @@ mod tests {
     // TODO: this is a case of a peer "stuttering" which can be considered adversarial?
     fn rollback_then_roll_forward_with_same_header_on_single_chain() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
 
         // rollback
         let rollback_to = headers[3];
@@ -1134,7 +1141,8 @@ mod tests {
     #[test]
     fn rollback_then_roll_forward_on_the_best_chain() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
         let middle = headers[2];
 
         // Rollback first
@@ -1156,7 +1164,8 @@ mod tests {
     #[test]
     fn rollback_on_the_best_chain_from_best_peer() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(3, &alice);
+        let mut tree = initialize_with_peer(3, &alice);
+        let headers = tree.best_chain_fragment();
 
         // Let bob go further than alice
         let bob = Peer::new("bob");
@@ -1176,7 +1185,8 @@ mod tests {
     fn rollback_beyond_limit() {
         let alice = Peer::new("alice");
         let bob = Peer::new("bob");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
         tree.initialize_peer(&bob, &headers[1].hash()).unwrap();
 
         // Bob tries to rollback on a header that's not part of its chain
@@ -1194,7 +1204,8 @@ mod tests {
     #[test]
     fn rollback_to_root() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
 
         let rollback_point = headers[0];
         assert_eq!(
@@ -1208,7 +1219,8 @@ mod tests {
     #[test]
     fn rollback_to_the_root() {
         let alice = Peer::new("alice");
-        let (mut tree, headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
 
         let rollback_point = headers[0];
         assert_eq!(
@@ -1225,7 +1237,8 @@ mod tests {
         let bob = Peer::new("bob");
 
         // alice has the best chain with 5 headers
-        let (mut tree, mut headers) = initialize_with_peer(5, &alice);
+        let mut tree = initialize_with_peer(5, &alice);
+        let mut headers = tree.best_chain_fragment();
 
         // bob branches off on headers[1] and has now the best chain with 6 headers
         let header1 = headers[1];
@@ -1244,11 +1257,11 @@ mod tests {
             .unwrap();
 
         // This switches the fork back to alice at the intersection point of their chains
-        let forked_headers = headers.split_off(2);
+        let forked: Vec<TestHeader> = headers.split_off(2);
         let fork = Fork {
             peer: alice,
             rollback_point: header1.point(),
-            fork: forked_headers,
+            fork: forked,
         };
         assert_eq!(result, RollbackChainSelection::SwitchToFork(fork));
     }
@@ -1289,7 +1302,8 @@ mod tests {
         let bob = Peer::new("bob");
 
         // alice has the best chain with 3 headers
-        let (mut tree, mut headers) = initialize_with_peer(3, &alice);
+        let mut tree = initialize_with_peer(3, &alice);
+        let mut headers = tree.best_chain_fragment();
 
         // bob starts with the same chain, rollbacks once, then becomes the best chain with 2 new
         // roll forwards and eventually rolls back so that alice becomes the best chain again.
@@ -1351,13 +1365,13 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(config_begin().no_shrink().show_seed().with_cases(1000).with_seed(42).end())]
+        #![proptest_config(config_begin().no_shrink().with_cases(1000).with_seed(42).end())]
         #[test]
         fn run_chain_selection(actions in any_select_chains(20, 10)) {
             let print = false;
             let max_length = 20;
             let results = execute_actions(max_length, &actions).unwrap();
-            let actual = make_best_chain_from_events(&results);
+            let actual = make_best_chain_from_results(&results);
             let expected_best_chains = make_best_chains_from_actions(&actions);
             if print {
                 let all_lines: Vec<_> = actions.iter().map(|action| serde_json::to_string(&serde_json::to_string(action).unwrap()).unwrap()).collect();
@@ -1365,16 +1379,6 @@ mod tests {
             }
             assert!(expected_best_chains.contains(&actual), "The actual chain is {actual:?}\n The best chains are {expected_best_chains:?}");
             if print { println!("TEST OK!!!!") }
-        }
-    }
-
-    proptest! {
-        // Roundtrip check for CBOR encoding/decoding of TestHeaders
-        #[test]
-        fn prop_roundtrip_cbor(hdr in any_test_header()) {
-            let bytes = to_cbor(&hdr);
-            let hdr2 = from_cbor::<TestHeader>(&bytes).unwrap();
-            assert_eq!(hdr, hdr2);
         }
     }
 

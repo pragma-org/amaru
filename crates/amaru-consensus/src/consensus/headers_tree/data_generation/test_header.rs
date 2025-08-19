@@ -92,6 +92,10 @@ impl Display for TestHeader {
 }
 
 impl IsHeader for TestHeader {
+    fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
+        self.hash
+    }
+
     fn point(&self) -> Point {
         Point::Specific(self.slot(), self.hash.to_vec())
     }
@@ -102,10 +106,6 @@ impl IsHeader for TestHeader {
 
     fn block_height(&self) -> u64 {
         0
-    }
-
-    fn hash(&self) -> Hash<HEADER_HASH_SIZE> {
-        self.hash
     }
 
     fn slot(&self) -> u64 {
@@ -140,5 +140,36 @@ impl<'b, C> cbor::decode::Decode<'b, C> for TestHeader {
         let slot = d.decode_with(ctx)?;
         let parent = d.decode_with(ctx)?;
         Ok(Self { hash, slot, parent })
+    }
+}
+
+mod tests {
+    use super::*;
+    use amaru_kernel::{from_cbor, to_cbor};
+    use proptest::prelude::any;
+    use proptest::{prop_compose, proptest};
+
+    proptest! {
+        #[test]
+        fn prop_roundtrip_cbor(hdr in any_test_header()) {
+            let bytes = to_cbor(&hdr);
+            let hdr2 = from_cbor::<TestHeader>(&bytes).unwrap();
+            assert_eq!(hdr, hdr2);
+        }
+    }
+
+    prop_compose! {
+        pub fn any_test_header()(
+            slot in 0..1000000u64,
+            parent in any::<[u8; 32]>(),
+            body in any::<[u8; 32]>(),
+        )
+            -> TestHeader {
+            TestHeader {
+                hash: body.into(),
+                slot,
+                parent: Some(parent.into()),
+            }
+        }
     }
 }

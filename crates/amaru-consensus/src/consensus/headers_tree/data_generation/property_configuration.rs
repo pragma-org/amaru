@@ -12,35 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use proptest::prelude::ProptestConfig;
-use proptest::test_runner::RngSeed;
+//! This module extends the default `proptest` configuration with a more fluent DSL for configuring properties.
+//!
+//! For example:
+//!  ```
+//!  #![proptest_config(config_begin().no_shrink().with_cases(1).end())]
+//!  ```
 
-/// This data type provides a more fluent DSL for configuring proptest properties. For example:
-/// ```
-/// #![proptest_config(config_begin().no_shrink().with_cases(1).end())]
-/// ```
-///
-///
+use proptest::prelude::ProptestConfig;
+use proptest::test_runner::{Config, RngSeed};
+
 #[derive(Default, Clone)]
 pub struct ProptestConfiguration {
     config: ProptestConfig,
 }
 
 impl ProptestConfiguration {
-    #[allow(dead_code)]
-    pub fn with_max_shrink(mut self, n: u32) -> Self {
-        self.config.max_shrink_iters = n;
-        self
-    }
-
     pub fn no_shrink(mut self) -> Self {
         self.config.max_shrink_iters = 0;
-        self
-    }
-
-    #[allow(dead_code)]
-    pub fn show_seed(mut self) -> Self {
-        self.config.failure_persistence = None;
         self
     }
 
@@ -60,7 +49,11 @@ impl ProptestConfiguration {
 }
 
 pub fn config_begin() -> ProptestConfiguration {
+    // Don't output files on failures by default
     ProptestConfiguration {
-        config: Default::default(),
+        config: Config {
+            failure_persistence: None,
+            ..Default::default()
+        },
     }
 }

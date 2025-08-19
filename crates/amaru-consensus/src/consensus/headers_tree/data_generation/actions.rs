@@ -12,6 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! This module provides functions and data types for creating and executing a series of actions
+//! exercising the chain selection logic:
+//!
+//!  - `Action` represents roll forward or rollback actions.
+//!  - `SelectionResult` encapsulates the values returned by the `HeadersTree` on each roll forward or rollback.
+//!  - `random_walk` uses a tree of headers of a given depth and
+//!
+
 use crate::consensus::headers_tree::data_generation::SelectionResult::{Back, Forward};
 use crate::consensus::headers_tree::data_generation::{any_tree_of_headers, TestHeader, Tree};
 use crate::consensus::headers_tree::HeadersTree;
@@ -25,9 +33,12 @@ use proptest::prelude::Strategy;
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 
+/// This data type models the events sent by the ChainSync mini-protocol with simplify data for the tests.
+/// The serialization is adjusted to make concise string representations when transforming
+/// lists of actions to JSON in order to create unit tests out of property test failures
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize, Serialize)]
 pub enum Action {
     RollForward {
@@ -44,16 +55,8 @@ pub enum Action {
     },
 }
 
-fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
-    s.serialize_str(&point.to_string())
-}
-
-fn deserialize_point<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Point, D::Error> {
-    let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
-    Point::try_from(bytes).map_err(serde::de::Error::custom)
-}
-
 impl Action {
+    /// Return the peer of an action
     pub fn peer(&self) -> &Peer {
         match self {
             Action::RollForward { ref peer, .. } => peer,
@@ -62,6 +65,18 @@ impl Action {
     }
 }
 
+/// Serialize a point with an hex string for the header hash
+fn serialize_point<S: Serializer>(point: &Point, s: S) -> Result<S::Ok, S::Error> {
+    s.serialize_str(&point.to_string())
+}
+
+/// Deserialize a point from the string format above
+fn deserialize_point<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Point, D::Error> {
+    let bytes: &str = serde::Deserialize::deserialize(deserializer)?;
+    Point::try_from(bytes).map_err(serde::de::Error::custom)
+}
+
+/// This data type helps collecting the output for the execution of a list of actions
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SelectionResult {
     Forward(ForwardChainSelection<TestHeader>),
@@ -77,6 +92,41 @@ impl Display for SelectionResult {
     }
 }
 
+/// Generate a random list of Actions for a given peer on a given tree of headers.
+/// `max_length` is provided to make sure that we don't generate rollbacks that are beyond limit.
+/// Not that this cannot occur but this would make the writing of assertions more difficult.
+///
+/// The generation is recursive:
+///
+///  - The current node in the tree gives rise to roll forward.
+///  - For each of its children we:
+///     - Create another random walk starting from that child.
+///     - Randomly decide if there could be a rollback to the current node following the child's random walk.
+///     - Then the next child would have its own random walk.
+///
+/// For example, given the tree:
+///
+///  +- 1
+///     +- 2
+///     +- 3
+///        +- 4
+///           +- 5
+///           +- 6
+///        +- 7
+///     +- 8
+///        +- 9
+///           +- 10
+///
+/// We could generate (F = Forward, R = Rollback):
+///
+///   - F1, F2, F3, F4, F5, F6, R3, F7, R1, F8, F9, R9
+///
+/// In the sequence above, after generating a random walk starting from 4, we rollback to 3, then
+/// generate a roll forward to 7.
+/// Similarly, after generating a random walk starting from 3, we rollback to 1, then generate
+/// roll forwards to 8, 9.
+/// Finally there's a rollback to 9 but since 9 doesn't have any more children the overall walk stops.
+///
 pub fn random_walk(
     rng: &mut StdRng,
     tree: &Tree<TestHeader>,
@@ -101,6 +151,18 @@ pub fn random_walk(
     }
 }
 
+/// Generate a random list of actions, for a fixed number of peers, with:
+///
+///  - A tree of headers of depth `depth`.
+///  - A `max_length` for how far rollback actions can go in the past.
+///
+/// If we use `max_length` < depth we will generate test cases where the `HeadersTree` will
+/// have to be truncated after a number of roll forwards.
+///
+/// Important note: this function returns a prop test strategy but the random walks are generated
+/// using a `StdRng` generator. This makes the generator reproducible, because the `StdGenerator`
+/// is given a seed controlled by `proptest` but this makes the resulting list of actions non-shrinkable.
+///
 pub fn any_select_chains(depth: usize, max_length: usize) -> impl Strategy<Value = Vec<Action>> {
     any_tree_of_headers(depth).prop_flat_map(move |tree| {
         (1..u64::MAX).prop_map(move |seed| {
@@ -116,19 +178,26 @@ pub fn any_select_chains(depth: usize, max_length: usize) -> impl Strategy<Value
     })
 }
 
+/// Create an empty `HeadersTree` handling chains of maximum length `max_length` and
+/// execute a list of actions against that tree.
+///
+/// Return a Map where:
+///
+///  - Key = action number + action
+///  - Value = the result of the action execution
+///
+/// Inside the code the `let print = false` variable can be switched to `true` to trace
+/// the execution with before / after state when debugging.
+///
 pub fn execute_actions(
     max_length: usize,
     actions: &[Action],
 ) -> Result<BTreeMap<(usize, Action), SelectionResult>, ConsensusError> {
     let mut tree = HeadersTree::new(max_length, &None);
     let mut results: BTreeMap<(usize, Action), SelectionResult> = BTreeMap::new();
-    let mut stopped_peers = BTreeSet::new();
     let print = false;
 
     for (action_nb, action) in actions.iter().enumerate() {
-        if stopped_peers.contains(action.peer()) {
-            continue;
-        }
         if print {
             println!("running action {action:?}")
         }
@@ -160,11 +229,6 @@ pub fn execute_actions(
                 let result = tree.select_rollback(peer, &rollback_point.hash()).unwrap();
                 results.insert((action_nb, action.clone()), Back(result.clone()));
 
-                // Stop executing a peer that has gone beyond the limit because its actions
-                // will reference a header that does not exist anymore
-                if let RollbackBeyondLimit { .. } = result {
-                    stopped_peers.insert(peer.clone());
-                }
                 if print {
                     println!("the resulting event is {result:?}");
                     println!("headers tree\n{tree:?}")
@@ -178,35 +242,9 @@ pub fn execute_actions(
     Ok(results)
 }
 
-pub fn make_best_chain_from_events(
-    events: &BTreeMap<(usize, Action), SelectionResult>,
-) -> Vec<TestHeader> {
-    let mut result: Vec<TestHeader> = vec![];
-    for event in events {
-        match event {
-            (_action, Forward(ForwardChainSelection::NewTip { tip, .. })) => result.push(*tip),
-            (_, Forward(ForwardChainSelection::NoChange)) => {}
-            (action, Forward(ForwardChainSelection::SwitchToFork(fork)))
-            | (action, Back(RollbackChainSelection::SwitchToFork(fork))) => {
-                let rollback_position = result
-                    .iter()
-                    .position(|h| h.hash() == fork.rollback_point.hash());
-                assert!(rollback_position.is_some(), "after the action {action:?}, we have a rollback position that does not exist with hash {}", fork.rollback_point.hash());
-                result.truncate(rollback_position.unwrap() + 1);
-                result.extend(fork.fork.clone())
-            }
-            (action, Back(RollbackTo(hash))) => {
-                let rollback_position = result.iter().position(|h| &h.hash() == hash);
-                assert!(rollback_position.is_some(), "after the action {action:?}, we have a rollback position that does not exist with hash {hash}");
-                result.truncate(rollback_position.unwrap() + 1);
-            }
-            (_, Back(RollbackBeyondLimit { .. })) => {}
-            (_, Back(RollbackChainSelection::NoChange)) => {}
-        }
-    }
-    result
-}
-
+/// This function computes the chains sent by each peer from a list of actions.
+/// Once all the actions have been executed it returns the chains that are the longest.
+///
 pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<TestHeader>> {
     let mut chains: BTreeMap<Peer, Vec<TestHeader>> = BTreeMap::new();
     for action in actions {
@@ -232,4 +270,37 @@ pub fn make_best_chains_from_actions(actions: &Vec<Action>) -> Vec<Vec<TestHeade
         .into_values()
         .filter(|c| c.len() == best_length)
         .collect()
+}
+
+/// This function computes the best chain resulting of the execution of the chain selection algorithm.
+/// It simply executes the results as if they were instructions for building a single chain: add a new tip,
+/// rollback to a previous header, do nothing..
+///
+pub fn make_best_chain_from_results(
+    results: &BTreeMap<(usize, Action), SelectionResult>,
+) -> Vec<TestHeader> {
+    let mut result: Vec<TestHeader> = vec![];
+    for event in results {
+        match event {
+            (_action, Forward(ForwardChainSelection::NewTip { tip, .. })) => result.push(*tip),
+            (_, Forward(ForwardChainSelection::NoChange)) => {}
+            (action, Forward(ForwardChainSelection::SwitchToFork(fork)))
+            | (action, Back(RollbackChainSelection::SwitchToFork(fork))) => {
+                let rollback_position = result
+                    .iter()
+                    .position(|h| h.hash() == fork.rollback_point.hash());
+                assert!(rollback_position.is_some(), "after the action {action:?}, we have a rollback position that does not exist with hash {}", fork.rollback_point.hash());
+                result.truncate(rollback_position.unwrap() + 1);
+                result.extend(fork.fork.clone())
+            }
+            (action, Back(RollbackTo(hash))) => {
+                let rollback_position = result.iter().position(|h| &h.hash() == hash);
+                assert!(rollback_position.is_some(), "after the action {action:?}, we have a rollback position that does not exist with hash {hash}");
+                result.truncate(rollback_position.unwrap() + 1);
+            }
+            (_, Back(RollbackBeyondLimit { .. })) => {}
+            (_, Back(RollbackChainSelection::NoChange)) => {}
+        }
+    }
+    result
 }

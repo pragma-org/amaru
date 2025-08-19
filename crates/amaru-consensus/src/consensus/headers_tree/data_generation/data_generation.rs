@@ -12,14 +12,21 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+//! This module provides data types and functions to generate data suited to testing the `HeadersTree`:
+//!
+//!  - `Tree<H>` is used to eventually hold a tree of `TestHeader`s.
+//!  - `generate_test_header_tree` generates such a tree by arbitrarily grafting subtrees on a chain
+//!    of size `depth`.
+//!
+//!
+
 use crate::consensus::headers_tree::data_generation::TestHeader;
 use crate::consensus::headers_tree::HeadersTree;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_ouroboros_traits::IsHeader;
 use pallas_crypto::hash::Hash;
-use proptest::prelude::{any, RngCore, Strategy};
-use proptest::prop_compose;
+use proptest::prelude::{RngCore, Strategy};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Exp};
@@ -31,24 +38,44 @@ pub struct Tree<H> {
     pub children: Vec<Tree<H>>,
 }
 
-/// Generate a tree of headers
-pub fn generate_test_header_tree(depth: usize, seed: u64) -> Tree<TestHeader> {
-    let mut rng = StdRng::seed_from_u64(seed);
-
-    let root = generate_test_header(&mut rng);
-    let mut root_tree = Tree::make_leaf(&root);
-    generate_test_header_subtree(&mut rng, &mut root_tree, depth - 1);
-    root_tree.renumber_slots(1);
-    root_tree
-}
-
 impl Display for Tree<TestHeader> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.pretty_print())
     }
 }
 
+impl<H> Tree<H> {
+    /// Return the depth of a `Tree`
+    pub fn depth(&self) -> usize {
+        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
+    }
+}
+
+impl<H: Clone> Tree<H> {
+    /// Create a `Tree` with a single value
+    fn make_leaf(root: &H) -> Tree<H> {
+        Tree {
+            value: root.clone(),
+            children: vec![],
+        }
+    }
+
+    /// Add a child to the current `Tree`
+    fn add_child(&mut self, child: &H) -> &mut Tree<H> {
+        self.children.push(Tree::make_leaf(child));
+        self
+    }
+
+    /// Get the last child of a `Tree` to modify it (if there is one).
+    fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
+        let l = self.children.len();
+        self.children.get_mut(l - 1)
+    }
+}
+
 impl Tree<TestHeader> {
+    /// This function is used to given incrementing slot numbers to `TestHeader`s and help test failures
+    /// diagnosis
     fn renumber_slots(&mut self, start: u64) {
         self.value.slot = start;
         for (i, child) in self.children.iter_mut().enumerate() {
@@ -58,6 +85,15 @@ impl Tree<TestHeader> {
     }
 }
 
+/// Example of a displayed tree of `TestHeader`s:
+///
+/// tree a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782de967 (slot: 1, parent: None)
+//     └── a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21 (slot: 2, parent: a22427226377cc867d51ad3f130af08ad13451de7160efa2b23076fd782de967)
+//         ├── 1bc08781253f0a6a3f83f90e50cbce1763d8db5952384e4d1f429372d590cf23 (slot: 3, parent: a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21)
+//         └── 1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164 (slot: 4, parent: a8810f9ea39c3a6afb780859e8d8c7bc37b78e2f9b8d68d95e831ca1477e9b21)
+//             ├── cdafd666d3ab072afee793a7e1468addb4648a6cec2e103200bd73e3a9b766ee (slot: 5, parent: 1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164)
+//             └── da3fc7b517b61024fcad5acd80e4e585902180d1eb16fd37ca2f07a37c4b3903 (slot: 6, parent: 1e3aba7a1f21d50037ae6bd23910a1ee09ac4e992e01938152f6d2dd43970164)
+//                 └── f3d30e29217ced84e4565a767abcde0c1f5583a9c9c77da5bff5c542d0b985d8 (slot: 7, parent: da3fc7b517b61024fcad5acd80e4e585902180d1eb16fd37ca2f07a37c4b3903)
 impl<H: Display> Tree<H> {
     pub fn pretty_print(&self) -> String {
         let mut out = String::new();
@@ -82,44 +118,32 @@ impl<H: Display> Tree<H> {
     }
 }
 
-impl<H> Tree<H> {
-    pub fn depth(&self) -> usize {
-        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
-    }
+/// Return a `proptest` Strategy producing a random `Tree<TestHeader>` of a given depth
+pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = Tree<TestHeader>> {
+    (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed))
 }
 
-impl<H: Clone> Tree<H> {
-    fn make_leaf(root: &H) -> Tree<H> {
-        Tree {
-            value: root.clone(),
-            children: vec![],
-        }
-    }
+/// Generate a tree of headers of a given depth.
+/// A seed is used to control the random generation of subtrees on top of a spine of length `depth`.
+pub fn generate_test_header_tree(depth: usize, seed: u64) -> Tree<TestHeader> {
+    let mut rng = StdRng::seed_from_u64(seed);
 
-    fn add_child(&mut self, child: &H) -> &mut Tree<H> {
-        self.children.push(Tree::make_leaf(child));
-        self
-    }
-
-    fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
-        let l = self.children.len();
-        self.children.get_mut(l - 1)
-    }
-
-    #[allow(dead_code)]
-    pub fn all_chains(&self) -> Vec<Vec<&H>> {
-        let mut result: Vec<Vec<&H>> = vec![];
-        for child in self.children.iter() {
-            result.extend(child.all_chains().iter().map(|c| {
-                let mut start = vec![&self.value];
-                start.extend(c);
-                start
-            }))
-        }
-        result
-    }
+    let root = generate_test_header(&mut rng);
+    let mut root_tree = Tree::make_leaf(&root);
+    generate_test_header_subtree(&mut rng, &mut root_tree, depth - 1);
+    root_tree.renumber_slots(1);
+    root_tree
 }
 
+/// Given a random generator and a tree:
+///
+///  - Generate a spine (a chain of `TestHeaders`).
+///  - Randomly add subtrees to nodes of that spine.
+///  - Graft the spine on the last child of `tree`.
+///
+/// The depth is used so that the subtrees added to the spine don't have a
+/// higher depth than the spine.
+///
 fn generate_test_header_subtree(rng: &mut StdRng, tree: &mut Tree<TestHeader>, depth: usize) {
     let mut spine = generate_headers(depth, rng);
     let mut current = tree;
@@ -150,25 +174,26 @@ pub fn generate_header() -> TestHeader {
     generate_headers_chain(1)[0]
 }
 
-pub fn create_headers_tree(size: usize) -> (HeadersTree<TestHeader>, Vec<TestHeader>) {
+/// Generate a random `HeadersTree` initialized with a single chain of `TestHeader`s
+pub fn create_headers_tree(size: usize) -> HeadersTree<TestHeader> {
     let headers = generate_headers_chain(size);
     let mut tree = HeadersTree::new(10, &headers.first().cloned());
     let mut tail = headers.clone();
     _ = tail.remove(0);
     _ = tree.insert_headers(&tail);
-    (tree, headers)
+    tree
 }
 
-pub fn initialize_with_peer(
-    size: usize,
-    peer: &Peer,
-) -> (HeadersTree<TestHeader>, Vec<TestHeader>) {
-    let (mut tree, headers) = create_headers_tree(size);
+/// Generate a `HeadersTree` with one chain and a peer at the tip.
+pub fn initialize_with_peer(size: usize, peer: &Peer) -> HeadersTree<TestHeader> {
+    let mut tree = create_headers_tree(size);
+    let headers = tree.best_chain_fragment();
     let tip = headers.last().unwrap();
     tree.initialize_peer(peer, &tip.hash()).unwrap();
-    (tree, headers)
+    tree
 }
 
+/// Generate a random `TestHeader`, child of the `parent` one.
 pub fn make_header_with_parent(parent: &TestHeader) -> TestHeader {
     TestHeader {
         hash: random_hash(),
@@ -177,28 +202,9 @@ pub fn make_header_with_parent(parent: &TestHeader) -> TestHeader {
     }
 }
 
+/// Generate a random Hash that could be the hash of a `H: IsHeader` value.
 pub fn random_hash() -> Hash<HEADER_HASH_SIZE> {
     Hash::from(random_bytes(HEADER_HASH_SIZE).as_slice())
-}
-
-pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = Tree<TestHeader>> {
-    (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed))
-}
-
-// Data generator for random TestHeaders
-prop_compose! {
-    pub fn any_test_header()(
-        slot in 0..1000000u64,
-        parent in any::<[u8; 32]>(),
-        body in any::<[u8; 32]>(),
-    )
-        -> TestHeader {
-        TestHeader {
-            hash: body.into(),
-            slot,
-            parent: Some(parent.into()),
-        }
-    }
 }
 
 // IMPLEMENTATION
@@ -223,6 +229,7 @@ fn generate_headers(length: usize, rng: &mut StdRng) -> Vec<TestHeader> {
     headers
 }
 
+/// Generate a single `TestHeader` but using the provided random generator.
 fn generate_test_header(rng: &mut StdRng) -> TestHeader {
     TestHeader {
         hash: Hash::from(random_bytes_with_rng(HEADER_HASH_SIZE, rng).as_slice()),
