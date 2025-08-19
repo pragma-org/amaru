@@ -46,10 +46,16 @@ pub struct ProposalsTree<T> {
 impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
     /// Create a new empty ProposalsTree from an arbitrary root.
     pub fn new(root: Option<Rc<T>>) -> Self {
+        let seen = if let Some(root) = &root {
+            BTreeSet::from([root.clone()])
+        } else {
+            BTreeSet::new()
+        };
+
         Self {
             root,
             siblings: Vec::new(),
-            seen: BTreeSet::new(),
+            seen,
         }
     }
 

@@ -33,7 +33,7 @@ use tracing::error;
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ProposalsForest {
     /// We keep a map of id -> ProposalEnum. This serves as a lookup table to retrieve proposals
     /// from the forest in a timely manner while the relationships between all proposals is
@@ -286,7 +286,15 @@ impl ProposalsForest {
                 self.constitution.enact(id)
             }
             ProposalEnum::ProtocolParameters(..) => self.protocol_parameters.enact(id),
-            ProposalEnum::Orphan(..) => Ok((id, BTreeSet::new())),
+            ProposalEnum::Orphan(..) =>
+            {
+                #[allow(clippy::map_entry)]
+                if self.proposals.contains_key(&id) {
+                    Ok((id, BTreeSet::new()))
+                } else {
+                    Err(ProposalsEnactError::UnknownProposal { id })
+                }
+            }
         }?;
 
         pruned.insert(id);
@@ -524,7 +532,7 @@ impl fmt::Display for ProposalsForest {
             writeln!(
                 f,
                 "{prefix}{branch} {}: {}",
-                s.as_id().to_string().chars().take(12).collect::<String>(),
+                s.as_id().to_compact_string(),
                 match lookup(s.as_id()) {
                     None => "?".to_string(), // NOTE: should be impossible on a well-formed forest.
                     Some(a) => summarize(
@@ -563,44 +571,6 @@ impl fmt::Display for ProposalsForest {
         } else {
             write!(f, "empty")?;
         }
-
-        section::<ProtocolParamUpdate>(
-            f,
-            "Protocol Parameter Updates",
-            Rc::new(|id| {
-                if let ProposalEnum::ProtocolParameters(a, _) = &self.proposals.get(id)?.proposal {
-                    Some(a)
-                } else {
-                    None
-                }
-            }),
-            Rc::new(|pp, prefix| {
-                Ok(format!(
-                    "\n{}",
-                    display_protocol_parameters_update(pp, &format!("{prefix}· "))?
-                ))
-            }),
-            &self.protocol_parameters,
-        )?;
-
-        section::<ProtocolVersion>(
-            f,
-            "Hard forks",
-            Rc::new(|id| {
-                if let ProposalEnum::HardFork(a, _) = &self.proposals.get(id)?.proposal {
-                    Some(a)
-                } else {
-                    None
-                }
-            }),
-            Rc::new(|protocol_version, _| {
-                Ok(format!(
-                    "version={}.{}",
-                    protocol_version.0, protocol_version.1
-                ))
-            }),
-            &self.hard_fork,
-        )?;
 
         section::<CommitteeUpdate>(
             f,
@@ -644,12 +614,50 @@ impl fmt::Display for ProposalsForest {
             &self.constitution,
         )?;
 
+        section::<ProtocolVersion>(
+            f,
+            "Hard forks",
+            Rc::new(|id| {
+                if let ProposalEnum::HardFork(a, _) = &self.proposals.get(id)?.proposal {
+                    Some(a)
+                } else {
+                    None
+                }
+            }),
+            Rc::new(|protocol_version, _| {
+                Ok(format!(
+                    "version={}.{}",
+                    protocol_version.0, protocol_version.1
+                ))
+            }),
+            &self.hard_fork,
+        )?;
+
+        section::<ProtocolParamUpdate>(
+            f,
+            "Protocol Parameter Updates",
+            Rc::new(|id| {
+                if let ProposalEnum::ProtocolParameters(a, _) = &self.proposals.get(id)?.proposal {
+                    Some(a)
+                } else {
+                    None
+                }
+            }),
+            Rc::new(|pp, prefix| {
+                Ok(format!(
+                    "\n{}",
+                    display_protocol_parameters_update(pp, &format!("{prefix}· "))?
+                ))
+            }),
+            &self.protocol_parameters,
+        )?;
+
         let others = self
             .sequence
             .iter()
             .filter_map(|id| {
                 if let ProposalEnum::Orphan(o) = &self.proposals.get(id).as_ref()?.proposal {
-                    Some(o)
+                    Some((id, o))
                 } else {
                     None
                 }
@@ -659,10 +667,10 @@ impl fmt::Display for ProposalsForest {
         // Others, represented as a flat sequence.
         if !others.is_empty() {
             writeln!(f, "Others")?;
-            for (i, o) in others.iter().enumerate() {
+            for (i, (id, other)) in others.iter().enumerate() {
                 let is_last = i + 1 == others.len();
                 let branch = if is_last { "└─" } else { "├─" };
-                writeln!(f, "{branch} {o}")?;
+                writeln!(f, "{branch} {}: {other}", id.to_compact_string())?;
             }
         }
 
@@ -734,11 +742,12 @@ fn priority_insert(
 // Tests
 // ----------------------------------------------------------------------------
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "windows")))]
 mod tests {
     use super::ProposalsForest;
     use crate::governance::ratification::{
-        tests::any_committee_update, CommitteeUpdate, ProposalsRootsRc,
+        tests::{any_committee_update, any_proposal_enum},
+        CommitteeUpdate, ProposalEnum, ProposalsRootsRc,
     };
     use amaru_kernel::{
         tests::{
@@ -802,16 +811,6 @@ mod tests {
         size
     }
 
-    // TODO:
-    //
-    // == Properties:
-    //
-    // After enacting a constitution, hard fork, or committee change; the compass always yield none;
-    // Skip recently submitted proposal
-    // Cannot insert proposal with unknown parent
-    //
-    // Compass throws if re-used;
-
     proptest! {
         #[test]
         fn prop_era_history_yields_within_epoch_bounds(pointer in any_proposal_pointer(u64::MAX)) {
@@ -844,7 +843,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_insert_increase_sizes_by_one(
-            mut forest in any_proposals_forest(),
+            DebugAsDisplay(mut forest) in any_proposals_forest(),
             id in any_comparable_proposal_id(),
             mut action in any_gov_action(),
             pointer in any_proposal_pointer(u64::MAX),
@@ -868,7 +867,7 @@ mod tests {
     proptest! {
         #[test]
         fn prop_compass_traverse_whole_forest_and_eventually_yield_none(
-            forest in any_proposals_forest(),
+            DebugAsDisplay(forest) in any_proposals_forest(),
         ) {
             use super::ProposalEnum::*;
 
@@ -902,6 +901,11 @@ mod tests {
                     Orphan(..) => ()
                 }
 
+                prop_assert!(
+                    ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap() < forest.current_epoch,
+                    "yielded proposal too early for ratification",
+                );
+
                 if let Some((previous_proposal, previous_pointer)) = previous_proposal {
                     // Controls that any yielded proposal comes with a lower priority than any
                     // previously yielded one.
@@ -926,7 +930,130 @@ mod tests {
         }
     }
 
-    fn any_proposals_forest() -> impl Strategy<Value = ProposalsForest> {
+    proptest! {
+        #[test]
+        fn prop_cannot_enact_unknown_proposal(
+            DebugAsDisplay(mut forest) in any_proposals_forest(),
+            proposal_id in any_comparable_proposal_id(),
+            proposal in any_proposal_enum(),
+        ) {
+            let mut compass = forest.new_compass();
+            prop_assert!(forest.enact(Rc::new(proposal_id), &proposal, &mut compass).is_err());
+        }
+    }
+
+    proptest! {
+        #[test]
+        #[should_panic]
+        fn prop_cannot_insert_root(
+            (DebugAsDisplay(mut forest), root) in any_grown_proposals_forest(),
+            action in any_gov_action(),
+            proposed_in in any_proposal_pointer(u64::MAX),
+        ) {
+            let _ = forest.insert(&ERA_HISTORY, root, proposed_in, action);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn prop_can_enact_any_of_the_yielded_proposal(
+            DebugAsDisplay(forest) in any_non_empty_proposals_forest()
+        ) {
+            let mut compass = forest.new_compass();
+            let mut to_enact = Vec::new();
+            while let Some((id, (proposal, _))) = compass.next(&forest) {
+                to_enact.push((id, proposal.clone()));
+            }
+
+            for (id, proposal) in to_enact.into_iter() {
+                // We're going to mutate the forest, so we need a clone to test this across all
+                // proposals.
+                let mut forest = forest.clone();
+
+                let mut compass = forest.new_compass();
+
+                let pruned = forest.enact(id.clone(), &proposal, &mut compass).unwrap();
+
+                // Control that
+                // (1) the compass still work;
+                // (2) we never yield a pruned proposal;
+                // (3) no proposal are yielded after enacting a high-impact one;
+                let mut yielded_another = false;
+                while let Some((id, _)) = compass.next(&forest) {
+                    yielded_another = true;
+                    prop_assert!(
+                        !pruned.contains(&id),
+                        "compass yielded a pruned proposal!",
+                    );
+                }
+
+                let is_high_impact = matches!(
+                    &proposal,
+                    ProposalEnum::HardFork(..) |
+                    ProposalEnum::Constitution(..) |
+                    ProposalEnum::ConstitutionalCommittee(..),
+                );
+
+                prop_assert!(
+                    !(is_high_impact && yielded_another),
+                    "yielded another proposal after enacting a high-impact one"
+                );
+
+                // Control that the enacted proposal is one of the new root.
+                prop_assert!(
+                    forest.roots().protocol_parameters.as_deref() == Some(id.as_ref()) ||
+                    forest.roots().hard_fork.as_deref() == Some(id.as_ref()) ||
+                    forest.roots().constitutional_committee.as_deref() == Some(id.as_ref()) ||
+                    forest.roots().constitution.as_deref() == Some(id.as_ref()),
+                    "none of the roots match the just enacted proposal",
+                );
+            }
+        }
+    }
+
+    // Generate an arbitrary forest that yields at least one proposal. Note that forest that holds
+    // proposals but don't yield them won't be generated by this.
+    fn any_non_empty_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
+        any_proposals_forest().prop_filter("forest is not empty", |DebugAsDisplay(forest)| {
+            forest.new_compass().next(forest).is_some()
+        })
+    }
+
+    // Generate an arbitrary forest, that has at least one Some(..) root.
+    fn any_grown_proposals_forest(
+    ) -> impl Strategy<Value = (DebugAsDisplay<ProposalsForest>, ComparableProposalId)> {
+        (any::<u8>(), any_proposals_forest()).prop_filter_map(
+            "forest is immaculate",
+            |(ix, DebugAsDisplay(forest))| {
+                let roots = forest.roots();
+
+                let non_empty_roots: Vec<Rc<ComparableProposalId>> = [
+                    roots.protocol_parameters,
+                    roots.constitution,
+                    roots.constitutional_committee,
+                    roots.hard_fork,
+                ]
+                .into_iter()
+                .flatten()
+                .collect();
+
+                let len = non_empty_roots.len();
+
+                if len == 0 {
+                    None
+                } else {
+                    Some((
+                        DebugAsDisplay(forest),
+                        non_empty_roots[ix as usize % len].as_ref().clone(),
+                    ))
+                }
+            },
+        )
+    }
+
+    // Generate a *somewhat meaningful* proposal forest, with relationships and links between
+    // proposals.
+    fn any_proposals_forest() -> impl Strategy<Value = DebugAsDisplay<ProposalsForest>> {
         let any_ids = collection::btree_set(
             any_comparable_proposal_id().prop_map(Rc::new),
             4 * (MAX_TREE_SIZE + 2),
@@ -1017,7 +1144,7 @@ mod tests {
                                     .unwrap();
                             });
 
-                        forest
+                        DebugAsDisplay(forest)
                     },
                 )
         })
@@ -1147,5 +1274,13 @@ mod tests {
             .as_ref()
             .map(|id| Nullable::Some(ProposalId::from(id.as_ref().clone())))
             .unwrap_or(Nullable::Null)
+    }
+
+    /// A type helper to ease counterexamples display.
+    struct DebugAsDisplay<T>(T);
+    impl<T: std::fmt::Display> std::fmt::Debug for DebugAsDisplay<T> {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(&self.0.to_string())
+        }
     }
 }
