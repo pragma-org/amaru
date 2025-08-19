@@ -1291,7 +1291,7 @@ mod tests {
             "[{}]",
             &actions_as_list_of_strings.iter().join(",")
         ))
-        .unwrap();
+            .unwrap();
         let results = execute_actions(10, &actions).unwrap();
         assert_matches!(results.values().last(), Some(Forward(SwitchToFork(_))));
     }
@@ -1325,6 +1325,59 @@ mod tests {
             fork: forked_headers,
         };
         assert_eq!(result, RollbackChainSelection::SwitchToFork(fork));
+    }
+
+    #[test]
+    fn rollback_no_switch_on_an_equal_chain() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+
+        // 0 - 1 - 2 - 3 - 4 (alice)
+        //         + - 5 - 6 (bob)
+        //
+
+        // alice has the best chain with 5 headers
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
+
+        // bob has a chain of same size, branching off 2
+        tree.initialize_peer(&bob, &headers[2].hash()).unwrap();
+        let _added_headers = rollforward_from(&mut tree, &headers[2], &bob, 2);
+
+        println!("tree before {tree:?}");
+        // alice rolls back to 2, there is no change, even if now bob has a longer chain than
+        // alice because an existing chain (0 -> 4) has the same size as bob's chain.
+        let result = tree
+            .select_rollback(&alice, &headers[2].hash())
+            .unwrap();
+        println!("tree after {tree:?}");
+        assert_eq!(result, RollbackChainSelection::NoChange);
+    }
+
+    #[test]
+    fn rollback_no_switch_on_a_shorter_chain() {
+        let alice = Peer::new("alice");
+        let bob = Peer::new("bob");
+
+        // 0 - 1 - 2 - 3 - 4 (alice)
+        //     + - 5 - 6 (bob)
+
+        // alice has the best chain with 5 headers
+        let mut tree = initialize_with_peer(5, &alice);
+        let headers = tree.best_chain_fragment();
+
+        // bob has a smaller chain, branching off 1
+        tree.initialize_peer(&bob, &headers[1].hash()).unwrap();
+        let _added_headers = rollforward_from(&mut tree, &headers[1], &bob, 2);
+
+        println!("tree before {tree:?}");
+        // alice rolls back to 2, there is no change, even if now bob has a longer chain than
+        // alice because an existing chain (0 -> 4) is still longer than bob's chain.
+        let result = tree
+            .select_rollback(&alice, &headers[2].hash())
+            .unwrap();
+        println!("tree after {tree:?}");
+        assert_eq!(result, RollbackChainSelection::NoChange);
     }
 
     #[test]
