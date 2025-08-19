@@ -113,7 +113,7 @@ pub(crate) async fn import_headers(
         peer_client,
     };
 
-    let pull = pull::Stage::new(
+    let mut pull = pull::Stage::new(
         peer_session.clone(),
         vec![point.clone()],
         Arc::new(RwLock::new(true)),
