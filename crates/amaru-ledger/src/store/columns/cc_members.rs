@@ -57,8 +57,7 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::*;
-    use crate::store::columns::accounts::tests::any_stake_credential;
-    use amaru_kernel::prop_cbor_roundtrip;
+    use amaru_kernel::{prop_cbor_roundtrip, tests::any_stake_credential};
     use proptest::{option, prelude::*, prop_compose};
 
     prop_compose! {

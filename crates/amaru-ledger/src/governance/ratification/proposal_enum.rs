@@ -111,7 +111,7 @@ impl ProposalEnum {
     }
 
     pub fn is_hardfork(&self) -> bool {
-        matches!(self, Self::HardFork { .. })
+        matches!(self, Self::HardFork(..))
     }
 
     pub fn is_no_confidence(&self) -> bool {
@@ -206,11 +206,11 @@ impl fmt::Display for OrphanProposal {
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::{CommitteeUpdate, OrphanProposal, ProposalEnum};
-    use crate::{store::columns::accounts::tests::any_stake_credential, summary::SafeRatio};
+    use crate::summary::SafeRatio;
     use amaru_kernel::{
         tests::{
             any_comparable_proposal_id, any_constitution, any_epoch, any_protocol_params_update,
-            any_protocol_version,
+            any_protocol_version, any_stake_credential,
         },
         Epoch,
     };

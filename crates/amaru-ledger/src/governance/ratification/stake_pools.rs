@@ -471,11 +471,7 @@ mod tests {
 
         let upper_bound = pools.len() - 1;
 
-        let voters = if upper_bound == 0 {
-            Just(Vec::new()).boxed()
-        } else {
-            sample::subsequence(pools, 0..upper_bound).boxed()
-        };
+        let voters = sample::subsequence(pools, 0..=upper_bound).boxed();
 
         voters
             .prop_flat_map(|voters| {

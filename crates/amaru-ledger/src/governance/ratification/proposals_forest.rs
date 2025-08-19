@@ -29,7 +29,6 @@ use std::{
     fmt,
     rc::Rc,
 };
-use tracing::error;
 
 pub use super::proposals_tree::{ProposalsEnactError, ProposalsInsertError};
 
@@ -86,6 +85,8 @@ impl ProposalsForest {
     }
 
     /// Insert many proposals at once, consuming them.
+    ///
+    /// Pre-condition: all proposals MUST HAVE NOT expire (i.e. be valid until the current epoch).
     pub fn drain(
         mut self,
         era_history: &'_ EraHistory,
@@ -99,7 +100,11 @@ impl ProposalsForest {
                 &mut self,
                 |forest, (id, row)| {
                     // There shouldn't be any invalid proposals left at this point.
-                    assert!(row.valid_until <= current_epoch);
+                    assert!(
+                        row.valid_until + 1 >= current_epoch,
+                        "proposal {id:?} is expired (ratification epoch = {current_epoch}) but was \
+                        drained into the forest: {row:?}",
+                    );
 
                     forest.insert(era_history, id, row.proposed_in, row.proposal.gov_action)?;
 
@@ -406,10 +411,9 @@ impl ProposalsForestCompass {
                     epoch: proposed_in,
                     proposal,
                     pointer,
-                } = forest.proposals.get(&id).or_else(|| {
-                    error!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
-                    None
-                })?;
+                } = forest.proposals.get(&id).unwrap_or_else(|| {
+                    unreachable!("forest's sequence knows of the id {id:?} but it wasn't found in the lookup-table");
+                });
 
                 self.cursor += 1;
 

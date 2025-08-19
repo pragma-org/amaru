@@ -158,7 +158,7 @@ impl ConstitutionalCommittee {
         let hot_credentials = active_members.values().collect::<BTreeSet<_>>();
 
         // NOTE: do not use 'hot_credential'.len(), as there could be multiple cold credentials
-        // delegated to the same hot credential. But we cound cold credentials, not hot ones.
+        // delegated to the same hot credential. But we count cold credentials, not hot ones.
         let total_active_members = active_members.len() as u64;
 
         let (yes, no, abstain) =

@@ -74,12 +74,12 @@ impl<T: Ord + std::fmt::Debug> ProposalsTree<T> {
         &self.siblings
     }
 
-    /// Assert whether the tree is empty (i.e. it's only a root).
+    /// Whether the tree has no proposals (i.e. there are no top-level siblings).
     pub fn is_empty(&self) -> bool {
         self.siblings.is_empty()
     }
 
-    /// Enact a proposal as new root, collecting all propoals rendered obsolete through that
+    /// Enact a proposal as new root, collecting all proposals rendered obsolete through that
     /// promotion (that is, all siblings and their children).
     pub fn enact(&mut self, id: Rc<T>) -> Result<(Rc<T>, BTreeSet<Rc<T>>), ProposalsEnactError<T>> {
         use ProposalsEnactError::*;

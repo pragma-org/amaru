@@ -64,7 +64,7 @@ pub struct RatificationContext<'a> {
     pub treasury: Lovelace,
 
     /// The total amount of Lovelace withdrawn during this ratification. This is used to track the
-    /// amount in-between withdrawals and ensures we down underflow the treasury.
+    /// amount in-between withdrawals and ensures we do not underflow the treasury.
     pub total_withdrawn: Lovelace,
 
     /// The computed stake distribution for the epoch
@@ -123,7 +123,7 @@ impl<'distr> RatificationContext<'distr> {
         let mut compass = forest.new_compass();
 
         // We collect updates to be done on the store while enacting proposals. The updates aren't
-        // executed, but stashed for later. This allows processing proposals in a pure fasion,
+        // executed, but stashed for later. This allows processing proposals in a pure fashion,
         // while accumulating changes to be done on the store.
         let mut store_updates: Vec<StoreUpdate<'distr, S>> = Vec::new();
 
@@ -204,7 +204,7 @@ impl<'distr> RatificationContext<'distr> {
     ) -> Result<(), RatificationInternalError> {
         Self::new_enact_span(&id, &proposal).in_scope(
             || -> Result<(), RatificationInternalError> {
-                let now_obsolete = &mut forest.enact(id, &proposal, compass)?;
+                let mut now_obsolete = forest.enact(id, &proposal, compass)?;
 
                 tracing::Span::current().record(
                     "proposals.pruned",
@@ -216,7 +216,7 @@ impl<'distr> RatificationContext<'distr> {
                     ),
                 );
 
-                pruned_proposals.append(now_obsolete);
+                pruned_proposals.append(&mut now_obsolete);
 
                 match proposal {
                     ProposalEnum::ProtocolParameters(params_update, _parent) => {
@@ -452,7 +452,7 @@ impl<'distr> RatificationContext<'distr> {
                 )?;
 
                 tracing::Span::current()
-                    .record("required_threshold.committee", threshold.to_string());
+                    .record("required_threshold.committee", field::display(&threshold));
 
                 let tally = || committee.tally(self.epoch, votes);
 
@@ -474,7 +474,8 @@ impl<'distr> RatificationContext<'distr> {
         ) {
             None => false,
             Some(threshold) => {
-                tracing::Span::current().record("required_threshold.pools", threshold.to_string());
+                tracing::Span::current()
+                    .record("required_threshold.pools", field::display(&threshold));
 
                 let tally = || {
                     stake_pools::tally(self.protocol_version, proposal, votes, stake_distribution)
@@ -499,7 +500,8 @@ impl<'distr> RatificationContext<'distr> {
         ) {
             None => false,
             Some(threshold) => {
-                tracing::Span::current().record("required_threshold.dreps", threshold.to_string());
+                tracing::Span::current()
+                    .record("required_threshold.dreps", field::display(&threshold));
 
                 let tally = || -> SafeRatio {
                     dreps::tally(self.epoch, proposal, votes, stake_distribution)

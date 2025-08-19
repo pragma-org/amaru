@@ -333,18 +333,21 @@ pub mod tests {
             let pools_vec = pools.iter().collect::<Vec<_>>();
 
             // Artificially create some links between pools and accounts.
-            let accounts = accounts.into_iter().enumerate().map(|(ix, (mut account, account_st))| {
-                let pool = pools_vec.get(ix % pools_len);
+            let accounts = accounts.into_iter().enumerate().map(|(ix, (mut account, mut account_st))| {
+                let (pool, pool_st) =
+                    pools_vec
+                        .get(ix % pools_len)
+                        .unwrap_or_else(|| unreachable!("% pools_len guarantees it's some"));
 
                 // Ensure some of the reward accounts do exists.
                 if ix % 2 == 0 {
-                    if let Some((_, pool_st)) = pool {
                         account = expect_stake_credential(&pool_st.parameters.reward_account);
-                    }
                 }
 
                 // Make sure accounts are delegated to existing pools, when they are.
-                account_st.pool.and_then(|_| pool.map(|(k, _)| *k));
+                if let Some(delegation) = account_st.pool.as_mut() {
+                    *delegation = **pool;
+                }
 
                 (account, account_st)
             }).collect();

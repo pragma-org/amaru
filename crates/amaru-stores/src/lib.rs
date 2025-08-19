@@ -20,7 +20,7 @@ pub mod rocksdb;
 pub mod tests {
     use amaru_kernel::{
         network::NetworkName,
-        tests::{any_pool_id, any_pool_params, any_proposal_id},
+        tests::{any_pool_id, any_pool_params, any_proposal_id, any_stake_credential},
         Anchor, ComparableProposalId, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId,
         PoolParams, Slot, StakeCredential, TransactionInput,
     };
@@ -28,7 +28,7 @@ pub mod tests {
         state::diff_bind,
         store::{
             columns::{
-                accounts::{self, tests::any_stake_credential},
+                accounts::{self},
                 cc_members, dreps,
                 proposals::{self},
                 slots::tests::any_slot,

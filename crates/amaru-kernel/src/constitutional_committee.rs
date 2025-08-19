@@ -54,7 +54,7 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
                 Ok(Self::Trusted { threshold })
             }
             t => Err(cbor::decode::Error::message(format!(
-                "unexpected ConstitutionalCommitteeTrust kind: {t}; expected 0 or 1."
+                "unexpected ConstitutionalCommittee kind: {t}; expected 0 or 1."
             ))),
         })
     }

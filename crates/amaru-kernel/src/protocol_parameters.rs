@@ -433,12 +433,6 @@ pub struct GlobalParameters {
     pub randomness_stabilization_window: u64,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Prices {
-    pub mem: RationalNumber,
-    pub step: RationalNumber,
-}
-
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use super::PREPROD_INITIAL_PROTOCOL_PARAMETERS;
