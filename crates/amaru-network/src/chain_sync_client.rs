@@ -132,6 +132,7 @@ pub struct ChainSyncClient<C> {
     peer: Peer,
     client: Box<dyn ChainSync<C> + Sync + Send>,
     intersection: Vec<Point>,
+    max_batch_size: usize,
 }
 
 struct PullBuffer<C> {
@@ -163,7 +164,7 @@ impl<C: NetworkHeader + Debug> PullBuffer<C> {
 
         match find_index() {
             Some(i) => self.buffer.truncate(i + 1),
-            None => (),
+            None => return RollbackHandling::BeforeBatch
         }
 
         RollbackHandling::Handled
@@ -281,7 +282,7 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
     pub async fn pull_batch(&mut self) -> Result<PullResult, ChainSyncClientError> {
         let mut batch = PullBuffer::new();
 
-        while batch.len() < MAX_BATCH_SIZE {
+        while batch.len() < self.max_batch_size {
             let response = self
                 .client
                 .request_next()
@@ -329,11 +330,12 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
     //     client.has_agency()
     // }
 
-    pub fn new1(client: Box<dyn ChainSync<C> + Sync + Send>, intersection: &Vec<Point>) -> Self {
+    pub fn new1(client: Box<dyn ChainSync<C> + Sync + Send>, intersection: &Vec<Point>, max_batch_size: usize) -> Self {
         ChainSyncClient {
             client,
             peer: Peer::new("alice"),
             intersection: intersection.to_vec(),
+            max_batch_size
         }
     }
 }
@@ -347,6 +349,7 @@ pub fn new_with_peer(
         client,
         peer: Peer::new("alice"),
         intersection: intersection.to_vec(),
+        max_batch_size: MAX_BATCH_SIZE
     }
 }
 
@@ -371,7 +374,7 @@ mod tests {
         session::PeerSession,
     };
 
-    use super::{ChainSync, NetworkHeader};
+    use super::{ChainSync, NetworkHeader, MAX_BATCH_SIZE};
 
     #[derive(Debug)]
     struct FakeContent(NetworkPoint, FakeHeader);
@@ -462,7 +465,7 @@ mod tests {
             None,
         );
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin]);
+            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], MAX_BATCH_SIZE);
 
         let result = chain_sync_client.pull_batch().await.unwrap();
 
@@ -503,7 +506,7 @@ mod tests {
 
         let mock_client = MockNetworkClient::new(responses, None);
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin]);
+            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], MAX_BATCH_SIZE);
 
         let result = chain_sync_client.pull_batch().await.unwrap();
 
@@ -517,6 +520,46 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn batch_returns_rollback_given_point_is_outside_current_batch() {
+        let headers = generate_headers_anchored_at(None, 6);
+        let tip_header = headers[5];
+        let tip = Tip(
+            to_network_point(tip_header.point()),
+            tip_header.block_height(),
+        );
+
+        let rollback_point = to_network_point(headers[1].point());
+
+        let contents: Vec<FakeContent> = headers
+            .into_iter()
+            .map(|h| FakeContent(to_network_point(h.point()), h))
+            .collect();
+        let mut responses: Vec<NextResponse<FakeContent>> = contents
+            .into_iter()
+            .map(|content| NextResponse::RollForward(content, tip.clone()))
+            .collect();
+
+        responses.push(NextResponse::RollBackward(
+            rollback_point.clone(),
+            tip, // FIXME: does not really make sense ?
+        ));
+
+        let mock_client = MockNetworkClient::new(responses, None);
+        let mut chain_sync_client =
+            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], 4);
+
+        // first batch is ignored
+        let _ = chain_sync_client.pull_batch().await.unwrap();
+        let result = chain_sync_client.pull_batch().await.unwrap();
+
+        match result {
+            PullResult::ForwardBatch(header_contents) =>                 panic!("expected rollback, got batch {:?}", header_contents),
+            PullResult::RollBack(point) => assert_eq!(rollback_point, to_network_point(point)),
+            PullResult::Nothing => panic!("got Nothing, expected a batch of headers"),
+        }
+    }
+
+    #[tokio::test]
     async fn intersect_succeeds_given_underlying_client_succeeds() {
         let expected_intersection = (
             Some(to_network_point(Point::Origin)),
@@ -525,7 +568,7 @@ mod tests {
         let mock_client = MockNetworkClient::new(vec![], Some(expected_intersection));
 
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin]);
+            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], MAX_BATCH_SIZE);
 
         let result = chain_sync_client.find_intersection().await.unwrap();
 
