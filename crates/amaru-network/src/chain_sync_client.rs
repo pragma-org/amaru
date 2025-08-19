@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use crate::point::from_network_point;
 use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::Point;
@@ -25,6 +26,8 @@ use pallas_network::miniprotocols::chainsync::{
 };
 use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
+use serde::{Deserialize, Serialize};
+use std::fmt::{self, Display};
 use std::future::Future;
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
@@ -53,6 +56,8 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSy
 
 #[async_trait::async_trait(?Send)]
 pub trait ChainSync<C> {
+    async fn request_next(&mut self) -> Result<NextResponse<C>, ClientError>;
+
     async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError>;
 
     async fn find_intersect(
@@ -66,6 +71,10 @@ impl<C> ChainSync<C> for Client<C>
 where
     Message<C>: Fragment,
 {
+    async fn request_next(&mut self) -> Result<NextResponse<C>, ClientError> {
+        self.request_next().await
+    }
+
     async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError> {
         self.recv_while_can_await().await
     }
@@ -79,10 +88,32 @@ where
 }
 
 #[async_trait::async_trait(?Send)]
+impl ChainSync<HeaderContent> for PeerClient {
+    async fn request_next(&mut self) -> Result<NextResponse<HeaderContent>, ClientError> {
+        self.chainsync().request_next().await
+    }
+
+    async fn recv_while_can_await(&mut self) -> Result<NextResponse<HeaderContent>, ClientError> {
+        self.chainsync().recv_while_can_await().await
+    }
+
+    async fn find_intersect(
+        &mut self,
+        points: Vec<NetworkPoint>,
+    ) -> Result<IntersectResponse, ClientError> {
+        self.chainsync().find_intersect(points).await
+    }
+}
+
+#[async_trait::async_trait(?Send)]
 impl<C> ChainSync<C> for &mut Client<C>
 where
     Message<C>: Fragment,
 {
+    async fn request_next(&mut self) -> Result<NextResponse<C>, ClientError> {
+        self.request_next().await
+    }
+
     async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError> {
         self.recv_while_can_await().await
     }
@@ -102,11 +133,11 @@ pub struct ChainSyncClient<C> {
     intersection: Vec<Point>,
 }
 
-struct PullBuffer {
-    buffer: Vec<HeaderContent>,
+struct PullBuffer<C> {
+    buffer: Vec<C>,
 }
 
-impl PullBuffer {
+impl<C: NetworkHeader> PullBuffer<C> {
     fn new() -> Self {
         PullBuffer { buffer: vec![] }
     }
@@ -115,11 +146,25 @@ impl PullBuffer {
         self.buffer.len()
     }
 
-    fn forward(&mut self, header: HeaderContent) {
+    fn forward(&mut self, header: C) {
         self.buffer.push(header)
     }
 
-    fn rollback(&mut self, _point: &NetworkPoint) -> RollbackHandling {
+    fn rollback(&mut self, point: &NetworkPoint) -> RollbackHandling {
+        let find_index = || {
+            for (i, h) in self.buffer.iter().enumerate() {
+                if h.point() == *point {
+                    return Some(i);
+                }
+            }
+            return None;
+        };
+
+        match find_index() {
+            Some(i) => self.buffer.truncate(i),
+            None => (),
+        }
+
         RollbackHandling::Handled
     }
 }
@@ -136,13 +181,37 @@ pub enum PullResult {
     Nothing,
 }
 
+impl Display for PullResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PullResult::ForwardBatch(header_contents) => write!(
+                f,
+                "Batch: {}",
+                header_contents
+                    .iter()
+                    .map(|HeaderContent { cbor, .. }| hex::encode(cbor))
+                    .collect::<Vec<String>>()
+                    .join("\n")
+            ),
+            PullResult::RollBack(point) => write!(f, "Rollback: {}", point),
+            PullResult::Nothing => write!(f, "No result"),
+        }
+    }
+}
+
 trait NetworkHeader {
     fn content(self) -> HeaderContent;
+    fn point(&self) -> NetworkPoint;
 }
 
 impl NetworkHeader for HeaderContent {
     fn content(self) -> HeaderContent {
         self
+    }
+
+    fn point(&self) -> NetworkPoint {
+        let header = to_traverse(&self).expect("failed to deserialize headear");
+        NetworkPoint::Specific(header.slot(), header.hash().to_vec())
     }
 }
 
@@ -214,12 +283,12 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
         while batch.len() < MAX_BATCH_SIZE {
             let response = self
                 .client
-                .recv_while_can_await()
+                .request_next()
                 .await
-                .map_err(|_| unimplemented!())?;
+                .map_err(ChainSyncClientError::NetworkError)?;
 
             match response {
-                NextResponse::RollForward(content, _tip) => batch.forward(content.content()),
+                NextResponse::RollForward(content, _tip) => batch.forward(content),
                 NextResponse::RollBackward(point, _tip) => match batch.rollback(&point) {
                     RollbackHandling::Handled => (),
                     RollbackHandling::BeforeBatch => {
@@ -232,7 +301,9 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
             }
         }
 
-        Ok(PullResult::ForwardBatch(batch.buffer))
+        Ok(PullResult::ForwardBatch(
+            batch.buffer.into_iter().map(|h| h.content()).collect(),
+        ))
     }
 
     // pub async fn await_next(
@@ -266,6 +337,18 @@ impl<C: NetworkHeader> ChainSyncClient<C> {
     }
 }
 
+pub fn new_with_peer(
+    peer: PeerClient,
+    intersection: &Vec<Point>,
+) -> ChainSyncClient<HeaderContent> {
+    let client = Box::new(peer);
+    ChainSyncClient {
+        client,
+        peer: Peer::new("alice"),
+        intersection: intersection.to_vec(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -289,7 +372,7 @@ mod tests {
 
     use super::{ChainSync, NetworkHeader};
 
-    struct FakeContent(FakeHeader);
+    struct FakeContent(NetworkPoint, FakeHeader);
 
     impl NetworkHeader for FakeContent {
         fn content(self) -> HeaderContent {
@@ -298,6 +381,10 @@ mod tests {
                 byron_prefix: None,
                 cbor: vec![],
             }
+        }
+
+        fn point(&self) -> NetworkPoint {
+            self.0.clone()
         }
     }
 
@@ -309,6 +396,15 @@ mod tests {
     #[async_trait::async_trait(?Send)]
     impl ChainSync<FakeContent> for MockNetworkClient {
         async fn recv_while_can_await(&mut self) -> Result<NextResponse<FakeContent>, ClientError> {
+            if !self.responses.is_empty() {
+                let next = self.responses.pop().unwrap();
+                Ok(next)
+            } else {
+                Ok(NextResponse::Await)
+            }
+        }
+
+        async fn request_next(&mut self) -> Result<NextResponse<FakeContent>, ClientError> {
             if !self.responses.is_empty() {
                 let next = self.responses.pop().unwrap();
                 Ok(next)
@@ -340,10 +436,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn batch_all_headers_from_forward() {
+    async fn batch_returns_all_available_forwards_until_await() {
         let headers = generate_headers_anchored_at(None, 3);
         let tip_header = headers[2];
-        let contents: Vec<FakeContent> = headers.into_iter().map(FakeContent).collect();
+        let contents: Vec<FakeContent> = headers
+            .into_iter()
+            .map(|h| FakeContent(to_network_point(h.point()), h))
+            .collect();
 
         let mock_client = MockNetworkClient::new(
             contents
@@ -378,6 +477,44 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn batch_returns_headers_up_to_rollback_point() {
+        let headers = generate_headers_anchored_at(None, 3);
+        let tip_header = headers[2];
+        let tip = Tip(
+            to_network_point(tip_header.point()),
+            tip_header.block_height(),
+        );
+        let rollback_point = to_network_point(headers[1].point());
+        let contents: Vec<FakeContent> = headers
+            .into_iter()
+            .map(|h| FakeContent(to_network_point(h.point()), h))
+            .collect();
+        let mut responses: Vec<NextResponse<FakeContent>> = contents
+            .into_iter()
+            .map(|content| NextResponse::RollForward(content, tip.clone()))
+            .collect();
+
+        responses.push(NextResponse::RollBackward(
+            rollback_point,
+            tip, // FIXME: does not really make sense ?
+        ));
+
+        let mock_client = MockNetworkClient::new(responses, None);
+        let mut chain_sync_client =
+            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin]);
+
+        let result = chain_sync_client.pull_batch().await.unwrap();
+
+        match result {
+            PullResult::ForwardBatch(header_contents) => assert_eq!(2, header_contents.len()),
+            PullResult::RollBack(point) => {
+                panic!("expected batch of headers, got rollback {}", point)
+            }
+            PullResult::Nothing => panic!("got Nothing, expected a batch of headers"),
+        }
+    }
+
+    #[tokio::test]
     async fn intersect_succeeds_given_underlying_client_succeeds() {
         let expected_intersection = (
             Some(to_network_point(Point::Origin)),
@@ -385,7 +522,8 @@ mod tests {
         );
         let mock_client = MockNetworkClient::new(vec![], Some(expected_intersection));
 
-        let chain_sync_client = ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin]);
+        let mut chain_sync_client =
+            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin]);
 
         let result = chain_sync_client.find_intersection().await.unwrap();
 
