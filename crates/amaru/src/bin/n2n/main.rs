@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use amaru_kernel::network::NetworkName;
 use amaru_kernel::Point;
-use amaru_network::chain_sync_client::ChainSyncClient;
+use amaru_network::chain_sync_client::{new_with_peer, ChainSyncClient};
 use amaru_network::connect_to_peer;
 use tokio::sync::Mutex;
 
@@ -20,9 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut peer = connect_to_peer(peer_address, &network_name).await?;
 
-    let client = peer.chainsync();
-
-    let mut chain_sync = ChainSyncClient::new1(Box::new(client), &vec![point]);
+    let mut chain_sync = new_with_peer(peer, &vec![point]);
 
     chain_sync
         .find_intersection()
@@ -31,7 +29,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let batch = chain_sync.pull_batch().await.expect("failed to pull batch");
 
-    println!("batch: {:?}", batch);
+    println!("batch: {}", batch);
 
     Ok(())
 }
