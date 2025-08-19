@@ -53,7 +53,7 @@ pub mod tests {
 }
 
 /// All informations needed to ratify votes.
-pub struct RatificationContext<'a> {
+pub struct RatificationContext<'distr> {
     /// The epoch that just ended.
     pub epoch: Epoch,
 
@@ -65,7 +65,7 @@ pub struct RatificationContext<'a> {
     pub total_withdrawn: Lovelace,
 
     /// The computed stake distribution for the epoch
-    pub stake_distribution: StakeDistributionView<'a>,
+    pub stake_distribution: StakeDistributionView<'distr>,
 
     /// Last enacted protocol parameters for this epoch.
     pub protocol_parameters: ProtocolParameters,
@@ -205,7 +205,7 @@ impl<'distr> RatificationContext<'distr> {
 
                 tracing::Span::current().record(
                     "proposals.pruned",
-                    &now_obsolete
+                    now_obsolete
                         .iter()
                         .map(|id| id.to_compact_string())
                         .collect::<Vec<_>>()

@@ -12,11 +12,6 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod diff_bind;
-pub mod diff_epoch_reg;
-pub mod diff_set;
-pub mod volatile_db;
-
 use crate::{
     governance::ratification::{self, RatificationContext},
     state::{
@@ -25,7 +20,7 @@ use crate::{
     },
     store::{
         columns::{pools, proposals},
-        EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
+        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
         TransactionalContext,
     },
     summary::{
@@ -56,6 +51,11 @@ use tracing::{debug, info, instrument, trace, Level};
 use volatile_db::AnchoredVolatileState;
 
 pub use volatile_db::VolatileState;
+
+pub mod diff_bind;
+pub mod diff_epoch_reg;
+pub mod diff_set;
+pub mod volatile_db;
 
 const EVENT_TARGET: &str = "amaru::ledger::state";
 
@@ -259,7 +259,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             let rewards_summary = self.rewards_summary.take();
 
             let protocol_parameters =
-                self.epoch_transition(&mut *db, current_epoch, rewards_summary)?;
+                self.epoch_transition(&mut *db, &self.snapshots, current_epoch, rewards_summary)?;
 
             self.protocol_parameters = protocol_parameters;
 
@@ -319,6 +319,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     fn epoch_transition(
         &self,
         db: &mut impl Store,
+        snapshots: &impl HistoricalStores,
         next_epoch: Epoch,
         rewards_summary: Option<RewardsSummary>,
     ) -> Result<ProtocolParameters, StateError> {
@@ -344,9 +345,13 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             Some(EpochTransitionProgress::EpochEnded),
             Some(EpochTransitionProgress::SnapshotTaken),
         )?;
-        if should_snapshot {
+        let treasury = if should_snapshot {
+            let treasury = db.pots()?.treasury;
             db.next_snapshot(next_epoch - 1)?;
-        };
+            Ok::<_, StateError>(treasury)
+        } else {
+            Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
+        }?;
         batch.commit()?;
 
         // -------------------------------------------------------------------------- Start of epoch
@@ -359,6 +364,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         let ratification_context = new_ratification_context(
             self.snapshots.for_epoch(next_epoch - 2)?,
             self.stake_distribution(next_epoch - 2)?,
+            self.protocol_parameters.clone(),
+            treasury,
         )?;
 
         let protocol_parameters = if should_begin_epoch {
@@ -788,9 +795,9 @@ pub fn tick_proposals<'store>(
 fn new_ratification_context<'distr>(
     snapshot: impl Snapshot,
     stake_distribution: StakeDistributionView<'distr>,
+    protocol_parameters: ProtocolParameters,
+    treasury: Lovelace,
 ) -> Result<RatificationContext<'distr>, StoreError> {
-    let protocol_parameters = snapshot.protocol_parameters()?;
-
     let constitutional_committee = match snapshot.constitutional_committee()? {
         ConstitutionalCommittee::NoConfidence => None,
         ConstitutionalCommittee::Trusted { threshold } => {
@@ -827,8 +834,6 @@ fn new_ratification_context<'distr>(
 
             votes
         });
-
-    let treasury = snapshot.pots()?.treasury;
 
     Ok(RatificationContext {
         // Ratification happens with one epoch of delay, and at the next epoch transition. So,
