@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use std::process::exit;
+
 /// Installs a panic handler that prints some useful diagnostics and
 /// asks the user to report the issue.
 pub fn panic_handler() {
@@ -41,6 +43,9 @@ pub fn panic_handler() {
         };
         eprintln!("\n{}", indent(&error_message, 3));
         prev(info);
+        // Exit with a non-zero code to indicate that the process crashed
+        // otherwise it will just sit there and wait for ctrl-c without saying so.
+        exit(1);
     }));
 }
 
