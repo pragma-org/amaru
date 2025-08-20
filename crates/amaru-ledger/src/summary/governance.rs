@@ -188,7 +188,7 @@ impl GovernanceSummary {
 /// push back its expiry. Additionally, each epoch with no active proposals increase the mandate by
 /// one.
 ///
-/// Besides, the behaviour around registration has slightly changed between verion 9 and version 10
+/// Besides, the behaviour around registration has slightly changed between version 9 and version 10
 /// of the protocol.
 ///
 /// - In version 9, dreps registering during a dormant period^1 (with epochs containing no proposals
