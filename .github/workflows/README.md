@@ -2,8 +2,8 @@
 
 If for some reason you need or want to run the CI pipeline on your local computer, make sure to provide the following prerequisites:
 
-- Linxu system with up-to-date Docker installation (which on Debian means using Docker’s sources)
-- [`act`](github.com/nektos/act) installed for your user
+- Linux system with an up-to-date Docker installation (on Debian/Ubuntu, install from Docker’s official apt repo)
+- [act](https://github.com/nektos/act) installed for your user
 
 When running `act` for the first time, it will ask you for which image size to use: choose the large one (which is >17GB), otherwise tools will be missing.
 
@@ -16,8 +16,9 @@ This means that
 - `/var/run/docker.sock` needs to be accessible to the pipeline scripts
 
   `act` takes care of mapping the `DOCKER_HOST` into the container, but at least on my system I needed to `chmod o+rw /var/run/docker.sock` to get things working.
-  Note that this is a really bad idea if you share your system with some other people that shall not have root access.
-  YOU HAVE BEEN WARNED!!!
+  This is caused by the Haskell node container running processes as root, which leads to a remapping of the file access rights to “other” — it would be much better if the process ran as a different user which could then be added to the `docker` group (or permitted via ACLs).
+
+  > **Note that this “fix” is a really bad idea if you share your system with some other people that shall not have root access. YOU HAVE BEEN WARNED!!!**
 
 - The Haskell node’s container will receive `${{ runner.temp }}/db-preprod` mounted at `/db`, which is `/tmp/db-preprod` ON THE HOST SYSTEM
 
