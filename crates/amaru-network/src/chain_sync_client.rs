@@ -25,7 +25,7 @@ use pallas_network::miniprotocols::Point as NetworkPoint;
 use pallas_traverse::MultiEraHeader;
 use std::fmt::Debug;
 use std::fmt::{self, Display};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::Span;
 
@@ -347,7 +347,7 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
 
     pub async fn await_next(&mut self) -> Result<NextResponse<C>, ChainSyncClientError> {
         self.client
-            .recv_while_must_reply()
+            .recv_while_can_await()
             .await
             .map_err(ChainSyncClientError::NetworkError)
     }
@@ -402,7 +402,7 @@ mod tests {
         chain_sync_client::{ChainSyncClient, PullResult},
         point::to_network_point,
     };
-    use amaru_consensus::consensus::chain_selection::generators::generate_headers_anchored_at;
+    use amaru_consensus::consensus::generators::generate_headers_anchored_at;
     use amaru_kernel::{to_cbor, Point};
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
