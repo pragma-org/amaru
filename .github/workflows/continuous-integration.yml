@@ -109,6 +109,8 @@ jobs:
             else
               cargo $EXTRA_ARGS $COMMAND $SCOPE --locked --target ${{ matrix.environments.target }}
             fi
+            # Run doc tests separately as --doc can't be used with --all-targets
+            cargo test --doc
           fi
           exitcode="$?"
           if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
