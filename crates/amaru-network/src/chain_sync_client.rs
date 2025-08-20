@@ -173,7 +173,7 @@ enum RollbackHandling {
 #[derive(Debug)]
 pub enum PullResult {
     ForwardBatch(Vec<HeaderContent>),
-    RollBack(Point),
+    RollBack(Point, Tip),
     Nothing,
 }
 
@@ -189,7 +189,7 @@ impl Display for PullResult {
                     .collect::<Vec<String>>()
                     .join("\n")
             ),
-            PullResult::RollBack(point) => write!(f, "Rollback: {}", point),
+            PullResult::RollBack(point, tip) => write!(f, "Rollback: {}, tip: {:?}", point, tip),
             PullResult::Nothing => write!(f, "No result"),
         }
     }
@@ -280,12 +280,13 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
 
             match response {
                 NextResponse::RollForward(content, _tip) => batch.forward(content),
-                NextResponse::RollBackward(point, _tip) => match batch.rollback(&point) {
+                NextResponse::RollBackward(point, tip) => match batch.rollback(&point) {
                     RollbackHandling::Handled => (),
                     RollbackHandling::BeforeBatch => {
-                        return Ok(PullResult::RollBack(crate::point::from_network_point(
-                            &point,
-                        )))
+                        return Ok(PullResult::RollBack(
+                            crate::point::from_network_point(&point),
+                            tip,
+                        ))
                     }
                 },
                 NextResponse::Await => break,
@@ -406,7 +407,7 @@ mod tests {
         let result = chain_sync_client.pull_batch().await.unwrap();
 
         assert!(
-            matches!(result, PullResult::RollBack(point) if rollback_point == to_network_point(&point))
+            matches!(result, PullResult::RollBack(point, _) if rollback_point == to_network_point(&point))
         );
     }
 
