@@ -15,10 +15,10 @@
 use amaru_kernel::Point as KernelPoint;
 use pallas_network::miniprotocols::Point as NetworkPoint;
 
-pub fn to_network_point(point: KernelPoint) -> NetworkPoint {
+pub fn to_network_point(point: &KernelPoint) -> NetworkPoint {
     match point {
         KernelPoint::Origin => NetworkPoint::Origin,
-        KernelPoint::Specific(slot, hash) => NetworkPoint::Specific(slot, hash),
+        KernelPoint::Specific(slot, hash) => NetworkPoint::Specific(*slot, hash.clone()),
     }
 }
 
