@@ -20,7 +20,7 @@ use amaru_kernel::{peer::Peer, Header, Point};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{trace, Span};
@@ -98,10 +98,10 @@ impl SelectChain {
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => {
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
@@ -136,10 +136,10 @@ impl SelectChain {
                 }])
             }
             RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => Ok(SelectChain::switch_to_fork(
+                                                     peer,
+                                                     rollback_point,
+                                                     fork,
+                                                 }) => Ok(SelectChain::switch_to_fork(
                 peer,
                 rollback_point,
                 fork,
@@ -189,7 +189,7 @@ pub struct Fork<H: IsHeader> {
 
 /// The outcome of the chain selection process in  case of
 /// roll forward.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ForwardChainSelection<H: IsHeader> {
     /// The current best chain has been extended with a (single) new header.
     NewTip { peer: Peer, tip: H },
@@ -209,17 +209,41 @@ impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
             }
             ForwardChainSelection::NoChange => f.write_str("NoChange"),
             ForwardChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => f.write_str(&format!(
-                "SwitchToFork[{}, {}, {}]",
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => f.write_str(&format!(
+                "SwitchToFork[\n    peer: {}, \n    rollback_point: {}, \n    fork:\n        {}]",
                 peer,
                 rollback_point,
                 fork.iter()
                     .map(|h| h.to_string())
                     .collect::<Vec<_>>()
-                    .join(", ")
+                    .join("        \n      , ")
+            )),
+        }
+    }
+}
+
+impl<H: IsHeader + Debug> Debug for ForwardChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForwardChainSelection::NewTip { peer, tip } => {
+                f.write_str(&format!("NewTip[{}, {:?}]", peer, tip))
+            }
+            ForwardChainSelection::NoChange => f.write_str("NoChange"),
+            ForwardChainSelection::SwitchToFork(Fork {
+                                                    peer,
+                                                    rollback_point,
+                                                    fork,
+                                                }) => f.write_str(&format!(
+                "SwitchToFork[\n    peer: {}, \n    rollback_point: {}, \n    fork:\n        {}]",
+                peer,
+                rollback_point,
+                fork.iter()
+                    .map(|h| format!("{h:?}"))
+                    .collect::<Vec<_>>()
+                    .join("        \n      , ")
             )),
         }
     }
@@ -251,10 +275,10 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
             RollbackTo(hash) => f.write_str(&format!("RollbackTo[{}]", hash)),
             RollbackChainSelection::NoChange => f.write_str("NoChange"),
             RollbackChainSelection::SwitchToFork(Fork {
-                peer,
-                rollback_point,
-                fork,
-            }) => f.write_str(&format!(
+                                                     peer,
+                                                     rollback_point,
+                                                     fork,
+                                                 }) => f.write_str(&format!(
                 "SwitchToFork[{}, {}, {}]",
                 peer,
                 rollback_point,

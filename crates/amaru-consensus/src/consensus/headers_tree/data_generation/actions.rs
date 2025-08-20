@@ -21,7 +21,7 @@
 //!
 
 use crate::consensus::headers_tree::data_generation::SelectionResult::{Back, Forward};
-use crate::consensus::headers_tree::data_generation::{any_tree_of_headers, TestHeader, Tree};
+use crate::consensus::headers_tree::data_generation::{any_tree_of_headers, TestHeader};
 use crate::consensus::headers_tree::HeadersTree;
 use crate::consensus::select_chain::RollbackChainSelection::{RollbackBeyondLimit, RollbackTo};
 use crate::consensus::select_chain::{ForwardChainSelection, RollbackChainSelection};
@@ -35,6 +35,7 @@ use rand::{Rng, SeedableRng};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
+use crate::consensus::headers_tree::tree::Tree;
 
 /// This data type models the events sent by the ChainSync mini-protocol with simplify data for the tests.
 /// The serialization is adjusted to make concise string representations when transforming
@@ -163,7 +164,7 @@ pub fn random_walk(
 /// using a `StdRng` generator. This makes the generator reproducible, because the `StdGenerator`
 /// is given a seed controlled by `proptest` but this makes the resulting list of actions non-shrinkable.
 ///
-pub fn any_select_chains(depth: usize, max_length: usize) -> impl Strategy<Value = Vec<Action>> {
+pub fn any_select_chains(depth: usize, max_length: usize) -> impl Strategy<Value=Vec<Action>> {
     any_tree_of_headers(depth).prop_flat_map(move |tree| {
         (1..u64::MAX).prop_map(move |seed| {
             let mut rng = StdRng::seed_from_u64(seed);
@@ -195,7 +196,7 @@ pub fn execute_actions(
 ) -> Result<BTreeMap<(usize, Action), SelectionResult>, ConsensusError> {
     let mut tree = HeadersTree::new(max_length, &None);
     let mut results: BTreeMap<(usize, Action), SelectionResult> = BTreeMap::new();
-    let print = false;
+    let print = true;
 
     for (action_nb, action) in actions.iter().enumerate() {
         if print {
@@ -203,12 +204,6 @@ pub fn execute_actions(
         }
         match action {
             Action::RollForward { peer, ref header } => {
-                if !tree.has_peer(peer) {
-                    let parent = header
-                        .parent
-                        .unwrap_or(tree.get_root_hash().unwrap_or(Point::Origin.hash()));
-                    tree.initialize_peer(peer, &parent)?;
-                };
                 if print {
                     println!("rolling forward for {peer} to {}", header.hash())
                 };
@@ -216,7 +211,7 @@ pub fn execute_actions(
                 results.insert((action_nb, action.clone()), Forward(result.clone()));
                 if print {
                     println!("the resulting event is {result:?}");
-                    println!("headers tree\n{tree:?}");
+                    println!("headers tree\n{tree}");
                 }
             }
             Action::RollBack {
@@ -231,7 +226,7 @@ pub fn execute_actions(
 
                 if print {
                     println!("the resulting event is {result:?}");
-                    println!("headers tree\n{tree:?}")
+                    println!("headers tree\n{tree}")
                 };
             }
         }
