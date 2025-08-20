@@ -107,7 +107,7 @@ impl ChainStore<Header> for TestStore {
         unimplemented!()
     }
 
-    fn era_history(&self) -> &slot_arithmetic::EraHistory {
+    fn era_history(&self) -> &amaru_slot_arithmetic::EraHistory {
         unimplemented!()
     }
 

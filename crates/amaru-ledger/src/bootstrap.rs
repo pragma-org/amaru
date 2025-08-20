@@ -22,7 +22,7 @@ use amaru_kernel::{
     Point, PoolId, PoolParams, ProposalPointer, ProposalState, ProtocolVersion, Reward, Set, Slot,
     StakeCredential, TransactionInput, TransactionPointer,
 };
-use progress_bar::ProgressBar;
+use amaru_progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, sync::LazyLock};
 use tracing::info;
 

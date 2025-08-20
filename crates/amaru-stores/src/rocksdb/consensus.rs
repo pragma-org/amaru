@@ -18,8 +18,8 @@ use amaru_consensus::{
 };
 use amaru_kernel::{cbor, from_cbor, network::NetworkName, to_cbor, Hash, RawBlock};
 use amaru_ouroboros_traits::is_header::IsHeader;
+use amaru_slot_arithmetic::EraHistory;
 use rocksdb::{OptimisticTransactionDB, Options, DB};
-use slot_arithmetic::EraHistory;
 use std::{collections::BTreeMap, path::PathBuf};
 use tracing::{error, instrument, Level};
 

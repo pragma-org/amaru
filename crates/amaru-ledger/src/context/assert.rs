@@ -26,8 +26,8 @@ use amaru_kernel::{
     RequiredScript, ScriptHash, StakeCredential, StakeCredentialType, TransactionInput, Vote,
     Voter, VoterType,
 };
+use amaru_slot_arithmetic::Epoch;
 use core::mem;
-use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::{instrument, Level};
 

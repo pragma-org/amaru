@@ -20,7 +20,7 @@ use amaru_kernel::{
     CertificatePointer, DRep, EpochInterval, Lovelace, ProtocolVersion, Slot, StakeCredential,
     TransactionPointer,
 };
-use slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]

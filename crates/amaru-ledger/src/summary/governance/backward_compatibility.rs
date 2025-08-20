@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use amaru_kernel::{EpochInterval, Slot, TransactionPointer};
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 
 // In Version 9, the number of dormant epochs depends on the moment the DRep registers *within the
@@ -153,7 +153,7 @@ pub(crate) mod tests {
         network::{Bound, EraParams, Summary},
         EraHistory,
     };
-    use slot_arithmetic::Epoch;
+    use amaru_slot_arithmetic::Epoch;
     use std::sync::LazyLock;
     use test_case::test_case;
 

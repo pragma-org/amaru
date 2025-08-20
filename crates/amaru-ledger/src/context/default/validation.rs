@@ -26,8 +26,8 @@ use amaru_kernel::{
     MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
     ProposalPointer, RequiredScript, ScriptHash, StakeCredential, TransactionInput, Vote, Voter,
 };
+use amaru_slot_arithmetic::Epoch;
 use core::mem;
-use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::trace;
 

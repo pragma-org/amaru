@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{cbor, StakeCredential};
-use iter_borrow::IterBorrow;
 
 use crate::state::diff_bind::Resettable;
 

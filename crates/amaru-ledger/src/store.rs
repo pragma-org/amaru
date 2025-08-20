@@ -30,8 +30,8 @@ use amaru_kernel::{
     TransactionInput,
 };
 use amaru_kernel::{MemoizedTransactionOutput, ProtocolVersion};
+use amaru_slot_arithmetic::Epoch;
 use columns::*;
-use slot_arithmetic::Epoch;
 use std::{borrow::BorrowMut, io, iter};
 use thiserror::Error;
 

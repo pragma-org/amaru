@@ -21,8 +21,8 @@ use amaru_ledger::store::{
     },
     StoreError,
 };
+use amaru_slot_arithmetic::Epoch;
 use rocksdb::Transaction;
-use slot_arithmetic::Epoch;
 use std::collections::BTreeSet;
 use tracing::error;
 

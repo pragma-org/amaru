@@ -21,7 +21,7 @@ use amaru_kernel::{
     NonEmptySet, PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose, StakeCredential,
     TransactionPointer,
 };
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use thiserror::Error;
 
 #[derive(Debug, Error)]

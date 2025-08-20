@@ -74,8 +74,8 @@ mod tests {
         rules::tests::fixture_context,
     };
     use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_tracing_json::assert_trace;
     use test_case::test_case;
-    use tracing_json::assert_trace;
 
     use super::InvalidFees;
 

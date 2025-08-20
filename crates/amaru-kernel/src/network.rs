@@ -22,7 +22,7 @@ use crate::{
 use pallas_addresses::Network;
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
-pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 
 /// Era history for Mainnet retrieved with:
 ///
@@ -571,8 +571,8 @@ mod tests {
         EraHistoryFileError,
         NetworkName::{self, *},
     };
+    use amaru_slot_arithmetic::{Epoch, Slot};
     use proptest::{prelude::*, prop_oneof, proptest};
-    use slot_arithmetic::{Epoch, Slot};
     use std::{env, fs::File, io::Write, path::Path, str::FromStr};
 
     fn any_network() -> impl Strategy<Value = NetworkName> {

@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 
 /// A compact data-structure tracking deferred registration & unregistration changes in a key:value
 /// store. By deferred, we reflect on the fact that unregistering a value isn't immediate, but

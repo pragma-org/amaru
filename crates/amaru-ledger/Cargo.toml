@@ -14,7 +14,7 @@ rust-version.workspace = true
 
 [features]
 default = []
-test-utils = ["proptest", "slot-arithmetic/test-utils"]
+test-utils = ["proptest", "amaru-slot-arithmetic/test-utils"]
 
 [dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -28,11 +28,11 @@ tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
+amaru-iter-borrow.workspace = true
 amaru-ouroboros-traits.workspace = true
-iter-borrow.workspace = true
-progress-bar.workspace = true
-slot-arithmetic.workspace = true
-tracing-json.workspace = true
+amaru-progress-bar.workspace = true
+amaru-slot-arithmetic.workspace = true
+amaru-tracing-json.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -41,7 +41,7 @@ test-case.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = [ "test-utils" ] }
-slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
+amaru-slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [

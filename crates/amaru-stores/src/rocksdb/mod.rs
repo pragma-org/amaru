@@ -13,6 +13,7 @@
 // limitations under the License.
 
 use ::rocksdb::{self, checkpoint, OptimisticTransactionDB, Options, SliceTransform};
+use amaru_iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
 use amaru_kernel::{
     cbor, protocol_parameters::ProtocolParameters, CertificatePointer, EraHistory, Lovelace,
     MemoizedTransactionOutput, Point, PoolId, ProtocolVersion, StakeCredential, TransactionInput,
@@ -25,11 +26,10 @@ use amaru_ledger::{
     },
     summary::Pots,
 };
-use iter_borrow::{self, borrowable_proxy::BorrowableProxy, IterBorrow};
+use amaru_slot_arithmetic::Epoch;
 use rocksdb::{
     DBAccess, DBIteratorWithThreadMode, Direction, IteratorMode, ReadOptions, Transaction, DB,
 };
-use slot_arithmetic::Epoch;
 use std::{
     fmt, fs,
     path::{Path, PathBuf},
@@ -280,7 +280,7 @@ fn with_prefix_iterator<
     mut with: impl FnMut(IterBorrow<'_, '_, K, Option<V>>),
 ) -> Result<(), StoreError> {
     let mut iterator =
-        iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
+        amaru_iter_borrow::new::<PREFIX_LEN, _, _>(db.prefix_iterator(prefix).map(|item| {
             // FIXME: clarify what kind of errors can come from the database at this point.
             // We are merely iterating over a collection.
             item.unwrap_or_else(|e| panic!("unexpected database error: {e:?}"))

@@ -37,7 +37,7 @@ use amaru_kernel::{
     Point, PoolId, ProtocolVersion, Slot, StakeCredential, StakeCredentialType, TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
-use slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
     collections::{BTreeMap, BTreeSet, VecDeque},

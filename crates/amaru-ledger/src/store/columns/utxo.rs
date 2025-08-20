@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{MemoizedTransactionOutput, TransactionInput};
-use iter_borrow::IterBorrow;
 
 pub type Key = TransactionInput;
 

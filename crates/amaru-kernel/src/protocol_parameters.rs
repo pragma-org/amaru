@@ -13,9 +13,9 @@
 // limitations under the License.
 
 use crate::{cbor, Coin, EpochInterval, ExUnits, Lovelace, RationalNumber};
+use amaru_slot_arithmetic::Slot;
 use pallas_codec::minicbor::{data::Tag, Decoder};
 use pallas_primitives::{conway::CostModels, CostModel};
-use slot_arithmetic::Slot;
 
 pub use default::*;
 mod default;
