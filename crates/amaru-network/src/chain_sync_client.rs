@@ -29,7 +29,7 @@ use std::fmt::Debug;
 use std::fmt::{self, Display};
 use std::sync::{Arc, RwLock};
 use tokio::sync::Mutex;
-use tracing::{Level, Span, instrument};
+use tracing::Span;
 
 const MAX_BATCH_SIZE: usize = 10;
 
@@ -58,10 +58,14 @@ pub trait ChainSync<C> {
 
     async fn recv_while_can_await(&mut self) -> Result<NextResponse<C>, ClientError>;
 
+    async fn recv_while_must_reply(&mut self) -> Result<NextResponse<C>, ClientError>;
+
     async fn find_intersect(
         &mut self,
         points: Vec<NetworkPoint>,
     ) -> Result<IntersectResponse, ClientError>;
+
+    async fn has_agency(&mut self) -> bool;
 }
 
 #[async_trait::async_trait(?Send)]
@@ -77,11 +81,19 @@ where
         self.recv_while_can_await().await
     }
 
+    async fn recv_while_must_reply(&mut self) -> Result<NextResponse<C>, ClientError> {
+        self.recv_while_must_reply().await
+    }
+
     async fn find_intersect(
         &mut self,
         points: Vec<NetworkPoint>,
     ) -> Result<IntersectResponse, ClientError> {
         self.find_intersect(points).await
+    }
+
+    async fn has_agency(&mut self) -> bool {
+        Client::has_agency(self)
     }
 }
 
@@ -95,11 +107,45 @@ impl ChainSync<HeaderContent> for PeerClient {
         self.chainsync().recv_while_can_await().await
     }
 
+    async fn recv_while_must_reply(&mut self) -> Result<NextResponse<HeaderContent>, ClientError> {
+        self.chainsync().recv_while_must_reply().await
+    }
+
     async fn find_intersect(
         &mut self,
         points: Vec<NetworkPoint>,
     ) -> Result<IntersectResponse, ClientError> {
         self.chainsync().find_intersect(points).await
+    }
+
+    async fn has_agency(&mut self) -> bool {
+        self.chainsync().has_agency().await
+    }
+}
+
+#[async_trait::async_trait(?Send)]
+impl ChainSync<HeaderContent> for Arc<Mutex<PeerClient>> {
+    async fn request_next(&mut self) -> Result<NextResponse<HeaderContent>, ClientError> {
+        self.lock().await.chainsync().request_next().await
+    }
+
+    async fn recv_while_can_await(&mut self) -> Result<NextResponse<HeaderContent>, ClientError> {
+        self.lock().await.chainsync().recv_while_can_await().await
+    }
+
+    async fn recv_while_must_reply(&mut self) -> Result<NextResponse<HeaderContent>, ClientError> {
+        self.lock().await.chainsync().recv_while_must_reply().await
+    }
+
+    async fn find_intersect(
+        &mut self,
+        points: Vec<NetworkPoint>,
+    ) -> Result<IntersectResponse, ClientError> {
+        self.lock().await.chainsync().find_intersect(points).await
+    }
+
+    async fn has_agency(&mut self) -> bool {
+        self.lock().await.chainsync().has_agency().await
     }
 }
 
@@ -116,11 +162,19 @@ where
         self.recv_while_can_await().await
     }
 
+    async fn recv_while_must_reply(&mut self) -> Result<NextResponse<C>, ClientError> {
+        self.recv_while_must_reply().await
+    }
+
     async fn find_intersect(
         &mut self,
         points: Vec<NetworkPoint>,
     ) -> Result<IntersectResponse, ClientError> {
         self.find_intersect(points).await
+    }
+
+    async fn has_agency(&mut self) -> bool {
+        Client::has_agency(self)
     }
 }
 
@@ -215,14 +269,6 @@ impl NetworkHeader for HeaderContent {
 }
 
 impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
-    pub fn new(
-        _peer_session: PeerSession,
-        _intersection: Vec<Point>,
-        _catching_up: Arc<RwLock<bool>>,
-    ) -> Self {
-        unimplemented!()
-    }
-
     pub async fn find_intersection(&mut self) -> Result<(), ChainSyncClientError> {
         let points: Vec<NetworkPoint> = self.intersection.iter().map(to_network_point).collect();
 
@@ -301,27 +347,16 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
         ))
     }
 
-    // pub async fn await_next(
-    //     &mut self,
-    // ) -> Result<NextResponse<HeaderDecodeError>, ChainSyncClientError> {
-    //     self.no_longer_catching_up();
-    //     let mut peer_client = self.peer_session.lock().await;
-    //     let client = (*peer_client).chainsync();
+    pub async fn await_next(&mut self) -> Result<NextResponse<C>, ChainSyncClientError> {
+        self.client
+            .recv_while_must_reply()
+            .await
+            .map_err(ChainSyncClientError::NetworkError)
+    }
 
-    //     match client.recv_while_must_reply().await {
-    //         Ok(result) => Ok(result),
-    //         Err(e) => {
-    //             tracing::error!(reason = %e, "failed while awaiting for next block");
-    //             Err(ChainSyncClientError::NetworkError(e))
-    //         }
-    //     }
-    // }
-
-    // pub async fn has_agency(&self) -> bool {
-    //     let mut peer_client = self.peer_session.lock().await;
-    //     let client = (*peer_client).chainsync();
-    //     client.has_agency()
-    // }
+    pub async fn has_agency(&mut self) -> bool {
+        self.client.has_agency().await
+    }
 
     pub fn new1(
         client: Box<dyn ChainSync<C> + Sync + Send>,
@@ -345,6 +380,19 @@ pub fn new_with_peer(
     ChainSyncClient {
         client,
         peer: Peer::new("alice"),
+        intersection: intersection.to_vec(),
+        max_batch_size: MAX_BATCH_SIZE,
+    }
+}
+
+pub fn new_with_session(
+    peer: PeerSession,
+    intersection: &Vec<Point>,
+) -> ChainSyncClient<HeaderContent> {
+    let client = Box::new(peer.peer_client.clone());
+    ChainSyncClient {
+        client,
+        peer: peer.peer.clone(),
         intersection: intersection.to_vec(),
         max_batch_size: MAX_BATCH_SIZE,
     }
@@ -472,6 +520,18 @@ mod tests {
             }
         }
 
+        async fn recv_while_must_reply(
+            &mut self,
+        ) -> Result<NextResponse<FakeContent>, ClientError> {
+            if !self.responses.is_empty() {
+                let next = self.responses.remove(0);
+                Ok(next)
+            } else {
+                // NOTE: supposed to have reached tip
+                Ok(NextResponse::Await)
+            }
+        }
+
         async fn request_next(&mut self) -> Result<NextResponse<FakeContent>, ClientError> {
             if !self.responses.is_empty() {
                 let next = self.responses.remove(0);
@@ -488,6 +548,10 @@ mod tests {
             self.intersection
                 .clone()
                 .ok_or(ClientError::IntersectionNotFound)
+        }
+
+        async fn has_agency(&mut self) -> bool {
+            unimplemented!()
         }
     }
 

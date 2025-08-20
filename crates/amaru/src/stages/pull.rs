@@ -16,18 +16,18 @@ use crate::send;
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::Point;
 use amaru_network::{
-    chain_sync_client::{ChainSyncClient, PullResult},
+    chain_sync_client::{new_with_session, ChainSyncClient, PullResult},
     point::from_network_point,
     session::PeerSession,
 };
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
-use std::sync::{Arc, RwLock};
-use tracing::{Level, instrument};
+use tracing::{instrument, Level};
 
 pub type DownstreamPort = gasket::messaging::OutputPort<ChainSyncEvent>;
 
 pub enum WorkUnit {
+    Intersect,
     Pull,
     Await,
 }
@@ -40,13 +40,9 @@ pub struct Stage {
 }
 
 impl Stage {
-    pub fn new(
-        peer_session: PeerSession,
-        intersection: Vec<Point>,
-        is_catching_up: Arc<RwLock<bool>>,
-    ) -> Self {
+    pub fn new(peer_session: PeerSession, intersection: Vec<Point>) -> Self {
         Self {
-            client: ChainSyncClient::new(peer_session, intersection, is_catching_up),
+            client: new_with_session(peer_session, &intersection),
             downstream: Default::default(),
         }
     }
@@ -55,9 +51,12 @@ impl Stage {
         self.client.find_intersection().await.or_panic()
     }
 
-    pub async fn roll_forward(&mut self, header: &HeaderContent) -> Result<(), WorkerError> {
-        let event = self.client.roll_forward(header).or_panic()?;
-        send!(&mut self.downstream, event)
+    pub async fn roll_forward(&mut self, headers: &Vec<HeaderContent>) -> Result<(), WorkerError> {
+        for header in headers {
+            let event = self.client.roll_forward(header).or_panic()?;
+            send!(&mut self.downstream, event)?;
+        }
+        Ok(())
     }
 
     pub async fn roll_back(&mut self, rollback_point: Point, tip: Tip) -> Result<(), WorkerError> {
@@ -66,27 +65,28 @@ impl Stage {
     }
 }
 
-pub struct Worker {}
+pub struct Worker {
+    initialised: bool,
+}
 
 #[async_trait::async_trait(?Send)]
 impl gasket::framework::Worker<Stage> for Worker {
-    async fn bootstrap(stage: &Stage) -> Result<Self, WorkerError> {
-        //stage.find_intersection().await?;
-
-        let worker = Self {};
+    async fn bootstrap(_stage: &Stage) -> Result<Self, WorkerError> {
+        let worker = Self { initialised: false };
 
         Ok(worker)
     }
 
     async fn schedule(&mut self, stage: &mut Stage) -> Result<WorkSchedule<WorkUnit>, WorkerError> {
-        // if stage.client.has_agency().await {
-        //     // should request next block
-        //     Ok(WorkSchedule::Unit(WorkUnit::Pull))
-        // } else {
-        //     // should await for next block
-        //     Ok(WorkSchedule::Unit(WorkUnit::Await))
-        // }
-        Ok(WorkSchedule::Unit(WorkUnit::Await))
+        if self.initialised {
+            if stage.client.has_agency().await {
+                Ok(WorkSchedule::Unit(WorkUnit::Pull))
+            } else {
+                Ok(WorkSchedule::Unit(WorkUnit::Await))
+            }
+        } else {
+            Ok(WorkSchedule::Unit(WorkUnit::Intersect))
+        }
     }
 
     #[instrument(
@@ -95,26 +95,30 @@ impl gasket::framework::Worker<Stage> for Worker {
         skip_all,
     )]
     async fn execute(&mut self, unit: &WorkUnit, stage: &mut Stage) -> Result<(), WorkerError> {
-        let next = match unit {
+        match unit {
+            WorkUnit::Intersect => {
+                stage.find_intersection().await?;
+                self.initialised = true;
+            }
             WorkUnit::Pull => {
-                let result = stage.client.pull_batch().await.or_panic()?;
+                let result = stage.client.pull_batch().await.or_restart()?;
                 match result {
-                    PullResult::ForwardBatch(_) => todo!(),
-                    PullResult::RollBack(_) => todo!(),
-                    PullResult::Nothing => todo!(),
+                    PullResult::ForwardBatch(header_contents) => {
+                        stage.roll_forward(&header_contents).await?
+                    }
+                    PullResult::RollBack(point, tip) => stage.roll_back(point, tip).await?,
+                    PullResult::Nothing => (),
                 }
             }
-            WorkUnit::Await => todo!(), // stage.client.await_next().await.or_panic()?,
-        };
-
-        match next {
-            NextResponse::RollForward(header, _tip) => {
-                stage.roll_forward(&header).await?;
-            }
-            NextResponse::RollBackward(point, tip) => {
-                stage.roll_back(from_network_point(&point), tip).await?;
-            }
-            NextResponse::Await => {}
+            WorkUnit::Await => match stage.client.await_next().await.or_restart()? {
+                NextResponse::RollForward(header_content, _tip) => {
+                    stage.roll_forward(&vec![header_content]).await?
+                }
+                NextResponse::RollBackward(point, tip) => {
+                    stage.roll_back(from_network_point(&point), tip).await?
+                }
+                NextResponse::Await => (),
+            },
         };
 
         Ok(())
