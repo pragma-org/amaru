@@ -18,11 +18,11 @@ use amaru_network::{
     chain_sync_client::{new_with_peer, PullResult},
     connect_to_peer,
 };
+use amaru_progress_bar::{new_terminal_progress_bar, ProgressBar};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::HeaderContent;
-use progress_bar::{new_terminal_progress_bar, ProgressBar};
 use std::{error::Error, path::PathBuf};
 use tracing::info;
 
@@ -99,15 +99,12 @@ pub(crate) async fn import_headers(
 
     let peer = connect_to_peer(peer_address, &network_name).await?;
 
-    let mut chain_sync = new_with_peer(peer, &vec![point]);
+    let mut chain_sync = new_with_peer(peer, &[point]);
 
-    chain_sync
-        .find_intersection()
-        .await
-        .expect("failed to find intersection");
+    chain_sync.find_intersection().await?;
 
     while count < max {
-        match chain_sync.pull_batch().await.expect("failed to pull batch") {
+        match chain_sync.pull_batch().await? {
             PullResult::ForwardBatch(header_contents) => {
                 handle_batch(&header_contents, &mut db, &mut progress)?;
                 count += header_contents.len()
