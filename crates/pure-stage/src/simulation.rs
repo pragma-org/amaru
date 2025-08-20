@@ -108,7 +108,7 @@ pub(crate) fn airlock_effect<Out>(
 ///
 /// Example:
 /// ```rust
-/// use pure_stage::{StageGraph, simulation::SimulationBuilder, OutputEffect, ExternalEffect};
+/// use pure_stage::{Resources, StageGraph, simulation::SimulationBuilder, OutputEffect, ExternalEffect};
 ///
 /// let mut network = SimulationBuilder::default();
 /// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
@@ -134,7 +134,7 @@ pub(crate) fn airlock_effect<Out>(
 ///
 /// running.resume_receive(&output).unwrap();
 /// let ext = running.effect().extract_external(&output, &OutputEffect::fake(output.name(), 2u32).0);
-/// let result = rt.block_on(ext.run());
+/// let result = rt.block_on(ext.run(Resources::default()));
 /// running.resume_external(&output, result).unwrap();
 /// running.effect().assert_receive(&output);
 ///
