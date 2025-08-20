@@ -429,7 +429,7 @@ impl StageEffect<Box<dyn SendData>> {
             ),
             StageEffect::Terminate => (
                 StageEffect::Terminate,
-                Effect::Failure { at_stage: at_name },
+                Effect::Terminate { at_stage: at_name },
             ),
         }
     }
@@ -467,7 +467,7 @@ pub enum Effect {
         #[serde(with = "crate::serde::serialize_external_effect")]
         effect: Box<dyn ExternalEffect>,
     },
-    Failure {
+    Terminate {
         at_stage: Name,
     },
 }
@@ -482,7 +482,7 @@ impl Effect {
             Effect::Wait { at_stage, .. } => at_stage,
             Effect::Respond { at_stage, .. } => at_stage,
             Effect::External { at_stage, .. } => at_stage,
-            Effect::Failure { at_stage, .. } => at_stage,
+            Effect::Terminate { at_stage, .. } => at_stage,
         }
     }
 
@@ -691,8 +691,8 @@ impl PartialEq for Effect {
                 }
                 _ => false,
             },
-            Effect::Failure { at_stage } => match other {
-                Effect::Failure {
+            Effect::Terminate { at_stage } => match other {
+                Effect::Terminate {
                     at_stage: other_at_stage,
                 } => at_stage == other_at_stage,
                 _ => false,

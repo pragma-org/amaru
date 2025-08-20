@@ -53,9 +53,14 @@ impl<T> std::fmt::Debug for NoDebug<T> {
 #[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Void {}
 
+/// Diverging helper used in type contexts that expect `!`.
+/// Panics intentionally; for non-resolving futures, use `std::future::pending()`.
+#[cold]
+#[inline(never)]
+#[track_caller]
 #[allow(clippy::panic)]
 pub fn never() -> ! {
-    panic!("never")
+    panic!("unreachable: never")
 }
 
 /// `#[serde(with = "pure_stage::serde::serialize_error")]` for serializing [`anyhow::Error`].

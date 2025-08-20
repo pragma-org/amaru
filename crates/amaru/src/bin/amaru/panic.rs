@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use std::process::exit;
+use std::{io::Write, process::exit};
 
 /// Installs a panic handler that prints some useful diagnostics and
 /// asks the user to report the issue.
@@ -45,6 +45,7 @@ pub fn panic_handler() {
         prev(info);
         // Exit with a non-zero code to indicate that the process crashed
         // otherwise it will just sit there and wait for ctrl-c without saying so.
+        std::io::stderr().flush().ok();
         exit(1);
     }));
 }

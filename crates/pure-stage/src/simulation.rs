@@ -36,7 +36,6 @@ use crate::{
 use either::Either;
 use parking_lot::Mutex;
 use std::{
-    any::Any,
     collections::{BTreeMap, VecDeque},
     future::{poll_fn, Future},
     marker::PhantomData,
@@ -229,7 +228,7 @@ impl super::StageGraph for SimulationBuilder {
         let effects = Effects::new(me, self.effect.clone(), self.clock.clone(), self_sender);
         let transition: Transition =
             Box::new(move |state: Box<dyn SendData>, msg: Box<dyn SendData>| {
-                let state = (state as Box<dyn Any>).downcast::<St>().unwrap();
+                let state = state.cast::<St>().expect("internal state type error");
                 let msg = msg
                     .cast_deserialize::<Msg>()
                     .expect("internal message type error");

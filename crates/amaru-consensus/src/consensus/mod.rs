@@ -14,9 +14,9 @@
 
 use std::fmt;
 
-use crate::is_header::IsHeader;
+use crate::{consensus::validate_header::ValidationFailed, is_header::IsHeader};
 use amaru_kernel::{peer::Peer, protocol_parameters::GlobalParameters, Header, Point};
-use pure_stage::StageGraph;
+use pure_stage::{StageGraph, StageRef, Void};
 use serde::{Deserialize, Serialize};
 use tracing::Span;
 
@@ -35,19 +35,23 @@ pub fn build_stage_graph(
     global_parameters: &GlobalParameters,
     consensus: validate_header::ValidateHeader,
     network: &mut impl StageGraph,
-) -> (
-    pure_stage::Receiver<DecodedChainSyncEvent>,
-    pure_stage::Sender<DecodedChainSyncEvent>,
-) {
+    validation_outputs: StageRef<DecodedChainSyncEvent, Void>,
+) -> StageRef<DecodedChainSyncEvent, Void> {
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
 
-    let errors_stage = network.stage("errors", async |_, (peer, error), eff| {
-        tracing::error!(%peer, %error, "invalid header");
+    let errors_stage = network.stage("errors", async |_, msg, eff| {
+        let ValidationFailed {
+            peer,
+            error,
+            action,
+        } = msg;
+        tracing::error!(%peer, %error, ?action, "invalid header");
+
+        // TODO: implement specific actions once we have an upstream network
+
         // termination here will tear down the entire stage graph
         eff.terminate().await
     });
-
-    let (network_output_ref, network_output) = network.output("network_output", 50);
 
     let errors_stage = network.wire_up(errors_stage, ());
 
@@ -56,13 +60,12 @@ pub fn build_stage_graph(
         (
             consensus,
             global_parameters.clone(),
-            network_output_ref,
+            validation_outputs,
             errors_stage.without_state(),
         ),
     );
 
-    let validate_header_input = network.input(&validate_header_stage);
-    (network_output, validate_header_input)
+    validate_header_stage.without_state()
 }
 
 #[derive(Clone)]

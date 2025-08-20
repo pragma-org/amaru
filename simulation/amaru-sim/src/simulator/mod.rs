@@ -15,13 +15,14 @@
 use super::echo::Envelope;
 use amaru_consensus::{
     consensus::{
+        build_stage_graph,
         headers_tree::HeadersTree,
         receive_header::handle_chain_sync,
         select_chain::{SelectChain, DEFAULT_MAXIMUM_FRAGMENT_LENGTH},
         store::ChainStore,
         store_header::StoreHeader,
         validate_header::{
-            self, ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
+            ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
         },
         ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
     },
@@ -159,10 +160,6 @@ fn spawn_node(
 
     let (global_parameters, select_chain, validate_header, chain_ref) = init_node(&args);
 
-    let init_st = ValidateHeader {
-        ledger: validate_header.ledger.clone(),
-    };
-
     let init_store = StoreHeader {
         store: chain_ref.clone(),
     };
@@ -218,8 +215,6 @@ fn spawn_node(
             ((), downstream, out)
         },
     );
-
-    let validate_header_stage = network.stage("validate_header", validate_header::stage);
 
     let store_header_stage = network.stage(
         "store_header",
@@ -329,31 +324,19 @@ fn spawn_node(
         },
     );
 
-    let errors_stage = network.stage("errors", async |_, (peer, error), eff| {
-        tracing::error!(%peer, %error, "invalid header");
-        // termination here will tear down the entire stage graph
-        eff.terminate().await
-    });
-    let errors_stage = network.wire_up(errors_stage, ());
+    let validate_header_ref = build_stage_graph(
+        &global_parameters,
+        validate_header,
+        network,
+        select_chain_stage.sender(),
+    );
 
     let (output, rx) = network.output("output", 10);
     let receive = network.wire_up(
         receive_stage,
-        ((), validate_header_stage.sender(), output.clone()),
+        ((), store_header_stage.sender(), output.clone()),
     );
-    network.wire_up(
-        store_header_stage,
-        (init_store, validate_header_stage.sender()),
-    );
-    network.wire_up(
-        validate_header_stage,
-        (
-            init_st,
-            global_parameters.clone(),
-            select_chain_stage.sender(),
-            errors_stage.without_state(),
-        ),
-    );
+    network.wire_up(store_header_stage, (init_store, validate_header_ref));
     network.wire_up(
         select_chain_stage,
         (select_chain.clone(), propagate_header_stage.sender()),

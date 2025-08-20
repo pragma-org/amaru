@@ -61,7 +61,7 @@ impl gasket::framework::Worker<PureStageSim> for Worker {
         // we cannot use pending(), though, because that prevents gasket from
         // shutting down the stage.
         select! {
-            _ = &mut stage.termination => {
+            _ = stage.termination.as_mut() => {
                 stage.exit.cancel();
                 Ok(WorkSchedule::Done)
             }

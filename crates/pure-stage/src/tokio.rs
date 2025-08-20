@@ -208,8 +208,7 @@ impl StageGraph for TokioBuilder {
         let handles2 = handles.clone();
         rt.spawn(async move {
             termination2.wait_for(|x| *x).await.ok();
-            let handles = std::mem::take(&mut *handles2.lock());
-            for handle in handles {
+            for handle in handles2.lock().iter() {
                 handle.abort();
             }
         });

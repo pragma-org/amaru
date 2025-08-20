@@ -17,13 +17,14 @@ use pure_stage::{
     simulation::{OverrideResult, SimulationBuilder},
     trace_buffer::TraceBuffer,
     CallRef, Effect, ExternalEffect, Instant, OutputEffect, Receiver, Resources, SendData,
-    StageGraph, StageRef, Void,
+    StageGraph, StageGraphRunning, StageRef, Void,
 };
 use std::{
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
     },
+    task::{Context, Poll, Waker},
     time::Duration,
 };
 use tracing_subscriber::EnvFilter;
@@ -417,4 +418,53 @@ fn call() {
     // the processing above has already dealt with sending the response, which has resumed the caller
     sim.effect().assert_receive(&caller);
     assert_eq!(sim.get_state(&caller).unwrap().0, 7);
+}
+
+#[test]
+fn call_timeout_terminates_graph() {
+    let mut network = SimulationBuilder::default();
+
+    // caller times out quickly; callee sleeps longer -> triggers terminate
+    let caller = network.stage("caller", async |state: State3, msg: u32, eff| {
+        let Some(_) = eff
+            .call(&state.1, Duration::from_millis(10), move |cr| {
+                Msg3(msg + 1, cr)
+            })
+            .await
+        else {
+            // Returning terminate here should trigger graph termination
+            // (SimulationRunning.termination should complete)
+            // We return from the stage with terminate effect:
+            // NOTE: returning `eff.terminate().await` is the intended pattern.
+            return eff.terminate().await;
+        };
+        state
+    });
+
+    let callee = network.stage("callee", async |state, _msg: Msg3, eff| {
+        eff.wait(Duration::from_secs(1)).await; // Ensure we exceed caller timeout
+        state
+    });
+
+    let caller = network.wire_up(caller, State3(0u32, callee.sender()));
+    network.wire_up(callee, ());
+
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let mut sim = network.run(rt.handle().clone());
+
+    sim.enqueue_msg(&caller, [1]);
+    // Run until blocked, then assert termination flips true
+    let mut term = sim.termination();
+    assert_eq!(
+        term.as_mut().poll(&mut Context::from_waker(Waker::noop())),
+        Poll::Pending
+    );
+
+    sim.run_until_blocked(); // drive effects
+
+    assert!(sim.is_terminated(), "simulation should report terminated");
+    assert_eq!(
+        term.as_mut().poll(&mut Context::from_waker(Waker::noop())),
+        Poll::Ready(())
+    );
 }

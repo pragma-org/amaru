@@ -405,7 +405,7 @@ impl SimulationRunning {
                 Err(blocked) => return blocked,
             };
 
-            tracing::info!(runnable = ?self.runnable.iter().map(|r| r.0.as_str()).collect::<Vec<&str>>(), effect = ?effect, "run effect");
+            tracing::debug!(runnable = ?self.runnable.iter().map(|r| r.0.as_str()).collect::<Vec<&str>>(), effect = ?effect, "run effect");
 
             for (name, predicate) in &self.breakpoints {
                 if (predicate)(&effect) {
@@ -533,8 +533,8 @@ impl SimulationRunning {
                 resume_external_internal(data, result, run)
                     .expect("external effect is always runnable");
             }
-            Effect::Failure { at_stage } => {
-                tracing::warn!("stage `{at_stage}` terminated");
+            Effect::Terminate { at_stage } => {
+                tracing::info!(stage = %at_stage, "terminated");
                 self.terminate.send_replace(true);
             }
         }
@@ -964,7 +964,9 @@ pub fn poll_stage(
             }
         };
         let (wait_effect, effect) = stage_effect.split(name.clone());
-        data.waiting = Some(wait_effect);
+        if !matches!(wait_effect, StageEffect::Terminate) {
+            data.waiting = Some(wait_effect);
+        }
         effect
     }
 }

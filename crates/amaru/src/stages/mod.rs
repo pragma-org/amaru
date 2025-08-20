@@ -189,9 +189,11 @@ pub fn bootstrap(
 
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
+    let (output_ref, output_stage) = network.output("output", 50);
 
-    let (network_output, validate_header_input) =
-        build_stage_graph(global_parameters, consensus, &mut network);
+    let validate_header_ref =
+        build_stage_graph(global_parameters, consensus, &mut network, output_ref);
+    let validate_header_input = SendAdapter(network.input(&validate_header_ref));
 
     network
         .resources()
@@ -212,13 +214,11 @@ pub fn bootstrap(
     receive_header_stage.downstream.connect(to_store_header);
 
     store_header_stage.upstream.connect(from_receive_header);
-    store_header_stage
-        .downstream
-        .connect(SendAdapter(validate_header_input));
+    store_header_stage.downstream.connect(validate_header_input);
 
     select_chain_stage
         .upstream
-        .connect(RecvAdapter(network_output));
+        .connect(RecvAdapter(output_stage));
     select_chain_stage.downstream.connect(to_fetch_block);
 
     fetch_block_stage.upstream.connect(from_select_chain);

@@ -206,11 +206,51 @@ impl ValidateHeader {
     }
 }
 
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ValidationFailed {
+    pub peer: Peer,
+    pub error: String,
+    pub action: UpstreamAction,
+}
+
+impl ValidationFailed {
+    pub fn kick_peer(peer: Peer, error: String) -> Self {
+        Self {
+            peer,
+            error,
+            action: UpstreamAction::KickPeer,
+        }
+    }
+
+    pub fn ban_peer(peer: Peer, error: String) -> Self {
+        Self {
+            peer,
+            error,
+            action: UpstreamAction::BanPeer,
+        }
+    }
+
+    pub fn only_logging(peer: Peer, error: String) -> Self {
+        Self {
+            peer,
+            error,
+            action: UpstreamAction::OnlyLogging,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub enum UpstreamAction {
+    KickPeer,
+    BanPeer,
+    OnlyLogging,
+}
+
 type State = (
     ValidateHeader,
     GlobalParameters,
     StageRef<DecodedChainSyncEvent, Void>,
-    StageRef<(Peer, String), Void>,
+    StageRef<ValidationFailed, Void>,
 );
 
 pub async fn stage(
@@ -224,7 +264,11 @@ pub async fn stage(
         Ok(result) => result,
         Err(error) => {
             tracing::warn!(%peer, %error, "invalid header");
-            eff.send(&errors, (peer, error.to_string())).await;
+            eff.send(
+                &errors,
+                ValidationFailed::kick_peer(peer, error.to_string()),
+            )
+            .await;
             return (state, global, downstream, errors);
         }
     };

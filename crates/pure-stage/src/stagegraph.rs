@@ -221,7 +221,13 @@ pub trait StageGraph {
     fn resources(&self) -> &Resources;
 }
 
+/// A trait for running stage graphs.
+///
+/// This trait is implemented by the return value of the [`StageGraph::run`] method.
 pub trait StageGraphRunning {
+    /// Returns true if the stage graph has observed a termination signal.
     fn is_terminated(&self) -> bool;
+
+    /// A future that resolves once the stage graph has terminated.
     fn termination(&self) -> BoxFuture<'static, ()>;
 }

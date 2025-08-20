@@ -15,10 +15,7 @@
 use opentelemetry::trace::TracerProvider;
 use opentelemetry_otlp::WithExportConfig;
 use opentelemetry_sdk::{metrics::SdkMeterProvider, trace::SdkTracerProvider};
-use std::{
-    io::{self, IsTerminal},
-    str::FromStr,
-};
+use std::io::{self, IsTerminal};
 use tracing_subscriber::{
     filter::Filtered,
     fmt::{
@@ -286,6 +283,15 @@ fn teardown_open_telemetry(
 // -----------------------------------------------------------------------------
 #[allow(clippy::expect_used)]
 fn default_filter(var: &str, default: &str) -> EnvFilter {
-    EnvFilter::try_from_env(var)
-        .unwrap_or_else(|_| EnvFilter::from_str(default).expect("invalid default filter"))
+    match EnvFilter::try_from_env(var) {
+        Ok(filter) => filter,
+        Err(e) => {
+            // Early stderr notice since tracing isn't up yet
+            eprintln!(
+                "AMARU: invalid {} value ({}), falling back to '{}'",
+                var, e, default
+            );
+            EnvFilter::try_new(default).expect("invalid default filter")
+        }
+    }
 }
