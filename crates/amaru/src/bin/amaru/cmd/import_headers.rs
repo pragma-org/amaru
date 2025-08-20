@@ -12,25 +12,18 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru::stages::pull;
 use amaru_consensus::{consensus::store::ChainStore, IsHeader};
-use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, peer::Peer, Header, Point};
+use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point};
 use amaru_network::{
-    chain_sync_client::{new_with_peer, ChainSyncClient, PullResult},
+    chain_sync_client::{new_with_peer, PullResult},
     connect_to_peer,
-    session::PeerSession,
 };
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
-use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse};
-use std::{
-    error::Error,
-    path::PathBuf,
-    sync::{Arc, RwLock},
-    time::Duration,
-};
-use tokio::{sync::Mutex, time::timeout};
+use pallas_network::miniprotocols::chainsync::HeaderContent;
+use progress_bar::{new_terminal_progress_bar, ProgressBar};
+use std::{error::Error, path::PathBuf};
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -75,13 +68,6 @@ pub struct Args {
     #[arg(long, value_name = "UINT", verbatim_doc_comment, default_value_t = usize::MAX)]
     count: usize,
 }
-
-enum What {
-    Continue,
-    Stop,
-}
-
-use What::*;
 
 pub async fn run(args: Args) -> Result<(), Box<dyn std::error::Error>> {
     let chain_dir = args
@@ -144,7 +130,6 @@ pub(crate) async fn import_headers(
     info!(total = count, "header_imported");
     Ok(())
 }
-
 
 #[allow(clippy::unwrap_used)]
 fn handle_batch(
