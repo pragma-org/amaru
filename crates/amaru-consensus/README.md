@@ -246,7 +246,7 @@ The first step is to check whether or not the given `point` exists in our `tree`
 ### Handling forks
 
 When we need to switch to another peer's chain that's not on our current `best_chain`, this is a fork. The following
-picture represents a typical fork situation from a `Rollback "Alice" 4` message:
+picture represents a typical fork situation from a `RollForward "bob" 10` message.
 
 ![Fork after a rollback](fork-after-rollback.jpg)
 
@@ -272,18 +272,18 @@ When a fork should happen:
 > What if there are multiple peers pointing to the same new `best_chain`? Which one should become our `best_peer`?
 > Shouldn't `best_peer` be a list, or a priority queue?
 
+#### Not all rollbacks are forks
+
+When a peer rolls back to a previous header on the current best chain, this does not entail a fork, even if some other chain appears to be longer.
+
+![No Fork after a rollback](no-fork-after-rollback.jpg)
+
+Here, the rationale is that if `Alice` rolls back to 4, then it's still the case that 6 is the longest chain if it was before, and we don't fork to `Bob`'s 10.
+
 > [!WARNING]
 >
-> What if the new best chain is shorter than $k$, which is the case in the picture? This is very unlikely if the node is
-> following a significant number of peers but not impossible in other cases. However, this means the peer supposedly
-> knows another chain which is longer than our previous best chain, but they could be lying to us!
->
->
-> Possible solution:
->   * We do not immediately switch to the (shorter) fork, which means we need to possibly track 2 nodes for each peer:
-      the current best chain from this node, and the latest best chain before rollback if this chain was our best chain
-      of length $k$
->   * The latter is updated once the node's current best chain catches up
->   * We use the the longest known chain from a peer to select out best chain
+> Rolling back then _immediately_ rolling forward on the same chain should be considered adversarial behaviour. Peers could keep us busy doing this all
+> the time, switching  back and forth
+
 
 ### Handling errors
