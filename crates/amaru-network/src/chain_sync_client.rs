@@ -176,7 +176,7 @@ enum RollbackHandling {
 #[derive(Debug)]
 pub enum PullResult {
     ForwardBatch(Vec<HeaderContent>),
-    RollBack(Point),
+    RollBack(Point, Tip),
     Nothing,
 }
 
@@ -192,7 +192,7 @@ impl Display for PullResult {
                     .collect::<Vec<String>>()
                     .join("\n")
             ),
-            PullResult::RollBack(point) => write!(f, "Rollback: {}", point),
+            PullResult::RollBack(point, tip) => write!(f, "Rollback: {}, tip: {:?}", point, tip),
             PullResult::Nothing => write!(f, "No result"),
         }
     }
@@ -283,12 +283,13 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
 
             match response {
                 NextResponse::RollForward(content, _tip) => batch.forward(content),
-                NextResponse::RollBackward(point, _tip) => match batch.rollback(&point) {
+                NextResponse::RollBackward(point, tip) => match batch.rollback(&point) {
                     RollbackHandling::Handled => (),
                     RollbackHandling::BeforeBatch => {
-                        return Ok(PullResult::RollBack(crate::point::from_network_point(
-                            &point,
-                        )));
+                        return Ok(PullResult::RollBack(
+                            crate::point::from_network_point(&point),
+                            tip,
+                        ));
                     }
                 },
                 NextResponse::Await => break,
@@ -356,7 +357,7 @@ mod tests {
         point::to_network_point,
     };
     use amaru_consensus::consensus::chain_selection::generators::generate_headers_anchored_at;
-    use amaru_kernel::{to_cbor, Point};
+    use amaru_kernel::{Point, to_cbor};
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
     use async_trait::async_trait;
@@ -371,7 +372,7 @@ mod tests {
         point::to_network_point,
     };
 
-    use super::{ChainSync, NetworkHeader, MAX_BATCH_SIZE};
+    use super::{ChainSync, MAX_BATCH_SIZE, NetworkHeader};
     #[tokio::test]
     async fn batch_returns_all_available_forwards_until_await() {
         let mock_client = NetworkClientBuilder::new().forward_headers(3).build();
@@ -416,7 +417,7 @@ mod tests {
         let result = chain_sync_client.pull_batch().await.unwrap();
 
         assert!(
-            matches!(result, PullResult::RollBack(point) if rollback_point == to_network_point(&point))
+            matches!(result, PullResult::RollBack(point, _) if rollback_point == to_network_point(&point))
         );
     }
 
