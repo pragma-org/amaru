@@ -15,16 +15,15 @@
 use crate::{point::to_network_point, session::PeerSession};
 use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
 use amaru_kernel::Point;
-use amaru_kernel::cbor;
-use amaru_kernel::network::NetworkName;
 use amaru_kernel::peer::Peer;
 use pallas_codec::Fragment;
+use pallas_network::facades::PeerClient;
 use pallas_network::miniprotocols::Point as NetworkPoint;
 use pallas_network::miniprotocols::chainsync::{
     Client, ClientError, HeaderContent, IntersectResponse, Message, NextResponse, Tip,
 };
-use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
 use pallas_traverse::MultiEraHeader;
+use std::error::Error;
 use std::fmt::Debug;
 use std::fmt::{self, Display};
 use std::sync::Arc;
@@ -206,11 +205,13 @@ impl<C: NetworkHeader + Debug> PullBuffer<C> {
     fn rollback(&mut self, point: &NetworkPoint) -> RollbackHandling {
         let find_index = || {
             for (i, h) in self.buffer.iter().enumerate() {
-                if h.point() == *point {
-                    return Some(i);
+                if let Ok(header_point) = h.point() {
+                    if header_point == *point {
+                        return Some(i);
+                    }
                 }
             }
-            return None;
+            None
         };
 
         match find_index() {
@@ -254,7 +255,7 @@ impl Display for PullResult {
 
 pub trait NetworkHeader {
     fn content(self) -> HeaderContent;
-    fn point(&self) -> NetworkPoint;
+    fn point(&self) -> Result<NetworkPoint, impl Error>;
 }
 
 impl NetworkHeader for HeaderContent {
@@ -262,9 +263,9 @@ impl NetworkHeader for HeaderContent {
         self
     }
 
-    fn point(&self) -> NetworkPoint {
-        let header = to_traverse(&self).expect("failed to deserialize headear");
-        NetworkPoint::Specific(header.slot(), header.hash().to_vec())
+    fn point(&self) -> Result<NetworkPoint, impl Error> {
+        to_traverse(self)
+            .map(|header| NetworkPoint::Specific(header.slot(), header.hash().to_vec()))
     }
 }
 
@@ -360,7 +361,7 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
 
     pub fn new1(
         client: Box<dyn ChainSync<C> + Sync + Send>,
-        intersection: &Vec<Point>,
+        intersection: &[Point],
         max_batch_size: usize,
     ) -> Self {
         ChainSyncClient {
@@ -372,10 +373,7 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
     }
 }
 
-pub fn new_with_peer(
-    peer: PeerClient,
-    intersection: &Vec<Point>,
-) -> ChainSyncClient<HeaderContent> {
+pub fn new_with_peer(peer: PeerClient, intersection: &[Point]) -> ChainSyncClient<HeaderContent> {
     let client = Box::new(peer);
     ChainSyncClient {
         client,
@@ -387,7 +385,7 @@ pub fn new_with_peer(
 
 pub fn new_with_session(
     peer: PeerSession,
-    intersection: &Vec<Point>,
+    intersection: &[Point],
 ) -> ChainSyncClient<HeaderContent> {
     let client = Box::new(peer.peer_client.clone());
     ChainSyncClient {
@@ -400,12 +398,15 @@ pub fn new_with_session(
 
 #[cfg(test)]
 mod tests {
+    use std::error::Error;
+
+    use super::{ChainSync, ChainSyncClientError, MAX_BATCH_SIZE, NetworkHeader};
     use crate::{
         chain_sync_client::{ChainSyncClient, PullResult},
         point::to_network_point,
     };
     use amaru_consensus::consensus::generators::generate_headers_anchored_at;
-    use amaru_kernel::{to_cbor, Point};
+    use amaru_kernel::{Point, to_cbor};
     use amaru_ouroboros::fake::FakeHeader;
     use amaru_ouroboros_traits::IsHeader;
     use async_trait::async_trait;
@@ -415,17 +416,11 @@ mod tests {
     };
     use tokio::sync::Mutex;
 
-    use crate::{
-        chain_sync_client::{ChainSyncClient, PullResult},
-        point::to_network_point,
-    };
-
-    use super::{ChainSync, MAX_BATCH_SIZE, NetworkHeader};
     #[tokio::test]
     async fn batch_returns_all_available_forwards_until_await() {
         let mock_client = NetworkClientBuilder::new().forward_headers(3).build();
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], MAX_BATCH_SIZE);
+            ChainSyncClient::new1(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
 
         let result = chain_sync_client.pull_batch().await.unwrap();
 
@@ -441,7 +436,7 @@ mod tests {
             .rollback_to(1)
             .build();
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], MAX_BATCH_SIZE);
+            ChainSyncClient::new1(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
 
         let result = chain_sync_client.pull_batch().await.unwrap();
 
@@ -458,7 +453,7 @@ mod tests {
             .build();
         let rollback_point = mock_client.point_at(1);
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], 4);
+            ChainSyncClient::new1(Box::new(mock_client), &[Point::Origin], 4);
 
         // first batch is ignored
         let _ = chain_sync_client.pull_batch().await.unwrap();
@@ -478,11 +473,9 @@ mod tests {
         let mock_client = MockNetworkClient::new(vec![], Some(expected_intersection));
 
         let mut chain_sync_client =
-            ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], MAX_BATCH_SIZE);
+            ChainSyncClient::new1(Box::new(mock_client), &[Point::Origin], MAX_BATCH_SIZE);
 
-        let result = chain_sync_client.find_intersection().await.unwrap();
-
-        assert_eq!((), result);
+        chain_sync_client.find_intersection().await.unwrap();
     }
 
     // support code
@@ -499,8 +492,8 @@ mod tests {
             }
         }
 
-        fn point(&self) -> NetworkPoint {
-            self.0.clone()
+        fn point(&self) -> Result<NetworkPoint, impl Error> {
+            Ok::<NetworkPoint, ChainSyncClientError>(self.0.clone())
         }
     }
 
@@ -569,7 +562,7 @@ mod tests {
         fn point_at(&self, index: usize) -> NetworkPoint {
             self.responses
                 .get(index)
-                .map_or(NetworkPoint::Origin, |r| point_of(r))
+                .map_or(NetworkPoint::Origin, point_of)
         }
     }
 
@@ -628,19 +621,21 @@ mod tests {
             .collect()
     }
 
-    fn tip_of(responses: &Vec<NextResponse<FakeContent>>) -> Tip {
+    fn tip_of(responses: &[NextResponse<FakeContent>]) -> Tip {
         let origin_tip = Tip(NetworkPoint::Origin, 0);
         responses.last().map_or(origin_tip.clone(), |r| match r {
             NextResponse::RollForward(FakeContent(ref point, _header), _tip) => {
                 Tip(point.clone(), responses.len() as u64)
             }
-            _ => origin_tip,
+            NextResponse::RollBackward(..) | NextResponse::Await => origin_tip,
         })
     }
 
     fn point_of(response: &NextResponse<FakeContent>) -> NetworkPoint {
         match response {
-            NextResponse::RollForward(h, _tip) => h.point(),
+            NextResponse::RollForward(h, _tip) => {
+                h.point().expect("there should be a point in a FakeContent")
+            }
             NextResponse::RollBackward(point, _tip) => point.clone(),
             NextResponse::Await => panic!("no point for await"),
         }
