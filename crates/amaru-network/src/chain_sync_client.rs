@@ -463,6 +463,11 @@ mod tests {
             self
         }
 
+        fn with_next_response(&mut self, response: NextResponse<FakeContent>) -> &mut Self {
+            self.responses.push(response);
+            self
+        }
+
         fn with_intersection_response(&mut self, intersection: IntersectResponse) -> &mut Self {
             self.intersection = Some(intersection);
             self
@@ -495,6 +500,24 @@ mod tests {
             .collect()
     }
 
+    fn tip_of(responses: &Vec<NextResponse<FakeContent>>) -> Tip {
+        let origin_tip = Tip(NetworkPoint::Origin, 0);
+        responses.last().map_or(origin_tip.clone(), |r| match r {
+            NextResponse::RollForward(FakeContent(ref point, _header), _tip) => {
+                Tip(point.clone(), responses.len() as u64)
+            }
+            _ => origin_tip,
+        })
+    }
+
+    fn point_of(response: &NextResponse<FakeContent>) -> NetworkPoint {
+        match response {
+            NextResponse::RollForward(h, _tip) => h.point(),
+            NextResponse::RollBackward(point, _tip) => point.clone(),
+            NextResponse::Await => panic!("no point for await"),
+        }
+    }
+
     #[tokio::test]
     async fn batch_returns_all_available_forwards_until_await() {
         let mut responses = generate_forwards(3);
@@ -512,29 +535,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn batch_returns_headers_up_to_rollback_point() {
-        let headers = generate_headers_anchored_at(None, 3);
-        let tip_header = headers[2];
-        let tip = Tip(
-            to_network_point(tip_header.point()),
-            tip_header.block_height(),
-        );
-        let rollback_point = to_network_point(headers[1].point());
-        let contents: Vec<FakeContent> = headers
-            .into_iter()
-            .map(|h| FakeContent(to_network_point(h.point()), h))
-            .collect();
-        let mut responses: Vec<NextResponse<FakeContent>> = contents
-            .into_iter()
-            .map(|content| NextResponse::RollForward(content, tip.clone()))
-            .collect();
-
-        responses.push(NextResponse::RollBackward(
-            rollback_point,
-            tip, // FIXME: does not really make sense ?
-        ));
-
-        let mock_client = MockNetworkClient::new(responses, None);
+    async fn batch_returns_trimmed_headers_given_rollback_within_batch() {
+        let mut responses = generate_forwards(3);
+        let rollback_point = point_of(&responses[1]);
+        let mock_client = NetworkClientBuilder::new()
+            .with_next_responses(&mut responses)
+            .with_next_response(NextResponse::RollBackward(rollback_point.clone(), tip_of(&responses)))
+            .build();
         let mut chain_sync_client =
             ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], MAX_BATCH_SIZE);
 
@@ -551,30 +558,13 @@ mod tests {
 
     #[tokio::test]
     async fn batch_returns_rollback_given_point_is_outside_current_batch() {
-        let headers = generate_headers_anchored_at(None, 6);
-        let tip_header = headers[5];
-        let tip = Tip(
-            to_network_point(tip_header.point()),
-            tip_header.block_height(),
-        );
+        let mut responses = generate_forwards(6);
+        let rollback_point = point_of(&responses[1]);
 
-        let rollback_point = to_network_point(headers[1].point());
-
-        let contents: Vec<FakeContent> = headers
-            .into_iter()
-            .map(|h| FakeContent(to_network_point(h.point()), h))
-            .collect();
-        let mut responses: Vec<NextResponse<FakeContent>> = contents
-            .into_iter()
-            .map(|content| NextResponse::RollForward(content, tip.clone()))
-            .collect();
-
-        responses.push(NextResponse::RollBackward(
-            rollback_point.clone(),
-            tip, // FIXME: does not really make sense ?
-        ));
-
-        let mock_client = MockNetworkClient::new(responses, None);
+        let mock_client = NetworkClientBuilder::new()
+            .with_next_responses(&mut responses)
+            .with_next_response(NextResponse::RollBackward(rollback_point.clone(), tip_of(&responses)))
+            .build();
         let mut chain_sync_client =
             ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], 4);
 
