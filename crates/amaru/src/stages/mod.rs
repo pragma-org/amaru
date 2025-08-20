@@ -20,7 +20,9 @@ use amaru_consensus::{
         store::ChainStore,
         store_block::StoreBlock,
         store_header::StoreHeader,
-        validate_header::{self, ValidateHeader},
+        validate_header::{
+            self, ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
+        },
         ChainSyncEvent,
     },
     ConsensusError, IsHeader,
@@ -152,15 +154,13 @@ pub fn bootstrap(
     )?;
 
     let consensus = match ledger_stage {
-        LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
-            Arc::new(validate_block_stage.state.view_stake_distribution()),
-            chain_store_ref.clone(),
-        ),
+        LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(Arc::new(
+            validate_block_stage.state.view_stake_distribution(),
+        )),
 
-        LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(
-            Arc::new(validate_block_stage.state.view_stake_distribution()),
-            chain_store_ref.clone(),
-        ),
+        LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(Arc::new(
+            validate_block_stage.state.view_stake_distribution(),
+        )),
     };
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
@@ -191,6 +191,13 @@ pub fn bootstrap(
 
     let (network_output, validate_header_input) =
         build_stage_graph(global_parameters, consensus, &mut network);
+
+    network
+        .resources()
+        .put::<ValidateHeaderResourceStore>(chain_store_ref);
+    network
+        .resources()
+        .put::<ValidateHeaderResourceParameters>(global_parameters.clone());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());

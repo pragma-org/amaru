@@ -13,13 +13,20 @@
 // limitations under the License.
 
 use super::echo::Envelope;
-use amaru_consensus::consensus::select_chain::DEFAULT_MAXIMUM_FRAGMENT_LENGTH;
-use amaru_consensus::consensus::{
-    headers_tree::HeadersTree, receive_header::handle_chain_sync, select_chain::SelectChain,
-    store::ChainStore, store_header::StoreHeader, validate_header, validate_header::ValidateHeader,
-    ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
+use amaru_consensus::{
+    consensus::{
+        headers_tree::HeadersTree,
+        receive_header::handle_chain_sync,
+        select_chain::{SelectChain, DEFAULT_MAXIMUM_FRAGMENT_LENGTH},
+        store::ChainStore,
+        store_header::StoreHeader,
+        validate_header::{
+            self, ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
+        },
+        ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
+    },
+    IsHeader,
 };
-use amaru_consensus::IsHeader;
 use amaru_kernel::{
     network::NetworkName,
     peer::Peer,
@@ -34,12 +41,13 @@ use bytes::Bytes;
 use clap::Parser;
 use generate::{generate_entries, parse_json, read_chain_json};
 use ledger::{populate_chain_store, FakeStakeDistribution};
-use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
-use pure_stage::{Instant, Receiver, StageGraph, Void};
+use pure_stage::{
+    simulation::SimulationBuilder, trace_buffer::TraceBuffer, Instant, Receiver, StageGraph,
+    StageRef, Void,
+};
 use rand::Rng;
 use simulate::{pure_stage_node_handle, simulate, History, SimulateConfig};
-use std::time::Duration;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 pub use sync::*;
 use tokio::sync::Mutex;
 use tracing::{info, Span};
@@ -101,7 +109,14 @@ pub struct Args {
     pub persist_on_success: bool,
 }
 
-fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
+fn init_node(
+    args: &Args,
+) -> (
+    GlobalParameters,
+    SelectChain,
+    ValidateHeader,
+    ValidateHeaderResourceStore,
+) {
     let network_name = NetworkName::Testnet(42);
     let global_parameters: &GlobalParameters = network_name.into();
     let stake_distribution: FakeStakeDistribution =
@@ -124,9 +139,14 @@ fn init_node(args: &Args) -> (GlobalParameters, SelectChain, ValidateHeader) {
             .collect::<Vec<_>>(),
     ));
     let chain_ref = Arc::new(Mutex::new(chain_store));
-    let validate_header = ValidateHeader::new(Arc::new(stake_distribution), chain_ref.clone());
+    let validate_header = ValidateHeader::new(Arc::new(stake_distribution));
 
-    (global_parameters.clone(), select_chain, validate_header)
+    (
+        global_parameters.clone(),
+        select_chain,
+        validate_header,
+        chain_ref,
+    )
 }
 
 fn spawn_node(
@@ -145,15 +165,14 @@ fn spawn_node(
 ) {
     info!("Spawning node!");
 
-    let (global_parameters, select_chain, validate_header) = init_node(&args);
+    let (global_parameters, select_chain, validate_header, chain_ref) = init_node(&args);
 
     let init_st = ValidateHeader {
         ledger: validate_header.ledger.clone(),
-        store: validate_header.store.clone(),
     };
 
     let init_store = StoreHeader {
-        store: validate_header.store.clone(),
+        store: chain_ref.clone(),
     };
 
     let receive_stage = network.stage(
@@ -325,6 +344,14 @@ fn spawn_node(
         (select_chain.clone(), propagate_header_stage.sender()),
     );
     network.wire_up(propagate_header_stage, (0, output.without_state()));
+
+    network
+        .resources()
+        .put::<ValidateHeaderResourceStore>(chain_ref);
+    network
+        .resources()
+        .put::<ValidateHeaderResourceParameters>(global_parameters);
+
     (rx, receive)
 }
 
