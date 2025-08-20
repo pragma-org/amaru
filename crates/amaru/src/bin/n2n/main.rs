@@ -1,10 +1,6 @@
-use std::sync::Arc;
-
 use amaru_kernel::network::NetworkName;
-use amaru_kernel::Point;
-use amaru_network::chain_sync_client::{new_with_peer, ChainSyncClient};
+use amaru_network::chain_sync_client::{new_with_peer, PullResult};
 use amaru_network::connect_to_peer;
-use tokio::sync::Mutex;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -18,7 +14,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .json()
         .init();
 
-    let mut peer = connect_to_peer(peer_address, &network_name).await?;
+    let peer = connect_to_peer(peer_address, &network_name).await?;
 
     let mut chain_sync = new_with_peer(peer, &vec![point]);
 
@@ -27,9 +23,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await
         .expect("failed to find intersection");
 
-    let batch = chain_sync.pull_batch().await.expect("failed to pull batch");
+    let mut batch = vec![];
+    while batch.len() < 200 {
+        match chain_sync.pull_batch().await.expect("failed to pull batch") {
+            PullResult::ForwardBatch(mut header_contents) => batch.append(&mut header_contents),
+            PullResult::RollBack(_point) => continue, // FIXME: should trim already accumulated headers to this point
+            PullResult::Nothing => break,
+        }
+    }
 
-    println!("batch: {}", batch);
+    println!("batched: {} headers", batch.len());
 
     Ok(())
 }
