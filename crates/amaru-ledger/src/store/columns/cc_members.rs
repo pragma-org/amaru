@@ -37,7 +37,7 @@ impl<C> cbor::encode::Encode<C> for Row {
         e: &mut cbor::Encoder<W>,
         ctx: &mut C,
     ) -> Result<(), cbor::encode::Error<W::Error>> {
-        e.array(2)?;
+        e.array(1)?;
         e.encode_with(self.hot_credential.clone(), ctx)?;
         Ok(())
     }
