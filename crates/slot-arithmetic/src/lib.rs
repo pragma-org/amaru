@@ -338,7 +338,7 @@ impl Summary {
         let delta_slots = end_of_stable_window - start.slot.0;
 
         let delta_epochs = delta_slots / params.epoch_size_slots
-            + if delta_slots % params.epoch_size_slots == 0 {
+            + if delta_slots.is_multiple_of(params.epoch_size_slots) {
                 0
             } else {
                 1
