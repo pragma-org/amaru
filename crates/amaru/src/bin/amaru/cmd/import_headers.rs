@@ -13,10 +13,13 @@
 // limitations under the License.
 
 use amaru::stages::pull;
-use amaru_consensus::{IsHeader, consensus::store::ChainStore};
-use amaru_kernel::{Header, Point, default_chain_dir, from_cbor, network::NetworkName, peer::Peer};
-use amaru_network::session::PeerSession;
-use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
+use amaru_consensus::{consensus::store::ChainStore, IsHeader};
+use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, peer::Peer, Header, Point};
+use amaru_network::{
+    chain_sync_client::{new_with_peer, ChainSyncClient, PullResult},
+    connect_to_peer,
+    session::PeerSession,
+};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
@@ -104,125 +107,62 @@ pub(crate) async fn import_headers(
     let era_history = network_name.into();
     let mut db = RocksDBStore::new(chain_db_dir, era_history)?;
 
-    let peer_client = Arc::new(Mutex::new(
-        connect_to_peer(peer_address, &network_name).await?,
-    ));
-
-    let peer_session = PeerSession {
-        peer: Peer::new(peer_address),
-        peer_client,
-    };
-
-    let mut pull = pull::Stage::new(
-        peer_session.clone(),
-        vec![point.clone()],
-        Arc::new(RwLock::new(true)),
-    );
-
-    pull.find_intersection().await?;
-
-    let mut peer_client = peer_session.lock().await;
     let mut count = 0;
-
-    let client = (*peer_client).chainsync();
 
     let mut progress: Option<Box<dyn ProgressBar>> = None;
 
-    // TODO: implement a proper pipelined client because this one is super slow
-    // Pipelining in Haskell is single threaded which implies the code handles
-    // scheduling between sending burst of MsgRequest and collecting responses.
-    // Here we can do better thanks to gasket's workers: just spawn 2 workers,
-    // one for sending requests and the other for handling responses, along
-    // with a shared counter.
-    // Pipelining stops when we reach the tip of the peer's chain.
-    loop {
-        let what = if client.has_agency() {
-            request_next_block(client, &mut db, &mut count, &mut progress, max).await?
-        } else {
-            await_for_next_block(client, &mut db, &mut count, &mut progress, max).await?
-        };
-        match what {
-            Continue => continue,
-            Stop => {
-                if let Some(progress) = progress {
-                    progress.clear()
-                }
-                break;
+    let peer = connect_to_peer(peer_address, &network_name).await?;
+
+    let mut chain_sync = new_with_peer(peer, &vec![point]);
+
+    chain_sync
+        .find_intersection()
+        .await
+        .expect("failed to find intersection");
+
+    while count < max {
+        match chain_sync.pull_batch().await.expect("failed to pull batch") {
+            PullResult::ForwardBatch(header_contents) => {
+                handle_batch(&header_contents, &mut db, &mut progress)?;
+                count += header_contents.len()
             }
+            PullResult::RollBack(point, tip) => {
+                info!(?point, ?tip, "roll_backward");
+                if progress.is_none() {
+                    progress = Some(
+                    new_terminal_progress_bar(
+                        max,
+                        " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)"
+                    )
+                );
+                }
+            }
+            PullResult::Nothing => break,
         }
     }
+
     info!(total = count, "header_imported");
     Ok(())
 }
 
-async fn request_next_block(
-    client: &mut chainsync::Client<HeaderContent>,
-    db: &mut RocksDBStore,
-    count: &mut usize,
-    progress: &mut Option<Box<dyn ProgressBar>>,
-    max: usize,
-) -> Result<What, WorkerError> {
-    let next = client.request_next().await.or_restart()?;
-    handle_response(next, db, count, progress, max)
-}
-
-async fn await_for_next_block(
-    client: &mut chainsync::Client<HeaderContent>,
-    db: &mut RocksDBStore,
-    count: &mut usize,
-    progress: &mut Option<Box<dyn ProgressBar>>,
-    max: usize,
-) -> Result<What, WorkerError> {
-    match timeout(Duration::from_secs(1), client.recv_while_must_reply()).await {
-        Ok(result) => result
-            .map_err(|_| WorkerError::Recv)
-            .and_then(|next| handle_response(next, db, count, progress, max)),
-        Err(_) => Err(WorkerError::Retry)?,
-    }
-}
 
 #[allow(clippy::unwrap_used)]
-fn handle_response(
-    next: NextResponse<HeaderContent>,
+fn handle_batch(
+    next: &Vec<HeaderContent>,
     db: &mut RocksDBStore,
-    count: &mut usize,
     progress: &mut Option<Box<dyn ProgressBar>>,
-    max: usize,
-) -> Result<What, WorkerError> {
-    match next {
-        NextResponse::RollForward(content, tip) => {
-            let header: Header = from_cbor(&content.cbor).unwrap();
-            let hash = header.hash();
+) -> Result<(), WorkerError> {
+    for content in next {
+        let header: Header = from_cbor(&content.cbor).unwrap();
+        let hash = header.hash();
 
-            db.store_header(&hash, &header)
-                .map_err(|_| WorkerError::Panic)?;
+        db.store_header(&hash, &header)
+            .map_err(|_| WorkerError::Panic)?;
 
-            *count += 1;
-
-            let slot = header.slot();
-            let tip_slot = tip.0.slot_or_default();
-
-            if let Some(progress) = progress {
-                progress.tick(1)
-            }
-
-            if *count >= max || slot == tip_slot {
-                Ok(Stop)
-            } else {
-                Ok(Continue)
-            }
+        if let Some(progress) = progress {
+            progress.tick(1)
         }
-        #[allow(clippy::unwrap_used)]
-        NextResponse::RollBackward(point, tip) => {
-            info!(?point, ?tip, "roll_backward");
-            if progress.is_none() {
-                *progress = Some(new_terminal_progress_bar(
-                    max,
-                    " importing headers (~{eta} left) {bar:70} {pos:>7}/{len:7} ({percent_precise}%)",
-                ));
-            }
-            Ok(Continue)
-        }
-        NextResponse::Await => Ok(Continue),
     }
+
+    Ok(())
 }
