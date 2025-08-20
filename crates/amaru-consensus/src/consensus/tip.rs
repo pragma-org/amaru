@@ -15,7 +15,7 @@
 use amaru_kernel::{cbor, Point, HEADER_HASH_SIZE};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
-use std::fmt::{Debug, Formatter};
+use std::fmt::{Debug, Display, Formatter};
 
 #[derive(PartialEq, Eq, Clone)]
 pub enum Tip<H> {
@@ -30,6 +30,15 @@ impl<H: IsHeader> Debug for Tip<H> {
             .field("hash", &self.hash())
             .field("parent_hash", &self.parent())
             .finish()
+    }
+}
+
+impl<H: IsHeader + Display> Display for Tip<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Tip::Genesis => f.write_str("Genesis"),
+            Tip::Hdr(h) => f.write_str(&h.to_string()),
+        }
     }
 }
 

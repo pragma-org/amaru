@@ -12,12 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-mod arena;
 #[cfg(test)]
 #[allow(clippy::module_inception)]
 mod data_generation;
 
 #[allow(clippy::module_inception)]
 pub mod headers_tree;
+mod tree;
 
 pub use headers_tree::*;
