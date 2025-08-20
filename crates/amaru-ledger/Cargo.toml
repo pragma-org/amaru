@@ -32,7 +32,6 @@ amaru-iter-borrow.workspace = true
 amaru-ouroboros-traits.workspace = true
 amaru-progress-bar.workspace = true
 amaru-slot-arithmetic.workspace = true
-amaru-tracing-json.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐
@@ -42,6 +41,7 @@ test-case.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel = { workspace = true, features = [ "test-utils" ] }
 amaru-slot-arithmetic = { workspace = true, features = [ "test-utils" ] }
+amaru-tracing-json.workspace = true
 
 [target.'cfg(not(std))'.dependencies]
 num = { workspace = true, default-features = false, features = [

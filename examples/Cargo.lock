@@ -100,7 +100,6 @@ dependencies = [
  "amaru-ouroboros-traits",
  "amaru-progress-bar",
  "amaru-slot-arithmetic",
- "amaru-tracing-json",
  "anyhow",
  "hex",
  "num",
@@ -172,31 +171,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "amaru-tracing-json"
-version = "0.1.0"
-dependencies = [
- "assert-json-diff",
- "hex",
- "serde_json",
- "tracing",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "anyhow"
 version = "1.0.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
-
-[[package]]
-name = "assert-json-diff"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "autocfg"
