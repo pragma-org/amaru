@@ -142,7 +142,7 @@ pub fn bootstrap(
 
     let mut stages = peer_sessions
         .iter()
-        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()], is_catching_up.clone()))
+        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()]))
         .collect::<Vec<_>>();
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
