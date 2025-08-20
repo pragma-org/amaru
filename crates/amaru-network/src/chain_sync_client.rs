@@ -161,7 +161,7 @@ impl<C: NetworkHeader + Debug> PullBuffer<C> {
 
         match find_index() {
             Some(i) => self.buffer.truncate(i + 1),
-            None => return RollbackHandling::BeforeBatch
+            None => return RollbackHandling::BeforeBatch,
         }
 
         RollbackHandling::Handled
@@ -327,12 +327,16 @@ impl<C: NetworkHeader + Debug> ChainSyncClient<C> {
     //     client.has_agency()
     // }
 
-    pub fn new1(client: Box<dyn ChainSync<C> + Sync + Send>, intersection: &Vec<Point>, max_batch_size: usize) -> Self {
+    pub fn new1(
+        client: Box<dyn ChainSync<C> + Sync + Send>,
+        intersection: &Vec<Point>,
+        max_batch_size: usize,
+    ) -> Self {
         ChainSyncClient {
             client,
             peer: Peer::new("alice"),
             intersection: intersection.to_vec(),
-            max_batch_size
+            max_batch_size,
         }
     }
 }
@@ -346,12 +350,16 @@ pub fn new_with_peer(
         client,
         peer: Peer::new("alice"),
         intersection: intersection.to_vec(),
-        max_batch_size: MAX_BATCH_SIZE
+        max_batch_size: MAX_BATCH_SIZE,
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::{
+        chain_sync_client::{ChainSyncClient, PullResult},
+        point::to_network_point,
+    };
     use amaru_consensus::consensus::chain_selection::generators::generate_headers_anchored_at;
     use amaru_kernel::{to_cbor, Point};
     use amaru_ouroboros::fake::FakeHeader;
@@ -434,45 +442,73 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn batch_returns_all_available_forwards_until_await() {
-        let headers = generate_headers_anchored_at(None, 3);
+    struct NetworkClientBuilder {
+        responses: Vec<NextResponse<FakeContent>>,
+        intersection: Option<IntersectResponse>,
+    }
+
+    impl NetworkClientBuilder {
+        fn new() -> Self {
+            NetworkClientBuilder {
+                responses: vec![],
+                intersection: None,
+            }
+        }
+
+        fn with_next_responses(
+            &mut self,
+            responses: &mut Vec<NextResponse<FakeContent>>,
+        ) -> &mut Self {
+            self.responses.append(responses);
+            self
+        }
+
+        fn with_intersection_response(&mut self, intersection: IntersectResponse) -> &mut Self {
+            self.intersection = Some(intersection);
+            self
+        }
+
+        fn build(&mut self) -> MockNetworkClient {
+            let responses = self.responses.drain(0..).collect();
+            MockNetworkClient {
+                responses,
+                intersection: self.intersection.clone(),
+            }
+        }
+    }
+
+    fn generate_forwards(length: u32) -> Vec<NextResponse<FakeContent>> {
+        let headers = generate_headers_anchored_at(None, length);
         let tip_header = headers[2];
-        let contents: Vec<FakeContent> = headers
+        headers
             .into_iter()
             .map(|h| FakeContent(to_network_point(h.point()), h))
-            .collect();
+            .map(|content| {
+                NextResponse::RollForward(
+                    content,
+                    Tip(
+                        to_network_point(tip_header.point()),
+                        tip_header.block_height(),
+                    ),
+                )
+            })
+            .collect()
+    }
 
-        let mock_client = MockNetworkClient::new(
-            contents
-                .into_iter()
-                .map(|content| {
-                    NextResponse::RollForward(
-                        content,
-                        Tip(
-                            to_network_point(tip_header.point()),
-                            tip_header.block_height(),
-                        ),
-                    )
-                })
-                .collect(),
-            None,
-        );
+    #[tokio::test]
+    async fn batch_returns_all_available_forwards_until_await() {
+        let mut responses = generate_forwards(3);
+        let mock_client = NetworkClientBuilder::new()
+            .with_next_responses(&mut responses)
+            .build();
         let mut chain_sync_client =
             ChainSyncClient::new1(Box::new(mock_client), &vec![Point::Origin], MAX_BATCH_SIZE);
 
         let result = chain_sync_client.pull_batch().await.unwrap();
 
-        match result {
-            PullResult::ForwardBatch(header_contents) => assert_eq!(
-                3, // PullResult::ForwardBatch(contents.iter().map(|c| c.content()).collect()),
-                header_contents.len()
-            ),
-            PullResult::RollBack(point) => {
-                panic!("expected batch of headers, got rollback {}", point)
-            }
-            PullResult::Nothing => panic!("got Nothing, expected a batch of headers"),
-        }
+        assert!(
+            matches!(result,  PullResult::ForwardBatch(header_contents) if 3 == header_contents.len())
+        );
     }
 
     #[tokio::test]
@@ -547,7 +583,9 @@ mod tests {
         let result = chain_sync_client.pull_batch().await.unwrap();
 
         match result {
-            PullResult::ForwardBatch(header_contents) =>                 panic!("expected rollback, got batch {:?}", header_contents),
+            PullResult::ForwardBatch(header_contents) => {
+                panic!("expected rollback, got batch {:?}", header_contents)
+            }
             PullResult::RollBack(point) => assert_eq!(rollback_point, to_network_point(point)),
             PullResult::Nothing => panic!("got Nothing, expected a batch of headers"),
         }
