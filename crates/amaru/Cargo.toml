@@ -72,7 +72,3 @@ amaru-iter-borrow.workspace = true
 [build-dependencies]
 built = { workspace = true, features = ["git2"] }
 amaru-kernel.workspace = true
-
-[[bin]]
-name = "n2n"
-path = "src/bin/n2n/main.rs"
