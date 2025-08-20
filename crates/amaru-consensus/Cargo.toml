@@ -12,7 +12,6 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
-
 [features]
 default = []
 test-utils = ["proptest", "rand", "rand_distr"]
