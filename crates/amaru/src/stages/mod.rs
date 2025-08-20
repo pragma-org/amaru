@@ -15,7 +15,7 @@
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     consensus::{
-        chain_selection::{ChainSelector, ChainSelectorBuilder},
+        headers_tree::HeadersTree,
         select_chain::SelectChain,
         store::ChainStore,
         store_block::StoreBlock,
@@ -25,15 +25,16 @@ use amaru_consensus::{
         },
         ChainSyncEvent,
     },
-    peer::Peer,
     ConsensusError, IsHeader,
 };
 use amaru_kernel::{
     block::{BlockValidationResult, ValidateBlockEvent},
     network::NetworkName,
+    peer::Peer,
     protocol_parameters::GlobalParameters,
-    EraHistory, Hash, Header,
+    EraHistory, Hash, Header, Point,
 };
+use amaru_network::session::PeerSession;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
@@ -107,19 +108,6 @@ impl Default for Config {
             listen_address: "0.0.0.0:3000".to_string(),
             max_downstream_peers: 10,
         }
-    }
-}
-
-/// A session with a peer, including the peer itself and a client to communicate with it.
-#[derive(Clone)]
-pub struct PeerSession {
-    pub peer: Peer,
-    pub peer_client: Arc<Mutex<PeerClient>>,
-}
-
-impl PeerSession {
-    pub async fn lock(&mut self) -> tokio::sync::MutexGuard<'_, PeerClient> {
-        self.peer_client.lock().await
     }
 }
 
@@ -398,22 +386,30 @@ fn make_ledger(
 fn make_chain_selector(
     header: &Option<Header>,
     peers: &Vec<PeerSession>,
-    consensus_security_parameter: usize,
-) -> Result<Arc<Mutex<ChainSelector<Header>>>, ConsensusError> {
-    let mut builder = ChainSelectorBuilder::new();
+    _consensus_security_parameter: usize,
+) -> Result<Arc<Mutex<HeadersTree<Header>>>, ConsensusError> {
+    // TODO: initialize the headers tree from the ChainDB store
+    //
+    // FIXME: Use the actual *consensus_security_param*; for now, this is artifically disabled
+    // because the introduction of the new chain selection algorithm makes synchronizing unbearably
+    // slow. The culprit seems to be around the `header_exists` function, which gets worse with the
+    // capacity of the tree.
+    //
+    // In *practice* (and good network conditions), that tree can actually be pretty small.
+    // Although in reality and to be "immune" to deep forks, it must be set to `k` (a.k.a the
+    // consensus security param).
+    let mut tree = HeadersTree::new(100, header);
 
-    builder.set_max_fragment_length(consensus_security_parameter);
-
-    match header {
-        Some(h) => builder.set_tip(h),
-        None => &builder,
+    let root_hash = match header {
+        Some(h) => h.hash(),
+        None => Point::Origin.hash(),
     };
 
     for peer in peers {
-        builder.add_peer(&peer.peer);
+        tree.initialize_peer(&peer.peer, &root_hash)?;
     }
 
-    Ok(Arc::new(Mutex::new(builder.build()?)))
+    Ok(Arc::new(Mutex::new(tree)))
 }
 
 pub trait PallasPoint {

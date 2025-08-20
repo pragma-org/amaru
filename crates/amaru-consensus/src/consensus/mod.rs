@@ -15,18 +15,17 @@
 use std::fmt;
 
 use crate::is_header::IsHeader;
-use amaru_kernel::{Header, Point};
+use amaru_kernel::{peer::Peer, Header, Point};
 use serde::{Deserialize, Serialize};
 use tracing::Span;
 
-use crate::peer::Peer;
-
-pub mod chain_selection;
+pub mod headers_tree;
 pub mod receive_header;
 pub mod select_chain;
 pub mod store;
 pub mod store_block;
 pub mod store_header;
+pub mod tip;
 pub mod validate_header;
 
 pub const EVENT_TARGET: &str = "amaru::consensus";

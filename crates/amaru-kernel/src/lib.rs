@@ -126,6 +126,7 @@ pub mod transaction_pointer;
 pub mod block;
 pub mod macros;
 pub mod network;
+pub mod peer;
 pub mod protocol_parameters;
 pub mod serde_utils;
 

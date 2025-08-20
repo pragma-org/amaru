@@ -14,8 +14,8 @@
 
 use super::bytes::Bytes;
 use crate::echo::Envelope;
-use amaru_consensus::{consensus::ChainSyncEvent, peer::Peer};
-use amaru_kernel::{self, Point};
+use amaru_consensus::consensus::ChainSyncEvent;
+use amaru_kernel::{self, peer::Peer, Point};
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};

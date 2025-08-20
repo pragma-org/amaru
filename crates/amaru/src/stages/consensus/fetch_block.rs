@@ -14,11 +14,11 @@
 
 use std::collections::BTreeMap;
 
-use crate::stages::PeerSession;
 use crate::{schedule, stages::common::adopt_current_span};
 use amaru_consensus::IsHeader;
-use amaru_consensus::{consensus::ValidateHeaderEvent, peer::Peer, ConsensusError};
-use amaru_kernel::{block::ValidateBlockEvent, Point};
+use amaru_consensus::{consensus::ValidateHeaderEvent, ConsensusError};
+use amaru_kernel::{block::ValidateBlockEvent, peer::Peer, Point};
+use amaru_network::session::PeerSession;
 use gasket::framework::*;
 use tracing::{error, instrument};
 

@@ -1,7 +1,7 @@
 lints.workspace = true
 
 [package]
-name = "amaru-consensus"
+name = "amaru-network"
 version.workspace = true
 edition.workspace = true
 description.workspace = true
@@ -15,15 +15,17 @@ rust-version.workspace = true
 [dependencies]
 anyhow.workspace = true
 hex.workspace = true
-indextree.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
+pallas-network.workspace = true
+pallas-traverse.workspace = true
 rayon.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 
+amaru-consensus.workspace = true
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
 amaru-ouroboros-traits.workspace = true

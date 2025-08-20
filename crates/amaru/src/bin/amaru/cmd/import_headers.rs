@@ -13,9 +13,10 @@
 // limitations under the License.
 
 use crate::cmd::connect_to_peer;
-use amaru::stages::{pull, PeerSession};
-use amaru_consensus::{consensus::store::ChainStore, peer::Peer, IsHeader};
-use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, Header, Point};
+use amaru::stages::pull;
+use amaru_consensus::{consensus::store::ChainStore, IsHeader};
+use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, peer::Peer, Header, Point};
+use amaru_network::session::PeerSession;
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
@@ -113,7 +114,7 @@ pub(crate) async fn import_headers(
         peer_client,
     };
 
-    let mut pull = pull::Stage::new(
+    let pull = pull::Stage::new(
         peer_session.clone(),
         vec![point.clone()],
         Arc::new(RwLock::new(true)),
@@ -121,7 +122,7 @@ pub(crate) async fn import_headers(
 
     pull.find_intersection().await?;
 
-    let mut peer_client = pull.peer_session.lock().await;
+    let mut peer_client = peer_session.lock().await;
     let mut count = 0;
 
     let client = (*peer_client).chainsync();

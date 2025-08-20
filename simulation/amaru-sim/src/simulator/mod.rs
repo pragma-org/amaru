@@ -13,21 +13,23 @@
 // limitations under the License.
 
 use super::echo::Envelope;
-use amaru_consensus::IsHeader;
 use amaru_consensus::{
     consensus::{
-        chain_selection::{ChainSelector, ChainSelectorBuilder},
+        headers_tree::HeadersTree,
         receive_header::handle_chain_sync,
-        select_chain::SelectChain,
+        select_chain::{SelectChain, DEFAULT_MAXIMUM_FRAGMENT_LENGTH},
         store::ChainStore,
         store_header::StoreHeader,
-        validate_header::ValidateHeader,
+        validate_header::{
+            self, ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
+        },
         ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent,
     },
-    peer::Peer,
+    IsHeader,
 };
 use amaru_kernel::{
     network::NetworkName,
+    peer::Peer,
     protocol_parameters::GlobalParameters,
     to_cbor, Hash, Header,
     Point::{self, *},
@@ -39,19 +41,16 @@ use bytes::Bytes;
 use clap::Parser;
 use generate::{generate_entries, parse_json, read_chain_json};
 use ledger::{populate_chain_store, FakeStakeDistribution};
-use pure_stage::{simulation::SimulationBuilder, trace_buffer::TraceBuffer, StageRef};
-use pure_stage::{Instant, Receiver, StageGraph, Void};
+use pure_stage::{
+    simulation::SimulationBuilder, trace_buffer::TraceBuffer, Instant, Receiver, StageGraph,
+    StageRef, Void,
+};
 use rand::Rng;
 use simulate::{pure_stage_node_handle, simulate, History, SimulateConfig};
-use std::time::Duration;
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Duration};
+pub use sync::*;
 use tokio::sync::Mutex;
 use tracing::{info, Span};
-
-use amaru_consensus::consensus::validate_header::{
-    self, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
-};
-pub use sync::*;
 
 mod bytes;
 pub mod generate;
@@ -130,7 +129,7 @@ fn init_node(
         &args.start_header,
         &args.consensus_context_file,
     )
-    .unwrap();
+    .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
 
     let select_chain = SelectChain::new(make_chain_selector(
         Origin,
@@ -432,31 +431,20 @@ fn make_chain_selector(
     tip: Point,
     chain_store: &impl ChainStore<Header>,
     peers: &Vec<Peer>,
-) -> Arc<Mutex<ChainSelector<Header>>> {
-    let mut builder = ChainSelectorBuilder::new();
-
-    load_tip_from_store(chain_store, tip, &mut builder);
-
-    for peer in peers {
-        builder.add_peer(peer);
-    }
-
-    match builder.build() {
-        Ok(chain_selector) => Arc::new(Mutex::new(chain_selector)),
-        Err(e) => panic!("unable to build chain selector: {:?}", e),
-    }
-}
-
-fn load_tip_from_store<'a>(
-    chain_store: &impl ChainStore<Header>,
-    tip: Point,
-    builder: &'a mut ChainSelectorBuilder<Header>,
-) -> &'a mut ChainSelectorBuilder<Header> {
-    match tip {
-        Origin => builder,
+) -> Arc<Mutex<HeadersTree<Header>>> {
+    let root = match tip {
+        Origin => None,
         Specific(..) => match chain_store.load_header(&Hash::from(&tip)) {
             None => panic!("Tip {:?} not found in chain store", tip),
-            Some(header) => builder.set_tip(&header),
+            Some(header) => Some(header),
         },
+    };
+
+    let mut tree = HeadersTree::new(DEFAULT_MAXIMUM_FRAGMENT_LENGTH, &root);
+    let root_hash = root.map(|r| r.hash()).unwrap_or(Origin.hash());
+    for peer in peers {
+        tree.initialize_peer(peer, &root_hash)
+            .expect("the root node is guaranteed to already be in the tree")
     }
+    Arc::new(Mutex::new(tree))
 }

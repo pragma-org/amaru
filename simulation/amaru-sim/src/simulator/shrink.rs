@@ -74,7 +74,6 @@ pub fn shrink<A: Debug + Clone, B: Debug>(
 
 #[cfg(test)]
 mod test {
-
     use super::*;
 
     #[test]
