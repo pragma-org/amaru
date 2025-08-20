@@ -141,7 +141,7 @@ impl GovernanceSummary {
                             metadata: anchor,
                             mandate: Some(mandate(
                                 // TODO: The map_err to include the slot as context shouldn't be
-                                // necessary. Instead, the slot_arithmetic library should return
+                                // necessary. Instead, the amaru_slot_arithmetic library should return
                                 // better errors.
                                 (
                                     registration_slot,
