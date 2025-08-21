@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Point, HEADER_HASH_SIZE};
+use amaru_kernel::{cbor, Point, HEADER_HASH_SIZE, ORIGIN_HASH};
 use amaru_ouroboros_traits::IsHeader;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -31,6 +31,16 @@ pub struct TestHeader {
     pub hash: Hash<HEADER_HASH_SIZE>,
     pub slot: u64,
     pub parent: Option<Hash<HEADER_HASH_SIZE>>,
+}
+
+impl Default for TestHeader {
+    fn default() -> Self {
+        Self {
+            hash: ORIGIN_HASH,
+            slot: 0,
+            parent: None,
+        }
+    }
 }
 
 #[derive(PartialEq, Eq, Clone, Copy, PartialOrd, Ord)]

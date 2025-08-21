@@ -21,6 +21,7 @@
 //!
 
 use crate::consensus::headers_tree::data_generation::TestHeader;
+use crate::consensus::headers_tree::tree::Tree;
 use crate::consensus::headers_tree::HeadersTree;
 use amaru_kernel::peer::Peer;
 use amaru_kernel::HEADER_HASH_SIZE;
@@ -30,7 +31,6 @@ use proptest::prelude::{RngCore, Strategy};
 use rand::prelude::StdRng;
 use rand::{Rng, SeedableRng};
 use rand_distr::{Distribution, Exp};
-use crate::consensus::headers_tree::tree::Tree;
 
 impl Tree<TestHeader> {
     /// This function is used to given incrementing slot numbers to `TestHeader`s and help test failures
@@ -44,9 +44,8 @@ impl Tree<TestHeader> {
     }
 }
 
-
 /// Return a `proptest` Strategy producing a random `Tree<TestHeader>` of a given depth
-pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value=Tree<TestHeader>> {
+pub fn any_tree_of_headers(depth: usize) -> impl Strategy<Value = Tree<TestHeader>> {
     (0..u64::MAX).prop_map(move |seed| generate_test_header_tree(depth, seed))
 }
 

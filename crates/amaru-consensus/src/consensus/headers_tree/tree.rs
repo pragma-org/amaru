@@ -14,10 +14,10 @@
 
 use amaru_kernel::HEADER_HASH_SIZE;
 use amaru_ouroboros_traits::IsHeader;
+use itertools::Itertools;
 use pallas_crypto::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
-use itertools::Itertools;
 
 type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
@@ -36,18 +36,6 @@ impl<H: IsHeader + Display> Display for Tree<H> {
 impl<H: IsHeader + Debug> Debug for Tree<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.pretty_print_debug())
-    }
-}
-
-impl<H> Tree<H> {
-    /// Return the depth of a `Tree`
-    pub fn depth(&self) -> usize {
-        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
-    }
-
-    /// Return the size of a `Tree`
-    pub fn size(&self) -> usize {
-        1 + self.children.iter().map(|c| c.size()).sum::<usize>()
     }
 }
 
@@ -70,18 +58,17 @@ impl<H: Clone + PartialEq + Eq> Tree<H> {
         self
     }
 
-    /// Get the last child of a `Tree` to modify it (if there is one).
-    pub fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
-        let l = self.children.len();
-        self.children.get_mut(l - 1)
-    }
-
-    pub fn leaves(&self) -> Vec<H> {
-        if self.children.is_empty() {
-            vec![self.value.clone()]
-        } else {
-            self.children.iter().flat_map(|c| c.leaves()).collect()
+    pub fn longest_path(&self) -> Vec<H> {
+        let mut longest = vec![self.value.clone()];
+        let mut best_child_path = vec![];
+        for child in &self.children {
+            let child_path = child.longest_path();
+            if child_path.len() > best_child_path.len() {
+                best_child_path = child_path;
+            }
         }
+        longest.extend(best_child_path);
+        longest
     }
 }
 
@@ -127,7 +114,7 @@ impl<H> Tree<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
+impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
     /// Add a child to a specific parent
     pub fn add(&mut self, parent_hash: HeaderHash, new: &H) -> bool {
         if self.value.hash() == parent_hash {
@@ -142,9 +129,63 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
         }
         false
     }
+
+    pub fn hashes(&self) -> Vec<HeaderHash> {
+        let mut hashes = vec![self.value.hash()];
+        for child in &self.children {
+            hashes.extend(child.hashes());
+        }
+        hashes
+    }
+
+    pub fn from(headers: &BTreeMap<HeaderHash, H>) -> Self {
+        if let Some(root) = headers.values().find(|h| {
+            if let Some(parent) = h.parent() {
+                !headers.contains_key(&parent)
+            } else {
+                true
+            }
+        }) {
+            let mut headers_clone = headers.clone();
+            headers_clone.remove(&root.hash());
+            Self::make_tree_from(root.clone(), &mut headers_clone)
+        } else {
+            Tree::make_leaf(&Default::default())
+        }
+    }
+
+    fn make_tree_from(root: H, headers: &mut BTreeMap<HeaderHash, H>) -> Tree<H> {
+        let mut tree = Tree::make_leaf(&root);
+        let children: Vec<Tree<H>> = headers
+            .values()
+            .filter(|n| n.parent() == Some(root.hash()))
+            .cloned()
+            .sorted_by_key(|h| h.hash())
+            .map(|c| Self::make_tree_from(c, headers))
+            .collect::<Vec<_>>();
+        tree.children = children;
+        tree
+    }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
+#[cfg(test)]
+impl<H: IsHeader + Clone> Tree<H> {
+    /// Return the depth of a `Tree`
+    pub fn depth(&self) -> usize {
+        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
+    }
+
+    /// Return the size of a `Tree`
+    pub fn size(&self) -> usize {
+        1 + self.children.iter().map(|c| c.size()).sum::<usize>()
+    }
+
+    /// Get the last child of a `Tree` to modify it (if there is one).
+    pub fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
+        let l = self.children.len();
+        self.children.get_mut(l - 1)
+    }
+
     pub fn to_map(&self) -> BTreeMap<HeaderHash, H> {
         let mut map = BTreeMap::new();
         self.to_map_recursive(&mut map);
@@ -157,39 +198,14 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Tree<H> {
             child.to_map_recursive(map);
         }
     }
-    pub fn from(headers: &BTreeMap<HeaderHash, H>) -> Self {
-        let root = headers
-            .values()
-            .find(|h| h.parent().is_none())
-            .or_else(|| {
-                headers
-                    .values()
-                    .find(|h| !headers.contains_key(&h.parent().unwrap()))
-            })
-            .expect("A tree cannot be created without a root header");
-        let mut headers_clone = headers.clone();
-        headers_clone.remove(&root.hash());
-        Self::make_tree_from(root.clone(), &mut headers_clone)
-    }
-
-    fn make_tree_from(root: H, headers: &mut BTreeMap<HeaderHash, H>) -> Tree<H> {
-        let mut tree = Tree::make_leaf(&root);
-        let children: Vec<Tree<H>> = headers
-            .values()
-            .filter(|n| n.parent() == Some(root.hash()))
-            .map(|h| h.clone())
-            .sorted_by_key(|h| h.hash())
-            .map(|c| Self::make_tree_from(c, headers))
-            .collect::<Vec<_>>();
-        tree.children = children;
-        tree
-    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::consensus::headers_tree::data_generation::{any_tree_of_headers, config_begin, generate_headers_chain, generate_test_header_tree};
+    use crate::consensus::headers_tree::data_generation::{
+        any_tree_of_headers, config_begin, generate_headers_chain, generate_test_header_tree,
+    };
     use proptest::proptest;
 
     proptest! {
@@ -198,6 +214,7 @@ mod tests {
         fn test_creation_from_map(tree in any_tree_of_headers(7)) {
             let as_map = tree.to_map();
             let actual = Tree::from(&as_map);
+
             assert_eq!(actual.size(), tree.size());
             assert_eq!(actual.to_map(), as_map);
         }

@@ -98,10 +98,10 @@ impl SelectChain {
                 vec![SelectChain::forward_block(peer, tip, span)]
             }
             ForwardChainSelection::SwitchToFork(Fork {
-                                                    peer,
-                                                    rollback_point,
-                                                    fork,
-                                                }) => {
+                peer,
+                rollback_point,
+                fork,
+            }) => {
                 trace!(target: EVENT_TARGET, rollback = %rollback_point, "switching to fork");
                 SelectChain::switch_to_fork(peer, rollback_point, fork, span)
             }
@@ -136,10 +136,10 @@ impl SelectChain {
                 }])
             }
             RollbackChainSelection::SwitchToFork(Fork {
-                                                     peer,
-                                                     rollback_point,
-                                                     fork,
-                                                 }) => Ok(SelectChain::switch_to_fork(
+                peer,
+                rollback_point,
+                fork,
+            }) => Ok(SelectChain::switch_to_fork(
                 peer,
                 rollback_point,
                 fork,
@@ -209,10 +209,10 @@ impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
             }
             ForwardChainSelection::NoChange => f.write_str("NoChange"),
             ForwardChainSelection::SwitchToFork(Fork {
-                                                    peer,
-                                                    rollback_point,
-                                                    fork,
-                                                }) => f.write_str(&format!(
+                peer,
+                rollback_point,
+                fork,
+            }) => f.write_str(&format!(
                 "SwitchToFork[\n    peer: {}, \n    rollback_point: {}, \n    fork:\n        {}]",
                 peer,
                 rollback_point,
@@ -233,10 +233,10 @@ impl<H: IsHeader + Debug> Debug for ForwardChainSelection<H> {
             }
             ForwardChainSelection::NoChange => f.write_str("NoChange"),
             ForwardChainSelection::SwitchToFork(Fork {
-                                                    peer,
-                                                    rollback_point,
-                                                    fork,
-                                                }) => f.write_str(&format!(
+                peer,
+                rollback_point,
+                fork,
+            }) => f.write_str(&format!(
                 "SwitchToFork[\n    peer: {}, \n    rollback_point: {}, \n    fork:\n        {}]",
                 peer,
                 rollback_point,
@@ -275,10 +275,10 @@ impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
             RollbackTo(hash) => f.write_str(&format!("RollbackTo[{}]", hash)),
             RollbackChainSelection::NoChange => f.write_str("NoChange"),
             RollbackChainSelection::SwitchToFork(Fork {
-                                                     peer,
-                                                     rollback_point,
-                                                     fork,
-                                                 }) => f.write_str(&format!(
+                peer,
+                rollback_point,
+                fork,
+            }) => f.write_str(&format!(
                 "SwitchToFork[{}, {}, {}]",
                 peer,
                 rollback_point,

@@ -17,8 +17,9 @@ use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use std::fmt::{Debug, Display, Formatter};
 
-#[derive(PartialEq, Eq, Clone)]
+#[derive(PartialEq, Eq, Clone, Default)]
 pub enum Tip<H> {
+    #[default]
     Genesis,
     Hdr(H),
 }
