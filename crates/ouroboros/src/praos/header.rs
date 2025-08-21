@@ -39,7 +39,7 @@ static CERTIFIED_NATURAL_MAX: LazyLock<FixedDecimal> = LazyLock::new(|| {
 
 // ------------------------------------------------------------------ assert_all
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AssertHeaderError {
     #[error("{0}")]
     KnownLeaderVrf(#[from] AssertKnownLeaderVrfError),
@@ -51,10 +51,16 @@ pub enum AssertHeaderError {
     KesSignature(#[from] AssertKesSignatureError),
     #[error("{0}")]
     OperationalCertificate(#[from] AssertOperationalCertificateError),
-    #[error("{0}")]
-    TryFromSliceError(#[from] TryFromSliceError),
+    #[error("could not convert slice to array")]
+    TryFromSliceError,
     #[error("Unknown pool: {}", hex::encode(&pool[0..7]))]
     UnknownPool { pool: PoolId },
+}
+
+impl From<TryFromSliceError> for AssertHeaderError {
+    fn from(_: TryFromSliceError) -> Self {
+        Self::TryFromSliceError
+    }
 }
 
 impl PartialEq for AssertHeaderError {
@@ -65,7 +71,7 @@ impl PartialEq for AssertHeaderError {
             (Self::LeaderStake(l0), Self::LeaderStake(r0)) => l0 == r0,
             (Self::KesSignature(l0), Self::KesSignature(r0)) => l0 == r0,
             (Self::OperationalCertificate(l0), Self::OperationalCertificate(r0)) => l0 == r0,
-            (Self::TryFromSliceError(_), Self::TryFromSliceError(_)) => true,
+            (Self::TryFromSliceError, Self::TryFromSliceError) => true,
             (Self::UnknownPool { pool: l_pool }, Self::UnknownPool { pool: r_pool }) => {
                 l_pool == r_pool
             }
@@ -157,7 +163,7 @@ pub fn assert_all<'a>(
 
 // ----------------------------------------------------- assert_known_leader_vrf
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[error(
     "declared leader's VRF credentials differs from those registered in the ledger (registered={} vs declared={})",
     hex::encode(&registered_vrf[0..7]),
@@ -189,7 +195,7 @@ impl AssertKnownLeaderVrfError {
 
 // ------------------------------------------------------------ assert_vrf_proof
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, serde::Serialize, serde::Deserialize)]
 pub enum AssertVrfProofError {
     #[error("Malformed VRF proof: {0}")]
     MalformedProof(#[from] vrf::ProofFromBytesError),
@@ -197,8 +203,8 @@ pub enum AssertVrfProofError {
     #[error("Invalid VRF proof: {0}")]
     InvalidProof(#[from] vrf::ProofVerifyError),
 
-    #[error("{0}")]
-    TryFromSliceError(#[from] TryFromSliceError),
+    #[error("could not convert slice to array")]
+    TryFromSliceError,
 
     #[error(
         "Mismatch between the declared VRF proof hash in block ({}) and the computed one ({}).",
@@ -206,6 +212,7 @@ pub enum AssertVrfProofError {
         hex::encode(&.computed[0..7]),
     )]
     ProofMismatch {
+        #[serde(with = "crate::serde_util::bytes")]
         declared: Box<[u8; vrf::Proof::HASH_SIZE]>,
         computed: Box<Hash<{ vrf::Proof::HASH_SIZE }>>,
     },
@@ -221,12 +228,18 @@ pub enum AssertVrfProofError {
     },
 }
 
+impl From<TryFromSliceError> for AssertVrfProofError {
+    fn from(_: TryFromSliceError) -> Self {
+        Self::TryFromSliceError
+    }
+}
+
 impl PartialEq for AssertVrfProofError {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::MalformedProof(l0), Self::MalformedProof(r0)) => l0 == r0,
             (Self::InvalidProof(l0), Self::InvalidProof(r0)) => l0 == r0,
-            (Self::TryFromSliceError(_), Self::TryFromSliceError(_)) => true,
+            (Self::TryFromSliceError, Self::TryFromSliceError) => true,
             (
                 Self::ProofMismatch {
                     declared: l_declared,
@@ -301,7 +314,7 @@ impl AssertVrfProofError {
 
 // ------------------------------------------------------------ assert_leader_stake
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssertLeaderStakeError {
     #[error("Insufficient leader stake.")]
     InsufficientLeaderStake,
@@ -328,7 +341,7 @@ impl AssertLeaderStakeError {
 
 // -------------------------------------------------------- assert_kes_signature
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssertKesSignatureError {
     #[error(
         "Operational Certificate KES period ({opcert_kes_period}) is greater than the block slot KES period ({slot_kes_period})."
@@ -387,7 +400,7 @@ impl AssertKesSignatureError {
 
 // ---------------------------------------------- assert_operational_certificate
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum AssertOperationalCertificateError {
     #[error("Malformed operational certificate signature: {reason}")]
     MalformedSignature { reason: String },
@@ -416,7 +429,10 @@ pub enum AssertOperationalCertificateError {
         "Invalid operational certificate signature from issuer ({})",
         hex::encode(&.issuer.as_ref()[0..7]),
     )]
-    InvalidSignature { issuer: ed25519::PublicKey },
+    InvalidSignature {
+        #[serde(with = "crate::serde_util::bytes")]
+        issuer: ed25519::PublicKey,
+    },
 }
 
 impl AssertOperationalCertificateError {

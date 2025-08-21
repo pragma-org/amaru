@@ -18,7 +18,8 @@ use amaru_consensus::consensus::{
 use gasket::framework::*;
 use tracing::{Level, error, instrument};
 
-use crate::{schedule, send, stages::common::adopt_current_span};
+use crate::{schedule, send};
+use amaru_consensus::span::adopt_current_span;
 
 pub type UpstreamPort = gasket::messaging::InputPort<DecodedChainSyncEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateHeaderEvent>;
@@ -87,7 +88,7 @@ impl gasket::framework::Worker<SelectChainStage> for Worker {
         unit: &DecodedChainSyncEvent,
         stage: &mut SelectChainStage,
     ) -> Result<(), WorkerError> {
-        adopt_current_span(unit);
+        let _span = adopt_current_span(unit).entered();
         stage.handle_event(unit.clone()).await
     }
 }

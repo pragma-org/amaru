@@ -17,7 +17,8 @@ use amaru_kernel::block::ValidateBlockEvent;
 use gasket::framework::*;
 use tracing::{Level, instrument};
 
-use crate::{schedule, send, stages::common::adopt_current_span};
+use crate::{schedule, send};
+use amaru_consensus::span::adopt_current_span;
 
 pub type UpstreamPort = gasket::messaging::InputPort<ValidateBlockEvent>;
 pub type DownstreamPort = gasket::messaging::OutputPort<ValidateBlockEvent>;
@@ -78,7 +79,7 @@ impl gasket::framework::Worker<StoreBlockStage> for Worker {
         unit: &ValidateBlockEvent,
         stage: &mut StoreBlockStage,
     ) -> Result<(), WorkerError> {
-        adopt_current_span(unit);
+        let _span = adopt_current_span(unit).entered();
         stage.handle_event(unit.clone()).await
     }
 }

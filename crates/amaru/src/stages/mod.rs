@@ -16,13 +16,8 @@ use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     ConsensusError, IsHeader,
     consensus::{
-        ChainSyncEvent, build_stage_graph,
-        headers_tree::HeadersTree,
-        select_chain::SelectChain,
-        store::ChainStore,
-        store_block::StoreBlock,
-        store_header::StoreHeader,
-        validate_header::{self, ValidateHeader},
+        ChainSyncEvent, build_stage_graph, headers_tree::HeadersTree, select_chain::SelectChain,
+        store::ChainStore, store_block::StoreBlock, store_effects, validate_header::ValidateHeader,
     },
 };
 use amaru_kernel::{
@@ -44,7 +39,7 @@ use anyhow::Context;
 use consensus::{
     fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
     receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
-    store_block::StoreBlockStage, store_header::StoreHeaderStage,
+    store_block::StoreBlockStage,
 };
 use gasket::{
     messaging::{OutputPort, tokio::funnel_ports},
@@ -165,8 +160,6 @@ pub fn bootstrap(
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
 
-    let mut store_header_stage = StoreHeaderStage::new(StoreHeader::new(chain_store_ref.clone()));
-
     let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
 
     let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
@@ -180,7 +173,6 @@ pub fn bootstrap(
         our_tip,
     );
 
-    let (to_store_header, from_receive_header) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_fetch_block, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
@@ -190,16 +182,15 @@ pub fn bootstrap(
     let mut network = TokioBuilder::default();
     let (output_ref, output_stage) = network.output("output", 50);
 
-    let validate_header_ref =
-        build_stage_graph(global_parameters, consensus, &mut network, output_ref);
-    let validate_header_input = SendAdapter(network.input(&validate_header_ref));
+    let graph_input = build_stage_graph(global_parameters, consensus, &mut network, output_ref);
+    let graph_input = SendAdapter(network.input(&graph_input));
 
     network
         .resources()
-        .put::<validate_header::ValidateHeaderResourceStore>(chain_store_ref);
+        .put::<store_effects::ResourceHeaderStore>(chain_store_ref);
     network
         .resources()
-        .put::<validate_header::ValidateHeaderResourceParameters>(global_parameters.clone());
+        .put::<store_effects::ResourceParameters>(global_parameters.clone());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -210,10 +201,7 @@ pub fn bootstrap(
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
     funnel_ports(outputs, &mut receive_header_stage.upstream, 50);
-    receive_header_stage.downstream.connect(to_store_header);
-
-    store_header_stage.upstream.connect(from_receive_header);
-    store_header_stage.downstream.connect(validate_header_input);
+    receive_header_stage.downstream.connect(graph_input);
 
     select_chain_stage
         .upstream
@@ -241,7 +229,6 @@ pub fn bootstrap(
     let pure_stages = gasket::runtime::spawn_stage(pure_stages, policy.clone());
 
     let receive_header = gasket::runtime::spawn_stage(receive_header_stage, policy.clone());
-    let store_header = gasket::runtime::spawn_stage(store_header_stage, policy.clone());
     let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
     let store_block = gasket::runtime::spawn_stage(store_block_stage, policy.clone());
@@ -250,7 +237,6 @@ pub fn bootstrap(
 
     stages.push(pure_stages);
 
-    stages.push(store_header);
     stages.push(receive_header);
     stages.push(select_chain);
     stages.push(store_block);
@@ -460,7 +446,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new()).unwrap();
 
-        assert_eq!(8, stages.len());
+        assert_eq!(7, stages.len());
     }
 
     #[test]

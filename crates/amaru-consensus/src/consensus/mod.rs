@@ -25,6 +25,7 @@ pub mod receive_header;
 pub mod select_chain;
 pub mod store;
 pub mod store_block;
+pub mod store_effects;
 pub mod store_header;
 pub mod tip;
 pub mod validate_header;
@@ -37,6 +38,7 @@ pub fn build_stage_graph(
     network: &mut impl StageGraph,
     validation_outputs: StageRef<DecodedChainSyncEvent, Void>,
 ) -> StageRef<DecodedChainSyncEvent, Void> {
+    let store_header_stage = network.stage("store_header", store_header::stage);
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
 
     let errors_stage = network.stage("errors", async |_, msg, eff| {
@@ -65,7 +67,10 @@ pub fn build_stage_graph(
         ),
     );
 
-    validate_header_stage.without_state()
+    let store_header_stage =
+        network.wire_up(store_header_stage, validate_header_stage.without_state());
+
+    store_header_stage.without_state()
 }
 
 #[derive(Clone)]

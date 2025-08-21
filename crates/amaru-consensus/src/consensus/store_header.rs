@@ -12,66 +12,39 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ConsensusError, consensus::store::ChainStore};
-use amaru_kernel::{Header, Point};
-use amaru_ouroboros_traits::IsHeader;
-use std::{fmt, sync::Arc};
-use tokio::sync::Mutex;
+use crate::{consensus::store_effects::StoreHeaderEffect, span::adopt_current_span};
 
 use super::DecodedChainSyncEvent;
+use pure_stage::{Effects, StageRef, Void};
+use tracing::Instrument;
 
-#[derive(serde::Serialize, serde::Deserialize)]
-pub struct StoreHeader {
-    #[serde(skip, default = "default_store")]
-    pub store: Arc<Mutex<dyn ChainStore<Header>>>,
-}
-fn default_store() -> Arc<Mutex<dyn ChainStore<Header>>> {
-    Arc::new(Mutex::new(super::store::FakeStore::default()))
-}
-
-impl PartialEq for StoreHeader {
-    fn eq(&self, _other: &Self) -> bool {
-        true
-    }
-}
-
-impl fmt::Debug for StoreHeader {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("StoreHeader")
-            .field("store", &"Arc<Mutex<dyn ChainStore<Header>>>")
-            .finish()
-    }
-}
-
-impl StoreHeader {
-    pub fn new(chain_store: Arc<Mutex<dyn ChainStore<Header>>>) -> Self {
-        StoreHeader { store: chain_store }
-    }
-
-    pub async fn store(&self, point: &Point, header: &Header) -> Result<(), ConsensusError> {
-        // FIXME: we should check the header is not already known and _invalid_ to
-        // prevent a peer from flooding use with duplicate crappy headers
-        self.store
-            .lock()
-            .await
-            .store_header(&header.hash(), header)
-            .map_err(|e| ConsensusError::StoreHeaderFailed(point.clone(), e))
-    }
-
-    pub async fn handle_event(
-        &self,
-        event: DecodedChainSyncEvent,
-    ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        match event {
+pub async fn stage(
+    downstream: StageRef<DecodedChainSyncEvent, Void>,
+    msg: DecodedChainSyncEvent,
+    eff: Effects<DecodedChainSyncEvent, StageRef<DecodedChainSyncEvent, Void>>,
+) -> StageRef<DecodedChainSyncEvent, Void> {
+    let span = adopt_current_span(&msg);
+    async move {
+        match &msg {
             DecodedChainSyncEvent::RollForward {
-                ref point,
-                ref header,
+                peer,
+                point,
+                header,
                 ..
             } => {
-                self.store(point, header).await?;
-                Ok(event)
+                if let Err(error) = eff
+                    .external(StoreHeaderEffect::new(header.clone(), point.clone()))
+                    .await
+                {
+                    tracing::error!(%error, %point, %peer, "Failed to store header");
+                    return downstream;
+                };
+                eff.send(&downstream, msg).await
             }
-            DecodedChainSyncEvent::Rollback { .. } => Ok(event),
+            DecodedChainSyncEvent::Rollback { .. } => eff.send(&downstream, msg).await,
         }
+        downstream
     }
+    .instrument(span)
+    .await
 }

@@ -12,6 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#![deny(clippy::future_not_send)]
+
 use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer};
 use amaru_ouroboros::praos::header::AssertHeaderError;
 use pallas_crypto::hash::Hash;
@@ -25,10 +27,11 @@ pub use amaru_ouroboros_traits::*;
 ///
 /// The consensus interface is responsible for validating block headers.
 pub mod consensus;
+pub mod span;
 
 pub type RawHeader = Vec<u8>;
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ConsensusError {
     #[error("cannot build a chain selector without a tip")]
     MissingTip,
@@ -63,7 +66,7 @@ pub enum ConsensusError {
     InvalidHeaderParent(Box<InvalidHeaderParentData>),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct InvalidHeaderParentData {
     peer: Peer,
     forwarded: Point,

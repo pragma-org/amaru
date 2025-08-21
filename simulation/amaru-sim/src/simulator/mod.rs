@@ -21,10 +21,8 @@ use amaru_consensus::{
         receive_header::handle_chain_sync,
         select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
         store::ChainStore,
-        store_header::StoreHeader,
-        validate_header::{
-            ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
-        },
+        store_effects, store_header,
+        validate_header::ValidateHeader,
     },
 };
 use amaru_kernel::{
@@ -115,7 +113,7 @@ fn init_node(
     GlobalParameters,
     SelectChain,
     ValidateHeader,
-    ValidateHeaderResourceStore,
+    store_effects::ResourceHeaderStore,
 ) {
     let network_name = NetworkName::Testnet(42);
     let global_parameters: &GlobalParameters = network_name.into();
@@ -159,10 +157,6 @@ fn spawn_node(
     info!("Spawning node!");
 
     let (global_parameters, select_chain, validate_header, chain_ref) = init_node(&args);
-
-    let init_store = StoreHeader {
-        store: chain_ref.clone(),
-    };
 
     let receive_stage = network.stage(
         "receive_header",
@@ -216,21 +210,7 @@ fn spawn_node(
         },
     );
 
-    let store_header_stage = network.stage(
-        "store_header",
-        async |(store, downstream): (StoreHeader, _), msg: DecodedChainSyncEvent, eff| {
-            let peer = msg.peer();
-            let result = match store.handle_event(msg).await {
-                Ok(result) => result,
-                Err(error) => {
-                    tracing::error!(%peer, %error, "invalid header");
-                    return eff.terminate().await;
-                }
-            };
-            eff.send(&downstream, result).await;
-            (store, downstream)
-        },
-    );
+    let store_header_stage = network.stage("store_header", store_header::stage);
 
     let select_chain_stage = network.stage(
         "select_chain",
@@ -336,7 +316,7 @@ fn spawn_node(
         receive_stage,
         ((), store_header_stage.sender(), output.clone()),
     );
-    network.wire_up(store_header_stage, (init_store, validate_header_ref));
+    network.wire_up(store_header_stage, validate_header_ref);
     network.wire_up(
         select_chain_stage,
         (select_chain.clone(), propagate_header_stage.sender()),
@@ -345,10 +325,10 @@ fn spawn_node(
 
     network
         .resources()
-        .put::<ValidateHeaderResourceStore>(chain_ref);
+        .put::<store_effects::ResourceHeaderStore>(chain_ref);
     network
         .resources()
-        .put::<ValidateHeaderResourceParameters>(global_parameters);
+        .put::<store_effects::ResourceParameters>(global_parameters);
 
     (rx, receive.without_state())
 }

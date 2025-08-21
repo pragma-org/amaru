@@ -12,8 +12,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{schedule, send, stages::common::adopt_current_span};
-use amaru_consensus::IsHeader;
+use crate::{schedule, send};
+use amaru_consensus::{span::adopt_current_span, IsHeader};
 use amaru_kernel::{
     EraHistory, Hash, Hasher, MintedBlock, Network, Point, RawBlock,
     block::{BlockValidationResult, ValidateBlockEvent},
@@ -223,7 +223,7 @@ impl<S: Store + Send, HS: HistoricalStores + Send>
         unit: &ValidateBlockEvent,
         stage: &mut ValidateBlockStage<S, HS>,
     ) -> Result<(), WorkerError> {
-        adopt_current_span(unit);
+        let _span = adopt_current_span(unit).entered();
         let result = match unit {
             ValidateBlockEvent::Validated { point, block, span } => {
                 let point = point.clone();

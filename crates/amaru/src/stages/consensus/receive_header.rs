@@ -12,8 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{schedule, send, stages::common::adopt_current_span};
-use amaru_consensus::consensus::{ChainSyncEvent, DecodedChainSyncEvent, receive_header};
+use crate::{schedule, send};
+use amaru_consensus::{
+    consensus::{ChainSyncEvent, DecodedChainSyncEvent, receive_header},
+    span::adopt_current_span,
+};
 use gasket::framework::*;
 use tracing::{Level, error, instrument};
 
@@ -67,7 +70,7 @@ impl gasket::framework::Worker<ReceiveHeaderStage> for Worker {
         unit: &ChainSyncEvent,
         stage: &mut ReceiveHeaderStage,
     ) -> Result<(), WorkerError> {
-        adopt_current_span(unit);
+        let _span = adopt_current_span(unit).entered();
         stage.handle_event(unit.clone()).await
     }
 }

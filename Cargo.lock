@@ -102,6 +102,7 @@ dependencies = [
  "indextree",
  "insta",
  "minicbor",
+ "opentelemetry",
  "pallas-crypto",
  "pallas-math",
  "proptest",
@@ -115,6 +116,7 @@ dependencies = [
  "thiserror 2.0.16",
  "tokio",
  "tracing",
+ "tracing-opentelemetry",
  "tracing-subscriber",
 ]
 
