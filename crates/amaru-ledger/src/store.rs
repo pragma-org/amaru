@@ -33,10 +33,9 @@ use amaru_kernel::{
     TransactionInput,
 };
 use amaru_kernel::{
-    ComparableProposalId, Constitution, ConstitutionalCommittee, MemoizedTransactionOutput,
+    ComparableProposalId, Constitution, ConstitutionalCommittee, Epoch, MemoizedTransactionOutput,
 };
 use columns::*;
-use slot_arithmetic::Epoch;
 use std::{borrow::BorrowMut, io, iter, ops::Deref};
 use thiserror::Error;
 
@@ -100,6 +99,12 @@ pub enum EpochTransitionProgress {
     EpochStarted,
 }
 
+#[derive(Debug, PartialEq, Eq, minicbor::Encode, minicbor::Decode, Clone)]
+pub struct GovernanceActivity {
+    #[n(0)]
+    pub consecutive_dormant_epochs: u32,
+}
+
 // Snapshot
 // ----------------------------------------------------------------------------
 
@@ -161,6 +166,9 @@ pub trait ReadStore {
     /// Get the latest governance roots; which corresponds to the id of the latest governance
     /// actions enacted for specific categories.
     fn proposals_roots(&self) -> Result<ProposalsRoots>;
+
+    /// Restore the current governance activity for this epoch.
+    fn governance_activity(&self) -> Result<GovernanceActivity>;
 
     /// Get details about all utxos
     fn iter_utxos(&self) -> Result<impl Iterator<Item = (utxo::Key, utxo::Value)>>;
@@ -247,6 +255,9 @@ pub trait TransactionalContext<'a>: ReadStore {
     #[allow(clippy::too_many_arguments)]
     fn save(
         &self,
+        era_history: &EraHistory,
+        protocol_parameters: &ProtocolParameters,
+        governance_activity: &mut GovernanceActivity,
         point: &Point,
         issuer: Option<&pools::Key>,
         add: Columns<
@@ -268,7 +279,6 @@ pub trait TransactionalContext<'a>: ReadStore {
             impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = accounts::Key>,
-        era_history: &EraHistory,
     ) -> Result<()>;
 
     /// Refund a deposit into an account. If the account no longer exists, returns the unrefunded
@@ -286,6 +296,9 @@ pub trait TransactionalContext<'a>: ReadStore {
 
     /// Persist the latest enacted constitution
     fn set_constitution(&self, constitution: &Constitution) -> Result<()>;
+
+    /// Track the current governance activity.
+    fn set_governance_activity(&self, dormant_epochs: &GovernanceActivity) -> Result<()>;
 
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.

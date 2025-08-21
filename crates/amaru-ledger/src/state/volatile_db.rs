@@ -23,8 +23,8 @@ use crate::{
 };
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, Anchor, Ballot, BallotId, CertificatePointer,
-    ComparableProposalId, DRep, Lovelace, MemoizedTransactionOutput, Point, PoolId, PoolParams,
-    Proposal, ProposalPointer, StakeCredential, TransactionInput,
+    ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, Point,
+    PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential, TransactionInput,
 };
 use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
@@ -139,7 +139,7 @@ pub struct VolatileState {
     pub utxo: DiffSet<TransactionInput, MemoizedTransactionOutput>,
     pub pools: DiffEpochReg<PoolId, PoolParams>,
     pub accounts: DiffBind<StakeCredential, PoolId, (DRep, CertificatePointer), Lovelace>,
-    pub dreps: DiffBind<StakeCredential, Anchor, Empty, (Lovelace, CertificatePointer)>,
+    pub dreps: DiffBind<StakeCredential, Anchor, Empty, DRepRegistration>,
     pub dreps_deregistrations: BTreeMap<StakeCredential, CertificatePointer>,
     pub committee: DiffBind<StakeCredential, StakeCredential, Empty, Empty>,
     pub withdrawals: BTreeSet<StakeCredential>,
@@ -216,7 +216,7 @@ impl AnchoredVolatileState {
                 utxo: self.state.utxo.produced.into_iter(),
                 pools: add_pools(self.state.pools.registered.into_iter(), epoch),
                 accounts: add_accounts(self.state.accounts.registered.into_iter()),
-                dreps: add_dreps(self.state.dreps.registered.into_iter(), epoch),
+                dreps: add_dreps(self.state.dreps.registered.into_iter()),
                 cc_members: add_committee(self.state.committee.registered.into_iter()),
                 proposals: add_proposals(
                     self.state.proposals.registered.into_iter(),
@@ -296,13 +296,7 @@ fn add_accounts(
 // --------------------------------------------------------------------------
 
 fn add_dreps(
-    iterator: impl Iterator<
-        Item = (
-            StakeCredential,
-            Bind<Anchor, Empty, (Lovelace, CertificatePointer)>,
-        ),
-    >,
-    epoch: Epoch,
+    iterator: impl Iterator<Item = (StakeCredential, Bind<Anchor, Empty, DRepRegistration>)>,
 ) -> impl Iterator<Item = (dreps::Key, dreps::Value)> {
     iterator.map(
         move |(
@@ -312,7 +306,7 @@ fn add_dreps(
                 right: _,
                 value: registration,
             },
-        ): (_, Bind<_, Empty, _>)| { (credential, (anchor, registration, epoch)) },
+        ): (_, Bind<_, Empty, _>)| { (credential, (anchor, registration)) },
     )
 }
 

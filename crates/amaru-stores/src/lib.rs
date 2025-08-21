@@ -20,9 +20,11 @@ pub mod rocksdb;
 pub mod tests {
     use amaru_kernel::{
         network::NetworkName,
+        protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
         tests::{any_pool_id, any_pool_params, any_proposal_id, any_stake_credential},
-        Anchor, ComparableProposalId, EraHistory, Hash, MemoizedTransactionOutput, Point, PoolId,
-        PoolParams, Slot, StakeCredential, TransactionInput,
+        Anchor, ComparableProposalId, DRepRegistration, EraHistory, Hash,
+        MemoizedTransactionOutput, Point, PoolId, PoolParams, Slot, StakeCredential,
+        TransactionInput,
     };
     use amaru_ledger::{
         state::diff_bind,
@@ -34,7 +36,7 @@ pub mod tests {
                 slots::tests::any_slot,
                 utxo::tests::{any_memoized_transaction_output, any_txin},
             },
-            Columns, ReadStore, Store, StoreError, TransactionalContext,
+            Columns, GovernanceActivity, ReadStore, Store, StoreError, TransactionalContext,
         },
     };
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
@@ -78,7 +80,7 @@ pub mod tests {
 
     pub fn add_test_data_to_store(
         store: &impl Store,
-        era_history: &EraHistory,
+        _era_history: &EraHistory,
         runner: &mut TestRunner,
     ) -> Result<Fixture, StoreError> {
         use diff_bind::Resettable;
@@ -136,25 +138,20 @@ pub mod tests {
             });
         }
         drep_row.previous_deregistration = None;
-        drep_row.last_interaction = None;
 
         let anchor = drep_row.anchor.clone().expect("Expected anchor to be Some");
         let deposit = drep_row.deposit;
         let registered_at = drep_row.registered_at;
 
-        let drep_epoch = era_history
-            .slot_to_epoch(
-                registered_at.transaction.slot,
-                registered_at.transaction.slot,
-            )
-            .expect("Failed to convert slot to epoch");
-
         let drep_iter = std::iter::once((
             drep_key.clone(),
             (
                 Resettable::Set(anchor),
-                Some((deposit, registered_at)),
-                drep_epoch,
+                Some(DRepRegistration {
+                    deposit,
+                    registered_at,
+                    valid_until: drep_row.valid_until,
+                }),
             ),
         ));
 
@@ -203,11 +200,17 @@ pub mod tests {
         let slot_leader = any_pool_id().new_tree(runner).unwrap().current();
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
 
         {
             let context = store.create_transaction();
 
             context.save(
+                &era_history,
+                &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+                &mut governance_activity,
                 &point,
                 Some(&slot_leader),
                 Columns {
@@ -221,7 +224,6 @@ pub mod tests {
                 },
                 Columns::empty(),
                 std::iter::empty(),
-                &era_history,
             )?;
 
             context.commit()?;
@@ -340,17 +342,15 @@ pub mod tests {
             stored_drep.anchor, fixture.drep_row.anchor,
             "drep anchor mismatch"
         );
+
         assert_eq!(
             stored_drep.deposit, fixture.drep_row.deposit,
             "drep deposit mismatch"
         );
+
         assert_eq!(
             stored_drep.registered_at, fixture.drep_row.registered_at,
             "drep registration time mismatch"
-        );
-        assert_eq!(
-            stored_drep.last_interaction, fixture.drep_row.last_interaction,
-            "drep last interaction mismatch"
         );
 
         match (
@@ -408,14 +408,19 @@ pub mod tests {
             votes: std::iter::empty(),
         };
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
         let context = store.create_transaction();
         context.save(
+            &era_history,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &mut governance_activity,
             &point,
             None,
             Columns::empty(),
             remove,
             std::iter::empty(),
-            &era_history,
         )?;
         context.commit()?;
 
@@ -442,14 +447,19 @@ pub mod tests {
         };
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
         let context = store.create_transaction();
         context.save(
+            &era_history,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &mut governance_activity,
             &point,
             None,
             Columns::empty(),
             remove,
             std::iter::empty(),
-            &era_history,
         )?;
         context.commit()?;
 
@@ -471,14 +481,19 @@ pub mod tests {
             votes: std::iter::empty(),
         };
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
         let context = store.create_transaction();
         context.save(
+            &era_history,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &mut governance_activity,
             &point,
             None,
             Columns::empty(),
             remove,
             std::iter::empty(),
-            &era_history,
         )?;
         context.commit()?;
 
@@ -520,14 +535,19 @@ pub mod tests {
         );
 
         let era_history = (*Into::<&'static EraHistory>::into(NetworkName::Preprod)).clone();
+        let mut governance_activity = GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        };
         let context = store.create_transaction();
         context.save(
+            &era_history,
+            &PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            &mut governance_activity,
             &point,
             None,
             Columns::empty(),
             remove,
             std::iter::empty(),
-            &era_history,
         )?;
         context.commit()?;
 

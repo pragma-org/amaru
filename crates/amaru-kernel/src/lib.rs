@@ -96,6 +96,9 @@ pub mod certificate_pointer;
 
 pub mod drep;
 
+pub use drep_registration::*;
+pub mod drep_registration;
+
 pub use drep_state::*;
 pub mod drep_state;
 

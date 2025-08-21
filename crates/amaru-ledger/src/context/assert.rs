@@ -14,17 +14,16 @@
 
 use crate::context::{
     blanket_known_datums, blanket_known_scripts, AccountState, AccountsSlice, CCMember,
-    CommitteeSlice, DRepState, DRepsSlice, DelegateError, Hash, PoolsSlice, PotsSlice,
-    PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice,
-    PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError, UpdateError, UtxoSlice,
-    ValidationContext, WitnessSlice,
+    CommitteeSlice, DRepsSlice, DelegateError, Hash, PoolsSlice, PotsSlice, PreparationContext,
+    PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
+    RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
 };
 use amaru_kernel::{
     serde_utils, stake_credential_hash, voter_credential_hash, AddrKeyhash, Anchor,
-    CertificatePointer, DRep, DatumHash, Lovelace, MemoizedPlutusData, MemoizedScript,
-    MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer,
-    RequiredScript, ScriptHash, StakeCredential, StakeCredentialType, TransactionInput, Vote,
-    Voter, VoterType,
+    CertificatePointer, DRep, DRepRegistration, DatumHash, Lovelace, MemoizedPlutusData,
+    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
+    ProposalPointer, RequiredScript, ScriptHash, StakeCredential, StakeCredentialType,
+    TransactionInput, Vote, Voter, VoterType,
 };
 use core::mem;
 use slot_arithmetic::Epoch;
@@ -200,15 +199,16 @@ impl AccountsSlice for AssertValidationContext {
 }
 
 impl DRepsSlice for AssertValidationContext {
-    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepState> {
+    fn lookup(&self, _credential: &StakeCredential) -> Option<&DRepRegistration> {
         unimplemented!()
     }
 
     fn register(
         &mut self,
         _drep: StakeCredential,
-        _state: DRepState,
-    ) -> Result<(), RegisterError<DRepState, StakeCredential>> {
+        _registration: DRepRegistration,
+        _anchor: Option<Anchor>,
+    ) -> Result<(), RegisterError<DRepRegistration, StakeCredential>> {
         unimplemented!()
     }
 

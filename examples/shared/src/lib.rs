@@ -23,7 +23,7 @@ use amaru_ledger::{
     context,
     rules::{self, block::BlockValidation},
     state::{State, VolatileState},
-    store::{Store, TransactionalContext},
+    store::{GovernanceActivity, Store, TransactionalContext},
 };
 use amaru_stores::in_memory::MemoryStore;
 use std::collections::BTreeMap;
@@ -104,6 +104,10 @@ pub fn forward_ledger(raw_block: &str) {
         &mut context,
         &Network::from(network),
         state.protocol_parameters(),
+        &era_history,
+        &GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        },
         &block,
     ) {
         panic!("Failed to validate block")

@@ -28,8 +28,8 @@ use amaru_ledger::{
             pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
             votes as votes_column,
         },
-        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
-        TransactionalContext,
+        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
+        StoreError, TransactionalContext,
     },
 };
 use iter_borrow::IterBorrow;
@@ -124,6 +124,12 @@ impl ReadStore for MemoryStore {
 
     fn constitution(&self) -> Result<Constitution, StoreError> {
         unimplemented!(".constitution")
+    }
+
+    fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
+        Ok(GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        })
     }
 
     fn account(
@@ -602,6 +608,13 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         unimplemented!(".set_constitution");
     }
 
+    fn set_governance_activity(
+        &self,
+        _governance_activity: &GovernanceActivity,
+    ) -> Result<(), StoreError> {
+        unimplemented!(".set_governance_activity");
+    }
+
     fn remove_proposals<'iter, Id>(
         &self,
         _proposals: impl IntoIterator<Item = Id>,
@@ -614,6 +627,9 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
 
     fn save(
         &self,
+        _era_history: &EraHistory,
+        _protocol_parameters: &ProtocolParameters,
+        _governance_activity: &mut GovernanceActivity,
         point: &Point,
         issuer: Option<&amaru_ledger::store::columns::pools::Key>,
         add: amaru_ledger::store::Columns<
@@ -670,7 +686,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
             impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
-        _era_history: &EraHistory,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         let current_tip = self.store.tip.borrow().clone();
 
@@ -701,10 +716,9 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         accounts::add(self.store, add.accounts)?;
         cc_members::add(self.store, add.cc_members)?;
         proposals::add(self.store, add.proposals)?;
-        let voting_dreps = votes::add(self.store, add.votes)?;
+        votes::add(self.store, add.votes)?;
 
         accounts::reset_many(self.store, withdrawals)?;
-        dreps::tick(self.store, &voting_dreps, point)?;
 
         utxo::remove(self.store, remove.utxo)?;
         pools::remove(self.store, remove.pools)?;

@@ -29,13 +29,16 @@ pub const PREFIX: [u8; PREFIX_LEN] = [0x70, 0x72, 0x6F, 0x70];
 pub fn add<DB>(
     db: &Transaction<'_, DB>,
     rows: impl Iterator<Item = (Key, Value)>,
-) -> Result<(), StoreError> {
+) -> Result<usize, StoreError> {
+    let mut n = 0;
+
     for (key, value) in rows {
+        n += 1;
         db.put(as_key(&PREFIX, key), as_value(value))
             .map_err(|err| StoreError::Internal(err.into()))?;
     }
 
-    Ok(())
+    Ok(n)
 }
 
 /// Remove an expired or enacted proposal.

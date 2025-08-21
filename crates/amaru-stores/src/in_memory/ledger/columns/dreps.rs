@@ -13,12 +13,11 @@
 // limitations under the License.
 
 use crate::in_memory::MemoryStore;
-use amaru_kernel::{CertificatePointer, Point, StakeCredential};
+use amaru_kernel::{CertificatePointer, DRepRegistration};
 use amaru_ledger::store::{
     columns::dreps::{Key, Row, Value},
     StoreError,
 };
-use std::collections::BTreeSet;
 use tracing::error;
 
 pub fn add(
@@ -27,25 +26,35 @@ pub fn add(
 ) -> Result<(), StoreError> {
     let mut dreps = store.dreps.borrow_mut();
 
-    for (credential, (anchor, register, epoch)) in rows {
+    for (credential, (anchor, registration)) in rows {
         if let Some(row) = dreps.get_mut(&credential) {
             // Re-registration or update
-            if let Some((deposit, registered_at)) = register {
-                row.registered_at = registered_at;
+            if let Some(DRepRegistration {
+                deposit,
+                registered_at,
+                valid_until,
+                ..
+            }) = registration
+            {
                 row.deposit = deposit;
-                row.last_interaction = None;
-            } else {
-                row.last_interaction = Some(epoch);
+                row.registered_at = registered_at;
+                row.valid_until = valid_until;
             }
 
             anchor.set_or_reset(&mut row.anchor);
-        } else if let Some((deposit, registered_at)) = register {
+        } else if let Some(DRepRegistration {
+            deposit,
+            registered_at,
+            valid_until,
+            ..
+        }) = registration
+        {
             // New registration
             let mut row = Row {
-                anchor: None,
                 deposit,
                 registered_at,
-                last_interaction: None,
+                valid_until,
+                anchor: None,
                 previous_deregistration: None,
             };
             anchor.set_or_reset(&mut row.anchor);
@@ -55,33 +64,6 @@ pub fn add(
                 target: "store::dreps::add",
                 ?credential,
                 "add.register_no_deposit",
-            );
-        }
-    }
-
-    Ok(())
-}
-
-pub fn tick(
-    store: &MemoryStore,
-    voting_dreps: &BTreeSet<StakeCredential>,
-    point: &Point,
-) -> Result<(), StoreError> {
-    let epoch = store
-        .era_history
-        .slot_to_epoch(point.slot_or_default(), point.slot_or_default())
-        .map_err(|err| StoreError::Internal(err.into()))?;
-
-    let mut dreps = store.dreps.borrow_mut();
-
-    for credential in voting_dreps {
-        if let Some(row) = dreps.get_mut(credential) {
-            row.last_interaction = Some(epoch);
-        } else {
-            tracing::error!(
-                target: "store::dreps::tick",
-                ?credential,
-                "tick.unknown_drep",
             );
         }
     }

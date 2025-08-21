@@ -185,7 +185,7 @@ pub fn tally(
             .dreps
             .iter()
             .fold((0, 0), |(yes, denominator), (drep, st)| {
-                if st.mandate.is_none() || Some(epoch) <= st.mandate {
+                if st.valid_until.is_none() || Some(epoch) <= st.valid_until {
                     match drep {
                         DRep::Abstain => (yes, denominator),
                         DRep::NoConfidence if proposal.is_no_confidence() => {

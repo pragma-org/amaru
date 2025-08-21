@@ -15,15 +15,17 @@
 use crate::{
     governance::ratification::ProposalsRootsRc,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
-    store::{self, columns::proposals, Store, StoreError, TransactionalContext},
+    store::{
+        self, columns::proposals, GovernanceActivity, Store, StoreError, TransactionalContext,
+    },
 };
 use amaru_kernel::{
     cbor, heterogeneous_array, network::NetworkName, protocol_parameters::ProtocolParameters,
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
-    DRep, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput, Point, PoolId,
-    PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward, ScriptHash, Set,
-    Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer, UnitInterval, Vote,
-    Voter,
+    DRep, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
+    Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward,
+    ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
+    UnitInterval, Vote, Voter,
 };
 use progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
@@ -85,7 +87,7 @@ pub fn import_initial_snapshot(
     // the last block of the epoch. We have no intrinsic ways to check that this is the case since
     // we do not know what the last block of an epoch is, and we can't reliably look at the number
     // of blocks either.
-    import_block_issuers(db, d.decode()?, era_history)?;
+    let block_issuers = d.decode()?;
 
     // Epoch State
     d.array()?;
@@ -110,22 +112,22 @@ pub fn import_initial_snapshot(
     let cc_members = d.decode()?;
 
     // Dormant Epoch
-    d.skip()?;
+    let dormant_epoch: Epoch = d.decode()?;
+    let governance_activity = GovernanceActivity {
+        consecutive_dormant_epochs: u64::from(dormant_epoch) as u32,
+    };
+    info!(
+        dormant_epochs = governance_activity.consecutive_dormant_epochs,
+        "governance activity"
+    );
 
     // Epoch State / Ledger State / Cert State / Pool State
     d.array()?;
-    import_stake_pools(
-        db,
-        point,
-        epoch,
-        // Pools
-        d.decode()?,
-        // Updates
-        d.decode()?,
-        // Retirements
-        d.decode()?,
-        era_history,
-    )?;
+
+    let pools = d.decode()?;
+    let pools_updates = d.decode()?;
+    let pools_retirements = d.decode()?;
+
     // Deposits
     d.skip()?;
 
@@ -153,15 +155,10 @@ pub fn import_initial_snapshot(
     // Epoch State / Ledger State / UTxO State
     d.array()?;
 
-    import_utxo(
-        db,
-        &with_progress,
-        point,
-        d.decode::<BTreeMap<TransactionInput, MemoizedTransactionOutput>>()?
-            .into_iter()
-            .collect::<Vec<(TransactionInput, MemoizedTransactionOutput)>>(),
-        era_history,
-    )?;
+    let utxo = d
+        .decode::<BTreeMap<TransactionInput, MemoizedTransactionOutput>>()?
+        .into_iter()
+        .collect::<Vec<(TransactionInput, MemoizedTransactionOutput)>>();
 
     let _deposited: u64 = d.decode()?;
 
@@ -173,14 +170,18 @@ pub fn import_initial_snapshot(
     // Proposals
     d.array()?;
     d.array()?;
-    import_proposals_roots(db, d.decode()?, d.decode()?, d.decode()?, d.decode()?)?;
+    let root_params = d.decode()?;
+    let root_hard_fork = d.decode()?;
+    let root_cc = d.decode()?;
+    let root_constitution = d.decode()?;
+
     let proposals: Vec<ProposalState> = d.decode()?;
 
     // Constitutional committee
-    import_constitutional_committee(db, point, era_history, d.decode()?, cc_members)?;
+    let cc_state = d.decode()?;
 
     // Constitution
-    import_constitution(db, d.decode()?)?;
+    let constitution = d.decode()?;
 
     // Current Protocol Params
     let pparams = if let Some(dir) = protocol_parameters_dir {
@@ -189,8 +190,6 @@ pub fn import_initial_snapshot(
         d.decode()?
     };
     let protocol_parameters = import_protocol_parameters(db, pparams)?;
-    import_dreps(db, point, era_history, epoch, dreps, &protocol_parameters)?;
-    import_proposals(db, point, era_history, proposals, &protocol_parameters)?;
 
     // Previous Protocol Params
     d.skip()?;
@@ -203,7 +202,7 @@ pub fn import_initial_snapshot(
 
     d.array()?; // Pulsing Snapshot
 
-    import_votes(db, point, era_history, d.decode()?)?;
+    let votes = d.decode()?;
 
     d.skip()?; // DRep distr
     d.skip()?; // DRep state
@@ -265,10 +264,10 @@ pub fn import_initial_snapshot(
             db,
             &with_progress,
             point,
+            era_history,
+            &protocol_parameters,
             accounts,
             &mut rewards,
-            &protocol_parameters,
-            era_history,
         )?;
 
         let unclaimed_rewards = rewards.into_iter().fold(0, |total, (_, rewards)| {
@@ -287,7 +286,54 @@ pub fn import_initial_snapshot(
         d.skip()?;
     }
 
-    save_point(db, point, era_history)?;
+    import_block_issuers(db, era_history, &protocol_parameters, block_issuers)?;
+
+    import_stake_pools(
+        db,
+        point,
+        era_history,
+        &protocol_parameters,
+        epoch,
+        pools,
+        pools_updates,
+        pools_retirements,
+    )?;
+
+    import_constitution(db, constitution)?;
+
+    import_proposals_roots(db, root_params, root_hard_fork, root_cc, root_constitution)?;
+
+    import_constitutional_committee(
+        db,
+        point,
+        era_history,
+        &protocol_parameters,
+        cc_state,
+        cc_members,
+    )?;
+
+    import_dreps(db, point, era_history, &protocol_parameters, epoch, dreps)?;
+
+    import_proposals(db, point, era_history, &protocol_parameters, proposals)?;
+
+    import_votes(db, point, era_history, &protocol_parameters, votes)?;
+
+    import_utxo(
+        db,
+        &with_progress,
+        point,
+        era_history,
+        &protocol_parameters,
+        utxo,
+    )?;
+
+    save_point(
+        db,
+        point,
+        era_history,
+        &protocol_parameters,
+        governance_activity,
+    )?;
 
     Ok(epoch)
 }
@@ -296,17 +342,23 @@ fn save_point(
     db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    mut governance_activity: GovernanceActivity,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
 
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut governance_activity,
         point,
         None,
         Default::default(),
         Default::default(),
         iter::empty(),
-        era_history,
     )?;
+
+    transaction.set_governance_activity(&governance_activity)?;
 
     transaction.commit()?;
 
@@ -325,8 +377,9 @@ fn import_protocol_parameters(
 
 fn import_block_issuers(
     db: &impl Store,
-    blocks: BTreeMap<PoolId, u64>,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    blocks: BTreeMap<PoolId, u64>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_block_issuers(|iterator| {
@@ -341,6 +394,9 @@ fn import_block_issuers(
     for (pool, mut count) in blocks.into_iter() {
         while count > 0 {
             transaction.save(
+                era_history,
+                protocol_parameters,
+                &mut default_governance_activity(),
                 &Point::Specific(fake_slot, vec![]),
                 Some(&pool),
                 store::Columns {
@@ -354,7 +410,6 @@ fn import_block_issuers(
                 },
                 Default::default(),
                 iter::empty(),
-                era_history,
             )?;
             count -= 1;
             fake_slot += 1;
@@ -368,8 +423,9 @@ fn import_utxo(
     db: &impl Store,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
     point: &Point,
-    mut utxo: Vec<(TransactionInput, MemoizedTransactionOutput)>,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
+    mut utxo: Vec<(TransactionInput, MemoizedTransactionOutput)>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!(size = utxo.len(), "utxo");
 
@@ -387,6 +443,9 @@ fn import_utxo(
         let chunk = utxo.drain(0..n);
 
         transaction.save(
+            era_history,
+            protocol_parameters,
+            &mut default_governance_activity(),
             point,
             None,
             store::Columns {
@@ -400,7 +459,6 @@ fn import_utxo(
             },
             Default::default(),
             iter::empty(),
-            era_history,
         )?;
 
         progress.tick(n);
@@ -416,9 +474,9 @@ fn import_dreps(
     db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
-    protocol_parameters: &ProtocolParameters,
 ) -> Result<(), impl std::error::Error> {
     let mut known_dreps = BTreeMap::new();
 
@@ -441,9 +499,10 @@ fn import_dreps(
 
     info!(size = dreps.len(), "dreps");
 
-    let mut active_dreps = BTreeMap::new();
-
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
         point,
         None,
         store::Columns {
@@ -451,82 +510,28 @@ fn import_dreps(
             pools: iter::empty(),
             accounts: iter::empty(),
             dreps: dreps.into_iter().map(|(credential, state)| {
-                // 1. First DRep registrations in Conway are *sometimes* granted an extra epoch of
-                //    expiry; because the first Conway epoch is deemed as "dormant" (no proposals
-                //    in the epoch prior), and a bug in version 9 is causing new DRep registrations
-                //    to benefits from this extra epoch.
-                //
-                // 2. We have no idea when exactly was the drep registered; but we
-                //    need to pick a valid slot so that mandate calculations falls
-                //    back on the correct value.
-                //
-                //    There are two scenarios:
-                //
-                //    A) Either the drep has registered before the first proposal in
-                //       the epoch. In which case it would enjoy an extra epoch of
-                //       expiry.
-                //
-                //    B) Or it has registered strictly after, such that the number of
-                //       dormant epoch was already reset. In which case, no bonus
-                //       applies.
-                //
-                //    We can assign dreps to (A) or (B) by artificially chosing the
-                //    first and last slot of the epoch respectively. To know whether
-                //    we shall assign them to (A) or (B), we can simply look at their
-                //    mandate in the snapshot which would be one greater for dreps in
-                //    group (A).
-                //
-                // 3. We make a strong assumption that there are proposals submitted during the
-                //    very first epoch of the Conway era on this network. This is true of Preview,
-                //    Preprod and Mainnet. Any custom network for which this wouldn't be true is
-                //    expected to use a protocol version > 9, where this assumption doesn't matter.
-                let (registration_slot, last_interaction) = if epoch == era_first_epoch {
-                    let last_interaction = era_first_epoch;
-                    #[allow(clippy::unwrap_used)]
-                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    if state.expiry > epoch + protocol_parameters.drep_expiry {
-                        (epoch_bound.start, last_interaction)
-                    } else {
-                        (point.slot_or_default(), last_interaction)
-                    }
-                } else {
-                    let last_interaction = state.expiry - protocol_parameters.drep_expiry;
-                    #[allow(clippy::unwrap_used)]
-                    let epoch_bound = era_history.epoch_bounds(last_interaction).unwrap();
-                    // start or end doesn't matter here.
-                    (epoch_bound.start, last_interaction)
-                };
-
-                let registration =
+                let registered_at =
                     known_dreps
                         .remove(&credential)
                         .unwrap_or_else(|| CertificatePointer {
                             transaction: TransactionPointer {
-                                slot: registration_slot,
+                                slot: point.slot_or_default(),
                                 ..TransactionPointer::default()
                             },
                             ..CertificatePointer::default()
                         });
 
-                #[allow(clippy::unwrap_used)]
-                #[allow(clippy::disallowed_methods)]
-                let registration_epoch = era_history
-                    .slot_to_epoch_unchecked_horizon(registration.slot())
-                    .unwrap();
-
-                // NOTE: The 'save' method will not consider the last interaction when registering
-                // or re-registering a DRep. So when needed, we must retain the 'last_interaction'
-                // and set it manually afterwards.
-                if last_interaction > registration_epoch {
-                    active_dreps.insert(credential.clone(), last_interaction);
-                }
+                let registration = DRepRegistration {
+                    deposit: state.deposit,
+                    valid_until: state.expiry,
+                    registered_at,
+                };
 
                 (
                     credential,
                     (
                         Resettable::from(Option::from(state.anchor)),
-                        Some((state.deposit, registration)),
-                        last_interaction,
+                        Some(registration),
                     ),
                 )
             }),
@@ -536,22 +541,7 @@ fn import_dreps(
         },
         Default::default(),
         iter::empty(),
-        era_history,
     )?;
-
-    transaction.commit()?;
-
-    let transaction = db.create_transaction();
-
-    transaction.with_dreps(|iterator| {
-        for (credential, mut row) in iterator {
-            if let Some(last_interaction) = active_dreps.get(&credential) {
-                if let Some(drep) = row.borrow_mut() {
-                    drep.last_interaction = Some(*last_interaction);
-                }
-            }
-        }
-    })?;
 
     transaction.commit()
 }
@@ -560,8 +550,8 @@ fn import_proposals(
     db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
-    proposals: Vec<ProposalState>,
     protocol_parameters: &ProtocolParameters,
+    proposals: Vec<ProposalState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_proposals(|iterator| {
@@ -573,6 +563,9 @@ fn import_proposals(
     info!(size = proposals.len(), "proposals");
 
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
         point,
         None,
         store::Columns {
@@ -607,21 +600,22 @@ fn import_proposals(
         },
         Default::default(),
         iter::empty(),
-        era_history,
     )?;
     transaction.commit()?;
 
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn import_stake_pools(
     db: &impl Store,
     point: &Point,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
-    era_history: &EraHistory,
 ) -> Result<(), impl std::error::Error> {
     let mut state = DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
@@ -651,6 +645,9 @@ fn import_stake_pools(
 
     let transaction = db.create_transaction();
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
         point,
         None,
         store::Columns {
@@ -680,7 +677,6 @@ fn import_stake_pools(
             votes: iter::empty(),
         },
         iter::empty(),
-        era_history,
     )?;
     transaction.commit()
 }
@@ -707,10 +703,10 @@ fn import_accounts(
     db: &impl Store,
     with_progress: impl Fn(usize, &str) -> Box<dyn ProgressBar>,
     point: &Point,
+    era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
     accounts: BTreeMap<StakeCredential, Account>,
     rewards_updates: &mut BTreeMap<StakeCredential, Set<Reward>>,
-    protocol_parameters: &ProtocolParameters,
-    era_history: &EraHistory,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let transaction = db.create_transaction();
     transaction.with_accounts(|iterator| {
@@ -765,6 +761,9 @@ fn import_accounts(
         let chunk = credentials.drain(0..n);
 
         transaction.save(
+            era_history,
+            protocol_parameters,
+            &mut default_governance_activity(),
             point,
             None,
             store::Columns {
@@ -778,7 +777,6 @@ fn import_accounts(
             },
             Default::default(),
             iter::empty(),
-            era_history,
         )?;
 
         progress.tick(n);
@@ -845,6 +843,7 @@ fn import_constitutional_committee(
     db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
     cc: StrictMaybe<ConstitutionalCommittee>,
     mut hot_cold_delegations: BTreeMap<StakeCredential, ConstitutionalCommitteeAuthorization>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -880,6 +879,9 @@ fn import_constitutional_committee(
     transaction.set_constitutional_committee(&cc)?;
 
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
         point,
         None,
         store::Columns {
@@ -904,7 +906,6 @@ fn import_constitutional_committee(
         },
         Default::default(),
         iter::empty(),
-        era_history,
     )?;
 
     transaction.commit()?;
@@ -916,6 +917,7 @@ fn import_votes(
     db: &impl Store,
     point: &Point,
     era_history: &EraHistory,
+    protocol_parameters: &ProtocolParameters,
     actions: Vec<GovActionState>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let votes = actions
@@ -967,6 +969,9 @@ fn import_votes(
     let transaction = db.create_transaction();
 
     transaction.save(
+        era_history,
+        protocol_parameters,
+        &mut default_governance_activity(),
         point,
         None,
         store::Columns {
@@ -980,7 +985,6 @@ fn import_votes(
         },
         Default::default(),
         iter::empty(),
-        era_history,
     )?;
 
     transaction.commit()?;
@@ -1079,5 +1083,11 @@ impl<'d, C> cbor::decode::Decode<'d, C> for ConstitutionalCommittee {
                 threshold: d.decode_with(ctx)?,
             })
         })
+    }
+}
+
+fn default_governance_activity() -> GovernanceActivity {
+    GovernanceActivity {
+        consecutive_dormant_epochs: 0,
     }
 }

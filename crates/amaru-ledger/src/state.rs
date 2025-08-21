@@ -20,8 +20,8 @@ use crate::{
     },
     store::{
         columns::{pools, proposals},
-        EpochTransitionProgress, HistoricalStores, ReadStore, Snapshot, Store, StoreError,
-        TransactionalContext,
+        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
+        StoreError, TransactionalContext,
     },
     summary::{
         governance::{self, GovernanceSummary},
@@ -118,6 +118,10 @@ where
     /// Updatable protocol parameters.
     protocol_parameters: ProtocolParameters,
 
+    /// Track the number of dormant epochs (i.e. epochs that start without any available
+    /// proposals).
+    governance_activity: GovernanceActivity,
+
     /// Which network are we connected to. This is mostly helpful for distinguishing between
     /// behavious that are network specifics (e.g. address discriminant).
     network: NetworkName,
@@ -133,6 +137,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     ) -> Result<Self, StoreError> {
         let protocol_parameters = stable.protocol_parameters()?;
 
+        let governance_activity = stable.governance_activity()?;
+
         let stake_distributions = initial_stake_distributions(&stable, &snapshots, &era_history)?;
 
         Ok(Self::new_with(
@@ -142,6 +148,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             era_history,
             global_parameters,
             protocol_parameters,
+            governance_activity,
             stake_distributions,
         ))
     }
@@ -154,6 +161,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         era_history: EraHistory,
         global_parameters: GlobalParameters,
         protocol_parameters: ProtocolParameters,
+        governance_activity: GovernanceActivity,
         stake_distributions: VecDeque<StakeDistribution>,
     ) -> Self {
         Self {
@@ -183,6 +191,8 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             protocol_parameters,
 
+            governance_activity,
+
             network,
         }
     }
@@ -201,12 +211,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &self.network
     }
 
+    pub fn era_history(&self) -> &EraHistory {
+        &self.era_history
+    }
+
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         &self.protocol_parameters
     }
 
     pub fn global_parameters(&self) -> &GlobalParameters {
         &self.global_parameters
+    }
+
+    pub fn governance_activity(&self) -> &GovernanceActivity {
+        &self.governance_activity
     }
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
@@ -262,6 +280,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
                 self.epoch_transition(&mut *db, &self.snapshots, current_epoch, rewards_summary)?;
 
             self.protocol_parameters = protocol_parameters;
+            self.governance_activity = db.governance_activity()?;
 
             if old_protocol_version != self.protocol_parameters.protocol_version {
                 info!(
@@ -286,12 +305,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         batch
             .save(
+                &self.era_history,
+                &self.protocol_parameters,
+                &mut self.governance_activity,
                 &stable_point,
                 Some(&stable_issuer),
                 add,
                 remove,
                 withdrawals,
-                &self.era_history,
             )
             .and_then(|()| {
                 batch.with_pots(|mut row| {
@@ -571,7 +592,7 @@ pub fn recover_stake_distribution(
     StakeDistribution::new(
         snapshot,
         protocol_parameters,
-        GovernanceSummary::new(snapshot, era_history, protocol_parameters)?,
+        GovernanceSummary::new(snapshot, era_history)?,
     )
     .map_err(StateError::Storage)
 }
@@ -747,6 +768,7 @@ pub fn tick_proposals<'store>(
         .into_iter()
         .try_for_each(|apply_changes| apply_changes(db, &ctx))?;
 
+    let mut still_active = 0;
     db.with_proposals(|iterator| {
         for (key, mut item) in iterator {
             if let Some(row) = item.borrow() {
@@ -781,10 +803,20 @@ pub fn tick_proposals<'store>(
                         .and_modify(|entry| *entry += row.proposal.deposit)
                         .or_insert_with(|| row.proposal.deposit);
                     *item.borrow_mut() = None;
+                // While proposals are only refunded in e+2, they aren't 'votable' in 'e+1'; thus
+                // they cannot be considered active in e+1.
+                } else if epoch <= row.valid_until {
+                    still_active += 1;
                 }
             }
         }
     })?;
+
+    if still_active == 0 {
+        let mut governance_activity = db.governance_activity()?;
+        governance_activity.consecutive_dormant_epochs += 1;
+        db.set_governance_activity(&governance_activity)?;
+    }
 
     refund_many(db, refunds.into_iter())?;
 

@@ -93,8 +93,7 @@ fn compare_snapshot(epoch: Epoch) {
         NetworkName::Mainnet | NetworkName::Testnet(..) => unimplemented!(),
     };
 
-    let dreps =
-        GovernanceSummary::new(snapshot.as_ref(), network.into(), protocol_parameters).unwrap();
+    let dreps = GovernanceSummary::new(snapshot.as_ref(), network.into()).unwrap();
 
     let stake_distr =
         StakeDistribution::new(snapshot.as_ref(), protocol_parameters, dreps).unwrap();

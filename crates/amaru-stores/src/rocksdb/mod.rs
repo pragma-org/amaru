@@ -21,8 +21,9 @@ use amaru_kernel::{
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     store::{
-        columns as scolumns, Columns, EpochTransitionProgress, HistoricalStores, OpenErrorKind,
-        ReadStore, Snapshot, Store, StoreError, TransactionalContext,
+        columns as scolumns, Columns, EpochTransitionProgress, GovernanceActivity,
+        HistoricalStores, OpenErrorKind, ReadStore, Snapshot, Store, StoreError,
+        TransactionalContext,
     },
     summary::Pots,
 };
@@ -72,6 +73,9 @@ const KEY_CONSTITUTION: &str = "@constitution";
 /// key where are stored the proposals roots;
 const KEY_PROPOSALS_ROOTS: &str = "@proposals-roots";
 
+/// key where is stored the governance activity (e.g. number of dormant epochs).
+const KEY_GOVERNANCE_ACTIVITY: &str = "@governance-activity";
+
 /// Name of the directory containing the live ledger stable database.
 const DIR_LIVE_DB: &str = "live";
 
@@ -89,6 +93,7 @@ const DIR_LIVE_DB: &str = "live";
 // * '@pots'                     * (Lovelace, Lovelace, Lovelace)                 *
 // * '@protocol-version'         * ProtocolVersion                                *
 // * '@protocol-parameters'      * ProtocolParameters                             *
+// * '@governance-activity'      * GovernanceActivity                             *
 // * '@constitutional-committee' * ConstitutionalCommittee                        *
 // * '@constitutional'           * Constitution                                   *
 // * 'utxo:'TransactionInput     * TransactionOutput                              *
@@ -352,7 +357,9 @@ macro_rules! impl_ReadStore_body {
             }
 
             fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
-                get_or_bail(|key| self.db.get(key), &KEY_GOVERNANCE_ACTIVITY)
+                Ok(get(|key| self.db.get(key), &KEY_GOVERNANCE_ACTIVITY)?
+                    .unwrap_or_else(|| GovernanceActivity { consecutive_dormant_epochs: 0 })
+                )
             }
 
             fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
@@ -585,6 +592,16 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         Ok(())
     }
 
+    fn set_governance_activity(
+        &self,
+        governance_activity: &GovernanceActivity,
+    ) -> Result<(), StoreError> {
+        self.db
+            .put(KEY_GOVERNANCE_ACTIVITY, as_value(governance_activity))
+            .map_err(|err| StoreError::Internal(err.into()))?;
+        Ok(())
+    }
+
     /// Remove a list of proposals from the database. This is done when enacting proposals that
     /// cause other proposals to become obsolete.
     fn remove_proposals<'iter, Id>(
@@ -599,6 +616,9 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
 
     fn save(
         &self,
+        era_history: &EraHistory,
+        protocol_parameters: &ProtocolParameters,
+        governance_activity: &mut GovernanceActivity,
         point: &Point,
         issuer: Option<&scolumns::pools::Key>,
         add: Columns<
@@ -620,7 +640,6 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
             impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
-        era_history: &EraHistory,
     ) -> Result<(), StoreError> {
         match (point, self.tip().ok()) {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
@@ -634,7 +653,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                     .put(KEY_TIP, as_value(point))
                     .map_err(|err| StoreError::Internal(err.into()))?;
 
-                let epoch = era_history
+                let current_epoch = era_history
                     .slot_to_epoch(tip, tip)
                     .map_err(|err| StoreError::Internal(err.into()))?;
 
@@ -642,22 +661,49 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
                     slots::put(&self.db, &tip, scolumns::slots::Row::new(*issuer))?;
                 }
 
+                let drep_validity = current_epoch + protocol_parameters.drep_expiry
+                    - governance_activity.consecutive_dormant_epochs as u64;
+
                 utxo::add(&self.db, add.utxo)?;
                 pools::add(&self.db, add.pools)?;
-                dreps::add(&self.db, epoch, add.dreps)?;
+                dreps::add(&self.db, drep_validity, add.dreps)?;
                 accounts::add(&self.db, add.accounts)?;
                 cc_members::add(&self.db, add.cc_members)?;
 
                 let proposals_count = proposals::add(&self.db, add.proposals)?;
                 let voting_dreps = votes::add(&self.db, add.votes)?;
 
+                // Reset validity period of voting dreps.
+                if !voting_dreps.is_empty() {
+                    dreps::set_valid_until(&self.db, voting_dreps, drep_validity)?;
+                }
+
                 accounts::reset_many(&self.db, withdrawals)?;
-                dreps::tick(&self.db, voting_dreps, epoch)?;
 
                 utxo::remove(&self.db, remove.utxo)?;
                 pools::remove(&self.db, remove.pools)?;
                 accounts::remove(&self.db, remove.accounts)?;
                 dreps::remove(&self.db, remove.dreps)?;
+
+                // When a proposal is seen during a dormant period, we flush the current dormant
+                // epochs counter on each drep.
+                if governance_activity.consecutive_dormant_epochs > 0 && proposals_count > 0 {
+                    self.with_dreps(|iterator| {
+                        for (_, mut entry) in iterator {
+                            if let Some(row) = entry.borrow_mut() {
+                                let actual_expiry = row.valid_until
+                                    + governance_activity.consecutive_dormant_epochs as u64;
+                                if actual_expiry >= current_epoch {
+                                    row.valid_until = actual_expiry;
+                                }
+                            }
+                        }
+                    })?;
+
+                    governance_activity.consecutive_dormant_epochs = 0;
+
+                    self.set_governance_activity(governance_activity)?;
+                }
             }
         }
         Ok(())
@@ -792,12 +838,21 @@ fn get_or_bail<T>(
 where
     T: std::fmt::Debug + for<'d> cbor::decode::Decode<'d, ()> + 'static,
 {
+    get(db_get, key)?.ok_or(StoreError::missing::<T>(key))
+}
+
+fn get<T>(
+    db_get: impl Fn(&str) -> Result<Option<Vec<u8>>, rocksdb::Error>,
+    key: &str,
+) -> Result<Option<T>, StoreError>
+where
+    T: std::fmt::Debug + for<'d> cbor::decode::Decode<'d, ()> + 'static,
+{
     (db_get)(key)
         .map_err(|err| StoreError::Internal(err.into()))?
         .map(|b| cbor::decode(b.as_ref()))
         .transpose()
-        .map_err(StoreError::Undecodable)?
-        .ok_or(StoreError::missing::<T>(key))
+        .map_err(StoreError::Undecodable)
 }
 
 #[allow(clippy::panic)]
