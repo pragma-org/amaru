@@ -12,18 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod body_size;
-pub mod ex_units;
-pub mod header_size;
-
 use crate::{
     context::ValidationContext,
     rules::{transaction, transaction::InvalidTransaction},
     state::FailedTransactions,
+    store::GovernanceActivity,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, ExUnits, HasExUnits, Hash, Hasher,
-    MintedBlock, Network, OriginalHash, TransactionId, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits,
+    Hash, Hasher, MintedBlock, Network, OriginalHash, TransactionId, TransactionPointer,
 };
 use slot_arithmetic::Slot;
 use std::{
@@ -32,6 +29,10 @@ use std::{
     process::{ExitCode, Termination},
 };
 use tracing::{instrument, Level};
+
+pub mod body_size;
+pub mod ex_units;
+pub mod header_size;
 
 #[derive(Debug)]
 pub enum InvalidBlockDetails {
@@ -165,6 +166,8 @@ pub fn execute<C, S: From<C>>(
     context: &mut C,
     network: &Network,
     protocol_params: &ProtocolParameters,
+    era_history: &EraHistory,
+    governance_activity: &GovernanceActivity,
     block: &MintedBlock<'_>,
 ) -> BlockValidation<(), anyhow::Error>
 where
@@ -236,6 +239,8 @@ where
             context,
             network,
             protocol_params,
+            era_history,
+            governance_activity,
             pointer,
             !failed_transactions.has(i),
             transaction,

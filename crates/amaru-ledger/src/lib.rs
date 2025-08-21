@@ -16,6 +16,7 @@
 
 pub mod bootstrap;
 pub mod context;
+pub mod governance;
 pub mod rules;
 pub mod state;
 pub mod store;

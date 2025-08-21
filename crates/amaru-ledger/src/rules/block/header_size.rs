@@ -22,7 +22,7 @@ pub fn block_header_size_valid(
 ) -> Result<(), InvalidBlockDetails> {
     #[allow(clippy::unnecessary_fallible_conversions)]
     let max_header_size = protocol_params
-        .max_header_size
+        .max_block_header_size
         .try_into()
         .unwrap_or_else(|e| {
             unreachable!(

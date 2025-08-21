@@ -35,7 +35,8 @@ impl<C> cbor::encode::Encode<C> for TransactionPointer {
 
 impl<'b, C> cbor::decode::Decode<'b, C> for TransactionPointer {
     fn decode(d: &mut cbor::Decoder<'b>, ctx: &mut C) -> Result<Self, cbor::decode::Error> {
-        heterogeneous_array(d, 2, |d| {
+        heterogeneous_array(d, |d, assert_len| {
+            assert_len(2)?;
             Ok(TransactionPointer {
                 slot: d.decode_with(ctx)?,
                 transaction_index: d.decode_with(ctx)?,
@@ -50,11 +51,11 @@ pub mod tests {
     use crate::{prop_cbor_roundtrip, Slot};
     use proptest::{prelude::*, prop_compose};
 
-    prop_cbor_roundtrip!(TransactionPointer, any_transaction_pointer());
+    prop_cbor_roundtrip!(TransactionPointer, any_transaction_pointer(u64::MAX));
 
     prop_compose! {
-        pub fn any_transaction_pointer()(
-            slot in 0..10_000_000u64,
+        pub fn any_transaction_pointer(max_slot: u64)(
+            slot in 0..max_slot,
             transaction_index in any::<usize>(),
         ) -> TransactionPointer {
             TransactionPointer {

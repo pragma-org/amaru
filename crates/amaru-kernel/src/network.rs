@@ -12,12 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{
-    protocol_parameters::{
-        GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
-        PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
-    },
-    ProtocolVersion, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
+use crate::protocol_parameters::{
+    GlobalParameters, MAINNET_GLOBAL_PARAMETERS, PREPROD_GLOBAL_PARAMETERS,
+    PREVIEW_GLOBAL_PARAMETERS, TESTNET_GLOBAL_PARAMETERS,
 };
 use pallas_addresses::Network;
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
@@ -509,23 +506,6 @@ impl NetworkName {
             Self::Testnet(magic) => magic,
         }
     }
-
-    // FIXME: This function should NOT exist; but it does until we have fully implemented
-    // Hard-Forks enactment.
-    pub fn protocol_version(&self, epoch: Epoch) -> &ProtocolVersion {
-        let v10_starting_epoch = match self {
-            Self::Mainnet => unimplemented!(),
-            Self::Preprod => Epoch::from(180),
-            Self::Preview => Epoch::from(742),
-            Self::Testnet(..) => unimplemented!(),
-        };
-
-        if epoch >= v10_starting_epoch {
-            &PROTOCOL_VERSION_10
-        } else {
-            &PROTOCOL_VERSION_9
-        }
-    }
 }
 
 /// Error type for era history file operations
@@ -563,19 +543,13 @@ pub fn load_era_history_from_file(path: &Path) -> Result<EraHistory, EraHistoryF
     serde_json::from_reader(reader).map_err(EraHistoryFileError::JsonParseError)
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::network::{load_era_history_from_file, PREPROD_ERA_HISTORY};
+#[cfg(any(test, feature = "test-utils"))]
+pub mod tests {
+    use super::NetworkName::{self, *};
+    use crate::Network;
+    use proptest::{prelude::*, prop_oneof};
 
-    use super::{
-        EraHistoryFileError,
-        NetworkName::{self, *},
-    };
-    use proptest::{prelude::*, prop_oneof, proptest};
-    use slot_arithmetic::{Epoch, Slot};
-    use std::{env, fs::File, io::Write, path::Path, str::FromStr};
-
-    fn any_network() -> impl Strategy<Value = NetworkName> {
+    pub fn any_network_name() -> impl Strategy<Value = NetworkName> {
         prop_oneof![
             Just(Mainnet),
             Just(Preprod),
@@ -584,120 +558,141 @@ mod tests {
         ]
     }
 
-    proptest! {
+    prop_compose! {
+        pub fn any_network()(
+            is_testnet in any::<bool>(),
+        ) -> Network {
+            if is_testnet {
+                Network::Testnet
+            } else {
+                Network::Mainnet
+            }
+        }
+    }
+
+    #[cfg(test)]
+    mod internal {
+        use super::{super::EraHistoryFileError, any_network_name};
+        use crate::network::{load_era_history_from_file, PREPROD_ERA_HISTORY};
+        use proptest::proptest;
+        use slot_arithmetic::{Epoch, Slot};
+        use std::{env, fs::File, io::Write, path::Path, str::FromStr};
+
+        proptest! {
+            #[test]
+            fn prop_can_parse_pretty_print_network_name(network in any_network_name()) {
+                let name = format!("{}", network);
+                assert_eq!(
+                    FromStr::from_str(&name),
+                    Ok(network),
+                )
+            }
+        }
+
         #[test]
-        fn prop_can_parse_pretty_print_network_name(network in any_network()) {
-            let name = format!("{}", network);
+        #[allow(clippy::disallowed_methods)]
+        fn can_compute_slot_to_epoch_for_preprod() {
+            let era_history = &*PREPROD_ERA_HISTORY;
             assert_eq!(
-                FromStr::from_str(&name),
-                Ok(network),
-            )
+                Epoch::from(4),
+                era_history
+                    .slot_to_epoch_unchecked_horizon(Slot::from(86400))
+                    .unwrap()
+            );
+            assert_eq!(
+                Epoch::from(11),
+                era_history
+                    .slot_to_epoch_unchecked_horizon(Slot::from(3542399))
+                    .unwrap()
+            );
+            assert_eq!(
+                Epoch::from(12),
+                era_history
+                    .slot_to_epoch_unchecked_horizon(Slot::from(3542400))
+                    .unwrap()
+            );
         }
-    }
 
-    #[test]
-    #[allow(clippy::disallowed_methods)]
-    fn can_compute_slot_to_epoch_for_preprod() {
-        let era_history = &*PREPROD_ERA_HISTORY;
-        assert_eq!(
-            Epoch::from(4),
-            era_history
-                .slot_to_epoch_unchecked_horizon(Slot::from(86400))
-                .unwrap()
-        );
-        assert_eq!(
-            Epoch::from(11),
-            era_history
-                .slot_to_epoch_unchecked_horizon(Slot::from(3542399))
-                .unwrap()
-        );
-        assert_eq!(
-            Epoch::from(12),
-            era_history
-                .slot_to_epoch_unchecked_horizon(Slot::from(3542400))
-                .unwrap()
-        );
-    }
+        #[test]
+        fn can_compute_next_epoch_first_slot_for_preprod() {
+            let era_history = &*PREPROD_ERA_HISTORY;
+            let some_tip = Slot::from(96486650);
+            assert_eq!(
+                era_history.next_epoch_first_slot(Epoch::from(3), &some_tip),
+                Ok(Slot::from(86400))
+            );
+            assert_eq!(
+                era_history.next_epoch_first_slot(Epoch::from(114), &some_tip),
+                Ok(Slot::from(48038400))
+            );
+            assert_eq!(
+                era_history.next_epoch_first_slot(Epoch::from(150), &some_tip),
+                Ok(Slot::from(63590400))
+            );
+        }
 
-    #[test]
-    fn can_compute_next_epoch_first_slot_for_preprod() {
-        let era_history = &*PREPROD_ERA_HISTORY;
-        let some_tip = Slot::from(96486650);
-        assert_eq!(
-            era_history.next_epoch_first_slot(Epoch::from(3), &some_tip),
-            Ok(Slot::from(86400))
-        );
-        assert_eq!(
-            era_history.next_epoch_first_slot(Epoch::from(114), &some_tip),
-            Ok(Slot::from(48038400))
-        );
-        assert_eq!(
-            era_history.next_epoch_first_slot(Epoch::from(150), &some_tip),
-            Ok(Slot::from(63590400))
-        );
-    }
+        #[test]
+        fn test_era_history_json_serialization() {
+            let original_era_history = &*PREPROD_ERA_HISTORY;
 
-    #[test]
-    fn test_era_history_json_serialization() {
-        let original_era_history = &*PREPROD_ERA_HISTORY;
+            let mut temp_file_path = env::temp_dir();
+            temp_file_path.push("test_era_history.json");
 
-        let mut temp_file_path = env::temp_dir();
-        temp_file_path.push("test_era_history.json");
+            let json_data = serde_json::to_string_pretty(original_era_history)
+                .expect("Failed to serialize EraHistory to JSON");
 
-        let json_data = serde_json::to_string_pretty(original_era_history)
-            .expect("Failed to serialize EraHistory to JSON");
+            let mut file = File::create(&temp_file_path).expect("Failed to create temporary file");
 
-        let mut file = File::create(&temp_file_path).expect("Failed to create temporary file");
+            file.write_all(json_data.as_bytes())
+                .expect("Failed to write JSON data to file");
 
-        file.write_all(json_data.as_bytes())
-            .expect("Failed to write JSON data to file");
+            let loaded_era_history = load_era_history_from_file(temp_file_path.as_path())
+                .expect("Failed to load EraHistory from file");
 
-        let loaded_era_history = load_era_history_from_file(temp_file_path.as_path())
-            .expect("Failed to load EraHistory from file");
+            assert_eq!(
+                *original_era_history, loaded_era_history,
+                "Era histories don't match"
+            );
 
-        assert_eq!(
-            *original_era_history, loaded_era_history,
-            "Era histories don't match"
-        );
+            std::fs::remove_file(temp_file_path).ok();
+        }
 
-        std::fs::remove_file(temp_file_path).ok();
-    }
+        #[test]
+        fn test_era_history_file_open_error() {
+            let non_existent_path = Path::new("non_existent_file.json");
 
-    #[test]
-    fn test_era_history_file_open_error() {
-        let non_existent_path = Path::new("non_existent_file.json");
+            let result = load_era_history_from_file(non_existent_path);
 
-        let result = load_era_history_from_file(non_existent_path);
-
-        match result {
-            Err(EraHistoryFileError::FileOpenError(_)) => {
-                // This is the expected error type
+            match result {
+                Err(EraHistoryFileError::FileOpenError(_)) => {
+                    // This is the expected error type
+                }
+                _ => panic!("Expected FileOpenError, got {:?}", result),
             }
-            _ => panic!("Expected FileOpenError, got {:?}", result),
         }
-    }
 
-    #[test]
-    fn test_era_history_json_parse_error() {
-        let mut temp_file_path = env::temp_dir();
-        temp_file_path.push("invalid_era_history.json");
+        #[test]
+        fn test_era_history_json_parse_error() {
+            let mut temp_file_path = env::temp_dir();
+            temp_file_path.push("invalid_era_history.json");
 
-        let invalid_json = r#"{ "eras": [invalid json] }"#;
+            let invalid_json = r#"{ "eras": [invalid json] }"#;
 
-        let mut file = File::create(&temp_file_path).expect("Failed to create temporary file");
+            let mut file = File::create(&temp_file_path).expect("Failed to create temporary file");
 
-        file.write_all(invalid_json.as_bytes())
-            .expect("Failed to write invalid JSON data to file");
+            file.write_all(invalid_json.as_bytes())
+                .expect("Failed to write invalid JSON data to file");
 
-        let result = load_era_history_from_file(temp_file_path.as_path());
+            let result = load_era_history_from_file(temp_file_path.as_path());
 
-        match result {
-            Err(EraHistoryFileError::JsonParseError(_)) => {
-                // This is the expected error type
+            match result {
+                Err(EraHistoryFileError::JsonParseError(_)) => {
+                    // This is the expected error type
+                }
+                _ => panic!("Expected JsonParseError, got {:?}", result),
             }
-            _ => panic!("Expected JsonParseError, got {:?}", result),
-        }
 
-        std::fs::remove_file(temp_file_path).ok();
+            std::fs::remove_file(temp_file_path).ok();
+        }
     }
 }

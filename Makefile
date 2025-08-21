@@ -15,7 +15,7 @@ LEDGER_DIR ?= ./ledger.$(NETWORK).db
 CHAIN_DIR ?= ./chain.$(NETWORK).db
 BUILD_PROFILE ?= release
 
-.PHONY: help bootstrap run import-snapshots import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov
+.PHONY: help bootstrap start import-ledger-state import-headers import-nonces download-haskell-config coverage-html coverage-lconv check-llvm-cov
 
 help:
 	@echo "\033[1;4mTargets:\033[00m"
@@ -34,7 +34,8 @@ snapshots/$(NETWORK): ## Download snapshots
 			curl --progress-bar -o - $$u | gunzip > $@/$$p.cbor; \
 		done
 
-import-snapshots: snapshots/$(NETWORK) ## Import snapshots for demo
+import-snapshots: import-ledger-state # 'backward-compatibility'; might remove after a while.
+import-ledger-state: snapshots/$(NETWORK) ## Import snapshots for demo
 	@SNAPSHOT_ARGS=""; \
 	CBOR_FILES=$$(find "$^" -maxdepth 1 -name '*.cbor'); \
 	if [ -z "$$CBOR_FILES" ]; then echo "No .cbor files found in $^"; exit 1; fi; \

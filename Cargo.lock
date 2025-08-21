@@ -68,7 +68,6 @@ dependencies = [
  "opentelemetry_sdk",
  "pallas-crypto",
  "pallas-network",
- "pallas-traverse",
  "progress-bar",
  "proptest",
  "pure-stage",

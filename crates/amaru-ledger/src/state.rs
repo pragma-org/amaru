@@ -12,19 +12,20 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-pub mod diff_bind;
-pub mod diff_epoch_reg;
-pub mod diff_set;
-pub mod volatile_db;
-
 use crate::{
-    state::volatile_db::{StoreUpdate, VolatileDB},
+    governance::ratification::{self, RatificationContext},
+    state::{
+        ratification::{ProposalsRoots, ProposalsRootsRc, RatificationResult},
+        volatile_db::{StoreUpdate, VolatileDB},
+    },
     store::{
-        columns::pools, EpochTransitionProgress, HistoricalStores, Snapshot, Store, StoreError,
-        TransactionalContext,
+        columns::{pools, proposals},
+        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
+        StoreError, TransactionalContext,
     },
     summary::{
         governance::{self, GovernanceSummary},
+        into_safe_ratio,
         rewards::RewardsSummary,
         stake_distribution::StakeDistribution,
     },
@@ -33,21 +34,28 @@ use amaru_kernel::{
     expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, EraHistory, Hash, Lovelace, MemoizedTransactionOutput, MintedBlock,
-    Point, PoolId, ProtocolVersion, Slot, StakeCredential, StakeCredentialType, TransactionInput,
+    stake_credential_hash, ComparableProposalId, ConstitutionalCommittee, EraHistory, Hash,
+    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, Slot, StakeCredential,
+    StakeCredentialType, TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
-    collections::{BTreeMap, BTreeSet, VecDeque},
-    sync::{Arc, Mutex},
+    collections::{btree_map, BTreeMap, BTreeSet, VecDeque},
+    ops::Deref,
+    sync::{Arc, Mutex, MutexGuard},
 };
 use thiserror::Error;
 use tracing::{debug, info, instrument, trace, Level};
 use volatile_db::AnchoredVolatileState;
 
 pub use volatile_db::VolatileState;
+
+pub mod diff_bind;
+pub mod diff_epoch_reg;
+pub mod diff_set;
+pub mod volatile_db;
 
 const EVENT_TARGET: &str = "amaru::ledger::state";
 
@@ -108,10 +116,11 @@ where
     global_parameters: Arc<GlobalParameters>,
 
     /// Updatable protocol parameters.
-    protocol_parameters: Arc<ProtocolParameters>,
+    protocol_parameters: ProtocolParameters,
 
-    /// Current protocol version.
-    protocol_version: ProtocolVersion,
+    /// Track the number of dormant epochs (i.e. epochs that start without any available
+    /// proposals).
+    governance_activity: GovernanceActivity,
 
     /// Which network are we connected to. This is mostly helpful for distinguishing between
     /// behavious that are network specifics (e.g. address discriminant).
@@ -126,12 +135,11 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         era_history: EraHistory,
         global_parameters: GlobalParameters,
     ) -> Result<Self, StoreError> {
-        let protocol_version = stable.protocol_version()?;
-
-        let stake_distributions =
-            initial_stake_distributions(&stable, &snapshots, &era_history, protocol_version)?;
-
         let protocol_parameters = stable.protocol_parameters()?;
+
+        let governance_activity = stable.governance_activity()?;
+
+        let stake_distributions = initial_stake_distributions(&stable, &snapshots, &era_history)?;
 
         Ok(Self::new_with(
             stable,
@@ -140,7 +148,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             era_history,
             global_parameters,
             protocol_parameters,
-            protocol_version,
+            governance_activity,
             stake_distributions,
         ))
     }
@@ -153,7 +161,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         era_history: EraHistory,
         global_parameters: GlobalParameters,
         protocol_parameters: ProtocolParameters,
-        protocol_version: ProtocolVersion,
+        governance_activity: GovernanceActivity,
         stake_distributions: VecDeque<StakeDistribution>,
     ) -> Self {
         Self {
@@ -181,9 +189,9 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
             global_parameters: Arc::new(global_parameters),
 
-            protocol_parameters: Arc::new(protocol_parameters),
+            protocol_parameters,
 
-            protocol_version,
+            governance_activity,
 
             network,
         }
@@ -192,7 +200,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
     /// components that require access to it.
     pub fn view_stake_distribution(&self) -> impl HasStakeDistribution {
-        StakeDistributionView {
+        StakeDistributionObserver {
             view: self.stake_distributions.clone(),
             era_history: self.era_history.clone(),
             global_parameters: self.global_parameters.clone(),
@@ -203,12 +211,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         &self.network
     }
 
+    pub fn era_history(&self) -> &EraHistory {
+        &self.era_history
+    }
+
     pub fn protocol_parameters(&self) -> &ProtocolParameters {
         &self.protocol_parameters
     }
 
     pub fn global_parameters(&self) -> &GlobalParameters {
         &self.global_parameters
+    }
+
+    pub fn governance_activity(&self) -> &GovernanceActivity {
+        &self.governance_activity
     }
 
     /// Inspect the tip of this ledger state. This corresponds to the point of the latest block
@@ -232,42 +248,44 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
     #[allow(clippy::unwrap_used)]
     #[instrument(level = Level::TRACE, skip_all, fields(point.slot = %now_stable.anchor.0.slot_or_default()))]
     fn apply_block(&mut self, now_stable: AnchoredVolatileState) -> Result<(), StateError> {
-        let start_slot = now_stable.anchor.0.slot_or_default();
+        let stable_tip_slot = now_stable.anchor.0.slot_or_default();
 
         let mut db = self.stable.lock().unwrap();
 
-        let tip = db.tip().map_err(StateError::Storage)?;
-        let tip_slot = tip.slot_or_default();
+        let latest_stored_tip = db.tip().map_err(StateError::Storage)?;
+        let latest_stored_tip_slot = latest_stored_tip.slot_or_default();
 
         let current_epoch = self
             .era_history
-            .slot_to_epoch(start_slot, tip_slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(start_slot, e))?;
+            .slot_to_epoch(stable_tip_slot, stable_tip_slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(stable_tip_slot, e))?;
 
-        let tip_epoch = self
+        let latest_stored_epoch = self
             .era_history
-            .slot_to_epoch(tip_slot, tip_slot)
-            .map_err(|e| StateError::ErrorComputingEpoch(tip_slot, e))?;
+            .slot_to_epoch(latest_stored_tip_slot, stable_tip_slot)
+            .map_err(|e| StateError::ErrorComputingEpoch(latest_stored_tip_slot, e))?;
 
-        let epoch_transitioning = current_epoch > tip_epoch;
+        let epoch_transitioning = current_epoch > latest_stored_epoch;
 
         // The volatile sequence may contain points belonging to two epochs.
         //
         // We cross an epoch boundary as soon as the 'now_stable' block belongs to a different
         // epoch than the previously applied block (i.e. the tip of the stable storage).
         if epoch_transitioning {
-            let old_protocol_version = self.protocol_version;
-            self.protocol_version = epoch_transition(
-                &mut *db,
-                self.network,
-                current_epoch,
-                self.rewards_summary.take(),
-                &self.protocol_parameters,
-            )?;
-            if old_protocol_version != self.protocol_version {
+            let old_protocol_version = self.protocol_parameters.protocol_version;
+
+            let rewards_summary = self.rewards_summary.take();
+
+            let protocol_parameters =
+                self.epoch_transition(&mut *db, &self.snapshots, current_epoch, rewards_summary)?;
+
+            self.protocol_parameters = protocol_parameters;
+            self.governance_activity = db.governance_activity()?;
+
+            if old_protocol_version != self.protocol_parameters.protocol_version {
                 info!(
                     from = old_protocol_version.0,
-                    to = self.protocol_version.0,
+                    to = self.protocol_parameters.protocol_version.0,
                     "protocol.upgrade"
                 )
             }
@@ -287,12 +305,14 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         batch
             .save(
+                &self.era_history,
+                &self.protocol_parameters,
+                &mut self.governance_activity,
                 &stable_point,
                 Some(&stable_issuer),
                 add,
                 remove,
                 withdrawals,
-                &self.era_history,
             )
             .and_then(|()| {
                 batch.with_pots(|mut row| {
@@ -314,6 +334,84 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
             .map_err(StateError::Storage)?;
 
         Ok(())
+    }
+
+    #[instrument(level = Level::INFO, skip_all, fields(from = %next_epoch - 1, into = %next_epoch))]
+    fn epoch_transition(
+        &self,
+        db: &mut impl Store,
+        snapshots: &impl HistoricalStores,
+        next_epoch: Epoch,
+        rewards_summary: Option<RewardsSummary>,
+    ) -> Result<ProtocolParameters, StateError> {
+        // ---------------------------------------------------------------------------- End of epoch
+        let batch = db.create_transaction();
+        let should_end_epoch =
+            batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
+        if should_end_epoch {
+            end_epoch(
+                &batch,
+                // FIXME: This should eventually be an '.await', as we always expect to *eventually*
+                // have some rewards summary being available. There's no way to continue progressing
+                // the ledger if we don't.
+                rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
+            )
+            .map_err(StateError::Storage)?;
+        }
+        batch.commit()?;
+
+        // -------------------------------------------------------------------------------- Snapshot
+        let batch = db.create_transaction();
+        let should_snapshot = batch.try_epoch_transition(
+            Some(EpochTransitionProgress::EpochEnded),
+            Some(EpochTransitionProgress::SnapshotTaken),
+        )?;
+        let treasury = if should_snapshot {
+            let treasury = db.pots()?.treasury;
+            db.next_snapshot(next_epoch - 1)?;
+            Ok::<_, StateError>(treasury)
+        } else {
+            Ok(snapshots.for_epoch(next_epoch - 1)?.pots()?.treasury)
+        }?;
+        batch.commit()?;
+
+        // -------------------------------------------------------------------------- Start of epoch
+        let batch = db.create_transaction();
+        let should_begin_epoch = batch.try_epoch_transition(
+            Some(EpochTransitionProgress::SnapshotTaken),
+            Some(EpochTransitionProgress::EpochStarted),
+        )?;
+
+        let ratification_context = new_ratification_context(
+            self.snapshots.for_epoch(next_epoch - 2)?,
+            self.stake_distribution(next_epoch - 2)?,
+            self.protocol_parameters.clone(),
+            treasury,
+        )?;
+
+        let protocol_parameters = if should_begin_epoch {
+            begin_epoch(
+                &batch,
+                next_epoch,
+                &self.era_history,
+                ratification_context,
+                // Get all proposals to ratify / enact. Note that, even though the ratification happens
+                // with an epoch of delay (and thus, using data from a snapshot), we always use the most
+                // recent set of proposals available. While recently submitted proposals won't have any
+                // votes, they might still end up being pruned due to a previous proposal being enacted.
+                //
+                // FIXME: We shouldn't collect all proposals here, but provides iterators for the
+                // ratification step to go over them lazily.
+                db.iter_proposals()?.collect::<Vec<_>>(),
+                db.proposals_roots()?,
+                &self.protocol_parameters,
+            )
+        } else {
+            Ok(db.protocol_parameters()?)
+        }?;
+        batch.commit()?;
+
+        Ok(protocol_parameters)
     }
 
     #[allow(clippy::unwrap_used)]
@@ -338,7 +436,6 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
         stake_distributions.push_front(recover_stake_distribution(
             &snapshot,
             &self.era_history,
-            self.protocol_version,
             &self.protocol_parameters,
         )?);
 
@@ -437,6 +534,20 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
         Ok(result)
     }
+
+    /// View a stake distribution for a given epoch. Note that this *locks* the stake distribution
+    /// mutext, meaning that it might block other thread awaiting to acquire this data.
+    ///
+    /// So this shall be used when the data is needed for a short time, and one doesn't want to
+    /// the full mutex around.
+    fn stake_distribution(&self, epoch: Epoch) -> Result<StakeDistributionView<'_>, StateError> {
+        let guard = self
+            .stake_distributions
+            .lock()
+            .map_err(|_| StateError::FailedToAcquireStakeDistrLock)?;
+
+        StakeDistributionView::new(guard, epoch)
+    }
 }
 
 // NOTE: Initialize stake distribution held in-memory. The one before last is needed by the
@@ -454,7 +565,6 @@ pub fn initial_stake_distributions(
     db: &impl Store,
     snapshots: &impl HistoricalStores,
     era_history: &EraHistory,
-    protocol_version: ProtocolVersion,
 ) -> Result<VecDeque<StakeDistribution>, StoreError> {
     let latest_epoch = snapshots.most_recent_snapshot();
 
@@ -466,13 +576,8 @@ pub fn initial_stake_distributions(
 
         let snapshot = snapshots.for_epoch(epoch)?;
         stake_distributions.push_front(
-            recover_stake_distribution(
-                &snapshot,
-                era_history,
-                protocol_version,
-                &protocol_parameters,
-            )
-            .map_err(|err| StoreError::Internal(err.into()))?,
+            recover_stake_distribution(&snapshot, era_history, &protocol_parameters)
+                .map_err(|err| StoreError::Internal(err.into()))?,
         );
     }
 
@@ -482,71 +587,18 @@ pub fn initial_stake_distributions(
 pub fn recover_stake_distribution(
     snapshot: &impl Snapshot,
     era_history: &EraHistory,
-    protocol_version: ProtocolVersion,
     protocol_parameters: &ProtocolParameters,
 ) -> Result<StakeDistribution, StateError> {
     StakeDistribution::new(
         snapshot,
-        protocol_version,
-        GovernanceSummary::new(snapshot, protocol_version, era_history, protocol_parameters)?,
         protocol_parameters,
+        GovernanceSummary::new(snapshot, era_history)?,
     )
     .map_err(StateError::Storage)
 }
 
 // Epoch Transitions
 // ----------------------------------------------------------------------------
-
-#[instrument(level = Level::INFO, skip_all, fields(from = %next_epoch - 1, into = %next_epoch))]
-fn epoch_transition(
-    db: &mut impl Store,
-    network: NetworkName,
-    next_epoch: Epoch,
-    rewards_summary: Option<RewardsSummary>,
-    protocol_parameters: &ProtocolParameters,
-) -> Result<ProtocolVersion, StateError> {
-    // End of epoch
-    let batch = db.create_transaction();
-    let should_end_epoch =
-        batch.try_epoch_transition(None, Some(EpochTransitionProgress::EpochEnded))?;
-    if should_end_epoch {
-        end_epoch(
-            &batch,
-            // FIXME: This should eventually be an '.await', as we always expect to *eventually*
-            // have some rewards summary being available. There's no way to continue progressing
-            // the ledger if we don't.
-            rewards_summary.ok_or(StateError::RewardsSummaryNotReady)?,
-        )
-        .map_err(StateError::Storage)?;
-    }
-    batch.commit()?;
-
-    // Snapshot
-    let batch = db.create_transaction();
-    let should_snapshot = batch.try_epoch_transition(
-        Some(EpochTransitionProgress::EpochEnded),
-        Some(EpochTransitionProgress::SnapshotTaken),
-    )?;
-    if should_snapshot {
-        db.next_snapshot(next_epoch - 1)?;
-    }
-    batch.commit()?;
-
-    // Start of epoch
-    let batch = db.create_transaction();
-    let should_begin_epoch = batch.try_epoch_transition(
-        Some(EpochTransitionProgress::SnapshotTaken),
-        Some(EpochTransitionProgress::EpochStarted),
-    )?;
-    let protocol_version = network.protocol_version(next_epoch);
-    if should_begin_epoch {
-        begin_epoch(&batch, next_epoch, protocol_parameters)?;
-        batch.set_protocol_version(protocol_version)?;
-    }
-    batch.commit()?;
-
-    Ok(*protocol_version)
-}
 
 #[instrument(level = Level::INFO, skip_all)]
 fn end_epoch<'store>(
@@ -582,8 +634,12 @@ fn end_epoch<'store>(
 fn begin_epoch<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
+    era_history: &EraHistory,
+    ctx: RatificationContext<'_>,
+    proposals: Vec<(ComparableProposalId, proposals::Row)>,
+    roots: ProposalsRoots,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), StoreError> {
+) -> Result<ProtocolParameters, StateError> {
     // Reset counters before the epoch begins.
     reset_blocks_count(db)?;
     reset_fees(db)?;
@@ -598,13 +654,14 @@ fn begin_epoch<'store>(
     // delegates.
     tick_pools(db, epoch, protocol_parameters)?;
 
-    // Refund deposit for any proposal that has expired.
-    tick_proposals(db, epoch)?;
+    // Ratify and enact proposals at the epoch boundary. Also refund deposit for any proposal that
+    // has expired.
+    let protocol_parameters = tick_proposals(db, epoch, era_history, ctx, proposals, roots)?;
 
-    Ok(())
+    Ok(protocol_parameters)
 }
 
-// Operation on the state
+// Operations on the state
 // ----------------------------------------------------------------------------
 
 #[instrument(
@@ -642,7 +699,7 @@ pub fn reset_blocks_count<'store>(
 pub fn refund_many<'store>(
     db: &impl TransactionalContext<'store>,
     mut refunds: impl Iterator<Item = (StakeCredential, Lovelace)>,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     let leftovers =
         refunds.try_fold::<_, _, Result<_, StoreError>>(0, |leftovers, (account, deposit)| {
             debug!(
@@ -669,7 +726,7 @@ pub fn tick_pools<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
     protocol_parameters: &ProtocolParameters,
-) -> Result<(), StoreError> {
+) -> Result<(), StateError> {
     let mut refunds = Vec::new();
 
     db.with_pools(|iterator| {
@@ -692,11 +749,28 @@ pub fn tick_pools<'store>(
 pub fn tick_proposals<'store>(
     db: &impl TransactionalContext<'store>,
     epoch: Epoch,
-) -> Result<(), StoreError> {
+    era_history: &EraHistory,
+    ctx: RatificationContext<'_>,
+    proposals: Vec<(ComparableProposalId, proposals::Row)>,
+    roots: ProposalsRoots,
+) -> Result<ProtocolParameters, StateError> {
     let mut refunds: BTreeMap<StakeCredential, Lovelace> = BTreeMap::new();
 
+    let RatificationResult {
+        context: ctx,
+        store_updates,
+        pruned_proposals,
+    } = ctx
+        .ratify_proposals(era_history, proposals, ProposalsRootsRc::from(roots))
+        .map_err(|e| StateError::RatificationFailed(e.to_string()))?;
+
+    store_updates
+        .into_iter()
+        .try_for_each(|apply_changes| apply_changes(db, &ctx))?;
+
+    let mut still_active = 0;
     db.with_proposals(|iterator| {
-        for (_key, item) in iterator {
+        for (key, mut item) in iterator {
             if let Some(row) = item.borrow() {
                 // This '+2' is worthy of an explanation.
                 //
@@ -719,7 +793,7 @@ pub fn tick_proposals<'store>(
                 // 2. `epoch` designates the arrival epoch (i.e. `e+2`);
                 //
                 // Hence: epoch == valid_until + 2
-                if epoch == row.valid_until + 2 {
+                if epoch == row.valid_until + 2 || pruned_proposals.contains(&key) {
                     let key = expect_stake_credential(&row.proposal.reward_account);
                     refunds
                         .entry(key)
@@ -728,12 +802,118 @@ pub fn tick_proposals<'store>(
                         // blind 'insert'.
                         .and_modify(|entry| *entry += row.proposal.deposit)
                         .or_insert_with(|| row.proposal.deposit);
+                    *item.borrow_mut() = None;
+                // While proposals are only refunded in e+2, they aren't 'votable' in 'e+1'; thus
+                // they cannot be considered active in e+1.
+                } else if epoch <= row.valid_until {
+                    still_active += 1;
                 }
             }
         }
     })?;
 
-    refund_many(db, refunds.into_iter())
+    if still_active == 0 {
+        let mut governance_activity = db.governance_activity()?;
+        governance_activity.consecutive_dormant_epochs += 1;
+        db.set_governance_activity(&governance_activity)?;
+    }
+
+    refund_many(db, refunds.into_iter())?;
+
+    Ok(ctx.protocol_parameters)
+}
+
+#[instrument(level = Level::INFO, name = "ratification.context.new", skip_all)]
+fn new_ratification_context<'distr>(
+    snapshot: impl Snapshot,
+    stake_distribution: StakeDistributionView<'distr>,
+    protocol_parameters: ProtocolParameters,
+    treasury: Lovelace,
+) -> Result<RatificationContext<'distr>, StoreError> {
+    let constitutional_committee = match snapshot.constitutional_committee()? {
+        ConstitutionalCommittee::NoConfidence => None,
+        ConstitutionalCommittee::Trusted { threshold } => {
+            let members = snapshot
+                .iter_cc_members()?
+                .map(|(cold_credential, row)| {
+                    (cold_credential, (row.hot_credential, row.valid_until))
+                })
+                .collect();
+
+            Some(ratification::ConstitutionalCommittee::new(
+                into_safe_ratio(&threshold),
+                members,
+            ))
+        }
+    };
+
+    // FIXME: This isn't ideal , as we collect all votes in memory here. This is okay-ish on most
+    // networks because the number of votes is rather small. Even with 1M+ votes, this shouldn't
+    // require much memory; but it becomes a potential attack vector.
+    //
+    // So ideally, we should avoid loading votes in memory.
+    let votes = snapshot
+        .iter_votes()?
+        .fold(BTreeMap::new(), |mut votes, (k, v)| {
+            match votes.entry(k.proposal) {
+                btree_map::Entry::Vacant(entry) => {
+                    entry.insert(BTreeMap::from([(k.voter, v)]));
+                }
+                btree_map::Entry::Occupied(mut entry) => {
+                    entry.get_mut().insert(k.voter, v);
+                }
+            }
+
+            votes
+        });
+
+    Ok(RatificationContext {
+        // Ratification happens with one epoch of delay, and at the next epoch transition. So,
+        // if we ratify votes that happened in epoch `e`, the ratification is done during the
+        // transition from `e + 1` to `e + 2`; but it is done "as if" it was happening at the
+        // beginning of epoch `e + 1`. So, the epoch we consider for DRep mandates and proposal
+        // expiry is the one from after the snapshot.
+        epoch: snapshot.epoch() + 1,
+        total_withdrawn: 0,
+        treasury,
+        stake_distribution,
+        protocol_parameters,
+        constitutional_committee,
+        votes,
+    })
+}
+
+// StakeDistributionView
+// ----------------------------------------------------------------------------
+
+/// A object to carry a locked view on a stake distribution of a specific epoch. The lock is
+/// dropped as soon as the viewer goes out of scope.
+pub struct StakeDistributionView<'a> {
+    guard: MutexGuard<'a, VecDeque<StakeDistribution>>,
+    position: usize,
+}
+
+impl<'a> StakeDistributionView<'a> {
+    pub fn new(
+        guard: MutexGuard<'a, VecDeque<StakeDistribution>>,
+        epoch: Epoch,
+    ) -> Result<Self, StateError> {
+        let position = guard
+            .iter()
+            .position(|distr| distr.epoch == epoch)
+            .ok_or(StateError::NoSuitableStakeDistribution(epoch))?;
+
+        Ok(Self { guard, position })
+    }
+}
+
+impl<'a> Deref for StakeDistributionView<'a> {
+    type Target = StakeDistribution;
+    fn deref(&self) -> &Self::Target {
+        // Safe, because Self can only be created after checking that the index was present. Plus,
+        // we hold the guard, so that data cannot change.
+        &self.guard[self.position]
+    }
 }
 
 // HasStakeDistribution
@@ -742,13 +922,13 @@ pub fn tick_proposals<'store>(
 // The 'LedgerState' trait materializes the interface required of the consensus layer in order to
 // validate block headers. It allows to keep the ledger implementation rather abstract to the
 // consensus in order to decouple both components.
-pub struct StakeDistributionView {
+pub struct StakeDistributionObserver {
     view: Arc<Mutex<VecDeque<StakeDistribution>>>,
     era_history: Arc<EraHistory>,
     global_parameters: Arc<GlobalParameters>,
 }
 
-impl HasStakeDistribution for StakeDistributionView {
+impl HasStakeDistribution for StakeDistributionObserver {
     #[allow(clippy::unwrap_used)]
     fn get_pool(&self, slot: Slot, pool: &PoolId) -> Option<PoolSummary> {
         let view = self.view.lock().unwrap();
@@ -831,10 +1011,26 @@ pub enum BackwardError {
 pub enum StateError {
     #[error("error accessing storage: {0}")]
     Storage(#[from] StoreError),
+
     #[error("no stake distribution available for rewards calculation.")]
     StakeDistributionNotAvailableForRewards,
+
+    #[error("failed to acquire stake distribution shared lock")]
+    FailedToAcquireStakeDistrLock,
+
+    #[error("no suitable stake distribution for requested epoch: {0}")]
+    NoSuitableStakeDistribution(Epoch),
+
+    // TODO: Using a mere 'String' here because the source error contains some `Rc`, which aren't
+    // safe to send across threads. For the sake of carrying the error around, we might want to not
+    // keep Rc in errors, but clone the underlying data -- which is small anyway, in places where
+    // the error is generated.
+    #[error("error when ratifying proposals: {0}")]
+    RatificationFailed(String),
+
     #[error("rewards summary not ready")]
     RewardsSummaryNotReady,
+
     #[error("failed to compute epoch from slot {0:?}: {1}")]
     ErrorComputingEpoch(Slot, EraHistoryError),
 }

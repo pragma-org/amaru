@@ -31,8 +31,7 @@ pub mod tests {
         PseudoTransactionOutput, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
         Value as KernelValue,
     };
-    use proptest::option;
-    use proptest::prelude::*;
+    use proptest::{option, prelude::*};
 
     prop_compose! {
         pub fn any_txin()(
