@@ -111,7 +111,7 @@ pub trait Snapshot: ReadStore {
 // ----------------------------------------------------------------------------
 
 pub trait Store: ReadStore {
-    type Transaction<'a>: TransactionalContext<'a>
+    type Transaction<'a>: TransactionalContext<'a> + ReadStore
     where
         Self: 'a;
 
@@ -128,15 +128,15 @@ pub trait Store: ReadStore {
 
     /// Create a new transaction context. This is used to perform updates on the store.
     fn create_transaction(&self) -> Self::Transaction<'_>;
-
-    /// Access the tip of the stable store, corresponding to the latest point that was saved.
-    fn tip(&self) -> Result<Point>;
 }
 
 // ReadStore
 // ----------------------------------------------------------------------------
 
 pub trait ReadStore {
+    /// Access the tip of the stable store, corresponding to the latest point that was saved.
+    fn tip(&self) -> Result<Point>;
+
     /// Get the current protocol parameters
     fn protocol_parameters(&self) -> Result<ProtocolParameters>;
 
@@ -224,7 +224,7 @@ pub trait HistoricalStores {
 // ----------------------------------------------------------------------------
 
 /// A trait that provides a handle to perform atomic updates on the store.
-pub trait TransactionalContext<'a> {
+pub trait TransactionalContext<'a>: ReadStore {
     /// Commit the transaction. This will persist all changes to the store.
     fn commit(self) -> Result<()>;
 

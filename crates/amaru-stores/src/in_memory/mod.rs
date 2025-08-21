@@ -91,6 +91,13 @@ impl Snapshot for MemoryStore {
 }
 
 impl ReadStore for MemoryStore {
+    fn tip(&self) -> Result<Point, StoreError> {
+        self.tip
+            .borrow()
+            .clone()
+            .ok_or_else(|| StoreError::Internal("tip not yet set".into()))
+    }
+
     fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
         self.protocol_parameters
             .borrow()
@@ -359,6 +366,180 @@ impl<'a> MemoryTransactionalContext<'a> {
     }
 }
 
+impl<'a> ReadStore for MemoryTransactionalContext<'a> {
+    fn tip(&self) -> Result<Point, StoreError> {
+        self.store.tip()
+    }
+
+    fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
+        self.store.protocol_parameters()
+    }
+
+    fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
+        self.store.proposals_roots()
+    }
+
+    fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+        self.store.constitutional_committee()
+    }
+
+    fn constitution(&self) -> Result<Constitution, StoreError> {
+        self.store.constitution()
+    }
+
+    fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
+        self.store.governance_activity()
+    }
+
+    fn account(
+        &self,
+        credential: &amaru_kernel::StakeCredential,
+    ) -> Result<Option<amaru_ledger::store::columns::accounts::Row>, amaru_ledger::store::StoreError>
+    {
+        self.store.account(credential)
+    }
+
+    fn pool(
+        &self,
+        pool: &amaru_kernel::PoolId,
+    ) -> Result<Option<amaru_ledger::store::columns::pools::Row>, amaru_ledger::store::StoreError>
+    {
+        self.store.pool(pool)
+    }
+
+    fn utxo(
+        &self,
+        input: &amaru_kernel::TransactionInput,
+    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, amaru_ledger::store::StoreError>
+    {
+        self.store.utxo(input)
+    }
+
+    fn pots(&self) -> Result<amaru_ledger::summary::Pots, amaru_ledger::store::StoreError> {
+        self.store.pots()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_utxos(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::utxo::Key,
+                amaru_ledger::store::columns::utxo::Value,
+            ),
+        >,
+        amaru_ledger::store::StoreError,
+    > {
+        self.store.iter_utxos()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_block_issuers(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::slots::Key,
+                amaru_ledger::store::columns::slots::Value,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_block_issuers()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_pools(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::pools::Key,
+                amaru_ledger::store::columns::pools::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_pools()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_accounts(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::accounts::Key,
+                amaru_ledger::store::columns::accounts::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_accounts()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_dreps(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::dreps::Key,
+                amaru_ledger::store::columns::dreps::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_dreps()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_proposals(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::proposals::Key,
+                amaru_ledger::store::columns::proposals::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_proposals()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_cc_members(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::cc_members::Key,
+                amaru_ledger::store::columns::cc_members::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_cc_members()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_votes(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::votes::Key,
+                amaru_ledger::store::columns::votes::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_votes()
+    }
+}
+
 impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
     fn commit(self) -> Result<(), StoreError> {
         Ok(())
@@ -602,13 +783,6 @@ impl Store for MemoryStore {
 
     fn create_transaction(&self) -> Self::Transaction<'_> {
         MemoryTransactionalContext { store: self }
-    }
-
-    fn tip(&self) -> Result<Point, StoreError> {
-        self.tip
-            .borrow()
-            .clone()
-            .ok_or_else(|| StoreError::Internal("tip not yet set".into()))
     }
 }
 

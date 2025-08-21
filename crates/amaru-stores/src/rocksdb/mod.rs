@@ -252,13 +252,9 @@ impl Store for RocksDB {
         let transaction = self.db.transaction();
         self.ongoing_transaction.set(true);
         RocksDBTransactionalContext {
-            transaction,
-            db: self,
+            host: self,
+            db: transaction,
         }
-    }
-
-    fn tip(&self) -> Result<Point, StoreError> {
-        get_or_bail(|key| self.db.get(key), KEY_TIP)
     }
 }
 
@@ -323,29 +319,43 @@ impl HistoricalStores for RocksDBHistoricalStores {
 // ----------------------------------------------------------------------------
 
 macro_rules! impl_ReadStore {
-    (for $($s:ty),+) => {
-        $(impl ReadStore for $s {
+    // with lifetimes/generics: e.g., for<'a> Foo<'a>
+    (for<$($gen:tt),*> $t:ty) => {
+        impl_ReadStore_body!{ impl<$($gen,)*> ReadStore for $t }
+    };
+
+    // plain type: e.g., Foo
+    ($t:ty) => {
+        impl_ReadStore_body!{ impl ReadStore for $t }
+    };
+}
+
+macro_rules! impl_ReadStore_body {
+    ($($header:tt)*) => {
+        $($header)* {
+            fn tip(&self) -> Result<Point, StoreError> {
+                get_or_bail(|key| self.db.get(key), KEY_TIP)
+            }
+
             fn protocol_parameters(
                 &self,
             ) -> Result<ProtocolParameters, StoreError> {
                 get_or_bail(|key| self.db.get(key), &KEY_PROTOCOL_PARAMETERS)
             }
 
-            fn constitutional_committee(
-                &self,
-            ) -> Result<ConstitutionalCommittee, StoreError> {
+            fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
                 get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTIONAL_COMMITTEE)
             }
 
-            fn constitution(
-                &self,
-            ) -> Result<Constitution, StoreError> {
+            fn constitution(&self) -> Result<Constitution, StoreError> {
                 get_or_bail(|key| self.db.get(key), &KEY_CONSTITUTION)
             }
 
-            fn proposals_roots(
-                &self,
-            ) -> Result<ProposalsRoots, StoreError> {
+            fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
+                get_or_bail(|key| self.db.get(key), &KEY_GOVERNANCE_ACTIVITY)
+            }
+
+            fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
                 get_or_bail(|key| self.db.get(key), &KEY_PROPOSALS_ROOTS)
             }
 
@@ -360,7 +370,10 @@ macro_rules! impl_ReadStore {
                 accounts::get(|key| self.db.get(key), credential)
             }
 
-            fn utxo(&self, input: &TransactionInput) -> Result<Option<MemoizedTransactionOutput>, StoreError> {
+            fn utxo(
+                &self,
+                input: &TransactionInput,
+            ) -> Result<Option<MemoizedTransactionOutput>, StoreError> {
                 utxo::get(|key| self.db.get(key), input)
             }
 
@@ -368,7 +381,11 @@ macro_rules! impl_ReadStore {
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::utxo::Key, scolumns::utxo::Value)>, StoreError>
             {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), utxo::PREFIX, Direction::Forward)
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    utxo::PREFIX,
+                    Direction::Forward,
+                )
             }
 
             fn pots(&self) -> Result<Pots, StoreError> {
@@ -379,28 +396,44 @@ macro_rules! impl_ReadStore {
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::accounts::Key, scolumns::accounts::Row)>, StoreError>
             {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), accounts::PREFIX, Direction::Forward)
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    accounts::PREFIX,
+                    Direction::Forward,
+                )
             }
 
             fn iter_block_issuers(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::slots::Key, scolumns::slots::Value)>, StoreError>
             {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), slots::PREFIX, Direction::Forward)
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    slots::PREFIX,
+                    Direction::Forward,
+                )
             }
 
             fn iter_pools(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::pools::Key, scolumns::pools::Row)>, StoreError>
             {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), pools::PREFIX, Direction::Forward)
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    pools::PREFIX,
+                    Direction::Forward,
+                )
             }
 
             fn iter_dreps(
                 &self,
             ) -> Result<impl Iterator<Item = (scolumns::dreps::Key, scolumns::dreps::Row)>, StoreError>
             {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), dreps::PREFIX, Direction::Forward)
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    dreps::PREFIX,
+                    Direction::Forward,
+                )
             }
 
             fn iter_proposals(
@@ -409,7 +442,11 @@ macro_rules! impl_ReadStore {
                 impl Iterator<Item = (scolumns::proposals::Key, scolumns::proposals::Row)>,
                 StoreError,
             > {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), proposals::PREFIX, Direction::Forward)
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    proposals::PREFIX,
+                    Direction::Forward,
+                )
             }
 
             fn iter_cc_members(
@@ -418,48 +455,56 @@ macro_rules! impl_ReadStore {
                 impl Iterator<Item = (scolumns::cc_members::Key, scolumns::cc_members::Row)>,
                 StoreError,
             > {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), cc_members::PREFIX, Direction::Forward)
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    cc_members::PREFIX,
+                    Direction::Forward,
+                )
             }
 
             fn iter_votes(
                 &self,
-            ) -> Result<
-                impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Row)>,
-                StoreError,
-            > {
-                iter(|mode, opts| self.db.iterator_opt(mode, opts), votes::PREFIX, Direction::Forward)
+            ) -> Result<impl Iterator<Item = (scolumns::votes::Key, scolumns::votes::Row)>, StoreError>
+            {
+                iter(
+                    |mode, opts| self.db.iterator_opt(mode, opts),
+                    votes::PREFIX,
+                    Direction::Forward,
+                )
             }
-        })*
+        }
     }
 }
 
-// For now RocksDB and RocksDBSnapshot share their implementation of ReadOnlyStore
-impl_ReadStore!(for RocksDB, RocksDBSnapshot, ReadOnlyRocksDB);
+impl_ReadStore!(RocksDB);
+impl_ReadStore!(RocksDBSnapshot);
+impl_ReadStore!(ReadOnlyRocksDB);
+impl_ReadStore!(for<'a> RocksDBTransactionalContext<'a>);
 
 // TransactionalContext
 // ----------------------------------------------------------------------------
 
 pub struct RocksDBTransactionalContext<'a> {
-    db: &'a RocksDB,
-    transaction: Transaction<'a, OptimisticTransactionDB>,
+    host: &'a RocksDB,
+    db: Transaction<'a, OptimisticTransactionDB>,
 }
 
 impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     fn commit(self) -> Result<(), StoreError> {
         let res = self
-            .transaction
+            .db
             .commit()
             .map_err(|err| StoreError::Internal(err.into()));
-        self.db.transaction_ended();
+        self.host.transaction_ended();
         res
     }
 
     fn rollback(mut self) -> Result<(), StoreError> {
-        let transaction = std::mem::replace(&mut self.transaction, self.db.db.transaction());
+        let transaction = std::mem::replace(&mut self.db, self.host.db.transaction());
         let res = transaction
             .rollback()
             .map_err(|err| StoreError::Internal(err.into()));
-        self.db.transaction_ended();
+        self.host.transaction_ended();
         res
     }
 
@@ -473,7 +518,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         to: Option<EpochTransitionProgress>,
     ) -> Result<bool, StoreError> {
         let previous_progress = self
-            .transaction
+            .db
             .get(KEY_PROGRESS)
             .map_err(|err| StoreError::Internal(err.into()))?
             .map(|bytes| cbor::decode(&bytes))
@@ -485,8 +530,8 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         }
 
         match to {
-            None => self.transaction.delete(KEY_PROGRESS),
-            Some(to) => self.transaction.put(KEY_PROGRESS, as_value(to)),
+            None => self.db.delete(KEY_PROGRESS),
+            Some(to) => self.db.put(KEY_PROGRESS, as_value(to)),
         }
         .map_err(|err| StoreError::Internal(err.into()))?;
 
@@ -500,14 +545,14 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         credential: &scolumns::accounts::Key,
         deposit: Lovelace,
     ) -> Result<Lovelace, StoreError> {
-        accounts::set(&self.transaction, credential, |balance| balance + deposit)
+        accounts::set(&self.db, credential, |balance| balance + deposit)
     }
 
     fn set_protocol_parameters(
         &self,
         protocol_parameters: &ProtocolParameters,
     ) -> Result<(), StoreError> {
-        self.transaction
+        self.db
             .put(KEY_PROTOCOL_PARAMETERS, as_value(protocol_parameters))
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
@@ -517,7 +562,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         &self,
         constitutional_committee: &ConstitutionalCommittee,
     ) -> Result<(), StoreError> {
-        self.transaction
+        self.db
             .put(
                 KEY_CONSTITUTIONAL_COMMITTEE,
                 as_value(constitutional_committee),
@@ -527,14 +572,14 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     }
 
     fn set_proposals_roots(&self, roots: &ProposalsRootsRc) -> Result<(), StoreError> {
-        self.transaction
+        self.db
             .put(KEY_PROPOSALS_ROOTS, as_value(roots))
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
     }
 
     fn set_constitution(&self, constitution: &Constitution) -> Result<(), StoreError> {
-        self.transaction
+        self.db
             .put(KEY_CONSTITUTION, as_value(constitution))
             .map_err(|err| StoreError::Internal(err.into()))?;
         Ok(())
@@ -549,7 +594,7 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     where
         Id: Deref<Target = ComparableProposalId> + 'iter,
     {
-        proposals::remove(&self.transaction, proposals.into_iter())
+        proposals::remove(&self.db, proposals.into_iter())
     }
 
     fn save(
@@ -577,42 +622,42 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
         withdrawals: impl Iterator<Item = scolumns::accounts::Key>,
         era_history: &EraHistory,
     ) -> Result<(), StoreError> {
-        match (point, self.db.tip().ok()) {
+        match (point, self.tip().ok()) {
             (Point::Specific(new, _), Some(Point::Specific(current, _)))
-                if *new <= current && !self.db.incremental_save =>
+                if *new <= current && !self.host.incremental_save =>
             {
                 trace!(target: EVENT_TARGET, ?point, "save.point_already_known");
             }
             _ => {
                 let tip = point.slot_or_default();
-                self.transaction
+                self.db
                     .put(KEY_TIP, as_value(point))
                     .map_err(|err| StoreError::Internal(err.into()))?;
 
+                let epoch = era_history
+                    .slot_to_epoch(tip, tip)
+                    .map_err(|err| StoreError::Internal(err.into()))?;
+
                 if let Some(issuer) = issuer {
-                    slots::put(&self.transaction, &tip, scolumns::slots::Row::new(*issuer))?;
+                    slots::put(&self.db, &tip, scolumns::slots::Row::new(*issuer))?;
                 }
 
-                utxo::add(&self.transaction, add.utxo)?;
-                pools::add(&self.transaction, add.pools)?;
-                dreps::add(&self.transaction, add.dreps)?;
-                accounts::add(&self.transaction, add.accounts)?;
-                cc_members::add(&self.transaction, add.cc_members)?;
-                proposals::add(&self.transaction, add.proposals)?;
-                let voting_dreps = votes::add(&self.transaction, add.votes)?;
+                utxo::add(&self.db, add.utxo)?;
+                pools::add(&self.db, add.pools)?;
+                dreps::add(&self.db, epoch, add.dreps)?;
+                accounts::add(&self.db, add.accounts)?;
+                cc_members::add(&self.db, add.cc_members)?;
 
-                accounts::reset_many(&self.transaction, withdrawals)?;
+                let proposals_count = proposals::add(&self.db, add.proposals)?;
+                let voting_dreps = votes::add(&self.db, add.votes)?;
 
-                dreps::tick(&self.transaction, voting_dreps, {
-                    era_history
-                        .slot_to_epoch(tip, tip)
-                        .map_err(|err| StoreError::Internal(err.into()))?
-                })?;
+                accounts::reset_many(&self.db, withdrawals)?;
+                dreps::tick(&self.db, voting_dreps, epoch)?;
 
-                utxo::remove(&self.transaction, remove.utxo)?;
-                pools::remove(&self.transaction, remove.pools)?;
-                accounts::remove(&self.transaction, remove.accounts)?;
-                dreps::remove(&self.transaction, remove.dreps)?;
+                utxo::remove(&self.db, remove.utxo)?;
+                pools::remove(&self.db, remove.pools)?;
+                accounts::remove(&self.db, remove.accounts)?;
+                dreps::remove(&self.db, remove.dreps)?;
             }
         }
         Ok(())
@@ -624,9 +669,9 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     ) -> Result<(), StoreError> {
         let mut err = None;
         let proxy = Box::new(BorrowableProxy::new(
-            pots::get(|key| self.transaction.get(key))?,
+            pots::get(|key| self.db.get(key))?,
             |pots| {
-                let put = pots::put(&self.transaction, pots);
+                let put = pots::put(&self.db, pots);
                 if let Err(e) = put {
                     err = Some(e);
                 }
@@ -642,49 +687,49 @@ impl TransactionalContext<'_> for RocksDBTransactionalContext<'_> {
     }
 
     fn with_utxo(&self, with: impl FnMut(scolumns::utxo::Iter<'_, '_>)) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, utxo::PREFIX, with)
+        with_prefix_iterator(&self.db, utxo::PREFIX, with)
     }
 
     fn with_pools(
         &self,
         with: impl FnMut(scolumns::pools::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, pools::PREFIX, with)
+        with_prefix_iterator(&self.db, pools::PREFIX, with)
     }
 
     fn with_accounts(
         &self,
         with: impl FnMut(scolumns::accounts::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, accounts::PREFIX, with)
+        with_prefix_iterator(&self.db, accounts::PREFIX, with)
     }
 
     fn with_block_issuers(
         &self,
         with: impl FnMut(scolumns::slots::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, slots::PREFIX, with)
+        with_prefix_iterator(&self.db, slots::PREFIX, with)
     }
 
     fn with_dreps(
         &self,
         with: impl FnMut(scolumns::dreps::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, dreps::PREFIX, with)
+        with_prefix_iterator(&self.db, dreps::PREFIX, with)
     }
 
     fn with_proposals(
         &self,
         with: impl FnMut(scolumns::proposals::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, proposals::PREFIX, with)
+        with_prefix_iterator(&self.db, proposals::PREFIX, with)
     }
 
     fn with_cc_members(
         &self,
         with: impl FnMut(scolumns::cc_members::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        with_prefix_iterator(&self.transaction, cc_members::PREFIX, with)
+        with_prefix_iterator(&self.db, cc_members::PREFIX, with)
     }
 }
 
