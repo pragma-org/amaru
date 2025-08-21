@@ -20,6 +20,7 @@ pallas-codec.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
 pallas-primitives.workspace = true
+serde.workspace = true
 thiserror.workspace = true
 vrf_dalek.workspace = true
 
@@ -41,4 +42,7 @@ serde_json.workspace = true
 tracing-subscriber.workspace = true
 
 [target.'cfg(not(std))'.dependencies]
-num = { workspace = true, default-features = false, features = ["alloc", "libm"] }
+num = { workspace = true, default-features = false, features = [
+    "alloc",
+    "libm",
+] }

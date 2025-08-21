@@ -188,7 +188,7 @@ impl Proof {
     }
 }
 
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ProofFromBytesError {
     #[error("Decompression from Edwards point failed.")]
     DecompressionFailed,
@@ -227,13 +227,25 @@ impl From<&Proof> for Hash<{ Proof::HASH_SIZE }> {
 
 /// error that can be returned if the verification of a [`VrfProof`] fails
 /// see [`VrfProof::verify`]
-#[derive(Error, Debug, PartialEq)]
+#[derive(Error, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[error("VRF proof verification failed: {:?}", .0)]
 pub struct ProofVerifyError(
     #[from]
     #[source]
+    #[serde(with = "serde_remote::VrfError")]
     VrfError,
 );
+
+mod serde_remote {
+    #[derive(serde::Serialize, serde::Deserialize)]
+    #[serde(remote = "super::VrfError")]
+    pub enum VrfError {
+        VerificationFailed,
+        DecompressionFailed,
+        PkSmallOrder,
+        VrfOutputInvalid,
+    }
+}
 
 #[cfg(test)]
 mod tests {

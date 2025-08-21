@@ -16,6 +16,7 @@ rust-version.workspace = true
 anyhow.workspace = true
 hex.workspace = true
 indextree.workspace = true
+opentelemetry.workspace = true
 pallas-crypto.workspace = true
 pallas-math.workspace = true
 rayon.workspace = true
@@ -23,6 +24,7 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-opentelemetry.workspace = true
 
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
