@@ -112,15 +112,6 @@ jobs:
             # Run doc tests separately as --doc can't be used with --all-targets
             cargo test --doc
           fi
-          exitcode="$?"
-          if [[ "${{ matrix.environments.optional }}" == "true" && "$exitcode" != "0" ]] ; then
-            # Propagate failure as a warning
-            # but do not fail the job
-            echo "::warning::Tests failed with exit code $exitcode"
-            exit 0
-          else
-            exit "$exitcode"
-          fi
         shell: bash
 
   coverage:
