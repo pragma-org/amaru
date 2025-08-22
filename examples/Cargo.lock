@@ -129,6 +129,8 @@ dependencies = [
  "pallas-crypto",
  "pallas-math",
  "pallas-primitives",
+ "serde",
+ "slot-arithmetic",
  "thiserror 2.0.16",
  "vrf_dalek",
 ]
