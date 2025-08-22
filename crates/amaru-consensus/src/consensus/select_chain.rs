@@ -14,11 +14,13 @@
 
 use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::headers_tree::HeadersTree;
+use crate::consensus::select_chain::RollbackChainSelection::RollbackTo;
 use crate::{consensus::EVENT_TARGET, ConsensusError};
 use amaru_kernel::{peer::Peer, Header, Point};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Serialize};
+use std::fmt::{Display, Formatter};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tracing::{trace, Span};
@@ -178,7 +180,7 @@ impl SelectChain {
 /// FIXME: The peer should not be needed here, as the fork should be
 /// comprised of known blocks. It is only needed to download the blocks
 /// we don't currently store.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Fork<H: IsHeader> {
     pub peer: Peer,
     pub rollback_point: Point,
@@ -187,7 +189,7 @@ pub struct Fork<H: IsHeader> {
 
 /// The outcome of the chain selection process in  case of
 /// roll forward.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ForwardChainSelection<H: IsHeader> {
     /// The current best chain has been extended with a (single) new header.
     NewTip { peer: Peer, tip: H },
@@ -199,8 +201,32 @@ pub enum ForwardChainSelection<H: IsHeader> {
     SwitchToFork(Fork<H>),
 }
 
+impl<H: IsHeader + Display> Display for ForwardChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ForwardChainSelection::NewTip { peer, tip } => {
+                f.write_str(&format!("NewTip[{}, {}]", peer, tip))
+            }
+            ForwardChainSelection::NoChange => f.write_str("NoChange"),
+            ForwardChainSelection::SwitchToFork(Fork {
+                peer,
+                rollback_point,
+                fork,
+            }) => f.write_str(&format!(
+                "SwitchToFork[{}, {}, {}]",
+                peer,
+                rollback_point,
+                fork.iter()
+                    .map(|h| h.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+        }
+    }
+}
+
 /// The outcome of the chain selection process in case of rollback
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum RollbackChainSelection<H: IsHeader> {
     /// The current best chain has been rolled back to the given hash.
     RollbackTo(Hash<32>),
@@ -217,4 +243,35 @@ pub enum RollbackChainSelection<H: IsHeader> {
 
     /// The current best chain as not changed
     NoChange,
+}
+
+impl<H: IsHeader + Display> Display for RollbackChainSelection<H> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RollbackTo(hash) => f.write_str(&format!("RollbackTo[{}]", hash)),
+            RollbackChainSelection::NoChange => f.write_str("NoChange"),
+            RollbackChainSelection::SwitchToFork(Fork {
+                peer,
+                rollback_point,
+                fork,
+            }) => f.write_str(&format!(
+                "SwitchToFork[{}, {}, {}]",
+                peer,
+                rollback_point,
+                fork.iter()
+                    .map(|h| h.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+
+            RollbackChainSelection::RollbackBeyondLimit {
+                peer,
+                rollback_point,
+                max_point,
+            } => f.write_str(&format!(
+                "RollbackBeyondLimit[{}, {}, {}]",
+                peer, rollback_point, max_point
+            )),
+        }
+    }
 }

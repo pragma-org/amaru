@@ -16,3 +16,6 @@ rust-version.workspace = true
 amaru-kernel.workspace = true
 serde.workspace = true
 slot-arithmetic.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

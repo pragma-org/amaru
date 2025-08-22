@@ -17,7 +17,7 @@ use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use std::fmt::{Debug, Formatter};
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Eq, Clone)]
 pub enum Tip<H> {
     Genesis,
     Hdr(H),
@@ -28,6 +28,7 @@ impl<H: IsHeader> Debug for Tip<H> {
         f.debug_struct("Tip")
             .field("slot", &self.slot())
             .field("hash", &self.hash())
+            .field("parent_hash", &self.parent())
             .finish()
     }
 }

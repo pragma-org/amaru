@@ -17,7 +17,7 @@ use std::fmt::{self, Debug, Display};
 
 pub const HEADER_HASH_SIZE: usize = 32;
 
-#[derive(Clone, Eq, PartialEq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Eq, PartialEq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Point {
     Origin,
     Specific(u64, Vec<u8>),
