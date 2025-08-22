@@ -17,22 +17,27 @@ use gasket::{
     framework::{Stage, WorkSchedule, WorkerError},
     messaging,
 };
-use pure_stage::{tokio::TokioRunning, Receiver, SendData, Sender};
+use pure_stage::{tokio::TokioRunning, BoxFuture, Receiver, SendData, Sender, StageGraphRunning};
 use std::time::Duration;
-use tokio::{runtime::Runtime, time::sleep};
+use tokio::{runtime::Runtime, select, time::sleep};
+use tokio_util::sync::CancellationToken;
 
 #[derive(Stage)]
 #[stage(name = "pure_stage", unit = "()", worker = "Worker")]
 pub struct PureStageSim {
     _tokio_running: TokioRunning,
+    termination: BoxFuture<'static, ()>,
     _runtime: Runtime,
+    exit: CancellationToken,
 }
 
 impl PureStageSim {
-    pub fn new(tokio_running: TokioRunning, runtime: Runtime) -> Self {
+    pub fn new(tokio_running: TokioRunning, runtime: Runtime, exit: CancellationToken) -> Self {
         Self {
+            termination: tokio_running.termination(),
             _tokio_running: tokio_running,
             _runtime: runtime,
+            exit,
         }
     }
 }
@@ -49,14 +54,19 @@ impl gasket::framework::Worker<PureStageSim> for Worker {
 
     async fn schedule(
         &mut self,
-        _stage: &mut PureStageSim,
+        stage: &mut PureStageSim,
     ) -> Result<WorkSchedule<()>, WorkerError> {
         // never any work to do here, PureStageSim only needs to keep the
         // tokio runtime and the pure_stage tasks running;
         // we cannot use pending(), though, because that prevents gasket from
         // shutting down the stage.
-        sleep(Duration::from_secs(1)).await;
-        Ok(WorkSchedule::Unit(()))
+        select! {
+            _ = stage.termination.as_mut() => {
+                stage.exit.cancel();
+                Ok(WorkSchedule::Done)
+            }
+            _ = sleep(Duration::from_secs(1)) => Ok(WorkSchedule::Unit(())),
+        }
     }
 
     async fn execute(&mut self, _unit: &(), _stage: &mut PureStageSim) -> Result<(), WorkerError> {

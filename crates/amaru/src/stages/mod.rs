@@ -15,14 +15,13 @@
 use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     consensus::{
+        build_stage_graph,
         headers_tree::HeadersTree,
         select_chain::SelectChain,
         store::ChainStore,
         store_block::StoreBlock,
         store_header::StoreHeader,
-        validate_header::{
-            self, ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
-        },
+        validate_header::{self, ValidateHeader},
         ChainSyncEvent,
     },
     ConsensusError, IsHeader,
@@ -62,6 +61,7 @@ use std::{
     sync::{Arc, RwLock},
 };
 use tokio::sync::Mutex;
+use tokio_util::sync::CancellationToken;
 
 pub mod common;
 pub mod consensus;
@@ -115,6 +115,7 @@ impl Default for Config {
 pub fn bootstrap(
     config: Config,
     clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
+    exit: CancellationToken,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     let era_history: &EraHistory = config.network.into();
 
@@ -188,20 +189,22 @@ pub fn bootstrap(
 
     // start pure-stage parts, whose lifecycle is managed by a single gasket stage
     let mut network = TokioBuilder::default();
+    let (output_ref, output_stage) = network.output("output", 50);
 
-    let (network_output, validate_header_input) =
-        build_stage_graph(global_parameters, consensus, &mut network);
+    let validate_header_ref =
+        build_stage_graph(global_parameters, consensus, &mut network, output_ref);
+    let validate_header_input = SendAdapter(network.input(&validate_header_ref));
 
     network
         .resources()
-        .put::<ValidateHeaderResourceStore>(chain_store_ref);
+        .put::<validate_header::ValidateHeaderResourceStore>(chain_store_ref);
     network
         .resources()
-        .put::<ValidateHeaderResourceParameters>(global_parameters.clone());
+        .put::<validate_header::ValidateHeaderResourceParameters>(global_parameters.clone());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
-    let pure_stages = PureStageSim::new(network, rt);
+    let pure_stages = PureStageSim::new(network, rt, exit);
 
     let outputs: Vec<&mut OutputPort<ChainSyncEvent>> = stages
         .iter_mut()
@@ -211,13 +214,11 @@ pub fn bootstrap(
     receive_header_stage.downstream.connect(to_store_header);
 
     store_header_stage.upstream.connect(from_receive_header);
-    store_header_stage
-        .downstream
-        .connect(SendAdapter(validate_header_input));
+    store_header_stage.downstream.connect(validate_header_input);
 
     select_chain_stage
         .upstream
-        .connect(RecvAdapter(network_output));
+        .connect(RecvAdapter(output_stage));
     select_chain_stage.downstream.connect(to_fetch_block);
 
     fetch_block_stage.upstream.connect(from_select_chain);
@@ -258,27 +259,6 @@ pub fn bootstrap(
     stages.push(ledger);
     stages.push(block_forward);
     Ok(stages)
-}
-
-fn build_stage_graph(
-    global_parameters: &GlobalParameters,
-    consensus: ValidateHeader,
-    network: &mut impl StageGraph,
-) -> (
-    pure_stage::Receiver<amaru_consensus::consensus::DecodedChainSyncEvent>,
-    pure_stage::Sender<amaru_consensus::consensus::DecodedChainSyncEvent>,
-) {
-    let validate_header_stage = network.stage("validate_header", validate_header::stage);
-
-    let (network_output_ref, network_output) = network.output("network_output", 50);
-
-    let validate_header_stage = network.wire_up(
-        validate_header_stage,
-        (consensus, global_parameters.clone(), network_output_ref),
-    );
-
-    let validate_header_input = network.input(&validate_header_stage);
-    (network_output, validate_header_input)
 }
 
 type ChainStoreResult = (Tip, Option<Header>, Arc<Mutex<dyn ChainStore<Header>>>);
@@ -455,6 +435,7 @@ mod tests {
     use amaru_ledger::store::{Store, TransactionalContext};
     use amaru_stores::in_memory::MemoryStore;
     use std::path::PathBuf;
+    use tokio_util::sync::CancellationToken;
 
     use super::{bootstrap, Config, StorePath, StorePath::*};
 
@@ -478,7 +459,7 @@ mod tests {
             ..Config::default()
         };
 
-        let stages = bootstrap(config, vec![]).unwrap();
+        let stages = bootstrap(config, vec![], CancellationToken::new()).unwrap();
 
         assert_eq!(8, stages.len());
     }

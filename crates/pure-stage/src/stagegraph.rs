@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    types::MpscSender, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
-    StageBuildRef, StageRef, Void,
+    types::MpscSender, BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources,
+    SendData, Sender, StageBuildRef, StageRef, Void,
 };
 use std::{
     fmt::Debug,
@@ -114,7 +114,7 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
 ///     state += msg;
 ///     eff.send(&out, state).await;
-///     Ok((state, out))
+///     (state, out)
 /// });
 /// // this is a feature of the SimulationBuilder
 /// let (output, mut rx) = network.output("output", 10);
@@ -131,7 +131,7 @@ impl<Resp: SendData> CallRef<Resp> {
 /// let mut running = network.run(rt.handle().clone());
 /// ```
 pub trait StageGraph {
-    type Running;
+    type Running: StageGraphRunning;
     type RefAux<Msg, State>;
 
     /// Create a stage from an asynchronous transition function (state × message → state) and
@@ -164,7 +164,7 @@ pub trait StageGraph {
     ) -> StageBuildRef<Msg, St, Self::RefAux<Msg, St>>
     where
         F: FnMut(St, Msg, Effects<Msg, St>) -> Fut + 'static + Send,
-        Fut: Future<Output = anyhow::Result<St>> + 'static + Send,
+        Fut: Future<Output = St> + 'static + Send,
         Msg: SendData + serde::de::DeserializeOwned,
         St: SendData;
 
@@ -208,7 +208,7 @@ pub trait StageGraph {
         let output = self.stage(name, async |tx: MpscSender<Msg>, msg: Msg, eff| {
             eff.external(OutputEffect::new(eff.me().name(), msg, tx.clone()))
                 .await;
-            Ok(tx)
+            tx
         });
         let output = self.wire_up(output, tx);
 
@@ -219,4 +219,15 @@ pub trait StageGraph {
     ///
     /// It is prudent to populate this collection before running the network.
     fn resources(&self) -> &Resources;
+}
+
+/// A trait for running stage graphs.
+///
+/// This trait is implemented by the return value of the [`StageGraph::run`] method.
+pub trait StageGraphRunning {
+    /// Returns true if the stage graph has observed a termination signal.
+    fn is_terminated(&self) -> bool;
+
+    /// A future that resolves once the stage graph has terminated.
+    fn termination(&self) -> BoxFuture<'static, ()>;
 }

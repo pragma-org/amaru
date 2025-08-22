@@ -31,11 +31,7 @@ impl std::fmt::Debug for InitStageState {
 }
 
 pub type Transition = Box<
-    dyn FnMut(
-            Box<dyn SendData>,
-            Box<dyn SendData>,
-        ) -> BoxFuture<'static, anyhow::Result<Box<dyn SendData>>>
-        + Send,
+    dyn FnMut(Box<dyn SendData>, Box<dyn SendData>) -> BoxFuture<'static, Box<dyn SendData>> + Send,
 >;
 
 pub struct InitStageData {
@@ -46,7 +42,7 @@ pub struct InitStageData {
 
 pub enum StageState {
     Idle(Box<dyn SendData>),
-    Running(BoxFuture<'static, anyhow::Result<Box<dyn SendData>>>),
+    Running(BoxFuture<'static, Box<dyn SendData>>),
     Failed(String),
 }
 

@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use crate::{
-    serde::{to_cbor, SendDataValue},
+    serde::{never, to_cbor, SendDataValue},
     simulation::{airlock_effect, EffectBox},
     time::Clock,
     BoxFuture, CallId, CallRef, Instant, Name, Resources, SendData, Sender, StageRef,
@@ -91,7 +91,9 @@ impl<M: SendData, S> Effects<M, S> {
     pub fn self_sender(&self) -> Sender<M> {
         self.self_sender.clone()
     }
+}
 
+impl<M, S> Effects<M, S> {
     /// Send a message to the given stage, blocking the current stage until space has been
     /// made available in the target stage’s send queue.
     pub fn send<Msg: SendData, St>(
@@ -197,6 +199,26 @@ impl<M: SendData, S> Effects<M, S> {
                 _ => None,
             },
         )
+    }
+
+    /// Terminate this stage
+    ///
+    /// This will terminate this stage graph if done from a stage that was created before running the graph.
+    /// This future never resolves, so you can safely return the value to exit the transition function.
+    ///
+    /// Example:
+    ///
+    /// ```ignore
+    /// async |state, msg, eff| {
+    ///     if msg.is_fatal() {
+    ///         return eff.terminate().await;
+    ///     }
+    ///     // ...
+    ///     state
+    /// }
+    /// ```
+    pub fn terminate<T>(&self) -> BoxFuture<'static, T> {
+        airlock_effect(&self.effect, StageEffect::Terminate, |_eff| never())
     }
 }
 
@@ -342,6 +364,7 @@ pub(crate) enum StageEffect<T> {
     ),
     Respond(Name, CallId, Instant, oneshot::Sender<Box<dyn SendData>>, T),
     External(Box<dyn ExternalEffect>),
+    Terminate,
 }
 
 /// The response a stage receives from the execution of an effect.
@@ -404,6 +427,10 @@ impl StageEffect<Box<dyn SendData>> {
                     effect,
                 },
             ),
+            StageEffect::Terminate => (
+                StageEffect::Terminate,
+                Effect::Terminate { at_stage: at_name },
+            ),
         }
     }
 }
@@ -440,10 +467,8 @@ pub enum Effect {
         #[serde(with = "crate::serde::serialize_external_effect")]
         effect: Box<dyn ExternalEffect>,
     },
-    Failure {
+    Terminate {
         at_stage: Name,
-        #[serde(with = "crate::serde::serialize_error")]
-        error: anyhow::Error,
     },
 }
 
@@ -457,7 +482,7 @@ impl Effect {
             Effect::Wait { at_stage, .. } => at_stage,
             Effect::Respond { at_stage, .. } => at_stage,
             Effect::External { at_stage, .. } => at_stage,
-            Effect::Failure { at_stage, .. } => at_stage,
+            Effect::Terminate { at_stage, .. } => at_stage,
         }
     }
 
@@ -666,11 +691,10 @@ impl PartialEq for Effect {
                 }
                 _ => false,
             },
-            Effect::Failure { at_stage, error } => match other {
-                Effect::Failure {
+            Effect::Terminate { at_stage } => match other {
+                Effect::Terminate {
                     at_stage: other_at_stage,
-                    error: other_error,
-                } => at_stage == other_at_stage && error.to_string() == other_error.to_string(),
+                } => at_stage == other_at_stage,
                 _ => false,
             },
         }
