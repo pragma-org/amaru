@@ -43,10 +43,10 @@ pub fn build_stage_graph(
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
     let select_chain_stage = network.stage("select_chain", select_chain::stage);
 
-    // TODO: currently only valiate_header errors, will need to grow into all error handling
+    // TODO: currently only validate_header errors, will need to grow into all error handling
     let upstream_errors_stage = network.stage("upstream_errors", async |_, msg, eff| {
-        let ValidationFailed { peer, error } = msg;
-        tracing::error!(%peer, %error, "invalid header");
+        let ValidationFailed { peer, point, error } = msg;
+        tracing::error!(%peer, %point, %error, "invalid header");
 
         // TODO: implement specific actions once we have an upstream network
 
@@ -92,12 +92,13 @@ pub fn build_stage_graph(
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidationFailed {
     pub peer: Peer,
+    pub point: Point,
     pub error: ConsensusError,
 }
 
 impl ValidationFailed {
-    pub fn new(peer: Peer, error: ConsensusError) -> Self {
-        Self { peer, error }
+    pub fn new(peer: Peer, point: Point, error: ConsensusError) -> Self {
+        Self { peer, point, error }
     }
 }
 
@@ -171,6 +172,13 @@ impl DecodedChainSyncEvent {
         match self {
             DecodedChainSyncEvent::RollForward { peer, .. } => peer.clone(),
             DecodedChainSyncEvent::Rollback { peer, .. } => peer.clone(),
+        }
+    }
+
+    pub fn point(&self) -> Point {
+        match self {
+            DecodedChainSyncEvent::RollForward { point, .. } => point.clone(),
+            DecodedChainSyncEvent::Rollback { rollback_point, .. } => rollback_point.clone(),
         }
     }
 }

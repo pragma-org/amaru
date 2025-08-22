@@ -151,8 +151,11 @@ pub async fn stage(
                 Ok(nonces) => nonces,
                 Err(error) => {
                     tracing::error!(%peer, %error, "evolve nonce failed");
-                    eff.send(&errors, ValidationFailed::new(peer.clone(), error.into()))
-                        .await;
+                    eff.send(
+                        &errors,
+                        ValidationFailed::new(peer.clone(), point.clone(), error.into()),
+                    )
+                    .await;
                     return false;
                 }
             };
@@ -167,8 +170,11 @@ pub async fn stage(
                 &global,
             ) {
                 tracing::info!(%peer, %error, "invalid header");
-                eff.send(&errors, ValidationFailed::new(peer.clone(), error))
-                    .await;
+                eff.send(
+                    &errors,
+                    ValidationFailed::new(peer.clone(), point.clone(), error),
+                )
+                .await;
                 false
             } else {
                 true

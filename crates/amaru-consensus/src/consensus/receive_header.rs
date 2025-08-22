@@ -29,13 +29,12 @@ use pure_stage::{Effects, StageRef, Void};
         )
     )]
 pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, ConsensusError> {
-    let header: MintedHeader<'_> = cbor::decode(raw_header).map_err(|reason| {
-        tracing::error!(reason = %reason, "failed to decode header");
-        ConsensusError::CannotDecodeHeader {
+    let header: MintedHeader<'_> =
+        cbor::decode(raw_header).map_err(|reason| ConsensusError::CannotDecodeHeader {
             point: point.clone(),
             header: raw_header.into(),
-        }
-    })?;
+            reason: reason.to_string(),
+        })?;
 
     Ok(Header::from(header))
 }
@@ -59,11 +58,12 @@ pub async fn stage(
                 raw_header,
                 span,
             } => {
-                let header = match receive_header(&point, &raw_header) {
+                let header = match receive_header(&point, raw_header.as_slice()) {
                     Ok(header) => header,
                     Err(error) => {
                         tracing::error!(%error, %point, %peer, "Failed to decode header");
-                        eff.send(&errors, ValidationFailed::new(peer, error)).await;
+                        eff.send(&errors, ValidationFailed::new(peer, point.clone(), error))
+                            .await;
                         return (downstream, errors);
                     }
                 };
