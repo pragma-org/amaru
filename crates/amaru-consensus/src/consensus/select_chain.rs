@@ -13,15 +13,18 @@
 // limitations under the License.
 
 use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
+use crate::consensus::ValidationFailed;
 use crate::consensus::headers_tree::HeadersTree;
+use crate::span::adopt_current_span;
 use crate::{ConsensusError, consensus::EVENT_TARGET};
 use amaru_kernel::{Header, Point, peer::Peer};
 use amaru_ouroboros::IsHeader;
 use pallas_crypto::hash::Hash;
+use pure_stage::{Effects, StageRef, Void};
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::Mutex;
-use tracing::{Span, trace};
+use tracing::{Instrument, Span, trace};
 
 pub const DEFAULT_MAXIMUM_FRAGMENT_LENGTH: usize = 2160;
 
@@ -217,4 +220,37 @@ pub enum RollbackChainSelection<H: IsHeader> {
 
     /// The current best chain as not changed
     NoChange,
+}
+
+type State = (
+    SelectChain,
+    StageRef<ValidateHeaderEvent, Void>,
+    StageRef<ValidationFailed, Void>,
+);
+
+pub async fn stage(
+    (mut select_chain, downstream, errors): State,
+    msg: DecodedChainSyncEvent,
+    eff: Effects<DecodedChainSyncEvent, State>,
+) -> State {
+    let span = adopt_current_span(&msg);
+    async move {
+        let peer = msg.peer();
+
+        let events = match select_chain.handle_chain_sync(msg).await {
+            Ok(events) => events,
+            Err(e) => {
+                eff.send(&errors, ValidationFailed::new(peer, e)).await;
+                return (select_chain, downstream, errors);
+            }
+        };
+
+        for event in events {
+            eff.send(&downstream, event).await;
+        }
+
+        (select_chain, downstream, errors)
+    }
+    .instrument(span)
+    .await
 }

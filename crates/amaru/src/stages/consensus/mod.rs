@@ -14,5 +14,4 @@
 
 pub mod fetch_block;
 pub mod forward_chain;
-pub mod select_chain;
 pub mod store_block;
