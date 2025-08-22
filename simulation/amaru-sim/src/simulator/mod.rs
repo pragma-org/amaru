@@ -18,10 +18,9 @@ use amaru_consensus::{
     consensus::{
         ChainSyncEvent, DecodedChainSyncEvent, ValidateHeaderEvent, build_stage_graph,
         headers_tree::HeadersTree,
-        receive_header::handle_chain_sync,
         select_chain::{DEFAULT_MAXIMUM_FRAGMENT_LENGTH, SelectChain},
         store::ChainStore,
-        store_effects, store_header,
+        store_effects,
         validate_header::ValidateHeader,
     },
 };
@@ -158,59 +157,53 @@ fn spawn_node(
 
     let (global_parameters, select_chain, validate_header, chain_ref) = init_node(&args);
 
-    let receive_stage = network.stage(
-        "receive_header",
-        async |(_state, downstream, out), msg: Envelope<ChainSyncMessage>, eff| {
+    let receiver = network.stage(
+        "receiver",
+        async |(downstream, output), msg: Envelope<ChainSyncMessage>, eff| {
             match msg.body {
                 ChainSyncMessage::Init { msg_id, .. } => {
-                    let reply_msg = ChainSyncMessage::InitOk {
-                        in_reply_to: msg_id,
-                    };
-                    let reply = Envelope {
-                        src: msg.dest,
-                        dest: msg.src,
-                        body: reply_msg,
-                    };
-                    eff.send(&out, reply).await
+                    eff.send(
+                        &output,
+                        Envelope {
+                            src: msg.dest,
+                            dest: msg.src,
+                            body: ChainSyncMessage::InitOk {
+                                in_reply_to: msg_id,
+                            },
+                        },
+                    )
+                    .await
                 }
                 ChainSyncMessage::InitOk { .. } => (),
                 ChainSyncMessage::Fwd {
                     slot, hash, header, ..
                 } => {
-                    let decoded = match handle_chain_sync(ChainSyncEvent::RollForward {
-                        peer: Peer::new(&msg.src),
-                        point: Point::Specific(slot.into(), hash.into()),
-                        raw_header: header.into(),
-                        span: Span::current(),
-                    }) {
-                        Ok(decoded) => decoded,
-                        Err(error) => {
-                            tracing::error!(peer = %msg.src, %error, "invalid roll forward");
-                            return eff.terminate().await;
-                        }
-                    };
-                    eff.send(&downstream, decoded).await
+                    eff.send(
+                        &downstream,
+                        ChainSyncEvent::RollForward {
+                            peer: Peer::new(&msg.src),
+                            point: Point::Specific(slot.into(), hash.into()),
+                            raw_header: header.into(),
+                            span: Span::current(),
+                        },
+                    )
+                    .await
                 }
                 ChainSyncMessage::Bck { slot, hash, .. } => {
-                    let decoded = match handle_chain_sync(ChainSyncEvent::Rollback {
-                        peer: Peer::new(&msg.src),
-                        rollback_point: Point::Specific(slot.into(), hash.into()),
-                        span: Span::current(),
-                    }) {
-                        Ok(decoded) => decoded,
-                        Err(error) => {
-                            tracing::error!(peer = %msg.src, %error, "invalid rollback");
-                            return eff.terminate().await;
-                        }
-                    };
-                    eff.send(&downstream, decoded).await
+                    eff.send(
+                        &downstream,
+                        ChainSyncEvent::Rollback {
+                            peer: Peer::new(&msg.src),
+                            rollback_point: Point::Specific(slot.into(), hash.into()),
+                            span: Span::current(),
+                        },
+                    )
+                    .await
                 }
-            };
-            ((), downstream, out)
+            }
+            (downstream, output)
         },
     );
-
-    let store_header_stage = network.stage("store_header", store_header::stage);
 
     let select_chain_stage = network.stage(
         "select_chain",
@@ -304,7 +297,7 @@ fn spawn_node(
         },
     );
 
-    let validate_header_ref = build_stage_graph(
+    let receive_header_ref = build_stage_graph(
         &global_parameters,
         validate_header,
         network,
@@ -312,11 +305,9 @@ fn spawn_node(
     );
 
     let (output, rx) = network.output("output", 10);
-    let receive = network.wire_up(
-        receive_stage,
-        ((), store_header_stage.sender(), output.clone()),
-    );
-    network.wire_up(store_header_stage, validate_header_ref);
+
+    let receiver = network.wire_up(receiver, (receive_header_ref, output.without_state()));
+
     network.wire_up(
         select_chain_stage,
         (select_chain.clone(), propagate_header_stage.sender()),
@@ -330,7 +321,7 @@ fn spawn_node(
         .resources()
         .put::<store_effects::ResourceParameters>(global_parameters);
 
-    (rx, receive.without_state())
+    (rx, receiver.without_state())
 }
 
 pub fn run(rt: tokio::runtime::Runtime, args: Args) {

@@ -12,11 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::ConsensusError;
+use crate::{ConsensusError, span::adopt_current_span};
 use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
-use tracing::{Level, error, instrument};
+use tracing::{Instrument, Level, instrument};
 
-use super::{ChainSyncEvent, DecodedChainSyncEvent};
+use super::{ChainSyncEvent, DecodedChainSyncEvent, ValidationFailed};
+use pure_stage::{Effects, StageRef, Void};
 
 #[instrument(
         level = Level::TRACE,
@@ -29,7 +30,7 @@ use super::{ChainSyncEvent, DecodedChainSyncEvent};
     )]
 pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, ConsensusError> {
     let header: MintedHeader<'_> = cbor::decode(raw_header).map_err(|reason| {
-        error!(reason = %reason, "failed to decode header");
+        tracing::error!(reason = %reason, "failed to decode header");
         ConsensusError::CannotDecodeHeader {
             point: point.clone(),
             header: raw_header.into(),
@@ -39,32 +40,62 @@ pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, Consen
     Ok(Header::from(header))
 }
 
-pub fn handle_chain_sync(
-    chain_sync: ChainSyncEvent,
-) -> Result<DecodedChainSyncEvent, ConsensusError> {
-    match chain_sync {
-        ChainSyncEvent::RollForward {
-            peer,
-            point,
-            raw_header,
-            span,
-        } => {
-            let header = receive_header(&point, &raw_header)?;
-            Ok(DecodedChainSyncEvent::RollForward {
+type State = (
+    StageRef<DecodedChainSyncEvent, Void>,
+    StageRef<ValidationFailed, Void>,
+);
+
+pub async fn stage(
+    (downstream, errors): State,
+    msg: ChainSyncEvent,
+    eff: Effects<ChainSyncEvent, State>,
+) -> State {
+    let span = adopt_current_span(&msg);
+    async move {
+        match msg {
+            ChainSyncEvent::RollForward {
                 peer,
                 point,
-                header,
+                raw_header,
                 span,
-            })
+            } => {
+                let header = match receive_header(&point, &raw_header) {
+                    Ok(header) => header,
+                    Err(error) => {
+                        tracing::error!(%error, %point, %peer, "Failed to decode header");
+                        eff.send(&errors, ValidationFailed::new(peer, error)).await;
+                        return (downstream, errors);
+                    }
+                };
+                eff.send(
+                    &downstream,
+                    DecodedChainSyncEvent::RollForward {
+                        peer,
+                        point,
+                        header,
+                        span,
+                    },
+                )
+                .await;
+            }
+            ChainSyncEvent::Rollback {
+                peer,
+                rollback_point,
+                span,
+            } => {
+                eff.send(
+                    &downstream,
+                    DecodedChainSyncEvent::Rollback {
+                        peer,
+                        rollback_point,
+                        span,
+                    },
+                )
+                .await
+            }
         }
-        ChainSyncEvent::Rollback {
-            peer,
-            rollback_point,
-            span,
-        } => Ok(DecodedChainSyncEvent::Rollback {
-            peer,
-            rollback_point,
-            span,
-        }),
+        (downstream, errors)
     }
+    .instrument(span)
+    .await
 }

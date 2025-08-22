@@ -13,11 +13,11 @@
 // limitations under the License.
 
 use crate::{
-    ConsensusError, consensus::store_effects::EvolveNonceEffect, span::adopt_current_span,
+    ConsensusError,
+    consensus::{ValidationFailed, store_effects::EvolveNonceEffect},
+    span::adopt_current_span,
 };
-use amaru_kernel::{
-    Hash, Header, Nonce, Point, peer::Peer, protocol_parameters::GlobalParameters, to_cbor,
-};
+use amaru_kernel::{Hash, Header, Nonce, Point, protocol_parameters::GlobalParameters, to_cbor};
 use amaru_ouroboros::praos;
 use amaru_ouroboros_traits::HasStakeDistribution;
 use pallas_math::math::FixedDecimal;
@@ -108,18 +108,6 @@ impl fmt::Debug for ValidateHeader {
 impl ValidateHeader {
     pub fn new(ledger: Arc<dyn HasStakeDistribution>) -> Self {
         Self { ledger }
-    }
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub struct ValidationFailed {
-    pub peer: Peer,
-    pub error: ConsensusError,
-}
-
-impl ValidationFailed {
-    pub fn new(peer: Peer, error: ConsensusError) -> Self {
-        Self { peer, error }
     }
 }
 

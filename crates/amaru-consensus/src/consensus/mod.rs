@@ -14,10 +14,9 @@
 
 use std::fmt;
 
-use crate::{consensus::validate_header::ValidationFailed, is_header::IsHeader};
+use crate::{ConsensusError, is_header::IsHeader};
 use amaru_kernel::{Header, Point, peer::Peer, protocol_parameters::GlobalParameters};
 use pure_stage::{StageGraph, StageRef, Void};
-use serde::{Deserialize, Serialize};
 use tracing::Span;
 
 pub mod headers_tree;
@@ -37,7 +36,8 @@ pub fn build_stage_graph(
     consensus: validate_header::ValidateHeader,
     network: &mut impl StageGraph,
     validation_outputs: StageRef<DecodedChainSyncEvent, Void>,
-) -> StageRef<DecodedChainSyncEvent, Void> {
+) -> StageRef<ChainSyncEvent, Void> {
+    let receive_header_stage = network.stage("receive_header", receive_header::stage);
     let store_header_stage = network.stage("store_header", store_header::stage);
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
 
@@ -67,20 +67,42 @@ pub fn build_stage_graph(
     let store_header_stage =
         network.wire_up(store_header_stage, validate_header_stage.without_state());
 
-    store_header_stage.without_state()
+    let receive_header_stage = network.wire_up(
+        receive_header_stage,
+        (
+            store_header_stage.without_state(),
+            upstream_errors_stage.without_state(),
+        ),
+    );
+
+    receive_header_stage.without_state()
 }
 
-#[derive(Clone)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ValidationFailed {
+    pub peer: Peer,
+    pub error: ConsensusError,
+}
+
+impl ValidationFailed {
+    pub fn new(peer: Peer, error: ConsensusError) -> Self {
+        Self { peer, error }
+    }
+}
+
+#[derive(Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub enum ChainSyncEvent {
     RollForward {
         peer: Peer,
         point: Point,
         raw_header: Vec<u8>,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         peer: Peer,
         rollback_point: Point,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
 }
@@ -169,7 +191,7 @@ impl fmt::Debug for DecodedChainSyncEvent {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, serde::Deserialize, serde::Serialize)]
 #[allow(clippy::large_enum_variant)]
 pub enum ValidateHeaderEvent {
     Validated {

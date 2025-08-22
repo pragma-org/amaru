@@ -37,12 +37,11 @@ use amaru_stores::{
 };
 use anyhow::Context;
 use consensus::{
-    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage,
-    receive_header::ReceiveHeaderStage, select_chain::SelectChainStage,
+    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage, select_chain::SelectChainStage,
     store_block::StoreBlockStage,
 };
 use gasket::{
-    messaging::{OutputPort, tokio::funnel_ports},
+    messaging::OutputPort,
     runtime::{self, Tether, spawn_stage},
 };
 use ledger::ValidateBlockStage;
@@ -158,8 +157,6 @@ pub fn bootstrap(
         )),
     };
 
-    let mut receive_header_stage = ReceiveHeaderStage::default();
-
     let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
 
     let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
@@ -183,7 +180,7 @@ pub fn bootstrap(
     let (output_ref, output_stage) = network.output("output", 50);
 
     let graph_input = build_stage_graph(global_parameters, consensus, &mut network, output_ref);
-    let graph_input = SendAdapter(network.input(&graph_input));
+    let graph_input = network.input(&graph_input);
 
     network
         .resources()
@@ -200,8 +197,10 @@ pub fn bootstrap(
         .iter_mut()
         .map(|p| &mut p.downstream)
         .collect::<Vec<_>>();
-    funnel_ports(outputs, &mut receive_header_stage.upstream, 50);
-    receive_header_stage.downstream.connect(graph_input);
+
+    for output in outputs {
+        output.connect(SendAdapter(graph_input.clone()));
+    }
 
     select_chain_stage
         .upstream
@@ -228,7 +227,6 @@ pub fn bootstrap(
 
     let pure_stages = gasket::runtime::spawn_stage(pure_stages, policy.clone());
 
-    let receive_header = gasket::runtime::spawn_stage(receive_header_stage, policy.clone());
     let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
     let store_block = gasket::runtime::spawn_stage(store_block_stage, policy.clone());
@@ -237,7 +235,6 @@ pub fn bootstrap(
 
     stages.push(pure_stages);
 
-    stages.push(receive_header);
     stages.push(select_chain);
     stages.push(store_block);
     stages.push(fetch);
