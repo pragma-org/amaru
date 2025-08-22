@@ -37,8 +37,7 @@ use amaru_stores::{
 };
 use anyhow::Context;
 use consensus::{
-    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage, select_chain::SelectChainStage,
-    store_block::StoreBlockStage,
+    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage, store_block::StoreBlockStage,
 };
 use gasket::{
     messaging::OutputPort,
@@ -157,8 +156,6 @@ pub fn bootstrap(
         )),
     };
 
-    let mut select_chain_stage = SelectChainStage::new(SelectChain::new(chain_selector));
-
     let mut store_block_stage = StoreBlockStage::new(StoreBlock::new(chain_store_ref.clone()));
 
     let mut forward_chain_stage = ForwardChainStage::new(
@@ -170,7 +167,6 @@ pub fn bootstrap(
         our_tip,
     );
 
-    let (to_fetch_block, from_select_chain) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
@@ -179,7 +175,13 @@ pub fn bootstrap(
     let mut network = TokioBuilder::default();
     let (output_ref, output_stage) = network.output("output", 50);
 
-    let graph_input = build_stage_graph(global_parameters, consensus, &mut network, output_ref);
+    let graph_input = build_stage_graph(
+        global_parameters,
+        consensus,
+        chain_selector,
+        &mut network,
+        output_ref,
+    );
     let graph_input = network.input(&graph_input);
 
     network
@@ -202,12 +204,9 @@ pub fn bootstrap(
         output.connect(SendAdapter(graph_input.clone()));
     }
 
-    select_chain_stage
+    fetch_block_stage
         .upstream
         .connect(RecvAdapter(output_stage));
-    select_chain_stage.downstream.connect(to_fetch_block);
-
-    fetch_block_stage.upstream.connect(from_select_chain);
     fetch_block_stage.downstream.connect(to_store_block);
 
     store_block_stage.upstream.connect(from_fetch_block);
@@ -227,7 +226,6 @@ pub fn bootstrap(
 
     let pure_stages = gasket::runtime::spawn_stage(pure_stages, policy.clone());
 
-    let select_chain = gasket::runtime::spawn_stage(select_chain_stage, policy.clone());
     let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
     let store_block = gasket::runtime::spawn_stage(store_block_stage, policy.clone());
     let ledger = ledger_stage.spawn(policy.clone());
@@ -235,7 +233,6 @@ pub fn bootstrap(
 
     stages.push(pure_stages);
 
-    stages.push(select_chain);
     stages.push(store_block);
     stages.push(fetch);
     stages.push(ledger);
@@ -349,7 +346,7 @@ fn make_chain_selector(
     header: &Option<Header>,
     peers: &Vec<PeerSession>,
     _consensus_security_parameter: usize,
-) -> Result<Arc<Mutex<HeadersTree<Header>>>, ConsensusError> {
+) -> Result<SelectChain, ConsensusError> {
     // TODO: initialize the headers tree from the ChainDB store
     //
     // FIXME: Use the actual *consensus_security_param*; for now, this is artifically disabled
@@ -371,7 +368,7 @@ fn make_chain_selector(
         tree.initialize_peer(&peer.peer, &root_hash)?;
     }
 
-    Ok(Arc::new(Mutex::new(tree)))
+    Ok(SelectChain::new(Arc::new(Mutex::new(tree))))
 }
 
 pub trait PallasPoint {
@@ -443,7 +440,7 @@ mod tests {
 
         let stages = bootstrap(config, vec![], CancellationToken::new()).unwrap();
 
-        assert_eq!(7, stages.len());
+        assert_eq!(5, stages.len());
     }
 
     #[test]
