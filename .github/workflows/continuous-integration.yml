@@ -91,7 +91,7 @@ jobs:
             cargo-${{ matrix.environments.target }}
       - name: Run build
         run: |
-          set +e
+          set -e
           EXTRA_ARGS="${{ matrix.environments.extra-args || '' }}"
           SCOPE="${{ matrix.environments.packages || '' }}"
           COMMAND="${{ matrix.environments.command  || 'test-amaru' }}"
