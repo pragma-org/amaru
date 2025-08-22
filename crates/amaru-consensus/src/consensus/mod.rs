@@ -41,13 +41,10 @@ pub fn build_stage_graph(
     let store_header_stage = network.stage("store_header", store_header::stage);
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
 
-    let errors_stage = network.stage("errors", async |_, msg, eff| {
-        let ValidationFailed {
-            peer,
-            error,
-            action,
-        } = msg;
-        tracing::error!(%peer, %error, ?action, "invalid header");
+    // TODO: currently only valiate_header errors, will need to grow into all error handling
+    let upstream_errors_stage = network.stage("upstream_errors", async |_, msg, eff| {
+        let ValidationFailed { peer, error } = msg;
+        tracing::error!(%peer, %error, "invalid header");
 
         // TODO: implement specific actions once we have an upstream network
 
@@ -55,7 +52,7 @@ pub fn build_stage_graph(
         eff.terminate().await
     });
 
-    let errors_stage = network.wire_up(errors_stage, ());
+    let upstream_errors_stage = network.wire_up(upstream_errors_stage, ());
 
     let validate_header_stage = network.wire_up(
         validate_header_stage,
@@ -63,7 +60,7 @@ pub fn build_stage_graph(
             consensus,
             global_parameters.clone(),
             validation_outputs,
-            errors_stage.without_state(),
+            upstream_errors_stage.without_state(),
         ),
     );
 

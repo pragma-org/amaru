@@ -114,41 +114,13 @@ impl ValidateHeader {
 #[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct ValidationFailed {
     pub peer: Peer,
-    pub error: String,
-    pub action: UpstreamAction,
+    pub error: ConsensusError,
 }
 
 impl ValidationFailed {
-    pub fn kick_peer(peer: Peer, error: String) -> Self {
-        Self {
-            peer,
-            error,
-            action: UpstreamAction::KickPeer,
-        }
+    pub fn new(peer: Peer, error: ConsensusError) -> Self {
+        Self { peer, error }
     }
-
-    pub fn ban_peer(peer: Peer, error: String) -> Self {
-        Self {
-            peer,
-            error,
-            action: UpstreamAction::BanPeer,
-        }
-    }
-
-    pub fn only_logging(peer: Peer, error: String) -> Self {
-        Self {
-            peer,
-            error,
-            action: UpstreamAction::OnlyLogging,
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
-pub enum UpstreamAction {
-    KickPeer,
-    BanPeer,
-    OnlyLogging,
 }
 
 type State = (
@@ -191,11 +163,8 @@ pub async fn stage(
                 Ok(nonces) => nonces,
                 Err(error) => {
                     tracing::error!(%peer, %error, "evolve nonce failed");
-                    eff.send(
-                        &errors,
-                        ValidationFailed::kick_peer(peer.clone(), error.to_string()),
-                    )
-                    .await;
+                    eff.send(&errors, ValidationFailed::new(peer.clone(), error.into()))
+                        .await;
                     return false;
                 }
             };
@@ -210,11 +179,8 @@ pub async fn stage(
                 &global,
             ) {
                 tracing::info!(%peer, %error, "invalid header");
-                eff.send(
-                    &errors,
-                    ValidationFailed::kick_peer(peer.clone(), error.to_string()),
-                )
-                .await;
+                eff.send(&errors, ValidationFailed::new(peer.clone(), error))
+                    .await;
                 false
             } else {
                 true
