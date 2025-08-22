@@ -47,11 +47,6 @@ pub use proposals_roots::{ProposalsRoots, ProposalsRootsRc};
 
 mod proposals_tree;
 
-#[cfg(any(test, feature = "test-utils"))]
-pub mod tests {
-    pub use super::proposal_enum::tests::*;
-}
-
 /// All informations needed to ratify votes.
 pub struct RatificationContext<'distr> {
     /// The epoch that just ended.
@@ -562,4 +557,75 @@ fn info_roots(roots: &ProposalsRootsRc) {
         "roots.constitutional_committee" = opt_root(roots.constitutional_committee.as_deref()),
         "roots.constitution" = opt_root(roots.constitution.as_deref()),
     );
+}
+
+// Tests
+// ----------------------------------------------------------------------------
+
+#[cfg(any(all(test, not(target_os = "windows")), feature = "test-utils"))]
+pub mod tests {
+    use amaru_kernel::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+    use std::sync::LazyLock;
+
+    pub use super::proposal_enum::tests::*;
+
+    // Technically higher than the actual gap we may see in 'real life', but, why not.
+    pub const MAX_ARBITRARY_EPOCH: u64 = 10;
+    pub const MIN_ARBITRARY_EPOCH: u64 = 0;
+
+    pub static ERA_HISTORY: LazyLock<EraHistory> = LazyLock::new(|| {
+        EraHistory::new(
+            &[Summary {
+                start: Bound {
+                    time_ms: 0,
+                    slot: Slot::from(0),
+                    epoch: Epoch::from(0),
+                },
+                end: None,
+                params: EraParams {
+                    // Pick an epoch length such that epochs falls within the min and max bounds;
+                    // knowing that slots ranges across all u64.
+                    epoch_size_slots: u64::MAX / (MAX_ARBITRARY_EPOCH - MIN_ARBITRARY_EPOCH + 1),
+                    slot_length: 1,
+                },
+            }],
+            Slot::from(0),
+        )
+    });
+
+    #[cfg(all(test, not(target_os = "windows")))]
+    mod internal {
+        use super::*;
+        use amaru_kernel::tests::any_proposal_pointer;
+        use proptest::prelude::*;
+
+        proptest! {
+            #[test]
+            fn prop_era_history_yields_within_epoch_bounds(pointer in any_proposal_pointer(u64::MAX)) {
+                let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+                prop_assert!(
+                    epoch >= Epoch::from(MIN_ARBITRARY_EPOCH) && epoch <= Epoch::from(MAX_ARBITRARY_EPOCH),
+                    "generated a pointer outside of the configured epoch range; epoch = {epoch}"
+                );
+            }
+        }
+
+        proptest! {
+            #[test]
+            #[should_panic]
+            fn prop_proposal_pointer_sometimes_min_epoch(pointer in any_proposal_pointer(u64::MAX)) {
+                let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+                prop_assert!(epoch != Epoch::from(MIN_ARBITRARY_EPOCH));
+            }
+        }
+
+        proptest! {
+            #[test]
+            #[should_panic]
+            fn prop_proposal_pointer_sometimes_max_epoch(pointer in any_proposal_pointer(u64::MAX)) {
+                let epoch = ERA_HISTORY.slot_to_epoch(pointer.slot(), pointer.slot()).unwrap();
+                prop_assert!(epoch != Epoch::from(MAX_ARBITRARY_EPOCH));
+            }
+        }
+    }
 }
