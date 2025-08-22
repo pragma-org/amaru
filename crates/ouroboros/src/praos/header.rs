@@ -214,6 +214,7 @@ pub enum AssertVrfProofError {
     ProofMismatch {
         #[serde(with = "crate::serde_util::bytes")]
         declared: Box<[u8; vrf::Proof::HASH_SIZE]>,
+        #[serde(with = "crate::serde_util::bytes")]
         computed: Box<Hash<{ vrf::Proof::HASH_SIZE }>>,
     },
 
@@ -485,5 +486,174 @@ impl AssertOperationalCertificateError {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json;
+
+    #[test]
+    fn test_assert_header_error_serialization_roundtrip() {
+        let errors = vec![
+            AssertHeaderError::TryFromSliceError,
+            AssertHeaderError::UnknownPool {
+                pool: PoolId::new([
+                    1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22,
+                    23, 24, 25, 26, 27, 28,
+                ]),
+            },
+        ];
+
+        for error in errors {
+            // Test JSON serialization
+            let json_serialized = serde_json::to_string(&error).unwrap();
+            let json_deserialized: AssertHeaderError =
+                serde_json::from_str(&json_serialized).unwrap();
+            assert_eq!(error, json_deserialized);
+        }
+    }
+
+    #[test]
+    fn test_assert_known_leader_vrf_error_serialization_roundtrip() {
+        let error = AssertKnownLeaderVrfError {
+            registered_vrf: Hash::new([1; 32]),
+            declared_vrf: Hash::new([2; 32]),
+        };
+
+        // Test JSON serialization
+        let json_serialized = serde_json::to_string(&error).unwrap();
+        let json_deserialized: AssertKnownLeaderVrfError =
+            serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(error, json_deserialized);
+    }
+
+    #[test]
+    fn test_assert_vrf_proof_error_serialization_roundtrip() {
+        let errors = vec![
+            AssertVrfProofError::TryFromSliceError,
+            AssertVrfProofError::ProofMismatch {
+                declared: Box::new([1; 64]), // Proof::HASH_SIZE is 64
+                computed: Box::new(Hash::new([2; 64])),
+            },
+            AssertVrfProofError::OutputMismatch {
+                declared: vec![1, 2, 3, 4],
+                computed: vec![5, 6, 7, 8],
+            },
+        ];
+
+        for error in errors {
+            // Test JSON serialization
+            let json_serialized = serde_json::to_string(&error).unwrap();
+            let json_deserialized: AssertVrfProofError =
+                serde_json::from_str(&json_serialized).unwrap();
+            assert_eq!(error, json_deserialized);
+        }
+    }
+
+    #[test]
+    fn test_assert_leader_stake_error_serialization_roundtrip() {
+        let error = AssertLeaderStakeError::InsufficientLeaderStake;
+
+        // Test JSON serialization
+        let json_serialized = serde_json::to_string(&error).unwrap();
+        let json_deserialized: AssertLeaderStakeError =
+            serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(error, json_deserialized);
+    }
+
+    #[test]
+    fn test_assert_kes_signature_error_serialization_roundtrip() {
+        let errors = vec![
+            AssertKesSignatureError::OpCertKesPeriodTooLarge {
+                opcert_kes_period: 100,
+                slot_kes_period: 50,
+            },
+            AssertKesSignatureError::OpCertKesPeriodTooOld {
+                opcert_kes_period: 50,
+                slot_kes_period: 200,
+                max_kes_evolutions: 100,
+            },
+            AssertKesSignatureError::InvalidKesSignature {
+                period: 42,
+                reason: "Invalid signature".to_string(),
+            },
+        ];
+
+        for error in errors {
+            // Test JSON serialization
+            let json_serialized = serde_json::to_string(&error).unwrap();
+            let json_deserialized: AssertKesSignatureError =
+                serde_json::from_str(&json_serialized).unwrap();
+            assert_eq!(error, json_deserialized);
+        }
+    }
+
+    #[test]
+    fn test_assert_operational_certificate_error_serialization_roundtrip() {
+        let errors = vec![
+            AssertOperationalCertificateError::MalformedSignature {
+                reason: "Invalid format".to_string(),
+            },
+            AssertOperationalCertificateError::SequenceNumberTooFarAhead {
+                declared_sequence_number: 100,
+                latest_sequence_number: 50,
+            },
+            AssertOperationalCertificateError::SequenceNumberTooSmall {
+                declared_sequence_number: 25,
+                latest_sequence_number: 50,
+            },
+            AssertOperationalCertificateError::InvalidSignature {
+                issuer: ed25519::PublicKey::from([1; 32]),
+            },
+        ];
+
+        for error in errors {
+            // Test JSON serialization
+            let json_serialized = serde_json::to_string(&error).unwrap();
+            let json_deserialized: AssertOperationalCertificateError =
+                serde_json::from_str(&json_serialized).unwrap();
+            assert_eq!(error, json_deserialized);
+        }
+    }
+
+    #[test]
+    fn test_serialization_edge_cases() {
+        // Test with empty strings and zero values
+        let error = AssertKesSignatureError::InvalidKesSignature {
+            period: 0,
+            reason: "".to_string(),
+        };
+
+        let json_serialized = serde_json::to_string(&error).unwrap();
+        let json_deserialized: AssertKesSignatureError =
+            serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(error, json_deserialized);
+
+        // Test with maximum values
+        let error = AssertKesSignatureError::OpCertKesPeriodTooLarge {
+            opcert_kes_period: u64::MAX,
+            slot_kes_period: u64::MAX - 1,
+        };
+
+        let json_serialized = serde_json::to_string(&error).unwrap();
+        let json_deserialized: AssertKesSignatureError =
+            serde_json::from_str(&json_serialized).unwrap();
+        assert_eq!(error, json_deserialized);
+    }
+
+    #[test]
+    fn test_serialization_consistency() {
+        // Test that the same error serializes to the same bytes consistently
+        let error = AssertVrfProofError::OutputMismatch {
+            declared: vec![1, 2, 3, 4, 5],
+            computed: vec![6, 7, 8, 9, 10],
+        };
+
+        // Test JSON consistency
+        let first_json = serde_json::to_string(&error).unwrap();
+        let second_json = serde_json::to_string(&error).unwrap();
+        assert_eq!(first_json, second_json);
     }
 }

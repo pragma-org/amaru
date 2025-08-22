@@ -14,5 +14,6 @@ rust-version.workspace = true
 
 [dependencies]
 amaru-kernel.workspace = true
+hex.workspace = true
+serde = { workspace = true, features = ["derive"] }
 amaru-slot-arithmetic.workspace = true
-serde.workspace = true

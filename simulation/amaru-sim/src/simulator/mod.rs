@@ -128,13 +128,13 @@ fn init_node(
     )
     .unwrap_or_else(|e| panic!("cannot populate the chain store: {e:?}"));
 
-    let select_chain = SelectChain::new(make_chain_selector(
+    let select_chain = make_chain_selector(
         Origin,
         &chain_store,
         &(1..=args.number_of_upstream_peers.unwrap_or(2))
             .map(|i| Peer::new(&format!("c{}", i)))
             .collect::<Vec<_>>(),
-    ));
+    );
     let chain_ref = Arc::new(Mutex::new(chain_store));
     let validate_header = ValidateHeader::new(Arc::new(stake_distribution));
 
@@ -352,7 +352,7 @@ fn make_chain_selector(
     tip: Point,
     chain_store: &impl ChainStore<Header>,
     peers: &Vec<Peer>,
-) -> Arc<Mutex<HeadersTree<Header>>> {
+) -> SelectChain {
     let root = match tip {
         Origin => None,
         Specific(..) => match chain_store.load_header(&Hash::from(&tip)) {
@@ -367,5 +367,5 @@ fn make_chain_selector(
         tree.initialize_peer(peer, &root_hash)
             .expect("the root node is guaranteed to already be in the tree")
     }
-    Arc::new(Mutex::new(tree))
+    SelectChain::new(tree)
 }

@@ -38,7 +38,7 @@ pub async fn stage(
                 {
                     tracing::error!(%error, %point, %peer, "Failed to store header");
                     // FIXME what should be the consequence of this?
-                    return downstream;
+                    return eff.terminate().await;
                 };
                 eff.send(&downstream, msg).await
             }

@@ -20,6 +20,7 @@ use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
 use indextree::{Arena, Node, NodeId};
 use pallas_crypto::hash::Hash;
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::{Debug, Formatter};
 use std::iter::Filter;
@@ -31,7 +32,7 @@ use std::slice::Iter;
 /// The main function of this data type is to be able to always return the best chain for the current
 /// tree of headers.
 ///
-#[allow(dead_code)]
+#[derive(PartialEq)]
 pub struct HeadersTree<H> {
     /// The arena maintains a list of headers and their parent/child relationship.
     arena: Arena<Tip<H>>,
@@ -43,6 +44,145 @@ pub struct HeadersTree<H> {
     best_chain: NodeId,
     /// Best peer so far
     best_peer: Option<Peer>,
+}
+
+// Serialization support for HeadersTree
+impl<H: IsHeader + Clone + Debug> Serialize for HeadersTree<H> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        use serde::ser::SerializeStruct;
+
+        let mut state = serializer.serialize_struct("HeadersTree", 5)?;
+
+        // Serialize nodes as a list with parent relationships
+        let mut nodes = Vec::new();
+        for node in self.arena.iter() {
+            let node_data = node.get();
+            let mut node_obj = serde_json::Map::new();
+
+            // Get the NodeId for this node
+            let Some(node_id) = self.arena.get_node_id(node) else {
+                continue;
+            };
+
+            // Add node ID
+            node_obj.insert(
+                "id".to_string(),
+                serde_json::Value::Number(serde_json::Number::from(usize::from(node_id))),
+            );
+
+            // Add tip data - serialize as hex string for headers
+            match node_data {
+                Tip::Genesis => {
+                    node_obj.insert("tip".to_string(), serde_json::json!({"Genesis": null}));
+                }
+                Tip::Hdr(header) => {
+                    // For headers without serde support, we'll serialize the hash and other metadata
+                    let mut header_data = serde_json::Map::new();
+                    header_data.insert(
+                        "hash".to_string(),
+                        serde_json::Value::String(hex::encode(header.hash().as_ref())),
+                    );
+                    header_data.insert(
+                        "slot".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(header.slot())),
+                    );
+                    header_data.insert(
+                        "block_height".to_string(),
+                        serde_json::Value::Number(serde_json::Number::from(header.block_height())),
+                    );
+                    if let Some(parent) = header.parent() {
+                        header_data.insert(
+                            "parent".to_string(),
+                            serde_json::Value::String(hex::encode(parent.as_ref())),
+                        );
+                    }
+                    node_obj.insert(
+                        "tip".to_string(),
+                        serde_json::json!({"Header": header_data}),
+                    );
+                }
+            }
+
+            // Add parent if it exists
+            if let Some(parent) = node.parent() {
+                node_obj.insert(
+                    "parent".to_string(),
+                    serde_json::Value::Number(serde_json::Number::from(usize::from(parent))),
+                );
+            }
+
+            nodes.push(serde_json::Value::Object(node_obj));
+        }
+        state.serialize_field("nodes", &nodes)?;
+
+        // Serialize peers mapping
+        let mut peer_map = serde_json::Map::new();
+        for (peer, node_id) in &self.peers {
+            peer_map.insert(
+                peer.name.clone(),
+                serde_json::Value::Number(serde_json::Number::from(usize::from(*node_id))),
+            );
+        }
+        state.serialize_field("peers", &peer_map)?;
+
+        // Serialize best_chain
+        state.serialize_field("best_chain", &usize::from(self.best_chain))?;
+
+        // Serialize best_peer
+        state.serialize_field("best_peer", &self.best_peer.as_ref().map(|p| &p.name))?;
+
+        // Serialize max_length
+        state.serialize_field("max_length", &self.max_length)?;
+
+        state.end()
+    }
+}
+
+#[allow(unused)]
+impl<'de, H: IsHeader + Clone + Debug> Deserialize<'de> for HeadersTree<H> {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        #[derive(Deserialize)]
+        struct NodeData {
+            id: usize,
+            tip: TipData,
+            parent: Option<usize>,
+        }
+
+        #[derive(Deserialize)]
+        enum TipData {
+            Genesis,
+            Header {
+                hash: String,
+                slot: u64,
+                block_height: u64,
+                parent: Option<String>,
+            },
+        }
+
+        #[derive(Deserialize)]
+        struct HeadersTreeData {
+            nodes: Vec<NodeData>,
+            peers: std::collections::BTreeMap<String, usize>,
+            best_chain: usize,
+            best_peer: Option<String>,
+            max_length: usize,
+        }
+
+        let data: HeadersTreeData = HeadersTreeData::deserialize(deserializer)?;
+
+        // For now, we can't reconstruct the full HeadersTree from serialized data
+        // because we don't have the actual header objects, just their metadata.
+        // This is a limitation of the current approach.
+        Err(serde::de::Error::custom(
+            "Deserialization of HeadersTree is not supported. Use the insert_headers method to reconstruct the tree."
+        ))
+    }
 }
 
 impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
@@ -739,6 +879,7 @@ mod tests {
     use rand::Rng;
     use rand::prelude::{RngCore, SeedableRng, StdRng};
     use rand_distr::{Distribution, Exp};
+    use serde_json;
 
     #[test]
     fn empty() {
@@ -1285,6 +1426,49 @@ mod tests {
             let hdr2 = from_cbor::<FakeHeader>(&bytes).unwrap();
             assert_eq!(hdr, hdr2);
         }
+    }
+
+    #[test]
+    fn test_headers_tree_serialization() {
+        // Create a simple headers tree
+        let mut tree = HeadersTree::new(10, &None);
+
+        // Create some fake headers
+        let header1 = FakeHeader {
+            block_number: 1,
+            slot: 100,
+            parent: None,
+            body_hash: Hash::from([1; HEADER_HASH_SIZE]),
+        };
+
+        let header2 = FakeHeader {
+            block_number: 2,
+            slot: 200,
+            parent: Some(header1.hash()),
+            body_hash: Hash::from([2; HEADER_HASH_SIZE]),
+        };
+
+        // Add headers to the tree
+        tree.insert_headers(&[header1, header2]);
+
+        // Add a peer
+        let peer = Peer::new("alice");
+        tree.initialize_peer(&peer, &header2.hash()).unwrap();
+
+        // Serialize the tree
+        let serialized = serde_json::to_string(&tree).unwrap();
+
+        // Verify the serialized output contains expected data
+        assert!(serialized.contains("alice"));
+        assert!(serialized.contains("Genesis"));
+        assert!(serialized.contains(&hex::encode(header1.hash().as_ref())));
+        assert!(serialized.contains(&hex::encode(header2.hash().as_ref())));
+
+        // Verify we can't deserialize (as expected)
+        let deserialize_result = serde_json::from_str::<HeadersTree<FakeHeader>>(&serialized);
+        assert!(deserialize_result.is_err());
+        let error_msg = deserialize_result.unwrap_err().to_string();
+        assert!(error_msg.contains("Deserialization of HeadersTree is not supported"));
     }
 
     /// HELPERS
