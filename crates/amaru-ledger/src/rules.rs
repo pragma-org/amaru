@@ -132,9 +132,13 @@ pub(crate) mod tests {
             self,
             block::{BlockValidation, InvalidBlockDetails},
         },
+        store::GovernanceActivity,
         tests::{fake_input, fake_output},
     };
-    use amaru_kernel::{protocol_parameters, protocol_parameters::ProtocolParameters, Network};
+    use amaru_kernel::{
+        network::NetworkName, protocol_parameters, protocol_parameters::ProtocolParameters,
+        EraHistory, Network,
+    };
     use std::{collections::BTreeMap, sync::LazyLock};
 
     static CONWAY_BLOCK: LazyLock<Vec<u8>> = LazyLock::new(|| {
@@ -179,6 +183,10 @@ pub(crate) mod tests {
             &mut AssertValidationContext::from(ctx),
             &Network::Testnet,
             &protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS,
+            <&EraHistory>::from(NetworkName::Preprod),
+            &GovernanceActivity {
+                consecutive_dormant_epochs: 0,
+            },
             &block,
         );
 
@@ -193,7 +201,7 @@ pub(crate) mod tests {
     #[test]
     fn validate_block_header_size_too_big() {
         let pp = ProtocolParameters {
-            max_header_size: 1,
+            max_block_header_size: 1,
             ..protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS.clone()
         };
 
@@ -207,6 +215,10 @@ pub(crate) mod tests {
             &mut AssertValidationContext::from(ctx),
             &Network::Testnet,
             &pp,
+            <&EraHistory>::from(NetworkName::Preprod),
+            &GovernanceActivity {
+                consecutive_dormant_epochs: 0,
+            },
             &block,
         );
 

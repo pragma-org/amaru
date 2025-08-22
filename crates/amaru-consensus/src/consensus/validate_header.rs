@@ -12,14 +12,14 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{consensus::store::ChainStore, is_header::IsHeader, ConsensusError};
+use crate::{consensus::store::ChainStore, ConsensusError};
 use amaru_kernel::{
     peer::Peer, protocol_parameters::GlobalParameters, to_cbor, Hash, Header, Nonce, Point,
 };
 use amaru_ouroboros::{praos, Nonces};
 use amaru_ouroboros_traits::{HasStakeDistribution, Praos};
 use pallas_math::math::FixedDecimal;
-use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, StageRef, Void};
+use pure_stage::{Effects, ExternalEffect, ExternalEffectAPI, Resources, StageRef, Void};
 use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{instrument, Level, Span};
@@ -62,8 +62,6 @@ pub fn header_is_valid(
 pub struct ValidateHeader {
     #[serde(skip, default = "default_ledger")]
     pub ledger: Arc<dyn HasStakeDistribution>,
-    #[serde(skip, default = "default_store")]
-    pub store: Arc<Mutex<dyn ChainStore<Header>>>,
 }
 
 impl PartialEq for ValidateHeader {
@@ -102,60 +100,40 @@ impl fmt::Debug for ValidateHeader {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ValidateHeader")
             .field("ledger", &"<dyn HasStakeDistribution>")
-            .field("store", &"<dyn ChainStore>")
             .finish()
     }
 }
 
-#[derive(serde::Serialize, serde::Deserialize)]
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct EvolveNonceEffect {
-    #[serde(skip, default = "default_store")]
-    store: Arc<Mutex<dyn ChainStore<Header>>>,
     header: Header,
-    global_parameters: GlobalParameters,
 }
 
-impl PartialEq for EvolveNonceEffect {
-    fn eq(&self, other: &Self) -> bool {
-        self.header == other.header && self.global_parameters == other.global_parameters
-    }
-}
-
-fn default_store() -> Arc<Mutex<dyn ChainStore<Header>>> {
-    Arc::new(Mutex::new(super::store::FakeStore::default()))
-}
+pub type ValidateHeaderResourceStore = Arc<Mutex<dyn ChainStore<Header>>>;
+pub type ValidateHeaderResourceParameters = GlobalParameters;
 
 impl EvolveNonceEffect {
-    fn new(
-        store: Arc<Mutex<dyn ChainStore<Header>>>,
-        header: Header,
-        global_parameters: GlobalParameters,
-    ) -> Self {
-        Self {
-            store,
-            header,
-            global_parameters,
-        }
-    }
-}
-
-impl fmt::Debug for EvolveNonceEffect {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("EvolveNonceEffect")
-            .field("header", &self.header.hash().to_string())
-            .field("global_parameters", &self.global_parameters)
-            .finish()
+    fn new(header: Header) -> Self {
+        Self { header }
     }
 }
 
 impl ExternalEffect for EvolveNonceEffect {
-    fn run(self: Box<Self>) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
+    #[allow(clippy::expect_used)]
+    fn run(
+        self: Box<Self>,
+        resources: Resources,
+    ) -> pure_stage::BoxFuture<'static, Box<dyn pure_stage::SendData>> {
         Box::pin(async move {
-            let result = self
-                .store
-                .lock()
-                .await
-                .evolve_nonce(&self.header, &self.global_parameters);
+            let store = resources
+                .get::<ValidateHeaderResourceStore>()
+                .expect("EvolveNonceEffect requires a chain store")
+                .clone();
+            let mut store = store.lock().await;
+            let global_parameters = resources
+                .get::<ValidateHeaderResourceParameters>()
+                .expect("EvolveNonceEffect requires global parameters");
+            let result = store.evolve_nonce(&self.header, &global_parameters);
             Box::new(result) as Box<dyn pure_stage::SendData>
         })
     }
@@ -166,11 +144,8 @@ impl ExternalEffectAPI for EvolveNonceEffect {
 }
 
 impl ValidateHeader {
-    pub fn new(
-        ledger: Arc<dyn HasStakeDistribution>,
-        store: Arc<Mutex<dyn ChainStore<Header>>>,
-    ) -> Self {
-        Self { ledger, store }
+    pub fn new(ledger: Arc<dyn HasStakeDistribution>) -> Self {
+        Self { ledger }
     }
 
     #[instrument(
@@ -197,16 +172,8 @@ impl ValidateHeader {
         header: Header,
         global_parameters: &GlobalParameters,
     ) -> Result<DecodedChainSyncEvent, ConsensusError> {
-        let Nonces {
-            active: ref epoch_nonce,
-            ..
-        } = eff
-            .external(EvolveNonceEffect::new(
-                self.store.clone(),
-                header.clone(),
-                global_parameters.clone(),
-            ))
-            .await?;
+        let nonces = eff.external(EvolveNonceEffect::new(header.clone())).await?;
+        let epoch_nonce = &nonces.active;
 
         header_is_valid(
             &point,

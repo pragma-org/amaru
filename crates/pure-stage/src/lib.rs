@@ -16,6 +16,7 @@ mod effect;
 mod logging;
 mod output;
 mod receiver;
+mod resources;
 mod sender;
 pub mod serde;
 pub mod simulation;
@@ -31,6 +32,7 @@ pub use effect::{
 };
 pub use output::OutputEffect;
 pub use receiver::Receiver;
+pub use resources::Resources;
 pub use sender::Sender;
 pub use serde::Void;
 pub use stage_ref::{StageBuildRef, StageRef};

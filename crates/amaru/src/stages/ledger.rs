@@ -159,6 +159,8 @@ impl<S: Store + Send, HS: HistoricalStores + Send> ValidateBlockStage<S, HS> {
             &mut context,
             &Network::from(*self.state.network()),
             self.state.protocol_parameters(),
+            self.state.era_history(),
+            self.state.governance_activity(),
             &block,
         ) {
             BlockValidation::Err(err) => Err(err),

@@ -12,10 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::context::ValidationContext;
+use crate::{context::ValidationContext, store::GovernanceActivity};
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, KeepRaw, MintedTransactionBody,
-    MintedWitnessSet, Network, OriginalHash, TransactionInput, TransactionPointer,
+    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, EraHistory, KeepRaw,
+    MintedTransactionBody, MintedWitnessSet, Network, OriginalHash, TransactionInput,
+    TransactionPointer,
 };
 use core::mem;
 use std::{fmt, ops::Deref};
@@ -83,6 +84,8 @@ pub fn execute<C>(
     context: &mut C,
     network: &Network,
     protocol_parameters: &ProtocolParameters,
+    era_history: &EraHistory,
+    governance_activity: &GovernanceActivity,
     pointer: TransactionPointer,
     is_valid: bool,
     transaction_body: KeepRaw<'_, MintedTransactionBody<'_>>,
@@ -100,9 +103,11 @@ where
 
     certificates::execute(
         context,
+        protocol_parameters,
+        era_history,
+        governance_activity,
         pointer,
         mem::take(&mut transaction_body.certificates),
-        protocol_parameters,
     )?;
 
     fees::execute(

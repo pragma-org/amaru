@@ -31,7 +31,7 @@ use crate::{
     effect::{StageEffect, StageResponse},
     time::Clock,
     trace_buffer::TraceBuffer,
-    BoxFuture, Effects, Instant, Name, SendData, Sender, StageBuildRef, StageRef,
+    BoxFuture, Effects, Instant, Name, Resources, SendData, Sender, StageBuildRef, StageRef,
 };
 use either::Either;
 use parking_lot::Mutex;
@@ -108,7 +108,7 @@ pub(crate) fn airlock_effect<Out>(
 ///
 /// Example:
 /// ```rust
-/// use pure_stage::{StageGraph, simulation::SimulationBuilder, OutputEffect, ExternalEffect};
+/// use pure_stage::{Resources, StageGraph, simulation::SimulationBuilder, OutputEffect, ExternalEffect};
 ///
 /// let mut network = SimulationBuilder::default();
 /// let stage = network.stage("basic", async |(mut state, out), msg: u32, eff| {
@@ -134,7 +134,7 @@ pub(crate) fn airlock_effect<Out>(
 ///
 /// running.resume_receive(&output).unwrap();
 /// let ext = running.effect().extract_external(&output, &OutputEffect::fake(output.name(), 2u32).0);
-/// let result = rt.block_on(ext.run());
+/// let result = rt.block_on(ext.run(Resources::default()));
 /// running.resume_external(&output, result).unwrap();
 /// running.effect().assert_receive(&output);
 ///
@@ -144,6 +144,7 @@ pub struct SimulationBuilder {
     stages: BTreeMap<Name, InitStageData>,
     effect: EffectBox,
     clock: Arc<dyn Clock + Send + Sync>,
+    resources: Resources,
     mailbox_size: usize,
     inputs: Inputs,
     trace_buffer: Arc<Mutex<TraceBuffer>>,
@@ -194,6 +195,7 @@ impl Default for SimulationBuilder {
             stages: Default::default(),
             effect: Default::default(),
             clock,
+            resources: Resources::default(),
             mailbox_size: 10,
             inputs: Inputs::new(10),
             // default is a TraceBuffer that drops all messages
@@ -286,6 +288,7 @@ impl super::StageGraph for SimulationBuilder {
             stages: s,
             effect,
             clock,
+            resources,
             mailbox_size,
             inputs,
             trace_buffer,
@@ -322,9 +325,14 @@ impl super::StageGraph for SimulationBuilder {
             inputs,
             effect,
             clock,
+            resources,
             mailbox_size,
             rt,
             trace_buffer,
         )
+    }
+
+    fn resources(&self) -> &Resources {
+        &self.resources
     }
 }

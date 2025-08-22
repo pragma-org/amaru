@@ -20,7 +20,9 @@ use amaru_consensus::{
         store::ChainStore,
         store_block::StoreBlock,
         store_header::StoreHeader,
-        validate_header::{self, ValidateHeader},
+        validate_header::{
+            self, ValidateHeader, ValidateHeaderResourceParameters, ValidateHeaderResourceStore,
+        },
         ChainSyncEvent,
     },
     ConsensusError, IsHeader,
@@ -152,15 +154,13 @@ pub fn bootstrap(
     )?;
 
     let consensus = match ledger_stage {
-        LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(
-            Arc::new(validate_block_stage.state.view_stake_distribution()),
-            chain_store_ref.clone(),
-        ),
+        LedgerStage::InMemLedgerStage(ref validate_block_stage) => ValidateHeader::new(Arc::new(
+            validate_block_stage.state.view_stake_distribution(),
+        )),
 
-        LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(
-            Arc::new(validate_block_stage.state.view_stake_distribution()),
-            chain_store_ref.clone(),
-        ),
+        LedgerStage::OnDiskLedgerStage(ref validate_block_stage) => ValidateHeader::new(Arc::new(
+            validate_block_stage.state.view_stake_distribution(),
+        )),
     };
 
     let mut receive_header_stage = ReceiveHeaderStage::default();
@@ -191,6 +191,13 @@ pub fn bootstrap(
 
     let (network_output, validate_header_input) =
         build_stage_graph(global_parameters, consensus, &mut network);
+
+    network
+        .resources()
+        .put::<ValidateHeaderResourceStore>(chain_store_ref);
+    network
+        .resources()
+        .put::<ValidateHeaderResourceParameters>(global_parameters.clone());
 
     let rt = tokio::runtime::Runtime::new().context("starting tokio runtime for pure_stages")?;
     let network = network.run(rt.handle().clone());
@@ -309,7 +316,7 @@ fn make_chain_store(
 }
 
 enum LedgerStage {
-    InMemLedgerStage(ValidateBlockStage<MemoryStore, MemoryStore>),
+    InMemLedgerStage(Box<ValidateBlockStage<MemoryStore, MemoryStore>>),
     OnDiskLedgerStage(ValidateBlockStage<RocksDB, RocksDBHistoricalStores>),
 }
 
@@ -317,7 +324,7 @@ impl LedgerStage {
     fn spawn(self, policy: runtime::Policy) -> Tether {
         match self {
             LedgerStage::InMemLedgerStage(validate_block_stage) => {
-                spawn_stage(validate_block_stage, policy)
+                spawn_stage(*validate_block_stage, policy)
             }
             LedgerStage::OnDiskLedgerStage(validate_block_stage) => {
                 spawn_stage(validate_block_stage, policy)
@@ -360,7 +367,7 @@ fn make_ledger(
                 global_parameters,
                 is_catching_up,
             )?;
-            Ok((LedgerStage::InMemLedgerStage(ledger), tip))
+            Ok((LedgerStage::InMemLedgerStage(Box::new(ledger)), tip))
         }
         StorePath::OnDisk(ref ledger_dir) => {
             let (ledger, tip) = ledger::ValidateBlockStage::new(
@@ -379,10 +386,19 @@ fn make_ledger(
 fn make_chain_selector(
     header: &Option<Header>,
     peers: &Vec<PeerSession>,
-    consensus_security_parameter: usize,
+    _consensus_security_parameter: usize,
 ) -> Result<Arc<Mutex<HeadersTree<Header>>>, ConsensusError> {
     // TODO: initialize the headers tree from the ChainDB store
-    let mut tree = HeadersTree::new(consensus_security_parameter, header);
+    //
+    // FIXME: Use the actual *consensus_security_param*; for now, this is artifically disabled
+    // because the introduction of the new chain selection algorithm makes synchronizing unbearably
+    // slow. The culprit seems to be around the `header_exists` function, which gets worse with the
+    // capacity of the tree.
+    //
+    // In *practice* (and good network conditions), that tree can actually be pretty small.
+    // Although in reality and to be "immune" to deep forks, it must be set to `k` (a.k.a the
+    // consensus security param).
+    let mut tree = HeadersTree::new(100, header);
 
     let root_hash = match header {
         Some(h) => h.hash(),
@@ -435,7 +451,6 @@ impl AsTip for Header {
 mod tests {
     use amaru_kernel::{
         network::NetworkName, protocol_parameters::PREPROD_INITIAL_PROTOCOL_PARAMETERS, EraHistory,
-        PROTOCOL_VERSION_9,
     };
     use amaru_ledger::store::{Store, TransactionalContext};
     use amaru_stores::in_memory::MemoryStore;
@@ -447,7 +462,7 @@ mod tests {
     fn bootstrap_all_stages() {
         let network = NetworkName::Preprod;
         let era_history: &EraHistory = network.into();
-        let ledger_store = MemoryStore::new(era_history.clone(), PROTOCOL_VERSION_9);
+        let ledger_store = MemoryStore::new(era_history.clone());
 
         // Add initial protocol parameters to the database; needed by the ledger.
         let transaction = ledger_store.create_transaction();

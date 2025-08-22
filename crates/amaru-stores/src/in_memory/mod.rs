@@ -17,18 +17,21 @@ use crate::in_memory::ledger::columns::{
 };
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, ComparableProposalId, EraHistory, Lovelace, Point,
-    PoolId, ProposalId, ProtocolVersion, Slot, StakeCredential, TransactionInput,
-    PROTOCOL_VERSION_9,
+    protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution,
+    ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential,
+    TransactionInput,
 };
-use amaru_ledger::store::{
-    columns::{
-        accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
-        pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
-        votes as votes_column,
+use amaru_ledger::{
+    governance::ratification::{ProposalsRoots, ProposalsRootsRc},
+    store::{
+        columns::{
+            accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
+            pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
+            votes as votes_column,
+        },
+        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
+        StoreError, TransactionalContext,
     },
-    EpochTransitionProgress, HistoricalStores, ProtocolParametersErrorKind, ReadStore, Snapshot,
-    Store, StoreError, TransactionalContext,
 };
 use amaru_slot_arithmetic::Epoch;
 use std::{
@@ -55,12 +58,12 @@ pub struct MemoryStore {
     cc_members: RefCell<BTreeMap<StakeCredential, cc_members_column::Row>>,
     votes: RefCell<BTreeMap<votes_column::Key, votes_column::Value>>,
     protocol_parameters: RefCell<Option<ProtocolParameters>>,
-    protocol_version: RefCell<ProtocolVersion>,
+    constitutional_committee: RefCell<ConstitutionalCommittee>,
     era_history: EraHistory,
 }
 
 impl MemoryStore {
-    pub fn new(era_history: EraHistory, protocol_version: ProtocolVersion) -> Self {
+    pub fn new(era_history: EraHistory) -> Self {
         MemoryStore {
             tip: RefCell::new(Some(Point::Origin)),
             epoch_progress: RefCell::new(None),
@@ -74,8 +77,8 @@ impl MemoryStore {
             cc_members: RefCell::new(BTreeMap::new()),
             votes: RefCell::new(BTreeMap::new()),
             protocol_parameters: RefCell::new(None),
+            constitutional_committee: RefCell::new(ConstitutionalCommittee::NoConfidence),
             era_history,
-            protocol_version: RefCell::new(protocol_version),
         }
     }
 }
@@ -88,17 +91,45 @@ impl Snapshot for MemoryStore {
 }
 
 impl ReadStore for MemoryStore {
-    fn protocol_version(&self) -> Result<ProtocolVersion, StoreError> {
-        Ok(*self.protocol_version.borrow())
+    fn tip(&self) -> Result<Point, StoreError> {
+        self.tip
+            .borrow()
+            .clone()
+            .ok_or_else(|| StoreError::Internal("tip not yet set".into()))
     }
 
     fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
         self.protocol_parameters
             .borrow()
             .clone()
-            .ok_or(StoreError::ProtocolParameters(
-                ProtocolParametersErrorKind::Missing,
+            .ok_or(StoreError::missing::<ProtocolParameters>(
+                "protocol-parameters",
             ))
+    }
+
+    /// Get the latest governance roots; which corresponds to the id of the latest governance
+    /// actions enacted for specific categories.
+    fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
+        Ok(ProposalsRoots {
+            protocol_parameters: None,
+            hard_fork: None,
+            constitutional_committee: None,
+            constitution: None,
+        })
+    }
+
+    fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+        Ok(self.constitutional_committee.borrow().clone())
+    }
+
+    fn constitution(&self) -> Result<Constitution, StoreError> {
+        unimplemented!(".constitution")
+    }
+
+    fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
+        Ok(GovernanceActivity {
+            consecutive_dormant_epochs: 0,
+        })
     }
 
     fn account(
@@ -254,10 +285,47 @@ impl ReadStore for MemoryStore {
             .proposals
             .borrow()
             .iter()
-            .map(|(proposal_id, row)| (ProposalId::from(proposal_id.clone()), row.clone()))
+            .map(|(proposal_id, row)| (proposal_id.clone(), row.clone()))
             .collect();
 
         Ok(proposals_vec.into_iter())
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_cc_members(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::cc_members::Key,
+                amaru_ledger::store::columns::cc_members::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        let cc_members_vec: Vec<_> = self
+            .cc_members
+            .borrow()
+            .iter()
+            .map(|(key, row)| (key.clone(), row.clone()))
+            .collect();
+
+        Ok(cc_members_vec.into_iter())
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_votes(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::votes::Key,
+                amaru_ledger::store::columns::votes::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        Ok(std::iter::empty())
     }
 }
 
@@ -301,6 +369,180 @@ impl<'a> MemoryTransactionalContext<'a> {
 
         column.replace(rebuilt);
         Ok(())
+    }
+}
+
+impl<'a> ReadStore for MemoryTransactionalContext<'a> {
+    fn tip(&self) -> Result<Point, StoreError> {
+        self.store.tip()
+    }
+
+    fn protocol_parameters(&self) -> Result<ProtocolParameters, StoreError> {
+        self.store.protocol_parameters()
+    }
+
+    fn proposals_roots(&self) -> Result<ProposalsRoots, StoreError> {
+        self.store.proposals_roots()
+    }
+
+    fn constitutional_committee(&self) -> Result<ConstitutionalCommittee, StoreError> {
+        self.store.constitutional_committee()
+    }
+
+    fn constitution(&self) -> Result<Constitution, StoreError> {
+        self.store.constitution()
+    }
+
+    fn governance_activity(&self) -> Result<GovernanceActivity, StoreError> {
+        self.store.governance_activity()
+    }
+
+    fn account(
+        &self,
+        credential: &amaru_kernel::StakeCredential,
+    ) -> Result<Option<amaru_ledger::store::columns::accounts::Row>, amaru_ledger::store::StoreError>
+    {
+        self.store.account(credential)
+    }
+
+    fn pool(
+        &self,
+        pool: &amaru_kernel::PoolId,
+    ) -> Result<Option<amaru_ledger::store::columns::pools::Row>, amaru_ledger::store::StoreError>
+    {
+        self.store.pool(pool)
+    }
+
+    fn utxo(
+        &self,
+        input: &amaru_kernel::TransactionInput,
+    ) -> Result<Option<amaru_kernel::MemoizedTransactionOutput>, amaru_ledger::store::StoreError>
+    {
+        self.store.utxo(input)
+    }
+
+    fn pots(&self) -> Result<amaru_ledger::summary::Pots, amaru_ledger::store::StoreError> {
+        self.store.pots()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_utxos(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::utxo::Key,
+                amaru_ledger::store::columns::utxo::Value,
+            ),
+        >,
+        amaru_ledger::store::StoreError,
+    > {
+        self.store.iter_utxos()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_block_issuers(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::slots::Key,
+                amaru_ledger::store::columns::slots::Value,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_block_issuers()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_pools(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::pools::Key,
+                amaru_ledger::store::columns::pools::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_pools()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_accounts(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::accounts::Key,
+                amaru_ledger::store::columns::accounts::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_accounts()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_dreps(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::dreps::Key,
+                amaru_ledger::store::columns::dreps::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_dreps()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_proposals(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::proposals::Key,
+                amaru_ledger::store::columns::proposals::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_proposals()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_cc_members(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::cc_members::Key,
+                amaru_ledger::store::columns::cc_members::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_cc_members()
+    }
+
+    #[allow(refining_impl_trait)]
+    fn iter_votes(
+        &self,
+    ) -> Result<
+        impl Iterator<
+            Item = (
+                amaru_ledger::store::columns::votes::Key,
+                amaru_ledger::store::columns::votes::Row,
+            ),
+        >,
+        StoreError,
+    > {
+        self.store.iter_votes()
     }
 }
 
@@ -350,13 +592,44 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         Ok(())
     }
 
-    fn set_protocol_version(&self, protocol_version: &ProtocolVersion) -> Result<(), StoreError> {
-        *self.store.protocol_version.borrow_mut() = *protocol_version;
+    fn set_constitutional_committee(
+        &self,
+        constitutional_committee: &ConstitutionalCommittee,
+    ) -> Result<(), StoreError> {
+        *self.store.constitutional_committee.borrow_mut() = constitutional_committee.clone();
         Ok(())
+    }
+
+    fn set_proposals_roots(&self, _roots: &ProposalsRootsRc) -> Result<(), StoreError> {
+        unimplemented!(".set_proposals_roots");
+    }
+
+    fn set_constitution(&self, _constitution: &Constitution) -> Result<(), StoreError> {
+        unimplemented!(".set_constitution");
+    }
+
+    fn set_governance_activity(
+        &self,
+        _governance_activity: &GovernanceActivity,
+    ) -> Result<(), StoreError> {
+        unimplemented!(".set_governance_activity");
+    }
+
+    fn remove_proposals<'iter, Id>(
+        &self,
+        _proposals: impl IntoIterator<Item = Id>,
+    ) -> Result<(), StoreError>
+    where
+        Id: Deref<Target = ComparableProposalId> + 'iter,
+    {
+        unimplemented!("remove_proposals");
     }
 
     fn save(
         &self,
+        _era_history: &EraHistory,
+        _protocol_parameters: &ProtocolParameters,
+        _governance_activity: &mut GovernanceActivity,
         point: &Point,
         issuer: Option<&amaru_ledger::store::columns::pools::Key>,
         add: amaru_ledger::store::Columns<
@@ -413,7 +686,6 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
             impl Iterator<Item = ()>,
         >,
         withdrawals: impl Iterator<Item = amaru_ledger::store::columns::accounts::Key>,
-        _era_history: &EraHistory,
     ) -> Result<(), amaru_ledger::store::StoreError> {
         let current_tip = self.store.tip.borrow().clone();
 
@@ -444,10 +716,9 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
         accounts::add(self.store, add.accounts)?;
         cc_members::add(self.store, add.cc_members)?;
         proposals::add(self.store, add.proposals)?;
-        let voting_dreps = votes::add(self.store, add.votes)?;
+        votes::add(self.store, add.votes)?;
 
         accounts::reset_many(self.store, withdrawals)?;
-        dreps::tick(self.store, &voting_dreps, point)?;
 
         utxo::remove(self.store, remove.utxo)?;
         pools::remove(self.store, remove.pools)?;
@@ -501,12 +772,16 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
 
     fn with_proposals(
         &self,
-        mut with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
+        with: impl FnMut(amaru_ledger::store::columns::proposals::Iter<'_, '_>),
     ) -> Result<(), StoreError> {
-        self.with_column(&self.store.proposals, |iter| {
-            let mapped = iter.map(|(k, v)| (ProposalId::from(k), v));
-            with(Box::new(mapped));
-        })
+        self.with_column(&self.store.proposals, with)
+    }
+
+    fn with_cc_members(
+        &self,
+        with: impl FnMut(amaru_ledger::store::columns::cc_members::Iter<'_, '_>),
+    ) -> Result<(), StoreError> {
+        self.with_column(&self.store.cc_members, with)
     }
 }
 
@@ -523,13 +798,6 @@ impl Store for MemoryStore {
     fn create_transaction(&self) -> Self::Transaction<'_> {
         MemoryTransactionalContext { store: self }
     }
-
-    fn tip(&self) -> Result<Point, StoreError> {
-        self.tip
-            .borrow()
-            .clone()
-            .ok_or_else(|| StoreError::Internal("tip not yet set".into()))
-    }
 }
 
 // TODO: Implement HistoricalStores on MemoryStore (currently returns a new empty MemoryStore)
@@ -539,10 +807,7 @@ impl HistoricalStores for MemoryStore {
     }
 
     fn for_epoch(&self, _epoch: Epoch) -> Result<impl Snapshot, amaru_ledger::store::StoreError> {
-        Ok(MemoryStore::new(
-            self.era_history.clone(),
-            PROTOCOL_VERSION_9,
-        ))
+        Ok(MemoryStore::new(self.era_history.clone()))
     }
 }
 
@@ -600,7 +865,7 @@ mod tests {
             test_remove_drep, test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
         },
     };
-    use amaru_kernel::{network::NetworkName, EraHistory, PROTOCOL_VERSION_9};
+    use amaru_kernel::{network::NetworkName, EraHistory};
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
 
@@ -611,7 +876,7 @@ mod tests {
         runner: &mut TestRunner,
     ) -> Result<(MemoryStore, Fixture), StoreError> {
         let era_history: &EraHistory = NetworkName::Preprod.into();
-        let store = MemoryStore::new(era_history.clone(), PROTOCOL_VERSION_9);
+        let store = MemoryStore::new(era_history.clone());
         let fixture = add_test_data_to_store(&store, era_history, runner)?;
         Ok((store, fixture))
     }

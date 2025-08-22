@@ -22,7 +22,7 @@ use crate::{
     summary::serde::{encode_drep, encode_pool_id},
 };
 use ::serde::ser::SerializeStruct;
-use amaru_kernel::{DRep, Lovelace, PoolId, PoolParams};
+use amaru_kernel::{DRep, Lovelace, PoolId, PoolParams, RationalNumber};
 use num::{rational::Ratio, BigUint};
 
 // ---------------------------------------------------------------- AccountState
@@ -114,10 +114,17 @@ impl ::serde::Serialize for Pots {
 
 // ------------------------------------------------------------------- SafeRatio
 
-type SafeRatio = Ratio<BigUint>;
+pub type SafeRatio = Ratio<BigUint>;
 
-fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
+pub fn safe_ratio(numerator: u64, denominator: u64) -> SafeRatio {
     SafeRatio::new(BigUint::from(numerator), BigUint::from(denominator))
+}
+
+pub fn into_safe_ratio(ratio: &RationalNumber) -> SafeRatio {
+    SafeRatio::new(
+        BigUint::from(ratio.numerator),
+        BigUint::from(ratio.denominator),
+    )
 }
 
 fn serialize_safe_ratio(r: &SafeRatio) -> String {
