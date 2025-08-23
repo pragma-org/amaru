@@ -28,6 +28,7 @@ use num::{rational::Ratio, BigUint};
 // ---------------------------------------------------------------- AccountState
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(Clone))]
 pub struct AccountState {
     pub lovelace: Lovelace,
     pub pool: Option<PoolId>,
@@ -47,6 +48,7 @@ impl ::serde::Serialize for AccountState {
 // ------------------------------------------------------------------- PoolState
 
 #[derive(Debug)]
+#[cfg_attr(test, derive(Clone))]
 pub struct PoolState {
     /// Number of blocks produced during an epoch by the underlying pool.
     pub blocks_count: u64,

@@ -177,7 +177,8 @@ mod tests {
         expect_stake_credential,
         tests::{
             any_comparable_proposal_id, any_ex_units, any_pool_voting_thresholds,
-            any_protocol_params_update, any_protocol_version, any_rational_number,
+            any_protocol_params_update, any_protocol_version, any_rational_number, any_vote_ref,
+            VOTE_YES,
         },
         DRep, PoolId, ProtocolParamUpdate, ProtocolVersion, Vote, PROTOCOL_VERSION_10,
         PROTOCOL_VERSION_9,
@@ -185,10 +186,6 @@ mod tests {
     use num::{One, ToPrimitive, Zero};
     use proptest::{collection, option, prelude::*, sample};
     use std::{collections::BTreeMap, rc::Rc};
-
-    static VOTE_YES: Vote = Vote::Yes;
-    static VOTE_NO: Vote = Vote::No;
-    static VOTE_ABSTAIN: Vote = Vote::Abstain;
 
     proptest! {
         #[test]
@@ -460,10 +457,6 @@ mod tests {
         })
     }
 
-    pub fn any_vote() -> impl Strategy<Value = &'static Vote> {
-        prop_oneof![Just(&VOTE_YES), Just(&VOTE_NO), Just(&VOTE_ABSTAIN)]
-    }
-
     pub fn any_votes(
         stake_distribution: &'_ StakeDistribution,
     ) -> impl Strategy<Value = BTreeMap<PoolId, &'static Vote>> {
@@ -475,7 +468,7 @@ mod tests {
 
         voters
             .prop_flat_map(|voters| {
-                collection::vec(any_vote(), voters.len())
+                collection::vec(any_vote_ref(), voters.len())
                     .prop_map(move |votes| voters.clone().into_iter().zip(votes))
             })
             .prop_map(|kvs| kvs.into_iter().collect())

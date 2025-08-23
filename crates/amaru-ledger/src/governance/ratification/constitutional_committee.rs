@@ -200,7 +200,7 @@ mod tests {
         summary::{into_safe_ratio, SafeRatio},
     };
     use amaru_kernel::{
-        tests::{any_rational_number, any_stake_credential},
+        tests::{any_rational_number, any_stake_credential, any_vote_ref, VOTE_NO, VOTE_YES},
         Epoch, Hash, StakeCredential, Vote, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
     };
     use num::{One, Zero};
@@ -209,10 +209,6 @@ mod tests {
         collections::{BTreeMap, BTreeSet},
         rc::Rc,
     };
-
-    static VOTE_YES: Vote = Vote::Yes;
-    static VOTE_NO: Vote = Vote::No;
-    static VOTE_ABSTAIN: Vote = Vote::Abstain;
 
     const MIN_ARBITRARY_EPOCH: u64 = 10;
     const MAX_COMMITTEE_SIZE: usize = 10;
@@ -464,10 +460,6 @@ mod tests {
         }
     }
 
-    pub fn any_vote() -> impl Strategy<Value = &'static Vote> {
-        prop_oneof![Just(&VOTE_YES), Just(&VOTE_NO), Just(&VOTE_ABSTAIN)]
-    }
-
     pub fn any_votes(
         committee: &ConstitutionalCommittee,
     ) -> impl Strategy<Value = BTreeMap<StakeCredential, &'static Vote>> {
@@ -483,7 +475,7 @@ mod tests {
 
         actual_voters
             .prop_flat_map(|voters| {
-                collection::vec(any_vote(), voters.len())
+                collection::vec(any_vote_ref(), voters.len())
                     .prop_map(move |votes| voters.clone().into_iter().zip(votes))
             })
             .prop_map(|kvs| kvs.into_iter().collect())

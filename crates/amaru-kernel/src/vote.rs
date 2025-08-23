@@ -17,7 +17,15 @@ pub mod tests {
     use crate::Vote;
     use proptest::prelude::*;
 
+    pub static VOTE_YES: Vote = Vote::Yes;
+    pub static VOTE_NO: Vote = Vote::No;
+    pub static VOTE_ABSTAIN: Vote = Vote::Abstain;
+
     pub fn any_vote() -> impl Strategy<Value = Vote> {
         prop_oneof![Just(Vote::Yes), Just(Vote::No), Just(Vote::Abstain)]
+    }
+
+    pub fn any_vote_ref() -> impl Strategy<Value = &'static Vote> {
+        prop_oneof![Just(&VOTE_YES), Just(&VOTE_NO), Just(&VOTE_ABSTAIN)]
     }
 }

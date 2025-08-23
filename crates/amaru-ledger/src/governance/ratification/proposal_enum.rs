@@ -123,6 +123,10 @@ impl ProposalEnum {
         use CommitteeUpdate::*;
         matches!(self, Self::ConstitutionalCommittee(ChangeMembers { .. }, _))
     }
+
+    pub fn is_nice_poll(&self) -> bool {
+        matches!(self, Self::Orphan(OrphanProposal::NicePoll))
+    }
 }
 
 // CommitteeUpdate
