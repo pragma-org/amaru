@@ -17,7 +17,7 @@ use amaru_kernel::{
     expect_stake_credential, network::EraHistory, Anchor, CertificatePointer, DRep, Lovelace, Slot,
     StakeCredential, TransactionPointer,
 };
-use slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug)]

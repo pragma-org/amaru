@@ -27,7 +27,7 @@ use amaru_kernel::{
     ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
     UnitInterval, Vote, Voter,
 };
-use progress_bar::ProgressBar;
+use amaru_progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
 use tracing::info;
 

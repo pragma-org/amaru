@@ -15,8 +15,8 @@
 use crate::{
     cbor, heterogeneous_array, EpochInterval, Language, Lovelace, ProtocolVersion, RationalNumber,
 };
+use amaru_slot_arithmetic::Slot;
 use pallas_codec::minicbor::{data::Tag, Decoder};
-use slot_arithmetic::Slot;
 
 pub use crate::{
     CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, PoolVotingThresholds,

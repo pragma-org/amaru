@@ -17,9 +17,9 @@ use amaru_ledger::{
     bootstrap::import_initial_snapshot,
     store::{EpochTransitionProgress, Store, TransactionalContext},
 };
+use amaru_progress_bar::new_terminal_progress_bar;
 use amaru_stores::rocksdb::RocksDB;
 use clap::Parser;
-use progress_bar::new_terminal_progress_bar;
 use std::{fs, path::PathBuf};
 use tracing::info;
 

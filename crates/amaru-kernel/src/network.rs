@@ -19,7 +19,7 @@ use crate::protocol_parameters::{
 use pallas_addresses::Network;
 use std::{fs::File, io::BufReader, path::Path, sync::LazyLock};
 
-pub use slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
+pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 
 /// Era history for Mainnet retrieved with:
 ///
@@ -574,8 +574,8 @@ pub mod tests {
     mod internal {
         use super::{super::EraHistoryFileError, any_network_name};
         use crate::network::{load_era_history_from_file, PREPROD_ERA_HISTORY};
+        use amaru_slot_arithmetic::{Epoch, Slot};
         use proptest::proptest;
-        use slot_arithmetic::{Epoch, Slot};
         use std::{env, fs::File, io::Write, path::Path, str::FromStr};
 
         proptest! {

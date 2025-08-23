@@ -26,7 +26,7 @@ vrf_dalek.workspace = true
 # Internal dependencies ───────────────────────────────────────────────────────┐
 amaru-kernel.workspace = true
 amaru-ouroboros-traits.workspace = true
-slot-arithmetic.workspace = true
+amaru-slot-arithmetic.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

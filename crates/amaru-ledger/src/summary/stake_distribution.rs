@@ -21,13 +21,13 @@ use crate::{
         AccountState, PoolState,
     },
 };
+use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
     expect_stake_credential, output_stake_credential, protocol_parameters::ProtocolParameters,
     DRep, HasLovelace, Lovelace, Network, PoolId, StakeCredential, PROTOCOL_VERSION_9,
 };
-use iter_borrow::borrowable_proxy::BorrowableProxy;
+use amaru_slot_arithmetic::Epoch;
 use serde::ser::SerializeStruct;
-use slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet};
 use tracing::info;
 

@@ -39,8 +39,8 @@ pub mod tests {
             Columns, GovernanceActivity, ReadStore, Store, StoreError, TransactionalContext,
         },
     };
+    use amaru_slot_arithmetic::Epoch;
     use proptest::{prelude::Strategy, strategy::ValueTree, test_runner::TestRunner};
-    use slot_arithmetic::Epoch;
 
     #[cfg(not(target_os = "windows"))]
     #[derive(Debug, Clone)]

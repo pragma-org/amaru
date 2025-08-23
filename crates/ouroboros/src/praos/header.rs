@@ -19,7 +19,7 @@ use crate::{
 };
 use amaru_kernel::{Header, Nonce};
 use amaru_ouroboros_traits::HasStakeDistribution;
-use slot_arithmetic::Slot;
+use amaru_slot_arithmetic::Slot;
 use std::{array::TryFromSliceError, ops::Deref, sync::LazyLock};
 use thiserror::Error;
 

@@ -22,7 +22,7 @@ use amaru_kernel::{
     protocol_parameters::ProtocolParameters, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits,
     Hash, Hasher, MintedBlock, Network, OriginalHash, TransactionId, TransactionPointer,
 };
-use slot_arithmetic::Slot;
+use amaru_slot_arithmetic::Slot;
 use std::{
     fmt::{self, Display},
     ops::{ControlFlow, Deref, FromResidual, Try},

@@ -16,10 +16,10 @@ use super::bytes::Bytes;
 use crate::echo::Envelope;
 use amaru_consensus::consensus::ChainSyncEvent;
 use amaru_kernel::{self, peer::Peer, Point};
+use amaru_slot_arithmetic::Slot;
 use futures_util::sink::SinkExt;
 use gasket::framework::*;
 use serde::{Deserialize, Serialize};
-use slot_arithmetic::Slot;
 use std::fmt;
 use tokio::io::{stdin, stdout, AsyncBufReadExt, BufReader, Lines, Stdin, Stdout};
 use tokio_util::codec::{FramedWrite, LinesCodec};
@@ -258,13 +258,13 @@ mod test {
         },
     };
     use amaru_kernel::cbor;
+    use amaru_slot_arithmetic::Slot;
     use pallas_crypto::hash::Hasher;
     use pallas_primitives::{babbage, Hash};
     use proptest::{
         prelude::{BoxedStrategy, *},
         proptest,
     };
-    use slot_arithmetic::Slot;
 
     use super::{
         ChainSyncMessage::{self, *},

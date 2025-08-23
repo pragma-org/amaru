@@ -33,6 +33,7 @@ dependencies = [
  "amaru-kernel",
  "amaru-ouroboros",
  "amaru-ouroboros-traits",
+ "amaru-slot-arithmetic",
  "anyhow",
  "hex",
  "indextree",
@@ -41,7 +42,6 @@ dependencies = [
  "pure-stage",
  "rayon",
  "serde",
- "slot-arithmetic",
  "thiserror 2.0.12",
  "tokio",
  "tracing",
@@ -65,12 +65,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "amaru-iter-borrow"
+version = "0.1.0"
+dependencies = [
+ "minicbor",
+]
+
+[[package]]
 name = "amaru-kernel"
 version = "0.1.0"
 dependencies = [
+ "amaru-minicbor-extra",
+ "amaru-slot-arithmetic",
  "bech32 0.11.0",
  "hex",
- "minicbor-extra",
  "pallas-addresses",
  "pallas-codec",
  "pallas-crypto",
@@ -79,7 +87,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha3",
- "slot-arithmetic",
  "thiserror 2.0.12",
  "tracing",
 ]
@@ -88,18 +95,24 @@ dependencies = [
 name = "amaru-ledger"
 version = "0.1.0"
 dependencies = [
+ "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ouroboros-traits",
+ "amaru-progress-bar",
+ "amaru-slot-arithmetic",
  "anyhow",
  "hex",
- "iter-borrow",
  "num",
- "progress-bar",
  "serde",
- "slot-arithmetic",
  "thiserror 2.0.12",
  "tracing",
- "tracing-json",
+]
+
+[[package]]
+name = "amaru-minicbor-extra"
+version = "0.1.0"
+dependencies = [
+ "minicbor",
 ]
 
 [[package]]
@@ -108,6 +121,7 @@ version = "0.1.0"
 dependencies = [
  "amaru-kernel",
  "amaru-ouroboros-traits",
+ "amaru-slot-arithmetic",
  "hex",
  "kes-summed-ed25519",
  "num",
@@ -115,7 +129,6 @@ dependencies = [
  "pallas-crypto",
  "pallas-math",
  "pallas-primitives",
- "slot-arithmetic",
  "thiserror 2.0.12",
  "vrf_dalek",
 ]
@@ -125,8 +138,22 @@ name = "amaru-ouroboros-traits"
 version = "0.1.0"
 dependencies = [
  "amaru-kernel",
+ "amaru-slot-arithmetic",
  "serde",
- "slot-arithmetic",
+]
+
+[[package]]
+name = "amaru-progress-bar"
+version = "0.1.0"
+
+[[package]]
+name = "amaru-slot-arithmetic"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "minicbor",
+ "serde",
+ "thiserror 2.0.12",
 ]
 
 [[package]]
@@ -134,12 +161,12 @@ name = "amaru-stores"
 version = "0.1.0"
 dependencies = [
  "amaru-consensus",
+ "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
  "amaru-ouroboros-traits",
+ "amaru-slot-arithmetic",
  "hex",
- "iter-borrow",
- "slot-arithmetic",
  "tracing",
 ]
 
@@ -148,16 +175,6 @@ name = "anyhow"
 version = "1.0.98"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e16d2d3311acee920a9eb8d33b8cbc1787ce4a264e85f964c2404b969bdcd487"
-
-[[package]]
-name = "assert-json-diff"
-version = "2.0.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "47e4f2b81832e72834d7518d8487a0396a28cc408186a2e8854c0f98011faf12"
-dependencies = [
- "serde",
- "serde_json",
-]
 
 [[package]]
 name = "autocfg"
@@ -625,13 +642,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "iter-borrow"
-version = "0.1.0"
-dependencies = [
- "minicbor",
-]
-
-[[package]]
 name = "itertools"
 version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -744,13 +754,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "minicbor-extra"
-version = "0.1.0"
-dependencies = [
- "minicbor",
 ]
 
 [[package]]
@@ -1048,10 +1051,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "progress-bar"
-version = "0.1.0"
-
-[[package]]
 name = "pure-stage"
 version = "0.1.0"
 dependencies = [
@@ -1298,16 +1297,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04dc19736151f35336d325007ac991178d504a119863a2fcb3758cdb5e52c50d"
 
 [[package]]
-name = "slot-arithmetic"
-version = "0.1.0"
-dependencies = [
- "hex",
- "minicbor",
- "serde",
- "thiserror 2.0.12",
-]
-
-[[package]]
 name = "smallvec"
 version = "1.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1461,17 +1450,6 @@ checksum = "e672c95779cf947c5311f83787af4fa8fffd12fb27e4993211a84bdfd9610f9c"
 dependencies = [
  "once_cell",
  "valuable",
-]
-
-[[package]]
-name = "tracing-json"
-version = "0.1.0"
-dependencies = [
- "assert-json-diff",
- "hex",
- "serde_json",
- "tracing",
- "tracing-subscriber",
 ]
 
 [[package]]

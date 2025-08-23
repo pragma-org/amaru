@@ -15,6 +15,7 @@
 use crate::in_memory::ledger::columns::{
     accounts, cc_members, dreps, pools, proposals, utxo, votes,
 };
+use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
     protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution,
     ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential,
@@ -32,8 +33,7 @@ use amaru_ledger::{
         StoreError, TransactionalContext,
     },
 };
-use iter_borrow::IterBorrow;
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use std::{
     borrow::{Borrow, BorrowMut},
     cell::{RefCell, RefMut},

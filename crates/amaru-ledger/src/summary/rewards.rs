@@ -117,18 +117,18 @@ use crate::{
         AccountState, PoolState, Pots, SafeRatio,
     },
 };
+use amaru_iter_borrow::borrowable_proxy::BorrowableProxy;
 use amaru_kernel::{
     expect_stake_credential,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
     Hash, Lovelace, PoolId, StakeCredential,
 };
-use iter_borrow::borrowable_proxy::BorrowableProxy;
+use amaru_slot_arithmetic::Epoch;
 use num::{
     traits::{One, Zero},
     BigUint,
 };
 use serde::ser::SerializeStruct;
-use slot_arithmetic::Epoch;
 use std::collections::BTreeMap;
 use tracing::info;
 

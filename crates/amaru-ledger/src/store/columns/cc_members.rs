@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::state::diff_bind::Resettable;
+use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{cbor, Epoch, StakeCredential};
-use iter_borrow::IterBorrow;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::cc_members";
 

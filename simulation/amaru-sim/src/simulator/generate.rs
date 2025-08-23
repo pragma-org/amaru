@@ -30,7 +30,7 @@ use crate::echo::Envelope;
 use super::bytes::Bytes;
 use super::simulate::Entry;
 use super::sync::ChainSyncMessage;
-use slot_arithmetic::Slot;
+use amaru_slot_arithmetic::Slot;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]

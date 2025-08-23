@@ -1,7 +1,7 @@
 lints.workspace = true
 
 [package]
-name = "tracing-json"
+name = "amaru-tracing-json"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

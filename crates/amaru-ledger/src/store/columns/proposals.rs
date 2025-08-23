@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{cbor, ComparableProposalId, Proposal, ProposalPointer};
-use iter_borrow::IterBorrow;
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::proposals";
 

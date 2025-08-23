@@ -26,7 +26,7 @@ use amaru_kernel::{
     ComparableProposalId, DRep, DRepRegistration, Lovelace, MemoizedTransactionOutput, Point,
     PoolId, PoolParams, Proposal, ProposalPointer, StakeCredential, TransactionInput,
 };
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use tracing::error;
 

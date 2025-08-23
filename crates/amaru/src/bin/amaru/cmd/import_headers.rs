@@ -17,11 +17,11 @@ use amaru::stages::pull;
 use amaru_consensus::{consensus::store::ChainStore, IsHeader};
 use amaru_kernel::{default_chain_dir, from_cbor, network::NetworkName, peer::Peer, Header, Point};
 use amaru_network::session::PeerSession;
+use amaru_progress_bar::{new_terminal_progress_bar, ProgressBar};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
 use gasket::framework::*;
 use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse};
-use progress_bar::{new_terminal_progress_bar, ProgressBar};
 use std::{
     error::Error,
     path::PathBuf,

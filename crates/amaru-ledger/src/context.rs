@@ -22,7 +22,7 @@ use amaru_kernel::{
     PoolParams, Proposal, ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential,
     TransactionInput, Vote, Voter,
 };
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use std::{
     collections::{BTreeMap, BTreeSet},
     fmt,

@@ -1,7 +1,7 @@
 lints.workspace = true
 
 [package]
-name = "progress-bar"
+name = "amaru-progress-bar"
 version.workspace = true
 edition.workspace = true
 description.workspace = true

@@ -37,8 +37,8 @@ amaru.workspace = true
 amaru-kernel.workspace = true
 amaru-consensus.workspace = true
 amaru-ouroboros.workspace = true
+amaru-slot-arithmetic.workspace = true
 amaru-stores.workspace = true
-slot-arithmetic.workspace = true
 
 [dev-dependencies]
 # External dependencies ───────────────────────────────────────────────────────┐

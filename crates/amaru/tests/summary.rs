@@ -24,8 +24,8 @@ use amaru_ledger::{
         stake_distribution::StakeDistribution,
     },
 };
+use amaru_slot_arithmetic::Epoch;
 use amaru_stores::rocksdb::{RocksDBHistoricalStores, RocksDBSnapshot};
-use slot_arithmetic::Epoch;
 use std::{
     collections::BTreeMap,
     path::PathBuf,

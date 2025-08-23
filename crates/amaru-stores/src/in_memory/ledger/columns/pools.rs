@@ -17,7 +17,7 @@ use amaru_ledger::store::{
     columns::pools::{Key, Row, Value},
     StoreError,
 };
-use slot_arithmetic::Epoch;
+use amaru_slot_arithmetic::Epoch;
 use tracing::error;
 
 pub fn add(

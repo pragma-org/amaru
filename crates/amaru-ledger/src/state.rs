@@ -39,7 +39,7 @@ use amaru_kernel::{
     StakeCredentialType, TransactionInput,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
-use slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
     collections::{btree_map, BTreeMap, BTreeSet, VecDeque},

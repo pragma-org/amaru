@@ -24,7 +24,7 @@ use amaru_kernel::{
     DRepRegistration, EraHistory, MemoizedDatum, NonEmptySet, PoolId, PoolParams, RequiredScript,
     ScriptHash, ScriptPurpose, StakeCredential, TransactionPointer, PROTOCOL_VERSION_9,
 };
-use slot_arithmetic::{Epoch, EraHistoryError};
+use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use thiserror::Error;
 
 #[derive(Debug, Error)]
