@@ -55,10 +55,6 @@ pub struct RatificationContext<'distr> {
     /// The *current* (live! not from the stake distr snapshot) value of the treasury
     pub treasury: Lovelace,
 
-    /// The total amount of Lovelace withdrawn during this ratification. This is used to track the
-    /// amount in-between withdrawals and ensures we do not underflow the treasury.
-    pub total_withdrawn: Lovelace,
-
     /// The computed stake distribution for the epoch
     pub stake_distribution: StakeDistributionView<'distr>,
 
@@ -104,7 +100,8 @@ impl<'distr> RatificationContext<'distr> {
         // in what order and what are the relationships between proposals; such that, when a
         // proposal is enacted, conflicting proposals (those pointing at the same parent) are
         // pruned.
-        let mut forest = ProposalsForest::new(self.epoch, &roots).drain(era_history, proposals)?;
+        let mut forest = ProposalsForest::new(self.epoch, &roots, self.treasury)
+            .drain(era_history, proposals)?;
 
         // A mutable compass to navigate the forest. This compass holds the tiny bit of mutable
         // state we need to iterate over the forest; but without introducing a mutable borrow on
@@ -160,10 +157,11 @@ impl<'distr> RatificationContext<'distr> {
         }
 
         // Ensures that the treasury is properly depleted, if necessary.
-        if self.total_withdrawn > 0 {
+        let total_withdrawn = self.treasury - forest.treasury();
+        if total_withdrawn > 0 {
             store_updates.push(Box::new(move |db, _ctx| {
                 db.with_pots(|mut pots| {
-                    pots.borrow_mut().treasury -= self.total_withdrawn;
+                    pots.borrow_mut().treasury -= total_withdrawn;
                 })
             }));
         }
@@ -276,10 +274,6 @@ impl<'distr> RatificationContext<'distr> {
                         .push(Box::new(move |db, _ctx| db.set_constitution(&constitution))),
 
                     ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
-                        withdrawals.iter().for_each(|(_, magic_internet_money)| {
-                            self.total_withdrawn += magic_internet_money;
-                        });
-
                         store_updates.push(Box::new(move |db, _ctx| {
                             let leftovers = withdrawals
                                 .into_iter()
@@ -383,11 +377,7 @@ impl<'distr> RatificationContext<'distr> {
             | ProposalEnum::HardFork(..)
             | ProposalEnum::Constitution(..)
             | ProposalEnum::ProtocolParameters(..)
-            | ProposalEnum::Orphan(OrphanProposal::NicePoll) => true,
-
-            ProposalEnum::Orphan(OrphanProposal::TreasuryWithdrawal(withdrawals)) => {
-                self.total_withdrawn + withdrawals.values().sum::<Lovelace>() <= self.treasury
-            }
+            | ProposalEnum::Orphan(..) => true,
 
             ProposalEnum::ConstitutionalCommittee(
                 CommitteeUpdate::ChangeMembers { added, .. },

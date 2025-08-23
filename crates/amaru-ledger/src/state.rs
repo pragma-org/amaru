@@ -874,7 +874,6 @@ fn new_ratification_context<'distr>(
         // beginning of epoch `e + 1`. So, the epoch we consider for DRep mandates and proposal
         // expiry is the one from after the snapshot.
         epoch: snapshot.epoch() + 1,
-        total_withdrawn: 0,
         treasury,
         stake_distribution,
         protocol_parameters,
