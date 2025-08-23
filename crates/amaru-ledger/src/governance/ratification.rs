@@ -124,14 +124,13 @@ impl<'distr> RatificationContext<'distr> {
             // The inner block limits the lifetime of the immutable borrow(s) on forest; so that we
             // can then borrow the forest as immutable when a proposal gets ratified.
             let ratified: Option<(Rc<ComparableProposalId>, ProposalEnum)> = {
-                let Some((id, (proposal, _))) = compass.next(&forest) else {
+                let Some((id, (proposal, _))) = compass.next(&forest, &self.protocol_parameters)
+                else {
                     break;
                 };
 
                 Self::new_ratify_span(&id, proposal).in_scope(|| {
-                    if self.is_accepted_by_everyone(&id, proposal, &self.stake_distribution)
-                        && self.is_still_valid(proposal)
-                    {
+                    if self.is_accepted_by_everyone(&id, proposal, &self.stake_distribution) {
                         // NOTE: The .clone() on the proposal is necessary so we can drop the
                         // immutable borrow on the forest. It only happens when a proposal is
                         // ratified, though.
@@ -355,36 +354,6 @@ impl<'distr> RatificationContext<'distr> {
                 "votes.dreps.abstain" = field::Empty,
                 "approved.dreps" = field::Empty,
             )
-        }
-    }
-
-    /// There are additional checks we should perform at the moment of ratification
-    ///
-    /// - On treasury withdrawals, we must ensure there's still enough money in the treasury.
-    ///   This is necessary since there can be an arbitrary number of withdrawals that have been
-    ///   ratified and enacted just before; possibly depleting the treasury.
-    ///
-    /// - On constitutional committee updates, we should ensure that any term limit is still
-    ///   valid. This can happen if a protocol parameter change that changes the max term limit
-    ///   is ratified *before* a committee update, possibly rendering it invalid.
-    ///
-    /// Note that either way, it doesn't *invalidate* proposals, since time and subsequent
-    /// proposals may turn the tide again. They should simply be skipped, and revisited at the
-    /// next epoch boundary.
-    fn is_still_valid(&self, proposal: &ProposalEnum) -> bool {
-        match proposal {
-            ProposalEnum::ConstitutionalCommittee(CommitteeUpdate::NoConfidence, _)
-            | ProposalEnum::HardFork(..)
-            | ProposalEnum::Constitution(..)
-            | ProposalEnum::ProtocolParameters(..)
-            | ProposalEnum::Orphan(..) => true,
-
-            ProposalEnum::ConstitutionalCommittee(
-                CommitteeUpdate::ChangeMembers { added, .. },
-                _,
-            ) => added.values().all(|valid_until| {
-                valid_until <= &(self.epoch + self.protocol_parameters.max_committee_term_length)
-            }),
         }
     }
 
