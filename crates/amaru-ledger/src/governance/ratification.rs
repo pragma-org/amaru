@@ -366,22 +366,40 @@ impl<'distr> RatificationContext<'distr> {
         let span = tracing::Span::current();
 
         let empty = BTreeMap::new();
-
         let (dreps_votes, cc_votes, pool_votes) =
             partition_votes(self.votes.get(id).unwrap_or(&empty));
 
+        // NOTE: because ratification is an expensive operation, and something that we *may* have
+        // to replay due to rollbacks, it's important to do the least amount of work possible.
+        //
+        // If the CC doesn't approve, then the majority of actions can be considered invalid and
+        // there's no need to check for DReps nor SPO votes. The following code is thus written in
+        // a way that the next governance body is only consulted should the previous one be "no".
+
         let cc_approved = self.is_accepted_by_constitutional_committee(proposal, cc_votes);
+
         span.record("approved.committee", cc_approved);
 
-        let spos_approved =
-            self.is_accepted_by_stake_pool_operators(proposal, pool_votes, stake_distribution);
-        span.record("approved.pools", spos_approved);
+        if cc_approved {
+            let spos_approved =
+                self.is_accepted_by_stake_pool_operators(proposal, pool_votes, stake_distribution);
 
-        let dreps_approved =
-            self.is_accepted_by_delegate_representatives(proposal, dreps_votes, stake_distribution);
-        span.record("approved.dreps", dreps_approved);
+            span.record("approved.pools", spos_approved);
 
-        cc_approved && spos_approved && dreps_approved
+            if spos_approved {
+                let dreps_approved = self.is_accepted_by_delegate_representatives(
+                    proposal,
+                    dreps_votes,
+                    stake_distribution,
+                );
+
+                span.record("approved.dreps", dreps_approved);
+
+                return dreps_approved;
+            }
+        }
+
+        false
     }
 
     fn is_accepted_by_constitutional_committee(
