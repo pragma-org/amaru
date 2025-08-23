@@ -141,7 +141,7 @@ pub fn bootstrap(
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
 
     let chain_selector = make_chain_selector(
-        &header,
+        header,
         &peer_sessions,
         global_parameters.consensus_security_param,
     )?;
@@ -343,7 +343,7 @@ fn make_ledger(
 }
 
 fn make_chain_selector(
-    header: &Option<Header>,
+    header: Option<Header>,
     peers: &Vec<PeerSession>,
     _consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
@@ -357,12 +357,12 @@ fn make_chain_selector(
     // In *practice* (and good network conditions), that tree can actually be pretty small.
     // Although in reality and to be "immune" to deep forks, it must be set to `k` (a.k.a the
     // consensus security param).
-    let mut tree = HeadersTree::new(100, header);
-
-    let root_hash = match header {
+    let root_hash = match &header {
         Some(h) => h.hash(),
         None => Point::Origin.hash(),
     };
+
+    let mut tree = HeadersTree::new(100, header);
 
     for peer in peers {
         tree.initialize_peer(&peer.peer, &root_hash)?;

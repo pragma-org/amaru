@@ -12,19 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::consensus::select_chain::RollbackChainSelection::RollbackBeyondLimit;
-use crate::consensus::select_chain::{Fork, ForwardChainSelection, RollbackChainSelection};
-use crate::consensus::tip::Tip;
-use crate::{ConsensusError, InvalidHeaderParentData};
+use crate::{
+    ConsensusError, InvalidHeaderParentData,
+    consensus::{
+        select_chain::{Fork, ForwardChainSelection, RollbackChainSelection},
+        tip::Tip,
+    },
+};
 use amaru_kernel::{HEADER_HASH_SIZE, Point, peer::Peer};
 use amaru_ouroboros_traits::IsHeader;
 use indextree::{Arena, Node, NodeId};
 use pallas_crypto::hash::Hash;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::{Debug, Formatter};
-use std::iter::Filter;
-use std::slice::Iter;
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt::{Debug, Formatter, Write},
+    iter::Filter,
+    slice::Iter,
+};
 
 /// This data type stores chains as a tree of headers.
 /// It also keeps track of what is the latest tip for each peer.
@@ -32,7 +37,7 @@ use std::slice::Iter;
 /// The main function of this data type is to be able to always return the best chain for the current
 /// tree of headers.
 ///
-#[derive(PartialEq)]
+#[derive(PartialEq, Clone)]
 pub struct HeadersTree<H> {
     /// The arena maintains a list of headers and their parent/child relationship.
     arena: Arena<Tip<H>>,
@@ -46,142 +51,115 @@ pub struct HeadersTree<H> {
     best_peer: Option<Peer>,
 }
 
-// Serialization support for HeadersTree
-impl<H: IsHeader + Clone + Debug> Serialize for HeadersTree<H> {
+#[derive(Serialize, Deserialize)]
+struct HeadersTreeData<H> {
+    nodes: Vec<NodeData<H>>,
+    peers: BTreeMap<String, usize>,
+    best_chain: usize,
+    best_peer: Option<Peer>,
+    max_length: usize,
+}
+
+#[derive(Serialize, Deserialize)]
+struct NodeData<H> {
+    tip: Tip<H>,
+    parent: Option<usize>,
+}
+
+impl<H: Clone> From<&HeadersTree<H>> for HeadersTreeData<H> {
+    fn from(tree: &HeadersTree<H>) -> Self {
+        // The idea is to traverse the tree such that parents are visited before children,
+        // maintaining a mapping from node id to traversal index. Parent NodeIds are translated
+        // along the way, and other NodeIds are translated after the traversal.
+
+        let roots = tree.arena.iter().filter_map(|n| {
+            (!n.is_removed() && n.parent().is_none())
+                .then(|| tree.arena.get_node_id(n))
+                .flatten()
+        });
+
+        let mut nodes = Vec::new();
+        let mut id_map = BTreeMap::new();
+
+        for root in roots {
+            root.traverse(&tree.arena)
+                .filter_map(|x| match x {
+                    indextree::NodeEdge::Start(node_id) => Some(node_id),
+                    indextree::NodeEdge::End(_) => None,
+                })
+                .for_each(|node_id| {
+                    id_map.insert(node_id, nodes.len());
+                    let node = &tree.arena[node_id];
+                    nodes.push(NodeData {
+                        tip: node.get().clone(),
+                        parent: node.parent().map(|p| id_map[&p]),
+                    });
+                });
+        }
+
+        let peers = tree
+            .peers
+            .iter()
+            .map(|(peer, node_id)| (peer.to_string(), id_map[node_id]))
+            .collect();
+
+        HeadersTreeData {
+            nodes,
+            peers,
+            best_chain: id_map.get(&tree.best_chain).copied().unwrap_or_default(),
+            best_peer: tree.best_peer.clone(),
+            max_length: tree.max_length,
+        }
+    }
+}
+
+impl<H> From<HeadersTreeData<H>> for HeadersTree<H> {
+    fn from(data: HeadersTreeData<H>) -> Self {
+        // The idea is to insert the nodes in the arena in the order of the nodes data,
+        // thereby building a mapping from data index to node id.
+
+        let mut arena = Arena::new();
+        let mut id_map = BTreeMap::new();
+
+        for (i, node_data) in data.nodes.into_iter().enumerate() {
+            let node_id = arena.new_node(node_data.tip);
+            id_map.insert(i, node_id);
+            if let Some(parent_id) = node_data.parent {
+                id_map[&parent_id].append(node_id, &mut arena);
+            }
+        }
+
+        let peers = data
+            .peers
+            .into_iter()
+            .map(|(name, node_id)| (Peer { name }, id_map[&node_id]))
+            .collect();
+
+        HeadersTree {
+            arena,
+            max_length: data.max_length,
+            peers,
+            best_chain: id_map[&data.best_chain],
+            best_peer: data.best_peer,
+        }
+    }
+}
+
+impl<H: Serialize + Clone> Serialize for HeadersTree<H> {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        use serde::ser::SerializeStruct;
-
-        let mut state = serializer.serialize_struct("HeadersTree", 5)?;
-
-        // Serialize nodes as a list with parent relationships
-        let mut nodes = Vec::new();
-        for node in self.arena.iter() {
-            let node_data = node.get();
-            let mut node_obj = serde_json::Map::new();
-
-            // Get the NodeId for this node
-            let Some(node_id) = self.arena.get_node_id(node) else {
-                continue;
-            };
-
-            // Add node ID
-            node_obj.insert(
-                "id".to_string(),
-                serde_json::Value::Number(serde_json::Number::from(usize::from(node_id))),
-            );
-
-            // Add tip data - serialize as hex string for headers
-            match node_data {
-                Tip::Genesis => {
-                    node_obj.insert("tip".to_string(), serde_json::json!({"Genesis": null}));
-                }
-                Tip::Hdr(header) => {
-                    // For headers without serde support, we'll serialize the hash and other metadata
-                    let mut header_data = serde_json::Map::new();
-                    header_data.insert(
-                        "hash".to_string(),
-                        serde_json::Value::String(hex::encode(header.hash().as_ref())),
-                    );
-                    header_data.insert(
-                        "slot".to_string(),
-                        serde_json::Value::Number(serde_json::Number::from(header.slot())),
-                    );
-                    header_data.insert(
-                        "block_height".to_string(),
-                        serde_json::Value::Number(serde_json::Number::from(header.block_height())),
-                    );
-                    if let Some(parent) = header.parent() {
-                        header_data.insert(
-                            "parent".to_string(),
-                            serde_json::Value::String(hex::encode(parent.as_ref())),
-                        );
-                    }
-                    node_obj.insert(
-                        "tip".to_string(),
-                        serde_json::json!({"Header": header_data}),
-                    );
-                }
-            }
-
-            // Add parent if it exists
-            if let Some(parent) = node.parent() {
-                node_obj.insert(
-                    "parent".to_string(),
-                    serde_json::Value::Number(serde_json::Number::from(usize::from(parent))),
-                );
-            }
-
-            nodes.push(serde_json::Value::Object(node_obj));
-        }
-        state.serialize_field("nodes", &nodes)?;
-
-        // Serialize peers mapping
-        let mut peer_map = serde_json::Map::new();
-        for (peer, node_id) in &self.peers {
-            peer_map.insert(
-                peer.name.clone(),
-                serde_json::Value::Number(serde_json::Number::from(usize::from(*node_id))),
-            );
-        }
-        state.serialize_field("peers", &peer_map)?;
-
-        // Serialize best_chain
-        state.serialize_field("best_chain", &usize::from(self.best_chain))?;
-
-        // Serialize best_peer
-        state.serialize_field("best_peer", &self.best_peer.as_ref().map(|p| &p.name))?;
-
-        // Serialize max_length
-        state.serialize_field("max_length", &self.max_length)?;
-
-        state.end()
+        <HeadersTreeData<H>>::from(self).serialize(serializer)
     }
 }
-
-#[allow(unused)]
-impl<'de, H: IsHeader + Clone + Debug> Deserialize<'de> for HeadersTree<H> {
+impl<'de, H: Deserialize<'de>> Deserialize<'de> for HeadersTree<H> {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
     {
-        #[derive(Deserialize)]
-        struct NodeData {
-            id: usize,
-            tip: TipData,
-            parent: Option<usize>,
-        }
-
-        #[derive(Deserialize)]
-        enum TipData {
-            Genesis,
-            Header {
-                hash: String,
-                slot: u64,
-                block_height: u64,
-                parent: Option<String>,
-            },
-        }
-
-        #[derive(Deserialize)]
-        struct HeadersTreeData {
-            nodes: Vec<NodeData>,
-            peers: std::collections::BTreeMap<String, usize>,
-            best_chain: usize,
-            best_peer: Option<String>,
-            max_length: usize,
-        }
-
-        let data: HeadersTreeData = HeadersTreeData::deserialize(deserializer)?;
-
-        // For now, we can't reconstruct the full HeadersTree from serialized data
-        // because we don't have the actual header objects, just their metadata.
-        // This is a limitation of the current approach.
-        Err(serde::de::Error::custom(
-            "Deserialization of HeadersTree is not supported. Use the insert_headers method to reconstruct the tree."
-        ))
+        let data = HeadersTreeData::deserialize(deserializer)?;
+        Ok(data.into())
     }
 }
 
@@ -207,8 +185,17 @@ impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
             .map(|n| n.hash().to_string())
             .unwrap_or("GENESIS".to_string());
 
-        f.write_str(&self.pretty_print())?;
-        f.write_str("\n")?;
+        f.write_char('\n')?;
+        for node in self.arena.iter() {
+            if !node.is_removed() && node.parent().is_none() {
+                let Some(node_id) = self.arena.get_node_id(node) else {
+                    continue;
+                };
+                node_id.debug_pretty_print(&self.arena).fmt(f)?;
+            }
+            f.write_char('\n')?;
+        }
+        f.write_char('\n')?;
         f.debug_struct("HeadersTree")
             .field("\n   peers", &debug_peers)
             .field("\n   best_chain", &debug_best_chain)
@@ -226,7 +213,7 @@ impl<H: IsHeader + Clone + Debug> Debug for HeadersTree<H> {
 #[allow(dead_code)]
 impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
     /// Initialize a HeadersTree as a tree rooted in the Genesis header
-    pub fn new(max_length: usize, root: &Option<H>) -> HeadersTree<H> {
+    pub fn new(max_length: usize, root: Option<H>) -> HeadersTree<H> {
         assert!(
             max_length >= 2,
             "Cannot create a headers tree with maximum chain length lower than 2"
@@ -239,7 +226,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         let capacity = max_length * 2;
         let mut arena: Arena<Tip<H>> = Arena::with_capacity(capacity);
         let root_node_id = if let Some(header) = root {
-            arena.new_node(Tip::Hdr(header.clone()))
+            arena.new_node(Tip::Hdr(header))
         } else {
             arena.new_node(Tip::Genesis)
         };
@@ -249,29 +236,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
             max_length,
             peers: BTreeMap::new(),
             best_chain: root_node_id,
-            best_peer: None,
-        }
-    }
-
-    /// Initialize a HeadersTree as a tree rooted in the Genesis header
-    pub fn new_with_header(max_length: usize, header: &H) -> HeadersTree<H> {
-        assert!(
-            max_length >= 2,
-            "Cannot create a headers tree with maximum chain length lower than 2"
-        );
-
-        // Create a new arena
-
-        // We estimate that a good starting point for the arena size is equivalent to having 2
-        // disjoint (except at the root) chains
-        let capacity = max_length * 2;
-        let mut arena: Arena<Tip<H>> = Arena::with_capacity(capacity);
-        let genesis_node_id = arena.new_node(Tip::Hdr(header.clone()));
-        HeadersTree {
-            arena,
-            max_length,
-            peers: BTreeMap::new(),
-            best_chain: genesis_node_id,
             best_peer: None,
         }
     }
@@ -372,7 +336,7 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
                 .get_root_for(peer)?
                 .map(|h| h.hash())
                 .unwrap_or(Point::Origin.hash());
-            Ok(RollbackBeyondLimit {
+            Ok(RollbackChainSelection::RollbackBeyondLimit {
                 peer: peer.clone(),
                 rollback_point: *rollback_point_hash,
                 max_point: root,
@@ -752,11 +716,6 @@ impl<H: IsHeader + Clone + Debug> HeadersTree<H> {
         let all_tips: BTreeSet<NodeId> = BTreeSet::from_iter(self.peers.values().copied());
         trim_arena_unused_nodes(&mut self.arena, all_tips);
     }
-
-    /// Pretty-print the headers present in the arena as a tree, starting from the root of the tree
-    fn pretty_print(&self) -> String {
-        pretty_print_root(&self.arena)
-    }
 }
 
 #[cfg(test)]
@@ -825,39 +784,6 @@ fn get_arena_active_nodes<T>(arena: &Arena<T>) -> Filter<Iter<'_, Node<T>>, fn(&
     arena.iter().filter(|n| !n.is_removed())
 }
 
-/// Pretty-print the arena starting from the root of the tree
-///
-/// Shows a graphical representation of the internal structure of
-/// the tree.
-/// ```text
-/// Hdr(FakeHeader { block_number: 1, slot: 7, parent: None, body_hash: Hash<32>("2cabe6ea") })
-/// |-- Hdr(FakeHeader { block_number: 2, slot: 22, parent: Some(Hash<32>("d4f3cf2e")), body_hash: Hash<32>("cd932b1e") })
-/// |   `-- Hdr(FakeHeader { block_number: 3, slot: 23, parent: Some(Hash<32>("f72dbcd2")), body_hash: Hash<32>("5b466114") })
-/// |       `-- Hdr(FakeHeader { block_number: 4, slot: 26, parent: Some(Hash<32>("a0326a71")), body_hash: Hash<32>("993e8517") })
-/// |           `-- Hdr(FakeHeader { block_number: 5, slot: 28, parent: Some(Hash<32>("b452d00f")), body_hash: Hash<32>("9d341c29") })
-/// |               `-- Hdr(FakeHeader { block_number: 6, slot: 93, parent: Some(Hash<32>("143b3c68")), body_hash: Hash<32>("35894500") })
-/// |                   `-- Hdr(FakeHeader { block_number: 7, slot: 111, parent: Some(Hash<32>("448fa5c3")), body_hash: Hash<32>("b18964dc") })
-/// |                       `-- Hdr(FakeHeader { block_number: 8, slot: 115, parent: Some(Hash<32>("c3f7d827")), body_hash: Hash<32>("db0a9b64") })
-/// |                           `-- Hdr(FakeHeader { block_number: 9, slot: 124, parent: Some(Hash<32>("f1a8d8ce")), body_hash: Hash<32>("25a75c75") })
-/// |                               `-- Hdr(FakeHeader { block_number: 10, slot: 151, parent: Some(Hash<32>("17254ace")), body_hash: Hash<32>("9f3acd52") })
-/// `-- Hdr(FakeHeader { block_number: 2, slot: 0, parent: Some(Hash<32>("d4f3cf2e")), body_hash: Hash<32>("24115f11") })
-///     `-- Hdr(FakeHeader { block_number: 3, slot: 0, parent: Some(Hash<32>("83ee63d6")), body_hash: Hash<32>("7950c684") })
-///```
-fn pretty_print_root<T: Debug>(arena: &Arena<T>) -> String {
-    // take the first active node and retrieve the root of the tree from there
-    if let Some(tip) = get_arena_active_nodes(arena)
-        .next()
-        .and_then(|n| arena.get_node_id(n))
-    {
-        tip.ancestors(arena)
-            .last()
-            .map(|root| format!("{:?}", root.debug_pretty_print(arena)))
-            .unwrap_or("".to_string())
-    } else {
-        "<EMPTY ARENA>".to_string()
-    }
-}
-
 /// Return the node id at the tip of the longest chain
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
@@ -883,7 +809,7 @@ mod tests {
 
     #[test]
     fn empty() {
-        let tree: HeadersTree<FakeHeader> = HeadersTree::new(10, &None);
+        let tree: HeadersTree<FakeHeader> = HeadersTree::new(10, None);
         assert_eq!(
             tree.best_chain_tip(),
             None,
@@ -893,7 +819,7 @@ mod tests {
 
     #[test]
     fn initialize_peer_on_empty_tree() {
-        let mut tree: HeadersTree<FakeHeader> = HeadersTree::new(10, &None);
+        let mut tree: HeadersTree<FakeHeader> = HeadersTree::new(10, None);
         let peer = Peer::new("alice");
         let header = generate_headers_chain(1)[0];
         tree.initialize_peer(&peer, &Point::Origin.hash()).unwrap();
@@ -909,7 +835,7 @@ mod tests {
     fn single_chain_is_best_chain() {
         let headers = generate_headers_chain(5);
         let last = headers.last().unwrap();
-        let mut tree = HeadersTree::new(10, &None);
+        let mut tree = HeadersTree::new(10, None);
         tree.insert_headers(&headers);
 
         assert_eq!(tree.best_chain_tip(), Some(last));
@@ -1378,7 +1304,7 @@ mod tests {
         expected = "Cannot create a headers tree with maximum chain length lower than 2"
     )]
     fn cannot_initialize_tree_with_k_lower_than_2() {
-        HeadersTree::<FakeHeader>::new(1, &None);
+        HeadersTree::<FakeHeader>::new(1, None);
     }
 
     #[test]
@@ -1430,10 +1356,8 @@ mod tests {
 
     #[test]
     fn test_headers_tree_serialization() {
-        // Create a simple headers tree
-        let mut tree = HeadersTree::new(10, &None);
+        let mut tree = HeadersTree::new(10, None);
 
-        // Create some fake headers
         let header1 = FakeHeader {
             block_number: 1,
             slot: 100,
@@ -1448,32 +1372,30 @@ mod tests {
             body_hash: Hash::from([2; HEADER_HASH_SIZE]),
         };
 
-        // Add headers to the tree
         tree.insert_headers(&[header1, header2]);
 
-        // Add a peer
         let peer = Peer::new("alice");
         tree.initialize_peer(&peer, &header2.hash()).unwrap();
 
-        // Serialize the tree
         let serialized = serde_json::to_string(&tree).unwrap();
 
-        // Verify the serialized output contains expected data
-        assert!(serialized.contains("alice"));
-        assert!(serialized.contains("Genesis"));
-        assert!(serialized.contains(&hex::encode(header1.hash().as_ref())));
-        assert!(serialized.contains(&hex::encode(header2.hash().as_ref())));
+        assert_eq!(
+            serialized,
+            "{\"nodes\":[\
+                {\"tip\":\"Genesis\",\"parent\":null},\
+                {\"tip\":{\"Hdr\":{\"block_number\":1,\"slot\":100,\"parent\":null,\"body_hash\":\"0101010101010101010101010101010101010101010101010101010101010101\"}},\"parent\":null},\
+                {\"tip\":{\"Hdr\":{\"block_number\":2,\"slot\":200,\"parent\":\"c5d07a68259bde67ea479d845cfbe742695c234315d4934f6dd0067ae3fd6416\",\"body_hash\":\"0202020202020202020202020202020202020202020202020202020202020202\"}},\"parent\":1}\
+            ],\"peers\":{\"alice\":2},\"best_chain\":2,\"best_peer\":{\"name\":\"alice\"},\"max_length\":10}"
+        );
 
-        // Verify we can't deserialize (as expected)
-        let deserialize_result = serde_json::from_str::<HeadersTree<FakeHeader>>(&serialized);
-        assert!(deserialize_result.is_err());
-        let error_msg = deserialize_result.unwrap_err().to_string();
-        assert!(error_msg.contains("Deserialization of HeadersTree is not supported"));
+        let deserialize_result =
+            serde_json::from_str::<HeadersTree<FakeHeader>>(&serialized).unwrap();
+        assert_eq!(deserialize_result, tree);
     }
 
     /// HELPERS
     fn create_headers_tree(size: usize) -> (HeadersTree<FakeHeader>, Vec<FakeHeader>) {
-        let mut tree = HeadersTree::new(10, &None);
+        let mut tree = HeadersTree::new(10, None);
         let headers = generate_headers_chain(size);
         _ = tree.insert_headers(&headers);
         (tree, headers)
