@@ -124,6 +124,10 @@ impl ProposalEnum {
         matches!(self, Self::ConstitutionalCommittee(ChangeMembers { .. }, _))
     }
 
+    pub fn is_orphan(&self) -> bool {
+        matches!(self, Self::Orphan(..))
+    }
+
     pub fn is_nice_poll(&self) -> bool {
         matches!(self, Self::Orphan(OrphanProposal::NicePoll))
     }
@@ -196,7 +200,7 @@ impl fmt::Display for OrphanProposal {
             OrphanProposal::TreasuryWithdrawal(withdrawals) => {
                 let total = withdrawals
                     .iter()
-                    .fold(0, |total, (_, single)| total + single)
+                    .fold(0_u64, |total, (_, single)| total.saturating_add(*single))
                     / 1_000_000;
                 write!(f, "withdrawal={total}₳")
             }
@@ -266,8 +270,9 @@ pub mod tests {
     pub fn any_orphan_proposal() -> impl Strategy<Value = OrphanProposal> {
         let any_nice_poll = Just(OrphanProposal::NicePoll);
 
-        let any_treasury_withdrawal = collection::btree_map(any_stake_credential(), 1_u64.., 1..3)
-            .prop_map(OrphanProposal::TreasuryWithdrawal);
+        let any_treasury_withdrawal =
+            collection::btree_map(any_stake_credential(), 1..(u64::MAX / 3), 1..3)
+                .prop_map(OrphanProposal::TreasuryWithdrawal);
 
         prop_oneof![any_nice_poll, any_treasury_withdrawal]
     }
