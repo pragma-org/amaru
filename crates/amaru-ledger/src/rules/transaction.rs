@@ -175,7 +175,10 @@ where
         },
     )?;
 
-    withdrawals::execute(context, transaction_body.withdrawals.as_deref())?;
+    withdrawals::execute(
+        context,
+        mem::take(&mut transaction_body.withdrawals).map(|xs| xs.to_vec()),
+    )?;
 
     proposals::execute(
         context,

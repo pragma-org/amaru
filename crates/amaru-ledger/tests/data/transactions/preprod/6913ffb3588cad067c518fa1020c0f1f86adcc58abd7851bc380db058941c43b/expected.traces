@@ -1,0 +1,5 @@
+[ {"name":"require_script_witness_span","hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae"}
+, {"name":"withdraw_from_span","credential":{"hash":"c0a526f80bf760b9be1eefd247ce490a70cf9ccc9ed0cd2081ed4cae","type":"script"}}
+, {"name":"require_vkey_witness_span","hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774"}
+, {"name":"withdraw_from_span","credential":{"hash":"f038765aa500d856c3e53fb94be7a95fcc31ba5f18464ca7c0957774","type":"verification_key"}}
+]
