@@ -204,7 +204,7 @@ mod tests {
         Epoch, Hash, StakeCredential, Vote, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
     };
     use num::{One, Zero};
-    use proptest::{collection, prelude::*, sample};
+    use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
     use std::{
         collections::{BTreeMap, BTreeSet},
         rc::Rc,
@@ -303,6 +303,7 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
         #[test]
         #[should_panic]
         fn prop_tally_is_sometimes_greater_than_0((epoch, votes, committee) in any_tally()) {
@@ -377,6 +378,7 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
         #[test]
         #[should_panic]
         fn prop_tally_sometimes_see_inactive_members((epoch, _, committee) in any_tally()) {

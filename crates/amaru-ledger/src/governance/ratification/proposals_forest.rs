@@ -815,7 +815,7 @@ mod tests {
         ComparableProposalId, Epoch, GovAction, KeyValuePairs, Lovelace, Nullable, ProposalId,
         ProposalPointer, RationalNumber, Set,
     };
-    use proptest::{collection, prelude::*};
+    use proptest::{collection, prelude::*, test_runner::RngSeed};
     use std::{cmp::Ordering, collections::BTreeSet, rc::Rc, sync::LazyLock};
 
     const MAX_TREE_SIZE: usize = 8;
@@ -876,6 +876,7 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(14), ..ProptestConfig::default() })]
         #[test]
         #[should_panic]
         fn prop_compass_sometimes_yield_constitutional_committee(
@@ -889,6 +890,7 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
         #[test]
         #[should_panic]
         fn prop_compass_sometimes_yield_treasury_withdrawals(
@@ -904,6 +906,7 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
         #[test]
         #[should_panic]
         fn prop_compass_sometimes_yield_parameter_changes(

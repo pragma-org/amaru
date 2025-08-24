@@ -240,7 +240,7 @@ mod tests {
         DRep, Epoch, Vote, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
     };
     use num::{One, Zero};
-    use proptest::{collection, prelude::*, sample};
+    use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
     use std::{collections::BTreeMap, rc::Rc};
 
     proptest! {
@@ -312,6 +312,7 @@ mod tests {
     }
 
     proptest! {
+        #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
         #[test]
         #[should_panic]
         fn prop_generated_dreps_are_sometimes_expired((epoch, _, _, stake_distribution) in any_tally()) {

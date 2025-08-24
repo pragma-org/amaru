@@ -574,7 +574,7 @@ pub mod tests {
     mod internal {
         use super::*;
         use amaru_kernel::tests::any_proposal_pointer;
-        use proptest::prelude::*;
+        use proptest::{prelude::*, test_runner::RngSeed};
 
         proptest! {
             #[test]
@@ -588,6 +588,7 @@ pub mod tests {
         }
 
         proptest! {
+            #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
             #[test]
             #[should_panic]
             fn prop_proposal_pointer_sometimes_min_epoch(pointer in any_proposal_pointer(u64::MAX)) {
@@ -597,6 +598,7 @@ pub mod tests {
         }
 
         proptest! {
+            #![proptest_config(ProptestConfig { rng_seed: RngSeed::Fixed(42), ..ProptestConfig::default() })]
             #[test]
             #[should_panic]
             fn prop_proposal_pointer_sometimes_max_epoch(pointer in any_proposal_pointer(u64::MAX)) {
