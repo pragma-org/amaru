@@ -1,0 +1,7 @@
+[{"hash":"c5b57b93dc15eca5a3f46d235a9eed11d1ad4d95806b4443576724a4","name":"require_script_witness_span"}
+,{"credential":{"hash":"c5b57b93dc15eca5a3f46d235a9eed11d1ad4d95806b4443576724a4","type":"script"},"name":"vote_span","voter":{"type":"committee"}}
+,{"hash":"6b4443576724a4c5bed11d1ad4d958057b93dc15eca5a3f46d235a9e","name":"require_vkey_witness_span"}
+,{"credential":{"hash":"6b4443576724a4c5bed11d1ad4d958057b93dc15eca5a3f46d235a9e","type":"verification_key"},"name":"vote_span","voter":{"type":"committee"}}
+,{"hash":"ed11d1ad4d95806b4443576724a4c5b57b93dc15eca5a3f46d235a9e","name":"require_script_witness_span"}
+,{"credential":{"hash":"ed11d1ad4d95806b4443576724a4c5b57b93dc15eca5a3f46d235a9e","type":"script"},"name":"vote_span","voter":{"type":"drep"}}
+]
