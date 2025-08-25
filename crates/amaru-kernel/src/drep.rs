@@ -15,8 +15,8 @@
 #[cfg(any(test, feature = "test-utils"))]
 pub mod tests {
     use crate::{
-        tests::{any_key_hash, any_script_hash},
         DRep,
+        tests::{any_key_hash, any_script_hash},
     };
     use proptest::prelude::*;
 

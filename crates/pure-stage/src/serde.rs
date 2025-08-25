@@ -198,7 +198,7 @@ mod test_send_data {
 /// `#[serde(with = "pure_stage::serde::serialize_external_effect")]` for serializing [`Box<dyn ExternalEffect>`](crate::ExternalEffect).
 pub mod serialize_external_effect {
     use super::*;
-    use crate::{effect::UnknownExternalEffect, ExternalEffect};
+    use crate::{ExternalEffect, effect::UnknownExternalEffect};
 
     pub fn serialize<S: Serializer>(
         data: &Box<dyn ExternalEffect>,

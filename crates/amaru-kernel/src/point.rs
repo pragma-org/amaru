@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, Hash, Slot};
+use crate::{Hash, Slot, cbor};
 use std::fmt::{self, Debug, Display};
 
 pub const HEADER_HASH_SIZE: usize = 32;

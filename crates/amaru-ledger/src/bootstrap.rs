@@ -16,16 +16,16 @@ use crate::{
     governance::ratification::ProposalsRootsRc,
     state::{diff_bind::Resettable, diff_epoch_reg::DiffEpochReg},
     store::{
-        self, columns::proposals, GovernanceActivity, Store, StoreError, TransactionalContext,
+        self, GovernanceActivity, Store, StoreError, TransactionalContext, columns::proposals,
     },
 };
 use amaru_kernel::{
-    cbor, heterogeneous_array, network::NetworkName, protocol_parameters::ProtocolParameters,
     Account, Anchor, Ballot, BallotId, CertificatePointer, ComparableProposalId, Constitution,
     DRep, DRepRegistration, DRepState, Epoch, EraHistory, Lovelace, MemoizedTransactionOutput,
     Point, PoolId, PoolParams, Proposal, ProposalId, ProposalPointer, ProposalState, Reward,
     ScriptHash, Set, Slot, StakeCredential, StrictMaybe, TransactionInput, TransactionPointer,
-    UnitInterval, Vote, Voter,
+    UnitInterval, Vote, Voter, cbor, heterogeneous_array, network::NetworkName,
+    protocol_parameters::ProtocolParameters,
 };
 use amaru_progress_bar::ProgressBar;
 use std::{collections::BTreeMap, fs, iter, path::PathBuf, rc::Rc, sync::LazyLock};
@@ -470,14 +470,14 @@ fn import_utxo(
     Ok(())
 }
 
-fn import_dreps(
-    db: &impl Store,
+fn import_dreps<S: Store>(
+    db: &S,
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
     epoch: Epoch,
     dreps: BTreeMap<StakeCredential, DRepState>,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), impl std::error::Error + use<S>> {
     let mut known_dreps = BTreeMap::new();
 
     let era_first_epoch = era_history
@@ -488,11 +488,12 @@ fn import_dreps(
 
     transaction.with_dreps(|iterator| {
         for (drep, mut handle) in iterator {
-            if epoch > era_first_epoch {
-                if let Some(row) = handle.borrow() {
-                    known_dreps.insert(drep, row.registered_at);
-                }
+            if epoch > era_first_epoch
+                && let Some(row) = handle.borrow()
+            {
+                known_dreps.insert(drep, row.registered_at);
             }
+
             *handle.borrow_mut() = None;
         }
     })?;
@@ -607,8 +608,8 @@ fn import_proposals(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn import_stake_pools(
-    db: &impl Store,
+fn import_stake_pools<S: Store>(
+    db: &S,
     point: &Point,
     era_history: &EraHistory,
     protocol_parameters: &ProtocolParameters,
@@ -616,7 +617,7 @@ fn import_stake_pools(
     pools: BTreeMap<PoolId, PoolParams>,
     updates: BTreeMap<PoolId, PoolParams>,
     retirements: BTreeMap<PoolId, Epoch>,
-) -> Result<(), impl std::error::Error> {
+) -> Result<(), impl std::error::Error + use<S>> {
     let mut state = DiffEpochReg::default();
     for (pool, params) in pools.into_iter() {
         state.register(pool, params);

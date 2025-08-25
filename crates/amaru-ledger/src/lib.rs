@@ -25,8 +25,8 @@ pub mod summary;
 #[cfg(test)]
 pub(crate) mod tests {
     use amaru_kernel::{
-        from_cbor, to_cbor, Bytes, Hash, MemoizedTransactionOutput, PostAlonzoTransactionOutput,
-        TransactionInput, TransactionOutput, Value,
+        Bytes, Hash, MemoizedTransactionOutput, PostAlonzoTransactionOutput, TransactionInput,
+        TransactionOutput, Value, from_cbor, to_cbor,
     };
 
     pub(crate) fn fake_input(transaction_id: &str, index: u64) -> TransactionInput {

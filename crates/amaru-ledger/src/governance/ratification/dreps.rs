@@ -15,11 +15,11 @@
 use super::{OrphanProposal, ProposalEnum};
 use crate::{
     governance::ratification::CommitteeUpdate,
-    summary::{into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution, SafeRatio},
+    summary::{SafeRatio, into_safe_ratio, safe_ratio, stake_distribution::StakeDistribution},
 };
 use amaru_kernel::{
-    DRep, DRepVotingThresholds, Epoch, ProtocolParamUpdate, ProtocolVersion, Vote,
-    PROTOCOL_VERSION_9,
+    DRep, DRepVotingThresholds, Epoch, PROTOCOL_VERSION_9, ProtocolParamUpdate, ProtocolVersion,
+    Vote,
 };
 use num::Zero;
 use std::collections::BTreeMap;
@@ -227,17 +227,17 @@ mod tests {
     use super::{tally, voting_threshold};
     use crate::{
         governance::ratification::{
-            tests::{any_proposal_enum, MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH},
             ProposalEnum,
+            tests::{MAX_ARBITRARY_EPOCH, MIN_ARBITRARY_EPOCH, any_proposal_enum},
         },
         summary::{
-            stake_distribution::{tests::any_stake_distribution_no_pools, StakeDistribution},
             SafeRatio,
+            stake_distribution::{StakeDistribution, tests::any_stake_distribution_no_pools},
         },
     };
     use amaru_kernel::{
+        DRep, Epoch, PROTOCOL_VERSION_9, PROTOCOL_VERSION_10, Vote,
         tests::{any_drep_voting_thresholds, any_vote_ref},
-        DRep, Epoch, Vote, PROTOCOL_VERSION_10, PROTOCOL_VERSION_9,
     };
     use num::{One, Zero};
     use proptest::{collection, prelude::*, sample, test_runner::RngSeed};
@@ -342,8 +342,8 @@ mod tests {
     }
 
     pub fn any_votes(
-        stake_distribution: &'_ StakeDistribution,
-    ) -> impl Strategy<Value = BTreeMap<DRep, &'static Vote>> {
+        stake_distribution: &StakeDistribution,
+    ) -> impl Strategy<Value = BTreeMap<DRep, &'static Vote>> + use<> {
         let dreps: Vec<DRep> = stake_distribution.dreps.keys().cloned().collect();
 
         let upper_bound = dreps.len() - 1;

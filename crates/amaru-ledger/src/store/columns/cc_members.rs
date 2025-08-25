@@ -14,7 +14,7 @@
 
 use crate::state::diff_bind::Resettable;
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{cbor, Epoch, StakeCredential};
+use amaru_kernel::{Epoch, StakeCredential, cbor};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::cc_members";
 

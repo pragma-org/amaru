@@ -86,7 +86,7 @@ mod test {
         context::assert::{AssertPreparationContext, AssertValidationContext},
         rules::TransactionField,
     };
-    use amaru_kernel::{include_cbor, include_json, json, KeepRaw, MintedTransactionBody};
+    use amaru_kernel::{KeepRaw, MintedTransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 

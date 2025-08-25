@@ -14,7 +14,7 @@
 
 use crate::state::diff_bind::Resettable;
 use amaru_iter_borrow::IterBorrow;
-use amaru_kernel::{cbor, CertificatePointer, DRep, Lovelace, PoolId, StakeCredential};
+use amaru_kernel::{CertificatePointer, DRep, Lovelace, PoolId, StakeCredential, cbor};
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::accounts";
 
@@ -73,9 +73,8 @@ impl<'a, C> cbor::decode::Decode<'a, C> for Row {
 pub mod tests {
     use super::Row;
     use amaru_kernel::{
-        prop_cbor_roundtrip,
+        Lovelace, prop_cbor_roundtrip,
         tests::{any_certificate_pointer, any_drep, any_pool_id},
-        Lovelace,
     };
     use proptest::{option, prelude::*, prop_compose};
 

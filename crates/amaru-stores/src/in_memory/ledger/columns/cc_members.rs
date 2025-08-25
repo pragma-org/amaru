@@ -16,8 +16,8 @@ use crate::in_memory::MemoryStore;
 use amaru_ledger::{
     state::diff_bind::Resettable,
     store::{
-        columns::cc_members::{Key, Row, Value},
         StoreError,
+        columns::cc_members::{Key, Row, Value},
     },
 };
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{cbor, Epoch, Proposal, ProposalId};
+use crate::{Epoch, Proposal, ProposalId, cbor};
 
 #[derive(Debug)]
 pub struct ProposalState {

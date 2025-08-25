@@ -21,7 +21,7 @@ publish_placeholder() {
 [package]
 name = "$name"
 version = "0.0.1"
-edition = "2021"
+edition = "2024"
 description = "Reserved for future use."
 license = "Apache-2.0"
 readme = "README.md"

@@ -36,8 +36,8 @@ use std::{array::TryFromSliceError, borrow::Cow, collections::BTreeMap, fmt::Deb
 pub use amaru_minicbor_extra::*;
 pub use amaru_slot_arithmetic::{Bound, Epoch, EraHistory, EraParams, Slot, Summary};
 pub use pallas_addresses::{
-    byron::AddrType, Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart,
-    StakeAddress, StakePayload,
+    Address, Network, ShelleyAddress, ShelleyDelegationPart, ShelleyPaymentPart, StakeAddress,
+    StakePayload, byron::AddrType,
 };
 pub use pallas_codec::{
     minicbor as cbor,
@@ -48,6 +48,8 @@ pub use pallas_crypto::{
     key::ed25519,
 };
 pub use pallas_primitives::{
+    AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
+    PlutusScript, PolicyId, Port, PositiveCoin,
     babbage::{Header, MintedHeader},
     conway::{
         AddrKeyhash, AuxiliaryData, Block, BootstrapWitness, Certificate, Coin, Constitution,
@@ -61,8 +63,6 @@ pub use pallas_primitives::{
         TransactionBody, TransactionInput, TransactionOutput, Tx, UnitInterval, VKeyWitness, Value,
         Vote, Voter, VotingProcedure, VotingProcedures, VrfKeyhash, WitnessSet,
     },
-    AssetName, BigInt, Constr, DatumHash, DnsName, IPv4, IPv6, MaybeIndefArray, PlutusData,
-    PlutusScript, PolicyId, Port, PositiveCoin,
 };
 pub use pallas_traverse::{ComputeHash, OriginalHash};
 pub use serde_json as json;

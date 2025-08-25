@@ -13,7 +13,7 @@
 // limitations under the License.
 
 use futures_util::StreamExt;
-use pure_stage::{tokio::TokioBuilder, StageGraph};
+use pure_stage::{StageGraph, tokio::TokioBuilder};
 use std::time::Duration;
 use tokio::time::timeout;
 

@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use amaru_kernel::{cbor, Point, HEADER_HASH_SIZE};
+use amaru_kernel::{HEADER_HASH_SIZE, Point, cbor};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
 use std::fmt::{Debug, Formatter};

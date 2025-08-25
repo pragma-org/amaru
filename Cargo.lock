@@ -48,7 +48,6 @@ dependencies = [
  "acto",
  "amaru-consensus",
  "amaru-iter-borrow",
- "amaru-iter-borrow",
  "amaru-kernel",
  "amaru-ledger",
  "amaru-network",

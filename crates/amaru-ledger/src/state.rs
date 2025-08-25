@@ -19,9 +19,9 @@ use crate::{
         volatile_db::{StoreUpdate, VolatileDB},
     },
     store::{
-        columns::{pools, proposals},
         EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
         StoreError, TransactionalContext,
+        columns::{pools, proposals},
     },
     summary::{
         governance::{self, GovernanceSummary},
@@ -31,23 +31,23 @@ use crate::{
     },
 };
 use amaru_kernel::{
-    expect_stake_credential,
+    ComparableProposalId, ConstitutionalCommittee, EraHistory, Hash, Lovelace,
+    MemoizedTransactionOutput, MintedBlock, Point, PoolId, Slot, StakeCredential,
+    StakeCredentialType, TransactionInput, expect_stake_credential,
     network::NetworkName,
     protocol_parameters::{GlobalParameters, ProtocolParameters},
-    stake_credential_hash, ComparableProposalId, ConstitutionalCommittee, EraHistory, Hash,
-    Lovelace, MemoizedTransactionOutput, MintedBlock, Point, PoolId, Slot, StakeCredential,
-    StakeCredentialType, TransactionInput,
+    stake_credential_hash,
 };
 use amaru_ouroboros_traits::{HasStakeDistribution, PoolSummary};
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use std::{
     borrow::Cow,
-    collections::{btree_map, BTreeMap, BTreeSet, VecDeque},
+    collections::{BTreeMap, BTreeSet, VecDeque, btree_map},
     ops::Deref,
     sync::{Arc, Mutex, MutexGuard},
 };
 use thiserror::Error;
-use tracing::{debug, info, instrument, trace, Level};
+use tracing::{Level, debug, info, instrument, trace};
 use volatile_db::AnchoredVolatileState;
 
 pub use volatile_db::VolatileState;
@@ -199,7 +199,7 @@ impl<S: Store, HS: HistoricalStores> State<S, HS> {
 
     /// Obtain a view of the stake distribution, to allow decoupling the ledger from other
     /// components that require access to it.
-    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution {
+    pub fn view_stake_distribution(&self) -> impl HasStakeDistribution + use<S, HS> {
         StakeDistributionObserver {
             view: self.stake_distributions.clone(),
             era_history: self.era_history.clone(),
@@ -611,10 +611,10 @@ fn end_epoch<'store>(
             if let Some(rewards) = rewards_summary.extract_rewards(&account) {
                 // The condition avoids the mutable borrow when not needed, which will incur a db
                 // operation.
-                if rewards > 0 {
-                    if let Some(account) = row.borrow_mut() {
-                        account.rewards += rewards;
-                    }
+                if rewards > 0
+                    && let Some(account) = row.borrow_mut()
+                {
+                    account.rewards += rewards;
                 }
             }
         }

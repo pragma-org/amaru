@@ -17,20 +17,19 @@ use crate::in_memory::ledger::columns::{
 };
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, ComparableProposalId, Constitution,
-    ConstitutionalCommittee, EraHistory, Lovelace, Point, PoolId, Slot, StakeCredential,
-    TransactionInput,
+    ComparableProposalId, Constitution, ConstitutionalCommittee, EraHistory, Lovelace, Point,
+    PoolId, Slot, StakeCredential, TransactionInput, protocol_parameters::ProtocolParameters,
 };
 use amaru_ledger::{
     governance::ratification::{ProposalsRoots, ProposalsRootsRc},
     store::{
+        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
+        StoreError, TransactionalContext,
         columns::{
             accounts as accounts_column, cc_members as cc_members_column, dreps as dreps_column,
             pools as pools_column, pots, proposals as proposals_column, slots, utxo as utxo_column,
             votes as votes_column,
         },
-        EpochTransitionProgress, GovernanceActivity, HistoricalStores, ReadStore, Snapshot, Store,
-        StoreError, TransactionalContext,
     },
 };
 use amaru_slot_arithmetic::Epoch;
@@ -699,13 +698,13 @@ impl<'a> TransactionalContext<'a> for MemoryTransactionalContext<'a> {
                 *self.store.tip.borrow_mut() = Some(point.clone());
 
                 // Add issuer to new slot row
-                if let Point::Specific(slot, _) = point {
-                    if let Some(issuer) = issuer {
-                        self.store.slots.borrow_mut().insert(
-                            Slot::from(*slot),
-                            amaru_ledger::store::columns::slots::Row::new(*issuer),
-                        );
-                    }
+                if let Point::Specific(slot, _) = point
+                    && let Some(issuer) = issuer
+                {
+                    self.store.slots.borrow_mut().insert(
+                        Slot::from(*slot),
+                        amaru_ledger::store::columns::slots::Row::new(*issuer),
+                    );
                 }
             }
         }
@@ -860,12 +859,13 @@ mod tests {
     use crate::{
         in_memory::MemoryStore,
         tests::{
-            add_test_data_to_store, test_epoch_transition, test_read_account, test_read_drep,
-            test_read_pool, test_read_utxo, test_refund_account, test_remove_account,
-            test_remove_drep, test_remove_pool, test_remove_utxo, test_slot_updated, Fixture,
+            Fixture, add_test_data_to_store, test_epoch_transition, test_read_account,
+            test_read_drep, test_read_pool, test_read_utxo, test_refund_account,
+            test_remove_account, test_remove_drep, test_remove_pool, test_remove_utxo,
+            test_slot_updated,
         },
     };
-    use amaru_kernel::{network::NetworkName, EraHistory};
+    use amaru_kernel::{EraHistory, network::NetworkName};
     use amaru_ledger::store::StoreError;
     use proptest::test_runner::TestRunner;
 

@@ -14,8 +14,8 @@
 
 use crate::in_memory::MemoryStore;
 use amaru_ledger::store::{
-    columns::proposals::{Key, Value},
     StoreError,
+    columns::proposals::{Key, Value},
 };
 
 pub fn add(

@@ -15,8 +15,8 @@
 use crate::in_memory::MemoryStore;
 use amaru_kernel::{CertificatePointer, DRepRegistration};
 use amaru_ledger::store::{
-    columns::dreps::{Key, Row, Value},
     StoreError,
+    columns::dreps::{Key, Row, Value},
 };
 use tracing::error;
 

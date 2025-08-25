@@ -13,10 +13,10 @@
 // limitations under the License.
 
 use crate::{
-    cbor, heterogeneous_array, EpochInterval, Language, Lovelace, ProtocolVersion, RationalNumber,
+    EpochInterval, Language, Lovelace, ProtocolVersion, RationalNumber, cbor, heterogeneous_array,
 };
 use amaru_slot_arithmetic::Slot;
-use pallas_codec::minicbor::{data::Tag, Decoder};
+use pallas_codec::minicbor::{Decoder, data::Tag};
 
 pub use crate::{
     CostModel, CostModels, DRepVotingThresholds, ExUnitPrices, ExUnits, PoolVotingThresholds,
@@ -437,14 +437,14 @@ pub struct GlobalParameters {
 pub mod tests {
     use super::PREPROD_INITIAL_PROTOCOL_PARAMETERS;
     use crate::{
+        CostModel, DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, KeyValuePairs, Lovelace,
+        Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, RewardAccount, ScriptHash,
+        Set, StakeCredential,
         protocol_parameters::{CostModels, ProtocolParameters, ProtocolVersion},
         tests::{
             any_constitution, any_nullable, any_proposal_id, any_rational_number,
             any_reward_account, any_script_hash, any_stake_credential,
         },
-        CostModel, DRepVotingThresholds, ExUnitPrices, ExUnits, GovAction, KeyValuePairs, Lovelace,
-        Nullable, PoolVotingThresholds, ProposalId, ProtocolParamUpdate, RewardAccount, ScriptHash,
-        Set, StakeCredential,
     };
     use proptest::{collection, option, prelude::*};
 

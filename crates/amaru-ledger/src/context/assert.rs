@@ -13,22 +13,23 @@
 // limitations under the License.
 
 use crate::context::{
-    blanket_known_datums, blanket_known_scripts, AccountState, AccountsSlice, CCMember,
-    CommitteeSlice, DRepsSlice, DelegateError, Hash, PoolsSlice, PotsSlice, PreparationContext,
-    PrepareAccountsSlice, PrepareDRepsSlice, PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice,
-    RegisterError, UnregisterError, UpdateError, UtxoSlice, ValidationContext, WitnessSlice,
+    AccountState, AccountsSlice, CCMember, CommitteeSlice, DRepsSlice, DelegateError, Hash,
+    PoolsSlice, PotsSlice, PreparationContext, PrepareAccountsSlice, PrepareDRepsSlice,
+    PreparePoolsSlice, PrepareUtxoSlice, ProposalsSlice, RegisterError, UnregisterError,
+    UpdateError, UtxoSlice, ValidationContext, WitnessSlice, blanket_known_datums,
+    blanket_known_scripts,
 };
 use amaru_kernel::{
-    serde_utils, stake_credential_hash, voter_credential_hash, AddrKeyhash, Anchor,
-    CertificatePointer, DRep, DRepRegistration, DatumHash, Lovelace, MemoizedPlutusData,
-    MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal, ProposalId,
-    ProposalPointer, RequiredScript, ScriptHash, StakeCredential, StakeCredentialType,
-    TransactionInput, Vote, Voter, VoterType,
+    AddrKeyhash, Anchor, CertificatePointer, DRep, DRepRegistration, DatumHash, Lovelace,
+    MemoizedPlutusData, MemoizedScript, MemoizedTransactionOutput, PoolId, PoolParams, Proposal,
+    ProposalId, ProposalPointer, RequiredScript, ScriptHash, StakeCredential, StakeCredentialType,
+    TransactionInput, Vote, Voter, VoterType, serde_utils, stake_credential_hash,
+    voter_credential_hash,
 };
 use amaru_slot_arithmetic::Epoch;
 use core::mem;
 use std::collections::{BTreeMap, BTreeSet};
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 // ------------------------------------------------------------------------------------- Preparation
 

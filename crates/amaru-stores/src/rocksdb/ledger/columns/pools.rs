@@ -12,13 +12,13 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
+use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
 use amaru_ledger::store::{
+    StoreError,
     columns::{
-        pools::{Key, Row, Value, EVENT_TARGET},
+        pools::{EVENT_TARGET, Key, Row, Value},
         unsafe_decode,
     },
-    StoreError,
 };
 use amaru_slot_arithmetic::Epoch;
 use rocksdb::Transaction;

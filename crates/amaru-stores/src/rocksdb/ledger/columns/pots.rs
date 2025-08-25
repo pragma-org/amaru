@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{as_value, PREFIX_LEN};
+use crate::rocksdb::common::{PREFIX_LEN, as_value};
 use amaru_ledger::store::{
-    columns::{pots::Row, unsafe_decode},
     StoreError,
+    columns::{pots::Row, unsafe_decode},
 };
 use rocksdb::Transaction;
 

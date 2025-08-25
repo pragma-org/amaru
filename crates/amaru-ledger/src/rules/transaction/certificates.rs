@@ -20,9 +20,9 @@ use crate::{
     store::GovernanceActivity,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, Certificate, CertificatePointer, DRep,
-    DRepRegistration, EraHistory, MemoizedDatum, NonEmptySet, PoolId, PoolParams, RequiredScript,
-    ScriptHash, ScriptPurpose, StakeCredential, TransactionPointer, PROTOCOL_VERSION_9,
+    Certificate, CertificatePointer, DRep, DRepRegistration, EraHistory, MemoizedDatum,
+    NonEmptySet, PROTOCOL_VERSION_9, PoolId, PoolParams, RequiredScript, ScriptHash, ScriptPurpose,
+    StakeCredential, TransactionPointer, protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use thiserror::Error;

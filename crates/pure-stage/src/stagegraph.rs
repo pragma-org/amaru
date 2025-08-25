@@ -13,8 +13,8 @@
 // limitations under the License.
 
 use crate::{
-    types::MpscSender, BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources,
-    SendData, Sender, StageBuildRef, StageRef, Void,
+    BoxFuture, Effects, Instant, Name, OutputEffect, Receiver, Resources, SendData, Sender,
+    StageBuildRef, StageRef, Void, types::MpscSender,
 };
 use std::{
     fmt::Debug,

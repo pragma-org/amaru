@@ -19,8 +19,8 @@ use crate::{
     store::GovernanceActivity,
 };
 use amaru_kernel::{
-    protocol_parameters::ProtocolParameters, AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits,
-    Hash, Hasher, MintedBlock, Network, OriginalHash, TransactionId, TransactionPointer,
+    AuxiliaryDataHash, EraHistory, ExUnits, HasExUnits, Hash, Hasher, MintedBlock, Network,
+    OriginalHash, TransactionId, TransactionPointer, protocol_parameters::ProtocolParameters,
 };
 use amaru_slot_arithmetic::Slot;
 use std::{
@@ -28,7 +28,7 @@ use std::{
     ops::{ControlFlow, Deref, FromResidual, Try},
     process::{ExitCode, Termination},
 };
-use tracing::{instrument, Level};
+use tracing::{Level, instrument};
 
 pub mod body_size;
 pub mod ex_units;

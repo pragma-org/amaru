@@ -14,8 +14,8 @@
 
 use crate::in_memory::MemoryStore;
 use amaru_ledger::store::{
-    columns::pools::{Key, Row, Value},
     StoreError,
+    columns::pools::{Key, Row, Value},
 };
 use amaru_slot_arithmetic::Epoch;
 use tracing::error;

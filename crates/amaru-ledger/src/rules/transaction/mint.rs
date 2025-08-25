@@ -38,7 +38,7 @@ where
 #[cfg(test)]
 mod tests {
     use crate::{context::assert::AssertValidationContext, rules::tests::fixture_context};
-    use amaru_kernel::{include_cbor, include_json, json, MintedTransactionBody};
+    use amaru_kernel::{MintedTransactionBody, include_cbor, include_json, json};
     use amaru_tracing_json::assert_trace;
     use test_case::test_case;
 

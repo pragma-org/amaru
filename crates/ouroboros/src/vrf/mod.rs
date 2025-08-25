@@ -17,7 +17,7 @@
 //! <https://datatracker.ietf.org/doc/html/draft-irtf-cfrg-vrf-03>
 
 use amaru_slot_arithmetic::Slot;
-pub use pallas_primitives::babbage::{derive_tagged_vrf_output, VrfDerivation as Derivation};
+pub use pallas_primitives::babbage::{VrfDerivation as Derivation, derive_tagged_vrf_output};
 use std::{array::TryFromSliceError, ops::Deref};
 
 use crate::{Hash, Hasher};
@@ -128,7 +128,7 @@ impl Input {
     #[cfg(test)]
     /// Generate an arbitrary input challenge filled with random bytes.
     pub fn arbitrary() -> Self {
-        use rand::{rng, Rng};
+        use rand::{Rng, rng};
         let mut challenge = [0u8; Self::SIZE];
         rng().fill(&mut challenge);
         Input(challenge.into())
@@ -246,7 +246,7 @@ mod tests {
     struct WrappedSecretKey(SecretKey);
     impl std::fmt::Debug for WrappedSecretKey {
         fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-            write!(f, "{}", hex::encode(self.0 .0.to_bytes()))
+            write!(f, "{}", hex::encode(self.0.0.to_bytes()))
         }
     }
 

@@ -15,7 +15,7 @@
 use std::fmt;
 
 use crate::{consensus::validate_header::ValidationFailed, is_header::IsHeader};
-use amaru_kernel::{peer::Peer, protocol_parameters::GlobalParameters, Header, Point};
+use amaru_kernel::{Header, Point, peer::Peer, protocol_parameters::GlobalParameters};
 use pure_stage::{StageGraph, StageRef, Void};
 use serde::{Deserialize, Serialize};
 use tracing::Span;

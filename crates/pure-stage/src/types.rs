@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::serde::{to_cbor, SendDataValue};
+use crate::serde::{SendDataValue, to_cbor};
 use anyhow::Context;
 use cbor4ii::serde::from_slice;
 use std::{
-    any::{type_name, Any},
+    any::{Any, type_name},
     borrow::Borrow,
     fmt,
     future::Future,

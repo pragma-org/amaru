@@ -15,7 +15,7 @@
 use crate::state::diff_bind::Resettable;
 use amaru_iter_borrow::IterBorrow;
 use amaru_kernel::{
-    cbor, Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential,
+    Anchor, CertificatePointer, DRepRegistration, Epoch, Lovelace, StakeCredential, cbor,
 };
 
 pub const EVENT_TARGET: &str = "amaru::ledger::store::dreps";

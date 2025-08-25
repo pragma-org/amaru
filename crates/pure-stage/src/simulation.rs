@@ -28,18 +28,18 @@
 //!
 
 use crate::{
+    BoxFuture, Effects, Instant, Name, Resources, SendData, Sender, StageBuildRef, StageRef,
     effect::{StageEffect, StageResponse},
     time::Clock,
     trace_buffer::TraceBuffer,
-    BoxFuture, Effects, Instant, Name, Resources, SendData, Sender, StageBuildRef, StageRef,
 };
 use either::Either;
 use parking_lot::Mutex;
 use std::{
     collections::{BTreeMap, VecDeque},
-    future::{poll_fn, Future},
+    future::{Future, poll_fn},
     marker::PhantomData,
-    sync::{atomic::AtomicU64, Arc},
+    sync::{Arc, atomic::AtomicU64},
     task::Poll,
 };
 use tokio::runtime::Handle;

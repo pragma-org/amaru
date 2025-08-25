@@ -12,10 +12,10 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::store::{columns::dreps, GovernanceActivity, Snapshot, StoreError};
+use crate::store::{GovernanceActivity, Snapshot, StoreError, columns::dreps};
 use amaru_kernel::{
-    expect_stake_credential, network::EraHistory, Anchor, CertificatePointer, DRep, Lovelace, Slot,
-    StakeCredential, TransactionPointer,
+    Anchor, CertificatePointer, DRep, Lovelace, Slot, StakeCredential, TransactionPointer,
+    expect_stake_credential, network::EraHistory,
 };
 use amaru_slot_arithmetic::{Epoch, EraHistoryError};
 use std::collections::{BTreeMap, BTreeSet};

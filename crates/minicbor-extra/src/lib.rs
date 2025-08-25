@@ -128,9 +128,9 @@ mod tests {
             ) -> Result<(), cbor::encode::Error<W::Error>> {
                 e.begin_map()?;
                 e.encode_with(0_u8, ctx)?;
-                e.encode_with(self.0 .0.field0, ctx)?;
+                e.encode_with(self.0.0.field0, ctx)?;
                 e.encode_with(1_u8, ctx)?;
-                e.encode_with(self.0 .0.field1, ctx)?;
+                e.encode_with(self.0.0.field1, ctx)?;
                 e.end()?;
                 Ok(())
             }
@@ -157,9 +157,9 @@ mod tests {
             ) -> Result<(), cbor::encode::Error<W::Error>> {
                 e.map(2)?;
                 e.encode_with(0_u8, ctx)?;
-                e.encode_with(self.0 .0.field0, ctx)?;
+                e.encode_with(self.0.0.field0, ctx)?;
                 e.encode_with(1_u8, ctx)?;
-                e.encode_with(self.0 .0.field1, ctx)?;
+                e.encode_with(self.0.0.field1, ctx)?;
                 Ok(())
             }
         }

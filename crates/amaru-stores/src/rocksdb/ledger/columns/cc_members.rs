@@ -12,11 +12,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::rocksdb::common::{as_key, as_value, PREFIX_LEN};
-use amaru_kernel::{stake_credential_hash, StakeCredentialType};
+use crate::rocksdb::common::{PREFIX_LEN, as_key, as_value};
+use amaru_kernel::{StakeCredentialType, stake_credential_hash};
 use amaru_ledger::{
     state::diff_bind::Resettable,
-    store::{columns::unsafe_decode, StoreError},
+    store::{StoreError, columns::unsafe_decode},
 };
 use rocksdb::Transaction;
 use tracing::error;
