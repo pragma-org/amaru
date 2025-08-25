@@ -35,3 +35,17 @@ impl Peer {
         }
     }
 }
+
+impl From<&str> for Peer {
+    fn from(name: &str) -> Self {
+        Peer {
+            name: name.to_string(),
+        }
+    }
+}
+
+impl From<String> for Peer {
+    fn from(name: String) -> Self {
+        Peer { name }
+    }
+}

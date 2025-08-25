@@ -14,7 +14,7 @@
 
 use crate::{
     ConsensusError,
-    consensus::{ValidationFailed, store_effects::EvolveNonceEffect},
+    consensus::{ValidationFailed, errors::Errors, store_effects::EvolveNonceEffect},
     span::adopt_current_span,
 };
 use amaru_kernel::{Hash, Header, Nonce, Point, protocol_parameters::GlobalParameters, to_cbor};
@@ -115,7 +115,7 @@ type State = (
     ValidateHeader,
     GlobalParameters,
     StageRef<DecodedChainSyncEvent, Void>,
-    StageRef<ValidationFailed, Void>,
+    StageRef<Errors, Void>,
 );
 
 pub async fn stage(
@@ -153,7 +153,11 @@ pub async fn stage(
                     tracing::error!(%peer, %error, "evolve nonce failed");
                     eff.send(
                         &errors,
-                        ValidationFailed::new(peer.clone(), point.clone(), error.into()),
+                        Errors::Validation(ValidationFailed::new(
+                            peer.clone(),
+                            point.clone(),
+                            error.into(),
+                        )),
                     )
                     .await;
                     return false;
@@ -172,7 +176,7 @@ pub async fn stage(
                 tracing::info!(%peer, %error, "invalid header");
                 eff.send(
                     &errors,
-                    ValidationFailed::new(peer.clone(), point.clone(), error),
+                    Errors::Validation(ValidationFailed::new(peer.clone(), point.clone(), error)),
                 )
                 .await;
                 false

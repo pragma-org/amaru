@@ -16,7 +16,6 @@ use crate::cmd::connect_to_peer;
 use amaru::stages::pull;
 use amaru_consensus::{IsHeader, consensus::store::ChainStore};
 use amaru_kernel::{Header, Point, default_chain_dir, from_cbor, network::NetworkName, peer::Peer};
-use amaru_network::session::PeerSession;
 use amaru_progress_bar::{ProgressBar, new_terminal_progress_bar};
 use amaru_stores::rocksdb::consensus::RocksDBStore;
 use clap::Parser;
@@ -28,7 +27,7 @@ use std::{
     sync::{Arc, RwLock},
     time::Duration,
 };
-use tokio::{sync::Mutex, time::timeout};
+use tokio::time::timeout;
 use tracing::info;
 
 #[derive(Debug, Parser)]
@@ -105,29 +104,20 @@ pub(crate) async fn import_headers(
     let era_history = network_name.into();
     let mut db = RocksDBStore::new(chain_db_dir, era_history)?;
 
-    let peer_client = Arc::new(Mutex::new(
-        connect_to_peer(peer_address, &network_name).await?,
-    ));
-
-    let peer_session = PeerSession {
-        peer: Peer::new(peer_address),
-        peer_client,
-    };
+    let peer_client = connect_to_peer(peer_address, &network_name).await?;
 
     let pull = pull::Stage::new(
-        peer_session.clone(),
+        Peer::new(peer_address),
+        peer_client.chainsync,
         vec![point.clone()],
         Arc::new(RwLock::new(true)),
     );
 
     pull.find_intersection().await?;
 
-    let mut peer_client = peer_session.lock().await;
     let mut count = 0;
-
-    let client = (*peer_client).chainsync();
-
     let mut progress: Option<Box<dyn ProgressBar>> = None;
+    let mut client = pull.client.lock().await;
 
     // TODO: implement a proper pipelined client because this one is super slow
     // Pipelining in Haskell is single threaded which implies the code handles
@@ -138,9 +128,9 @@ pub(crate) async fn import_headers(
     // Pipelining stops when we reach the tip of the peer's chain.
     loop {
         let what = if client.has_agency() {
-            request_next_block(client, &mut db, &mut count, &mut progress, max).await?
+            request_next_block(&mut client, &mut db, &mut count, &mut progress, max).await?
         } else {
-            await_for_next_block(client, &mut db, &mut count, &mut progress, max).await?
+            await_for_next_block(&mut client, &mut db, &mut count, &mut progress, max).await?
         };
         match what {
             Continue => continue,

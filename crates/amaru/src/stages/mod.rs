@@ -16,8 +16,14 @@ use crate::stages::pure_stage_util::{PureStageSim, RecvAdapter, SendAdapter};
 use amaru_consensus::{
     ConsensusError, IsHeader,
     consensus::{
-        ChainSyncEvent, build_stage_graph, headers_tree::HeadersTree, select_chain::SelectChain,
-        store::ChainStore, store_block::StoreBlock, store_effects, validate_header::ValidateHeader,
+        ChainSyncEvent, build_stage_graph,
+        fetch_block::{self, FetchBlockFn},
+        headers_tree::HeadersTree,
+        select_chain::SelectChain,
+        store::ChainStore,
+        store_block::StoreBlock,
+        store_effects,
+        validate_header::ValidateHeader,
     },
 };
 use amaru_kernel::{
@@ -27,7 +33,6 @@ use amaru_kernel::{
     peer::Peer,
     protocol_parameters::GlobalParameters,
 };
-use amaru_network::session::PeerSession;
 use amaru_stores::{
     in_memory::MemoryStore,
     rocksdb::{
@@ -36,9 +41,7 @@ use amaru_stores::{
     },
 };
 use anyhow::Context;
-use consensus::{
-    fetch_block::BlockFetchStage, forward_chain::ForwardChainStage, store_block::StoreBlockStage,
-};
+use consensus::{forward_chain::ForwardChainStage, store_block::StoreBlockStage};
 use gasket::{
     messaging::OutputPort,
     runtime::{self, Tether, spawn_stage},
@@ -106,7 +109,7 @@ impl Default for Config {
 #[allow(clippy::todo)]
 pub fn bootstrap(
     config: Config,
-    clients: Vec<(String, Arc<Mutex<PeerClient>>)>,
+    clients: Vec<(String, PeerClient)>,
     exit: CancellationToken,
 ) -> Result<Vec<Tether>, Box<dyn std::error::Error>> {
     let era_history: &EraHistory = config.network.into();
@@ -123,26 +126,33 @@ pub fn bootstrap(
         is_catching_up.clone(),
     )?;
 
-    let peer_sessions: Vec<PeerSession> = clients
-        .iter()
-        .map(|(peer_name, client)| PeerSession {
-            peer: Peer::new(peer_name),
-            peer_client: client.clone(),
+    let (chain_syncs, block_fetches) = clients
+        .into_iter()
+        .map(|(name, client)| {
+            let PeerClient {
+                chainsync,
+                blockfetch,
+                ..
+            } = client;
+            (
+                (Peer::new(&name), chainsync),
+                (Peer::from(name), blockfetch),
+            )
         })
-        .collect();
+        .collect::<(Vec<_>, Vec<_>)>();
 
-    let mut fetch_block_stage = BlockFetchStage::new(peer_sessions.as_slice());
-
-    let mut stages = peer_sessions
-        .iter()
-        .map(|session| pull::Stage::new(session.clone(), vec![tip.clone()], is_catching_up.clone()))
+    let mut stages = chain_syncs
+        .into_iter()
+        .map(|(peer, chain_sync)| {
+            pull::Stage::new(peer, chain_sync, vec![tip.clone()], is_catching_up.clone())
+        })
         .collect::<Vec<_>>();
 
     let (our_tip, header, chain_store_ref) = make_chain_store(&config, era_history, tip)?;
 
     let chain_selector = make_chain_selector(
         header,
-        &peer_sessions,
+        block_fetches.iter().map(|(peer, _)| peer),
         global_parameters.consensus_security_param,
     )?;
 
@@ -167,7 +177,6 @@ pub fn bootstrap(
         our_tip,
     );
 
-    let (to_store_block, from_fetch_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_ledger, from_store_block) = gasket::messaging::tokio::mpsc_channel(50);
     let (to_block_forward, from_ledger) = gasket::messaging::tokio::mpsc_channel(50);
 
@@ -183,6 +192,31 @@ pub fn bootstrap(
         output_ref,
     );
     let graph_input = network.input(&graph_input);
+
+    network.resources().put(fetch_block::FetchBlockResource {
+        sessions: block_fetches
+            .into_iter()
+            .map(|(peer, block_fetch)| {
+                let block_fetch = Arc::new(Mutex::new(block_fetch));
+                let peer2 = peer.clone();
+                let f: FetchBlockFn = Box::new(move |point: Point| {
+                    let block_fetch = block_fetch.clone();
+                    let peer = peer2.clone();
+                    Box::pin(async move {
+                        let mut block_fetch = block_fetch.lock().await;
+                        block_fetch
+                            .fetch_single(to_pallas_point(&point))
+                            .await
+                            .map_err(|error| {
+                                tracing::info!(%error, %peer, "failed to fetch block");
+                                ConsensusError::FetchBlockFailed(point)
+                            })
+                    })
+                });
+                (peer, f)
+            })
+            .collect(),
+    });
 
     network
         .resources()
@@ -204,12 +238,9 @@ pub fn bootstrap(
         output.connect(SendAdapter(graph_input.clone()));
     }
 
-    fetch_block_stage
+    store_block_stage
         .upstream
         .connect(RecvAdapter(output_stage));
-    fetch_block_stage.downstream.connect(to_store_block);
-
-    store_block_stage.upstream.connect(from_fetch_block);
     store_block_stage.downstream.connect(to_ledger);
 
     ledger_stage.connect(from_store_block, to_block_forward);
@@ -226,7 +257,6 @@ pub fn bootstrap(
 
     let pure_stages = gasket::runtime::spawn_stage(pure_stages, policy.clone());
 
-    let fetch = gasket::runtime::spawn_stage(fetch_block_stage, policy.clone());
     let store_block = gasket::runtime::spawn_stage(store_block_stage, policy.clone());
     let ledger = ledger_stage.spawn(policy.clone());
     let block_forward = gasket::runtime::spawn_stage(forward_chain_stage, policy.clone());
@@ -234,7 +264,6 @@ pub fn bootstrap(
     stages.push(pure_stages);
 
     stages.push(store_block);
-    stages.push(fetch);
     stages.push(ledger);
     stages.push(block_forward);
     Ok(stages)
@@ -342,9 +371,9 @@ fn make_ledger(
     }
 }
 
-fn make_chain_selector(
+fn make_chain_selector<'a>(
     header: Option<Header>,
-    peers: &Vec<PeerSession>,
+    peers: impl IntoIterator<Item = &'a Peer>,
     _consensus_security_parameter: usize,
 ) -> Result<SelectChain, ConsensusError> {
     // TODO: initialize the headers tree from the ChainDB store
@@ -365,7 +394,7 @@ fn make_chain_selector(
     let mut tree = HeadersTree::new(100, header);
 
     for peer in peers {
-        tree.initialize_peer(&peer.peer, &root_hash)?;
+        tree.initialize_peer(peer, &root_hash)?;
     }
 
     Ok(SelectChain::new(tree))

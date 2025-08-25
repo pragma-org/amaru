@@ -14,12 +14,10 @@
 
 use crate::send;
 use amaru_consensus::consensus::ChainSyncEvent;
-use amaru_kernel::Point;
-use amaru_network::{
-    chain_sync_client::ChainSyncClient, point::from_network_point, session::PeerSession,
-};
+use amaru_kernel::{peer::Peer, Point};
+use amaru_network::{chain_sync_client::ChainSyncClient, point::from_network_point};
 use gasket::framework::*;
-use pallas_network::miniprotocols::chainsync::{HeaderContent, NextResponse, Tip};
+use pallas_network::miniprotocols::chainsync::{self, HeaderContent, NextResponse, Tip};
 use std::sync::{Arc, RwLock};
 use tracing::{Level, instrument};
 
@@ -39,12 +37,13 @@ pub struct Stage {
 
 impl Stage {
     pub fn new(
-        peer_session: PeerSession,
+        peer: Peer,
+        chain_sync: chainsync::N2NClient,
         intersection: Vec<Point>,
         is_catching_up: Arc<RwLock<bool>>,
     ) -> Self {
         Self {
-            client: ChainSyncClient::new(peer_session, intersection, is_catching_up),
+            client: ChainSyncClient::new(peer, chain_sync, intersection, is_catching_up),
             downstream: Default::default(),
         }
     }

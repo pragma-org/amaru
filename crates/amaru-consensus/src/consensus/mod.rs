@@ -15,10 +15,14 @@
 use std::fmt;
 
 use crate::{ConsensusError, consensus::select_chain::SelectChain, is_header::IsHeader};
-use amaru_kernel::{Header, Point, peer::Peer, protocol_parameters::GlobalParameters};
+use amaru_kernel::{
+    Header, Point, block::ValidateBlockEvent, peer::Peer, protocol_parameters::GlobalParameters,
+};
 use pure_stage::{StageGraph, StageRef, Void};
 use tracing::Span;
 
+pub mod errors;
+pub mod fetch_block;
 pub mod headers_tree;
 pub mod receive_header;
 pub mod select_chain;
@@ -36,31 +40,29 @@ pub fn build_stage_graph(
     consensus: validate_header::ValidateHeader,
     chain_selector: SelectChain,
     network: &mut impl StageGraph,
-    outputs: StageRef<ValidateHeaderEvent, Void>,
+    outputs: StageRef<ValidateBlockEvent, Void>,
 ) -> StageRef<ChainSyncEvent, Void> {
     let receive_header_stage = network.stage("receive_header", receive_header::stage);
     let store_header_stage = network.stage("store_header", store_header::stage);
     let validate_header_stage = network.stage("validate_header", validate_header::stage);
     let select_chain_stage = network.stage("select_chain", select_chain::stage);
+    let fetch_block_stage = network.stage("fetch_block", fetch_block::stage);
 
     // TODO: currently only validate_header errors, will need to grow into all error handling
-    let upstream_errors_stage = network.stage("upstream_errors", async |_, msg, eff| {
-        let ValidationFailed { peer, point, error } = msg;
-        tracing::error!(%peer, %point, %error, "invalid header");
-
-        // TODO: implement specific actions once we have an upstream network
-
-        // termination here will tear down the entire stage graph
-        eff.terminate().await
-    });
+    let upstream_errors_stage = network.stage("upstream_errors", errors::stage);
 
     let upstream_errors_stage = network.wire_up(upstream_errors_stage, ());
+
+    let fetch_block_stage = network.wire_up(
+        fetch_block_stage,
+        (outputs, upstream_errors_stage.without_state()),
+    );
 
     let select_chain_stage = network.wire_up(
         select_chain_stage,
         (
             chain_selector,
-            outputs.without_state(),
+            fetch_block_stage.without_state(),
             upstream_errors_stage.without_state(),
         ),
     );
@@ -97,6 +99,19 @@ pub struct ValidationFailed {
 }
 
 impl ValidationFailed {
+    pub fn new(peer: Peer, point: Point, error: ConsensusError) -> Self {
+        Self { peer, point, error }
+    }
+}
+
+#[derive(Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BlockFetchFailed {
+    pub peer: Peer,
+    pub point: Point,
+    pub error: ConsensusError,
+}
+
+impl BlockFetchFailed {
     pub fn new(peer: Peer, point: Point, error: ConsensusError) -> Self {
         Self { peer, point, error }
     }

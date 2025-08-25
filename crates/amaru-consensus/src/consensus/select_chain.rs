@@ -14,6 +14,7 @@
 
 use super::{DecodedChainSyncEvent, ValidateHeaderEvent};
 use crate::consensus::ValidationFailed;
+use crate::consensus::errors::Errors;
 use crate::consensus::headers_tree::HeadersTree;
 use crate::span::adopt_current_span;
 use crate::{ConsensusError, consensus::EVENT_TARGET};
@@ -201,7 +202,7 @@ pub enum RollbackChainSelection<H: IsHeader> {
 type State = (
     SelectChain,
     StageRef<ValidateHeaderEvent, Void>,
-    StageRef<ValidationFailed, Void>,
+    StageRef<Errors, Void>,
 );
 
 pub async fn stage(
@@ -217,8 +218,11 @@ pub async fn stage(
         let events = match select_chain.handle_chain_sync(msg).await {
             Ok(events) => events,
             Err(e) => {
-                eff.send(&errors, ValidationFailed::new(peer, point, e))
-                    .await;
+                eff.send(
+                    &errors,
+                    Errors::Validation(ValidationFailed::new(peer, point, e)),
+                )
+                .await;
                 return (select_chain, downstream, errors);
             }
         };

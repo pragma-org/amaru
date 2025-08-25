@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{ConsensusError, span::adopt_current_span};
+use crate::{ConsensusError, consensus::errors::Errors, span::adopt_current_span};
 use amaru_kernel::{Hash, Header, MintedHeader, Point, cbor};
 use tracing::{Instrument, Level, instrument};
 
@@ -41,7 +41,7 @@ pub fn receive_header(point: &Point, raw_header: &[u8]) -> Result<Header, Consen
 
 type State = (
     StageRef<DecodedChainSyncEvent, Void>,
-    StageRef<ValidationFailed, Void>,
+    StageRef<Errors, Void>,
 );
 
 pub async fn stage(
@@ -62,8 +62,11 @@ pub async fn stage(
                     Ok(header) => header,
                     Err(error) => {
                         tracing::error!(%error, %point, %peer, "Failed to decode header");
-                        eff.send(&errors, ValidationFailed::new(peer, point.clone(), error))
-                            .await;
+                        eff.send(
+                            &errors,
+                            Errors::Validation(ValidationFailed::new(peer, point.clone(), error)),
+                        )
+                        .await;
                         return (downstream, errors);
                     }
                 };

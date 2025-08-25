@@ -15,15 +15,17 @@
 use crate::{Point, RawBlock};
 use tracing::Span;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ValidateBlockEvent {
     Validated {
         point: Point,
         block: RawBlock,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
     Rollback {
         rollback_point: Point,
+        #[serde(skip, default = "Span::none")]
         span: Span,
     },
 }

@@ -12,12 +12,15 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::{point::to_network_point, session::PeerSession};
+use crate::point::to_network_point;
 use amaru_consensus::{RawHeader, consensus::ChainSyncEvent};
-use amaru_kernel::Point;
-use pallas_network::miniprotocols::chainsync::{ClientError, HeaderContent, NextResponse, Tip};
+use amaru_kernel::{Point, peer::Peer};
+use pallas_network::miniprotocols::chainsync::{
+    self, ClientError, HeaderContent, NextResponse, Tip,
+};
 use pallas_traverse::MultiEraHeader;
 use std::sync::{Arc, RwLock};
+use tokio::sync::{Mutex, MutexGuard};
 use tracing::{Level, Span, instrument};
 
 #[derive(Debug, thiserror::Error)]
@@ -41,19 +44,22 @@ pub fn to_traverse(header: &HeaderContent) -> Result<MultiEraHeader<'_>, ChainSy
 
 /// Handles chain synchronization network operations
 pub struct ChainSyncClient {
-    peer_session: PeerSession,
+    peer: Peer,
+    chain_sync: Arc<Mutex<chainsync::N2NClient>>,
     intersection: Vec<Point>,
     is_catching_up: Arc<RwLock<bool>>,
 }
 
 impl ChainSyncClient {
     pub fn new(
-        peer_session: PeerSession,
+        peer: Peer,
+        chain_sync: chainsync::N2NClient,
         intersection: Vec<Point>,
         is_catching_up: Arc<RwLock<bool>>,
     ) -> Self {
         Self {
-            peer_session,
+            peer,
+            chain_sync: Arc::new(Mutex::new(chain_sync)),
             intersection,
             is_catching_up,
         }
@@ -86,13 +92,12 @@ impl ChainSyncClient {
         skip_all,
         name = "chainsync_client.find_intersection",
         fields(
-            peer = self.peer_session.peer.name,
+            peer = self.peer.name,
             intersection.slot = %self.intersection.last().map(|p| p.slot_or_default()).unwrap_or_default(),
         ),
     )]
     pub async fn find_intersection(&self) -> Result<(), ChainSyncClientError> {
-        let mut peer_client = self.peer_session.peer_client.lock().await;
-        let client = (*peer_client).chainsync();
+        let mut client = self.chain_sync.lock().await;
         let (point, _) = client
             .find_intersect(
                 self.intersection
@@ -114,7 +119,7 @@ impl ChainSyncClient {
         &mut self,
         header: &HeaderContent,
     ) -> Result<ChainSyncEvent, ChainSyncClientError> {
-        let peer = &self.peer_session.peer;
+        let peer = &self.peer;
         let header = to_traverse(header)?;
         let point = Point::Specific(header.slot(), header.hash().to_vec());
 
@@ -135,7 +140,7 @@ impl ChainSyncClient {
         rollback_point: Point,
         _tip: Tip,
     ) -> Result<ChainSyncEvent, ChainSyncClientError> {
-        let peer = &self.peer_session.peer;
+        let peer = &self.peer;
         Ok(ChainSyncEvent::Rollback {
             peer: peer.clone(),
             rollback_point,
@@ -147,8 +152,7 @@ impl ChainSyncClient {
         &mut self,
     ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
         self.catching_up();
-        let mut peer_client = self.peer_session.lock().await;
-        let client = (*peer_client).chainsync();
+        let mut client = self.chain_sync.lock().await;
 
         client
             .request_next()
@@ -161,8 +165,7 @@ impl ChainSyncClient {
         &mut self,
     ) -> Result<NextResponse<HeaderContent>, ChainSyncClientError> {
         self.no_longer_catching_up();
-        let mut peer_client = self.peer_session.lock().await;
-        let client = (*peer_client).chainsync();
+        let mut client = self.chain_sync.lock().await;
 
         match client.recv_while_must_reply().await {
             Ok(result) => Ok(result),
@@ -174,8 +177,11 @@ impl ChainSyncClient {
     }
 
     pub async fn has_agency(&self) -> bool {
-        let mut peer_client = self.peer_session.lock().await;
-        let client = (*peer_client).chainsync();
+        let client = self.chain_sync.lock().await;
         client.has_agency()
+    }
+
+    pub async fn lock(&self) -> MutexGuard<'_, chainsync::N2NClient> {
+        self.chain_sync.lock().await
     }
 }
