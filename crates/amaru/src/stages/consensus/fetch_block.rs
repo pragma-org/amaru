@@ -14,9 +14,10 @@
 
 use std::collections::BTreeMap;
 
-use crate::{schedule, stages::common::adopt_current_span};
-use amaru_consensus::IsHeader;
-use amaru_consensus::{consensus::ValidateHeaderEvent, ConsensusError};
+use crate::schedule;
+use amaru_consensus::{
+    consensus::ValidateHeaderEvent, span::adopt_current_span, ConsensusError, IsHeader,
+};
 use amaru_kernel::{block::ValidateBlockEvent, peer::Peer, Point};
 use amaru_network::session::PeerSession;
 use gasket::framework::*;
@@ -134,7 +135,7 @@ impl gasket::framework::Worker<BlockFetchStage> for Worker {
         unit: &ValidateHeaderEvent,
         stage: &mut BlockFetchStage,
     ) -> Result<(), WorkerError> {
-        adopt_current_span(unit);
+        let _span = adopt_current_span(unit).entered();
         stage.handle_event(unit.clone()).await
     }
 }

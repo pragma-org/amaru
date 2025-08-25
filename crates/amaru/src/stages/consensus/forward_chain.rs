@@ -12,9 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use crate::stages::{common::adopt_current_span, PallasPoint};
+use crate::stages::PallasPoint;
 use acto::{AcTokio, ActoCell, ActoMsgSuper, ActoRef, ActoRuntime, MailboxSize};
-use amaru_consensus::{consensus::store::ChainStore, IsHeader};
+use amaru_consensus::{consensus::store::ChainStore, span::adopt_current_span, IsHeader};
 use amaru_kernel::{block::BlockValidationResult, Hash, Header};
 use client_protocol::{client_protocols, ClientProtocolMsg};
 use gasket::framework::*;
@@ -342,7 +342,7 @@ impl gasket::framework::Worker<ForwardChainStage> for Worker {
     ) -> Result<(), WorkerError> {
         match unit {
             Unit::Block(result) => {
-                adopt_current_span(result);
+                let _span = adopt_current_span(result).entered();
                 self.handle_validation_result(stage, result).await
             }
             Unit::Peer(peer) => {

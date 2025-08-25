@@ -15,9 +15,10 @@
 use amaru_kernel::{cbor, Point, HEADER_HASH_SIZE};
 use amaru_ouroboros_traits::is_header::IsHeader;
 use pallas_crypto::hash::Hash;
+use serde::{Deserialize, Serialize};
 use std::fmt::{Debug, Formatter};
 
-#[derive(PartialEq, Clone)]
+#[derive(PartialEq, Clone, Serialize, Deserialize)]
 pub enum Tip<H> {
     Genesis,
     Hdr(H),

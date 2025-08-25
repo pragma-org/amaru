@@ -47,7 +47,7 @@ tracing-subscriber.workspace = true
 tracing.workspace = true
 
 # Internal dependencies ───────────────────────────────────────────────────────┐
-amaru-consensus.workspace = true
+amaru-consensus = { workspace = true, features = ["telemetry"] }
 amaru-kernel.workspace = true
 amaru-ledger.workspace = true
 amaru-network.workspace = true

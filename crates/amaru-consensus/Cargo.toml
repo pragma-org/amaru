@@ -12,10 +12,15 @@ homepage.workspace = true
 documentation.workspace = true
 rust-version.workspace = true
 
+[features]
+default = []
+telemetry = ["opentelemetry", "tracing-opentelemetry"]
+
 [dependencies]
 anyhow.workspace = true
 hex.workspace = true
 indextree.workspace = true
+opentelemetry = { workspace = true, optional = true }
 pallas-crypto.workspace = true
 pallas-math.workspace = true
 rayon.workspace = true
@@ -23,6 +28,7 @@ serde.workspace = true
 thiserror.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+tracing-opentelemetry = { workspace = true, optional = true }
 
 amaru-kernel.workspace = true
 amaru-ouroboros.workspace = true
