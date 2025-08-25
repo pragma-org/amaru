@@ -53,11 +53,16 @@ pub struct PoolState {
     /// Number of blocks produced during an epoch by the underlying pool.
     pub blocks_count: u64,
 
-    /// The stake used for verifying the leader-schedule.
-    pub stake: Lovelace,
+    /// The stake used for calculating rewards.
+    pub rewards_stake: Lovelace,
+
+    /// The stake used for verifying the leader-schedule. It includes proposal deposits
+    /// of proposals whose refund address is delegated to the underlying pool.
+    pub consensus_stake: Lovelace,
 
     /// The stake used when counting votes, which includes proposal deposits for proposals whose
-    /// refund address is delegated to the underlying pool.
+    /// refund address is delegated to the underlying pool EXCEPT in the last epoch of validity of
+    /// such proposals or, when the pool is retiring in the next epoch.
     pub voting_stake: Lovelace,
 
     /// The pool's margin, as define per its last registration certificate.
@@ -75,7 +80,7 @@ impl ::serde::Serialize for PoolState {
     fn serialize<S: ::serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         let mut s = serializer.serialize_struct("PoolState", 4)?;
         s.serialize_field("blocks_count", &self.blocks_count)?;
-        s.serialize_field("stake", &self.stake)?;
+        s.serialize_field("stake", &self.rewards_stake)?;
         s.serialize_field("voting_stake", &self.voting_stake)?;
         s.serialize_field("parameters", &self.parameters)?;
         s.end()

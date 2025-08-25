@@ -134,7 +134,7 @@ const EVENT_TARGET: &str = "amaru::ledger::state::rewards";
 
 impl PoolState {
     pub fn relative_stake(&self, total_stake: Lovelace) -> LovelaceRatio {
-        lovelace_ratio(self.stake, total_stake)
+        lovelace_ratio(self.rewards_stake, total_stake)
     }
 
     pub fn owner_stake(&self, accounts: &BTreeMap<StakeCredential, AccountState>) -> Lovelace {
@@ -153,10 +153,10 @@ impl PoolState {
         blocks_ratio: SafeRatio,
         active_stake: Lovelace,
     ) -> SafeRatio {
-        if self.stake.is_zero() {
+        if self.rewards_stake.is_zero() {
             SafeRatio::zero()
         } else {
-            blocks_ratio * BigUint::from(active_stake) / BigUint::from(self.stake)
+            blocks_ratio * BigUint::from(active_stake) / BigUint::from(self.rewards_stake)
         }
     }
 
