@@ -606,29 +606,9 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Return the best chain fragment currently known as a list of headers.
     /// The list starts from the root.
     pub fn best_chain_fragment(&self) -> Vec<H> {
-        if self.peers.is_empty() {
-            self.tree
-                .longest_path()
-                .into_iter()
-                .filter_map(|tip| tip.to_header().cloned())
-                .collect()
-        } else if let Some(best_peer) = self
-            .peers
-            .iter()
-            .find(|(_peer, chain)| chain.last() == Some(&self.best_chain))
-            .map(|(peer, _)| peer)
-        {
-            self.peers
-                .get(best_peer)
-                .map(|vs| {
-                    vs.iter()
-                        .filter_map(|hash| self.get_header(hash).cloned())
-                        .collect()
-                })
-                .unwrap_or_default()
-        } else {
-            vec![]
-        }
+        let mut fragment: Vec<_> = self.ancestors(&self.unsafe_get_header(&self.best_chain)).into_iter().cloned().collect();
+        fragment.reverse();
+        fragment
     }
 
     /// Return the headers tree size in terms of how many headers are being tracked.

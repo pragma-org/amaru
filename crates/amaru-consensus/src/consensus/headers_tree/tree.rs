@@ -70,6 +70,37 @@ impl<H: Clone + PartialEq + Eq> Tree<H> {
         longest.extend(best_child_path);
         longest
     }
+
+    pub fn get_depth(&self, node: &H) -> Option<usize> {
+        if &self.value == node {
+            Some(1)
+        } else {
+            self.children.iter().filter_map(|c| c.get_depth(node)).max().map(|d| d + 1)
+        }
+    }
+
+    pub fn deepest_leaves(&self) -> Vec<H> {
+        self.get_deepest_leaves().0
+    }
+
+    fn get_deepest_leaves(&self) -> (Vec<H>, usize) {
+        if self.children.is_empty() {
+            (vec![self.value.clone()], 1)
+        } else {
+            let mut max_depth = 0;
+            let mut max_tips = vec![];
+            for child in self.children.iter() {
+                let (child_tips, child_best_depth) = child.get_deepest_leaves();
+                if child_best_depth > max_depth {
+                    max_depth = child_best_depth;
+                    max_tips = child_tips;
+                } else if child_best_depth == max_depth {
+                    max_tips.extend(child_tips);
+                }
+            }
+            (max_tips, max_depth + 1)
+        }
+    }
 }
 
 impl<H: Display> Tree<H> {
@@ -231,6 +262,19 @@ mod tests {
             parent_hash = header.hash();
         }
         assert_eq!(tree.size(), 5);
+    }
+
+    proptest! {
+        #![proptest_config(config_begin().with_seed(42).end())]
+        #[test]
+        fn test_deepest_leaves(depth in 1usize..10) {
+            let tree = generate_test_header_tree(depth, 42);
+            let (deepest_leaves, max_depth) = tree.get_deepest_leaves();
+            assert_eq!(max_depth, depth);
+            for leaf in deepest_leaves {
+                assert_eq!(tree.get_depth(&leaf), Some(max_depth), "Leaf: {leaf}, tree {tree}");
+            }
+        }
     }
 
     #[test]
