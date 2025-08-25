@@ -19,8 +19,10 @@ use pallas_crypto::hash::Hash;
 use std::collections::BTreeMap;
 use std::fmt::{Debug, Display, Formatter};
 
+/// Type alias for a Header hash
 type HeaderHash = Hash<HEADER_HASH_SIZE>;
 
+/// This tree structure implements parent-child relationships between nodes of type `H`.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Tree<H> {
     pub value: H,
@@ -39,70 +41,6 @@ impl<H: IsHeader + Debug> Debug for Tree<H> {
     }
 }
 
-impl<H: Clone + PartialEq + Eq> Tree<H> {
-    /// Create a `Tree` with a single value
-    pub fn make_leaf(root: &H) -> Tree<H> {
-        Tree {
-            value: root.clone(),
-            children: vec![],
-        }
-    }
-
-    /// Add a child to the current `Tree`
-    pub fn add_child(&mut self, child: &H) -> &mut Tree<H> {
-        let leaf = Tree::make_leaf(child);
-        // Only add the child if it is not already present
-        if !self.children.contains(&leaf) {
-            self.children.push(leaf);
-        }
-        self
-    }
-
-    pub fn longest_path(&self) -> Vec<H> {
-        let mut longest = vec![self.value.clone()];
-        let mut best_child_path = vec![];
-        for child in &self.children {
-            let child_path = child.longest_path();
-            if child_path.len() > best_child_path.len() {
-                best_child_path = child_path;
-            }
-        }
-        longest.extend(best_child_path);
-        longest
-    }
-
-    pub fn get_depth(&self, node: &H) -> Option<usize> {
-        if &self.value == node {
-            Some(1)
-        } else {
-            self.children.iter().filter_map(|c| c.get_depth(node)).max().map(|d| d + 1)
-        }
-    }
-
-    pub fn deepest_leaves(&self) -> Vec<H> {
-        self.get_deepest_leaves().0
-    }
-
-    fn get_deepest_leaves(&self) -> (Vec<H>, usize) {
-        if self.children.is_empty() {
-            (vec![self.value.clone()], 1)
-        } else {
-            let mut max_depth = 0;
-            let mut max_tips = vec![];
-            for child in self.children.iter() {
-                let (child_tips, child_best_depth) = child.get_deepest_leaves();
-                if child_best_depth > max_depth {
-                    max_depth = child_best_depth;
-                    max_tips = child_tips;
-                } else if child_best_depth == max_depth {
-                    max_tips.extend(child_tips);
-                }
-            }
-            (max_tips, max_depth + 1)
-        }
-    }
-}
-
 impl<H: Display> Tree<H> {
     pub fn pretty_print(&self) -> String {
         self.pretty_print_with(|h| h.to_string())
@@ -116,6 +54,34 @@ impl<H: Debug> Tree<H> {
 }
 
 impl<H> Tree<H> {
+    /// Create a `Tree` with a single value
+    pub fn make_leaf(root: &H) -> Tree<H>
+    where
+        H: Clone,
+    {
+        Tree {
+            value: root.clone(),
+            children: vec![],
+        }
+    }
+
+    /// Return the depth of a `Tree`
+    pub fn depth(&self) -> usize {
+        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
+    }
+
+    /// Return the size of a `Tree`
+    pub fn size(&self) -> usize {
+        1 + self.children.iter().map(|c| c.size()).sum::<usize>()
+    }
+
+    /// Get the last child of a `Tree` to modify it (if there is one).
+    pub fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
+        let l = self.children.len();
+        self.children.get_mut(l - 1)
+    }
+
+    /// Pretty print the tree using a custom formatting function for the node values
     pub fn pretty_print_with(&self, format: fn(&H) -> String) -> String {
         let mut out = String::new();
         self.pretty_print_with_prefix_and_format("", true, format, &mut out);
@@ -145,8 +111,8 @@ impl<H> Tree<H> {
     }
 }
 
-impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
-    /// Add a child to a specific parent
+impl<H: IsHeader + Clone + PartialEq + Eq> Tree<H> {
+    /// Add a child to a specific parent in the tree
     pub fn add(&mut self, parent_hash: HeaderHash, new: &H) -> bool {
         if self.value.hash() == parent_hash {
             self.add_child(new);
@@ -161,6 +127,17 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
         false
     }
 
+    /// Add a child to the current `Tree`
+    pub fn add_child(&mut self, child: &H) -> &mut Tree<H> {
+        let leaf = Tree::make_leaf(child);
+        // Only add the child if it is not already present
+        if !self.children.contains(&leaf) {
+            self.children.push(leaf);
+        }
+        self
+    }
+
+    /// Return all the hashes in the tree, starting from the root and going depth-first
     pub fn hashes(&self) -> Vec<HeaderHash> {
         let mut hashes = vec![self.value.hash()];
         for child in &self.children {
@@ -168,7 +145,10 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
         }
         hashes
     }
+}
 
+impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
+    /// Create a `Tree` from a map of headers, indexed by their hash.
     pub fn from(headers: &BTreeMap<HeaderHash, H>) -> Self {
         if let Some(root) = headers.values().find(|h| {
             if let Some(parent) = h.parent() {
@@ -201,22 +181,6 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq + Default> Tree<H> {
 
 #[cfg(test)]
 impl<H: IsHeader + Clone> Tree<H> {
-    /// Return the depth of a `Tree`
-    pub fn depth(&self) -> usize {
-        1 + self.children.iter().map(|c| c.depth()).max().unwrap_or(0)
-    }
-
-    /// Return the size of a `Tree`
-    pub fn size(&self) -> usize {
-        1 + self.children.iter().map(|c| c.size()).sum::<usize>()
-    }
-
-    /// Get the last child of a `Tree` to modify it (if there is one).
-    pub fn get_last_child_mut(&mut self) -> Option<&mut Tree<H>> {
-        let l = self.children.len();
-        self.children.get_mut(l - 1)
-    }
-
     pub fn to_map(&self) -> BTreeMap<HeaderHash, H> {
         let mut map = BTreeMap::new();
         self.to_map_recursive(&mut map);
@@ -262,19 +226,6 @@ mod tests {
             parent_hash = header.hash();
         }
         assert_eq!(tree.size(), 5);
-    }
-
-    proptest! {
-        #![proptest_config(config_begin().with_seed(42).end())]
-        #[test]
-        fn test_deepest_leaves(depth in 1usize..10) {
-            let tree = generate_test_header_tree(depth, 42);
-            let (deepest_leaves, max_depth) = tree.get_deepest_leaves();
-            assert_eq!(max_depth, depth);
-            for leaf in deepest_leaves {
-                assert_eq!(tree.get_depth(&leaf), Some(max_depth), "Leaf: {leaf}, tree {tree}");
-            }
-        }
     }
 
     #[test]
