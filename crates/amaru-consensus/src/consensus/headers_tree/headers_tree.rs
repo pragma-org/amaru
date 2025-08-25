@@ -52,47 +52,13 @@ pub struct HeadersTree<H> {
 
 impl<H: IsHeader + Clone + Debug + PartialEq + Eq> Debug for HeadersTree<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("HeadersTree {\n")?;
-        f.write_fmt(format_args!("  headers:\n    {:?}\n", &self.to_tree()))?;
-        f.write_fmt(format_args!(
-            "  peers: {}\n",
-            &self
-                .peers
-                .iter()
-                .map(|(p, hs)| format!("{} -> [{}]", p, hs.iter().list_to_string(", ")))
-                .join(", ")
-        ))?;
-        f.write_fmt(format_args!("  best_chain: {}\n", &self.best_chain()))?;
-        f.write_fmt(format_args!(
-            "  best_chains: [{}]\n",
-            &self.best_chains().list_to_string(", ")
-        ))?;
-        f.write_fmt(format_args!("  best_length: {}\n", &self.best_length()))?;
-        f.write_fmt(format_args!("  max_length: {}\n", &self.max_length))?;
-        f.write_str("}\n")
+        self.format(f, |tip| format!("{tip:?}"))
     }
 }
 
 impl<H: IsHeader + Clone + Debug + Display + PartialEq + Eq> Display for HeadersTree<H> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        f.write_str("HeadersTree {\n")?;
-        f.write_fmt(format_args!("  headers:\n    {}\n", &self.to_tree()))?;
-        f.write_fmt(format_args!(
-            "  peers: {}\n",
-            &self
-                .peers
-                .iter()
-                .map(|(p, hs)| format!("{} -> [{}]", p, hs.list_to_string(", ")))
-                .join(", ")
-        ))?;
-        f.write_fmt(format_args!("  best_chain: {}\n", &self.best_chain()))?;
-        f.write_fmt(format_args!(
-            "  best_chains: [{}]\n",
-            &self.best_chains().list_to_string(", ")
-        ))?;
-        f.write_fmt(format_args!("  best_length: {}\n", &self.best_length()))?;
-        f.write_fmt(format_args!("  max_length: {}\n", &self.max_length))?;
-        f.write_str("}\n")
+        self.format(f, |tip| format!("{tip}"))
     }
 }
 
@@ -595,6 +561,34 @@ impl<H: IsHeader + Clone + Debug + PartialEq + Eq> HeadersTree<H> {
     /// Return the tree representation of the headers tree.
     fn to_tree(&self) -> Tree<Tip<H>> {
         Tree::from(&self.headers)
+    }
+
+    fn format(
+        &self,
+        f: &mut Formatter<'_>,
+        header_to_string: fn(&Tip<H>) -> String,
+    ) -> std::fmt::Result {
+        f.write_str("HeadersTree {\n")?;
+        f.write_fmt(format_args!(
+            "  headers:\n    {}\n",
+            &self.to_tree().pretty_print_with(header_to_string)
+        ))?;
+        f.write_fmt(format_args!(
+            "  peers: {}\n",
+            &self
+                .peers
+                .iter()
+                .map(|(p, hs)| format!("{} -> [{}]", p, hs.iter().list_to_string(", ")))
+                .join(", ")
+        ))?;
+        f.write_fmt(format_args!("  best_chain: {}\n", &self.best_chain()))?;
+        f.write_fmt(format_args!(
+            "  best_chains: [{}]\n",
+            &self.best_chains().list_to_string(", ")
+        ))?;
+        f.write_fmt(format_args!("  best_length: {}\n", &self.best_length()))?;
+        f.write_fmt(format_args!("  max_length: {}\n", &self.max_length))?;
+        f.write_str("}\n")
     }
 }
 
